@@ -324,7 +324,7 @@ from app.contracts import Action, ActionType, Channel
 
 
 def _reply(**kw: object) -> dict[str, object]:
-    return {"kind": "reply_draft", "channel": Channel.gmail, "to": "tenant@example.de", "subject": "Re: Heizung",
+    return {"kind": "reply_draft", "channel": Channel.gmail, "subject": "Re: Heizung",
             "body_variants": ["a", "b"], **kw}
 
 

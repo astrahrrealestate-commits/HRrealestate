@@ -1,0 +1,51 @@
+"""The six pipeline contracts (spec §2). Import from here, not from submodules."""
+
+from app.contracts.action import (
+    Action,
+    ActionPayload,
+    ActionType,
+    CreateReminderPayload,
+    EscalatePayload,
+    NotifyOwnerPayload,
+    ReplyDraftPayload,
+    RequestContractorPayload,
+    UpdateCaseStatePayload,
+)
+from app.contracts.button_id import MAX_BUTTON_ID_LEN, ButtonChoice, ButtonId
+from app.contracts.case_state import ALLOWED, CaseState, assert_transition, can_transition
+from app.contracts.common import Channel, Contract, Direction, Money
+from app.contracts.message import Attachment, Message, normalise_identity
+from app.contracts.prompt_ref import PromptRef
+from app.contracts.understanding import Category, Entities, Suspicious, Understanding, Urgency
+
+__all__ = [
+    "ALLOWED",
+    "MAX_BUTTON_ID_LEN",
+    "Action",
+    "ActionPayload",
+    "ActionType",
+    "Attachment",
+    "ButtonChoice",
+    "ButtonId",
+    "CaseState",
+    "Category",
+    "Channel",
+    "Contract",
+    "CreateReminderPayload",
+    "Direction",
+    "Entities",
+    "EscalatePayload",
+    "Message",
+    "Money",
+    "NotifyOwnerPayload",
+    "PromptRef",
+    "ReplyDraftPayload",
+    "RequestContractorPayload",
+    "Suspicious",
+    "Understanding",
+    "UpdateCaseStatePayload",
+    "Urgency",
+    "assert_transition",
+    "can_transition",
+    "normalise_identity",
+]

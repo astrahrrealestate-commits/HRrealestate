@@ -91,10 +91,18 @@ rationale: str
 context_ref: list[UUID]           # message ids
 draft_version: int                # ≥1, bumped on every edit
 ```
-Payloads: `ReplyDraftPayload{kind, channel, to, subject: str | None, body_variants: list[str] (2..3)}`,
+Payloads: `ReplyDraftPayload{kind, channel, subject: str | None, body_variants: list[str] (2..3)}` (**no recipient** —
+the sender resolves it from the case in the DB; amended after Task 3 review),
 `NotifyOwnerPayload{kind, text}`, `CreateReminderPayload{kind, due_at, note}`,
 `UpdateCaseStatePayload{kind, new_state}`, `RequestContractorPayload{kind, contractor_person_id, body_variants}`,
-`EscalatePayload{kind, reason}`. Validator: `payload.kind == type`.
+`EscalatePayload{kind, reason}`. Validator: `payload.kind == type`. Payload union is a plain union (schema `anyOf`), not a discriminated `oneOf`.
+
+**LLM schema rule (amendment):** `Understanding` and `Action` must be OpenAI strict-mode schemas — every field required
+(no defaults; `Entities.none()` helper for empty), no `oneOf`/discriminator, no `minLength`/`maxLength` (length and
+blank checks via `AfterValidator`), no regex lookarounds (`Money.amount` schema overridden to a plain decimal-string
+pattern). Enforced by `tests/unit/contracts/test_llm_schema.py`. `Understanding.prompt_version` from the model is never
+trusted — the M4 agent wrapper overwrites it with the `PromptRef.key` used. WhatsApp bare-digit ids
+(`4915123456789`) normalise as international.
 
 ### 4. `CaseState` (`contracts/case_state.py`)
 ```
