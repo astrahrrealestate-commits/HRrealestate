@@ -34,7 +34,7 @@ hypothesis, polyfactory, testcontainers, ruff, mypy, import-linter, pre-commit, 
    lowercase; `"hello"`, `"+49 1"` are rejected. Tested in Task 3.
 2. **Naive datetimes** (`datetime(2026,1,1)`) passed as `sent_at` are rejected, not silently treated as UTC. Task 3.
 3. **Malformed button ids** (`"apr:x:ok"`, `"apr:<uuid>:OK"`, `"apr:<uuid>:ok:extra"`, `" apr:<uuid>:ok"`, `""`) raise
-   `InvalidButtonId` and nothing else. Hypothesis fuzz in Task 3.
+   `InvalidButtonIdError` and nothing else. Hypothesis fuzz in Task 3.
 4. **Double inserts** on every unique constraint (raw_events, messages, sends, timers, channel_identities current row)
    raise `IntegrityError`; a *historical* channel identity (valid_to set) may repeat. Task 5.
 5. **Migration round-trip twice** leaves no orphan objects (CHECK constraints, indexes). Task 5 runs up/down/up and
@@ -102,8 +102,8 @@ def test_version_is_semver() -> None:
   - `class SenderSettings(BaseSettings)` in `app/sender/settings.py`: `whatsapp_access_token: SecretStr | None`,
     `whatsapp_phone_number_id: str | None`, `gmail_send_credentials_file: Path | None`.
   - `new_id() -> uuid.UUID` (version 7).
-  - errors: `EstateOSError(Exception)`, `IllegalTransition(EstateOSError)`, `InvalidButtonId(EstateOSError, ValueError)`,
-    `PromptNotFound(EstateOSError)`, `NotFound(EstateOSError)`, `TenantMismatch(EstateOSError)`.
+  - errors: `EstateOSError(Exception)`, `IllegalTransitionError(EstateOSError)`, `InvalidButtonIdError(EstateOSError, ValueError)`,
+    `PromptNotFoundError(EstateOSError)`, `NotFoundError(EstateOSError)`, `TenantMismatchError(EstateOSError)`.
   - `configure_logging(env: str) -> None` (JSON renderer unless env == "dev"); `get_logger(name) -> structlog BoundLogger`.
   - `init_telemetry(settings: Settings) -> None` (Sentry init iff dsn; no-op otherwise).
 
@@ -185,7 +185,7 @@ def test_json_logs_in_prod(capsys: pytest.CaptureFixture[str]) -> None:
   `test_button_id.py`, `test_prompt_ref.py`
 
 **Interfaces:**
-- Consumes: `app.core.errors.IllegalTransition`, `InvalidButtonId`.
+- Consumes: `app.core.errors.IllegalTransitionError`, `InvalidButtonIdError`.
 - Produces (all frozen, extra=forbid):
   - `Channel(StrEnum)`: `whatsapp, gmail`; `Direction(StrEnum)`: `inbound, outbound`;
     `Money(amount: Decimal[max_digits=12, decimal_places=2], currency: str ^[A-Z]{3}$)`
@@ -259,7 +259,7 @@ import itertools
 import pytest
 
 from app.contracts import CaseState as S, assert_transition, can_transition
-from app.core.errors import IllegalTransition
+from app.core.errors import IllegalTransitionError
 
 LEGAL = {
     (S.open, S.waiting_on_owner), (S.open, S.waiting_on_third_party), (S.open, S.resolved), (S.open, S.closed),
@@ -275,7 +275,7 @@ def test_full_matrix(a: S, b: S) -> None:
     if (a, b) in LEGAL:
         assert_transition(a, b)
     else:
-        with pytest.raises(IllegalTransition):
+        with pytest.raises(IllegalTransitionError):
             assert_transition(a, b)
 ```
 
@@ -287,7 +287,7 @@ import pytest
 from hypothesis import given, strategies as st
 
 from app.contracts import ButtonChoice, ButtonId, MAX_BUTTON_ID_LEN
-from app.core.errors import InvalidButtonId
+from app.core.errors import InvalidButtonIdError
 
 
 def test_round_trip_all_choices() -> None:
@@ -301,7 +301,7 @@ def test_round_trip_all_choices() -> None:
 @pytest.mark.parametrize("raw", ["", "apr:x:ok", "apr:{u}:OK", "apr:{u}:ok:extra", " apr:{u}:ok", "rej:{u}:ok",
                                  "apr:{u}:", "apr::ok"])
 def test_malformed(raw: str) -> None:
-    with pytest.raises(InvalidButtonId):
+    with pytest.raises(InvalidButtonIdError):
         ButtonId.parse(raw.format(u=uuid4()))
 
 
@@ -309,7 +309,7 @@ def test_malformed(raw: str) -> None:
 def test_fuzz_never_other_error(raw: str) -> None:
     try:
         ButtonId.parse(raw)
-    except InvalidButtonId:
+    except InvalidButtonIdError:
         pass
 ```
 

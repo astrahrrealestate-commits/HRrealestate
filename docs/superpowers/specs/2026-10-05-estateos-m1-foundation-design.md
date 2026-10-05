@@ -32,7 +32,7 @@ Everything after M1 builds on these shapes, so they are locked here.
   from `app/sender/`.
 - **`core/logging.py`**: structlog JSON; contextvars bind `request_id` / `raw_event_id` / `company_id`.
 - **`core/ids.py`**: `new_id() -> UUID` (v7).
-- **`core/errors.py`**: base `EstateOSError`, `IllegalTransition`, `NotFound`, `TenantMismatch`.
+- **`core/errors.py`**: base `EstateOSError`, `IllegalTransitionError`, `NotFoundError`, `TenantMismatchError`.
 - **DBOS** (`app/workflows/dbos_app.py`): DBOS config from settings (same DATABASE_URL, system schema `dbos`).
   `app/worker.py` launches DBOS as executor; `--selfcheck` flag runs a trivial workflow and exits 0.
   One cron `@DBOS.scheduled("* * * * *")` → `timer_sweep` (no-op in M1). Queue `pipeline` (concurrency from settings).
@@ -103,7 +103,7 @@ waiting_* → open | resolved | closed
 resolved → open | closed
 closed → (terminal)
 ```
-`assert_transition(old, new)` raises `IllegalTransition`. Self-transitions are illegal.
+`assert_transition(old, new)` raises `IllegalTransitionError`. Self-transitions are illegal.
 
 ### 5. `ButtonId` (`contracts/button_id.py`)
 `apr:<approval_id>:<choice>`, `choice ∈ {ok, edit, rej, d1, d2, d3}`. `ButtonId.parse(s)` / `.render()`.
