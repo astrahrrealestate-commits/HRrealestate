@@ -13,6 +13,7 @@ repos:
       - id: check-added-large-files
         args: [--maxkb=500]
       - id: detect-private-key
+        exclude: ^\.claude/hooks/   # guard self-tests contain fake key headers on purpose
       - id: no-commit-to-branch   # work on m<n>-<slug> branches; merge via PR
         args: [--branch, main]
   - repo: https://github.com/gitleaks/gitleaks
@@ -39,12 +40,12 @@ repos:
         files: ^\.claude/hooks/
       - id: ruff-check
         name: ruff check
-        entry: uv run --frozen ruff check --fix
+        entry: uv run --frozen ruff check --fix --force-exclude
         language: system
         types: [python]
       - id: ruff-format
         name: ruff format
-        entry: uv run --frozen ruff format
+        entry: uv run --frozen ruff format --force-exclude
         language: system
         types: [python]
       - id: import-linter
