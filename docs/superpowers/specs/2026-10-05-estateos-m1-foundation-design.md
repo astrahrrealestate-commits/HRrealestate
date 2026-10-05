@@ -37,7 +37,7 @@ Everything after M1 builds on these shapes, so they are locked here.
   `app/worker.py` launches DBOS as executor; `--selfcheck` flag runs a trivial workflow and exits 0.
   One cron `@DBOS.scheduled("* * * * *")` → `timer_sweep` (no-op in M1). Queue `pipeline` (concurrency from settings).
 - **`core/telemetry.py`**: Sentry init + OTel exporter to Langfuse (no-op when keys absent).
-- **API**: `/health/live` (process up), `/health/ready` (DB `SELECT 1` + DBOS system tables reachable).
+- **API**: `/health/live` (process up), `/health/ready` (DB `SELECT 1`; worker readiness proven by `python -m app.worker --selfcheck`).
 - **Compose** (`docker/compose.yml`): `postgres:16` (host port 5433), `migrate` (one-shot `alembic upgrade head`),
   `api`, `worker`; api/worker depend on `migrate` completing successfully. One image for all roles.
 - **CI** (`.github/workflows/ci.yml`): `uv sync --frozen` → `make quick` → `make test-int` (testcontainers needs

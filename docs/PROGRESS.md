@@ -21,7 +21,7 @@ Spec: [2026-10-05-estateos-m1-foundation-design.md](superpowers/specs/2026-10-05
 - [ ] core: settings, logging, ids, errors, telemetry
 - [ ] six contracts + unit/property tests
 - [ ] test infra: testcontainers Postgres, DBOS fixture, recorded() loader, factories
-- [ ] SQLAlchemy models (22 tables) + first Alembic migration + roundtrip/drift tests
+- [ ] SQLAlchemy models (24 tables) + first Alembic migration + roundtrip/drift tests
 - [ ] FastAPI app + health endpoints
 - [ ] DBOS app + worker (`--selfcheck`) + `timer_sweep` cron no-op
 - [ ] Dockerfile + compose (postgres, migrate, api, worker)

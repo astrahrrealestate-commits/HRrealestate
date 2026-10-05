@@ -103,7 +103,7 @@ the action must be a Gmail draft. Anything else raises.
 | Outcome capture | DBOS cron every 15 min: Sent-folder diff + echo matching |
 
 ## 5. Data
-Schema per M1 spec (22 domain tables). DBOS keeps its own tables in schema `dbos` in the same database, so one backup
+Schema per M1 spec (24 domain tables). DBOS keeps its own tables in schema `dbos` in the same database, so one backup
 covers everything. All domain rows carry `company_id`; repositories take `company_id` as a required argument.
 
 ## 6. AI design
