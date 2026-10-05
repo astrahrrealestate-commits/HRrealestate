@@ -1,0 +1,36 @@
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# secrets
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+service-account*.json
+client_secret*.json
+token*.json
+
+# eval outputs
+evals/reports/*
+!evals/reports/.gitkeep
+
+# claude local
+.claude/settings.local.json
+.claude/.cache/
+.claude/worktrees/
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
