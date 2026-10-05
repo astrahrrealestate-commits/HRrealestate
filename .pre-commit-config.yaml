@@ -1,0 +1,67 @@
+# Installed by `make setup`. Bypassing hooks is blocked for Claude by the bash guard.
+default_install_hook_types: [pre-commit, commit-msg]
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: detect-private-key
+      - id: no-commit-to-branch   # work on m<n>-<slug> branches; merge via PR
+        args: [--branch, main]
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.0
+    hooks:
+      - id: gitleaks
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.8.0
+    hooks:
+      - id: uv-lock
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.0.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args: [--strict, feat, fix, chore, docs, refactor, test, perf, ci, build]
+  - repo: local
+    hooks:
+      - id: harness-selftest
+        name: claude harness self-test
+        entry: python3 -m unittest discover -s .claude/hooks/tests -q
+        language: system
+        pass_filenames: false
+        files: ^\.claude/hooks/
+      - id: ruff-check
+        name: ruff check
+        entry: uv run --frozen ruff check --fix
+        language: system
+        types: [python]
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --frozen ruff format
+        language: system
+        types: [python]
+      - id: import-linter
+        name: import-linter (architecture boundaries)
+        entry: uv run --frozen lint-imports
+        language: system
+        pass_filenames: false
+        types: [python]
+      - id: mypy
+        name: mypy
+        entry: uv run --frozen mypy app
+        language: system
+        pass_filenames: false
+        types: [python]
+      - id: unit-tests
+        name: unit tests
+        entry: uv run --frozen pytest tests/unit -q -x -n auto
+        language: system
+        pass_filenames: false
+        types: [python]

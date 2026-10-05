@@ -1,29 +1,30 @@
-# EstateOS developer entry points. Every check Claude or CI runs goes through here.
+# EstateOS developer entry points. Every gate Claude, pre-commit or CI runs goes through here.
+# Pipeline: docs/dev-pipeline.md  ·  G1 = quick  ·  G2 = check  ·  G5 = smoke
 SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 .DEFAULT_GOAL := help
 
 COMPOSE := docker compose -f docker/compose.yml
 UV      := uv run --frozen
-PY_DIRS := app workers evals tests
 
 .PHONY: help setup up up-db down logs ps migrate migration migrate-roundtrip alembic-check \
-        fmt lint type test-unit test-int test quick check smoke eval harness-test clean
+        fmt lint type boundaries test-unit test-int test cov quick check smoke audit eval \
+        workflows harness-test clean
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-18s %s\n", $$1, $$2}'
 
 # ---- environment -------------------------------------------------------------
-setup: ## install deps (uv), git hooks, .env
+setup: ## install deps, pre-commit hooks, .env
 	uv sync --frozen
-	git config core.hooksPath .githooks
+	$(UV) pre-commit install
 	@[ -f .env ] || { cp .env.example .env && echo "created .env from .env.example — fill secrets"; }
 
-up: ## start full stack (postgres, redis, migrate, api, worker, beat)
+up: ## dev stack: postgres, migrate, api, worker
 	$(COMPOSE) up -d --build --wait
 
-up-db: ## start only postgres + redis
-	$(COMPOSE) up -d --wait postgres redis
+up-db: ## only postgres (for alembic / manual runs; tests use testcontainers)
+	$(COMPOSE) up -d --wait postgres
 
 down: ## stop stack (keeps volumes)
 	$(COMPOSE) down
@@ -43,16 +44,13 @@ migration: up-db ## new autogenerate revision: make migration m="add x"
 	$(UV) alembic upgrade head
 	$(UV) alembic revision --autogenerate -m "$(m)"
 
-migrate-roundtrip: up-db ## upgrade head -> downgrade base -> upgrade head
-	$(UV) alembic upgrade head
-	$(UV) alembic downgrade base
-	$(UV) alembic upgrade head
+migrate-roundtrip: ## upgrade head -> downgrade base -> upgrade head (testcontainers)
+	$(UV) pytest tests/integration/test_migrations.py -q -k roundtrip
 
-alembic-check: up-db ## fail if models drift from migrations
-	$(UV) alembic upgrade head
-	$(UV) alembic check
+alembic-check: ## fail if models drift from migrations (testcontainers)
+	$(UV) pytest tests/integration/test_migrations.py -q -k drift
 
-# ---- quality -----------------------------------------------------------------
+# ---- quality gates -----------------------------------------------------------
 fmt: ## format + autofix
 	$(UV) ruff format .
 	$(UV) ruff check --fix .
@@ -62,33 +60,46 @@ lint:
 	$(UV) ruff format --check .
 
 type:
-	$(UV) mypy app workers evals
+	$(UV) mypy app evals
+
+boundaries: ## import-linter architecture contracts
+	$(UV) lint-imports
 
 test-unit:
-	$(UV) pytest tests/unit -q
+	$(UV) pytest tests/unit -q -n auto
 
-test-int: up-db ## integration tests against real postgres/redis
+test-int: ## integration: testcontainers Postgres + DBOS (needs Docker)
 	$(UV) pytest tests/integration -q
 
 test: test-unit test-int
 
-quick: lint type test-unit ## fast tier: lint + types + unit  (stop hook equivalent)
+cov: ## full suite with coverage floors (pyproject [tool.coverage])
+	$(UV) pytest tests -q -n auto --cov=app --cov-branch --cov-report=term-missing:skip-covered
 
-check: quick migrate-roundtrip alembic-check test-int ## full tier
+quick: lint type boundaries test-unit ## G1: lint, types, boundaries, unit
 
-smoke: up ## stack tier: health + workers alive + no tracebacks
+check: quick test-int ## G2: G1 + integration (incl. migration roundtrip + drift)
+
+smoke: up ## G5: stack up, api ready, worker executing, logs clean
 	@curl -sf http://localhost:$${API_PORT:-8000}/health/ready >/dev/null && echo "api ready: ok"
-	@$(COMPOSE) exec -T worker celery -A workers.celery_app inspect ping --timeout 10 | grep -q pong && echo "worker: ok"
-	@$(COMPOSE) ps beat --format '{{.State}}' | grep -q running && echo "beat: ok"
+	@$(COMPOSE) exec -T worker python -m app.worker --selfcheck && echo "worker: ok"
 	@! $(COMPOSE) logs --no-color 2>&1 | grep -E 'Traceback|CRITICAL' && echo "logs: clean"
 
-eval: ## golden-set eval: make eval prompt=understanding version=v1
-	$(UV) python -m evals.run_eval --prompt $(prompt) --version $(version)
+audit: ## dependency vulnerability audit
+	mkdir -p .claude/.cache
+	uv export --frozen --no-hashes --format requirements-txt > .claude/.cache/req.txt
+	$(UV) pip-audit -r .claude/.cache/req.txt --strict
+
+eval: ## golden-set eval: make eval agent=understanding version=v1
+	$(UV) python -m evals.run --agent $(agent) --version $(version)
+
+workflows: ## list recent DBOS workflows (ops)
+	$(UV) dbos workflow list --limit 20
 
 # ---- harness -----------------------------------------------------------------
 harness-test: ## self-test Claude guard hooks (stdlib only)
 	python3 -m unittest discover -s .claude/hooks/tests
 
 clean:
-	rm -rf .mypy_cache .ruff_cache .pytest_cache .claude/.cache
+	rm -rf .mypy_cache .ruff_cache .pytest_cache .claude/.cache .coverage
 	find . -name __pycache__ -type d -prune -exec rm -rf {} +

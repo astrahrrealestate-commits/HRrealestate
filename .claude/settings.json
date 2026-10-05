@@ -110,7 +110,7 @@
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop_gate.py\"",
             "timeout": 420,
-            "statusMessage": "EstateOS stop gate: ruff · mypy · unit tests"
+            "statusMessage": "EstateOS stop gate (G1): ruff · mypy · boundaries · unit"
           }
         ]
       }

@@ -9,16 +9,19 @@ The task text you were given is the full scope. Do not widen it.
 
 ## Loop
 1. Read the task, the referenced spec section (`docs/superpowers/specs/`), and the code you will touch.
-2. Write the failing test first (`tests/unit/` for pure logic, `tests/integration/` when Postgres/Redis is involved).
+2. Write the failing test first (`tests/unit/` for pure logic, `tests/integration/` when Postgres/DBOS is involved).
    Run it and confirm it fails for the right reason.
 3. Write the minimum code to pass. Match surrounding style. Typed everywhere (mypy strict).
-4. Run `make quick` (ruff + mypy + unit). If you touched DB/migrations/tasks, also `make test-int`.
+4. Run `make quick` (G1). If you touched db/, workflows/, channels/, sender/, api/ or migrations, also `make check` (G2).
+   Test type per layer: `docs/dev-pipeline.md` → "Test strategy per layer".
 5. Repeat until green. Never weaken, skip or xfail a test to get green. Never edit a committed migration,
    published prompt, or recorded fixture — hooks will block you; follow the message.
 
 ## Invariants to self-check before reporting
-- Postgres write happens before any enqueue; Redis never holds the only copy.
-- Every Celery task is idempotent (DB unique constraint or status check), no countdown > 300 s — use `timers`.
+- Postgres write happens before any DBOS enqueue; enqueue uses a deterministic workflow id.
+- Every DBOS step is retry-safe (DB unique constraint or status check). Workflow bodies are deterministic (no I/O,
+  clock or random outside steps). No long `DBOS.sleep`/`recv` — long waits are DB state + `timers`.
+- Used an existing library from `docs/tech-stack.md` instead of hand-rolling plumbing.
 - Every query filters by `company_id`.
 - Nothing outside `app/sender/` touches send credentials or `app.channels.*.outbound`.
 - Message text reaching a prompt is wrapped as data, never concatenated into instructions.

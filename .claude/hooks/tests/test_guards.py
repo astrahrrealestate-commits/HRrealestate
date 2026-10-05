@@ -78,6 +78,12 @@ class BashGuard(unittest.TestCase):
         ]:
             self.assertEqual(bash(cmd), "ask", cmd)
 
+    def test_no_verify_only_on_git(self) -> None:
+        self.assertEqual(bash("git commit -n -m x"), "deny")
+        self.assertEqual(bash("git push --no-verify"), "deny")
+        self.assertIsNone(bash("echo '# never bypass with --no-verify' > .pre-commit-config.yaml"))
+        self.assertIsNone(bash("git commit -m 'note'"))
+
     def test_blocks_git_write_in_home_repo(self) -> None:
         self.assertEqual(bash("git add -A", cwd=HOME), "deny")
         self.assertEqual(bash(f"cd {HOME} && git commit -m x"), "deny")
@@ -101,6 +107,12 @@ class EditGuard(unittest.TestCase):
         self.assertEqual(write("app/core/config.py", 'KEY = "sk-proj-' + "a" * 40 + '"\n'), "deny")
         self.assertEqual(write("app/x.py", "-----BEGIN RSA PRIVATE KEY-----\n"), "deny")
         self.assertEqual(write("app/x.py", 'T = "EAA' + "B" * 80 + '"\n'), "deny")
+
+    def test_practice_guards(self) -> None:
+        self.assertEqual(write("app/workflows/x.py", "from celery import shared_task\n"), "deny")
+        self.assertEqual(write("app/x.py", "import redis\n"), "deny")
+        self.assertEqual(write("tests/unit/test_x.py", "@pytest.mark.skip\ndef test_a(): ...\n"), "ask")
+        self.assertIsNone(write("tests/unit/test_x.py", "def test_a():\n    assert True\n"))
 
     def test_outside_project_ignored(self) -> None:
         payload = {"tool_name": "Write", "tool_input": {"file_path": str(HOME / ".claude/x.md"), "content": "sk-proj-" + "a" * 40}}

@@ -36,6 +36,9 @@ SEND_ONLY = re.compile(
 )
 SEND_ALLOWED = re.compile(r"^(app/sender/|tests/|\.claude/|docs/|CLAUDE\.md$|\.env\.example$)")
 
+RETIRED_STACK = re.compile(r"^\s*(from|import)\s+(celery|redis|kombu|rq)\b", re.MULTILINE)
+SKIP_TEST = re.compile(r"pytest\.mark\.(skip|skipif|xfail)\b|pytest\.(skip|xfail)\(")
+
 SECRETS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bsk-(proj-)?[A-Za-z0-9_-]{24,}"), "OpenAI API key"),
     (re.compile(r"\bEAA[A-Za-z0-9]{60,}"), "Meta access token"),
@@ -104,6 +107,20 @@ def main() -> None:
                 f"`{m.group(0)}` referenced in {relpath}. Only app/sender/ may touch send credentials or outbound "
                 "adapters. Other modules create Action/approval rows; the sender acts on them.",
             )
+
+    if relpath.endswith(".py") and RETIRED_STACK.search(content):
+        pre_tool_decision(
+            "deny",
+            f"Celery/Redis import in {relpath}. Stack uses DBOS for queues, cron and retries (docs/adr/0001). "
+            "Use @DBOS.workflow/@DBOS.step/Queue/@DBOS.scheduled instead.",
+        )
+
+    if relpath.startswith("tests/") and SKIP_TEST.search(content):
+        pre_tool_decision(
+            "ask",
+            f"{relpath} adds skip/xfail. Pipeline rule: never skip a test to get green. Approve only for a "
+            "documented external reason (e.g. Docker unavailable marker).",
+        )
 
     for pattern, label in SECRETS:
         if pattern.search(content):

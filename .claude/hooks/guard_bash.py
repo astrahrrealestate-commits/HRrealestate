@@ -25,7 +25,10 @@ DENY: list[tuple[re.Pattern[str], str]] = [
         re.compile(r"\bgit\s+push\b.*(\s--force(?!-with-lease)\b|\s-f\b)"),
         "Force push is blocked. Use --force-with-lease on a feature branch if truly needed, and ask the user first.",
     ),
-    (re.compile(r"--no-verify\b"), "Bypassing git hooks (--no-verify) is blocked. Fix the failing check instead."),
+    (
+        re.compile(r"\bgit\b[^|;&\n]*\s--no-verify\b|\bgit\s+commit\b[^|;&\n]*\s-[a-zA-Z]*n[a-zA-Z]*\b"),
+        "Bypassing git hooks (--no-verify / -n) is blocked. Fix the failing check instead.",
+    ),
     (
         re.compile(r"(^|[\s;&|])(cat|less|more|head|tail|bat|grep|rg|sed|awk|source|\.)\s+[^|;&]*\.env(\.(?!example\b)\w+)?(\s|$)"),
         "Reading .env files is blocked — they hold live credentials. Use .env.example for shape; ask the user for values.",

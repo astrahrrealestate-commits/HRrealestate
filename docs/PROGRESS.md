@@ -12,18 +12,20 @@ Tick an item only with `/check` evidence. Milestone definitions: [build-plan.md]
 
 ## M1 Skeleton + contracts + first migration
 Spec: [2026-10-05-estateos-m1-foundation-design.md](superpowers/specs/2026-10-05-estateos-m1-foundation-design.md)
-- [x] Claude harness (CLAUDE.md, hooks, agents, skills, Makefile)
-- [ ] Implementation plan written (`docs/superpowers/plans/`)
-- [ ] pyproject + uv lock + ruff/mypy/pytest config
-- [ ] core: config, logging, ids, errors
-- [ ] six contracts + unit tests
+- [x] Claude harness v1 (CLAUDE.md, hooks, agents, skills, Makefile)
+- [x] HLD, tech stack, ADR 0001–0004, dev pipeline, harness v2 (/ship, pre-commit, practice guards)
+- [ ] Implementation plan written (`docs/superpowers/plans/`) on branch `m1-foundation`
+- [ ] pyproject + uv lock + ruff/mypy/pytest/coverage/import-linter config; `make setup` installs pre-commit
+- [ ] core: settings, logging, ids, errors, telemetry
+- [ ] six contracts + unit/property tests
+- [ ] test infra: testcontainers Postgres, DBOS fixture, recorded() loader, factories
 - [ ] SQLAlchemy models (22 tables) + first Alembic migration + roundtrip/drift tests
 - [ ] FastAPI app + health endpoints
-- [ ] Celery app + Beat `timers.sweep` no-op
-- [ ] Dockerfile + compose (postgres, redis, migrate, api, worker, beat)
-- [ ] send-isolation architecture test
+- [ ] DBOS app + worker (`--selfcheck`) + `timer_sweep` cron no-op
+- [ ] Dockerfile + compose (postgres, migrate, api, worker)
+- [ ] import-linter contracts green
 - [ ] GitHub Actions CI
-- [ ] `make smoke` green + reviewer `ship`
+- [ ] G5 `make smoke` green + reviewer `ship`
 
 ## M2 Ingestion
 ## M3 Directory

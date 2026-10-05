@@ -1,11 +1,11 @@
 # EstateOS M1 foundation: design
 
-Date: 2026-10-05 · Status: approved in chat (§1–§3) · Scope: M1 skeleton + six contracts + first Alembic migration.
+Date: 2026-10-05 · Status: approved in chat (§1–§3); §1 revised for tool-first stack (see `docs/tech-stack.md`, ADR 0001–0004) · Scope: M1 skeleton + six contracts + first Alembic migration.
 Parent docs: [build-plan.md](../../build-plan.md), [architecture.md](../../architecture.md).
 
 ## Goal
 
-A repo where `docker compose up` runs API, worker, Beat, Postgres and Redis; the first migration creates every
+A repo where `docker compose up` runs Postgres, migrate, API and DBOS worker; the first migration creates every
 Phase 1 table; the six contracts exist as Pydantic models; CI runs ruff, mypy and pytest. No pipeline logic.
 Everything after M1 builds on these shapes, so they are locked here.
 
@@ -20,27 +20,36 @@ Everything after M1 builds on these shapes, so they are locked here.
 | Time | `timestamptz`, UTC in storage. Company local timezone on `companies.timezone` (default `Europe/Berlin`). |
 | Money | `numeric(12,2)` + ISO currency code. Contract type `Money{amount: Decimal, currency: str}`. |
 | DB driver | SQLAlchemy 2 typed declarative, psycopg 3 **sync**. FastAPI uses sync sessions via threadpool dependency. |
+| Workflows | DBOS Transact (no Redis/Celery/Beat). API enqueues via `DBOSClient`; `worker` process executes. |
+| Boundaries | import-linter contracts in `pyproject.toml` (ADR 0004). |
 | Repo | Own git repo at `EstateOS/` (parent home-dir repo must never receive commits). |
 
 ## §1 Repo and runtime
 
 - **Layout** as in build-plan. Unused packages in M1 are empty `__init__.py` — no fake stubs.
-- **`core/config.py`**: pydantic-settings `Settings` (DB URL, Redis URL, `ENV`, S3, Langfuse, Sentry DSN). No secrets in
+- **`core/config.py`**: pydantic-settings `Settings` (DB URL, `ENV`, S3, Langfuse, Sentry DSN, OpenAI). No secrets in
   code. `SenderSettings` (WhatsApp token, Gmail send scopes) lives in `app/sender/settings.py` and is importable only
   from `app/sender/`.
 - **`core/logging.py`**: structlog JSON; contextvars bind `request_id` / `raw_event_id` / `company_id`.
 - **`core/ids.py`**: `new_id() -> UUID` (v7).
 - **`core/errors.py`**: base `EstateOSError`, `IllegalTransition`, `NotFound`, `TenantMismatch`.
-- **Celery** (`workers/celery_app.py`): Redis broker, `task_acks_late=True`, `task_reject_on_worker_lost=True`,
-  `worker_prefetch_multiplier=1`. Beat schedule: one entry `timers.sweep` every 60 s (no-op in M1).
-- **API**: `/health/live` (process up), `/health/ready` (DB `SELECT 1` + Redis `PING`).
-- **Compose** (`docker/compose.yml`): `postgres:16`, `redis:7`, `migrate` (one-shot `alembic upgrade head`), `api`,
-  `worker`, `beat`; api/worker/beat depend on `migrate` completing successfully.
-- **CI** (`.github/workflows/ci.yml`): `uv sync --frozen` → ruff check + format check → mypy → pytest, with Postgres 16
-  and Redis 7 service containers. Integration tests run real migrations against real Postgres (never SQLite).
+- **DBOS** (`app/workflows/dbos_app.py`): DBOS config from settings (same DATABASE_URL, system schema `dbos`).
+  `app/worker.py` launches DBOS as executor; `--selfcheck` flag runs a trivial workflow and exits 0.
+  One cron `@DBOS.scheduled("* * * * *")` → `timer_sweep` (no-op in M1). Queue `pipeline` (concurrency from settings).
+- **`core/telemetry.py`**: Sentry init + OTel exporter to Langfuse (no-op when keys absent).
+- **API**: `/health/live` (process up), `/health/ready` (DB `SELECT 1` + DBOS system tables reachable).
+- **Compose** (`docker/compose.yml`): `postgres:16` (host port 5433), `migrate` (one-shot `alembic upgrade head`),
+  `api`, `worker`; api/worker depend on `migrate` completing successfully. One image for all roles.
+- **CI** (`.github/workflows/ci.yml`): `uv sync --frozen` → `make quick` → `make test-int` (testcontainers needs
+  Docker, available on ubuntu runners) → `make audit` → docker build. Never SQLite.
+- **Tooling config in `pyproject.toml`**: ruff (rules E,F,I,B,UP,S,DTZ,T20,PGH,SIM,RUF,ASYNC), mypy strict + pydantic
+  plugin, pytest (`--disable-socket --allow-hosts=127.0.0.1,localhost,::1`, markers), coverage floors, import-linter
+  contracts.
+- **Test infra** (`tests/conftest.py`): session-scoped testcontainers Postgres 16, alembic upgrade once, per-test
+  transaction rollback; DBOS test fixture (launch against the container, reset between tests); `recorded()` fixture
+  loader; polyfactory factories.
 - **Network isolation in tests**: `pytest-socket` with `--disable-socket --allow-hosts=127.0.0.1,localhost,::1`.
-- **Send-isolation guard test** (`tests/unit/test_architecture.py`): AST-walks `app/`, fails if any module outside
-  `app/sender/` imports `app.sender.settings`, `SenderSettings`, or any `app.channels.*.outbound` module.
+- **Architecture contracts** (import-linter, ADR 0004): layers, send isolation, pure rules engine. Run in `make quick`.
 
 ## §2 Contracts (`app/contracts/`)
 
@@ -146,15 +155,15 @@ Directory tables: `valid_from date`, `valid_to date null`.
 **Gmail dedupe nuance:** a Pub/Sub push carries only `historyId`. The push handler enqueues a history sync; the sync
 writes one `raw_event` per Gmail message id. Dedupe is therefore uniform across channels.
 
-**Timer sweep:** `SELECT … WHERE status='pending' AND due_at<=now() FOR UPDATE SKIP LOCKED LIMIT n` — concurrent Beat
+**Timer sweep:** `SELECT … WHERE status='pending' AND due_at<=now() FOR UPDATE SKIP LOCKED LIMIT n` — concurrent cron
 ticks never double-fire.
 
 **Sender guard (M7, schema ready now):** before any send, `approvals.draft_version == actions.draft_version` and
 `approvals.status='approved'`; `sends.idempotency_key` unique makes retries no-ops.
 
-### Migration tests
-`alembic upgrade head` → `downgrade base` → `upgrade head` on real Postgres; `alembic check` reports no drift between
-models and migration; insert-twice tests on every unique constraint listed in bold.
+### Migration tests (`tests/integration/test_migrations.py`)
+`roundtrip`: upgrade head → downgrade base → upgrade head on testcontainers Postgres; `drift`: `alembic check` reports
+no drift between models and migration; insert-twice tests on every unique constraint listed in bold.
 
 ## Out of scope for M1
 
@@ -163,5 +172,5 @@ not.
 
 ## Error handling
 
-Domain errors subclass `EstateOSError`. API returns 503 from `/health/ready` on dependency failure. Celery tasks re-raise
-for retry; idempotency comes from DB constraints, not task bookkeeping.
+Domain errors subclass `EstateOSError`. API returns 503 from `/health/ready` on dependency failure. DBOS steps raise for retry
+(`retries_allowed`, backoff); idempotency comes from workflow ids + DB constraints, not bookkeeping.

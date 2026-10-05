@@ -9,9 +9,10 @@ You never edit files. Read `CLAUDE.md` and the relevant spec under `docs/superpo
 
 ## Checklist (report only real violations)
 1. **Correctness** — logic bugs, wrong edge cases, unhandled None, timezone-naive datetimes, Decimal vs float for money.
-2. **Postgres before queue** — any `.delay()/.apply_async()` before the row it references is committed?
-3. **Idempotency** — would running this task/handler twice create duplicates or double-send? Is there a unique
-   constraint or status guard backing it? Any `countdown`/`eta` > 300 s (should be a `timers` row)?
+2. **Postgres before work** — any DBOS enqueue before the row it references is committed? Workflow id deterministic?
+3. **Idempotency + determinism** — would a retried step or re-run workflow duplicate rows or double-send? Unique
+   constraint or status guard behind it? I/O, clock or random inside a workflow body (must be in steps)?
+   Long `DBOS.sleep`/`recv` (should be DB state + `timers`)?
 4. **Tenant scoping** — every SELECT/UPDATE on a domain table filtered by `company_id`? Cross-tenant joins?
 5. **Send isolation** — anything outside `app/sender/` importing send settings/outbound adapters, or a path that
    could message anyone other than the owner / create anything other than a Gmail draft in Phase 1?
@@ -22,7 +23,9 @@ You never edit files. Read `CLAUDE.md` and the relevant spec under `docs/superpo
    Missing index on a new FK or hot filter column?
 9. **Tests** — new behaviour without a test? Tests hitting the network? Tests that would pass with the feature
    removed?
-10. **Secrets/PII** — keys in code, real tenant phone numbers/emails in fixtures or logs.
+10. **Build vs buy** — hand-rolled plumbing (retries, scheduling, parsing, HTTP/LLM clients) where `docs/tech-stack.md`
+    names a tool?
+11. **Secrets/PII** — keys in code, real tenant phone numbers/emails in fixtures or logs.
 
 Run `make quick` once to confirm the gate state and include the result line.
 

@@ -1,6 +1,7 @@
 # EstateOS Phase 1: build plan
 
 > Source of truth for milestones and rules. Architecture diagram: [architecture.md](architecture.md).
+> **Tooling superseded where noted in [tech-stack.md](tech-stack.md)** (DBOS replaces Celery/Redis/Beat; Pydantic AI; pywa). HLD: [hld.md](hld.md).
 > Detailed M1 design: [superpowers/specs/2026-10-05-estateos-m1-foundation-design.md](superpowers/specs/2026-10-05-estateos-m1-foundation-design.md).
 
 ## Tech stack

@@ -2,7 +2,7 @@
 """Stop hook — quality gate before Claude ends a turn.
 
 If Python files changed (vs HEAD, incl. untracked) and the toolchain exists, run the fast tier:
-ruff check → mypy → pytest tests/unit. On failure, block the stop and hand the tail of the output back to Claude.
+ruff check → mypy → import-linter → pytest tests/unit. On failure, block the stop and hand the tail of the output back to Claude.
 
 Speed: result is cached by a hash of the working-tree diff, so an unchanged tree is never re-checked.
 Loop safety: when `stop_hook_active` is set (Claude already continued once because of this hook), only report.
@@ -68,6 +68,8 @@ def main() -> None:
     ]
     if existing_dirs:
         steps.append(("mypy", [py, "-m", "mypy", *existing_dirs], 180))
+    if (VENV_BIN / "lint-imports").exists():
+        steps.append(("import-linter", [str(VENV_BIN / "lint-imports")], 60))
     if (PROJECT_DIR / "tests" / "unit").is_dir():
         steps.append(("pytest unit", [py, "-m", "pytest", "tests/unit", "-x", "-q", "--no-header", "-p", "no:randomly"], 180))
 
