@@ -674,6 +674,8 @@ def test_timer_sweep_noop(dbos_runtime: None) -> None:
 - [ ] **Step 3: Implement** runtime, queues, system workflows, worker CLI (argparse). Verify `create_schedule` /
   scheduled-workflow API against the installed `dbos` source before using it.
 - [ ] **Step 4: Run** `make check` → PASS.
+- [ ] **Step 4b:** add `"app.worker"` to the send-isolation contract `source_modules` and drop the parentheses from
+  `(app.worker)` in the layers contract (module now exists). `make quick` → contracts kept.
 - [ ] **Step 5: Commit** `feat(m1): dbos runtime, pipeline queue, worker with selfcheck and timer sweep`
 
 ---
@@ -741,6 +743,8 @@ def test_ready_with_real_db(pg_url: str, migrated_engine) -> None:  # type: igno
 ```
 
 - [ ] **Step 2: Run** → FAIL. **Step 3: Implement.** **Step 4:** `make check` → PASS.
+- [ ] **Step 4b:** add `"app.main"` to the send-isolation contract `source_modules` and drop the parentheses from
+  `(app.main)` in the layers contract. `make quick` → contracts kept.
 - [ ] **Step 5: Commit** `feat(m1): fastapi app factory with live/ready health`
 
 ---
