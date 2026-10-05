@@ -1,5 +1,6 @@
 # Installed by `make setup`. Bypassing hooks is blocked for Claude by the bash guard.
 default_install_hook_types: [pre-commit, commit-msg]
+default_stages: [pre-commit]
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0

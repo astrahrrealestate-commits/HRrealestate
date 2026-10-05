@@ -18,7 +18,7 @@ Spec: [2026-10-05-estateos-m1-foundation-design.md](superpowers/specs/2026-10-05
 - [x] HLD, tech stack, ADR 0001–0004, dev pipeline, harness v2 (/ship, pre-commit, practice guards)
 - [x] Implementation plan written — `docs/superpowers/plans/2026-10-05-m1-foundation.md`
 - [x] pyproject + uv lock + tooling config; pre-commit installed — G1: "Contracts: 3 kept, 0 broken", "1 passed"; pre-commit 17/17 passed
-- [ ] core: settings, logging, ids, errors, telemetry
+- [x] core: settings, logging, ids, errors, telemetry — G1 "10 passed", contracts 3 kept
 - [ ] six contracts + unit/property tests
 - [ ] test infra: testcontainers Postgres, DBOS fixture, recorded() loader, factories
 - [ ] SQLAlchemy models (24 tables) + first Alembic migration + roundtrip/drift tests
