@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import ForeignKey, Index, Numeric, String, Text
+from sqlalchemy import ForeignKey, Index, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, CompanyScoped, str_enum
@@ -16,7 +16,8 @@ class Timer(Base, CompanyScoped):
     """Due work swept every minute (`FOR UPDATE SKIP LOCKED`). Long waits live here, never in sleeping workflows."""
 
     __tablename__ = "timers"
-    __table_args__ = (Index(None, "status", "due_at"),)
+    __company_id_leading_index__ = True
+    __table_args__ = (Index(None, "status", "due_at"), UniqueConstraint("company_id", "dedupe_key"))
 
     kind: Mapped[str] = mapped_column(String(64))
     due_at: Mapped[datetime]
@@ -26,7 +27,7 @@ class Timer(Base, CompanyScoped):
     )
     attempts: Mapped[int] = mapped_column(default=0, server_default="0")
     locked_until: Mapped[datetime | None]
-    dedupe_key: Mapped[str] = mapped_column(String(255), unique=True)
+    dedupe_key: Mapped[str] = mapped_column(String(255))  # unique per company
 
 
 class Outcome(Base, CompanyScoped):
@@ -42,6 +43,7 @@ class Outcome(Base, CompanyScoped):
 
 class ModelCall(Base, CompanyScoped):
     __tablename__ = "model_calls"
+    __company_id_leading_index__ = True
     __table_args__ = (Index(None, "company_id", "created_at"),)
 
     purpose: Mapped[str] = mapped_column(String(64))

@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import ForeignKey, Index, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.contracts import ButtonChoice, Channel
@@ -15,6 +15,17 @@ class Approval(Base, CompanyScoped):
     """One request to the owner for one draft version. The sender acts only on an approved, version-matching row."""
 
     __tablename__ = "approvals"
+    __table_args__ = (
+        # At most one live approval per draft version: a retried "ask owner" step cannot double-prompt Harjot.
+        # Expired/rejected/edited rows may repeat so the owner can be re-asked.
+        Index(
+            "uq_approvals_live",
+            "action_id",
+            "draft_version",
+            unique=True,
+            postgresql_where=text("status IN ('pending', 'approved')"),
+        ),
+    )
 
     action_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actions.id"), index=True)
     draft_version: Mapped[int]

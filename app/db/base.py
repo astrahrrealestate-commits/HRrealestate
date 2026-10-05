@@ -1,6 +1,5 @@
 """Declarative base, constraint naming convention and column mixins shared by every table."""
 
-import re
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -10,14 +9,14 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy import ForeignKey, MetaData, func
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column
 
 from app.core.ids import new_id
 
 NAMING_CONVENTION = {
     "ix": "ix_%(column_0_N_label)s",
     "uq": "uq_%(table_name)s_%(column_0_N_name)s",
-    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "ck": "ck_%(table_name)s_%(column_0_name)s",
     "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
     "pk": "pk_%(table_name)s",
 }
@@ -41,9 +40,21 @@ class CreatedAtMixin:
 
 
 class CompanyScoped(IdMixin, CreatedAtMixin):
-    """Every domain row belongs to exactly one company (CLAUDE.md invariant 4)."""
+    """Every domain row belongs to exactly one company (CLAUDE.md invariant 4).
 
-    company_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("companies.id", ondelete="RESTRICT"), index=True)
+    Same-company consistency between related rows (e.g. message.person_id) is enforced in the repository layer, not
+    by composite FKs; revisit (composite FKs or RLS) when a second customer exists.
+    Tables that declare a composite index led by `company_id` set `__company_id_leading_index__ = True` to skip the
+    redundant single-column index.
+    """
+
+    __company_id_leading_index__ = False
+
+    @declared_attr
+    def company_id(cls) -> Mapped[uuid.UUID]:
+        return mapped_column(
+            ForeignKey("companies.id", ondelete="RESTRICT"), index=not cls.__company_id_leading_index__
+        )
 
 
 class Validity:
@@ -53,10 +64,6 @@ class Validity:
     valid_to: Mapped[date | None]
 
 
-def _snake(name: str) -> str:
-    return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
-
-
 def str_enum(enum_cls: type[StrEnum]) -> sa.Enum:
     """VARCHAR + CHECK (not a native PG enum): adding values later is a plain constraint change."""
     return sa.Enum(
@@ -64,7 +71,7 @@ def str_enum(enum_cls: type[StrEnum]) -> sa.Enum:
         native_enum=False,
         create_constraint=True,
         length=32,
-        name=_snake(enum_cls.__name__),
+        name=None,  # let the metadata convention name the CHECK: ck_<table>_<column>
         values_callable=lambda e: [m.value for m in e],
         validate_strings=True,
     )

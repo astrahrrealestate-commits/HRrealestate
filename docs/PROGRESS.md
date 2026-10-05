@@ -21,7 +21,7 @@ Spec: [2026-10-05-estateos-m1-foundation-design.md](superpowers/specs/2026-10-05
 - [x] core: settings, logging, ids, errors, telemetry — G1 "10 passed", contracts 3 kept
 - [x] six contracts + unit/property tests — G1 "104 passed", LLM strict-schema test; reviewer VERDICT: ship
 - [ ] test infra: testcontainers Postgres, DBOS fixture, recorded() loader, factories
-- [ ] SQLAlchemy models (24 tables) + first Alembic migration + roundtrip/drift tests
+- [x] SQLAlchemy models (24 tables) + first Alembic migration + roundtrip/drift/CHECK-value tests — G2 "114 passed" + "13 passed"; reviewer VERDICT: ship
 - [ ] FastAPI app + health endpoints
 - [ ] DBOS app + worker (`--selfcheck`) + `timer_sweep` cron no-op
 - [ ] Dockerfile + compose (postgres, migrate, api, worker)
@@ -30,6 +30,8 @@ Spec: [2026-10-05-estateos-m1-foundation-design.md](superpowers/specs/2026-10-05
 - [ ] G5 `make smoke` green + reviewer `ship`
 
 ## M2 Ingestion
+- [ ] (carried from M1 review) repository base requires company_id; cross-tenant integration test (company-B person on company-A message → TenantMismatchError)
+- [ ] (carried from M1 review) ingest with `DBOSClient.enqueue_in_transaction` so raw_event insert + enqueue commit atomically
 ## M3 Directory
 ## M4 Understanding + call log
 ## M5 Case engine

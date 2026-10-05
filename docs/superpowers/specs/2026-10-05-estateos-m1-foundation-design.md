@@ -148,17 +148,21 @@ Directory tables: `valid_from date`, `valid_to date null`.
 | `attachments` | message_id, s3_key, mime_type, filename, size_bytes, sha256, extracted_text | idx(message_id) |
 | `understandings` | message_id, model_call_id, category, urgency, body jsonb, prompt_version | unique(message_id); idx(category), idx(urgency) |
 | `cases` | unit_id, lease_id, primary_person_id, state, category, urgency, summary, summary_version, opened_at, resolved_at | idx(company_id, state) |
-| `case_links` | case_id, message_id, method (thread/open_case/model), confidence | unique(message_id) |
+| `case_links` | case_id, message_id, method (thread/open_case/model/new_case), confidence | unique(message_id) |
 | `case_events` | case_id, kind, from_state, to_state, note, actor | append-only; idx(case_id) |
 | `actions` | Action fields, status | idx(case_id), idx(status) |
 | `action_revisions` | action_id, draft_version, payload jsonb, edited_by | unique(action_id, draft_version) |
-| `approvals` | action_id, draft_version, status, owner_wa_message_id, choice, decided_at | idx(action_id), idx(status) |
+| `approvals` | action_id, draft_version, status, owner_wa_message_id, choice, decided_at | idx(action_id), idx(status); **partial unique(action_id, draft_version) where status in (pending, approved)** (amended) |
 | `sends` | action_id null, idempotency_key, channel, target, provider_ref, status, error, attempted_at | **unique(idempotency_key)** |
-| `timers` | kind, due_at, payload jsonb, status, attempts, locked_until, dedupe_key | **unique(dedupe_key)**; idx(status, due_at) |
+| `timers` | kind, due_at, payload jsonb, status, attempts, locked_until, dedupe_key | **unique(company_id, dedupe_key)** (amended: keys are per tenant); idx(status, due_at) |
 | `outcomes` | action_id, draft_version, final_text, label, similarity, source | idx(action_id) |
 | `model_calls` | purpose, prompt_name, prompt_version, prompt_sha256, model, input jsonb, output jsonb, tokens_in, tokens_out, cost_usd numeric(10,6), latency_ms, langfuse_trace_id, error | idx(company_id, created_at) |
 
 `raw_events.company_id` is resolved from `channel_accounts` before insert.
+
+**Enums** are VARCHAR + CHECK named `ck_<table>_<column>`; `app/db/alembic_hooks.py` renders them in autogenerate.
+**Cross-row tenancy** (e.g. `messages.person_id` → same company) is enforced in the repository layer (M2 adds a
+cross-tenant test), not by composite FKs; revisit at the second customer.
 
 **Gmail dedupe nuance:** a Pub/Sub push carries only `historyId`. The push handler enqueues a history sync; the sync
 writes one `raw_event` per Gmail message id. Dedupe is therefore uniform across channels.

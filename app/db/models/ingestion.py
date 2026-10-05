@@ -34,6 +34,7 @@ class RawEvent(Base, CompanyScoped):
 
 class MessageRow(Base, CompanyScoped):
     __tablename__ = "messages"
+    __company_id_leading_index__ = True
     __table_args__ = (
         UniqueConstraint("channel", "provider_msg_id"),
         Index(None, "company_id", "thread_ref"),

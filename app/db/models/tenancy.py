@@ -31,6 +31,7 @@ class ChannelAccount(Base, CompanyScoped):
 
 class OwnerAccount(Base, CompanyScoped):
     __tablename__ = "owner_accounts"
+    __company_id_leading_index__ = True
     __table_args__ = (UniqueConstraint("company_id", "whatsapp_e164"),)
 
     display_name: Mapped[str] = mapped_column(String(200))

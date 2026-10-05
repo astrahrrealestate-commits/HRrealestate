@@ -26,6 +26,7 @@ class UnderstandingRow(Base, CompanyScoped):
 
 class Case(Base, CompanyScoped):
     __tablename__ = "cases"
+    __company_id_leading_index__ = True
     __table_args__ = (Index(None, "company_id", "state"),)
 
     unit_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("units.id"), index=True)

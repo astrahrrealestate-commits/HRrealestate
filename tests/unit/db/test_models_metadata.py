@@ -1,4 +1,4 @@
-from sqlalchemy import Table, UniqueConstraint
+from sqlalchemy import Index, Table, UniqueConstraint
 
 import app.db.models  # noqa: F401  (registers tables)
 from app.db.base import Base
@@ -36,7 +36,8 @@ def test_critical_unique_constraints_present() -> None:
     assert ("provider", "provider_msg_id") in _uniques(t["raw_events"])
     assert ("channel", "provider_msg_id") in _uniques(t["messages"])
     assert ("idempotency_key",) in _uniques(t["sends"])
-    assert ("dedupe_key",) in _uniques(t["timers"])
+    assert ("company_id", "dedupe_key") in _uniques(t["timers"])
+    assert ("action_id", "draft_version") in _uniques(t["approvals"])
     assert ("company_id", "channel", "identity") in _uniques(t["channel_identities"])
     assert ("message_id",) in _uniques(t["case_links"])
     assert ("message_id",) in _uniques(t["understandings"])
@@ -56,3 +57,29 @@ def test_all_timestamps_timezone_aware() -> None:
         for col in table.c:
             if isinstance(col.type, DateTime):
                 assert col.type.timezone, f"{table.name}.{col.name}"
+
+
+def test_enum_checks_named_by_column() -> None:
+    import sqlalchemy as sa
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.schema import CreateTable
+
+    for table in Base.metadata.sorted_tables:
+        ddl = str(CreateTable(table).compile(dialect=postgresql.dialect()))
+        for col in table.c:
+            if isinstance(col.type, sa.Enum):
+                assert f"CONSTRAINT ck_{table.name}_{col.name} CHECK" in ddl, f"{table.name}.{col.name}"
+
+
+def test_company_id_indexed_exactly_once_as_leading_column() -> None:
+    for name, table in Base.metadata.tables.items():
+        if name == "companies":
+            continue
+        leading = [i for i in table.indexes if i.columns.keys()[0] == "company_id"]
+        leading += [
+            u for u in table.constraints if isinstance(u, UniqueConstraint) and u.columns.keys()[0] == "company_id"
+        ]
+        usable = [i for i in leading if not isinstance(i, Index) or i.dialect_options["postgresql"]["where"] is None]
+        assert len(usable) >= 1, f"{name}: company_id not leading any full index"
+        single = [i for i in table.indexes if i.columns.keys() == ["company_id"]]
+        assert not (single and len(usable) > 1), f"{name}: redundant single-column company_id index"

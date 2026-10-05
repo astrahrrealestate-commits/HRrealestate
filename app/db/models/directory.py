@@ -23,6 +23,7 @@ class DirectoryImport(Base, CompanyScoped):
 
 class Person(Base, CompanyScoped, Validity):
     __tablename__ = "people"
+    __company_id_leading_index__ = True
     __table_args__ = (Index(None, "company_id", "brixx_ref"),)
 
     kind: Mapped[PersonKind] = mapped_column(str_enum(PersonKind))
@@ -54,6 +55,7 @@ class ChannelIdentity(Base, CompanyScoped, Validity):
 
 class Unit(Base, CompanyScoped, Validity):
     __tablename__ = "units"
+    __company_id_leading_index__ = True
     __table_args__ = (Index(None, "company_id", "brixx_ref"),)
 
     label: Mapped[str] = mapped_column(String(100))
