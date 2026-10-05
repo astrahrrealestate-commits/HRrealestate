@@ -13,6 +13,17 @@ Every external tool sits behind an adapter interface so it can be swapped. Ratio
 | Custom AST send-isolation test | **import-linter** contracts | Declarative architecture rules, run in CI and pre-commit. | [0004](adr/0004-import-linter-boundaries.md) |
 | Custom `.githooks` | **pre-commit** framework + **gitleaks** | Standard hook manager; secret scanning included. | — |
 
+## Open decisions (resolve at M0; nothing in M1 depends on them)
+
+| Decision | Options | Blocks | Default until decided |
+|---|---|---|---|
+| WhatsApp route for tenant number | 360dialog / other Meta partner / direct Cloud API (no Coexistence) | M2 WhatsApp ingestion, M7 owner channel | build against Cloud API payload format + recorded fixtures |
+| Hosting provider (EU) | AWS eu-central-1 / Scaleway / Hetzner + managed PG elsewhere | production deploy (M8) | docker compose locally; code provider-neutral |
+| LLM provider | OpenAI EU / Anthropic / Mistral | M4 evals on real model | Pydantic AI `TestModel` in tests; model string in settings |
+
+Engineering choices (DBOS, Pydantic AI, import-linter, testcontainers) are reversible behind adapters and proceed
+unless vetoed.
+
 ## Runtime
 
 | Concern | Tool | We build |

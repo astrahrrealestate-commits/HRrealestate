@@ -5,7 +5,9 @@ Tick an item only with `/check` evidence. Milestone definitions: [build-plan.md]
 ## M0 Prerequisites (owner: user + Harjot)
 - [ ] Google Cloud project inside Harjot's Workspace, OAuth app Internal
 - [ ] WhatsApp test number
-- [ ] Coexistence route confirmed (Meta direct or partner)
+- [ ] Coexistence route confirmed (Meta direct or partner) — open, see tech-stack.md "Open decisions"
+- [ ] Hosting provider (EU) chosen — open
+- [ ] LLM provider confirmed (OpenAI EU default) — open
 - [ ] OpenAI org with EU data processing agreement
 - [ ] BRIXX export received
 - [ ] Labeller named for first 100 emails
