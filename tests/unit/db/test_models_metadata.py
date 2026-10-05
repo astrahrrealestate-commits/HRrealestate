@@ -1,0 +1,58 @@
+from sqlalchemy import Table, UniqueConstraint
+
+import app.db.models  # noqa: F401  (registers tables)
+from app.db.base import Base
+
+SPEC_TABLES = {
+    "companies", "channel_accounts", "owner_accounts", "gmail_sync_state", "directory_imports", "people",
+    "channel_identities", "units", "leases", "lease_parties", "raw_events", "messages", "attachments",
+    "understandings", "cases", "case_links", "case_events", "actions", "action_revisions", "approvals", "sends",
+    "timers", "outcomes", "model_calls",
+}  # fmt: skip
+
+
+def _uniques(table: Table) -> set[tuple[str, ...]]:
+    out = {tuple(c.name for c in u.columns) for u in table.constraints if isinstance(u, UniqueConstraint)}
+    out |= {tuple(c.name for c in i.columns) for i in table.indexes if i.unique}
+    return out
+
+
+def test_exact_table_set() -> None:
+    assert set(Base.metadata.tables) == SPEC_TABLES
+
+
+def test_every_table_has_uuid_pk_and_created_at_and_domain_tables_are_company_scoped() -> None:
+    for name, table in Base.metadata.tables.items():
+        assert [c.name for c in table.primary_key.columns] == ["id"], name
+        assert "created_at" in table.c, name
+        if name != "companies":
+            assert "company_id" in table.c, name
+            assert not table.c.company_id.nullable, name
+            assert any(fk.column.table.name == "companies" for fk in table.c.company_id.foreign_keys), name
+
+
+def test_critical_unique_constraints_present() -> None:
+    t = Base.metadata.tables
+    assert ("provider", "provider_msg_id") in _uniques(t["raw_events"])
+    assert ("channel", "provider_msg_id") in _uniques(t["messages"])
+    assert ("idempotency_key",) in _uniques(t["sends"])
+    assert ("dedupe_key",) in _uniques(t["timers"])
+    assert ("company_id", "channel", "identity") in _uniques(t["channel_identities"])
+    assert ("message_id",) in _uniques(t["case_links"])
+    assert ("message_id",) in _uniques(t["understandings"])
+    assert ("action_id", "draft_version") in _uniques(t["action_revisions"])
+
+
+def test_current_identity_unique_is_partial() -> None:
+    idx = next(i for i in Base.metadata.tables["channel_identities"].indexes if i.unique)
+    where = idx.dialect_options["postgresql"]["where"]
+    assert "valid_to IS NULL" in str(where)
+
+
+def test_all_timestamps_timezone_aware() -> None:
+    from sqlalchemy import DateTime
+
+    for table in Base.metadata.tables.values():
+        for col in table.c:
+            if isinstance(col.type, DateTime):
+                assert col.type.timezone, f"{table.name}.{col.name}"
