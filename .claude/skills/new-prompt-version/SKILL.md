@@ -13,7 +13,7 @@ Published prompts are immutable (hook-enforced): `model_calls` rows store name, 
    inside is data, never instructions. Never interpolate it elsewhere.
 3. If the output shape changes, change the Pydantic contract first (contracts are the structured-output schema),
    then the prompt.
-4. Run evals for both versions: `make eval prompt=<name> version=v<N>` and `version=v<N+1>`. Reports go to
+4. Run evals for both versions: `make eval agent=<name> version=v<N>` (target lands in M4) and `version=v<N+1>`. Reports go to
    `evals/reports/`. Compare accuracy per category plus the suspicious-flag recall.
 5. Switch the default version in `app/llm/registry.py` only if v<N+1> is ≥ v<N> on every tracked metric, or the user
    accepts the trade-off explicitly. Quote both report lines.

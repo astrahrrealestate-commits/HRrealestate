@@ -27,16 +27,17 @@ Everything after M1 builds on these shapes, so they are locked here.
 ## §1 Repo and runtime
 
 - **Layout** as in build-plan. Unused packages in M1 are empty `__init__.py` — no fake stubs.
-- **`core/config.py`**: pydantic-settings `Settings` (DB URL, `ENV`, S3, Langfuse, Sentry DSN, OpenAI). No secrets in
+- **`core/settings.py`**: pydantic-settings `Settings` (DB URL, `ENV`, S3, Langfuse, Sentry DSN, OpenAI). No secrets in
   code. `SenderSettings` (WhatsApp token, Gmail send scopes) lives in `app/sender/settings.py` and is importable only
   from `app/sender/`.
 - **`core/logging.py`**: structlog JSON; contextvars bind `request_id` / `raw_event_id` / `company_id`.
 - **`core/ids.py`**: `new_id() -> UUID` (v7).
 - **`core/errors.py`**: base `EstateOSError`, `IllegalTransitionError`, `NotFoundError`, `TenantMismatchError`.
-- **DBOS** (`app/workflows/dbos_app.py`): DBOS config from settings (same DATABASE_URL, system schema `dbos`).
+- **DBOS** (`app/workflows/runtime.py`, dbos 3.x): DBOS config from settings (same DATABASE_URL, system schema `dbos`).
   `app/worker.py` launches DBOS as executor; `--selfcheck` flag runs a trivial workflow and exits 0.
-  One cron `@DBOS.scheduled("* * * * *")` → `timer_sweep` (no-op in M1). Queue `pipeline` (concurrency from settings).
-- **`core/telemetry.py`**: Sentry init + OTel exporter to Langfuse (no-op when keys absent).
+  Cron via `DBOS.apply_schedules` → `system.timer_sweep` every minute (no-op in M1). Queue `pipeline` registered after
+  launch, `worker_concurrency=PIPELINE_WORKER_CONCURRENCY` (constant). `application_version` not pinned (ADR 0001).
+- **`core/telemetry.py`**: Sentry init (no-op without DSN). OTel → Langfuse arrives with the first agent (M4).
 - **API**: `/health/live` (process up), `/health/ready` (DB `SELECT 1`; worker readiness proven by `python -m app.worker --selfcheck`).
 - **Compose** (`docker/compose.yml`): `postgres:16` (host port 5433), `migrate` (one-shot `alembic upgrade head`),
   `api`, `worker`; api/worker depend on `migrate` completing successfully. One image for all roles.
@@ -47,7 +48,7 @@ Everything after M1 builds on these shapes, so they are locked here.
   contracts.
 - **Test infra** (`tests/conftest.py`): session-scoped testcontainers Postgres 16, alembic upgrade once, per-test
   transaction rollback; DBOS test fixture (launch against the container, reset between tests); `recorded()` fixture
-  loader; polyfactory factories.
+  loader. (polyfactory factories deferred to M2, first task that builds domain rows in bulk.)
 - **Network isolation in tests**: `pytest-socket` with `--disable-socket --allow-hosts=127.0.0.1,localhost,::1`.
 - **Architecture contracts** (import-linter, ADR 0004): layers, send isolation, pure rules engine. Run in `make quick`.
 

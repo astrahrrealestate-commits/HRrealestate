@@ -11,7 +11,7 @@
 | Language | Python 3.12 |
 | API | FastAPI + Uvicorn |
 | Database | PostgreSQL 16 (managed, EU region), SQLAlchemy 2, Alembic, psycopg 3 |
-| Queue and timers | Redis 7 + Celery 5 for the work queue; timers stored in a Postgres table, checked every minute by Celery Beat |
+| Queue and timers | DBOS Transact (durable workflows, queues, cron in Postgres); due work in the `timers` table, swept every minute by a DBOS cron (ADR 0001) |
 | Schemas and config | Pydantic v2, pydantic-settings |
 | AI | OpenAI SDK with structured outputs, behind our own `llm/` interface (provider can be swapped) |
 | WhatsApp | Meta Cloud API via httpx, or a partner adapter if Coexistence requires one |
@@ -21,7 +21,7 @@
 | Observability | Langfuse (EU cloud), Sentry, structlog with JSON logs |
 | Quality | ruff, mypy, pytest + pytest-asyncio, recorded webhook payloads, golden-set eval runner |
 | CI | GitHub Actions |
-| Deployment | Docker; docker compose for development; Phase 1 production = one EU VM running API, worker, Beat and Redis, plus managed Postgres |
+| Deployment | Docker; docker compose for development; Phase 1 production = one EU VM running API and one DBOS worker, plus managed Postgres |
 
 **One infrastructure fact:** Gmail push only works through a Google Cloud Pub/Sub topic, so a Google Cloud project is needed whatever you host on. Create it inside Harjot's Workspace, with the OAuth app set to Internal.
 
@@ -36,13 +36,12 @@ estateos/
     pipeline/       understanding.py, case_engine.py, proposals.py, rules.py
     owner/          command handler, briefing, message builders (buttons ≤20 chars)
     sender/         the only module with send credentials
-    timers/         timers table, sweep, handlers
+    workflows/      DBOS workflows, queues, schedules (incl. timer sweep)
     directory/      BRIXX export import, contacts, channel identities
     outcomes/       Sent folder / echo capture → unchanged / edited / rewritten
     llm/            client interface, prompts/v1/*.md, output schemas
     db/             models, session, alembic/
     core/           config, logging, errors, ids
-  workers/          celery_app.py, tasks.py, beat schedule
   evals/            golden/ (labelled cases), run_eval.py, reports/
   tests/            unit/, integration/, fixtures/ (recorded payloads)
   docker/           Dockerfile, compose.yml
@@ -62,7 +61,7 @@ estateos/
 | # | Milestone | Done when |
 |---|---|---|
 | **M0** | Prerequisites (owner: you plus Harjot) | Google Cloud project inside his Workspace; WhatsApp test number; Coexistence route confirmed (Meta directly or a partner); OpenAI organisation with an EU data processing agreement; BRIXX export received; someone named to label the first 100 emails |
-| **M1** | Skeleton | `docker compose up` runs API, worker, Beat, Postgres and Redis; first migration creates **every** table; CI runs ruff, mypy and pytest |
+| **M1** | Skeleton | `docker compose up` runs Postgres, migrate, API and the DBOS worker (cron); first migration creates **every** table; CI runs ruff, mypy and pytest |
 | **M2** | Ingestion | WhatsApp: verification handshake, signature check (`X-Hub-Signature-256`), insert raw event, acknowledge, enqueue. Gmail: Pub/Sub endpoint, history sync, watch renewed **daily** by timer. Media saved to S3. **Test:** feeding the same recorded payload in twice gives exactly one message row |
 | **M3** | Directory | BRIXX export imported as a batch (people, units, leases, contractors, channel identities, with valid-from and valid-to dates); a phone number or email address looks up to a person, unit and lease |
 | **M4** | Understanding + call log | `llm/` interface, prompt v1, typed output; every call written to `model_calls` and Langfuse; `run_eval.py` reports accuracy on the golden set |
@@ -77,8 +76,8 @@ estateos/
 
 ## Rules that apply from the first commit
 
-- Postgres before the queue. Redis never holds the only copy of anything.
-- No delayed Celery tasks longer than a few minutes; anything later goes in the `timers` table. Every task must be safe to run twice.
+- Postgres before the queue. Nothing lives only in memory or in a queue.
+- No long sleeps or waits inside workflows; anything later goes in the `timers` table. Every step must be safe to run twice.
 - Only `sender/` imports send credentials. In Phase 1 it can create Gmail drafts and message Harjot, and nothing else.
 - Message content is never treated as instructions. It goes into prompts as clearly marked data.
 - Every external call goes through an adapter, so Meta, the WhatsApp partner, Gmail or OpenAI can each be swapped without touching the pipeline.

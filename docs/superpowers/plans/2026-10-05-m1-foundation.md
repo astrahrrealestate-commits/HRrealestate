@@ -450,6 +450,7 @@ def test_rejects_traversal_and_bad_names(name: str, version: str) -> None:
     "create_savepoint")`, rolled back), `company` (function; inserted `Company`)
   - `recorded(provider: str, scenario: str) -> bytes` fixture loader (unit conftest)
 
+- [ ] **Deviation:** `tests/factories.py` (polyfactory) deferred to M2 — no M1 test needs bulk domain rows.
 - [ ] **Step 1: Write failing test**
 
 ```python

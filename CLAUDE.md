@@ -34,7 +34,7 @@ Pydantic AI → OpenAI (EU) · Langfuse · pywa (WhatsApp, 360dialog) · Gmail A
 | `make smoke` | **G5**: stack up, api ready, worker self-check, logs clean |
 | `make cov` · `make audit` | coverage floors · dependency vulnerabilities |
 | `make migration m="..."` | new Alembic revision (see `/new-migration`) |
-| `make eval agent=X version=vN` | pydantic-evals golden set |
+| `make eval agent=X version=vN` | pydantic-evals golden set (M4) |
 | `make workflows` | list recent DBOS workflows |
 | `make harness-test` | self-test Claude guard hooks |
 

@@ -1,5 +1,7 @@
 # EstateOS Phase 1: architecture
 
+> Runtime per [ADR 0001](adr/0001-dbos-durable-workflows.md): DBOS replaces Celery/Beat/Redis. Detail: [hld.md](hld.md).
+
 ```
 WHATSAPP                              GMAIL
 Meta Cloud API (or partner, if         Gmail API + Pub/Sub
@@ -14,7 +16,7 @@ INGESTION (FastAPI)
                   │
          ┌────────┴──────────────┐
          ▼                       ▼
-  OWNER COMMAND HANDLER     TENANT/CONTRACTOR PIPELINE (Celery workers)
+  OWNER COMMAND HANDLER     TENANT/CONTRACTOR PIPELINE (DBOS worker)
   (owner number, button     │
   replies)                  ├─ UNDERSTANDING AI (one structured call)
   ├─ match button ID to     │    classify · entities · urgency · intent · suspicious
@@ -36,7 +38,7 @@ INGESTION (FastAPI)
                             idempotency key per action
 
 ACROSS EVERYTHING
-  timers table in Postgres + Celery Beat sweep every minute
+  timers table in Postgres + DBOS cron `system.timer_sweep` every minute
     (07:30 briefing, re-checks, overdue flags, Gmail watch renewal)
   outcome capture (Gmail Sent + phone-reply echoes → unchanged/edited/rewritten)
   model-call log (prompt version, context, output, cost) · error alerts

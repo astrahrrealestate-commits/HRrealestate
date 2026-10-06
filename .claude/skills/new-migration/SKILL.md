@@ -9,9 +9,9 @@ Committed migrations are immutable (hook-enforced). Every schema change = a new 
 
 1. Change models in `app/db/models/`. Every domain table: `company_id` FK + index; UUIDv7 `id`; `created_at`.
 2. Stack DB up: `make up-db`.
-3. Generate: `make migration m="<imperative summary>"` (autogenerate).
+3. Generate: `make migration m="<imperative summary>"` (autogenerate; revision ids are sequential `0002`, `0003`, …).
 4. **Read the generated file fully.** Autogenerate misses or mangles:
-   - partial unique indexes (`postgresql_where=`), server defaults, enum type create/drop, renames (shows as drop+add — rewrite as `alter_column`/`op.rename_table`), CHECK constraints.
+   - partial unique indexes (`postgresql_where=`), server defaults, renames (shows as drop+add — rewrite as `alter_column`/`op.rename_table`), CHECK constraints.
    - downgrade must exactly reverse upgrade.
    - **Enum columns (VARCHAR + CHECK):** handled automatically by `app/db/alembic_hooks.py` (renders `sa.String` +
      one `op.create_check_constraint(op.f("ck_<table>_<column>"), ...)`). **Adding a value to an existing StrEnum**

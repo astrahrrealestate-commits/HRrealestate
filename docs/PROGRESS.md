@@ -20,17 +20,18 @@ Spec: [2026-10-05-estateos-m1-foundation-design.md](superpowers/specs/2026-10-05
 - [x] pyproject + uv lock + tooling config; pre-commit installed — G1: "Contracts: 3 kept, 0 broken", "1 passed"; pre-commit 17/17 passed
 - [x] core: settings, logging, ids, errors, telemetry — G1 "10 passed", contracts 3 kept
 - [x] six contracts + unit/property tests — G1 "104 passed", LLM strict-schema test; reviewer VERDICT: ship
-- [ ] test infra: testcontainers Postgres, DBOS fixture, recorded() loader, factories
+- [x] test infra: testcontainers Postgres, DBOS fixture, recorded() loader — factories deferred to M2 (deviation recorded in spec §1)
 - [x] SQLAlchemy models (24 tables) + first Alembic migration + roundtrip/drift/CHECK-value tests — G2 "114 passed" + "13 passed"; reviewer VERDICT: ship
 - [x] FastAPI app + health endpoints — G2 "124 passed" + "21 passed"; reviewer VERDICT: ship
 - [x] DBOS app + worker (`--selfcheck`) + `timer_sweep` cron — G2 "116 passed" + "20 passed", cov 95.67%; reviewer VERDICT: ship
-- [ ] Dockerfile + compose (postgres, migrate, api, worker)
+- [x] Dockerfile + compose (postgres, migrate, api, worker) — `make smoke`: "api ready: ok", "worker: ok", "logs: clean"
 - [ ] **decision for user:** add dev dep `httpx2` (starlette TestClient successor; blocked by permission classifier in Task 7) — then drop the filterwarnings ignore
-- [ ] import-linter contracts green
-- [ ] GitHub Actions CI
-- [ ] G5 `make smoke` green + reviewer `ship`
+- [x] import-linter contracts green — "Contracts: 3 kept, 0 broken" (app.main + app.worker required)
+- [ ] GitHub Actions CI — workflow committed; **first green run pending: no git remote yet (user to add + push)**
+- [x] G5 `make smoke` green + whole-branch reviewer `ship`; `make cov` 145 passed / 96.06%; `make audit` no known vulnerabilities
 
 ## M2 Ingestion
+- [ ] (carried from M1) polyfactory factories in `tests/factories.py`
 - [ ] (carried from M1 review) repository base requires company_id; cross-tenant integration test (company-B person on company-A message → TenantMismatchError)
 - [ ] (carried from M1 review) ingest with `DBOSClient.enqueue_in_transaction` so raw_event insert + enqueue commit atomically
 ## M3 Directory
@@ -39,3 +40,5 @@ Spec: [2026-10-05-estateos-m1-foundation-design.md](superpowers/specs/2026-10-05
 ## M6 Proposals + rules
 ## M7 Owner channel + sender
 ## M8 Outcomes + hardening
+- [ ] (carried from M1) DBOS system-table retention/GC (minute cron writes ~1,440 workflow rows/day)
+- [ ] (carried from M1) image CVE scan in CI (Docker Scout reports 3 high Debian CVEs in python:3.12-slim)

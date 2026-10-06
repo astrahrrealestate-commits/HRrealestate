@@ -6,6 +6,7 @@ SHELL := /bin/bash
 
 COMPOSE := docker compose -f docker/compose.yml
 UV      := uv run --frozen
+NEXT_REV = $(shell printf '%04d' $$(( $$(ls app/db/alembic/versions/[0-9]*.py 2>/dev/null | wc -l) + 1 )))
 
 .PHONY: help setup up up-db down logs ps migrate migration migrate-roundtrip alembic-check \
         fmt lint type boundaries test-unit test-int test cov quick check smoke audit eval \
@@ -42,7 +43,7 @@ migrate: up-db ## alembic upgrade head
 migration: up-db ## new autogenerate revision: make migration m="add x"
 	@[ -n "$(m)" ] || { echo 'usage: make migration m="message"'; exit 2; }
 	$(UV) alembic upgrade head
-	$(UV) alembic revision --autogenerate -m "$(m)"
+	$(UV) alembic revision --autogenerate --rev-id $(NEXT_REV) -m "$(m)"
 
 migrate-roundtrip: ## upgrade head -> downgrade base -> upgrade head (testcontainers)
 	$(UV) pytest tests/integration/test_migrations.py -q -k roundtrip
@@ -90,11 +91,11 @@ audit: ## dependency vulnerability audit
 	uv export --frozen --no-hashes --format requirements-txt > .claude/.cache/req.txt
 	$(UV) pip-audit -r .claude/.cache/req.txt --strict
 
-eval: ## golden-set eval: make eval agent=understanding version=v1
+eval: ## (M4) golden-set eval: make eval agent=understanding version=v1
 	$(UV) python -m evals.run --agent $(agent) --version $(version)
 
-workflows: ## list recent DBOS workflows (ops)
-	$(UV) dbos workflow list --limit 20
+workflows: up-db ## list recent DBOS workflows (ops)
+	$(UV) dbos workflow list --limit 20 --sys-db-url "$${DBOS_SYSTEM_DATABASE_URL:-postgresql://estateos:estateos@localhost:5433/estateos}"
 
 # ---- harness -----------------------------------------------------------------
 harness-test: ## self-test Claude guard hooks (stdlib only)
