@@ -3,9 +3,17 @@
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+CONNECT_TIMEOUT_SEC = 3  # psycopg default is ~130s: readiness probes must answer, not hang
+POOL_TIMEOUT_SEC = 5
+
 
 def make_engine(url: str) -> Engine:
-    return create_engine(url, pool_pre_ping=True)
+    return create_engine(
+        url,
+        pool_pre_ping=True,
+        pool_timeout=POOL_TIMEOUT_SEC,
+        connect_args={"connect_timeout": CONNECT_TIMEOUT_SEC},
+    )
 
 
 def session_factory(engine: Engine) -> sessionmaker[Session]:

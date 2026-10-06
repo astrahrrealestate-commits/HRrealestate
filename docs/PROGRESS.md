@@ -22,9 +22,10 @@ Spec: [2026-10-05-estateos-m1-foundation-design.md](superpowers/specs/2026-10-05
 - [x] six contracts + unit/property tests — G1 "104 passed", LLM strict-schema test; reviewer VERDICT: ship
 - [ ] test infra: testcontainers Postgres, DBOS fixture, recorded() loader, factories
 - [x] SQLAlchemy models (24 tables) + first Alembic migration + roundtrip/drift/CHECK-value tests — G2 "114 passed" + "13 passed"; reviewer VERDICT: ship
-- [ ] FastAPI app + health endpoints
+- [x] FastAPI app + health endpoints — G2 "124 passed" + "21 passed"; reviewer VERDICT: ship
 - [x] DBOS app + worker (`--selfcheck`) + `timer_sweep` cron — G2 "116 passed" + "20 passed", cov 95.67%; reviewer VERDICT: ship
 - [ ] Dockerfile + compose (postgres, migrate, api, worker)
+- [ ] **decision for user:** add dev dep `httpx2` (starlette TestClient successor; blocked by permission classifier in Task 7) — then drop the filterwarnings ignore
 - [ ] import-linter contracts green
 - [ ] GitHub Actions CI
 - [ ] G5 `make smoke` green + reviewer `ship`
