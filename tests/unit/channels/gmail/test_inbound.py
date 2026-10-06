@@ -276,7 +276,10 @@ def test_header_injection_collapsed() -> None:
     assert parsed.attachments[0].filename == "a.pdf"
 
 
-@pytest.mark.parametrize("flood", [" " * 50_000 + "Am", "On " * 21_000, "Am " * 21_000, ("On " * 60 + "\n") * 300])
+_JUST_UNDER_CAP = ("On " * 60 + "\n") * (mime.QUOTE_STRIP_MAX_CHARS // 181 - 1)  # worst case the parser still sees
+
+
+@pytest.mark.parametrize("flood", [" " * 50_000 + "Am", "On " * 21_000, "Am " * 21_000, _JUST_UNDER_CAP])
 def test_quote_stripping_is_bounded_in_time(flood: str) -> None:
     raw = ("From: a@example.test\r\nSubject: Re: x\r\nIn-Reply-To: <x@y>\r\n\r\nHi " + flood).encode()
     started = time.monotonic()

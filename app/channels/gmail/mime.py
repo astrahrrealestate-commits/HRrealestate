@@ -30,7 +30,7 @@ MAX_ATTACHMENTS = 50
 MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 MAX_TOTAL_ATTACHMENT_BYTES = 60 * 1024 * 1024
 MAX_TEXT_CHARS = 100_000
-QUOTE_STRIP_MAX_CHARS = 64_000
+QUOTE_STRIP_MAX_CHARS = 32_000  # worst case ~0.15 s per mail; longer texts stay unstripped
 QUOTE_STRIP_MAX_LINE = 500  # reply headers are short; long lines make the reply parser quadratic
 MAX_REFERENCES_CHARS = 16_000
 
