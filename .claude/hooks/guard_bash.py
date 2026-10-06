@@ -30,10 +30,6 @@ DENY: list[tuple[re.Pattern[str], str]] = [
         "Bypassing git hooks (--no-verify / -n) is blocked. Fix the failing check instead.",
     ),
     (
-        re.compile(r"(^|[\s;&|])(cat|less|more|head|tail|bat|grep|rg|sed|awk|source|\.)\s+[^|;&]*\.env(\.(?!example\b)\w+)?(\s|$)"),
-        "Reading .env files is blocked — they hold live credentials. Use .env.example for shape; ask the user for values.",
-    ),
-    (
         re.compile(r"\b(curl|wget|http|httpx|xh)\b[^|;&]*(graph\.facebook\.com|gmail\.googleapis\.com|api\.openai\.com|pubsub\.googleapis\.com)"),
         "Live calls to Meta/Gmail/OpenAI/PubSub from the shell are blocked. Use recorded fixtures (tests/fixtures/) and adapters.",
     ),
@@ -46,6 +42,28 @@ DENY: list[tuple[re.Pattern[str], str]] = [
         "Ad-hoc scripts that exercise send paths are blocked. Sending is tested only through app/sender with fakes.",
     ),
 ]
+
+# Checked against the command with FILE-WRITING heredoc bodies removed: the body of `cat > f <<EOF` / `tee f <<EOF` is
+# content being written, not run. Bodies fed to anything else (bash, sh, python) execute and stay visible. The opener
+# line (`cat <<EOF .env`) is always a command and is kept.
+ENV_READ = re.compile(
+    r"(^|[\s;&|(`])(cat|less|more|head|tail|bat|grep|rg|sed|awk|source|\.|cp|mv|tee|base64|xxd|od|strings|nl|tac)\s+"
+    r"[^|;&\n]*\.env(\.(?!example\b)\w+)?(?=[\s;&|)'\"`]|$)"
+)
+ENV_WRITE = re.compile(r">[>|]?\s*['\"]?(\S*/)?\.env(\.(?!example\b)\w+)?(?=[\s;&|)'\"`]|$)")
+ENV_INPUT = re.compile(r"<\s*['\"]?(\S*/)?\.env(\.(?!example\b)\w+)?(?=[\s;&|)'\"`]|$)")
+FILE_WRITING_OPENER = re.compile(r"^\s*(cat\b[^\n|;&]*>|tee\b)")
+
+
+def _strip_written_heredocs(command: str) -> str:
+    def repl(m: re.Match[str]) -> str:
+        opener = m.group(1)
+        last_segment = re.split(r"[;&|]", command[: m.start()] + opener)[-1]
+        return opener if FILE_WRITING_OPENER.search(last_segment) else m.group(0)
+
+    return HEREDOC.sub(repl, command)
+HEREDOC = re.compile(r"(<<-?\s*(['\"]?)(\w+)\2[^\n]*)\n.*?\n\3(?=\n|$)", re.DOTALL)
+ENV_READ_REASON = "Reading or writing .env from the shell is blocked — it holds live credentials. Use .env.example; ask the user."
 
 ASK: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bgit\s+reset\s+--hard\b"), "git reset --hard discards work."),
@@ -89,6 +107,9 @@ def main() -> None:
     for pattern, reason in DENY:
         if pattern.search(command):
             pre_tool_decision("deny", reason)
+    visible = _strip_written_heredocs(command)
+    if ENV_READ.search(visible) or ENV_WRITE.search(visible) or ENV_INPUT.search(visible):
+        pre_tool_decision("deny", ENV_READ_REASON)
     reason = outside_repo_git_write(command, data.get("cwd"))
     if reason:
         pre_tool_decision("deny", reason)

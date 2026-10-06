@@ -78,6 +78,47 @@ class BashGuard(unittest.TestCase):
         ]:
             self.assertEqual(bash(cmd), "ask", cmd)
 
+    def test_env_read_vs_heredoc_write(self) -> None:
+        self.assertEqual(bash("cat .env"), "deny")
+        self.assertEqual(bash("cat .env.local | head"), "deny")
+        self.assertEqual(bash("cd x && grep KEY .env"), "deny")
+        self.assertIsNone(bash("cat > .dockerignore <<'EOF'\n.git\n.env\n.env.*\nEOF\necho ok"))
+        self.assertIsNone(bash("cat >> .gitignore <<EOF\n.env\nEOF"))
+        self.assertIsNone(bash("cat <<'EOF' > .dockerignore\n.env\nEOF"))
+        self.assertIsNone(bash("tee .dockerignore <<EOF\n.env\nEOF"))
+        self.assertIsNone(bash("cd x && cat > f <<EOF\n.env\nEOF"))
+        self.assertEqual(bash("cat > x <<'EOF'\nhi\nEOF\ncat .env"), "deny")  # read after the heredoc still caught
+        self.assertIsNone(bash("cat .env.example"))
+        self.assertIsNone(bash("cp .env.example .env.example.bak"))
+
+    def test_env_bypasses_denied(self) -> None:
+        for cmd in [
+            "cat >x .env",
+            "cat 2>/dev/null .env",
+            "grep KEY >out .env",
+            "cat > .env <<'EOF'\nA=1\nEOF",
+            "cat >> .env",
+            "echo A=1 > .env",
+            "cat <<EOF .env\nx\nEOF",
+            "cat <<EOF; cat .env\nx\nEOF",
+            "cat <<EOF | cat - .env\nx\nEOF",
+            "cat .env;echo",
+            "cat .env|base64",
+            "cat '.env'",
+            "base64 .env",
+            "cp .env /tmp/x",
+            "python3 x.py < .env",
+            "(cat .env)",
+            "bash <<'EOF'\ncat .env\nEOF",
+            "sh <<EOF\nsource .env\nEOF",
+            "python3 - <<'EOF'\nopen('.env').read()\nEOF\ncat .env",
+            "echo `cat .env`",
+            "echo A | tee .env",
+            "mv x .env",
+            "cat x >| .env",
+        ]:
+            self.assertEqual(bash(cmd), "deny", cmd)
+
     def test_no_verify_only_on_git(self) -> None:
         self.assertEqual(bash("git commit -n -m x"), "deny")
         self.assertEqual(bash("git push --no-verify"), "deny")
