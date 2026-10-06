@@ -5,9 +5,15 @@ description = "EstateOS Phase 1 — AI property-management assistant"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "alembic>=1.14",
+    "boto3>=1.35",
     "dbos>=1.0",
     "email-validator>=2.2",
     "fastapi>=0.115",
+    "google-api-python-client>=2.150",
+    "google-auth>=2.36",
+    "httpx>=0.28",
+    "inscriptis>=2.5",
+    "mail-parser-reply>=1.30",
     "phonenumbers>=8.13",
     "psycopg[binary]>=3.2",
     "pydantic>=2.10",
@@ -22,7 +28,6 @@ dependencies = [
 [dependency-groups]
 dev = [
     "hypothesis>=6.120",
-    "httpx>=0.28",
     "import-linter>=2.1",
     "mypy>=1.13",
     "pip-audit>=2.7",
@@ -37,6 +42,8 @@ dev = [
     "syrupy>=4.8",
     "testcontainers[postgres]>=4.9",
     "pytest-timeout>=2.3",
+    "moto[s3]>=5.0",
+    "cryptography>=43",
 ]
 
 [tool.uv]
