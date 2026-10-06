@@ -111,9 +111,11 @@ API and worker; tests use an in-memory store) and POSTs a signed Pub/Sub push.
 
 ## Data changes
 
-Migration `0002`: `messages.delivery_status` (nullable enum sent/delivered/read/failed) +
-`messages.metadata jsonb default '{}'` (interactive reply ids, Gmail labelIds/headers subset). No other schema change
-(`gmail_sync_state`, `channel_accounts`, `raw_events` exist from M1).
+Migration `0002`: `messages.delivery_status` (nullable enum sent/delivered/read/failed, forward-only) +
+`messages.meta jsonb default '{}'` (column `meta`: `metadata` is reserved by SQLAlchemy's declarative base);
+`raw_events.status` gains `ignored`; **dedupe keys are per company** — unique `(company_id, provider, provider_msg_id)`
+and `(company_id, channel, provider_msg_id)` (Gmail ids are only unique per mailbox). A per-message advisory lock
+serialises a message with its delivery receipts.
 
 ## Out of scope
 

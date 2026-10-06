@@ -5,18 +5,21 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import BigInteger, ForeignKey, Index, String, Text, UniqueConstraint, func
+from sqlalchemy import text as sql_text  # MessageRow has a column named `text`
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.contracts import Channel, Direction
 from app.db.base import Base, CompanyScoped, str_enum
-from app.db.enums import RawEventStatus
+from app.db.enums import DeliveryStatus, RawEventStatus
 
 
 class RawEvent(Base, CompanyScoped):
     """Exactly what the provider sent, stored before any processing (Postgres first)."""
 
     __tablename__ = "raw_events"
-    __table_args__ = (UniqueConstraint("provider", "provider_msg_id"),)
+    __company_id_leading_index__ = True
+    # Per company: provider ids (e.g. Gmail message ids) are only unique within one account/mailbox.
+    __table_args__ = (UniqueConstraint("company_id", "provider", "provider_msg_id"),)
 
     provider: Mapped[Channel] = mapped_column(str_enum(Channel))
     provider_msg_id: Mapped[str] = mapped_column(String(255))
@@ -36,7 +39,7 @@ class MessageRow(Base, CompanyScoped):
     __tablename__ = "messages"
     __company_id_leading_index__ = True
     __table_args__ = (
-        UniqueConstraint("channel", "provider_msg_id"),
+        UniqueConstraint("company_id", "channel", "provider_msg_id"),
         Index(None, "company_id", "thread_ref"),
     )
 
@@ -49,6 +52,10 @@ class MessageRow(Base, CompanyScoped):
     sent_at: Mapped[datetime]
     text: Mapped[str] = mapped_column(Text)
     person_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("people.id"), index=True)
+    delivery_status: Mapped[DeliveryStatus | None] = mapped_column(str_enum(DeliveryStatus))
+    # Channel extras: interactive reply ids, Gmail headers/labels. Column is `meta`: `metadata` is reserved by
+    # SQLAlchemy's declarative base.
+    meta: Mapped[dict[str, Any]] = mapped_column(default=dict, server_default=sql_text("'{}'::jsonb"))
 
 
 class AttachmentRow(Base, CompanyScoped):

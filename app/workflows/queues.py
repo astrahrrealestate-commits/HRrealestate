@@ -2,7 +2,9 @@
 
 from dbos import DBOS
 
-PIPELINE_QUEUE = "pipeline"
+from app.core.workflow_names import PIPELINE_QUEUE
+
+__all__ = ["PIPELINE_QUEUE", "PIPELINE_WORKER_CONCURRENCY", "register_queues"]
 PIPELINE_WORKER_CONCURRENCY = 4  # per executor; keeps one VM from overrunning LLM rate limits
 
 

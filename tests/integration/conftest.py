@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from alembic import command
@@ -9,6 +10,9 @@ from alembic.config import Config
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 from testcontainers.community.postgres import PostgresContainer
+
+if TYPE_CHECKING:
+    from dbos import DBOSClient
 
 from app.core.settings import Settings
 from app.db.models import Company
@@ -75,3 +79,27 @@ def dbos_runtime(test_settings: Settings, migrated_engine: Engine) -> Iterator[N
     launch(test_settings, reset_for_tests=True)
     yield
     DBOS.destroy()
+
+
+@pytest.fixture
+def dbos_tables(test_settings: Settings, migrated_engine: Engine) -> None:
+    """DBOS system tables exist and are empty, but no executor runs (enqueued work just waits).
+
+    Request it BEFORE `db`: resetting the system database terminates other open connections.
+    """
+    from dbos import DBOS
+
+    from app.workflows.runtime import launch
+
+    DBOS.destroy()
+    launch(test_settings, reset_for_tests=True)
+    DBOS.destroy()
+
+
+@pytest.fixture
+def dbos_client(test_settings: Settings, dbos_tables: None) -> Iterator["DBOSClient"]:
+    from dbos import DBOSClient
+
+    client = DBOSClient(system_database_url=test_settings.dbos_database_url)
+    yield client
+    client.destroy()

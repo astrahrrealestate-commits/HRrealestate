@@ -31,11 +31,11 @@ Spec: [2026-10-05-estateos-m1-foundation-design.md](superpowers/specs/2026-10-05
 - [x] G5 `make smoke` green + whole-branch reviewer `ship`; `make cov` 145 passed / 96.06%; `make audit` no known vulnerabilities
 
 ## M2 Ingestion (branch m2-channels; plan docs/superpowers/plans/2026-10-06-m2-channels.md)
-- [x] T1 settings + prod safety; T2 storage port; T3 WhatsApp inbound; T4 WhatsApp outbound + media; T5 Gmail normalisation; T6 Gmail mailbox + push + drafts — reviewer fixes applied
+- [x] T1 settings + prod safety; T2 storage port; T3 WhatsApp inbound; T4 WhatsApp outbound + media; T5 Gmail normalisation; T6 Gmail mailbox + push + drafts; T7 migration 0002 + ingestion repository — reviewer fixes applied
 - [ ] (carried from M1) polyfactory factories in `tests/factories.py`
-- [ ] (carried from M1 review) repository base requires company_id; cross-tenant integration test (company-B person on company-A message → TenantMismatchError)
+- [x] (carried from M1 review) company_id required on every ingestion read/write; cross-tenant integration tests (T7)
 - [ ] (from T6 review) push route: resolve channel account by notice.email; unknown mailbox → 2xx, log, enqueue nothing
-- [ ] (carried from M1 review) ingest with `DBOSClient.enqueue_in_transaction` so raw_event insert + enqueue commit atomically
+- [x] (carried from M1 review) raw_event insert + DBOS enqueue in one transaction (T7, commit/rollback test)
 ## M3 Directory
 ## M4 Understanding + call log
 ## M5 Case engine

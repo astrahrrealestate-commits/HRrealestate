@@ -33,8 +33,8 @@ def test_every_table_has_uuid_pk_and_created_at_and_domain_tables_are_company_sc
 
 def test_critical_unique_constraints_present() -> None:
     t = Base.metadata.tables
-    assert ("provider", "provider_msg_id") in _uniques(t["raw_events"])
-    assert ("channel", "provider_msg_id") in _uniques(t["messages"])
+    assert ("company_id", "provider", "provider_msg_id") in _uniques(t["raw_events"])
+    assert ("company_id", "channel", "provider_msg_id") in _uniques(t["messages"])
     assert ("idempotency_key",) in _uniques(t["sends"])
     assert ("company_id", "dedupe_key") in _uniques(t["timers"])
     assert ("action_id", "draft_version") in _uniques(t["approvals"])

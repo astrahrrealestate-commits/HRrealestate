@@ -20,6 +20,16 @@ class RawEventStatus(StrEnum):
     pending = "pending"
     processed = "processed"
     failed = "failed"
+    ignored = "ignored"  # deliberately not a conversation message (e.g. Gmail DRAFT/SPAM) or a status receipt
+
+
+class DeliveryStatus(StrEnum):
+    """Outbound message delivery, moving forward only: sent < delivered < read; failed is terminal."""
+
+    sent = "sent"
+    delivered = "delivered"
+    read = "read"
+    failed = "failed"
 
 
 class LinkMethod(StrEnum):
