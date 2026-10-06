@@ -22,7 +22,7 @@ repos:
     hooks:
       - id: gitleaks
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.8.0
+    rev: 0.12.5   # keep equal to [tool.uv] required-version, CI setup-uv and docker uv stage
     hooks:
       - id: uv-lock
   - repo: https://github.com/compilerla/conventional-pre-commit

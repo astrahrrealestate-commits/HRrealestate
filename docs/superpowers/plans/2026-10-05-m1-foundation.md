@@ -785,6 +785,8 @@ def test_ready_with_real_db(pg_url: str, migrated_engine) -> None:  # type: igno
   `security` (`make audit` + gitleaks action), `image` (docker build). Triggers: push to `m*-*`
   branches and PRs to `main`. Concurrency cancel-in-progress.
 
+- [ ] **Deviation:** integration job runs `make cov` (unit + integration with coverage floor) instead of `make test-int`;
+  gitleaks runs the pinned v8.24.0 container instead of gitleaks-action (no PR-read permission/licence/comment drift).
 - [ ] **Step 1:** Validate YAML locally: `uv run pre-commit run check-yaml --all-files` → PASS.
 - [ ] **Step 2:** `act` is not required; CI runs when the branch is pushed (push needs user approval).
 - [ ] **Step 3: Commit** `ci(m1): github actions for gates, security and image build`

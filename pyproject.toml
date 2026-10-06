@@ -41,6 +41,7 @@ dev = [
 
 [tool.uv]
 package = false
+required-version = "==0.12.5"  # same uv everywhere: local, pre-commit, CI, docker
 
 # ---------------------------------------------------------------- ruff
 [tool.ruff]
