@@ -56,7 +56,9 @@ def test_missing_key(storage: ObjectStorage) -> None:
         storage.get("nope/x")
 
 
-@pytest.mark.parametrize("bad", ["", "/abs", "a/../b", "..", "a//b", "a\\b", "a/./b", "a/b/"])
+@pytest.mark.parametrize(
+    "bad", ["", "/abs", "a/../b", "..", "a//b", "a\\b", "a/./b", "a/b/", "a\x00b", "a\nb", "x" * 1025, "a/" + "y" * 256]
+)
 def test_bad_keys_rejected(storage: ObjectStorage, bad: str) -> None:
     with pytest.raises(ValueError):
         storage.put(bad, b"x", "text/plain")
@@ -70,3 +72,9 @@ def test_content_key_is_company_scoped_and_content_addressed() -> None:
     assert key == f"media/{COMPANY}/{sha[:2]}/{sha}"
     with pytest.raises(ValueError):
         content_key(COMPANY, "not-a-sha")
+
+
+def test_directory_key_is_not_found(storage: ObjectStorage) -> None:
+    storage.put("dir/file", b"x", "text/plain")
+    with pytest.raises(NotFoundError):
+        storage.get("dir")

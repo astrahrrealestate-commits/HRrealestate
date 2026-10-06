@@ -27,3 +27,15 @@ class TenantMismatchError(EstateOSError):
 
 class UnsafeConfigurationError(EstateOSError):
     """Settings that must never reach production (fake providers, local storage, missing webhook secrets)."""
+
+
+class WebhookRejectedError(EstateOSError):
+    """An inbound provider request failed verification (signature, token, OIDC). Nothing may be written."""
+
+
+class UnroutableMessageError(EstateOSError):
+    """A provider message whose sender cannot be identified (no usable phone/email). Stored, never retried."""
+
+
+class WebhookTooLargeError(WebhookRejectedError):
+    """Body above the accepted maximum. Routes answer 413 before verification; parsing raises, never drops silently."""

@@ -1,0 +1,39 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "200000000000001",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "4915550000999",
+              "phone_number_id": "100000000000001"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Tenant 001"
+                },
+                "wa_id": "4915550000001"
+              }
+            ],
+            "messages": [
+              {
+                "from": "4915550000001",
+                "id": "wamid.TEST0001",
+                "timestamp": "1759737600",
+                "type": "text",
+                "text": {
+                  "body": "Hallo, die Heizung in Whg 3 ist kaputt."
+                }
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}

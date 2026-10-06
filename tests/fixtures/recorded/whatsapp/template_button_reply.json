@@ -1,0 +1,44 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "200000000000001",
+      "changes": [
+        {
+          "field": "messages",
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "4915550000999",
+              "phone_number_id": "100000000000001"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Owner"
+                },
+                "wa_id": "4915550000100"
+              }
+            ],
+            "messages": [
+              {
+                "from": "4915550000100",
+                "id": "wamid.TEST0011",
+                "timestamp": "1759737600",
+                "type": "button",
+                "button": {
+                  "payload": "apr:01900000-0000-7000-8000-0000000000cc:ok",
+                  "text": "Freigeben"
+                },
+                "context": {
+                  "from": "4915550000999",
+                  "id": "wamid.OUT0005"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -29,8 +29,13 @@ def validate_key(key: str) -> str:
     """Relative, normalised, no traversal: every adapter (fs or s3) stores exactly what it was given."""
     if not key or key.startswith("/") or "\\" in key or key.endswith("/"):
         raise ValueError(f"invalid storage key: {key!r}")
-    if any(part in ("", ".", "..") for part in key.split("/")):
+    parts = key.split("/")
+    if any(part in ("", ".", "..") for part in parts):
         raise ValueError(f"invalid storage key: {key!r}")
+    if any(ord(ch) < 0x20 or ch == "\x7f" for ch in key):
+        raise ValueError("storage key contains control characters")
+    if len(key.encode()) > 1024 or any(len(part.encode()) > 255 for part in parts):
+        raise ValueError("storage key too long (1024 bytes total, 255 per segment)")
     return key
 
 

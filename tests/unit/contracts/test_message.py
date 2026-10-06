@@ -71,3 +71,21 @@ def test_attachment_bounds(kw: dict[str, Any]) -> None:
 def test_extra_fields_forbidden() -> None:
     with pytest.raises(ValidationError):
         Message(**BASE, sender_identity="+4915123456789", surprise=1)
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("+4919912345678", "+4919912345678"),
+        ("4919912345678", "+4919912345678"),
+        ("+49 199 1234-5678", "+4919912345678"),
+    ],
+)
+def test_unknown_range_in_known_country_accepted(raw: str, expected: str) -> None:
+    assert normalise_identity(raw) == expected
+
+
+@pytest.mark.parametrize("raw", ["1234567", "+1234567", "+999123456789", "+4901511234567", "+49123"])
+def test_implausible_international_rejected(raw: str) -> None:
+    with pytest.raises(ValueError):
+        normalise_identity(raw)

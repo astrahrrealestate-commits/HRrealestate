@@ -36,7 +36,7 @@ All ports live in `app/channels/<channel>/ports.py`; fakes in `app/channels/<cha
 | `GmailDrafts` *(sender-only)* | `create_draft(thread_id, to, subject, body) -> draft_id` | `users.drafts.create` | appends to fake mailbox DRAFT label |
 | `ObjectStorage` | `put(key, bytes, content_type) -> StoredObject`, `get(key) -> bytes` | boto3 S3 (EU) | local directory (dev) / memory (tests) |
 
-`WaEvent` = typed union of `WaMessage` (text, image, document, audio, video, interactive button/list reply,
+`WaEvent` = typed union of `WaInbound` (text, image, document, audio, video, interactive button/list reply,
 location, unsupported), `WaStatus` (sent/delivered/read/failed), `WaEcho` (Coexistence `smb_message_echoes`).
 `GmailMessage` keeps id, threadId, historyId, labelIds, internalDate, headers, MIME parts.
 

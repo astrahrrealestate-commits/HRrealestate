@@ -146,3 +146,9 @@ name = "Rules engine is pure (no I/O layers)"
 type = "forbidden"
 source_modules = ["app.pipeline.rules"]
 forbidden_modules = ["app.db", "app.llm", "app.channels", "app.storage"]
+
+# ---------------------------------------------------------------- pyright (IDE only; mypy is the gate)
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"

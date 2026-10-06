@@ -1,4 +1,8 @@
-"""S3-compatible storage (EU bucket) for production."""
+"""S3-compatible storage (EU bucket) for production.
+
+IAM needs s3:GetObject, s3:PutObject AND s3:ListBucket on the bucket: without ListBucket, S3 answers a missing key with
+403 AccessDenied instead of 404, which this adapter (correctly) does not treat as "not found".
+"""
 
 from typing import Any
 

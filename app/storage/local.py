@@ -19,15 +19,21 @@ class LocalStorage:
         path = self._path(key)
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=path.parent)  # atomic replace: readers never see a partial file
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(data)
-        Path(tmp).replace(path)
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(data)
+                fh.flush()
+                os.fsync(fh.fileno())
+            Path(tmp).replace(path)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
         return describe(key, data, content_type)
 
     def get(self, key: str) -> bytes:
         try:
             return self._path(key).read_bytes()
-        except FileNotFoundError as exc:
+        except (FileNotFoundError, IsADirectoryError) as exc:
             raise NotFoundError(key) from exc
 
     def exists(self, key: str) -> bool:

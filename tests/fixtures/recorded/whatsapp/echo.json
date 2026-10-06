@@ -1,0 +1,32 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "200000000000001",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "4915550000999",
+              "phone_number_id": "100000000000001"
+            },
+            "message_echoes": [
+              {
+                "from": "4915550000999",
+                "to": "4915550000001",
+                "id": "wamid.ECHO0001",
+                "timestamp": "1759737600",
+                "type": "text",
+                "text": {
+                  "body": "Danke, ich schicke morgen einen Handwerker."
+                }
+              }
+            ]
+          },
+          "field": "smb_message_echoes"
+        }
+      ]
+    }
+  ]
+}

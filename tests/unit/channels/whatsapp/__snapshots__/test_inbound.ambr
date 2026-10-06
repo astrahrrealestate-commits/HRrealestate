@@ -1,0 +1,266 @@
+# serializer version: 1
+# name: test_fixture_snapshot[button_reply]
+  list([
+    dict({
+      'contact_name': 'Owner',
+      'interactive_id': 'apr:01900000-0000-7000-8000-0000000000aa:ok',
+      'kind': 'interactive',
+      'media': None,
+      'new_wa_id': None,
+      'phone_number_id': '100000000000001',
+      'reply_to': 'wamid.OUT0001',
+      'sender': '4915550000100',
+      'sent_at': datetime.datetime(2025, 10, 6, 8, 0, tzinfo=datetime.timezone.utc),
+      'text': 'Freigeben',
+      'wamid': 'wamid.TEST0004',
+    }),
+  ])
+# ---
+# name: test_fixture_snapshot[document]
+  list([
+    dict({
+      'contact_name': 'Tenant 001',
+      'interactive_id': None,
+      'kind': 'document',
+      'media': dict({
+        'filename': 'abrechnung.pdf',
+        'id': 'MEDIA0003',
+        'mime_type': 'application/pdf',
+        'sha256': 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      }),
+      'new_wa_id': None,
+      'phone_number_id': '100000000000001',
+      'reply_to': None,
+      'sender': '4915550000001',
+      'sent_at': datetime.datetime(2025, 10, 6, 8, 0, tzinfo=datetime.timezone.utc),
+      'text': 'Nebenkosten',
+      'wamid': 'wamid.TEST0003',
+    }),
+  ])
+# ---
+# name: test_fixture_snapshot[echo]
+  list([
+    dict({
+      'business_number': '4915550000999',
+      'kind': 'text',
+      'media': None,
+      'phone_number_id': '100000000000001',
+      'recipient': '4915550000001',
+      'sent_at': datetime.datetime(2025, 10, 6, 8, 0, tzinfo=datetime.timezone.utc),
+      'text': 'Danke, ich schicke morgen einen Handwerker.',
+      'wamid': 'wamid.ECHO0001',
+    }),
+  ])
+# ---
+# name: test_fixture_snapshot[image_caption]
+  list([
+    dict({
+      'contact_name': 'Tenant 001',
+      'interactive_id': None,
+      'kind': 'image',
+      'media': dict({
+        'filename': None,
+        'id': 'MEDIA0002',
+        'mime_type': 'image/jpeg',
+        'sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      }),
+      'new_wa_id': None,
+      'phone_number_id': '100000000000001',
+      'reply_to': None,
+      'sender': '4915550000001',
+      'sent_at': datetime.datetime(2025, 10, 6, 8, 0, tzinfo=datetime.timezone.utc),
+      'text': 'Wasserfleck Decke',
+      'wamid': 'wamid.TEST0002',
+    }),
+  ])
+# ---
+# name: test_fixture_snapshot[list_reply]
+  list([
+    dict({
+      'contact_name': 'Owner',
+      'interactive_id': 'apr:01900000-0000-7000-8000-0000000000bb:d2',
+      'kind': 'interactive',
+      'media': None,
+      'new_wa_id': None,
+      'phone_number_id': '100000000000001',
+      'reply_to': 'wamid.OUT0002',
+      'sender': '4915550000100',
+      'sent_at': datetime.datetime(2025, 10, 6, 8, 0, tzinfo=datetime.timezone.utc),
+      'text': 'Entwurf 2',
+      'wamid': 'wamid.TEST0005',
+    }),
+  ])
+# ---
+# name: test_fixture_snapshot[multi_message]
+  list([
+    dict({
+      'contact_name': 'Tenant 001',
+      'interactive_id': None,
+      'kind': 'text',
+      'media': None,
+      'new_wa_id': None,
+      'phone_number_id': '100000000000001',
+      'reply_to': None,
+      'sender': '4915550000001',
+      'sent_at': datetime.datetime(2025, 10, 6, 8, 0, tzinfo=datetime.timezone.utc),
+      'text': 'Erste Nachricht',
+      'wamid': 'wamid.TEST0008',
+    }),
+    dict({
+      'contact_name': 'Tenant 001',
+      'interactive_id': None,
+      'kind': 'text',
+      'media': None,
+      'new_wa_id': None,
+      'phone_number_id': '100000000000001',
+      'reply_to': None,
+      'sender': '4915550000001',
+      'sent_at': datetime.datetime(2025, 10, 6, 8, 0, tzinfo=datetime.timezone.utc),
+      'text': 'Zweite Nachricht',
+      'wamid': 'wamid.TEST0009',
+    }),
+    dict({
+      'contact_name': 'Tenant 001',
+      'interactive_id': None,
+      'kind': 'location',
+      'media': None,
+      'new_wa_id': None,
+      'phone_number_id': '100000000000001',
+      'reply_to': None,
+      'sender': '4915550000001',
+      'sent_at': datetime.datetime(2025, 10, 6, 8, 0, tzinfo=datetime.timezone.utc),
+      'text': 'Location: Teststraße 1, 10115 Berlin (52.52, 13.405)',
+      'wamid': 'wamid.TEST0010',
+    }),
+    dict({
+      'at': datetime.datetime(2025, 10, 6, 8, 0, tzinfo=datetime.timezone.utc),
+      'error_codes': list([
+      ]),
+      'phone_number_id': '100000000000001',
+      'recipient': '4915550000001',
+      'status': 'sent',
+      'wamid': 'wamid.OUT0004',
+    }),
+    dict({
+      'at': datetime.datetime(2025, 10, 6, 8, 0, tzinfo=datetime.timezone.utc),
+      'error_codes': list([
+      ]),
+      'phone_number_id': '100000000000001',
+      'recipient': '4915550000001',
+      'status': 'read',
+      'wamid': 'wamid.OUT0004',
+    }),
+  ])
+# ---
+# name: test_fixture_snapshot[reaction]
+  list([
+    dict({
+      'contact_name': 'Tenant 001',
+      'interactive_id': None,
+      'kind': 'reaction',
+      'media': None,
+      'new_wa_id': None,
+      'phone_number_id': '100000000000001',
+      'reply_to': None,
+      'sender': '4915550000001',
+      'sent_at': datetime.datetime(2025, 10, 6, 8, 0, tzinfo=datetime.timezone.utc),
+      'text': 'Reaction 👍 to wamid.ECHO0001',
+      'wamid': 'wamid.TEST0006',
+    }),
+  ])
+# ---
+# name: test_fixture_snapshot[status_delivered]
+  list([
+    dict({
+      'at': datetime.datetime(2025, 10, 6, 8, 0, tzinfo=datetime.timezone.utc),
+      'error_codes': list([
+      ]),
+      'phone_number_id': '100000000000001',
+      'recipient': '4915550000100',
+      'status': 'delivered',
+      'wamid': 'wamid.OUT0001',
+    }),
+  ])
+# ---
+# name: test_fixture_snapshot[status_failed]
+  list([
+    dict({
+      'at': datetime.datetime(2025, 10, 6, 8, 0, tzinfo=datetime.timezone.utc),
+      'error_codes': list([
+        131026,
+      ]),
+      'phone_number_id': '100000000000001',
+      'recipient': '4915550000100',
+      'status': 'failed',
+      'wamid': 'wamid.OUT0003',
+    }),
+  ])
+# ---
+# name: test_fixture_snapshot[system_number_change]
+  list([
+    dict({
+      'contact_name': None,
+      'interactive_id': None,
+      'kind': 'system',
+      'media': None,
+      'new_wa_id': '4915550000002',
+      'phone_number_id': '100000000000001',
+      'reply_to': None,
+      'sender': '4915550000001',
+      'sent_at': datetime.datetime(2025, 10, 6, 8, 0, tzinfo=datetime.timezone.utc),
+      'text': 'Tenant 001 changed their phone number to a new number',
+      'wamid': 'wamid.TEST0012',
+    }),
+  ])
+# ---
+# name: test_fixture_snapshot[template_button_reply]
+  list([
+    dict({
+      'contact_name': 'Owner',
+      'interactive_id': 'apr:01900000-0000-7000-8000-0000000000cc:ok',
+      'kind': 'button',
+      'media': None,
+      'new_wa_id': None,
+      'phone_number_id': '100000000000001',
+      'reply_to': 'wamid.OUT0005',
+      'sender': '4915550000100',
+      'sent_at': datetime.datetime(2025, 10, 6, 8, 0, tzinfo=datetime.timezone.utc),
+      'text': 'Freigeben',
+      'wamid': 'wamid.TEST0011',
+    }),
+  ])
+# ---
+# name: test_fixture_snapshot[text]
+  list([
+    dict({
+      'contact_name': 'Tenant 001',
+      'interactive_id': None,
+      'kind': 'text',
+      'media': None,
+      'new_wa_id': None,
+      'phone_number_id': '100000000000001',
+      'reply_to': None,
+      'sender': '4915550000001',
+      'sent_at': datetime.datetime(2025, 10, 6, 8, 0, tzinfo=datetime.timezone.utc),
+      'text': 'Hallo, die Heizung in Whg 3 ist kaputt.',
+      'wamid': 'wamid.TEST0001',
+    }),
+  ])
+# ---
+# name: test_fixture_snapshot[unsupported]
+  list([
+    dict({
+      'contact_name': 'Tenant 001',
+      'interactive_id': None,
+      'kind': 'unsupported',
+      'media': None,
+      'new_wa_id': None,
+      'phone_number_id': '100000000000001',
+      'reply_to': None,
+      'sender': '4915550000001',
+      'sent_at': datetime.datetime(2025, 10, 6, 8, 0, tzinfo=datetime.timezone.utc),
+      'text': '[unsupported message]',
+      'wamid': 'wamid.TEST0007',
+    }),
+  ])
+# ---

@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     storage_local_dir: Path = Path(".data/storage")
     dev_signing_dir: Path = Path(".data/dev-keys")  # simulator keys for fake Pub/Sub tokens
 
+    s3_region: str = "eu-central-1"
     s3_endpoint_url: str | None = None
     s3_bucket: str | None = None
     s3_access_key_id: str | None = None

@@ -1,5 +1,6 @@
 """`Message`: the one normalised format for inbound/outbound traffic on every channel."""
 
+import re
 from typing import Annotated
 from uuid import UUID
 
@@ -8,6 +9,9 @@ from email_validator import EmailNotValidError, validate_email
 from pydantic import AfterValidator, AwareDatetime, Field, StringConstraints
 
 from app.contracts.common import Channel, Contract, Direction, NonBlankStr
+
+_FORMATTING = re.compile(r"[\s\-().]")
+_E164 = re.compile(r"\+[1-9][0-9]{6,14}")
 
 
 def normalise_identity(value: str, default_region: str = "DE") -> str:
@@ -26,11 +30,25 @@ def normalise_identity(value: str, default_region: str = "DE") -> str:
             raise ValueError(f"invalid email identity: {exc}") from exc
     try:
         number = phonenumbers.parse(raw, default_region)
-    except phonenumbers.NumberParseException as exc:
-        raise ValueError(f"invalid phone identity: {exc}") from exc
-    if not phonenumbers.is_valid_number(number):
-        raise ValueError("invalid phone identity: not a valid number")
-    return phonenumbers.format_number(number, phonenumbers.PhoneNumberFormat.E164)
+        if phonenumbers.is_valid_number(number):
+            return phonenumbers.format_number(number, phonenumbers.PhoneNumberFormat.E164)
+    except phonenumbers.NumberParseException:
+        pass
+    # Provider ids (WhatsApp wa_id) are authoritative: a well-formed international number that phonenumbers'
+    # metadata does not know yet (new ranges, unassigned codes) is still accepted as E.164.
+    cleaned = _FORMATTING.sub("", raw)
+    if _E164.fullmatch(cleaned) and _plausible_international(cleaned[1:]):
+        return cleaned
+    raise ValueError("invalid phone identity: not a valid number")
+
+
+def _plausible_international(digits: str) -> bool:
+    """Assigned country code, no trunk '0' after it, ≥7 national digits. Country codes are prefix-free."""
+    for size in (1, 2, 3):
+        country, national = digits[:size], digits[size:]
+        if phonenumbers.region_code_for_country_code(int(country)) != "ZZ":
+            return not national.startswith("0") and len(national) >= 7
+    return False
 
 
 Identity = Annotated[str, AfterValidator(normalise_identity)]

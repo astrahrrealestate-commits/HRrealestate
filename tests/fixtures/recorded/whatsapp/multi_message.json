@@ -1,0 +1,74 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "200000000000001",
+      "changes": [
+        {
+          "field": "messages",
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "4915550000999",
+              "phone_number_id": "100000000000001"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Tenant 001"
+                },
+                "wa_id": "4915550000001"
+              }
+            ],
+            "messages": [
+              {
+                "from": "4915550000001",
+                "id": "wamid.TEST0008",
+                "timestamp": "1759737600",
+                "type": "text",
+                "text": {
+                  "body": "Erste Nachricht"
+                }
+              },
+              {
+                "from": "4915550000001",
+                "id": "wamid.TEST0009",
+                "timestamp": "1759737600",
+                "type": "text",
+                "text": {
+                  "body": "Zweite Nachricht"
+                }
+              },
+              {
+                "from": "4915550000001",
+                "id": "wamid.TEST0010",
+                "timestamp": "1759737600",
+                "type": "location",
+                "location": {
+                  "latitude": 52.52,
+                  "longitude": 13.405,
+                  "name": "Teststraße 1",
+                  "address": "10115 Berlin"
+                }
+              }
+            ],
+            "statuses": [
+              {
+                "id": "wamid.OUT0004",
+                "status": "sent",
+                "timestamp": "1759737600",
+                "recipient_id": "4915550000001"
+              },
+              {
+                "id": "wamid.OUT0004",
+                "status": "read",
+                "timestamp": "1759737600",
+                "recipient_id": "4915550000001"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
