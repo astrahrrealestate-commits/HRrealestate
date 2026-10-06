@@ -66,8 +66,8 @@ type:
 boundaries: ## import-linter architecture contracts
 	$(UV) lint-imports
 
-test-unit:
-	$(UV) pytest tests/unit -q -n auto
+test-unit: ## unit + adapter contract tests (fakes; no Docker)
+	$(UV) pytest tests/unit tests/contract -q -n auto
 
 test-int: ## integration: testcontainers Postgres + DBOS (needs Docker)
 	$(UV) pytest tests/integration -q

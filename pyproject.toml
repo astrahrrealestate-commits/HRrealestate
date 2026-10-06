@@ -81,7 +81,7 @@ explicit_package_bases = true
 exclude = ["app/db/alembic/versions/"]
 
 [[tool.mypy.overrides]]
-module = ["testcontainers.*", "phonenumbers.*", "polyfactory.*"]
+module = ["testcontainers.*", "phonenumbers.*", "polyfactory.*", "boto3.*", "botocore.*", "moto.*", "googleapiclient.*", "mailparser_reply.*", "inscriptis.*"]
 ignore_missing_imports = true
 
 [tool.pydantic-mypy]
