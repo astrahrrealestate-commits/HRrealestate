@@ -1,0 +1,7 @@
+# Allowlist: only what the image needs. Secrets and dev files can never reach the build context.
+*
+!app/
+!alembic.ini
+!pyproject.toml
+!uv.lock
+**/__pycache__

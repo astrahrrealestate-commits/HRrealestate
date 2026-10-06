@@ -1,0 +1,61 @@
+# Dev stack: `make up` / `make smoke` / `make down`. Prod (Phase 1) uses the same image on one EU VM.
+name: estateos
+
+x-app: &app
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+  image: estateos:dev
+  environment: &app-env
+    ENV: dev
+    DATABASE_URL: postgresql+psycopg://estateos:estateos@postgres:5432/estateos
+    SENTRY_DSN: ""
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: estateos
+      POSTGRES_PASSWORD: estateos
+      POSTGRES_DB: estateos
+    ports: ["127.0.0.1:5433:5432"]  # loopback only: dev credentials
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U estateos -d estateos"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    <<: *app
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  api:
+    <<: *app
+    command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+    ports: ["127.0.0.1:${API_PORT:-8000}:8000"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "app.worker"]
+    environment:
+      <<: *app-env
+      DBOS__VMID: worker-0  # exactly one worker in Phase 1; each replica needs a unique stable id (ADR 0001)
+    stop_grace_period: 40s  # > DBOS.destroy(workflow_completion_timeout_sec=20) drain
+    deploy:
+      replicas: 1
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+volumes:
+  pgdata:
