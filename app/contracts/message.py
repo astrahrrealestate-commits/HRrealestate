@@ -25,7 +25,8 @@ def normalise_identity(value: str, default_region: str = "DE") -> str:
         raw = f"+{raw}"
     if "@" in raw:
         try:
-            return validate_email(raw, check_deliverability=False).normalized.lower()
+            # Identity, not deliverability: special-use domains (.test, used by redacted fixtures) are accepted.
+            return validate_email(raw, check_deliverability=False, test_environment=True).normalized.lower()
         except EmailNotValidError as exc:
             raise ValueError(f"invalid email identity: {exc}") from exc
     try:

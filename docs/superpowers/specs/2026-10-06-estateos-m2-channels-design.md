@@ -38,7 +38,9 @@ All ports live in `app/channels/<channel>/ports.py`; fakes in `app/channels/<cha
 
 `WaEvent` = typed union of `WaInbound` (text, image, document, audio, video, interactive button/list reply,
 location, unsupported), `WaStatus` (sent/delivered/read/failed), `WaEcho` (Coexistence `smb_message_echoes`).
-`GmailMessage` keeps id, threadId, historyId, labelIds, internalDate, headers, MIME parts.
+`GmailMessage` = `users.messages.get` with **`format=raw`** (amended after Task 5 review): id, threadId, historyId,
+labelIds, internalDate from the API; content as raw RFC 822 bytes parsed with stdlib `email` (attachments inline, no
+`attachments.get` calls). Only the `SENT` label makes a message outbound; DRAFT/SPAM/TRASH/CHAT are ignored.
 
 **Import-linter additions:** `app.channels.*.outbound` / `GmailDrafts` implementations importable only by
 `app.sender` (existing contract, extended to `app.channels.gmail.drafts`); `app.dev` (simulator) importable by nothing

@@ -1,0 +1,523 @@
+# serializer version: 1
+# name: test_fixture_snapshot[apple_inline_photo]
+  dict({
+    'attachments': list([
+      tuple(
+        'IMG_0002.jpeg',
+        'image/jpeg',
+        14,
+        '5de486057dad',
+        False,
+      ),
+    ]),
+    'direction': 'inbound',
+    'meta': dict({
+      'from': 'tenant-001@example.test',
+      'from_name': 'Tenant 001',
+      'labels': list([
+        'INBOX',
+        'UNREAD',
+      ]),
+      'message_id': '<msg-0017@example.test>',
+      'quote_stripped': False,
+      'subject': 'Foto',
+      'to': list([
+        'hausverwaltung@example.test',
+      ]),
+      'type': 'email',
+    }),
+    'sender': 'tenant-001@example.test',
+    'text': 'Hier das Foto.',
+  })
+# ---
+# name: test_fixture_snapshot[apple_split]
+  dict({
+    'attachments': list([
+      tuple(
+        'IMG_0001.jpeg',
+        'image/jpeg',
+        14,
+        '5de486057dad',
+        False,
+      ),
+    ]),
+    'direction': 'inbound',
+    'meta': dict({
+      'from': 'tenant-001@example.test',
+      'from_name': 'Tenant 001',
+      'labels': list([
+        'INBOX',
+        'UNREAD',
+      ]),
+      'message_id': '<msg-0015@example.test>',
+      'quote_stripped': False,
+      'subject': 'Fenster',
+      'to': list([
+        'hausverwaltung@example.test',
+      ]),
+      'type': 'email',
+    }),
+    'sender': 'tenant-001@example.test',
+    'text': '''
+      Das Fenster klemmt.
+      
+      Und bitte auch das Fenster im Bad reparieren!
+    ''',
+  })
+# ---
+# name: test_fixture_snapshot[attachment_only]
+  dict({
+    'attachments': list([
+      tuple(
+        'kuendigung.pdf',
+        'application/pdf',
+        44,
+        '9b5899061831',
+        False,
+      ),
+    ]),
+    'direction': 'inbound',
+    'meta': dict({
+      'from': 'tenant-001@example.test',
+      'from_name': 'Tenant 001',
+      'labels': list([
+        'INBOX',
+        'UNREAD',
+      ]),
+      'message_id': '<msg-0008@example.test>',
+      'quote_stripped': False,
+      'to': list([
+        'hausverwaltung@example.test',
+      ]),
+      'type': 'email',
+    }),
+    'sender': 'tenant-001@example.test',
+    'text': '[no text — 1 attachment: kuendigung.pdf]',
+  })
+# ---
+# name: test_fixture_snapshot[calendar_invite]
+  dict({
+    'attachments': list([
+      tuple(
+        'part-0.ics',
+        'text/calendar',
+        89,
+        'c8131a946624',
+        False,
+      ),
+    ]),
+    'direction': 'inbound',
+    'meta': dict({
+      'from': 'tenant-001@example.test',
+      'from_name': 'Tenant 001',
+      'labels': list([
+        'INBOX',
+        'UNREAD',
+      ]),
+      'message_id': '<msg-0016@example.test>',
+      'quote_stripped': False,
+      'subject': 'Termin Ablesung',
+      'to': list([
+        'hausverwaltung@example.test',
+      ]),
+      'type': 'email',
+    }),
+    'sender': 'tenant-001@example.test',
+    'text': '[no text — 1 attachment: part-0.ics]',
+  })
+# ---
+# name: test_fixture_snapshot[forged_from_self]
+  dict({
+    'attachments': list([
+    ]),
+    'direction': 'inbound',
+    'meta': dict({
+      'from': 'hausverwaltung@example.test',
+      'from_name': 'Hausverwaltung',
+      'from_self_unsent': True,
+      'labels': list([
+        'INBOX',
+        'UNREAD',
+      ]),
+      'message_id': '<msg-0020@example.test>',
+      'quote_stripped': False,
+      'subject': 'Mietminderung genehmigt',
+      'to': list([
+        'hausverwaltung@example.test',
+      ]),
+      'type': 'email',
+    }),
+    'sender': 'hausverwaltung@example.test',
+    'text': 'Hiermit genehmige ich 50% Mietminderung.',
+  })
+# ---
+# name: test_fixture_snapshot[german_forward]
+  dict({
+    'attachments': list([
+    ]),
+    'direction': 'inbound',
+    'meta': dict({
+      'from': 'tenant-001@example.test',
+      'from_name': 'Tenant 001',
+      'labels': list([
+        'INBOX',
+        'UNREAD',
+      ]),
+      'message_id': '<msg-0012@example.test>',
+      'quote_stripped': False,
+      'subject': 'WG: Lärm',
+      'to': list([
+        'hausverwaltung@example.test',
+      ]),
+      'type': 'email',
+    }),
+    'sender': 'tenant-001@example.test',
+    'text': '''
+      Zur Info.
+      
+      -------- Weitergeleitete Nachricht --------
+      Betreff: Lärm
+      Von: Nachbar <nachbar@example.test>
+      
+      Jeden Abend Musik bis 2 Uhr.
+    ''',
+  })
+# ---
+# name: test_fixture_snapshot[german_quote]
+  dict({
+    'attachments': list([
+    ]),
+    'direction': 'inbound',
+    'meta': dict({
+      'from': 'tenant-001@example.test',
+      'from_name': 'Tenant 001',
+      'full_text': '''
+        Der Handwerker war noch nicht da.
+        
+        Am 05.10.2026 um 09:12 schrieb Hausverwaltung <hausverwaltung@example.test>:
+        > Wir schicken morgen jemanden.
+        > Gruß
+      ''',
+      'in_reply_to': '<msg-0099@example.test>',
+      'labels': list([
+        'INBOX',
+        'UNREAD',
+      ]),
+      'message_id': '<msg-0005@example.test>',
+      'quote_stripped': True,
+      'references': '<msg-0099@example.test>',
+      'subject': 'Re: Heizung kaputt',
+      'to': list([
+        'hausverwaltung@example.test',
+      ]),
+      'type': 'email',
+    }),
+    'sender': 'tenant-001@example.test',
+    'text': 'Der Handwerker war noch nicht da.',
+  })
+# ---
+# name: test_fixture_snapshot[gmail_forward]
+  dict({
+    'attachments': list([
+    ]),
+    'direction': 'inbound',
+    'meta': dict({
+      'from': 'hausverwaltung@example.test',
+      'from_name': 'Hausverwaltung',
+      'from_self_unsent': True,
+      'labels': list([
+        'INBOX',
+        'UNREAD',
+      ]),
+      'message_id': '<msg-0011@example.test>',
+      'quote_stripped': False,
+      'subject': 'Fwd: Mieterhöhung',
+      'to': list([
+        'hausverwaltung@example.test',
+      ]),
+      'type': 'email',
+    }),
+    'sender': 'hausverwaltung@example.test',
+    'text': '''
+      FYI, bitte prüfen.
+      
+      ---------- Forwarded message ---------
+      From: Tenant 002 <tenant-002@example.test>
+      Date: Mon, 5 Oct 2026
+      Subject: Mieterhöhung
+      
+      Ich widerspreche der Mieterhöhung.
+    ''',
+  })
+# ---
+# name: test_fixture_snapshot[html_only]
+  dict({
+    'attachments': list([
+    ]),
+    'direction': 'inbound',
+    'meta': dict({
+      'from': 'tenant-001@example.test',
+      'from_name': 'Tenant 001',
+      'labels': list([
+        'INBOX',
+        'UNREAD',
+      ]),
+      'message_id': '<msg-0002@example.test>',
+      'quote_stripped': False,
+      'subject': 'Wasserschaden',
+      'to': list([
+        'hausverwaltung@example.test',
+      ]),
+      'type': 'email',
+    }),
+    'sender': 'tenant-001@example.test',
+    'text': '''
+      Hallo,
+      
+      Wasser tropft von der Decke.
+    ''',
+  })
+# ---
+# name: test_fixture_snapshot[inline_image]
+  dict({
+    'attachments': list([
+      tuple(
+        'schimmel.png',
+        'image/png',
+        17,
+        '0494fe5a6c13',
+        True,
+      ),
+    ]),
+    'direction': 'inbound',
+    'meta': dict({
+      'from': 'tenant-001@example.test',
+      'from_name': 'Tenant 001',
+      'labels': list([
+        'INBOX',
+        'UNREAD',
+      ]),
+      'message_id': '<msg-0007@example.test>',
+      'quote_stripped': False,
+      'subject': 'Foto Schimmel',
+      'to': list([
+        'hausverwaltung@example.test',
+      ]),
+      'type': 'email',
+    }),
+    'sender': 'tenant-001@example.test',
+    'text': 'Siehe Foto unten.',
+  })
+# ---
+# name: test_fixture_snapshot[latin1_qp]
+  dict({
+    'attachments': list([
+    ]),
+    'direction': 'inbound',
+    'meta': dict({
+      'from': 'tenant-001@example.test',
+      'from_name': 'Tenant 001',
+      'labels': list([
+        'INBOX',
+        'UNREAD',
+      ]),
+      'message_id': '<msg-0004@example.test>',
+      'quote_stripped': False,
+      'subject': 'Schlüssel',
+      'to': list([
+        'hausverwaltung@example.test',
+      ]),
+      'type': 'email',
+    }),
+    'sender': 'tenant-001@example.test',
+    'text': 'Der Schlüssel für die Garage fehlt. Grüße aus Köln',
+  })
+# ---
+# name: test_fixture_snapshot[multipart_alt_mixed]
+  dict({
+    'attachments': list([
+      tuple(
+        'abrechnung.pdf',
+        'application/pdf',
+        44,
+        '9b5899061831',
+        False,
+      ),
+    ]),
+    'direction': 'inbound',
+    'meta': dict({
+      'from': 'tenant-001@example.test',
+      'from_name': 'Tenant 001',
+      'labels': list([
+        'INBOX',
+        'UNREAD',
+      ]),
+      'message_id': '<msg-0003@example.test>',
+      'quote_stripped': False,
+      'subject': 'Nebenkosten Frage',
+      'to': list([
+        'hausverwaltung@example.test',
+      ]),
+      'type': 'email',
+    }),
+    'sender': 'tenant-001@example.test',
+    'text': 'Bitte prüfen Sie die Abrechnung im Anhang.',
+  })
+# ---
+# name: test_fixture_snapshot[non_reply_with_von]
+  dict({
+    'attachments': list([
+    ]),
+    'direction': 'inbound',
+    'meta': dict({
+      'from': 'tenant-001@example.test',
+      'from_name': 'Tenant 001',
+      'labels': list([
+        'INBOX',
+        'UNREAD',
+      ]),
+      'message_id': '<msg-0021@example.test>',
+      'quote_stripped': False,
+      'subject': 'Sprechzeiten',
+      'to': list([
+        'hausverwaltung@example.test',
+      ]),
+      'type': 'email',
+    }),
+    'sender': 'tenant-001@example.test',
+    'text': '''
+      Hallo,
+      wann sind Sie erreichbar?
+      Von: Montag bis Freitag geht es bei mir.
+      Gesendet: per Handy
+    ''',
+  })
+# ---
+# name: test_fixture_snapshot[outlook_quote]
+  dict({
+    'attachments': list([
+    ]),
+    'direction': 'inbound',
+    'meta': dict({
+      'from': 'tenant-001@example.test',
+      'from_name': 'Tenant 001',
+      'full_text': '''
+        Danke, passt so.
+        
+        Von: Hausverwaltung <hausverwaltung@example.test>
+        Gesendet: Montag, 5. Oktober 2026 09:12
+        An: Tenant 001 <tenant-001@example.test>
+        Betreff: Heizung
+        
+        Wir schicken jemanden.
+      ''',
+      'labels': list([
+        'INBOX',
+        'UNREAD',
+      ]),
+      'message_id': '<msg-0006@example.test>',
+      'quote_stripped': True,
+      'subject': 'AW: Heizung',
+      'to': list([
+        'hausverwaltung@example.test',
+      ]),
+      'type': 'email',
+    }),
+    'sender': 'tenant-001@example.test',
+    'text': 'Danke, passt so.',
+  })
+# ---
+# name: test_fixture_snapshot[plain]
+  dict({
+    'attachments': list([
+    ]),
+    'direction': 'inbound',
+    'meta': dict({
+      'from': 'tenant-001@example.test',
+      'from_name': 'Tenant 001',
+      'labels': list([
+        'INBOX',
+        'UNREAD',
+      ]),
+      'message_id': '<msg-0001@example.test>',
+      'quote_stripped': False,
+      'subject': 'Heizung kaputt',
+      'to': list([
+        'hausverwaltung@example.test',
+      ]),
+      'type': 'email',
+    }),
+    'sender': 'tenant-001@example.test',
+    'text': '''
+      Hallo,
+      die Heizung in Whg 3 ist seit gestern kalt.
+      
+      Viele Grüße
+      Tenant 001
+    ''',
+  })
+# ---
+# name: test_fixture_snapshot[rfc822_attachment]
+  dict({
+    'attachments': list([
+      tuple(
+        'forwarded.eml',
+        'message/rfc822',
+        681,
+        '44dd5f0411f7',
+        False,
+      ),
+    ]),
+    'direction': 'inbound',
+    'meta': dict({
+      'from': 'tenant-001@example.test',
+      'from_name': 'Tenant 001',
+      'labels': list([
+        'INBOX',
+        'UNREAD',
+      ]),
+      'message_id': '<msg-0014@example.test>',
+      'quote_stripped': False,
+      'subject': 'Fwd: Wasser im Keller',
+      'to': list([
+        'hausverwaltung@example.test',
+      ]),
+      'type': 'email',
+    }),
+    'sender': 'tenant-001@example.test',
+    'text': '''
+      Siehe weitergeleitete Mail.
+      
+      ---------- Forwarded message ----------
+      From: Contractor <contractor@example.test>
+      Subject: Wasser im Keller
+      
+      Keller steht unter Wasser, komme morgen.
+    ''',
+  })
+# ---
+# name: test_fixture_snapshot[sent_by_owner]
+  dict({
+    'attachments': list([
+    ]),
+    'direction': 'outbound',
+    'meta': dict({
+      'from': 'hausverwaltung@example.test',
+      'from_name': 'Hausverwaltung',
+      'in_reply_to': '<msg-0001@example.test>',
+      'labels': list([
+        'SENT',
+      ]),
+      'message_id': '<msg-0009@example.test>',
+      'quote_stripped': False,
+      'references': '<msg-0001@example.test>',
+      'subject': 'Re: Heizung kaputt',
+      'to': list([
+        'tenant-001@example.test',
+      ]),
+      'type': 'email',
+    }),
+    'sender': 'hausverwaltung@example.test',
+    'text': 'Wir schicken morgen einen Handwerker.',
+  })
+# ---

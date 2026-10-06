@@ -89,3 +89,12 @@ def test_unknown_range_in_known_country_accepted(raw: str, expected: str) -> Non
 def test_implausible_international_rejected(raw: str) -> None:
     with pytest.raises(ValueError):
         normalise_identity(raw)
+
+
+@pytest.mark.parametrize(("raw", "ok"), [("x@foo.test", True), ("x@foo.invalid", False), ("x@foo.local", False)])
+def test_email_special_use_domains(raw: str, ok: bool) -> None:
+    if ok:
+        assert normalise_identity(raw) == raw
+    else:
+        with pytest.raises(ValueError):
+            normalise_identity(raw)

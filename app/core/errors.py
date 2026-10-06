@@ -39,3 +39,10 @@ class UnroutableMessageError(EstateOSError):
 
 class WebhookTooLargeError(WebhookRejectedError):
     """Body above the accepted maximum. Routes answer 413 before verification; parsing raises, never drops silently."""
+
+
+class IgnoredMessageError(EstateOSError):
+    """A provider item that is deliberately not a conversation message (Gmail DRAFT/SPAM/TRASH/CHAT).
+
+    Stored as a raw event, never processed further.
+    """
