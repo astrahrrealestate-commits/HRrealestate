@@ -68,7 +68,8 @@ def test_factory_without_arguments_reads_environment(monkeypatch: pytest.MonkeyP
         get_settings.cache_clear()
 
 
-def test_prod_hides_docs_and_openapi() -> None:
+def test_prod_hides_docs_and_openapi(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WHATSAPP_MEDIA_TOKENS", '{"100000000000001": "k"}')
     prod = Settings(
         database_url="postgresql+psycopg://u:p@localhost:1/db",
         env="prod",
@@ -78,6 +79,7 @@ def test_prod_hides_docs_and_openapi() -> None:
         whatsapp_app_secret="s",
         whatsapp_verify_token="t",
         gmail_pubsub_audience="aud",
+        whatsapp_api_base_url="https://waba-v2.360dialog.io",
         _env_file=None,
     )  # type: ignore[call-arg]
     with TestClient(create_app(prod, engine=MagicMock())) as client:

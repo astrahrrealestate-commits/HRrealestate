@@ -28,3 +28,14 @@ webhook parsing is coupled to its handler/server machinery. Replacement, both sm
 - outbound: pure Cloud API JSON builders + one `httpx` transport configured per provider (base URL, auth header,
   messages path). Meta direct and 360dialog differ only in configuration.
 The adapter boundary is unchanged; provider choice is `WHATSAPP_PROVIDER`.
+
+**Media credentials (M2 Task 4 review).** Inbound media download needs a provider credential that can also send
+(360dialog API keys are per number; Meta media needs the messaging scope). It therefore lives in
+`app/channels/whatsapp/media_settings.py` (`WHATSAPP_MEDIA_TOKENS`, keyed by phone_number_id), readable only by
+`app.channels.registry` (import-linter + edit guard), never in the global `Settings`. Residual risk accepted: a module
+able to read that settings object could send; the boundary is code-level, enforced in G1, pre-commit and CI.
+
+**Send outcome semantics.** Cloud API /messages has no idempotency key. `WhatsAppSendError.maybe_sent` marks failures
+after the request may have reached the provider (read timeouts, resets, 5xx, malformed 2xx); those are never retried
+automatically — the sender (M7) records them as unknown. `retryable` is true only for definitely-not-sent failures
+(connect errors, 429 / throttling codes).

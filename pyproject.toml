@@ -135,11 +135,32 @@ layers = [
 name = "Send isolation: only app.sender touches outbound adapters and send credentials"
 type = "forbidden"
 source_modules = [
-    "app.main", "app.worker", "app.api", "app.workflows", "app.pipeline", "app.owner", "app.ingestion",
-    "app.directory", "app.outcomes", "app.db", "app.llm", "app.storage", "app.contracts", "app.core",
-    "app.channels.whatsapp.inbound", "app.channels.gmail.inbound",
+    "app", "app.*", "app.channels", "app.channels.*", "app.channels.whatsapp", "app.channels.whatsapp.*",
+    "app.channels.gmail", "app.channels.gmail.*",
 ]
-forbidden_modules = ["app.channels.whatsapp.outbound", "app.channels.gmail.outbound", "app.sender.settings"]
+forbidden_modules = [
+    "app.channels.whatsapp.outbound", "app.channels.gmail.outbound", "app.channels.gmail.drafts",
+    "app.sender.settings", "app.sender.whatsapp",
+]
+ignore_imports = [
+    "app.sender.** -> app.channels.whatsapp.outbound",
+    "app.sender.** -> app.channels.gmail.drafts",
+    "app.sender.** -> app.sender.settings",
+    "app.sender.** -> app.sender.whatsapp",
+]
+allow_indirect_imports = false
+unmatched_ignore_imports_alerting = "warn"
+
+[[tool.importlinter.contracts]]
+name = "Media credentials: only the channel registry reads them"
+type = "forbidden"
+source_modules = [
+    "app", "app.*", "app.channels", "app.channels.*", "app.channels.whatsapp", "app.channels.whatsapp.*",
+    "app.channels.gmail", "app.channels.gmail.*",
+]
+forbidden_modules = ["app.channels.whatsapp.media_settings"]
+ignore_imports = ["app.channels.registry -> app.channels.whatsapp.media_settings"]
+allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
 name = "Rules engine is pure (no I/O layers)"

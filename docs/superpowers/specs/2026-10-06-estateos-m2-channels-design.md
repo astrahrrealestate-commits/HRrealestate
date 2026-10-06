@@ -29,8 +29,8 @@ All ports live in `app/channels/<channel>/ports.py`; fakes in `app/channels/<cha
 | Port | Methods (sync) | Real | Fake |
 |---|---|---|---|
 | `WhatsAppWebhook` | `verify_handshake(mode, token, challenge) -> str`, `verify_signature(body: bytes, header: str) -> None`, `parse(body: bytes) -> list[WaEvent]` | pywa types + HMAC-SHA256 (`X-Hub-Signature-256`) | same code; app secret from test settings |
-| `WhatsAppMedia` | `download(media_id) -> MediaBlob` | pywa `get_media_url` + download | serves fixture bytes by id |
-| `WhatsAppOutbound` *(sender-only)* | `send_text`, `send_buttons(≤3, title ≤20)`, `send_list`, `send_template` → `provider_msg_id` | pywa client (Cloud API or 360dialog base URL) | records to fake outbox (in-memory + optional DB-less JSON log) |
+| `WhatsAppMedia` | `download(media_id) -> MediaBlob` | httpx two-step download, streamed, capped, sha256-checked; credentials per phone number from `media_settings` | `FakeWhatsAppMedia` (same module) |
+| `WhatsAppOutbound` *(sender-only)* | `send(payload) -> wamid`; payloads from pure builders `payloads.text/buttons/list_menu/template` (owner module renders `ButtonId`s) | httpx transport per provider (Meta / 360dialog) | `FakeWhatsAppOutbound` records sends (same module) |
 | `GmailPushVerifier` | `verify(authorization_header, body) -> PushNotice` (OIDC JWT: issuer, audience, email) | google-auth `id_token.verify_oauth2_token` against Google certs | same verification against a local test RSA key + local certs |
 | `GmailMailbox` | `history_since(history_id) -> HistoryPage`, `get_message(id) -> GmailMessage`, `watch(topic) -> WatchResult`, `profile() -> history_id` | google-api-python-client | in-memory mailbox emitting real Gmail API JSON (ids, threadIds, historyIds, labelIds, MIME payload) |
 | `GmailDrafts` *(sender-only)* | `create_draft(thread_id, to, subject, body) -> draft_id` | `users.drafts.create` | appends to fake mailbox DRAFT label |
@@ -78,10 +78,11 @@ Fake returns expiry now+7d. Also `gmail_backfill` hourly safety net: `history_si
 ## §4 Configuration and safety
 
 `Settings` additions: `whatsapp_provider: Literal["fake","cloud_api","360dialog"] = "fake"`,
-`gmail_provider: Literal["fake","google"] = "fake"`, `whatsapp_app_secret`, `whatsapp_verify_token`,
+`gmail_provider: Literal["fake","google"] = "fake"`, `whatsapp_app_secret`, `whatsapp_api_base_url`, `whatsapp_verify_token`,
 `gmail_pubsub_audience`, `gmail_pubsub_service_account`, `storage_backend: Literal["local","s3"] = "local"`,
 `storage_local_dir`. Startup check: `env == "prod"` and any fake/local → refuse to start (API and worker).
-Outbound credentials stay in `SenderSettings`.
+Outbound credentials stay in `SenderSettings`. Media download credentials live in `WhatsAppMediaSettings`
+(`WHATSAPP_MEDIA_TOKENS`, per phone_number_id), readable only by `app.channels.registry` (ADR 0003 amendment).
 
 ## §5 Simulator (dev only, `app/dev/`)
 

@@ -30,11 +30,16 @@ SEND_ONLY = re.compile(
     r"\bSenderSettings\b"
     r"|\bapp\.sender\.settings\b"
     r"|\bfrom\s+app\.sender\s+import\s+settings\b"
-    r"|\bapp\.channels\.\w+\.outbound\b"
-    r"|\bfrom\s+app\.channels\.\w+\s+import\s+outbound\b"
+    r"|\bapp\.channels\.\w+\.(outbound|drafts)\b"
+    r"|\bfrom\s+app\.channels\.\w+\s+import\s+(outbound|drafts)\b"
+    r"|\bapp\.sender\.whatsapp\b"
     r"|\b(WHATSAPP_ACCESS_TOKEN|WA_ACCESS_TOKEN|GMAIL_SEND_\w+)\b"
 )
 SEND_ALLOWED = re.compile(r"^(app/sender/|tests/|\.claude/|docs/|CLAUDE\.md$|\.env\.example$)")
+MEDIA_CREDS = re.compile(r"\bmedia_settings\b|\bWhatsAppMediaSettings\b|\bWHATSAPP_MEDIA_TOKENS?\b|\bwhatsapp_media_tokens?\b")
+MEDIA_ALLOWED = re.compile(
+    r"^(app/channels/registry\.py|app/channels/whatsapp/media_settings\.py|tests/|\.claude/|docs/|\.env\.example$)"
+)
 
 RETIRED_STACK = re.compile(r"^\s*(from|import)\s+(celery|redis|kombu|rq)\b", re.MULTILINE)
 SKIP_TEST = re.compile(r"pytest\.mark\.(skip|skipif|xfail)\b|pytest\.(skip|xfail)\(")
@@ -107,6 +112,13 @@ def main() -> None:
                 f"`{m.group(0)}` referenced in {relpath}. Only app/sender/ may touch send credentials or outbound "
                 "adapters. Other modules create Action/approval rows; the sender acts on them.",
             )
+
+    if relpath.endswith(".py") and not MEDIA_ALLOWED.match(relpath) and MEDIA_CREDS.search(content):
+        pre_tool_decision(
+            "deny",
+            f"WhatsApp media credentials referenced in {relpath}. Only app/channels/registry.py may read them "
+            "(they can send messages; ADR 0003 amendment).",
+        )
 
     if relpath.endswith(".py") and RETIRED_STACK.search(content):
         pre_tool_decision(

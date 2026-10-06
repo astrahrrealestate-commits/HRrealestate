@@ -30,7 +30,8 @@ Spec: [2026-10-05-estateos-m1-foundation-design.md](superpowers/specs/2026-10-05
 - [ ] GitHub Actions CI — workflow committed; **first green run pending: no git remote yet (user to add + push)**
 - [x] G5 `make smoke` green + whole-branch reviewer `ship`; `make cov` 145 passed / 96.06%; `make audit` no known vulnerabilities
 
-## M2 Ingestion
+## M2 Ingestion (branch m2-channels; plan docs/superpowers/plans/2026-10-06-m2-channels.md)
+- [x] T1 settings + prod safety; T2 storage port; T3 WhatsApp inbound; T4 WhatsApp outbound + media — reviewer ship after fixes
 - [ ] (carried from M1) polyfactory factories in `tests/factories.py`
 - [ ] (carried from M1 review) repository base requires company_id; cross-tenant integration test (company-B person on company-A message → TenantMismatchError)
 - [ ] (carried from M1 review) ingest with `DBOSClient.enqueue_in_transaction` so raw_event insert + enqueue commit atomically

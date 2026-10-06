@@ -14,7 +14,12 @@ def production_problems(settings: Settings) -> list[str]:
         problems.append("gmail_provider is 'fake'")
     if settings.storage_backend != "s3":
         problems.append(f"storage_backend is {settings.storage_backend!r} (prod needs 's3')")
-    for name in ("whatsapp_app_secret", "whatsapp_verify_token", "gmail_pubsub_audience"):
+    for name in (
+        "whatsapp_app_secret",
+        "whatsapp_verify_token",
+        "whatsapp_api_base_url",
+        "gmail_pubsub_audience",
+    ):
         if not getattr(settings, name):
             problems.append(f"{name} is not set")
     return problems

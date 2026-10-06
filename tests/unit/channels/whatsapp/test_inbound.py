@@ -358,3 +358,21 @@ def test_identity_fallback_and_unroutable() -> None:
     assert isinstance(anon, WaInbound)
     with pytest.raises(UnroutableMessageError):
         to_message(anon, company_id=uuid4(), raw_event_id=uuid4())
+
+
+def test_malformed_status_error_item_keeps_status() -> None:
+    value = {
+        "metadata": {"display_phone_number": "1", "phone_number_id": "2"},
+        "statuses": [
+            {"id": "wamid.S", "status": "failed", "timestamp": "1759737600", "errors": ["junk", {"code": 131026}]}
+        ],
+    }
+    body = json.dumps(
+        {
+            "object": "whatsapp_business_account",
+            "entry": [{"id": "1", "changes": [{"field": "messages", "value": value}]}],
+        }
+    )
+    [s] = parse_webhook(body.encode())
+    assert isinstance(s, WaStatus)
+    assert s.error_codes == [131026]

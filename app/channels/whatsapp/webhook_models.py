@@ -148,7 +148,7 @@ class RawStatus(_Edge):
     status: StatusKind  # other values (e.g. "deleted", "warning") fail validation and are skipped with a log line
     timestamp: Timestamp
     recipient_id: str | None = None
-    errors: list[StatusError] = Field(default_factory=list)
+    errors: list[Any] = Field(default_factory=list)  # validated per item in the parser
 
 
 class Value(_Edge):

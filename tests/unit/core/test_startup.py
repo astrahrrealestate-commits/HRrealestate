@@ -13,6 +13,7 @@ REAL: dict[str, Any] = {
     "whatsapp_app_secret": "s",
     "whatsapp_verify_token": "t",
     "gmail_pubsub_audience": "https://estateos.example/webhooks/gmail/push",
+    "whatsapp_api_base_url": "https://waba-v2.360dialog.io",
 }
 
 
@@ -35,6 +36,7 @@ def test_defaults_are_fakes_and_fine_outside_prod() -> None:
         ({"storage_backend": "memory"}, "storage_backend"),
         ({"whatsapp_app_secret": None}, "whatsapp_app_secret"),
         ({"gmail_pubsub_audience": None}, "gmail_pubsub_audience"),
+        ({"whatsapp_api_base_url": None}, "whatsapp_api_base_url"),
     ],
 )
 def test_prod_refuses_unsafe(override: dict[str, Any], fragment: str) -> None:

@@ -142,6 +142,12 @@ class EditGuard(unittest.TestCase):
         self.assertEqual(write("app/pipeline/proposals.py", bad), "deny")
         self.assertEqual(write("app/owner/briefing.py", "from app.channels.whatsapp.outbound import send\n"), "deny")
         self.assertIsNone(write("app/sender/service.py", bad))
+        self.assertEqual(write("app/workflows/x.py", "from app.channels.gmail.drafts import create\n"), "deny")
+        self.assertEqual(write("app/api/x.py", "from app.sender.whatsapp import build_whatsapp_outbound\n"), "deny")
+        media = "from app.channels.whatsapp.media_settings import WhatsAppMediaSettings\n"
+        self.assertEqual(write("app/ingestion/media.py", media), "deny")
+        self.assertIsNone(write("app/channels/registry.py", media))
+        self.assertEqual(write("app/core/settings.py", "    whatsapp_media_token: str = ''\n"), "deny")
         self.assertIsNone(write("tests/unit/test_sender.py", bad))
 
     def test_secrets(self) -> None:

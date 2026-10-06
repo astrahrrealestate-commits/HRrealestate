@@ -21,6 +21,7 @@ from app.channels.whatsapp.webhook_models import (
     RawEcho,
     RawMessage,
     RawStatus,
+    StatusError,
     Value,
     Webhook,
 )
@@ -234,7 +235,7 @@ def _status(status: RawStatus, pnid: str, raw: dict[str, Any]) -> WaStatus:
         phone_number_id=pnid,
         recipient=status.recipient_id,
         at=status.timestamp,
-        error_codes=[e.code for e in status.errors if e.code is not None],
+        error_codes=[e.code for e in (_validate(StatusError, x) for x in status.errors) if e and e.code is not None],
         raw=raw,
     )
 

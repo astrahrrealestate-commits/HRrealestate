@@ -15,6 +15,7 @@ from types import FrameType
 
 from dbos import DBOS, DBOSClient
 
+from app.channels.registry import assert_channels_ready
 from app.core.ids import new_id
 from app.core.logging import configure_logging, get_logger
 from app.core.settings import Settings, get_settings
@@ -77,6 +78,7 @@ def main(argv: list[str] | None = None) -> int:
 
     settings = get_settings()
     assert_production_safe(settings)
+    assert_channels_ready(settings)
     configure_logging(settings.env)
     init_telemetry(settings)
     if args.selfcheck:
