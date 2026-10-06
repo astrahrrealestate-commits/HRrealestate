@@ -376,3 +376,22 @@ def test_malformed_status_error_item_keeps_status() -> None:
     [s] = parse_webhook(body.encode())
     assert isinstance(s, WaStatus)
     assert s.error_codes == [131026]
+
+
+@pytest.mark.parametrize("fixture", ["text", "echo", "button_reply", "image_caption"])
+def test_payload_round_trip(recorded: Load, fixture: str) -> None:
+    from app.channels.whatsapp.inbound import event_from_payload, event_to_payload
+
+    for event in events(recorded, fixture):
+        if isinstance(event, WaStatus):
+            continue
+        payload = event_to_payload(event)
+        assert json.loads(json.dumps(payload)) == payload
+        assert event_from_payload(payload) == event
+
+
+@pytest.mark.parametrize("payload", [{}, {"v": 2, "item": {}}, {"v": 1, "item": "x"}, {"v": 1, "item": {"id": "x"}}])
+def test_bad_payloads_yield_none(payload: dict[str, object]) -> None:
+    from app.channels.whatsapp.inbound import event_from_payload
+
+    assert event_from_payload(payload) is None

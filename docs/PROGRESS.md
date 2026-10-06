@@ -31,10 +31,11 @@ Spec: [2026-10-05-estateos-m1-foundation-design.md](superpowers/specs/2026-10-05
 - [x] G5 `make smoke` green + whole-branch reviewer `ship`; `make cov` 145 passed / 96.06%; `make audit` no known vulnerabilities
 
 ## M2 Ingestion (branch m2-channels; plan docs/superpowers/plans/2026-10-06-m2-channels.md)
-- [x] T1 settings + prod safety; T2 storage port; T3 WhatsApp inbound; T4 WhatsApp outbound + media; T5 Gmail normalisation; T6 Gmail mailbox + push + drafts; T7 migration 0002 + ingestion repository — reviewer fixes applied
+- [x] T1 settings + prod safety; T2 storage port; T3 WhatsApp inbound; T4 WhatsApp outbound + media; T5 Gmail normalisation; T6 Gmail mailbox + push + drafts; T7 migration 0002 + ingestion repository; T8 webhook routes — reviewer fixes applied
 - [ ] (carried from M1) polyfactory factories in `tests/factories.py`
 - [x] (carried from M1 review) company_id required on every ingestion read/write; cross-tenant integration tests (T7)
-- [ ] (from T6 review) push route: resolve channel account by notice.email; unknown mailbox → 2xx, log, enqueue nothing
+- [x] (from T6 review) push route: resolve channel account by notice.email; unknown mailbox → 2xx, log, enqueue nothing (T8)
+- [ ] (from T8 review, Task 9) gmail_sync serialised per account (FOR UPDATE on gmail_sync_state); notice.history_id ≤ stored → no-op
 - [x] (carried from M1 review) raw_event insert + DBOS enqueue in one transaction (T7, commit/rollback test)
 ## M3 Directory
 ## M4 Understanding + call log

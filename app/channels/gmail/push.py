@@ -80,6 +80,12 @@ class PushVerifier:
         self._certs = certs
 
     def verify(self, authorization: str | None, body: bytes) -> PushNotice:
+        self.verify_token(authorization)
+        return parse_push_body(body)
+
+    def verify_token(self, authorization: str | None) -> None:
+        """Authenticate the push (401 on failure). Envelope parsing is separate: a signed but malformed push is
+        acknowledged and logged, because redelivering it can never succeed."""
         token = _bearer(authorization)
         kid = _header(token)["kid"]
         certs = self._certs(False)
@@ -94,7 +100,6 @@ class PushVerifier:
         except (ValueError, TypeError, google.auth.exceptions.GoogleAuthError) as exc:
             raise PushRejectedError("push token verification failed") from exc
         _check_claims(claims, self._service_account)
-        return parse_push_body(body)
 
 
 class GoogleCerts:

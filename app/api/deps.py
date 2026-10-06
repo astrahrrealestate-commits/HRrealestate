@@ -1,10 +1,28 @@
-"""FastAPI dependencies shared by routers."""
+"""FastAPI dependencies shared by routers (everything hangs off app.state, set by the app factory)."""
 
-from typing import cast
+from typing import Any, Protocol, cast
 
 from fastapi import Request
 from sqlalchemy import Engine
 
+from app.core.settings import Settings
+
+
+class WorkflowClient(Protocol):
+    """The slice of `dbos.DBOSClient` the API uses (narrow, so tests can pass a fake)."""
+
+    def enqueue(self, options: Any, *args: Any) -> Any: ...
+
+    def enqueue_in_transaction(self, conn_or_session: Any, options: Any, *args: Any) -> Any: ...
+
 
 def get_engine(request: Request) -> Engine:
     return cast(Engine, request.app.state.engine)
+
+
+def get_settings_dep(request: Request) -> Settings:
+    return cast(Settings, request.app.state.settings)
+
+
+def get_workflow_client(request: Request) -> WorkflowClient:
+    return cast(WorkflowClient, request.app.state.workflow_client)

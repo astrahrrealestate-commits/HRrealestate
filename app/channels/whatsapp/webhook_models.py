@@ -107,9 +107,12 @@ class Context(_Edge):
     id: str | None = None
 
 
+ProviderId = Annotated[str, Field(min_length=1, max_length=255)]  # matches raw_events.provider_msg_id
+
+
 class RawMessage(_Edge):
-    sender: str | None = Field(default=None, alias="from")  # absent for senders without a phone id
-    id: str
+    sender: str | None = Field(default=None, alias="from", max_length=64)  # absent for senders without a phone id
+    id: ProviderId
     timestamp: Timestamp
     type: str
     text: Text | None = None
@@ -128,7 +131,7 @@ class RawMessage(_Edge):
 
 
 class RawEcho(RawMessage):
-    to: str
+    to: str = Field(max_length=64)
 
 
 class StatusKind(StrEnum):
@@ -144,7 +147,7 @@ class StatusError(_Edge):
 
 
 class RawStatus(_Edge):
-    id: str
+    id: Annotated[str, Field(min_length=1, max_length=200)]  # stored as "status:<id>:<status>" (≤ 255)
     status: StatusKind  # other values (e.g. "deleted", "warning") fail validation and are skipped with a log line
     timestamp: Timestamp
     recipient_id: str | None = None

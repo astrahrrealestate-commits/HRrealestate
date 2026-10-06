@@ -289,3 +289,61 @@ def to_message(event: WaInbound | WaEcho, *, company_id: UUID, raw_event_id: UUI
     if event.media:
         metadata["media"] = {"id": event.media.id, "mime_type": event.media.mime_type, "filename": event.media.filename}
     return message, {k: v for k, v in metadata.items() if v is not None}
+
+
+# ---- raw_event payloads (API records, worker re-parses with the same models) -----------------------------------
+
+
+def event_to_payload(event: WaInbound | WaEcho) -> dict[str, Any]:
+    """Self-contained, versioned raw_event payload for one message/echo."""
+    return {
+        "v": 1,
+        "kind": "echo" if isinstance(event, WaEcho) else "message",
+        "phone_number_id": event.phone_number_id,
+        "contact_name": event.contact_name if isinstance(event, WaInbound) else None,
+        "item": event.raw,
+    }
+
+
+def event_from_payload(payload: dict[str, Any]) -> WaInbound | WaEcho | None:
+    if payload.get("v") != 1 or not isinstance(payload.get("item"), dict):
+        return None
+    pnid = str(payload.get("phone_number_id") or "")
+    if payload.get("kind") == "echo":
+        echo = _validate(RawEcho, payload["item"])
+        return _echo(echo, pnid, payload["item"]) if echo else None
+    msg = _validate(RawMessage, payload["item"])
+    return _inbound(msg, pnid, payload.get("contact_name"), payload["item"]) if msg else None
+
+
+def count_items(body: bytes) -> int:
+    """How many message/status/echo items a webhook body claims to carry (to detect items the parser dropped)."""
+    try:
+        data = json.loads(body)
+    except (ValueError, RecursionError):
+        return 0
+    total = 0
+    for entry in data.get("entry", []) if isinstance(data, dict) else []:
+        for change in entry.get("changes", []) if isinstance(entry, dict) else []:
+            value = change.get("value") if isinstance(change, dict) else None
+            if isinstance(value, dict):
+                total += sum(
+                    len(v) for k in ("messages", "statuses", "message_echoes") if isinstance(v := value.get(k), list)
+                )
+    return total
+
+
+def phone_number_ids(body: bytes) -> list[str]:
+    try:
+        data = json.loads(body)
+        return [
+            str(c["value"]["metadata"]["phone_number_id"])
+            for e in data.get("entry", [])
+            for c in e.get("changes", [])
+            if isinstance(c, dict)
+            and isinstance(c.get("value"), dict)
+            and isinstance(c["value"].get("metadata"), dict)
+            and c["value"]["metadata"].get("phone_number_id")
+        ]
+    except (ValueError, RecursionError, AttributeError, TypeError, KeyError):
+        return []

@@ -7,6 +7,9 @@ from app.core.errors import WebhookRejectedError
 
 MAX_WEBHOOK_BYTES = 4 * 1024 * 1024  # Meta batches can reach ~3 MB; routes answer 413 above this before reading on
 _SIGNATURE_PREFIX = "sha256="
+# Fake-provider defaults (dev/simulator only; prod requires real values — see core.startup).
+DEV_APP_SECRET = "estateos-dev-whatsapp-app-secret"  # noqa: S105 — fake provider only; prod refuses fakes
+DEV_VERIFY_TOKEN = "estateos-dev-verify-token"  # noqa: S105 — fake provider only
 
 
 def sign_body(secret: str, body: bytes) -> str:

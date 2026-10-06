@@ -9,7 +9,7 @@ so a status arriving concurrently with its message is never lost.
 from typing import Any, Protocol
 from uuid import UUID
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -31,9 +31,12 @@ class Enqueuer(Protocol):
 
 
 def resolve_channel_account(session: Session, channel: Channel, address: str) -> ChannelAccount:
-    account = session.scalar(
-        select(ChannelAccount).where(ChannelAccount.channel == channel, ChannelAccount.address == address)
+    match = (
+        func.lower(ChannelAccount.address) == address.lower()  # mailboxes are case-insensitive
+        if channel is Channel.gmail
+        else ChannelAccount.address == address
     )
+    account = session.scalar(select(ChannelAccount).where(ChannelAccount.channel == channel, match))
     if account is None:
         raise NotFoundError(f"no {channel.value} channel account for {address[:80]!r}")
     return account

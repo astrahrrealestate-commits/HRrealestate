@@ -103,3 +103,22 @@ def dbos_client(test_settings: Settings, dbos_tables: None) -> Iterator["DBOSCli
     client = DBOSClient(system_database_url=test_settings.dbos_database_url)
     yield client
     client.destroy()
+
+
+@pytest.fixture
+def committed_company(migrated_engine: Engine) -> Iterator[Company]:
+    """A committed company for tests that exercise code opening its own sessions; everything is deleted after."""
+    from sqlalchemy import delete
+
+    from app.db.models import AttachmentRow, ChannelAccount, GmailSyncState, MessageRow, RawEvent
+
+    with Session(migrated_engine, expire_on_commit=False) as session:
+        company = Company(name="Committed GmbH")
+        session.add(company)
+        session.commit()
+    yield company
+    with Session(migrated_engine) as session:
+        for model in (AttachmentRow, MessageRow, RawEvent, GmailSyncState, ChannelAccount):
+            session.execute(delete(model).where(model.company_id == company.id))
+        session.execute(delete(Company).where(Company.id == company.id))
+        session.commit()
