@@ -674,6 +674,10 @@ def test_timer_sweep_noop(dbos_runtime: None) -> None:
 - [ ] **Step 3: Implement** runtime, queues, system workflows, worker CLI (argparse). Verify `create_schedule` /
   scheduled-workflow API against the installed `dbos` source before using it.
 - [ ] **Step 4: Run** `make check` → PASS.
+- [ ] **Deviations (recorded after review):** queue concurrency is a constant (`PIPELINE_WORKER_CONCURRENCY`, queues
+  must be declared before settings matter) so `Settings.pipeline_concurrency` was dropped; `enqueue_options` helper
+  moves to M2 where the API first enqueues; `application_version` not pinned (ADR 0001); dbos 3.x APIs
+  (`register_queue`, `apply_schedules`).
 - [ ] **Step 4b:** add `"app.worker"` to the send-isolation contract `source_modules` and drop the parentheses from
   `(app.worker)` in the layers contract (module now exists). `make quick` → contracts kept.
 - [ ] **Step 5: Commit** `feat(m1): dbos runtime, pipeline queue, worker with selfcheck and timer sweep`
@@ -761,6 +765,7 @@ def test_ready_with_real_db(pg_url: str, migrated_engine) -> None:  # type: igno
   services `postgres` (16-alpine, host 5433, healthcheck `pg_isready`), `migrate` (depends postgres healthy), `api`
   (depends migrate completed_successfully; healthcheck python urllib on `/health/ready`), `worker` (depends migrate).
   Non-root user, `uv sync --frozen --no-dev` in builder stage, `PYTHONDONTWRITEBYTECODE=1`, `PYTHONUNBUFFERED=1`.
+  Worker: `stop_grace_period: 40s`, exactly one replica, `DBOS__VMID=worker-0` (ADR 0001).
 
 - [ ] **Step 1: Failing check:** `make smoke` → FAIL (no compose file).
 - [ ] **Step 2: Implement** Dockerfile (multi-stage, `ghcr.io/astral-sh/uv` binary copy), compose, `.dockerignore`.
@@ -776,7 +781,8 @@ def test_ready_with_real_db(pg_url: str, migrated_engine) -> None:  # type: igno
 
 **Interfaces:**
 - Produces: jobs `quality` (uv setup → `make quick`), `integration` (`make test-int`, Docker available on
-  ubuntu-latest), `security` (`make audit` + gitleaks action), `image` (docker build). Triggers: push to `m*-*`
+  ubuntu-latest; **pre-pull `postgres:16-alpine` first** so pytest-timeout's 120 s never counts an image pull),
+  `security` (`make audit` + gitleaks action), `image` (docker build). Triggers: push to `m*-*`
   branches and PRs to `main`. Concurrency cancel-in-progress.
 
 - [ ] **Step 1:** Validate YAML locally: `uv run pre-commit run check-yaml --all-files` → PASS.

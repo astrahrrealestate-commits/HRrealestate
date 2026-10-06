@@ -10,6 +10,7 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 from testcontainers.community.postgres import PostgresContainer
 
+from app.core.settings import Settings
 from app.db.models import Company
 from app.db.session import make_engine
 
@@ -56,3 +57,21 @@ def company(db: Session) -> Company:
     db.add(c)
     db.flush()
     return c
+
+
+@pytest.fixture(scope="session")
+def test_settings(pg_url: str) -> Settings:
+    return Settings(database_url=pg_url, env="test", _env_file=None)  # type: ignore[call-arg]
+
+
+@pytest.fixture
+def dbos_runtime(test_settings: Settings, migrated_engine: Engine) -> Iterator[None]:
+    """Fresh DBOS executor per test against the session Postgres (schema `dbos`), per DBOS testing guidance."""
+    from dbos import DBOS
+
+    from app.workflows.runtime import launch
+
+    DBOS.destroy()
+    launch(test_settings, reset_for_tests=True)
+    yield
+    DBOS.destroy()

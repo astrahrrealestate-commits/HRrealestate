@@ -23,7 +23,7 @@ Spec: [2026-10-05-estateos-m1-foundation-design.md](superpowers/specs/2026-10-05
 - [ ] test infra: testcontainers Postgres, DBOS fixture, recorded() loader, factories
 - [x] SQLAlchemy models (24 tables) + first Alembic migration + roundtrip/drift/CHECK-value tests — G2 "114 passed" + "13 passed"; reviewer VERDICT: ship
 - [ ] FastAPI app + health endpoints
-- [ ] DBOS app + worker (`--selfcheck`) + `timer_sweep` cron no-op
+- [x] DBOS app + worker (`--selfcheck`) + `timer_sweep` cron — G2 "116 passed" + "20 passed", cov 95.67%; reviewer VERDICT: ship
 - [ ] Dockerfile + compose (postgres, migrate, api, worker)
 - [ ] import-linter contracts green
 - [ ] GitHub Actions CI

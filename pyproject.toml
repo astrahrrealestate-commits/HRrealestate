@@ -36,6 +36,7 @@ dev = [
     "ruff>=0.8",
     "syrupy>=4.8",
     "testcontainers[postgres]>=4.9",
+    "pytest-timeout>=2.3",
 ]
 
 [tool.uv]
@@ -86,6 +87,8 @@ pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "--disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,localhost,::1 --strict-markers -p no:cacheprovider"
 markers = ["integration: needs Docker (testcontainers Postgres) and/or DBOS"]
+timeout = 120  # a hung test fails loudly instead of blocking a gate (DBOS get_result has no timeout)
+timeout_method = "thread"
 filterwarnings = ["error::DeprecationWarning:app.*"]
 
 # ---------------------------------------------------------------- coverage
@@ -107,7 +110,7 @@ root_package = "app"
 name = "Layered architecture (docs/hld.md §3)"
 type = "layers"
 layers = [
-    "(app.main) | (app.worker)",
+    "(app.main) | app.worker",
     "app.api",
     "app.workflows",
     "app.pipeline | app.owner | app.ingestion | app.directory | app.outcomes | app.sender",
@@ -120,7 +123,7 @@ layers = [
 name = "Send isolation: only app.sender touches outbound adapters and send credentials"
 type = "forbidden"
 source_modules = [
-    "app.api", "app.workflows", "app.pipeline", "app.owner", "app.ingestion",
+    "app.worker", "app.api", "app.workflows", "app.pipeline", "app.owner", "app.ingestion",
     "app.directory", "app.outcomes", "app.db", "app.llm", "app.storage", "app.contracts", "app.core",
     "app.channels.whatsapp.inbound", "app.channels.gmail.inbound",
 ]

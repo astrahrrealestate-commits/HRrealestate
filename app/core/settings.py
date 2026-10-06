@@ -16,7 +16,6 @@ class Settings(BaseSettings):
     database_url: PostgresDsn
     api_port: int = 8000
     app_version: str = app.__version__
-    pipeline_concurrency: int = 4
 
     sentry_dsn: str | None = None
     langfuse_host: str | None = None
