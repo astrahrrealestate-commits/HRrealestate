@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def no_worker(test_settings: Settings, migrated_engine: object) -> None:
     """DBOS system tables exist and are empty, but no executor runs in this process."""
     DBOS.destroy()
-    launch(test_settings, reset_for_tests=True)
+    launch(test_settings, reset_for_tests=True, schedules=False)
     DBOS.destroy()
 
 

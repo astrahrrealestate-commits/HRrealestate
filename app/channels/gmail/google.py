@@ -101,11 +101,14 @@ class GoogleMailbox:
         ids: list[str] = []
         token: str | None = None
         while True:
-            response = (
-                self._users.messages()
-                .list(userId="me", q=f"after:{int(after.timestamp())}", maxResults=LIST_PAGE_SIZE, pageToken=token)
-                .execute(num_retries=NUM_RETRIES)
-            )
+            try:
+                response = (
+                    self._users.messages()
+                    .list(userId="me", q=f"after:{int(after.timestamp())}", maxResults=LIST_PAGE_SIZE, pageToken=token)
+                    .execute(num_retries=NUM_RETRIES)
+                )
+            except HttpError as exc:
+                raise _typed(exc, "messages.list") from exc
             ids += [m["id"] for m in response.get("messages", [])]
             token = response.get("nextPageToken")
             if not token:

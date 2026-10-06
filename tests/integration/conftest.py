@@ -92,7 +92,7 @@ def dbos_tables(test_settings: Settings, migrated_engine: Engine) -> None:
     from app.workflows.runtime import launch
 
     DBOS.destroy()
-    launch(test_settings, reset_for_tests=True)
+    launch(test_settings, reset_for_tests=True, schedules=False)
     DBOS.destroy()
 
 

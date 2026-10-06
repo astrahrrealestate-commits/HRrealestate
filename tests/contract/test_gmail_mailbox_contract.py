@@ -184,6 +184,14 @@ def test_google_errors_are_typed(status: int, body: str, retryable: bool, monkey
     assert len(http.calls) == (4 if retryable else 1)  # rate limits are retried by the library first
 
 
+def test_resync_listing_errors_are_typed() -> None:
+    http = RecordingHttp([({"status": "400"}, "{}")])
+    box = GoogleMailbox(build("gmail", "v1", http=http, static_discovery=True), ADDRESS)
+    with pytest.raises(GmailApiError) as exc:
+        box.message_ids_since(datetime(2026, 1, 1, tzinfo=UTC))
+    assert exc.value.retryable is False
+
+
 def test_fake_store_is_shared_between_instances(tmp_path: Path) -> None:
     writer = FakeMailbox(ADDRESS, DirMailboxStore(tmp_path))
     reader = FakeMailbox(ADDRESS, DirMailboxStore(tmp_path))  # e.g. simulator writes, worker reads

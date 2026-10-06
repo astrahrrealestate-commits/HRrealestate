@@ -15,7 +15,7 @@ from app.channels.gmail.push import MAX_PUSH_BYTES, PushVerifier, parse_push_bod
 from app.contracts import Channel
 from app.core.errors import NotFoundError, PushRejectedError
 from app.core.logging import get_logger
-from app.core.workflow_names import GMAIL_SYNC, PIPELINE_QUEUE
+from app.core.workflow_names import GMAIL_SYNC, GMAIL_SYNC_QUEUE
 from app.ingestion.repository import resolve_channel_account
 
 router = APIRouter(prefix="/webhooks/gmail", tags=["webhooks"])
@@ -61,7 +61,7 @@ def _enqueue_sync(engine: Engine, client: WorkflowClient, notice: PushNotice) ->
             log.warning("gmail.push.unknown_mailbox", history_id=notice.history_id)
             return  # ack anyway: retrying would not make the mailbox known
         options = {
-            "queue_name": PIPELINE_QUEUE,
+            "queue_name": GMAIL_SYNC_QUEUE,
             "workflow_name": GMAIL_SYNC,
             "workflow_id": gmail_sync_workflow_id(account.id, notice.history_id),
         }
