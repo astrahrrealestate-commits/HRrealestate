@@ -3,7 +3,8 @@ from typing import Any
 import pytest
 
 from app.channels.registry import assert_channels_ready, channel_problems, whatsapp_media
-from app.channels.whatsapp.media import FakeWhatsAppMedia, HttpWhatsAppMedia
+from app.channels.whatsapp.fake_media import DirWhatsAppMedia
+from app.channels.whatsapp.media import HttpWhatsAppMedia
 from app.channels.whatsapp.media_settings import WhatsAppMediaSettings
 from app.core.errors import UnsafeConfigurationError
 from app.core.settings import Settings
@@ -20,7 +21,7 @@ def _media(**tokens: str) -> WhatsAppMediaSettings:
 
 
 def test_fake_media_by_default() -> None:
-    assert isinstance(whatsapp_media(_s(), "100000000000001"), FakeWhatsAppMedia)
+    assert isinstance(whatsapp_media(_s(), "100000000000001"), DirWhatsAppMedia)
 
 
 @pytest.mark.parametrize(("provider", "header"), [("cloud_api", "Authorization"), ("360dialog", "D360-API-KEY")])

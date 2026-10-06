@@ -18,8 +18,11 @@ COPY app ./app
 FROM python:3.12-slim@sha256:ddb0207ae1f0356c2b724d740769b0c5f5f51cc54a0525178f721825f78fe74c
 RUN useradd --system --uid 10001 --no-create-home --home-dir /app estateos
 WORKDIR /app
-# Root-owned and read-only for the runtime user: nothing at runtime writes to /app.
+# Root-owned and read-only for the runtime user: nothing at runtime writes to /app except /app/.data.
 COPY --from=builder /app /app
+# The only writable path: dev data (local storage, fake mailboxes/media, dev keys) on a volume shared by api + worker.
+# Unused in prod (prod refuses fake providers and local storage); prod hardening runs with a read-only root (M8).
+RUN mkdir /app/.data && chown 10001 /app/.data
 ENV PATH="/app/.venv/bin:${PATH}" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 USER estateos
 EXPOSE 8000

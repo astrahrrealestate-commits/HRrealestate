@@ -15,7 +15,8 @@ from app.channels.gmail.push import (
     google_push_verifier,
     local_push_verifier,
 )
-from app.channels.whatsapp.media import FakeWhatsAppMedia, HttpWhatsAppMedia, WhatsAppMedia
+from app.channels.whatsapp.fake_media import DirWhatsAppMedia
+from app.channels.whatsapp.media import HttpWhatsAppMedia, WhatsAppMedia
 from app.channels.whatsapp.media_settings import WhatsAppMediaSettings
 from app.core.errors import UnsafeConfigurationError
 from app.core.settings import Settings
@@ -32,11 +33,10 @@ def whatsapp_media(
     phone_number_id: str,
     *,
     media_settings: WhatsAppMediaSettings | None = None,
-    fake: FakeWhatsAppMedia | None = None,
 ) -> WhatsAppMedia:
     """Media adapter for the number that received the message (360dialog keys are per number)."""
     if settings.whatsapp_provider == "fake":
-        return fake or FakeWhatsAppMedia()
+        return fake_whatsapp_media(settings)
     tokens = (media_settings or media_credentials()).whatsapp_media_tokens
     if not settings.whatsapp_api_base_url or phone_number_id not in tokens:
         raise UnsafeConfigurationError(f"no WhatsApp media credentials for phone_number_id {phone_number_id}")
@@ -44,6 +44,11 @@ def whatsapp_media(
     if settings.whatsapp_provider == "360dialog":
         return HttpWhatsAppMedia.dialog360(settings.whatsapp_api_base_url, token)
     return HttpWhatsAppMedia.cloud_api(settings.whatsapp_api_base_url, token)
+
+
+def fake_whatsapp_media(settings: Settings) -> DirWhatsAppMedia:
+    """Shared on-disk fake media (simulator puts, worker downloads)."""
+    return DirWhatsAppMedia(settings.storage_local_dir / "fake_whatsapp_media")
 
 
 def channel_problems(settings: Settings, media_settings: WhatsAppMediaSettings | None = None) -> list[str]:

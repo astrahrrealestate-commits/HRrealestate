@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session
 from testcontainers.community.postgres import PostgresContainer
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from dbos import DBOSClient
 
 from app.core.settings import Settings
@@ -98,6 +100,7 @@ def dbos_tables(test_settings: Settings, migrated_engine: Engine) -> None:
 
 @pytest.fixture
 def dbos_client(test_settings: Settings, dbos_tables: None) -> Iterator["DBOSClient"]:
+
     from dbos import DBOSClient
 
     client = DBOSClient(system_database_url=test_settings.dbos_database_url)
@@ -108,17 +111,22 @@ def dbos_client(test_settings: Settings, dbos_tables: None) -> Iterator["DBOSCli
 @pytest.fixture
 def committed_company(migrated_engine: Engine) -> Iterator[Company]:
     """A committed company for tests that exercise code opening its own sessions; everything is deleted after."""
-    from sqlalchemy import delete
-
-    from app.db.models import AttachmentRow, ChannelAccount, GmailSyncState, MessageRow, RawEvent
-
     with Session(migrated_engine, expire_on_commit=False) as session:
         company = Company(name="Committed GmbH")
         session.add(company)
         session.commit()
     yield company
-    with Session(migrated_engine) as session:
-        for model in (AttachmentRow, MessageRow, RawEvent, GmailSyncState, ChannelAccount):
-            session.execute(delete(model).where(model.company_id == company.id))
-        session.execute(delete(Company).where(Company.id == company.id))
+    purge_company(migrated_engine, company.id)
+
+
+def purge_company(engine: Engine, company_id: "UUID") -> None:
+    """Delete a committed company and every row the ingestion layer writes for it."""
+    from sqlalchemy import delete
+
+    from app.db.models import AttachmentRow, ChannelAccount, GmailSyncState, MessageRow, OwnerAccount, RawEvent
+
+    with Session(engine) as session:
+        for model in (AttachmentRow, MessageRow, RawEvent, GmailSyncState, OwnerAccount, ChannelAccount):
+            session.execute(delete(model).where(model.company_id == company_id))
+        session.execute(delete(Company).where(Company.id == company_id))
         session.commit()

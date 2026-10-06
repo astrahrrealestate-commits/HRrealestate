@@ -10,7 +10,7 @@ NEXT_REV = $(shell printf '%04d' $$(( $$(ls app/db/alembic/versions/[0-9]*.py 2>
 
 .PHONY: help setup up up-db down logs ps migrate migration migrate-roundtrip alembic-check \
         fmt lint type boundaries test-unit test-int test cov quick check smoke audit eval \
-        workflows harness-test clean
+        workflows harness-test clean sim-demo
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -85,6 +85,9 @@ smoke: up ## G5: stack up, api ready, worker executing, logs clean
 	@curl -sf http://localhost:$${API_PORT:-8000}/health/ready >/dev/null && echo "api ready: ok"
 	@$(COMPOSE) exec -T worker python -m app.worker --selfcheck && echo "worker: ok"
 	@! $(COMPOSE) logs --no-color 2>&1 | grep -E 'Traceback|CRITICAL' && echo "logs: clean"
+
+sim-demo: up ## G5: simulate WhatsApp + Gmail through the running stack and assert the stored rows
+	$(COMPOSE) exec -T api python -m app.dev.simulate demo
 
 audit: ## dependency vulnerability audit
 	mkdir -p .claude/.cache

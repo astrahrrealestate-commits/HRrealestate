@@ -6,6 +6,7 @@ x-app: &app
     context: ..
     dockerfile: docker/Dockerfile
   image: estateos:dev
+  volumes: [appdata:/app/.data]  # local storage, fake mailboxes/media, dev keys: simulator, api and worker share it
   environment: &app-env
     ENV: dev
     DATABASE_URL: postgresql+psycopg://estateos:estateos@postgres:5432/estateos
@@ -59,3 +60,4 @@ services:
 
 volumes:
   pgdata:
+  appdata:
