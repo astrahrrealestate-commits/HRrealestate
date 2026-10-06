@@ -18,3 +18,13 @@ separate agent number, for which plain Cloud API is fine.
 - Webhook payloads stay in Cloud API format, so the same fixtures work for both routes.
 - Partner fees apply. Partner choice is reversible (adapter boundary).
 - Phase 1 never sends to tenants, so the tenant number is inbound-only plus echo capture.
+
+## Amendment (2026-10-06, M2)
+
+**pywa dropped.** pywa 4.5 hard-codes the Graph API base URL (`pywa/api.py:41`), so it cannot target 360dialog, and its
+webhook parsing is coupled to its handler/server machinery. Replacement, both small and fully tested:
+- inbound: Pydantic models of the documented Cloud API webhook schema (`app/channels/whatsapp/webhook_models.py`) +
+  HMAC-SHA256 verification of `X-Hub-Signature-256`;
+- outbound: pure Cloud API JSON builders + one `httpx` transport configured per provider (base URL, auth header,
+  messages path). Meta direct and 360dialog differ only in configuration.
+The adapter boundary is unchanged; provider choice is `WHATSAPP_PROVIDER`.

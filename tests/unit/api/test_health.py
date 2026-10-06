@@ -69,7 +69,17 @@ def test_factory_without_arguments_reads_environment(monkeypatch: pytest.MonkeyP
 
 
 def test_prod_hides_docs_and_openapi() -> None:
-    prod = Settings(database_url="postgresql+psycopg://u:p@localhost:1/db", env="prod", _env_file=None)  # type: ignore[call-arg]
+    prod = Settings(
+        database_url="postgresql+psycopg://u:p@localhost:1/db",
+        env="prod",
+        whatsapp_provider="cloud_api",
+        gmail_provider="google",
+        storage_backend="s3",
+        whatsapp_app_secret="s",
+        whatsapp_verify_token="t",
+        gmail_pubsub_audience="aud",
+        _env_file=None,
+    )  # type: ignore[call-arg]
     with TestClient(create_app(prod, engine=MagicMock())) as client:
         assert client.get("/docs").status_code == 404
         assert client.get("/openapi.json").status_code == 404
@@ -93,3 +103,11 @@ def test_engine_has_connect_timeout() -> None:
 def test_unknown_route_404() -> None:
     with TestClient(create_app(SETTINGS, engine=MagicMock())) as client:
         assert client.get("/nope").status_code == 404
+
+
+def test_factory_refuses_unsafe_prod_config() -> None:
+    from app.core.errors import UnsafeConfigurationError
+
+    unsafe = Settings(database_url="postgresql+psycopg://u:p@localhost:1/db", env="prod", _env_file=None)  # type: ignore[call-arg]
+    with pytest.raises(UnsafeConfigurationError):
+        create_app(unsafe, engine=MagicMock())

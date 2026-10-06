@@ -18,6 +18,7 @@ from dbos import DBOS, DBOSClient
 from app.core.ids import new_id
 from app.core.logging import configure_logging, get_logger
 from app.core.settings import Settings, get_settings
+from app.core.startup import assert_production_safe
 from app.core.telemetry import init_telemetry
 from app.workflows.queues import PIPELINE_QUEUE
 from app.workflows.runtime import launch
@@ -75,6 +76,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     settings = get_settings()
+    assert_production_safe(settings)
     configure_logging(settings.env)
     init_telemetry(settings)
     if args.selfcheck:

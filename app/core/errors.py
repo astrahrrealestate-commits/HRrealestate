@@ -23,3 +23,7 @@ class NotFoundError(EstateOSError):
 
 class TenantMismatchError(EstateOSError):
     """A row belongs to a different company than the caller."""
+
+
+class UnsafeConfigurationError(EstateOSError):
+    """Settings that must never reach production (fake providers, local storage, missing webhook secrets)."""

@@ -1,6 +1,7 @@
 """Runtime configuration from environment / .env. Send credentials live in app.sender.settings, not here."""
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import PostgresDsn, SecretStr
@@ -22,6 +23,21 @@ class Settings(BaseSettings):
     langfuse_public_key: str | None = None
     langfuse_secret_key: SecretStr | None = None
     openai_api_key: SecretStr | None = None
+
+    # Channels (spec M2 §4). Defaults are fakes: everything runs without provider access; prod refuses fakes.
+    whatsapp_provider: Literal["fake", "cloud_api", "360dialog"] = "fake"
+    gmail_provider: Literal["fake", "google"] = "fake"
+    whatsapp_app_secret: SecretStr | None = None  # verifies X-Hub-Signature-256 on inbound webhooks
+    whatsapp_verify_token: SecretStr | None = None  # webhook subscription handshake
+    whatsapp_api_base_url: str | None = None  # e.g. https://graph.facebook.com/v21.0 or https://waba-v2.360dialog.io
+    gmail_pubsub_audience: str | None = None  # OIDC audience configured on the Pub/Sub push subscription
+    gmail_pubsub_service_account: str | None = None  # expected `email` claim of the push token
+    gmail_pubsub_topic: str | None = None  # projects/<p>/topics/<t> used by users.watch
+    gmail_credentials_file: Path | None = None  # authorized-user JSON (Workspace internal OAuth app)
+
+    storage_backend: Literal["local", "memory", "s3"] = "local"
+    storage_local_dir: Path = Path(".data/storage")
+    dev_signing_dir: Path = Path(".data/dev-keys")  # simulator keys for fake Pub/Sub tokens
 
     s3_endpoint_url: str | None = None
     s3_bucket: str | None = None

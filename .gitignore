@@ -34,3 +34,6 @@ evals/reports/*
 .DS_Store
 .idea/
 .vscode/
+
+# local fake-provider storage and simulator keys
+.data/
