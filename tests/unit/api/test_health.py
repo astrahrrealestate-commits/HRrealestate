@@ -80,6 +80,9 @@ def test_prod_hides_docs_and_openapi(monkeypatch: pytest.MonkeyPatch) -> None:
         whatsapp_verify_token="t",
         gmail_pubsub_audience="aud",
         whatsapp_api_base_url="https://waba-v2.360dialog.io",
+        gmail_pubsub_service_account="push@p.iam.gserviceaccount.com",
+        gmail_credentials_file="/run/secrets/gmail-read.json",
+        gmail_pubsub_topic="projects/p/topics/gmail",
         _env_file=None,
     )  # type: ignore[call-arg]
     with TestClient(create_app(prod, engine=MagicMock())) as client:

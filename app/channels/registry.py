@@ -1,7 +1,20 @@
 """Build inbound-side channel adapters from settings (fakes by default). Outbound adapters are built in app.sender."""
 
+import re
 from functools import lru_cache
 
+from googleapiclient.discovery import build
+
+from app.channels.gmail.fake import DirMailboxStore, FakeMailbox
+from app.channels.gmail.google import READ_SCOPES, GoogleMailbox
+from app.channels.gmail.ports import GmailMailbox
+from app.channels.gmail.push import (
+    DEV_AUDIENCE,
+    DEV_SERVICE_ACCOUNT,
+    PushVerifier,
+    google_push_verifier,
+    local_push_verifier,
+)
 from app.channels.whatsapp.media import FakeWhatsAppMedia, HttpWhatsAppMedia, WhatsAppMedia
 from app.channels.whatsapp.media_settings import WhatsAppMediaSettings
 from app.core.errors import UnsafeConfigurationError
@@ -45,3 +58,43 @@ def assert_channels_ready(settings: Settings, media_settings: WhatsAppMediaSetti
     problems = channel_problems(settings, media_settings)
     if problems and settings.env == "prod":
         raise UnsafeConfigurationError("refusing to start in prod: " + "; ".join(problems))
+
+
+_MAILBOX = re.compile(r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}")
+
+
+def _mailbox_address(address: str) -> str:
+    normalised = address.strip().lower()
+    if not _MAILBOX.fullmatch(normalised) or ".." in normalised:
+        raise UnsafeConfigurationError(f"invalid mailbox address {address[:80]!r}")
+    return normalised
+
+
+def fake_gmail_mailbox(settings: Settings, address: str) -> FakeMailbox:
+    """Shared on-disk fake mailbox (simulator writes, api/worker read); the address is validated before it becomes
+    a directory name."""
+    address = _mailbox_address(address)
+    return FakeMailbox(address, DirMailboxStore(settings.storage_local_dir / "fake_gmail" / address))
+
+
+def gmail_mailbox(settings: Settings, address: str) -> GmailMailbox:
+    if settings.gmail_provider == "fake":
+        return fake_gmail_mailbox(settings, address)
+    if not settings.gmail_credentials_file:
+        raise UnsafeConfigurationError("gmail_provider 'google' needs GMAIL_CREDENTIALS_FILE (gmail.readonly)")
+    from google.oauth2.credentials import Credentials
+
+    creds = Credentials.from_authorized_user_file(str(settings.gmail_credentials_file), READ_SCOPES)
+    mailbox = GoogleMailbox(build("gmail", "v1", credentials=creds, cache_discovery=False), _mailbox_address(address))
+    mailbox.verify_address()  # never read another account's mail under this company
+    return mailbox
+
+
+def gmail_push_verifier(settings: Settings) -> PushVerifier:
+    if settings.gmail_provider == "fake":
+        audience = settings.gmail_pubsub_audience or DEV_AUDIENCE
+        account = settings.gmail_pubsub_service_account or DEV_SERVICE_ACCOUNT
+        return local_push_verifier(settings.dev_signing_dir, audience, account)
+    if not settings.gmail_pubsub_audience or not settings.gmail_pubsub_service_account:
+        raise UnsafeConfigurationError("google push verification needs GMAIL_PUBSUB_AUDIENCE and _SERVICE_ACCOUNT")
+    return google_push_verifier(settings.gmail_pubsub_audience, settings.gmail_pubsub_service_account)

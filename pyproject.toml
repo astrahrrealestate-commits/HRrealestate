@@ -79,9 +79,10 @@ warn_unreachable = true
 mypy_path = "."
 explicit_package_bases = true
 exclude = ["app/db/alembic/versions/"]
+untyped_calls_exclude = ["google.auth", "google.oauth2"]  # google-auth ships partial hints; strict elsewhere
 
 [[tool.mypy.overrides]]
-module = ["testcontainers.*", "phonenumbers.*", "polyfactory.*", "boto3.*", "botocore.*", "moto.*", "googleapiclient.*", "mailparser_reply.*", "inscriptis.*"]
+module = ["testcontainers.*", "phonenumbers.*", "polyfactory.*", "boto3.*", "botocore.*", "moto.*", "googleapiclient.*", "mailparser_reply.*", "inscriptis.*", "requests.*"]
 ignore_missing_imports = true
 
 [tool.pydantic-mypy]
@@ -122,7 +123,7 @@ root_package = "app"
 name = "Layered architecture (docs/hld.md §3)"
 type = "layers"
 layers = [
-    "app.main | app.worker",
+    "app.main | app.worker | app.dev",
     "app.api",
     "app.workflows",
     "app.pipeline | app.owner | app.ingestion | app.directory | app.outcomes | app.sender",
@@ -161,6 +162,16 @@ source_modules = [
 forbidden_modules = ["app.channels.whatsapp.media_settings"]
 ignore_imports = ["app.channels.registry -> app.channels.whatsapp.media_settings"]
 allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Dev tooling (simulator, dev keys) is never imported by production code"
+type = "forbidden"
+source_modules = [
+    "app.main", "app.worker", "app.api", "app.workflows", "app.pipeline", "app.owner", "app.ingestion",
+    "app.directory", "app.outcomes", "app.sender", "app.db", "app.llm", "app.storage", "app.contracts", "app.core",
+    "app.channels",
+]
+forbidden_modules = ["app.dev"]
 
 [[tool.importlinter.contracts]]
 name = "Rules engine is pure (no I/O layers)"

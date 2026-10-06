@@ -19,6 +19,9 @@ def production_problems(settings: Settings) -> list[str]:
         "whatsapp_verify_token",
         "whatsapp_api_base_url",
         "gmail_pubsub_audience",
+        "gmail_pubsub_service_account",
+        "gmail_credentials_file",
+        "gmail_pubsub_topic",
     ):
         if not getattr(settings, name):
             problems.append(f"{name} is not set")

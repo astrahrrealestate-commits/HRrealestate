@@ -14,6 +14,9 @@ REAL: dict[str, Any] = {
     "whatsapp_verify_token": "t",
     "gmail_pubsub_audience": "https://estateos.example/webhooks/gmail/push",
     "whatsapp_api_base_url": "https://waba-v2.360dialog.io",
+    "gmail_pubsub_service_account": "push@p.iam.gserviceaccount.com",
+    "gmail_credentials_file": "/run/secrets/gmail-read.json",
+    "gmail_pubsub_topic": "projects/p/topics/gmail",
 }
 
 

@@ -46,3 +46,7 @@ class IgnoredMessageError(EstateOSError):
 
     Stored as a raw event, never processed further.
     """
+
+
+class PushRejectedError(WebhookRejectedError):
+    """A Pub/Sub push that failed OIDC verification or carried a malformed envelope."""
