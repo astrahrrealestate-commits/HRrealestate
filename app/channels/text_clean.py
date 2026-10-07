@@ -1,7 +1,10 @@
-"""String hygiene for email-derived values: Postgres-safe text, single-line headers, safe filenames and MIME types."""
+"""String hygiene for provider-supplied values (mail, WhatsApp): Postgres-safe text, single-line headers, safe
+filenames and MIME types, and JSON payloads safe for jsonb."""
 
 import re
+from typing import Any
 
+_SURROGATE = re.compile("[\ud800-\udfff]")  # lone surrogates (valid pairs are already combined in str)
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _HEADER_SPACE = re.compile(r"[\s\x00-\x1f\x7f]+")
 _MIME = re.compile(r"[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+")
@@ -10,8 +13,19 @@ FALLBACK_MIME = "application/octet-stream"
 
 def clean_text(value: str) -> str:
     """Postgres-safe text: lone surrogates → U+FFFD, C0 controls (except \\n, \\t) and NUL removed."""
-    value = value.encode("utf-8", "surrogatepass").decode("utf-8", "replace")
+    value = _SURROGATE.sub("\ufffd", value)
     return _CONTROL.sub("", value.replace("\r\n", "\n").replace("\r", "\n"))
+
+
+def clean_json(value: Any) -> Any:
+    """Recursively clean every string (keys too) so the value can go into jsonb (no NUL, no lone surrogates)."""
+    if isinstance(value, str):
+        return clean_text(value)
+    if isinstance(value, dict):
+        return {clean_text(str(k)): clean_json(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [clean_json(v) for v in value]
+    return value
 
 
 def clean_header(value: str | None, limit: int = 998) -> str | None:

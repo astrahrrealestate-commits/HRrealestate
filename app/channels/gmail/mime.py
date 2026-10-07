@@ -19,7 +19,7 @@ from inscriptis import get_text
 from mailparser_reply import EmailReplyParser
 
 from app.channels.gmail.parsed import ParsedAttachment, ParsedEmail
-from app.channels.gmail.text_clean import clean_filename, clean_header, clean_mime, clean_text
+from app.channels.text_clean import clean_filename, clean_header, clean_mime, clean_text
 from app.core.logging import get_logger
 
 log = get_logger(__name__)

@@ -21,6 +21,7 @@ from app.core.logging import configure_logging, get_logger
 from app.core.settings import Settings, get_settings
 from app.core.startup import assert_production_safe
 from app.core.telemetry import init_telemetry
+from app.workflows.deps import get_deps
 from app.workflows.queues import PIPELINE_QUEUE
 from app.workflows.runtime import launch
 
@@ -85,6 +86,7 @@ def main(argv: list[str] | None = None) -> int:
         ok = selfcheck(settings, timeout_sec=SELFCHECK_TIMEOUT_SEC)
         log.info("worker.selfcheck", ok=ok)
         return 0 if ok else 1
+    get_deps()  # build storage, engine and adapters now: bad config fails at boot, not in the first step
     run_forever(settings)
     return 0
 

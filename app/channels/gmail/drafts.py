@@ -13,7 +13,7 @@ from googleapiclient.errors import HttpError
 
 from app.channels.gmail.fake import FakeMailbox
 from app.channels.gmail.google import is_rate_limited
-from app.channels.gmail.text_clean import clean_header
+from app.channels.text_clean import clean_header
 from app.core.errors import EstateOSError
 
 COMPOSE_SCOPES = ["https://www.googleapis.com/auth/gmail.compose"]

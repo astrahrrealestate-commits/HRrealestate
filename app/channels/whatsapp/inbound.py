@@ -12,6 +12,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ValidationError
 
+from app.channels.text_clean import clean_filename, clean_json, clean_mime
 from app.channels.whatsapp.webhook_auth import MAX_WEBHOOK_BYTES
 from app.channels.whatsapp.webhook_models import (
     Change,
@@ -192,7 +193,8 @@ def _media_ref(msg: RawMessage) -> WaMediaRef | None:
     media = _media(msg)
     if media is None or media.id is None:
         return None
-    return WaMediaRef(id=media.id, mime_type=media.mime_type, sha256=media.sha256, filename=media.filename)
+    mime_type = clean_mime(media.mime_type) if media.mime_type is not None else None
+    return WaMediaRef(id=media.id, mime_type=mime_type, sha256=media.sha256, filename=clean_filename(media.filename))
 
 
 def _inbound(msg: RawMessage, pnid: str, contact_name: str | None, raw: dict[str, Any]) -> WaInbound:
@@ -295,14 +297,16 @@ def to_message(event: WaInbound | WaEcho, *, company_id: UUID, raw_event_id: UUI
 
 
 def event_to_payload(event: WaInbound | WaEcho) -> dict[str, Any]:
-    """Self-contained, versioned raw_event payload for one message/echo."""
-    return {
+    """Self-contained, versioned raw_event payload for one message/echo, safe for jsonb."""
+    payload = {
         "v": 1,
         "kind": "echo" if isinstance(event, WaEcho) else "message",
         "phone_number_id": event.phone_number_id,
         "contact_name": event.contact_name if isinstance(event, WaInbound) else None,
         "item": event.raw,
     }
+    cleaned: dict[str, Any] = clean_json(payload)
+    return cleaned
 
 
 def event_from_payload(payload: dict[str, Any]) -> WaInbound | WaEcho | None:

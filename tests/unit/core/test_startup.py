@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -15,9 +16,16 @@ REAL: dict[str, Any] = {
     "gmail_pubsub_audience": "https://estateos.example/webhooks/gmail/push",
     "whatsapp_api_base_url": "https://waba-v2.360dialog.io",
     "gmail_pubsub_service_account": "push@p.iam.gserviceaccount.com",
-    "gmail_credentials_file": "/run/secrets/gmail-read.json",
     "gmail_pubsub_topic": "projects/p/topics/gmail",
+    "s3_bucket": "estateos-prod",
 }
+
+
+@pytest.fixture(autouse=True)
+def _credentials_file(tmp_path: Path) -> None:
+    creds = tmp_path / "gmail-read.json"
+    creds.write_text("{}")
+    REAL["gmail_credentials_file"] = creds
 
 
 def _s(**kw: Any) -> Settings:
@@ -40,6 +48,9 @@ def test_defaults_are_fakes_and_fine_outside_prod() -> None:
         ({"whatsapp_app_secret": None}, "whatsapp_app_secret"),
         ({"gmail_pubsub_audience": None}, "gmail_pubsub_audience"),
         ({"whatsapp_api_base_url": None}, "whatsapp_api_base_url"),
+        ({"s3_bucket": None}, "s3_bucket"),
+        ({"gmail_credentials_file": Path("/nonexistent/gmail.json")}, "gmail_credentials_file"),
+        ({"gmail_credentials_file": Path(".")}, "gmail_credentials_file"),
     ],
 )
 def test_prod_refuses_unsafe(override: dict[str, Any], fragment: str) -> None:

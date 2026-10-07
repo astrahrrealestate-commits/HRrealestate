@@ -415,3 +415,47 @@ def test_360dialog_signs_plain_hex_in_its_own_header() -> None:
         verify_signature(body, sign_body(SECRET, body), SECRET, DIALOG360)  # Meta format is not accepted
     with pytest.raises(WebhookRejectedError):
         verify_signature(body, header, SECRET)  # and vice versa
+
+
+def _wa(message: dict[str, object]) -> bytes:
+    import json
+
+    value = {
+        "messaging_product": "whatsapp",
+        "metadata": {"display_phone_number": "4915550000999", "phone_number_id": "100000000000001"},
+        "contacts": [{"profile": {"name": "Mie\u0000ter \ud800"}, "wa_id": "4915550000001"}],
+        "messages": [{"from": "4915550000001", "id": "wamid.H1", "timestamp": "1759737600", **message}],
+    }
+    body = {
+        "object": "whatsapp_business_account",
+        "entry": [{"id": "1", "changes": [{"field": "messages", "value": value}]}],
+    }
+    return json.dumps(body).encode()
+
+
+def test_payload_strings_are_postgres_safe() -> None:
+    """NUL and lone surrogates are legal in JSON but rejected by Postgres text/jsonb: clean them before storage."""
+    import json
+
+    from app.channels.whatsapp.inbound import event_from_payload, event_to_payload
+
+    [event] = parse_webhook(_wa({"type": "text", "text": {"body": "Heiz\u0000ung \ud800kalt"}}))
+    assert isinstance(event, WaInbound)
+    payload = event_to_payload(event)
+    encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")  # raises on lone surrogates
+    assert b"\x00" not in encoded
+    assert b"\\u0000" not in json.dumps(payload).encode()
+    restored = event_from_payload(payload)
+    assert restored is not None
+    assert restored.text == "Heizung �kalt"
+
+
+def test_media_filename_and_mime_are_sanitised() -> None:
+    document = {"id": "MEDIA9", "filename": "../../" + "x" * 300 + ".pdf", "mime_type": "text/html\r\nX-Evil: 1"}
+    [event] = parse_webhook(_wa({"type": "document", "document": document}))
+    assert isinstance(event, WaInbound)
+    assert event.media is not None
+    assert event.media.filename is not None
+    assert len(event.media.filename) <= 255
+    assert "/" not in event.media.filename
+    assert event.media.mime_type == "application/octet-stream"

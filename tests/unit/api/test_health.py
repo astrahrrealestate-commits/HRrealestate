@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -68,8 +69,10 @@ def test_factory_without_arguments_reads_environment(monkeypatch: pytest.MonkeyP
         get_settings.cache_clear()
 
 
-def test_prod_hides_docs_and_openapi(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_prod_hides_docs_and_openapi(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("WHATSAPP_MEDIA_TOKENS", '{"100000000000001": "k"}')
+    creds = tmp_path / "gmail-read.json"
+    creds.write_text("{}")
     prod = Settings(
         database_url="postgresql+psycopg://u:p@localhost:1/db",
         env="prod",
@@ -81,8 +84,9 @@ def test_prod_hides_docs_and_openapi(monkeypatch: pytest.MonkeyPatch) -> None:
         gmail_pubsub_audience="aud",
         whatsapp_api_base_url="https://waba-v2.360dialog.io",
         gmail_pubsub_service_account="push@p.iam.gserviceaccount.com",
-        gmail_credentials_file="/run/secrets/gmail-read.json",
+        gmail_credentials_file=creds,
         gmail_pubsub_topic="projects/p/topics/gmail",
+        s3_bucket="estateos-prod",
         _env_file=None,
     )  # type: ignore[call-arg]
     with TestClient(create_app(prod, engine=MagicMock())) as client:

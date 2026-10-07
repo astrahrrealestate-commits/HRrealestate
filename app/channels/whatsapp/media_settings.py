@@ -10,7 +10,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class WhatsAppMediaSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        env_parse_none_str="",  # `NAME=` means unset
+    )
 
     # JSON object in env: WHATSAPP_MEDIA_TOKENS={"<phone_number_id>": "<token or D360 API key>", ...}
     whatsapp_media_tokens: dict[str, SecretStr] = {}

@@ -4,6 +4,7 @@ import hashlib
 from dataclasses import dataclass
 from uuid import UUID
 
+from app.channels.text_clean import clean_filename, clean_mime
 from app.storage.ports import ObjectStorage, content_key
 
 
@@ -19,6 +20,7 @@ class AttachmentInput:
 def store_attachment(
     storage: ObjectStorage, company_id: UUID, data: bytes, mime_type: str, filename: str | None
 ) -> AttachmentInput:
+    mime_type, filename = clean_mime(mime_type), clean_filename(filename)  # provider-supplied: bounded and clean
     sha256 = hashlib.sha256(data).hexdigest()
     key = content_key(company_id, sha256)
     if not storage.exists(key):

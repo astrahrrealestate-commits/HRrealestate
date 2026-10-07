@@ -148,6 +148,7 @@ class EditGuard(unittest.TestCase):
         self.assertEqual(write("app/ingestion/media.py", media), "deny")
         self.assertIsNone(write("app/channels/registry.py", media))
         self.assertEqual(write("app/core/settings.py", "    whatsapp_media_token: str = ''\n"), "deny")
+        self.assertEqual(write("app/api/x.py", "tokens = registry._media_credentials()\n"), "deny")
         self.assertIsNone(write("tests/unit/test_sender.py", bad))
 
     def test_secrets(self) -> None:

@@ -7,7 +7,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class SenderSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        env_parse_none_str="",  # `NAME=` means unset
+    )
 
     whatsapp_access_token: SecretStr | None = None
     whatsapp_phone_number_id: str | None = None

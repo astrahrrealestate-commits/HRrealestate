@@ -36,7 +36,7 @@ SEND_ONLY = re.compile(
     r"|\b(WHATSAPP_ACCESS_TOKEN|WA_ACCESS_TOKEN|GMAIL_SEND_\w+)\b"
 )
 SEND_ALLOWED = re.compile(r"^(app/sender/|tests/|\.claude/|docs/|CLAUDE\.md$|\.env\.example$)")
-MEDIA_CREDS = re.compile(r"\bmedia_settings\b|\bWhatsAppMediaSettings\b|\bWHATSAPP_MEDIA_TOKENS?\b|\bwhatsapp_media_tokens?\b")
+MEDIA_CREDS = re.compile(r"\b_?media_credentials\b|\bmedia_settings\b|\bWhatsAppMediaSettings\b|\bWHATSAPP_MEDIA_TOKENS?\b|\bwhatsapp_media_tokens?\b")
 MEDIA_ALLOWED = re.compile(
     r"^(app/channels/registry\.py|app/channels/whatsapp/media_settings\.py|tests/|\.claude/|docs/|\.env\.example$)"
 )

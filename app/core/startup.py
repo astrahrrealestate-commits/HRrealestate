@@ -20,11 +20,14 @@ def production_problems(settings: Settings) -> list[str]:
         "whatsapp_api_base_url",
         "gmail_pubsub_audience",
         "gmail_pubsub_service_account",
-        "gmail_credentials_file",
         "gmail_pubsub_topic",
+        "s3_bucket",
     ):
         if not getattr(settings, name):
             problems.append(f"{name} is not set")
+    creds = settings.gmail_credentials_file
+    if creds is None or not creds.is_file():
+        problems.append("gmail_credentials_file is not set or not a readable file")
     return problems
 
 

@@ -143,14 +143,13 @@ source_modules = [
     "app.channels.gmail", "app.channels.gmail.*",
 ]
 forbidden_modules = [
-    "app.channels.whatsapp.outbound", "app.channels.gmail.outbound", "app.channels.gmail.drafts",
+    "app.channels.whatsapp.outbound", "app.channels.gmail.drafts",
     "app.sender.settings", "app.sender.whatsapp",
 ]
 ignore_imports = [
     "app.sender.** -> app.channels.whatsapp.outbound",
     "app.sender.** -> app.channels.gmail.drafts",
     "app.sender.** -> app.sender.settings",
-    "app.sender.** -> app.sender.whatsapp",
 ]
 allow_indirect_imports = false
 unmatched_ignore_imports_alerting = "warn"

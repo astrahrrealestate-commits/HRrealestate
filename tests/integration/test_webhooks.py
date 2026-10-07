@@ -235,3 +235,67 @@ def test_mixed_case_mailbox_resolves(
         account = s.scalar(select(ChannelAccount).where(ChannelAccount.company_id == committed_company.id))
     assert account is not None
     assert dbos_client.list_workflows(workflow_ids=[gmail_sync_workflow_id(account.id, 5)])
+
+
+def test_unsafe_strings_and_dropped_items_in_one_body_are_all_stored(
+    api: tuple[TestClient, str], accounts: Company, migrated_engine: Engine
+) -> None:
+    """NUL / lone surrogates must neither drop the message nor turn the unparsed-item record into a 500 (which makes
+    Meta redeliver the whole batch for days)."""
+    client, _ = api
+    good = {
+        "from": "4915550000001",
+        "id": "wamid.NUL",
+        "timestamp": "1759737600",
+        "type": "text",
+        "text": {"body": "Heiz\u0000ung \ud800kalt"},
+    }
+    bad = {**good, "id": "wamid.BAD2", "timestamp": "not-a-time"}
+    value = {"metadata": {"display_phone_number": "1", "phone_number_id": PNID}, "messages": [bad, good]}
+    body = json.dumps(
+        {
+            "object": "whatsapp_business_account",
+            "entry": [{"id": "1", "changes": [{"field": "messages", "value": value}]}],
+        }
+    ).encode()
+    assert _post(client, body) == 200
+    rows = {r.provider_msg_id.split(":")[0]: r for r in _raw(migrated_engine, accounts)}
+    assert rows["wamid.NUL"].payload["item"]["text"]["body"] == "Heizung \ufffdkalt"
+    assert rows["unparsed"].status is RawEventStatus.failed
+
+
+def test_unparsed_items_are_never_stored_across_companies(
+    api: tuple[TestClient, str], accounts: Company, migrated_engine: Engine
+) -> None:
+    """One Meta POST can carry several WABAs: an unparsed body must not land in another tenant's raw_events."""
+    other = Company(name="Other GmbH")
+    with Session(migrated_engine, expire_on_commit=False) as s:
+        s.add(other)
+        s.flush()
+        s.add(ChannelAccount(company_id=other.id, channel=Channel.whatsapp, address="100000000000077"))
+        s.commit()
+    client, _ = api
+    try:
+        bad = {"from": "4915550000001", "id": "wamid.X", "timestamp": "nope", "type": "text", "text": {"body": "x"}}
+        entries = [
+            {
+                "id": str(i),
+                "changes": [
+                    {
+                        "field": "messages",
+                        "value": {
+                            "metadata": {"display_phone_number": "1", "phone_number_id": pnid},
+                            "messages": [bad],
+                        },
+                    }
+                ],
+            }
+            for i, pnid in enumerate((PNID, "100000000000077"))
+        ]
+        body = json.dumps({"object": "whatsapp_business_account", "entry": entries}).encode()
+        assert _post(client, body) == 200
+        assert [r for r in _raw(migrated_engine, accounts) if r.provider_msg_id.startswith("unparsed:")] == []
+    finally:
+        from tests.integration.conftest import purge_company
+
+        purge_company(migrated_engine, other.id)

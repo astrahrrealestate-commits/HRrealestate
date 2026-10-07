@@ -23,7 +23,7 @@ from app.core.settings import Settings
 
 
 @lru_cache(maxsize=1)
-def media_credentials() -> WhatsAppMediaSettings:
+def _media_credentials() -> WhatsAppMediaSettings:
     """Read once per process (not per download)."""
     return WhatsAppMediaSettings()
 
@@ -37,7 +37,7 @@ def whatsapp_media(
     """Media adapter for the number that received the message (360dialog keys are per number)."""
     if settings.whatsapp_provider == "fake":
         return fake_whatsapp_media(settings)
-    tokens = (media_settings or media_credentials()).whatsapp_media_tokens
+    tokens = (media_settings or _media_credentials()).whatsapp_media_tokens
     if not settings.whatsapp_api_base_url or phone_number_id not in tokens:
         raise UnsafeConfigurationError(f"no WhatsApp media credentials for phone_number_id {phone_number_id}")
     token = tokens[phone_number_id].get_secret_value()
@@ -55,7 +55,7 @@ def channel_problems(settings: Settings, media_settings: WhatsAppMediaSettings |
     """Channel readiness for real providers (complements core.startup's checks)."""
     if settings.whatsapp_provider == "fake":
         return []
-    tokens = (media_settings or media_credentials()).whatsapp_media_tokens
+    tokens = (media_settings or _media_credentials()).whatsapp_media_tokens
     return [] if tokens else ["WHATSAPP_MEDIA_TOKENS is empty (needed for inbound media download)"]
 
 

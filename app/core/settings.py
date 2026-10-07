@@ -11,7 +11,12 @@ import app
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        env_parse_none_str="",  # `NAME=` means unset
+    )
 
     env: Literal["dev", "test", "prod"] = "dev"
     database_url: PostgresDsn

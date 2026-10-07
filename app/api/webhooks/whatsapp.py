@@ -13,6 +13,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.api.body import read_capped
 from app.api.deps import WorkflowClient, get_engine, get_settings_dep, get_workflow_client
+from app.channels.text_clean import clean_json
 from app.channels.whatsapp.inbound import (
     WaEvent,
     WaStatus,
@@ -105,7 +106,7 @@ def _record_one(session: Session, client: WorkflowClient, account: ChannelAccoun
     try:
         with session.begin_nested():  # one bad event must not poison the batch (the provider would redeliver forever)
             if isinstance(event, WaStatus):
-                record_status(session, account, event.wamid, DeliveryStatus(event.status), event.raw)
+                record_status(session, account, event.wamid, DeliveryStatus(event.status), clean_json(event.raw))
             else:
                 record_event(session, client, account, event.wamid, event_to_payload(event))
     except (DataError, IntegrityError) as exc:
@@ -113,26 +114,34 @@ def _record_one(session: Session, client: WorkflowClient, account: ChannelAccoun
 
 
 def _keep_unparsed(session: Session, accounts: dict[str, ChannelAccount], body: bytes, dropped: int) -> None:
-    """Items the parser could not read are stored (failed) and alerted on, never silently acked away."""
+    """Items the parser could not read are stored (failed) and alerted on, never silently acked away.
+
+    Stored only when every number in the body belongs to one company: a multi-WABA body must not land in another
+    tenant's raw_events (the error log with the body digest remains the alert).
+    """
     digest = hashlib.sha256(body).hexdigest()
     log.error("whatsapp.webhook.items_dropped", dropped=dropped, body_sha256=digest)
-    account = next(iter(accounts.values()), None)
-    if account is None:
+    companies = {a.company_id for a in accounts.values()}
+    if len(companies) != 1:
+        log.error("whatsapp.webhook.unparsed_not_stored", companies=len(companies), body_sha256=digest)
         return
     try:
         payload = json.loads(body)
     except (ValueError, RecursionError):
         payload = {"undecodable": True}
-    with session.begin_nested():
-        record_event(
-            session,
-            client=_UNUSED,
-            account=account,
-            provider_msg_id=f"unparsed:{digest[:48]}",
-            payload=payload if isinstance(payload, dict) else {"body": payload},
-            status=RawEventStatus.failed,
-            workflow=None,
-        )
+    try:
+        with session.begin_nested():
+            record_event(
+                session,
+                client=_UNUSED,
+                account=next(iter(accounts.values())),
+                provider_msg_id=f"unparsed:{digest[:48]}",
+                payload=clean_json(payload if isinstance(payload, dict) else {"body": payload}),
+                status=RawEventStatus.failed,
+                workflow=None,
+            )
+    except (DataError, IntegrityError) as exc:  # never turn a stored-good-items batch into a 500 + redelivery loop
+        log.error("whatsapp.webhook.unparsed_rejected_by_db", body_sha256=digest, error_type=type(exc).__name__)
 
 
 class _NoEnqueue:
