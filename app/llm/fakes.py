@@ -130,6 +130,18 @@ def _fake_owner_qa(prompt: str) -> dict[str, object]:
     return {"answer": f"You have {len(cases)} open cases. (offline answer)", "case_refs": cases[:3]}
 
 
+def _fake_briefing(prompt: str) -> dict[str, object]:
+    sections: list[dict[str, object]] = []
+    items: list[str] = []
+    for line in prompt.splitlines():
+        if line.startswith("## "):
+            items = []
+            sections.append({"title": line[3:][:40], "items": items})
+        elif line.startswith("- ") and sections and len(items) < 8:
+            items.append(line[2:][:240])
+    return {"headline": f"{len(sections)} topics today (offline briefing).", "sections": sections[:6]}
+
+
 def model_for(agent_name: str) -> FunctionModel:
     def fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         user_text = _extract_user_text(messages)
@@ -145,6 +157,8 @@ def model_for(agent_name: str) -> FunctionModel:
             args = _fake_proposer(user_text)
         elif agent_name == "owner_qa":
             args = _fake_owner_qa(user_text)
+        elif agent_name == "briefing":
+            args = _fake_briefing(user_text)
         else:
             args = {}
 

@@ -3,7 +3,7 @@ tap d2 → exactly one Gmail draft in the tenant's thread (M6/M7 done-when). Not
 
 import time
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -18,7 +18,8 @@ from app.channels.whatsapp.outbound import FakeWhatsAppOutbound
 from app.contracts import ButtonChoice, ButtonId, Channel, Direction
 from app.core.ids import new_id
 from app.core.settings import Settings
-from app.db.models import Approval, ChannelAccount, Company, MessageRow, OwnerAccount, RawEvent
+from app.db.enums import TimerStatus
+from app.db.models import Approval, ChannelAccount, Company, MessageRow, OwnerAccount, RawEvent, Timer
 from app.sender.execute import SenderDeps
 from app.workflows import owner_reply, pipeline
 from app.workflows.deps import set_engine, set_sender_deps
@@ -179,3 +180,32 @@ def test_overdue_wait_fires_through_the_timer_sweep_as_a_chaser_card(
     assert "Draft 1:" in str(wa.sent[sent_before].payload)
     with Session(migrated_engine) as s:
         assert s.scalar(select(WaitRow.chase_count).where(WaitRow.id == wid)) == 1
+
+
+def test_due_briefing_timer_sends_one_briefing_and_schedules_the_next(
+    stack: tuple[FakeWhatsAppOutbound, FakeDrafts], migrated_engine: Engine, committed_company: Company
+) -> None:
+    from app.pipeline import briefing, timers
+    from app.workflows import timer_dispatch
+
+    wa, _ = stack
+    _message(migrated_engine, committed_company.id, OWNER, "Goedemorgen", Channel.whatsapp, {})
+    with Session(migrated_engine) as s, s.begin():
+        timers.schedule(
+            s,
+            committed_company.id,
+            briefing.DAILY,
+            datetime.now(UTC) - timedelta(minutes=1),
+            {"kind": "daily"},
+            dedupe_key="briefing.daily:test",
+        )
+    DBOS.start_workflow(timer_dispatch.sweep_due, datetime.now(UTC)).get_result()
+    deadline = time.monotonic() + 20
+    while not wa.sent and time.monotonic() < deadline:
+        time.sleep(0.1)
+    assert wa.sent[0].payload["text"]["body"].startswith("Good morning")
+    with Session(migrated_engine) as s:
+        kinds = s.scalars(
+            select(Timer.kind).where(Timer.company_id == committed_company.id, Timer.status == TimerStatus.pending)
+        ).all()
+    assert set(kinds) >= {briefing.DAILY, briefing.WEEKLY}

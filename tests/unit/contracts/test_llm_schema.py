@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from app.contracts import Action, CaseSummary, LinkDecision, OwnerAnswer, Proposal, Understanding
+from app.contracts import Action, Briefing, CaseSummary, LinkDecision, OwnerAnswer, Proposal, Understanding
 
 FORBIDDEN_KEYS = {"oneOf", "discriminator", "default", "minLength", "maxLength"}
 
@@ -31,6 +31,6 @@ def _walk(node: Any, path: str = "$") -> list[str]:
     return problems
 
 
-@pytest.mark.parametrize("model", [Understanding, Action, LinkDecision, CaseSummary, Proposal, OwnerAnswer])
+@pytest.mark.parametrize("model", [Understanding, Action, LinkDecision, CaseSummary, Proposal, OwnerAnswer, Briefing])
 def test_strict_mode_compatible(model: type[BaseModel]) -> None:
     assert _walk(model.model_json_schema()) == []

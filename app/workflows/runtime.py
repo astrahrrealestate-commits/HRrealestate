@@ -10,6 +10,7 @@ from dbos import DBOS, DBOSConfig, ScheduleInput
 from app.core.settings import Settings
 from app.workflows import (
     actions,
+    briefings,
     followups,
     ingest,
     owner_notify,
@@ -21,7 +22,7 @@ from app.workflows import (
 )
 
 # Importing registers the workflow functions before launch
-_REGISTERED = (actions, followups, ingest, owner_notify, owner_reply, pipeline, timer_dispatch)
+_REGISTERED = (actions, briefings, followups, ingest, owner_notify, owner_reply, pipeline, timer_dispatch)
 
 SCHEDULES: list[ScheduleInput] = [
     {"schedule_name": "system.timer_sweep", "workflow_fn": system.timer_sweep, "schedule": "* * * * *"},
@@ -34,6 +35,7 @@ SCHEDULES: list[ScheduleInput] = [
     {"schedule_name": "gmail.backfill", "workflow_fn": ingest.gmail_backfill, "schedule": "17 * * * *"},
     {"schedule_name": "ingest.requeue", "workflow_fn": ingest.requeue_failed, "schedule": "41 * * * *"},
     {"schedule_name": "pipeline.requeue", "workflow_fn": pipeline.requeue_failed, "schedule": "47 * * * *"},
+    {"schedule_name": "briefing.ensure", "workflow_fn": briefings.ensure_briefings, "schedule": "5 * * * *"},
 ]
 
 
