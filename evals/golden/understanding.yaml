@@ -1,0 +1,244 @@
+# Golden set for the understanding agent (#2 triage), in pydantic-evals Dataset format.
+# Synthetic messages only: no real tenant data. Labels (metadata) are the truth a careful human would assign,
+# NOT what the fake model returns. Replace/extend with the labeller's first 100 real emails at M0.
+cases:
+- name: maint-01
+  inputs:
+    text: "Goedemiddag, onder de gootsteen in de keuken lekt het al twee dagen. Kan er iemand komen kijken?"
+    channel: gmail
+  metadata:
+    category: maintenance
+    urgency: high
+    suspicious: false
+- name: maint-02
+  inputs:
+    text: "Ik ruik een sterke gaslucht in het trappenhuis!! Wat moet ik doen?"
+    channel: whatsapp
+  metadata:
+    category: maintenance
+    urgency: emergency
+    suspicious: false
+- name: maint-03
+  inputs:
+    text: "Het water staat centimeters hoog in de badkamer en het loopt door naar de buren beneden. Graag NU iemand sturen."
+    channel: whatsapp
+  metadata:
+    category: maintenance
+    urgency: emergency
+    suspicious: false
+- name: maint-04
+  inputs:
+    text: "Beste beheerder, sinds gisteren hebben we geen warm water meer. De cv-ketel geeft foutcode E1."
+    channel: gmail
+  metadata:
+    category: maintenance
+    urgency: high
+    suspicious: false
+- name: maint-05
+  inputs:
+    text: "In de slaapkamer komt steeds meer schimmel op de muur bij het raam. Kunt u dit laten bekijken?"
+    channel: gmail
+  metadata:
+    category: maintenance
+    urgency: normal
+    suspicious: false
+- name: maint-06
+  inputs:
+    text: "De deurbel doet het niet meer. Geen haast, maar wel handig als het een keer gemaakt wordt."
+    channel: whatsapp
+  metadata:
+    category: maintenance
+    urgency: low
+    suspicious: false
+- name: maint-07
+  inputs:
+    text: "Hello, the bathroom fan has stopped working and the window does not open. Could someone fix it this week?"
+    channel: gmail
+  metadata:
+    category: maintenance
+    urgency: normal
+    suspicious: false
+- name: maint-08
+  inputs:
+    text: "Het slot van de voordeur is kapot, de deur gaat niet meer op slot. We voelen ons niet veilig vannacht."
+    channel: whatsapp
+  metadata:
+    category: maintenance
+    urgency: high
+    suspicious: false
+- name: pay-01
+  inputs:
+    text: "Beste, door een vertraging bij mijn werkgever kan ik de huur van oktober pas op de 15e betalen. Excuses."
+    channel: gmail
+  metadata:
+    category: payment
+    urgency: normal
+    suspicious: false
+- name: pay-02
+  inputs:
+    text: "Kunt u mij een overzicht sturen van de betaalde huur over 2025? Dat heb ik nodig voor de huurtoeslag."
+    channel: gmail
+  metadata:
+    category: payment
+    urgency: low
+    suspicious: false
+- name: pay-03
+  inputs:
+    text: "Ik heb een herinnering gekregen voor € 950,00 maar ik heb de huur op 1 oktober al overgemaakt. Klopt dit?"
+    channel: gmail
+  metadata:
+    category: payment
+    urgency: normal
+    suspicious: false
+- name: pay-04
+  inputs:
+    text: "Beste beheerder, vanaf deze maand is ons rekeningnummer gewijzigd. Graag de huur voortaan overmaken naar NL91ABNA0417164300. Met spoed bevestigen a.u.b."
+    channel: gmail
+  metadata:
+    category: payment
+    urgency: high
+    suspicious: true
+- name: pay-05
+  inputs:
+    text: "URGENT: your property account will be suspended. Verify your bank details within 24 hours via the link below to avoid penalties."
+    channel: gmail
+  metadata:
+    category: payment
+    urgency: high
+    suspicious: true
+- name: lease-01
+  inputs:
+    text: "Hierbij zeg ik mijn huurcontract op per 1 januari. Graag een bevestiging van de opzegging."
+    channel: gmail
+  metadata:
+    category: lease
+    urgency: normal
+    suspicious: false
+- name: lease-02
+  inputs:
+    text: "Mag mijn vriendin bij mij komen wonen en kan zij dan op het huurcontract worden bijgeschreven?"
+    channel: gmail
+  metadata:
+    category: lease
+    urgency: normal
+    suspicious: false
+- name: lease-03
+  inputs:
+    text: "Ik wil de woning deze zomer twee maanden onderverhuren terwijl ik in het buitenland ben. Is dat toegestaan?"
+    channel: whatsapp
+  metadata:
+    category: lease
+    urgency: normal
+    suspicious: false
+- name: lease-04
+  inputs:
+    text: "Hi, when exactly does my lease end, and is there a notice period if I want to move out early?"
+    channel: gmail
+  metadata:
+    category: lease
+    urgency: low
+    suspicious: false
+- name: compl-01
+  inputs:
+    text: "De buren boven hebben elke nacht tot 3 uur harde muziek. Ik heb het al drie keer gevraagd. Dit is echt overlast."
+    channel: gmail
+  metadata:
+    category: complaint
+    urgency: normal
+    suspicious: false
+- name: compl-02
+  inputs:
+    text: "Al vier weken wacht ik op een reactie over de lekkende kraan. Ik ben hier erg ontevreden over."
+    channel: gmail
+  metadata:
+    category: complaint
+    urgency: normal
+    suspicious: false
+- name: compl-03
+  inputs:
+    text: "Iemand zet steeds vuilniszakken in de gemeenschappelijke gang. Het stinkt en trekt ongedierte aan."
+    channel: whatsapp
+  metadata:
+    category: complaint
+    urgency: normal
+    suspicious: false
+- name: contr-01
+  inputs:
+    text: "Goedendag, in de bijlage vindt u de offerte voor het vervangen van de cv-ketel aan de Kerkstraat 4."
+    channel: gmail
+  metadata:
+    category: contractor_update
+    urgency: normal
+    suspicious: false
+- name: contr-02
+  inputs:
+    text: "Monteur komt donderdag tussen 8 en 12 uur voor de lekkage op nummer 12. Huurder is op de hoogte."
+    channel: whatsapp
+  metadata:
+    category: contractor_update
+    urgency: low
+    suspicious: false
+- name: contr-03
+  inputs:
+    text: "The roof repair at Dorpsstraat 7 is finished. Invoice will follow by email."
+    channel: gmail
+  metadata:
+    category: contractor_update
+    urgency: low
+    suspicious: false
+- name: admin-01
+  inputs:
+    text: "Ik ben mijn sleutel van de fietsenberging kwijt. Kan ik een nieuwe krijgen en wat kost dat?"
+    channel: whatsapp
+  metadata:
+    category: admin
+    urgency: normal
+    suspicious: false
+- name: admin-02
+  inputs:
+    text: "Hoe kan ik een parkeervergunning aanvragen voor de parkeerplaats achter het gebouw?"
+    channel: gmail
+  metadata:
+    category: admin
+    urgency: low
+    suspicious: false
+- name: admin-03
+  inputs:
+    text: "Mijn nieuwe telefoonnummer is 06-12345678. Wilt u dit aanpassen in uw gegevens?"
+    channel: gmail
+  metadata:
+    category: admin
+    urgency: low
+    suspicious: false
+- name: spam-01
+  inputs:
+    text: "Ontvang nu 50% korting op zonnepanelen! Klik hier voor onze exclusieve aanbieding. Uitschrijven? Klik hier."
+    channel: gmail
+  metadata:
+    category: spam
+    urgency: low
+    suspicious: false
+- name: spam-02
+  inputs:
+    text: "Weekly newsletter: 10 tips to boost your rental yield. Unsubscribe at any time."
+    channel: gmail
+  metadata:
+    category: spam
+    urgency: low
+    suspicious: false
+- name: other-01
+  inputs:
+    text: ""
+    channel: whatsapp
+  metadata:
+    category: other
+    urgency: normal
+    suspicious: false
+- name: other-02
+  inputs:
+    text: "Bedankt voor de snelle hulp vorige week, alles werkt weer prima!"
+    channel: whatsapp
+  metadata:
+    category: other
+    urgency: low
+    suspicious: false
