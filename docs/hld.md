@@ -57,7 +57,7 @@ contracts, core}`. Only `sender` imports `channels.*.outbound`. `contracts` and 
 ## 4. Key flows
 
 ### 4.1 Inbound tenant message (WhatsApp)
-1. `POST /webhooks/whatsapp`. pywa verifies `X-Hub-Signature-256`.
+1. `POST /webhooks/whatsapp`. HMAC-SHA256 body signature verified per provider (`X-Hub-Signature-256` for Meta, `x-360dialog-signature` for 360dialog).
 2. Resolve `channel_accounts` → company. `INSERT raw_events … ON CONFLICT DO NOTHING`. Commit.
 3. `DBOSClient.enqueue(process_event, raw_event_id, workflow_id=f"evt:{raw_event_id}")`. Return 200.
    A duplicate webhook means the same workflow id, so DBOS runs it once.

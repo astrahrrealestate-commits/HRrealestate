@@ -25,6 +25,7 @@ from app.channels.whatsapp.webhook_auth import (
     DEV_APP_SECRET,
     DEV_VERIFY_TOKEN,
     MAX_WEBHOOK_BYTES,
+    signature_scheme,
     verify_handshake,
     verify_signature,
 )
@@ -68,7 +69,8 @@ async def receive(
     body = await read_capped(request, MAX_WEBHOOK_BYTES)
     secret = _secret(settings.whatsapp_app_secret, DEV_APP_SECRET, settings)
     try:
-        verify_signature(body, request.headers.get("x-hub-signature-256"), secret)
+        scheme = signature_scheme(settings.whatsapp_provider)
+        verify_signature(body, request.headers.get(scheme.header), secret, scheme)
     except WebhookRejectedError as exc:
         raise HTTPException(status_code=401, detail="invalid signature") from exc
     await run_in_threadpool(_handle, engine, client, body)

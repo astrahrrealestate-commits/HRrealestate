@@ -95,7 +95,10 @@ warn_required_dynamic_aliases = true
 pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "--disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,localhost,::1 --strict-markers -p no:cacheprovider"
-markers = ["integration: needs Docker (testcontainers Postgres) and/or DBOS"]
+markers = [
+    "integration: needs Docker (testcontainers Postgres) and/or DBOS",
+    "live(*settings): calls a real provider; runs only with --live (make live-check) once the named settings are set",
+]
 timeout = 120  # a hung test fails loudly instead of blocking a gate (DBOS get_result has no timeout)
 timeout_method = "thread"
 filterwarnings = [

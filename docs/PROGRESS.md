@@ -38,6 +38,10 @@ Spec: [2026-10-05-estateos-m1-foundation-design.md](superpowers/specs/2026-10-05
 - [x] (from T8 review, Task 9) gmail_sync serialised (dedicated `gmail_sync` queue, concurrency 1; cursor compare-and-swap, no lock across Gmail calls); notice.history_id ≤ stored → no-op
 - [x] T9 ingestion workflows (process_event, gmail_sync/backfill/watch_renew, hourly requeue of retryable failures + stranded `pending`) — reviewer fixes applied
 - [x] T10 simulator (`python -m app.dev.simulate seed|wa|wa-button|gmail|demo`) + parity suite + `make sim-demo` — G5 "sim.demo.ok gmail=2 owner_buttons=1 whatsapp=2"; reviewer VERDICT: ship (mediums fixed)
+- [x] T11 live harness: `make live-check [k=…]` (tests/live, `@pytest.mark.live(*settings)`, deselected by default, exits 2 listing missing names before any provider call), docs/go-live-channels.md; 360dialog webhook signature (`x-360dialog-signature`) supported — G2 green, no live run (no credentials)
+- [ ] (T11 deviation, recorded) live checks are standalone smoke tests per real adapter, not `live` params of the tests/contract suites; real-adapter edge cases (NotFound, HistoryExpired) stay covered by recorded-HTTP contract tests only
+- [ ] **decision for user:** 360dialog without a partner platform secret sends unsigned webhooks (rejected by design) — Meta Cloud API, get the platform secret, or approve custom-header auth
+- [ ] **decision for user:** Gmail OAuth consent: `gcloud` forces the `cloud-platform` scope; minimal-scope consent script needs dev dep `google-auth-oauthlib`
 - [ ] (from T9 review, before a 2nd company) `gmail_sync` queue: `partition_concurrency=1` + partition key = account id, so one slow mailbox never delays other tenants
 - [x] (carried from M1 review) raw_event insert + DBOS enqueue in one transaction (T7, commit/rollback test)
 ## M3 Directory

@@ -32,6 +32,8 @@ Pydantic AI → OpenAI (EU) · Langfuse · pywa (WhatsApp, 360dialog) · Gmail A
 | `make quick` | **G1**: ruff, format, mypy, import-linter, unit tests |
 | `make check` | **G2**: G1 + integration (testcontainers Postgres + DBOS, migration round-trip, drift) |
 | `make smoke` | **G5**: stack up, api ready, worker self-check, logs clean |
+| `make sim-demo` | **G5**: simulate WhatsApp + Gmail through the stack, assert parity rows (`app/dev/simulate.py`) |
+| `make live-check [k=gmail]` | go-live gate: real provider adapters; lists missing credentials ([docs/go-live-channels.md](docs/go-live-channels.md)) |
 | `make cov` · `make audit` | coverage floors · dependency vulnerabilities |
 | `make migration m="..."` | new Alembic revision (see `/new-migration`) |
 | `make eval agent=X version=vN` | pydantic-evals golden set (M4) |

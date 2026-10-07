@@ -395,3 +395,23 @@ def test_bad_payloads_yield_none(payload: dict[str, object]) -> None:
     from app.channels.whatsapp.inbound import event_from_payload
 
     assert event_from_payload(payload) is None
+
+
+def test_360dialog_signs_plain_hex_in_its_own_header() -> None:
+    """360dialog signs with the platform secret in `x-360dialog-signature` (hex, no `sha256=` prefix)."""
+    from app.channels.whatsapp.webhook_auth import DIALOG360, META, signature_scheme
+
+    body = b'{"object":"whatsapp_business_account","entry":[]}'
+    assert (signature_scheme("360dialog"), signature_scheme("cloud_api"), signature_scheme("fake")) == (
+        DIALOG360,
+        META,
+        META,
+    )
+    header = sign_body(SECRET, body, DIALOG360)
+    assert len(header) == 64
+    verify_signature(body, header, SECRET, DIALOG360)
+    verify_signature(body, f" {header.upper()} ", SECRET, DIALOG360)  # hex case is not specified by 360dialog
+    with pytest.raises(WebhookRejectedError):
+        verify_signature(body, sign_body(SECRET, body), SECRET, DIALOG360)  # Meta format is not accepted
+    with pytest.raises(WebhookRejectedError):
+        verify_signature(body, header, SECRET)  # and vice versa

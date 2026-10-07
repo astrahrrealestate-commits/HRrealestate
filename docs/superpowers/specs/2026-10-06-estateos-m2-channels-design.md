@@ -28,7 +28,7 @@ All ports live in `app/channels/<channel>/ports.py`; fakes in `app/channels/<cha
 
 | Port | Methods (sync) | Real | Fake |
 |---|---|---|---|
-| `WhatsAppWebhook` | `verify_handshake(mode, token, challenge) -> str`, `verify_signature(body: bytes, header: str) -> None`, `parse(body: bytes) -> list[WaEvent]` | pywa types + HMAC-SHA256 (`X-Hub-Signature-256`) | same code; app secret from test settings |
+| `WhatsAppWebhook` | `verify_handshake(mode, token, challenge) -> str`, `verify_signature(body: bytes, header: str) -> None`, `parse(body: bytes) -> list[WaEvent]` | Pydantic webhook models + HMAC-SHA256 per provider (`X-Hub-Signature-256` for Meta, `x-360dialog-signature` for 360dialog; ADR 0003 amendment) | same code; app secret from test settings |
 | `WhatsAppMedia` | `download(media_id) -> MediaBlob` | httpx two-step download, streamed, capped, sha256-checked; credentials per phone number from `media_settings` | `FakeWhatsAppMedia` (same module) |
 | `WhatsAppOutbound` *(sender-only)* | `send(payload) -> wamid`; payloads from pure builders `payloads.text/buttons/list_menu/template` (owner module renders `ButtonId`s) | httpx transport per provider (Meta / 360dialog) | `FakeWhatsAppOutbound` records sends (same module) |
 | `GmailPushVerifier` | `verify(authorization_header, body) -> PushNotice` (OIDC JWT: issuer, audience, email) | google-auth `id_token.verify_oauth2_token` against Google certs | same verification against a local test RSA key + local certs |

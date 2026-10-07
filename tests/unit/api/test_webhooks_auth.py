@@ -111,3 +111,29 @@ def test_default_wiring_builds_lazy_client_and_registry_verifier(
     with TestClient(create_app(s, engine=MagicMock())) as c:
         assert isinstance(c.app.state.workflow_client, DBOSClient)  # type: ignore[attr-defined]
         assert isinstance(c.app.state.gmail_push_verifier, PushVerifier)  # type: ignore[attr-defined]
+
+
+def test_360dialog_deliveries_are_verified_by_their_own_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pydantic import SecretStr
+
+    from app.channels.whatsapp.webhook_auth import DIALOG360
+
+    settings = SETTINGS.model_copy(
+        update={
+            "whatsapp_provider": "360dialog",
+            "whatsapp_app_secret": SecretStr("platform-secret"),
+            "whatsapp_api_base_url": "https://waba-v2.360dialog.io",
+        }
+    )
+    app = create_app(settings, engine=Untouchable(), workflow_client=MagicMock(), gmail_push_verifier=RejectAll())  # type: ignore[arg-type]
+    body = b'{"object": "whatsapp_business_account", "entry": []}'
+    with TestClient(app) as c:
+        ok = c.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={DIALOG360.header: sign_body("platform-secret", body, DIALOG360)},
+        )
+        meta_style = c.post(
+            "/webhooks/whatsapp", content=body, headers={"x-hub-signature-256": sign_body("platform-secret", body)}
+        )
+    assert (ok.status_code, meta_style.status_code) == (200, 401)

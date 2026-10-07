@@ -39,3 +39,11 @@ able to read that settings object could send; the boundary is code-level, enforc
 after the request may have reached the provider (read timeouts, resets, 5xx, malformed 2xx); those are never retried
 automatically — the sender (M7) records them as unknown. `retryable` is true only for definitely-not-sent failures
 (connect errors, 429 / throttling codes).
+
+**Webhook signatures differ per provider (M2 Task 11).** Meta signs deliveries with the app secret in
+`X-Hub-Signature-256: sha256=<hex>`. 360dialog signs with the partner **platform secret** in
+`x-360dialog-signature: <hex>` (no prefix; compared case-insensitively). `webhook_auth.signature_scheme(provider)`
+picks the scheme; `WHATSAPP_APP_SECRET` holds whichever secret applies; unsigned deliveries are always rejected.
+Open decision: a direct 360dialog customer without a platform secret receives unsigned webhooks. Going live on
+360dialog then needs the platform secret, or a deliberate switch to 360dialog's custom-header authentication (not
+implemented). Meta Cloud API has no such gap. See docs/go-live-channels.md.
