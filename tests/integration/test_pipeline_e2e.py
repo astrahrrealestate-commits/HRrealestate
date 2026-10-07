@@ -89,6 +89,7 @@ def test_email_to_card_to_single_gmail_draft(
 ) -> None:
     wa, drafts = stack
     cid = committed_company.id
+    _message(migrated_engine, cid, OWNER, "Goedemorgen", Channel.whatsapp, {})  # opens the 24 h window
     mid = _message(
         migrated_engine,
         cid,
@@ -135,3 +136,16 @@ def test_company_without_owner_number_still_finishes_the_pipeline(
     finally:
         set_engine(None)
         DBOS.destroy()
+
+
+def test_closed_window_card_waits_until_harjot_writes(
+    stack: tuple[FakeWhatsAppOutbound, FakeDrafts], migrated_engine: Engine, committed_company: Company
+) -> None:
+    wa, _ = stack
+    cid = committed_company.id
+    mid = _message(migrated_engine, cid, TENANT, "Lekkage", Channel.gmail, {"subject": "Lek"})
+    DBOS.start_workflow(pipeline.pipeline_entry, str(mid)).get_result()
+    assert [m.payload["type"] for m in wa.sent] == ["template"]
+    hello = _message(migrated_engine, cid, OWNER, "Hoi", Channel.whatsapp, {})
+    DBOS.start_workflow(owner_reply.owner_reply, str(hello)).get_result()
+    assert "interactive" in [m.payload["type"] for m in wa.sent]

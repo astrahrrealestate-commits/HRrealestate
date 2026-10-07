@@ -9,7 +9,7 @@ SPEC_TABLES = {
     "understandings", "cases", "case_links", "case_events", "actions", "action_revisions", "approvals", "sends",
     "timers", "outcomes", "model_calls",
     # phase 1 agents (spec 2026-10-07)
-    "tasks", "waits", "documents", "metric_snapshots",
+    "tasks", "waits", "documents", "metric_snapshots", "owner_outbox",
 }  # fmt: skip
 
 

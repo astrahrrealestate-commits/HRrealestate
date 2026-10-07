@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     llm_model: str = "fake"  # Pydantic AI model string, e.g. "openai:gpt-4.1-mini"
     llm_timeout_sec: float = 60.0
 
+    # Owner channel: approved WhatsApp template that reopens the 24-hour window ("{{1}} items need you").
+    owner_template_name: str = "estateos_pending"
+    owner_template_language: str = "en"
+
     # Channels (spec M2 §4). Defaults are fakes: everything runs without provider access; prod refuses fakes.
     whatsapp_provider: Literal["fake", "cloud_api", "360dialog"] = "fake"
     gmail_provider: Literal["fake", "google"] = "fake"

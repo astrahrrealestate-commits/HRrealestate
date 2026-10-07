@@ -14,7 +14,7 @@ from app.db.enums import ActionStatus
 from app.db.models import ActionRow, Case
 from app.owner.card_data import case_label, load_card
 from app.owner.cards import PayloadBuilder, approval_payloads, exception_payload
-from app.sender.execute import send_to_owner
+from app.sender.execute import flush_owner_outbox, send_to_owner
 from app.sender.targets import SendBlockedError
 from app.workflows.deps import get_engine, get_sender_deps
 
@@ -57,3 +57,9 @@ def alert_exceptions_step(company_id: str, message_id: str) -> int:
     reason = "Suspicious or out-of-policy message. Nothing was drafted; please handle it yourself."
     _send(company_id, f"exception:{message_id}", exception_payload(label, reason))
     return len(rows)
+
+
+@DBOS.step(name="owner.flush_outbox")
+def flush_outbox_step(company_id: str) -> int:
+    """Harjot wrote, so the WhatsApp window is open: deliver what waited while it was closed."""
+    return flush_owner_outbox(get_sender_deps(), UUID(company_id))

@@ -25,4 +25,10 @@ def build_sender_deps(settings: Settings, engine: Engine) -> SenderDeps:
         fake = registry.fake_gmail_mailbox(settings, address) if settings.gmail_provider == "fake" else None
         return build_gmail_drafts(settings, sender, address, fake_mailbox=fake)
 
-    return SenderDeps(engine=engine, whatsapp=build_whatsapp_outbound(settings, sender), gmail_drafts=drafts)
+    return SenderDeps(
+        engine=engine,
+        whatsapp=build_whatsapp_outbound(settings, sender),
+        gmail_drafts=drafts,
+        template_name=settings.owner_template_name,
+        template_language=settings.owner_template_language,
+    )

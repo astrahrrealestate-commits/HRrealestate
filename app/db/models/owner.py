@@ -2,13 +2,14 @@
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import ForeignKey, Index, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.contracts import ButtonChoice, Channel
 from app.db.base import Base, CompanyScoped, str_enum
-from app.db.enums import ApprovalStatus, SendStatus
+from app.db.enums import ApprovalStatus, OutboxStatus, SendStatus
 
 
 class Approval(Base, CompanyScoped):
@@ -55,3 +56,20 @@ class Send(Base, CompanyScoped):
     )
     error: Mapped[str | None] = mapped_column(Text)
     attempted_at: Mapped[datetime | None]
+
+
+class OwnerOutbox(Base, CompanyScoped):
+    """Owner messages held while the WhatsApp 24-hour window is closed; flushed in order on Harjot's next message.
+
+    `payload` is the built WhatsApp message (recipient included: the owner number from the DB, never model output).
+    """
+
+    __tablename__ = "owner_outbox"
+    __company_id_leading_index__ = True
+    __table_args__ = (Index(None, "company_id", "status", "created_at"),)
+
+    idempotency_key: Mapped[str] = mapped_column(String(255), unique=True)
+    payload: Mapped[dict[str, Any]]
+    status: Mapped[OutboxStatus] = mapped_column(
+        str_enum(OutboxStatus), default=OutboxStatus.queued, server_default=OutboxStatus.queued.value
+    )

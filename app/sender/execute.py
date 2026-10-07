@@ -16,11 +16,13 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.channels.gmail.drafts import GmailDrafts
+from app.channels.whatsapp import payloads
 from app.channels.whatsapp.outbound import WhatsAppOutbound
 from app.contracts import ButtonChoice, Channel
 from app.core.logging import get_logger
-from app.db.enums import ActionStatus, ApprovalStatus, SendStatus
-from app.db.models import ActionRow, Approval, Company, Send
+from app.db.enums import ActionStatus, ApprovalStatus, OutboxStatus, SendStatus
+from app.db.models import ActionRow, Approval, Company, OwnerOutbox, Send
+from app.sender import owner_window
 from app.sender.targets import Plan, SendBlockedError, assert_allowed, owner_number, plan_for
 
 log = get_logger(__name__)
@@ -32,6 +34,8 @@ class SenderDeps:
     engine: Engine
     whatsapp: WhatsAppOutbound
     gmail_drafts: Callable[[str], GmailDrafts]  # mailbox address → drafts adapter
+    template_name: str = "estateos_pending"
+    template_language: str = "en"
 
 
 @dataclass(frozen=True)
@@ -141,15 +145,55 @@ def _send(deps: SenderDeps, key: str, plan: Plan) -> ExecOutcome:
     return ExecOutcome("sent", provider_ref=ref)
 
 
+def _direct(deps: SenderDeps, company_id: UUID, key: str, payload: dict[str, Any], to: str) -> str | None:
+    plan = Plan(Channel.whatsapp, to, whatsapp=payload)
+    with Session(deps.engine) as session, session.begin():
+        assert_allowed(session, company_id, plan)
+        send = _claim(session, company_id, key, None, plan)
+        if send.status is SendStatus.sent:
+            return send.provider_ref
+    return _send(deps, key, plan).provider_ref
+
+
+def _nudge(deps: SenderDeps, company_id: UUID, to: str, last: datetime | None) -> None:
+    with Session(deps.engine) as session:
+        waiting = len(owner_window.queued(session, company_id))
+    template = payloads.template(to, deps.template_name, deps.template_language, [str(waiting)])
+    _direct(deps, company_id, owner_window.nudge_key(company_id, last), template, to)
+
+
 def send_to_owner(deps: SenderDeps, company_id: UUID, key: str, build: Callable[[str], dict[str, Any]]) -> str | None:
-    """Owner-channel messages that are not actions (approval prompts, briefings, alerts). `build(to)` gets the
-    owner's number from the DB. Idempotent per `key`; returns the provider message id."""
+    """Owner-channel messages that are not actions (approval cards, briefings, alerts). `build(to)` gets the owner's
+    number from the DB. Idempotent per `key`. Returns the provider message id, or None when the WhatsApp 24-hour
+    window is closed: then the message waits in the outbox behind one template nudge."""
     with Session(deps.engine) as session, session.begin():
         existing = session.scalar(select(Send).where(Send.idempotency_key == key))
         if existing is not None and existing.status is SendStatus.sent:
             return existing.provider_ref
         to = owner_number(session, company_id)
-        plan = Plan(Channel.whatsapp, to, whatsapp=build(to))
-        assert_allowed(session, company_id, plan)
-        _claim(session, company_id, key, None, plan)
-    return _send(deps, key, plan).provider_ref
+        payload = build(to)
+        assert_allowed(session, company_id, Plan(Channel.whatsapp, to, whatsapp=payload))
+        last = owner_window.last_owner_message(session, company_id, to)
+        is_open = owner_window.window_open(last, datetime.now(UTC))
+        if not is_open:
+            owner_window.enqueue(session, company_id, key, payload)
+    if not is_open:
+        _nudge(deps, company_id, to, last)
+        return None
+    return _direct(deps, company_id, key, payload, to)
+
+
+def flush_owner_outbox(deps: SenderDeps, company_id: UUID) -> int:
+    """Harjot wrote: deliver what waited, oldest first. Stops (keeping the rest queued) if the window is closed."""
+    with Session(deps.engine) as session:
+        to = owner_number(session, company_id)
+        if not owner_window.window_open(owner_window.last_owner_message(session, company_id, to), datetime.now(UTC)):
+            return 0
+        items = [(row.id, row.idempotency_key, dict(row.payload)) for row in owner_window.queued(session, company_id)]
+    for row_id, key, payload in items:
+        _direct(deps, company_id, key, payload, to)
+        with Session(deps.engine) as session, session.begin():
+            row = session.get(OwnerOutbox, row_id)
+            if row is not None:
+                row.status = OutboxStatus.sent
+    return len(items)

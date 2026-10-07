@@ -128,3 +128,11 @@ class DocumentStatus(StrEnum):
     review = "review"
     skipped = "skipped"
     failed = "failed"
+
+
+class OutboxStatus(StrEnum):
+    """Owner message waiting for the WhatsApp 24-hour window (sent once Harjot writes again)."""
+
+    queued = "queued"
+    sent = "sent"
+    cancelled = "cancelled"

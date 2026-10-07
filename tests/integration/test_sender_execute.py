@@ -37,10 +37,12 @@ class Env:
 def env(migrated_engine: Engine, committed_company: Company) -> Env:
     cid = committed_company.id
     with Session(migrated_engine, expire_on_commit=False) as s:
-        s.add_all([
-            ChannelAccount(company_id=cid, channel=Channel.gmail, address=MAILBOX),
-            OwnerAccount(company_id=cid, display_name="Harjot", whatsapp_e164=OWNER),
-        ])  # fmt: skip
+        s.add_all(
+            [
+                ChannelAccount(company_id=cid, channel=Channel.gmail, address=MAILBOX),
+                OwnerAccount(company_id=cid, display_name="Harjot", whatsapp_e164=OWNER),
+            ]
+        )
         person = Person(company_id=cid, kind=PersonKind.tenant, display_name="Sanne", valid_from=date(2026, 1, 1))
         s.add(person)
         s.flush()
@@ -48,10 +50,18 @@ def env(migrated_engine: Engine, committed_company: Company) -> Env:
         s.add(raw)
         s.flush()
         msg = MessageRow(
-            company_id=cid, raw_event_id=raw.id, channel=Channel.gmail, provider_msg_id="gm-1", thread_ref="thr-1",
-            sender_identity=TENANT, direction=Direction.inbound, sent_at=NOW, text="Lekkage", person_id=person.id,
+            company_id=cid,
+            raw_event_id=raw.id,
+            channel=Channel.gmail,
+            provider_msg_id="gm-1",
+            thread_ref="thr-1",
+            sender_identity=TENANT,
+            direction=Direction.inbound,
+            sent_at=NOW,
+            text="Lekkage",
+            person_id=person.id,
             meta={"subject": "Lekkage badkamer", "message_id": "<m1@example.test>"},
-        )  # fmt: skip
+        )
         s.add(msg)
         s.flush()
         case_id = case_repo.create_case(s, cid, person.id, Category.maintenance, Urgency.high)
@@ -64,8 +74,15 @@ def env(migrated_engine: Engine, committed_company: Company) -> Env:
 
 def _approved(env: Env, kind: ActionType, payload: dict, choice: ButtonChoice = ButtonChoice.d2) -> UUID:  # type: ignore[type-arg]
     with Session(env.engine) as s:
-        a = ActionRow(company_id=env.company_id, case_id=env.case_id, type=kind, payload=payload, rationale="r",
-                      context_ref=[], status=ActionStatus.pending_approval)  # fmt: skip
+        a = ActionRow(
+            company_id=env.company_id,
+            case_id=env.case_id,
+            type=kind,
+            payload=payload,
+            rationale="r",
+            context_ref=[],
+            status=ActionStatus.pending_approval,
+        )
         s.add(a)
         s.flush()
         aid = approvals.open_approval(s, env.company_id, a.id, 1, urgency=Urgency.normal, now=NOW)
@@ -85,8 +102,12 @@ def test_gmail_reply_creates_one_draft_in_thread_with_chosen_variant(env: Env) -
     assert len(env.drafts.created) == 1
     req = env.drafts.created[0]
     assert (req.thread_id, req.to, req.body, req.subject, req.in_reply_to) == (
-        "thr-1", TENANT, "Optie B", "Re: Lekkage badkamer", "<m1@example.test>"
-    )  # fmt: skip
+        "thr-1",
+        TENANT,
+        "Optie B",
+        "Re: Lekkage badkamer",
+        "<m1@example.test>",
+    )
     assert env.wa.sent == []
     with Session(env.engine) as s:
         assert s.scalar(select(ActionRow.status).where(ActionRow.id == action_id)) is ActionStatus.executed
@@ -109,8 +130,15 @@ def test_whatsapp_reply_goes_to_owner_never_to_tenant(env: Env) -> None:
 
 def test_unapproved_wrong_version_and_paused_are_blocked(env: Env) -> None:
     with Session(env.engine) as s:
-        a = ActionRow(company_id=env.company_id, case_id=env.case_id, type=ActionType.reply_draft, payload=REPLY,
-                      rationale="r", context_ref=[], status=ActionStatus.pending_approval)  # fmt: skip
+        a = ActionRow(
+            company_id=env.company_id,
+            case_id=env.case_id,
+            type=ActionType.reply_draft,
+            payload=REPLY,
+            rationale="r",
+            context_ref=[],
+            status=ActionStatus.pending_approval,
+        )
         s.add(a)
         s.commit()
         pending_id = a.id
@@ -128,13 +156,58 @@ def test_unapproved_wrong_version_and_paused_are_blocked(env: Env) -> None:
         assert s.scalar(select(func.count()).select_from(Send).where(Send.company_id == env.company_id)) == 0
 
 
+def _owner_wrote(env: Env) -> None:
+    """Harjot messaged the business number just now: the WhatsApp 24-hour window is open."""
+    with Session(env.engine) as s, s.begin():
+        raw = RawEvent(company_id=env.company_id, provider=Channel.whatsapp, provider_msg_id=str(new_id()), payload={})
+        s.add(raw)
+        s.flush()
+        s.add(
+            MessageRow(
+                company_id=env.company_id,
+                raw_event_id=raw.id,
+                channel=Channel.whatsapp,
+                provider_msg_id=raw.provider_msg_id,
+                thread_ref=OWNER,
+                sender_identity=OWNER,
+                direction=Direction.inbound,
+                sent_at=NOW,
+                text="hoi",
+            )
+        )
+
+
+def _text(to: str) -> dict:  # type: ignore[type-arg]
+    return {"messaging_product": "whatsapp", "to": to.removeprefix("+"), "type": "text", "text": {"body": "card"}}
+
+
+def test_closed_window_queues_owner_messages_behind_one_template_and_flushes_in_order(env: Env) -> None:
+    from app.sender.execute import flush_owner_outbox
+
+    assert send_to_owner(env.deps, env.company_id, "approval:a:0", _text) is None
+    assert send_to_owner(env.deps, env.company_id, "approval:b:0", _text) is None
+    assert [m.payload["type"] for m in env.wa.sent] == ["template"]  # one nudge, not one per message
+    assert env.wa.sent[0].payload["template"]["name"] == "estateos_pending"
+    _owner_wrote(env)
+    assert flush_owner_outbox(env.deps, env.company_id) == 2
+    assert flush_owner_outbox(env.deps, env.company_id) == 0
+    assert [m.payload["type"] for m in env.wa.sent] == ["template", "text", "text"]
+
+
 def test_notify_owner_and_send_to_owner_are_idempotent(env: Env) -> None:
-    action_id = _approved(env, ActionType.notify_owner, {"kind": "notify_owner", "text": "Lekkage gemeld"},
-                          ButtonChoice.ok)  # fmt: skip
+    _owner_wrote(env)
+    action_id = _approved(
+        env, ActionType.notify_owner, {"kind": "notify_owner", "text": "Lekkage gemeld"}, ButtonChoice.ok
+    )
     execute_action(env.deps, action_id, 1)
     key = f"owner:{new_id()}"
-    ref1 = send_to_owner(env.deps, env.company_id, key, lambda to: {"messaging_product": "whatsapp", "to": to,
-                         "type": "text", "text": {"body": "hi"}})  # fmt: skip
+    ref1 = send_to_owner(
+        env.deps,
+        env.company_id,
+        key,
+        lambda to: {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": "hi"}},
+    )
     ref2 = send_to_owner(env.deps, env.company_id, key, lambda to: {"never": "built"})
     assert ref1 == ref2
+    assert ref1 is not None
     assert len(env.wa.sent) == 2

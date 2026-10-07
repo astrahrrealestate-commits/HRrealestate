@@ -22,7 +22,7 @@ from app.sender.execute import send_to_owner
 from app.workflows import queues
 from app.workflows.actions import execute_action_wf
 from app.workflows.deps import get_engine, get_sender_deps
-from app.workflows.owner_notify import send_card_step
+from app.workflows.owner_notify import flush_outbox_step, send_card_step
 
 EDIT_PROMPT = "Send the new text as your next message. It replaces the draft."
 UNKNOWN_PROMPT = "That request is no longer open."
@@ -81,6 +81,8 @@ def reply_step(company_id: str, key: str, text: str) -> None:
 def owner_reply(message_id: str) -> str:
     r = handle_step(message_id)
     kind = str(r["kind"])
+    if "company_id" in r:
+        flush_outbox_step(r["company_id"])
     if kind == "execute":
         with SetWorkflowID(f"exec:{r['action_id']}:{r['version']}"):
             queues.pipeline_queue().enqueue(execute_action_wf, r["action_id"], r["version"], r["local"])
