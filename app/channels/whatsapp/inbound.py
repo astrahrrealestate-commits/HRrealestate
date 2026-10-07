@@ -1,4 +1,4 @@
-"""WhatsApp inbound: webhook verification, parsing into typed events, normalisation to `Message`.
+"""WhatsApp inbound: parsing a verified webhook into typed events, and the raw_event payload round trip.
 
 Provider-neutral: Meta Cloud API and 360dialog deliver the same webhook body. Parsing never raises on provider data:
 garbage yields no events, unknown message types become `kind="unsupported"`, malformed items are skipped and logged.
@@ -8,7 +8,6 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
-from uuid import UUID
 
 from pydantic import BaseModel, ValidationError
 
@@ -26,8 +25,7 @@ from app.channels.whatsapp.webhook_models import (
     Value,
     Webhook,
 )
-from app.contracts import Channel, Direction, Message, normalise_identity
-from app.core.errors import UnroutableMessageError, WebhookTooLargeError
+from app.core.errors import WebhookTooLargeError
 from app.core.logging import get_logger
 
 log = get_logger(__name__)
@@ -242,57 +240,6 @@ def _status(status: RawStatus, pnid: str, raw: dict[str, Any]) -> WaStatus:
     )
 
 
-# ---- normalisation -----------------------------------------------------------------------------------------------
-
-
-def _wa_identity(raw: str | None, wamid: str) -> str:
-    """E.164 for a WhatsApp id (contract accepts well-formed numbers phonenumbers does not know yet).
-    No usable id → `UnroutableMessageError` (the raw event is kept, never retried)."""
-    if raw:
-        try:
-            return normalise_identity(raw)
-        except ValueError:
-            pass
-    raise UnroutableMessageError(f"no routable sender for {wamid}")
-
-
-def to_message(event: WaInbound | WaEcho, *, company_id: UUID, raw_event_id: UUID) -> tuple[Message, dict[str, Any]]:
-    """`Message` plus row metadata. Attachments are added by ingestion after the media download.
-
-    Raises `UnroutableMessageError` when the sender has no usable WhatsApp id.
-    """
-    if isinstance(event, WaEcho):
-        customer = _wa_identity(event.recipient, event.wamid)
-        sender, direction = _wa_identity(event.business_number, event.wamid), Direction.outbound
-    else:
-        customer = sender = _wa_identity(event.sender, event.wamid)
-        direction = Direction.inbound
-    message = Message(
-        channel=Channel.whatsapp,
-        provider_msg_id=event.wamid,
-        thread_ref=customer,
-        sender_identity=sender,
-        direction=direction,
-        sent_at=event.sent_at,
-        text=event.text,
-        raw_event_id=raw_event_id,
-        company_id=company_id,
-    )
-    metadata: dict[str, Any] = {"type": event.kind, "phone_number_id": event.phone_number_id}
-    if isinstance(event, WaEcho):
-        metadata["echo"] = True
-    else:
-        metadata.update(
-            contact_name=event.contact_name,
-            interactive_id=event.interactive_id,
-            reply_to=event.reply_to,
-            new_wa_id=event.new_wa_id,
-        )
-    if event.media:
-        metadata["media"] = {"id": event.media.id, "mime_type": event.media.mime_type, "filename": event.media.filename}
-    return message, {k: v for k, v in metadata.items() if v is not None}
-
-
 # ---- raw_event payloads (API records, worker re-parses with the same models) -----------------------------------
 
 
@@ -318,36 +265,3 @@ def event_from_payload(payload: dict[str, Any]) -> WaInbound | WaEcho | None:
         return _echo(echo, pnid, payload["item"]) if echo else None
     msg = _validate(RawMessage, payload["item"])
     return _inbound(msg, pnid, payload.get("contact_name"), payload["item"]) if msg else None
-
-
-def count_items(body: bytes) -> int:
-    """How many message/status/echo items a webhook body claims to carry (to detect items the parser dropped)."""
-    try:
-        data = json.loads(body)
-    except (ValueError, RecursionError):
-        return 0
-    total = 0
-    for entry in data.get("entry", []) if isinstance(data, dict) else []:
-        for change in entry.get("changes", []) if isinstance(entry, dict) else []:
-            value = change.get("value") if isinstance(change, dict) else None
-            if isinstance(value, dict):
-                total += sum(
-                    len(v) for k in ("messages", "statuses", "message_echoes") if isinstance(v := value.get(k), list)
-                )
-    return total
-
-
-def phone_number_ids(body: bytes) -> list[str]:
-    try:
-        data = json.loads(body)
-        return [
-            str(c["value"]["metadata"]["phone_number_id"])
-            for e in data.get("entry", [])
-            for c in e.get("changes", [])
-            if isinstance(c, dict)
-            and isinstance(c.get("value"), dict)
-            and isinstance(c["value"].get("metadata"), dict)
-            and c["value"]["metadata"].get("phone_number_id")
-        ]
-    except (ValueError, RecursionError, AttributeError, TypeError, KeyError):
-        return []

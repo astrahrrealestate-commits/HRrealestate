@@ -22,7 +22,7 @@ Tools: [tech-stack.md](tech-stack.md) · Decisions: [adr/](adr/) · Milestones: 
 
 | Container | Tech | Responsibility |
 |---|---|---|
-| `api` | FastAPI + pywa webhook handler + DBOSClient | verify signature/OIDC → insert `raw_events` (unique) → enqueue `process_event(raw_event_id)` with workflow id = raw_event id → 200 |
+| `api` | FastAPI webhook routes + DBOSClient | verify signature/OIDC → insert `raw_events` (unique) → enqueue `process_event(raw_event_id)` with workflow id = raw_event id → 200 |
 | `worker` | DBOS executor | runs all workflows, queues and cron schedules |
 | `postgres` | PG 16 | domain tables + DBOS system tables (`dbos` schema) |
 | `s3` | EU bucket | media, attachments, BRIXX exports |
@@ -32,9 +32,9 @@ Tools: [tech-stack.md](tech-stack.md) · Decisions: [adr/](adr/) · Milestones: 
 
 ```
 app/
-  api/          FastAPI routers: whatsapp (pywa), gmail (Pub/Sub), health
+  api/          FastAPI routers: whatsapp (Cloud API webhook), gmail (Pub/Sub), health
   channels/     inbound normalisers → Message contract; outbound adapters (imported ONLY by sender)
-    whatsapp/   inbound.py (pywa types → Message), outbound.py (pywa client)
+    whatsapp/   inbound.py + normalise.py (webhook models → Message), outbound.py (httpx transport, sender-only)
     gmail/      inbound.py (history sync → Message), outbound.py (drafts.create)
   ingestion/    raw_event insert/dedupe, media → S3, Message persistence
   workflows/    DBOS workflows: process_event, owner_reply, execute_action, briefing, gmail_watch_renew, timer_sweep

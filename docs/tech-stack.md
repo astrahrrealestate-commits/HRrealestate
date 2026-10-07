@@ -9,7 +9,7 @@ Every external tool sits behind an adapter interface so it can be swapped. Ratio
 |---|---|---|---|
 | Celery + Redis + Beat + custom timer sweep + custom idempotency | **DBOS Transact** (durable workflows/queues/cron in our Postgres) | Removes Redis, Celery, Beat and most retry and idempotency code. Workflow state lives in Postgres (Postgres-first by construction). | [0001](adr/0001-dbos-durable-workflows.md) |
 | Custom `llm/` client over OpenAI SDK | **Pydantic AI** (typed agents, structured output, provider-agnostic) + **pydantic-evals** | Contracts *are* the output types; provider swap is a config string; test models built in. | [0002](adr/0002-pydantic-ai.md) |
-| Hand-rolled WhatsApp client | **pywa** (typed Cloud API framework) via **360dialog** partner for Coexistence | Webhook parsing, signature check, buttons/lists/templates come for free. Coexistence requires a partner. | [0003](adr/0003-whatsapp-pywa-360dialog.md) |
+| Hand-rolled WhatsApp client | **Pydantic models of the documented Cloud API webhook + one `httpx` transport per provider** (Meta direct or **360dialog**); pywa was evaluated and dropped (hard-coded Graph URL) | Typed parsing and per-provider HMAC verification; pure payload builders for buttons/lists/templates. Coexistence requires a partner. | [0003](adr/0003-whatsapp-pywa-360dialog.md) (amendment) |
 | Custom AST send-isolation test | **import-linter** contracts | Declarative architecture rules, run in CI and pre-commit. | [0004](adr/0004-import-linter-boundaries.md) |
 | Custom `.githooks` | **pre-commit** framework + **gitleaks** | Standard hook manager; secret scanning included. | — |
 
@@ -37,7 +37,7 @@ unless vetoed.
 | LLM agents | **Pydantic AI** → OpenAI (EU data residency) | prompts, agent wiring |
 | LLM observability + prompt eval | **Langfuse** (EU cloud, OTel) | — |
 | Golden-set evals | **pydantic-evals** | datasets, custom evaluators |
-| WhatsApp | **pywa** (Cloud API) + **360dialog** (Coexistence partner) | outbound adapter, owner message builders |
+| WhatsApp | Pydantic webhook models + `httpx` (Meta Cloud API or **360dialog**) | inbound parsing, outbound adapter, owner message builders |
 | Gmail | **google-api-python-client**, **google-auth** (OAuth + Pub/Sub OIDC verify) | history sync, draft adapter |
 | Email body cleanup | **mail-parser-reply** (quote/signature strip, German aware), **inscriptis** (HTML→text) | — |
 | PDFs | **Docling** | — |

@@ -144,7 +144,7 @@ def test_google_requests_carry_the_contract_parameters() -> None:
     box.message_ids_since(datetime(2025, 10, 1, tzinfo=UTC))
     history = [c for c in http.calls if c[1].endswith("/history")]
     assert history[0][2]["startHistoryId"] == ["1"]
-    assert history[0][2]["historyTypes"] == ["messageAdded"]
+    assert history[0][2]["historyTypes"] == ["messageAdded", "labelAdded"]
     assert "pageToken" not in history[0][2]
     assert history[1][2]["pageToken"] == ["p2"]
     get = next(c for c in http.calls if c[1].endswith("/messages/m2"))
@@ -224,3 +224,28 @@ def test_fake_draft_appears_in_history_with_draft_label() -> None:
     m = box.get_message(mid)
     assert m.label_ids == ["DRAFT"]
     assert m.thread_id == "thread-9"
+
+
+def test_google_history_reports_mail_moved_into_the_inbox() -> None:
+    """ "Not spam" is a labelAdded(INBOX) history record, not messagesAdded: it must reach the sync."""
+    history = [
+        {"id": "h1", "messagesAdded": [{"message": {"id": "m1", "threadId": "t"}}]},
+        {"id": "h2", "labelsAdded": [{"message": {"id": "m0", "threadId": "t"}, "labelIds": ["INBOX"]}]},
+        {"id": "h3", "labelsAdded": [{"message": {"id": "m9", "threadId": "t"}, "labelIds": ["STARRED"]}]},
+    ]
+    http = RecordingHttp([_ok({"history": history, "historyId": "3"})])
+    page = GoogleMailbox(build("gmail", "v1", http=http, static_discovery=True), ADDRESS).history_since(1)
+    assert (page.message_ids, page.inbox_added) == (["m1"], ["m0"])
+    assert http.calls[0][2]["historyTypes"] == ["messageAdded", "labelAdded"]
+
+
+@pytest.mark.parametrize("store", ["memory", "dir"])
+def test_fake_reports_mail_moved_into_the_inbox(store: str, tmp_path: Path) -> None:
+    box = FakeMailbox(ADDRESS, MemoryMailboxStore() if store == "memory" else DirMailboxStore(tmp_path))
+    spam = box.add_message(_raw("gewinnspiel?"), labels=["SPAM"])
+    start = box.current_history_id()
+    box.move_to_inbox(spam)
+    page = box.history_since(start)
+    assert (page.message_ids, page.inbox_added) == ([], [spam])
+    assert "SPAM" not in box.get_message(spam).label_ids
+    assert box.history_since(box.current_history_id()).inbox_added == []

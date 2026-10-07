@@ -54,7 +54,7 @@ class GoogleMailbox:
                 .list(
                     userId="me",
                     startHistoryId=str(start_history_id),
-                    historyTypes=["messageAdded"],
+                    historyTypes=["messageAdded", "labelAdded"],
                     pageToken=page_token,
                 )
                 .execute(num_retries=NUM_RETRIES)
@@ -64,12 +64,14 @@ class GoogleMailbox:
                 raise HistoryExpiredError(f"history {start_history_id} expired") from exc
             raise _typed(exc, "history.list") from exc
         ids: list[str] = []
+        inbox: list[str] = []
         for item in response.get("history", []):
             for added in item.get("messagesAdded", []):
-                message_id = added.get("message", {}).get("id")
-                if message_id and message_id not in ids:
-                    ids.append(message_id)
-        return HistoryPage(ids, int(response["historyId"]), response.get("nextPageToken"))
+                _append_new(ids, added.get("message", {}).get("id"))
+            for labelled in item.get("labelsAdded", []):
+                if "INBOX" in labelled.get("labelIds", []):
+                    _append_new(inbox, labelled.get("message", {}).get("id"))
+        return HistoryPage(ids, int(response["historyId"]), response.get("nextPageToken"), inbox)
 
     def get_message(self, message_id: str) -> GmailMessage:
         try:
@@ -113,3 +115,8 @@ class GoogleMailbox:
             token = response.get("nextPageToken")
             if not token:
                 return ids
+
+
+def _append_new(ids: list[str], message_id: str | None) -> None:
+    if message_id and message_id not in ids:
+        ids.append(message_id)

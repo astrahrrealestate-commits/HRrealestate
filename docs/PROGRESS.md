@@ -42,6 +42,9 @@ Spec: [2026-10-05-estateos-m1-foundation-design.md](superpowers/specs/2026-10-05
 - [ ] (T11 deviation, recorded) live checks are standalone smoke tests per real adapter, not `live` params of the tests/contract suites; real-adapter edge cases (NotFound, HistoryExpired) stay covered by recorded-HTTP contract tests only
 - [ ] **decision for user:** 360dialog without a partner platform secret sends unsigned webhooks (rejected by design) — Meta Cloud API, get the platform secret, or approve custom-header auth
 - [ ] **decision for user:** Gmail OAuth consent: `gcloud` forces the `cloud-platform` scope; minimal-scope consent script needs dev dep `google-auth-oauthlib`
+- [x] whole-branch review fixes: prod boot refuses empty settings / missing bucket / missing creds file; postgres-safe WhatsApp payloads + filenames; single-company unparsed records; media failure keeps the message; resync race; spam→inbox relabel ingested; hour-bucketed requeue ids + `ingest.requeue_exhausted` + runbook; Meta `subscribed_apps` + echo field in go-live doc; modules split under 300 lines
+- [ ] (from M2 branch review, low) cache one verified Gmail mailbox client per address per thread (today: credential read + token refresh + getProfile per call)
+- [ ] (from M2 branch review, low) migration: gmail `channel_accounts.address` lower-case CHECK or unique `(channel, lower(address))` (lookups are case-insensitive, constraint is not)
 - [ ] (from T9 review, before a 2nd company) `gmail_sync` queue: `partition_concurrency=1` + partition key = account id, so one slow mailbox never delays other tenants
 - [x] (carried from M1 review) raw_event insert + DBOS enqueue in one transaction (T7, commit/rollback test)
 ## M3 Directory

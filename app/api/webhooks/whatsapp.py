@@ -14,13 +14,12 @@ from starlette.concurrency import run_in_threadpool
 from app.api.body import read_capped
 from app.api.deps import WorkflowClient, get_engine, get_settings_dep, get_workflow_client
 from app.channels.text_clean import clean_json
+from app.channels.whatsapp.body import count_items, phone_number_ids
 from app.channels.whatsapp.inbound import (
     WaEvent,
     WaStatus,
-    count_items,
     event_to_payload,
     parse_webhook,
-    phone_number_ids,
 )
 from app.channels.whatsapp.webhook_auth import (
     DEV_APP_SECRET,

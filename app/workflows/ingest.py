@@ -8,7 +8,8 @@ from uuid import UUID
 from dbos import DBOS, SetWorkflowID
 
 from app.core.logging import get_logger
-from app.core.workflow_names import GMAIL_SYNC, PROCESS_EVENT
+from app.core.workflow_names import GMAIL_SYNC, PROCESS_EVENT, event_workflow_id
+from app.ingestion import gmail_sync as mailbox_sync
 from app.ingestion import process
 from app.workflows import queues, stubs
 from app.workflows.deps import get_deps
@@ -55,7 +56,14 @@ def process_event(raw_event_id: str) -> str:
 
 @DBOS.step(name="ingest.requeue_candidates")
 def requeue_candidates_step() -> list[tuple[str, str]]:
-    return [(str(raw_id), workflow_id) for raw_id, workflow_id in process.requeue_candidates(get_deps())]
+    """Candidates whose original run is still waiting in the queue (worker backlog) are skipped: rerunning them
+    would only repeat the Gmail fetch / media download before the original gets there."""
+    candidates = process.requeue_candidates(get_deps())
+    if not candidates:
+        return []
+    originals = [event_workflow_id(raw_id) for raw_id, _ in candidates]
+    queued = {w.workflow_id for w in DBOS.list_workflows(workflow_ids=originals, status="ENQUEUED")}
+    return [(str(raw_id), wf) for raw_id, wf in candidates if event_workflow_id(raw_id) not in queued]
 
 
 @DBOS.workflow(name="ingest.requeue")
@@ -69,7 +77,7 @@ def requeue_failed(scheduled_time: datetime, context: Any) -> None:
 
 @DBOS.step(name="ingest.sync_mailbox", **_RETRY)
 def sync_step(account_id: str, push_history_id: int) -> int:
-    return process.sync_mailbox(get_deps(), UUID(account_id), push_history_id)
+    return mailbox_sync.sync_mailbox(get_deps(), UUID(account_id), push_history_id)
 
 
 @DBOS.workflow(name=GMAIL_SYNC)
@@ -79,12 +87,12 @@ def gmail_sync(account_id: str, push_history_id: int) -> int:
 
 @DBOS.step(name="gmail.accounts")
 def accounts_step() -> list[tuple[str, str, str]]:
-    return [(str(a), addr, str(c)) for a, addr, c in process.gmail_accounts(get_deps())]
+    return [(str(a), addr, str(c)) for a, addr, c in mailbox_sync.gmail_accounts(get_deps())]
 
 
 @DBOS.step(name="gmail.renew_watch", **_RETRY)
 def renew_step(account_id: str, address: str, company_id: str) -> str:
-    return process.renew_watch(get_deps(), UUID(account_id), address, UUID(company_id)).isoformat()
+    return mailbox_sync.renew_watch(get_deps(), UUID(account_id), address, UUID(company_id)).isoformat()
 
 
 @DBOS.workflow(name="gmail.watch_renew")

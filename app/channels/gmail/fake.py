@@ -33,6 +33,10 @@ class MailboxStore(Protocol):
 
     def set_expired_before(self, history_id: int) -> None: ...
 
+    def update(self, message_id: str, mutate: Callable[[dict[str, Any], int], None]) -> None:
+        """Atomically: allocate history N, apply `mutate(record, N)`, persist, then publish N."""
+        ...
+
 
 class MemoryMailboxStore:
     def __init__(self) -> None:
@@ -56,6 +60,10 @@ class MemoryMailboxStore:
 
     def set_expired_before(self, history_id: int) -> None:
         self._state["expired_before"] = history_id
+
+    def update(self, message_id: str, mutate: Callable[[dict[str, Any], int], None]) -> None:
+        mutate(self._records[message_id], self._state["history"] + 1)
+        self._state["history"] += 1
 
 
 class DirMailboxStore:
@@ -85,6 +93,15 @@ class DirMailboxStore:
             self._write(self._root / "messages" / f"{record['id']}.json", json.dumps(record))  # message first
             state["history"] += 1  # then publish the new history id (written when the lock is released)
             return record
+
+    def update(self, message_id: str, mutate: Callable[[dict[str, Any], int], None]) -> None:
+        with self._locked_state() as state:
+            record = self.load(message_id)
+            if record is None:
+                raise NotFoundError(f"gmail message {message_id}")
+            mutate(record, state["history"] + 1)
+            self._write(self._root / "messages" / f"{message_id}.json", json.dumps(record))
+            state["history"] += 1
 
     def load(self, message_id: str) -> dict[str, Any] | None:
         path = self._root / "messages" / f"{message_id}.json"
@@ -137,6 +154,16 @@ class FakeMailbox:
                 return found
         return None
 
+    def move_to_inbox(self, message_id: str) -> None:
+        """Like "Not spam" / "Move to inbox": a labelAdded(INBOX) history record, no new message."""
+
+        def mutate(record: dict[str, Any], history: int) -> None:
+            labels = [label for label in record["labelIds"] if label not in ("SPAM", "TRASH")]
+            record["labelIds"] = [*labels, "INBOX"] if "INBOX" not in labels else labels
+            record.setdefault("inboxAddedAt", []).append(history)
+
+        self._store.update(message_id, mutate)
+
     def expire_history_before(self, history_id: int) -> None:
         self._store.set_expired_before(history_id)
 
@@ -150,10 +177,12 @@ class FakeMailbox:
         offset = int(page_token) if page_token and page_token.isdigit() else 0
         page = ids[offset : offset + self._page_size]
         more = offset + self._page_size < len(ids)
+        inbox = [r["id"] for r in self._store.records() if any(h > start_history_id for h in r.get("inboxAddedAt", []))]
         return HistoryPage(
             message_ids=page,
             history_id=state["history"],
             next_page_token=str(offset + self._page_size) if more else None,
+            inbox_added=inbox if offset == 0 else [],  # fake simplification: label changes come on the first page
         )
 
     def get_message(self, message_id: str) -> GmailMessage:

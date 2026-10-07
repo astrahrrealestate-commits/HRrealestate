@@ -17,6 +17,7 @@ class HistoryPage:
     message_ids: list[str]  # messagesAdded only, deduplicated, in history order
     history_id: int  # mailbox history id at the time of the call
     next_page_token: str | None = None
+    inbox_added: list[str] = field(default_factory=list)  # gained the INBOX label (e.g. "Not spam"), deduplicated
 
 
 @dataclass(frozen=True)

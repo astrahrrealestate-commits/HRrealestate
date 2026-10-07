@@ -8,7 +8,7 @@ links messages to cases, proposes typed actions with 2–3 drafts, and asks Harj
 |---|---|
 | [docs/hld.md](docs/hld.md) | architecture, flows, failure handling |
 | [docs/tech-stack.md](docs/tech-stack.md) | which tool does what; **check before writing plumbing** |
-| [docs/adr/](docs/adr/) | why DBOS, Pydantic AI, pywa/360dialog, import-linter |
+| [docs/adr/](docs/adr/) | why DBOS, Pydantic AI, WhatsApp via Cloud API models/360dialog (pywa dropped), import-linter |
 | [docs/dev-pipeline.md](docs/dev-pipeline.md) | stages, gates, test strategy per layer, definition of done |
 | [docs/build-plan.md](docs/build-plan.md) · [docs/PROGRESS.md](docs/PROGRESS.md) | milestones · status |
 | [docs/superpowers/specs/](docs/superpowers/specs/) | current approved specs |
@@ -21,7 +21,8 @@ one (ADR) before building.
 
 ## Stack in one line
 FastAPI · DBOS Transact (workflows/queues/cron on Postgres) · PostgreSQL 16 + SQLAlchemy 2 + Alembic · Pydantic v2 ·
-Pydantic AI → OpenAI (EU) · Langfuse · pywa (WhatsApp, 360dialog) · Gmail API + Pub/Sub · S3 · structlog · Sentry.
+Pydantic AI → OpenAI (EU) · Langfuse · WhatsApp Cloud API (Pydantic models + httpx; Meta or 360dialog) · Gmail API +
+Pub/Sub · S3 · structlog · Sentry.
 **No Redis, no Celery** (guard-enforced).
 
 ## Commands (always via make)

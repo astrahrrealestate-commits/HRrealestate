@@ -94,7 +94,10 @@ The provider decision is still open (Meta Cloud API directly, or 360dialog). Bot
 1. Meta Business app with the WhatsApp product; a registered business phone number.
 2. System user with `whatsapp_business_messaging` permission; generate a permanent token.
 3. App → WhatsApp → Configuration → Webhook: callback `https://<api host>/webhooks/whatsapp`, verify token = the
-   value of `WHATSAPP_VERIFY_TOKEN`; subscribe to the `messages` field.
+   value of `WHATSAPP_VERIFY_TOKEN`. Subscribe to the `messages` field, and to `smb_message_echoes` when the number
+   runs in Coexistence (Harjot's replies from the WhatsApp Business app arrive as echoes).
+4. Subscribe the app to the WhatsApp Business Account, otherwise a production WABA delivers no webhooks:
+   `POST https://graph.facebook.com/<version>/<WABA_ID>/subscribed_apps` with the system user token.
 
 | Variable | Value |
 |---|---|
@@ -160,5 +163,21 @@ Stop each provider from delivering, then redeploy the previous configuration:
   start, because the worker re-applies all schedules at launch.
 
 Prod refuses fake providers, so a full return to fakes means leaving prod (`ENV=dev`, `*_PROVIDER=fake`) on that
-host. Nothing is lost either way: deliveries already received stay in `raw_events` / `messages`, and failed ones
-are retried by the hourly requeue once the channel is back.
+host. Deliveries already received stay in `raw_events` / `messages`.
+
+## Recovering failed events
+
+Processing retries for about 10 minutes inside one run, then the hourly requeue reruns the event up to 5 more
+times (about 5 hours). A WhatsApp media outage that outlasts this costs only the photo: the last rerun stores the
+message with `meta.media_error`. Other failures that outlast it (for example Gmail unreachable for hours) leave the
+raw event `failed` and log `ingest.requeue_exhausted` at error level (alert on it). After fixing the cause, reset
+those events and the next hourly sweep (minute 41) reruns them:
+
+```sql
+UPDATE raw_events SET attempts = 0
+ WHERE status = 'failed' AND last_error LIKE 'requeue:%' AND attempts >= 5
+   AND received_at > now() - interval '7 days';
+```
+
+Failures without the `requeue:` prefix are data problems (unroutable sender, unreadable payload) and are final.
+Events stuck in `pending` for over an hour (for example a deploy during an outage) are rerun by the same sweep.

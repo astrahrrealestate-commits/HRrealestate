@@ -22,7 +22,7 @@ from app.core.settings import Settings
 from app.core.workflow_names import GMAIL_SYNC_QUEUE, event_workflow_id
 from app.db.enums import RawEventStatus
 from app.db.models import AttachmentRow, ChannelAccount, Company, GmailSyncState, MessageRow, OwnerAccount, RawEvent
-from app.ingestion import process
+from app.ingestion import gmail_sync, process
 from app.ingestion.process import REQUEUE_PREFIX, IngestDeps
 from app.ingestion.repository import record_event
 from app.storage.memory import MemoryStorage
@@ -288,7 +288,8 @@ def test_unexpected_error_fails_event_then_requeue_recovers(env: Env, recorded: 
         assert (raw.last_error or "").startswith(REQUEUE_PREFIX)
     ingest.requeue_failed(datetime.now(UTC), None)  # the bug is "fixed": media now serves the blob
     ingest.requeue_failed(datetime.now(UTC), None)  # a second sweep in the same state enqueues nothing new
-    assert wait(event_workflow_id(raw_id, 1)) == "processed"
+    [rerun] = DBOS.list_workflows(workflow_id_prefix=f"evt:{raw_id}:r1:")  # attempt + hour bucket
+    assert wait(rerun.workflow_id) == "processed"
     assert raw_status(env, raw_id) is RawEventStatus.processed
     assert _children(message_for(env, raw_id).id) == [f"pipe:{message_for(env, raw_id).id}"]
 
@@ -328,7 +329,7 @@ def test_concurrent_syncs_record_each_message_once(env: Env) -> None:
     def run() -> None:
         start.wait()
         try:
-            results.append(process.sync_mailbox(deps, env.gmail.id, history))
+            results.append(gmail_sync.sync_mailbox(deps, env.gmail.id, history))
         except BaseException as exc:  # surfaced below
             errors.append(exc)
 
@@ -375,8 +376,8 @@ def test_watch_renewal_racing_a_first_sync_both_succeed(env: Env) -> None:
             errors.append(exc)
 
     jobs = [
-        lambda: process.renew_watch(deps, env.gmail.id, MAILBOX, env.company.id),
-        lambda: process.sync_mailbox(deps, env.gmail.id, history),
+        lambda: gmail_sync.renew_watch(deps, env.gmail.id, MAILBOX, env.company.id),
+        lambda: gmail_sync.sync_mailbox(deps, env.gmail.id, history),
     ]
     threads = [threading.Thread(target=run, args=(job,)) for job in jobs]
     for t in threads:
@@ -389,3 +390,99 @@ def test_watch_renewal_racing_a_first_sync_both_succeed(env: Env) -> None:
         assert state is not None
         assert state.watch_expires_at is not None
         assert state.history_id
+
+
+class ArrivesDuringListing(FakeMailbox):
+    """A mail lands between the resync listing and the history-id read (the window #8 of the M2 review)."""
+
+    def message_ids_since(self, after: datetime) -> list[str]:
+        ids = super().message_ids_since(after)
+        if not getattr(self, "_arrived", False):
+            self._arrived = True
+            self.add_message(_mail("dazwischen"), labels=["INBOX"])
+        return ids
+
+
+def test_mail_arriving_during_a_resync_is_not_skipped(env: Env) -> None:
+    mailbox = ArrivesDuringListing(MAILBOX, MemoryMailboxStore())
+    mailbox.add_message(_mail("vorher"), labels=["INBOX"])
+    deps = IngestDeps(env.engine, env.storage, env.client, lambda a: mailbox, lambda p: env.media, "t")
+    assert gmail_sync.sync_mailbox(deps, env.gmail.id, mailbox.current_history_id()) == 1  # first sync: listing path
+    assert gmail_sync.sync_mailbox(deps, env.gmail.id, mailbox.current_history_id()) == 1  # the late mail via history
+    assert len(_gmail_raws(env)) == 2
+
+
+def test_number_without_media_token_keeps_the_message(env: Env, recorded: Load) -> None:
+    from app.core.errors import UnsafeConfigurationError
+
+    def no_token(pnid: str) -> FakeWhatsAppMedia:
+        raise UnsafeConfigurationError(f"no WhatsApp media credentials for phone_number_id {pnid}")
+
+    deps = IngestDeps(env.engine, env.storage, env.client, lambda a: env.mailbox, no_token, "t")
+    raw_id = ingest_whatsapp(env, recorded, "image_caption")
+    assert process.persist_event(deps, raw_id).outcome == "processed"
+    row = message_for(env, raw_id)
+    assert row.meta["media_error"] == "UnsafeConfigurationError"
+
+
+def test_last_requeue_keeps_the_message_without_its_media(env: Env, recorded: Load) -> None:
+    """A media outage longer than all reruns must cost the photo, never the tenant's message."""
+    [event] = [e for e in parse_webhook(recorded("whatsapp", "image_caption")) if hasattr(e, "kind")]
+    with Session(env.engine) as s, s.begin():
+        raw_id = record_event(s, env.client, env.whatsapp, event.wamid, event_to_payload(event), workflow=None)  # type: ignore[arg-type]
+        assert raw_id is not None
+        raw = s.get(RawEvent, raw_id)
+        assert raw is not None
+        raw.status, raw.attempts = RawEventStatus.failed, process.MAX_REQUEUES - 1
+        raw.last_error = f"{REQUEUE_PREFIX} WhatsAppMediaError: 503"
+    env.media.errors = [WhatsAppMediaError("503 from provider", retryable=True)] * 3
+    deps = IngestDeps(env.engine, env.storage, env.client, lambda a: env.mailbox, lambda p: env.media, "t")
+    assert process.persist_event(deps, raw_id).outcome == "processed"
+    assert message_for(env, raw_id).meta["media_error"] == "WhatsAppMediaError"
+
+
+def test_exhausted_requeues_are_logged_as_errors(env: Env, recorded: Load, caplog: pytest.LogCaptureFixture) -> None:
+    from structlog.testing import capture_logs
+
+    [event] = [e for e in parse_webhook(recorded("whatsapp", "text")) if hasattr(e, "kind")]
+    with Session(env.engine) as s, s.begin():
+        raw_id = record_event(s, env.client, env.whatsapp, event.wamid, event_to_payload(event), workflow=None)  # type: ignore[arg-type]
+        assert raw_id is not None
+        raw = s.get(RawEvent, raw_id)
+        assert raw is not None
+        raw.status, raw.attempts = RawEventStatus.failed, process.MAX_REQUEUES - 1
+        raw.last_error = f"{REQUEUE_PREFIX} OperationalError: db"
+    deps = IngestDeps(env.engine, env.storage, env.client, lambda a: env.mailbox, lambda p: env.media, "t")
+    with capture_logs() as logs:
+        process.mark_requeueable(deps, raw_id, "OperationalError: still down")
+    assert any(e["event"] == "ingest.requeue_exhausted" and e["log_level"] == "error" for e in logs)
+    assert raw_id not in [r for r, _ in process.requeue_candidates(deps)]
+
+
+def test_stale_sweep_skips_events_whose_original_run_is_still_queued(env: Env, recorded: Load) -> None:
+    [event] = [e for e in parse_webhook(recorded("whatsapp", "text")) if hasattr(e, "kind")]
+    with Session(env.engine) as s, s.begin():
+        raw_id = record_event(s, env.client, env.whatsapp, event.wamid, event_to_payload(event), workflow=None)  # type: ignore[arg-type]
+        assert raw_id is not None
+        raw = s.get(RawEvent, raw_id)
+        assert raw is not None
+        raw.received_at = datetime.now(UTC) - timedelta(hours=2)
+    parked = {"queue_name": "parked", "workflow_name": "ingest.process_event", "workflow_id": event_workflow_id(raw_id)}
+    env.client.enqueue(parked, str(raw_id))  # no executor serves this queue: the original stays ENQUEUED (backlog)
+    assert raw_id in [r for r, _ in process.requeue_candidates(_deps(env))]
+    assert str(raw_id) not in [r for r, _ in ingest.requeue_candidates_step()]
+
+
+def test_mail_rescued_from_spam_is_ingested(env: Env) -> None:
+    """First-time senders often land in spam: "Not spam" must still bring the mail into the pipeline."""
+    spam = env.mailbox.add_message(_mail("erstkontakt"), labels=["SPAM"])
+    assert _sync(env, env.mailbox.current_history_id()) == 1
+    [raw] = _gmail_raws(env)
+    assert wait(event_workflow_id(raw.id)) == "ignored"
+    env.mailbox.move_to_inbox(spam)
+    assert _sync(env, env.mailbox.current_history_id()) == 1
+    rescued = next(r for r in _gmail_raws(env) if r.provider_msg_id == f"{spam}:inbox")
+    assert wait(event_workflow_id(rescued.id)) == "processed"
+    assert message_for(env, rescued.id).provider_msg_id == spam
+    env.mailbox.move_to_inbox(spam)  # moved again: nothing new (the message exists now)
+    assert _sync(env, env.mailbox.current_history_id()) == 0

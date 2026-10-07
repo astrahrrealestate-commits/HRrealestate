@@ -4,7 +4,8 @@ from uuid import uuid4
 
 import pytest
 
-from app.channels.whatsapp.inbound import WaEcho, WaInbound, WaStatus, parse_webhook, to_message
+from app.channels.whatsapp.inbound import WaEcho, WaInbound, WaStatus, parse_webhook
+from app.channels.whatsapp.normalise import to_message
 from app.channels.whatsapp.webhook_auth import sign_body, verify_handshake, verify_signature
 from app.contracts import Direction
 from app.core.errors import WebhookRejectedError

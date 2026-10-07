@@ -11,9 +11,15 @@ OWNER_REPLY = "owner.reply"
 PIPELINE_ENTRY = "pipeline.entry"
 
 
-def event_workflow_id(raw_event_id: object, attempt: int = 0) -> str:
-    """`evt:<id>` for the first run; requeues of retryable failures get `evt:<id>:r<n>`."""
-    return f"evt:{raw_event_id}" if attempt == 0 else f"evt:{raw_event_id}:r{attempt}"
+def event_workflow_id(raw_event_id: object) -> str:
+    """`evt:<id>`: the first (and normally only) processing run of a raw event."""
+    return f"evt:{raw_event_id}"
+
+
+def requeue_workflow_id(raw_event_id: object, attempt: int, now: object) -> str:
+    """Rerun of a retryable failure: attempt + hour (`now` is a datetime). A sweep running twice in one hour enqueues
+    once; a rerun whose failure could not be recorded (attempts unchanged) is retried the next hour, never stuck."""
+    return f"evt:{raw_event_id}:r{attempt}:{now:%Y%m%d%H}"
 
 
 def stale_event_workflow_id(raw_event_id: object, now: object) -> str:
