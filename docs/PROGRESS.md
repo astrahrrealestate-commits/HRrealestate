@@ -47,6 +47,7 @@ Spec: [2026-10-05-estateos-m1-foundation-design.md](superpowers/specs/2026-10-05
 - [ ] (from M2 branch review, low) migration: gmail `channel_accounts.address` lower-case CHECK or unique `(channel, lower(address))` (lookups are case-insensitive, constraint is not)
 - [ ] (from T9 review, before a 2nd company) `gmail_sync` queue: `partition_concurrency=1` + partition key = account id, so one slow mailbox never delays other tenants
 - [x] (carried from M1 review) raw_event insert + DBOS enqueue in one transaction (T7, commit/rollback test)
+- [x] **M2 closed** (2026-10-07): `make cov` 94.52% (601 passed), `make audit` "No known vulnerabilities found", `make harness-test` OK, `make smoke` "api ready: ok / worker: ok / logs: clean", `make sim-demo` "sim.demo.ok gmail=2 owner_buttons=1 whatsapp=2"; whole-branch reviewer VERDICT: ship (re-review after fixes). Live checks not yet run (no credentials). Merge: user decision.
 ## M3 Directory
 ## M4 Understanding + call log
 ## M5 Case engine
