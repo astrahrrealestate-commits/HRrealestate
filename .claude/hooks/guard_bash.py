@@ -89,9 +89,12 @@ def outside_repo_git_write(command: str, cwd: str | None) -> str | None:
         target = dest if dest.is_absolute() else target / dest
     try:
         top = git("rev-parse", "--show-toplevel", cwd=target.resolve()).stdout.strip()
+        common = git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=target.resolve()).stdout.strip()
     except (OSError, ValueError):
         return None
-    if top and Path(top).resolve() != PROJECT_DIR:
+    # A linked worktree of EstateOS (.claude/worktrees/*) has its own toplevel but shares EstateOS's .git.
+    own_worktree = bool(common) and Path(common).resolve() == (PROJECT_DIR / ".git").resolve()
+    if top and Path(top).resolve() != PROJECT_DIR and not own_worktree:
         return (
             f"git write blocked: target repo is {top}, not EstateOS ({PROJECT_DIR}). "
             "The parent home-directory repo must never receive EstateOS changes."

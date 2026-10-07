@@ -12,6 +12,9 @@ from pathlib import Path
 HOOKS = Path(__file__).resolve().parents[1]
 PROJECT = HOOKS.parents[1]
 HOME = Path.home()
+# pre-commit runs this suite with GIT_INDEX_FILE etc. pointing at the in-progress commit (an absolute temporary index
+# for `git commit -- <paths>`). Git calls made by the tests must never inherit them.
+GIT_FREE_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
 
 
 def run_hook(script: str, payload: dict[str, object]) -> dict[str, object]:
@@ -130,6 +133,19 @@ class BashGuard(unittest.TestCase):
         self.assertEqual(bash(f"cd {HOME} && git commit -m x"), "deny")
         self.assertIsNone(bash("git status", cwd=HOME))
 
+    def test_allows_git_write_in_own_linked_worktree(self) -> None:
+        tmp = PROJECT / ".claude" / "worktrees" / "harness-selftest"
+
+        def git(*args: str) -> None:
+            subprocess.run(["git", *args], cwd=PROJECT, env=GIT_FREE_ENV, capture_output=True, check=False)
+
+        git("worktree", "add", "--detach", str(tmp))
+        try:
+            self.assertIsNone(bash("git add -A", cwd=tmp))
+            self.assertIsNone(bash("git commit -m x", cwd=tmp))
+        finally:
+            git("worktree", "remove", "--force", str(tmp))
+
 
 class EditGuard(unittest.TestCase):
     def test_env_files(self) -> None:
@@ -183,10 +199,9 @@ class EditGuard(unittest.TestCase):
                 (root / f).parent.mkdir(parents=True, exist_ok=True)
                 (root / f).write_text("x\n")
             git = ["git", "-c", "user.email=t@t", "-c", "user.name=t"]
-            subprocess.run([*git, "init", "-q"], cwd=root, check=True)
-            subprocess.run([*git, "add", "-A"], cwd=root, check=True)
-            subprocess.run([*git, "commit", "-qm", "init"], cwd=root, check=True)
-            env = {**os.environ, "CLAUDE_PROJECT_DIR": str(root)}
+            for args in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "init"]):
+                subprocess.run([*git, *args], cwd=root, env=GIT_FREE_ENV, check=True)
+            env = {**GIT_FREE_ENV, "CLAUDE_PROJECT_DIR": str(root)}
             for f in [*files, "app/llm/prompts/v2/understanding.md"]:
                 payload = {"tool_name": "Edit", "tool_input": {"file_path": str(root / f), "new_string": "y"}}
                 r = subprocess.run([sys.executable, str(HOOKS / "guard_edit.py")], input=json.dumps(payload),
