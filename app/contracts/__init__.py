@@ -17,6 +17,7 @@ from app.contracts.common import Channel, Contract, Direction, Money
 from app.contracts.linking import LinkDecision
 from app.contracts.message import Attachment, Message, normalise_identity
 from app.contracts.prompt_ref import PromptRef
+from app.contracts.proposal import Proposal
 from app.contracts.summary import CaseSummary
 from app.contracts.understanding import Category, Entities, Suspicious, Understanding, Urgency
 
@@ -43,6 +44,7 @@ __all__ = [
     "Money",
     "NotifyOwnerPayload",
     "PromptRef",
+    "Proposal",
     "ReplyDraftPayload",
     "RequestContractorPayload",
     "Suspicious",
