@@ -211,3 +211,36 @@ def test_notify_owner_and_send_to_owner_are_idempotent(env: Env) -> None:
     assert ref1 == ref2
     assert ref1 is not None
     assert len(env.wa.sent) == 2
+
+
+@pytest.mark.parametrize("channel", ["gmail", "whatsapp"])
+@pytest.mark.parametrize("kind", list(ActionType))
+def test_no_action_type_ever_reaches_a_tenant(env: Env, kind: ActionType, channel: str) -> None:
+    """M8 hardening: whatever is approved, the only provider effects are Gmail drafts and messages to Harjot."""
+    with Session(env.engine) as s, s.begin():
+        contractor = Person(
+            company_id=env.company_id, kind=PersonKind.contractor, display_name="Jansen", valid_from=date(2026, 1, 1)
+        )
+        s.add(contractor)
+        s.flush()
+        contractor_id = contractor.id
+    payloads = {
+        ActionType.reply_draft: {
+            "kind": "reply_draft",
+            "channel": channel,
+            "subject": None,
+            "body_variants": ["A", "B"],
+        },
+        ActionType.notify_owner: {"kind": "notify_owner", "text": "x"},
+        ActionType.create_reminder: {"kind": "create_reminder", "due_at": "2026-10-09T08:00:00+00:00", "note": "n"},
+        ActionType.update_case_state: {"kind": "update_case_state", "new_state": "resolved"},
+        ActionType.request_contractor: {
+            "kind": "request_contractor",
+            "contractor_person_id": str(contractor_id),
+            "body_variants": ["A", "B"],
+        },
+        ActionType.escalate: {"kind": "escalate", "reason": "r"},
+    }
+    execute_action(env.deps, _approved(env, kind, payloads[kind], ButtonChoice.ok), 1)
+    assert {m.payload["to"] for m in env.wa.sent} <= {OWNER.removeprefix("+")}
+    assert all(r.to == TENANT for r in env.drafts.created)  # drafts only; Harjot sends them himself
