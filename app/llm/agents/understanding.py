@@ -26,5 +26,6 @@ def understanding_prompt(
     subject: str | None = None,
     attachments: Sequence[AttachmentMeta] = (),
 ) -> str:
-    subj_str = f"Subject: {subject}\n" if subject else ""
-    return f"Channel: {channel.value}\n{subj_str}{attachments_block(attachments)}\n{data_block('message', text)}"
+    """The email subject is sender-controlled, so it is rendered inside the untrusted <message> block."""
+    body = f"Subject: {subject}\n\n{text}" if subject else text
+    return f"Channel: {channel.value}\n{attachments_block(attachments)}\n{data_block('message', body)}"
