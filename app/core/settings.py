@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     langfuse_secret_key: SecretStr | None = None
     openai_api_key: SecretStr | None = None
 
+    # LLM agents (spec phase-1 agents). `fake` = deterministic offline models (app.llm.fakes); prod refuses it.
+    llm_model: str = "fake"  # Pydantic AI model string, e.g. "openai:gpt-4.1-mini"
+    llm_timeout_sec: float = 60.0
+
     # Channels (spec M2 §4). Defaults are fakes: everything runs without provider access; prod refuses fakes.
     whatsapp_provider: Literal["fake", "cloud_api", "360dialog"] = "fake"
     gmail_provider: Literal["fake", "google"] = "fake"

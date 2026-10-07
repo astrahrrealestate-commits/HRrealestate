@@ -87,6 +87,8 @@ def test_prod_hides_docs_and_openapi(monkeypatch: pytest.MonkeyPatch, tmp_path: 
         gmail_credentials_file=creds,
         gmail_pubsub_topic="projects/p/topics/gmail",
         s3_bucket="estateos-prod",
+        llm_model="openai:gpt-4.1-mini",
+        openai_api_key="sk-test",
         _env_file=None,
     )  # type: ignore[call-arg]
     with TestClient(create_app(prod, engine=MagicMock())) as client:

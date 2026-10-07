@@ -18,6 +18,8 @@ REAL: dict[str, Any] = {
     "gmail_pubsub_service_account": "push@p.iam.gserviceaccount.com",
     "gmail_pubsub_topic": "projects/p/topics/gmail",
     "s3_bucket": "estateos-prod",
+    "llm_model": "openai:gpt-4.1-mini",
+    "openai_api_key": "sk-test",
 }
 
 
@@ -49,6 +51,8 @@ def test_defaults_are_fakes_and_fine_outside_prod() -> None:
         ({"gmail_pubsub_audience": None}, "gmail_pubsub_audience"),
         ({"whatsapp_api_base_url": None}, "whatsapp_api_base_url"),
         ({"s3_bucket": None}, "s3_bucket"),
+        ({"llm_model": "fake"}, "llm_model"),
+        ({"openai_api_key": None}, "openai_api_key"),
         ({"gmail_credentials_file": Path("/nonexistent/gmail.json")}, "gmail_credentials_file"),
         ({"gmail_credentials_file": Path(".")}, "gmail_credentials_file"),
     ],
@@ -67,3 +71,13 @@ def test_all_problems_reported_at_once() -> None:
         assert_production_safe(_s(env="prod"))
     for name in ("whatsapp_provider", "gmail_provider", "storage_backend"):
         assert name in str(exc.value)
+
+
+def test_llm_defaults_to_fake() -> None:
+    assert _s().llm_model == "fake"
+
+
+def test_non_openai_model_needs_no_openai_key() -> None:
+    assert_production_safe(
+        _s(env="prod", **{**REAL, "llm_model": "mistral:mistral-large-latest", "openai_api_key": None})
+    )

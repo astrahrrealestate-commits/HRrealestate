@@ -50,3 +50,7 @@ class IgnoredMessageError(EstateOSError):
 
 class PushRejectedError(WebhookRejectedError):
     """A Pub/Sub push that failed OIDC verification or carried a malformed envelope."""
+
+
+class AgentFailedError(EstateOSError):
+    """An LLM agent produced no valid contract output after its retries (recorded on its `model_calls` row)."""
