@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.channels.whatsapp import payloads
-from app.contracts import ButtonChoice, ButtonId
+from app.contracts import ButtonId
 from app.core.errors import InvalidButtonIdError, NotFoundError
 from app.core.workflow_names import OWNER_REPLY
 from app.db.models import ActionRow, MessageRow
@@ -22,6 +22,7 @@ from app.sender.execute import send_to_owner
 from app.workflows import queues
 from app.workflows.actions import execute_action_wf
 from app.workflows.deps import get_engine, get_sender_deps
+from app.workflows.owner_notify import send_card_step
 
 EDIT_PROMPT = "Send the new text as your next message. It replaces the draft."
 UNKNOWN_PROMPT = "That request is no longer open."
@@ -66,27 +67,14 @@ def handle_owner_message(message_id: UUID) -> dict[str, Any]:
         return {"kind": "command", "company_id": str(company_id), "text": msg.text}
 
 
-def approval_prompt(to: str, approval_id: UUID, body: str) -> dict[str, Any]:
-    items = [
-        payloads.Button(ButtonId(approval_id=approval_id, choice=c).render(), t)
-        for c, t in ((ButtonChoice.ok, "Approve"), (ButtonChoice.edit, "Edit"), (ButtonChoice.rej, "Reject"))
-    ]
-    return payloads.buttons(to, body[: payloads.BODY_MAX], items)
-
-
 @DBOS.step(name="owner.handle")
 def handle_step(message_id: str) -> dict[str, Any]:
     return handle_owner_message(UUID(message_id))
 
 
 @DBOS.step(name="owner.reply")
-def reply_step(company_id: str, key: str, kind: str, approval_id: str | None, text: str) -> None:
-    def build(to: str) -> dict[str, Any]:
-        if kind == "prompt" and approval_id:
-            return approval_prompt(to, UUID(approval_id), text)
-        return payloads.text(to, text)
-
-    send_to_owner(get_sender_deps(), UUID(company_id), key, build)
+def reply_step(company_id: str, key: str, text: str) -> None:
+    send_to_owner(get_sender_deps(), UUID(company_id), key, lambda to: payloads.text(to, text))
 
 
 @DBOS.workflow(name=OWNER_REPLY)
@@ -97,10 +85,9 @@ def owner_reply(message_id: str) -> str:
         with SetWorkflowID(f"exec:{r['action_id']}:{r['version']}"):
             queues.pipeline_queue().enqueue(execute_action_wf, r["action_id"], r["version"], r["local"])
     elif kind in ("unknown", "stale"):
-        reply_step(r["company_id"], f"owner:{message_id}:{kind}", "text", None, UNKNOWN_PROMPT)
+        reply_step(r["company_id"], f"owner:{message_id}:{kind}", UNKNOWN_PROMPT)
     elif kind == "edit":
-        reply_step(r["company_id"], f"owner:{message_id}:edit", "text", None, EDIT_PROMPT)
+        reply_step(r["company_id"], f"owner:{message_id}:edit", EDIT_PROMPT)
     elif kind == "revision":
-        body = f"Your edited draft:\n\n{r['text']}"
-        reply_step(r["company_id"], f"owner:{message_id}:revision", "prompt", r["approval_id"], body)
+        send_card_step(r["company_id"], r["approval_id"])
     return kind
