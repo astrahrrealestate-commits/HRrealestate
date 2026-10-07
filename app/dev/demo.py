@@ -11,14 +11,15 @@ from dataclasses import dataclass, field
 from uuid import UUID
 
 from dbos import DBOSClient
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
 from app.contracts import Channel, Direction
 from app.core.ids import new_id
 from app.core.logging import get_logger
 from app.core.settings import Settings
-from app.db.models import AttachmentRow, MessageRow
+from app.db.enums import PipelineStatus
+from app.db.models import ActionRow, Approval, AttachmentRow, CaseLink, MessageRow, UnderstandingRow
 from app.dev import fixtures as fx
 from app.dev.seed import seed_dev_tenant
 from app.dev.simulate import Simulator
@@ -132,12 +133,49 @@ def wait_for_parity(engine: Engine, client: DBOSClient, sent: Sent, timeout: flo
         time.sleep(0.5)
 
 
+def pipeline_problems(engine: Engine, company_id: UUID, message_ids: list[UUID]) -> list[str]:
+    """Agents ran on every tenant message: understood, linked to a case, and an approval is waiting for Harjot."""
+    with Session(engine) as session:
+        statuses = session.scalars(select(MessageRow.pipeline_status).where(MessageRow.id.in_(message_ids))).all()
+        understood = session.scalar(
+            select(func.count()).select_from(UnderstandingRow).where(UnderstandingRow.message_id.in_(message_ids))
+        )
+        cases = set(session.scalars(select(CaseLink.case_id).where(CaseLink.message_id.in_(message_ids))))
+        approvals = session.scalar(
+            select(func.count())
+            .select_from(Approval)
+            .join(ActionRow, ActionRow.id == Approval.action_id)
+            .where(ActionRow.company_id == company_id, ActionRow.context_ref.overlap(message_ids))
+        )
+    found = []
+    if statuses.count(PipelineStatus.done) != len(message_ids):
+        found.append(f"pipeline: {statuses.count(PipelineStatus.done)}/{len(message_ids)} messages done")
+    if understood != len(message_ids):
+        found.append(f"understanding: {understood}/{len(message_ids)}")
+    if len(cases) != 2:  # one case per channel thread (the phone and the email address are two senders)
+        found.append(f"cases: {len(cases)}/2")
+    if not approvals:
+        found.append("no approval waiting for the owner")
+    return found
+
+
+def wait_for_pipeline(engine: Engine, sent: Sent, timeout: float) -> list[str]:
+    wa, gm, _ = load_rows(engine, sent)
+    ids = [r.id for r in (*wa, *gm)]
+    deadline = time.monotonic() + timeout
+    while True:
+        found = pipeline_problems(engine, sent.company_id, ids)
+        if not found or time.monotonic() >= deadline:
+            return found
+        time.sleep(0.5)
+
+
 def run_demo(sim: Simulator, engine: Engine, settings: Settings, *, timeout: float) -> int:
     tenant = seed_dev_tenant(engine)
     sent = send_scenario(sim, tenant.company_id)
     client = DBOSClient(system_database_url=settings.dbos_database_url)
     try:
-        found = wait_for_parity(engine, client, sent, timeout)
+        found = wait_for_parity(engine, client, sent, timeout) or wait_for_pipeline(engine, sent, timeout)
         if found:
             log.error("sim.demo.failed", problems=found)
             return 1
@@ -156,5 +194,5 @@ def run_demo(sim: Simulator, engine: Engine, settings: Settings, *, timeout: flo
                 photos=len(r.photos),
                 route=routes.get(r.id),
             )
-    log.info("sim.demo.ok", whatsapp=len(sent.whatsapp), gmail=len(sent.gmail), owner_buttons=1)
+    log.info("sim.demo.ok", whatsapp=len(sent.whatsapp), gmail=len(sent.gmail), owner_buttons=1, agents="ok")
     return 0
