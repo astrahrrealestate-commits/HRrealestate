@@ -21,6 +21,7 @@ from app.core.logging import configure_logging, get_logger
 from app.core.settings import Settings, get_settings
 from app.core.startup import assert_production_safe
 from app.core.telemetry import init_telemetry
+from app.llm.runtime import instrument_agents
 from app.workflows.deps import get_deps
 from app.workflows.queues import PIPELINE_QUEUE
 from app.workflows.runtime import launch
@@ -82,6 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     assert_channels_ready(settings)
     configure_logging(settings.env)
     init_telemetry(settings)
+    instrument_agents(settings)  # LLM spans → Langfuse (agents run only in the worker)
     if args.selfcheck:
         ok = selfcheck(settings, timeout_sec=SELFCHECK_TIMEOUT_SEC)
         log.info("worker.selfcheck", ok=ok)

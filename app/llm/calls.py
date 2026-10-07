@@ -1,11 +1,22 @@
-"""Agent invocation wrapper: prompt loading, model execution, and model_calls recording."""
+"""Agent invocation wrapper: prompt loading, model execution, and model_calls recording (ADR 0002).
+
+Every call writes one `model_calls` row, success or failure. Invalid output (after Pydantic AI's own retries) and
+non-retryable provider errors raise `AgentFailedError`; transient provider errors (429/5xx, network, timeout)
+propagate unchanged so the calling DBOS step retries them.
+"""
 
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
+import httpx
+from pydantic import BaseModel
 from pydantic_ai import Agent
+from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.settings import ModelSettings
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
@@ -16,6 +27,8 @@ from app.core.settings import Settings
 from app.db.models import ModelCall
 from app.llm.prompts import LoadedPrompt, load_prompt
 from app.llm.runtime import build_model
+
+AGENT_RETRIES = 2  # re-asks on contract validation failure, inside one run
 
 
 @dataclass(frozen=True)
@@ -38,82 +51,54 @@ class AgentSpec[T]:
     finalize: Callable[[T, LoadedPrompt], T]
 
 
-def run_agent[T](
-    engine: Engine,
-    settings: Settings,
-    spec: AgentSpec[T],
-    user_prompt: str,
-    ctx: CallContext,
+def is_transient(exc: BaseException) -> bool:
+    """Provider hiccups worth a step retry: rate limits, 5xx, network errors and timeouts."""
+    if isinstance(exc, ModelHTTPError):
+        return exc.status_code in (408, 409, 429) or exc.status_code >= 500
+    return isinstance(exc, httpx.TransportError | TimeoutError | ConnectionError)
+
+
+def _cost(result: Any) -> Decimal | None:
+    try:
+        return Decimal(str(result.response.cost().total_price))
+    except Exception:  # fake/unknown models have no price; cost is audit data, never a failure
+        return None
+
+
+def _record(engine: Engine, row: ModelCall) -> None:
+    with Session(engine, expire_on_commit=False) as session, session.begin():
+        session.add(row)
+
+
+def _row(spec: AgentSpec[Any], loaded: LoadedPrompt, settings: Settings, ctx: CallContext, prompt: str) -> ModelCall:
+    return ModelCall(
+        id=new_id(), company_id=ctx.company_id, purpose=ctx.purpose, prompt_name=spec.prompt.name,
+        prompt_version=spec.prompt.version, prompt_sha256=loaded.sha256, model=settings.llm_model,
+        input={"prompt": prompt},
+    )  # fmt: skip
+
+
+def run_agent[T: BaseModel](
+    engine: Engine, settings: Settings, spec: AgentSpec[T], user_prompt: str, ctx: CallContext
 ) -> CallResult[T]:
     loaded = load_prompt(spec.prompt)
-    model = build_model(settings, spec.name)
     agent = Agent(
-        model,
-        output_type=spec.output_type,
-        instructions=loaded.text,
-        retries=2,
+        build_model(settings, spec.name), output_type=spec.output_type, instructions=loaded.text, retries=AGENT_RETRIES
     )
-
-    call_id = new_id()
-    start_time = time.perf_counter()
-    tokens_in: int | None = None
-    tokens_out: int | None = None
-
+    row = _row(spec, loaded, settings, ctx, user_prompt)
+    started = time.perf_counter()
     try:
-        result = agent.run_sync(user_prompt)
-        latency_ms = int((time.perf_counter() - start_time) * 1000)
-        output_data = spec.finalize(result.output, loaded)
-
-        if hasattr(result, "usage") and result.usage is not None:
-            tokens_in = getattr(result.usage, "input_tokens", None)
-            tokens_out = getattr(result.usage, "output_tokens", None)
-
-        dumped_output = (
-            output_data.model_dump(mode="json") if hasattr(output_data, "model_dump") else dict(output_data)  # type: ignore[call-overload]
-        )
-
-        with Session(engine) as session, session.begin():
-            row = ModelCall(
-                id=call_id,
-                company_id=ctx.company_id,
-                purpose=ctx.purpose,
-                prompt_name=spec.prompt.name,
-                prompt_version=spec.prompt.version,
-                prompt_sha256=loaded.sha256,
-                model=settings.llm_model,
-                input={"prompt": user_prompt},
-                output=dumped_output,
-                tokens_in=tokens_in,
-                tokens_out=tokens_out,
-                cost_usd=None,
-                latency_ms=latency_ms,
-                langfuse_trace_id=None,
-                error=None,
-            )
-            session.add(row)
-
-        return CallResult(output=output_data, model_call_id=call_id)
-
+        result = agent.run_sync(user_prompt, model_settings=ModelSettings(timeout=settings.llm_timeout_sec))
+        output = spec.finalize(result.output, loaded)
     except Exception as exc:
-        latency_ms = int((time.perf_counter() - start_time) * 1000)
-        err_msg = str(exc)
-        with Session(engine) as session, session.begin():
-            row = ModelCall(
-                id=call_id,
-                company_id=ctx.company_id,
-                purpose=ctx.purpose,
-                prompt_name=spec.prompt.name,
-                prompt_version=spec.prompt.version,
-                prompt_sha256=loaded.sha256,
-                model=settings.llm_model,
-                input={"prompt": user_prompt},
-                output=None,
-                tokens_in=tokens_in,
-                tokens_out=tokens_out,
-                cost_usd=None,
-                latency_ms=latency_ms,
-                langfuse_trace_id=None,
-                error=err_msg,
-            )
-            session.add(row)
-        raise AgentFailedError(err_msg) from exc
+        row.latency_ms, row.error = int((time.perf_counter() - started) * 1000), f"{type(exc).__name__}: {exc}"[:2000]
+        _record(engine, row)
+        if is_transient(exc):
+            raise
+        raise AgentFailedError(f"{spec.name}: {type(exc).__name__}") from exc
+    usage = result.usage
+    row.latency_ms = int((time.perf_counter() - started) * 1000)
+    row.output, row.cost_usd = output.model_dump(mode="json"), _cost(result)
+    row.tokens_in, row.tokens_out = usage.input_tokens, usage.output_tokens
+    _record(engine, row)
+    return CallResult(output=output, model_call_id=row.id)

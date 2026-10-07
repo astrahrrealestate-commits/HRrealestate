@@ -59,3 +59,40 @@ def test_run_agent_records_failure_on_bad_output(
         assert len(calls) == 1
         assert calls[0].error is not None
         assert calls[0].output is None
+
+
+def test_run_agent_records_token_usage(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    ctx = CallContext(company_id=committed_company.id, purpose="usage_test")
+    res = run_agent(migrated_engine, test_settings, UNDERSTANDING, "Er lekt water", ctx)
+    with Session(migrated_engine) as session:
+        call = session.get(ModelCall, res.model_call_id)
+        assert call is not None
+        assert call.tokens_in
+        assert call.tokens_out
+        assert call.latency_ms is not None
+
+
+def test_transient_provider_error_propagates_unchanged_and_is_recorded(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pydantic_ai.exceptions import ModelHTTPError
+
+    from app.llm.calls import is_transient
+
+    def overloaded(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        raise ModelHTTPError(503, "openai:gpt-4.1-mini", "overloaded")
+
+    monkeypatch.setattr("app.llm.calls.build_model", lambda _s, _name: FunctionModel(overloaded))
+    ctx = CallContext(company_id=committed_company.id, purpose="transient_test")
+    with pytest.raises(ModelHTTPError) as exc:
+        run_agent(migrated_engine, test_settings, UNDERSTANDING, "Hallo", ctx)
+    assert is_transient(exc.value)
+    assert not is_transient(ModelHTTPError(400, "m", "bad request"))
+    with Session(migrated_engine) as session:
+        [call] = session.scalars(
+            select(ModelCall).where(ModelCall.purpose == "transient_test", ModelCall.company_id == committed_company.id)
+        ).all()
+        assert call.error is not None
+        assert "503" in call.error
