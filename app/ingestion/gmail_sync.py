@@ -71,8 +71,9 @@ def _record(session: Session, deps: IngestDeps, account: ChannelAccount, mail: N
 
 
 def _inbox_key(session: Session, account: ChannelAccount, message_id: str) -> str:
-    """Unseen message → its own id. Seen but ignored (spam) → `<id>:inbox`, recorded once. Otherwise the plain id
-    again, which the unique key turns into a no-op."""
+    """Unseen message → its own id. Seen and ignored (spam), or still pending (its run may yet mark it ignored) →
+    `<id>:inbox`, recorded once; if the original does get processed, `save_message` dedupes the second run.
+    Otherwise the plain id again, which the unique key turns into a no-op."""
     status = session.scalar(
         select(RawEvent.status).where(
             RawEvent.company_id == account.company_id,
@@ -80,7 +81,8 @@ def _inbox_key(session: Session, account: ChannelAccount, message_id: str) -> st
             RawEvent.provider_msg_id == message_id,
         )
     )
-    return f"{message_id}:inbox" if status is RawEventStatus.ignored else message_id
+    rescue = status in (RawEventStatus.ignored, RawEventStatus.pending)
+    return f"{message_id}:inbox" if rescue else message_id
 
 
 def _cursor(session: Session, company_id: UUID, account_id: UUID) -> int | None:

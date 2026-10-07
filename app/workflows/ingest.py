@@ -8,7 +8,7 @@ from uuid import UUID
 from dbos import DBOS, SetWorkflowID
 
 from app.core.logging import get_logger
-from app.core.workflow_names import GMAIL_SYNC, PROCESS_EVENT, event_workflow_id
+from app.core.workflow_names import GMAIL_SYNC, PROCESS_EVENT
 from app.ingestion import gmail_sync as mailbox_sync
 from app.ingestion import process
 from app.workflows import queues, stubs
@@ -56,14 +56,13 @@ def process_event(raw_event_id: str) -> str:
 
 @DBOS.step(name="ingest.requeue_candidates")
 def requeue_candidates_step() -> list[tuple[str, str]]:
-    """Candidates whose original run is still waiting in the queue (worker backlog) are skipped: rerunning them
-    would only repeat the Gmail fetch / media download before the original gets there."""
+    """Events with any run still waiting in the queue (the original or an earlier rerun, during a worker backlog)
+    are skipped: another rerun would only repeat the Gmail fetch / media download before that one gets there."""
     candidates = process.requeue_candidates(get_deps())
     if not candidates:
         return []
-    originals = [event_workflow_id(raw_id) for raw_id, _ in candidates]
-    queued = {w.workflow_id for w in DBOS.list_workflows(workflow_ids=originals, status="ENQUEUED")}
-    return [(str(raw_id), wf) for raw_id, wf in candidates if event_workflow_id(raw_id) not in queued]
+    queued = {w.workflow_id.split(":")[1] for w in DBOS.list_workflows(workflow_id_prefix="evt:", status="ENQUEUED")}
+    return [(str(raw_id), wf) for raw_id, wf in candidates if str(raw_id) not in queued]
 
 
 @DBOS.workflow(name="ingest.requeue")

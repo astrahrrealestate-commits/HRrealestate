@@ -14,3 +14,8 @@ def test_attachment_metadata_fits_its_columns_and_is_clean() -> None:
     assert att.filename is not None
     assert len(att.filename) <= 255
     assert "/" not in att.filename
+
+
+def test_mime_parameters_are_dropped_not_the_type() -> None:
+    att = store_attachment(MemoryStorage(), COMPANY, b"OggS", "Audio/OGG; codecs=opus", "voice.ogg")
+    assert att.mime_type == "audio/ogg"

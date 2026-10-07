@@ -46,5 +46,5 @@ def clean_filename(value: str | None) -> str | None:
 def clean_mime(value: str | None) -> str:
     if value is None or _CONTROL.search(value) or not value.isascii():
         return FALLBACK_MIME  # a MIME type with control or 8-bit characters is hostile, not repairable
-    candidate = (clean_header(value, 255) or "").lower()
+    candidate = (clean_header(value, 255) or "").split(";", 1)[0].strip().lower()  # `audio/ogg; codecs=opus`
     return candidate if _MIME.fullmatch(candidate) else FALLBACK_MIME

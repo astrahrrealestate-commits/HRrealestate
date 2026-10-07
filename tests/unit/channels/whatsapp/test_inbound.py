@@ -460,3 +460,12 @@ def test_media_filename_and_mime_are_sanitised() -> None:
     assert len(event.media.filename) <= 255
     assert "/" not in event.media.filename
     assert event.media.mime_type == "application/octet-stream"
+
+
+def test_voice_note_keeps_its_audio_type() -> None:
+    """WhatsApp voice notes carry MIME parameters; M4 transcription keys on `audio/*`."""
+    audio = {"id": "MEDIA7", "mime_type": "audio/ogg; codecs=opus", "voice": True}
+    [event] = parse_webhook(_wa({"type": "audio", "audio": audio}))
+    assert isinstance(event, WaInbound)
+    assert event.media is not None
+    assert event.media.mime_type == "audio/ogg"

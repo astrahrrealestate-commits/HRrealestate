@@ -486,3 +486,32 @@ def test_mail_rescued_from_spam_is_ingested(env: Env) -> None:
     assert message_for(env, rescued.id).provider_msg_id == spam
     env.mailbox.move_to_inbox(spam)  # moved again: nothing new (the message exists now)
     assert _sync(env, env.mailbox.current_history_id()) == 0
+
+
+def test_sweep_does_not_stack_reruns_behind_a_queued_rerun(env: Env, recorded: Load) -> None:
+    [event] = [e for e in parse_webhook(recorded("whatsapp", "text")) if hasattr(e, "kind")]
+    with Session(env.engine) as s, s.begin():
+        raw_id = record_event(s, env.client, env.whatsapp, event.wamid, event_to_payload(event), workflow=None)  # type: ignore[arg-type]
+        assert raw_id is not None
+        raw = s.get(RawEvent, raw_id)
+        assert raw is not None
+        raw.status, raw.attempts, raw.last_error = RawEventStatus.failed, 1, f"{REQUEUE_PREFIX} OperationalError"
+    parked = {"queue_name": "parked", "workflow_name": "ingest.process_event", "workflow_id": f"evt:{raw_id}:r1:old"}
+    env.client.enqueue(parked, str(raw_id))  # last hour's rerun still waits in a backlog
+    assert str(raw_id) not in [r for r, _ in ingest.requeue_candidates_step()]
+
+
+def test_spam_rescue_while_the_original_is_still_pending(env: Env) -> None:
+    """ "Not spam" can land before the original run marks the SPAM copy ignored: the rescue must still happen."""
+    spam = env.mailbox.add_message(_mail("schnell"), labels=["SPAM"])
+    deps = _deps(env)
+    gmail_sync.renew_watch(deps, env.gmail.id, MAILBOX, env.company.id)  # cursor = now (after the spam mail)
+    base = {"v": 1, "kind": "gmail", "mailbox": MAILBOX, "message_id": spam}
+    with Session(env.engine) as s, s.begin():
+        account = s.get(ChannelAccount, env.gmail.id)
+        assert account is not None
+        assert record_event(s, env.client, account, spam, base, workflow=None) is not None  # pending, not yet run
+    env.mailbox.move_to_inbox(spam)
+    assert gmail_sync.sync_mailbox(deps, env.gmail.id, env.mailbox.current_history_id()) == 1
+    rescued = next(r for r in _gmail_raws(env) if r.provider_msg_id == f"{spam}:inbox")
+    assert wait(event_workflow_id(rescued.id)) == "processed"
