@@ -6,13 +6,13 @@ The BRIXX importer (M3, deferred) later fills units/leases and upgrades `kind`; 
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import Engine, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.contracts import Channel
 from app.db.enums import PersonKind
-from app.db.models import ChannelIdentity, Person
+from app.db.models import ChannelIdentity, MessageRow, Person
 
 MAX_NAME = 200
 
@@ -54,3 +54,17 @@ def resolve_person(
         if winner is None:
             raise
         return winner
+
+
+def resolve_message_sender(engine: Engine, message_id: UUID) -> UUID | None:
+    """Attach the sender's person to an inbound message (created on first contact). Idempotent."""
+    with Session(engine) as session, session.begin():
+        msg = session.get(MessageRow, message_id)
+        if msg is None:
+            return None
+        if msg.person_id is None:
+            name = msg.meta.get("contact_name") or msg.meta.get("from_name")
+            msg.person_id = resolve_person(
+                session, msg.company_id, msg.channel, msg.sender_identity, name, today=msg.sent_at.date()
+            )
+        return msg.person_id

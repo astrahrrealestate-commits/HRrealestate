@@ -62,11 +62,6 @@ def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> 
                 session.add(row)
                 session.flush()
 
-            msg_row = session.scalar(select(MessageRow).where(MessageRow.id == message_id))
-            if msg_row is not None:
-                msg_row.pipeline_status = PipelineStatus.done
-                msg_row.pipeline_error = None
-
             return row.id
 
     except AgentFailedError as exc:
@@ -78,3 +73,11 @@ def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> 
                 msg_row.pipeline_error = str(exc)[:300]
                 msg_row.pipeline_attempts = (msg_row.pipeline_attempts or 0) + 1
         return None
+
+
+def mark_pipeline_done(engine: Engine, message_id: UUID) -> None:
+    """Every pipeline stage ran for this message (a failed understanding keeps its `failed` mark for the requeue)."""
+    with Session(engine) as session, session.begin():
+        msg = session.get(MessageRow, message_id)
+        if msg is not None and msg.pipeline_status is not PipelineStatus.failed:
+            msg.pipeline_status, msg.pipeline_error = PipelineStatus.done, None
