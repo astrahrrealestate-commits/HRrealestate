@@ -3,11 +3,13 @@
 from functools import lru_cache
 
 from dbos import DBOSClient
+from sqlalchemy import Engine
 
 from app.channels import registry
 from app.core.settings import get_settings
 from app.db.session import make_engine
 from app.ingestion.process import IngestDeps
+from app.sender.execute import SenderDeps
 from app.storage.factory import build_storage
 
 DEV_TOPIC = "projects/estateos-dev/topics/gmail"
@@ -35,3 +37,38 @@ def set_deps(deps: IngestDeps | None) -> None:
     """Tests inject fakes here (None restores the settings-built default)."""
     global _override
     _override = deps
+
+
+_sender_override: SenderDeps | None = None
+
+
+def get_sender_deps() -> SenderDeps:
+    if _sender_override is not None:
+        return _sender_override
+    return _default_sender()
+
+
+@lru_cache(maxsize=1)
+def _default_sender() -> SenderDeps:
+    from app.sender.deps import build_sender_deps
+
+    return build_sender_deps(get_settings(), get_engine())
+
+
+def set_sender_deps(deps: SenderDeps | None) -> None:
+    """Tests inject fake outbound adapters here (None restores the settings-built default)."""
+    global _sender_override
+    _sender_override = deps
+
+
+_engine_override: Engine | None = None
+
+
+def get_engine() -> Engine:
+    """The domain database for workflow steps (tests inject theirs with `set_engine`)."""
+    return _engine_override if _engine_override is not None else get_deps().engine
+
+
+def set_engine(engine: Engine | None) -> None:
+    global _engine_override
+    _engine_override = engine

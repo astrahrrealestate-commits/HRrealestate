@@ -16,6 +16,7 @@ from app.db.enums import TimerStatus
 from app.db.models import Company, Timer
 from app.pipeline import timers
 from app.workflows import timer_dispatch
+from app.workflows.deps import set_engine
 from app.workflows.runtime import launch
 
 pytestmark = pytest.mark.integration
@@ -76,11 +77,11 @@ def executor(test_settings: Settings, migrated_engine: Engine) -> Iterator[list[
     calls: list[dict[str, Any]] = []
     DBOS.destroy()
     launch(test_settings, reset_for_tests=True, schedules=False)
-    timer_dispatch.set_engine(migrated_engine)
+    set_engine(migrated_engine)
     timer_dispatch.register("test.kind", lambda claimed: calls.append(dict(claimed.payload)))
     yield calls
     timer_dispatch.unregister("test.kind")
-    timer_dispatch.set_engine(None)
+    set_engine(None)
     DBOS.destroy()
 
 

@@ -18,11 +18,11 @@ from app.db.enums import TimerStatus
 from app.pipeline import timers
 from app.pipeline.timers import ClaimedTimer
 from app.workflows import queues
+from app.workflows.deps import get_engine
 
 log = get_logger(__name__)
 Handler = Callable[[ClaimedTimer], None]
 _handlers: dict[str, Handler] = {}
-_engine: Engine | None = None
 
 
 def register(kind: str, handler: Handler) -> None:
@@ -33,18 +33,8 @@ def unregister(kind: str) -> None:
     _handlers.pop(kind, None)
 
 
-def set_engine(engine: Engine | None) -> None:
-    """Tests inject their engine; None falls back to the pipeline deps engine."""
-    global _engine
-    _engine = engine
-
-
 def _db() -> Engine:
-    if _engine is not None:
-        return _engine
-    from app.workflows.deps import get_deps
-
-    return get_deps().engine
+    return get_engine()
 
 
 @DBOS.step(name="timers.claim")

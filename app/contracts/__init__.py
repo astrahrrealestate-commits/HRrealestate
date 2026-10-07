@@ -14,8 +14,10 @@ from app.contracts.action import (
 from app.contracts.button_id import MAX_BUTTON_ID_LEN, ButtonChoice, ButtonId
 from app.contracts.case_state import ALLOWED, CaseState, assert_transition, can_transition
 from app.contracts.common import Channel, Contract, Direction, Money
+from app.contracts.linking import LinkDecision
 from app.contracts.message import Attachment, Message, normalise_identity
 from app.contracts.prompt_ref import PromptRef
+from app.contracts.summary import CaseSummary
 from app.contracts.understanding import Category, Entities, Suspicious, Understanding, Urgency
 
 __all__ = [
@@ -28,6 +30,7 @@ __all__ = [
     "ButtonChoice",
     "ButtonId",
     "CaseState",
+    "CaseSummary",
     "Category",
     "Channel",
     "Contract",
@@ -35,6 +38,7 @@ __all__ = [
     "Direction",
     "Entities",
     "EscalatePayload",
+    "LinkDecision",
     "Message",
     "Money",
     "NotifyOwnerPayload",

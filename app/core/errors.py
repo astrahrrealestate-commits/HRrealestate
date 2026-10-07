@@ -17,6 +17,10 @@ class PromptNotFoundError(EstateOSError):
     """No prompt file exists for the requested name/version."""
 
 
+class AgentFailedError(EstateOSError):
+    """An LLM agent call failed (validation or model error)."""
+
+
 class NotFoundError(EstateOSError):
     """A requested row does not exist (within the caller's company)."""
 

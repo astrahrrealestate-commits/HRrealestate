@@ -11,7 +11,7 @@ from app.core.logging import get_logger
 from app.core.workflow_names import GMAIL_SYNC, PROCESS_EVENT
 from app.ingestion import gmail_sync as mailbox_sync
 from app.ingestion import process
-from app.workflows import queues, stubs
+from app.workflows import owner_reply, pipeline, queues
 from app.workflows.deps import get_deps
 
 log = get_logger(__name__)
@@ -48,7 +48,7 @@ def process_event(raw_event_id: str) -> str:
         raise
     message_id, route = result["message_id"], result["route"]
     if message_id and route in ("owner", "pipeline"):
-        target, prefix = (stubs.owner_reply, "owner") if route == "owner" else (stubs.pipeline_entry, "pipe")
+        target, prefix = (owner_reply.owner_reply, "owner") if route == "owner" else (pipeline.pipeline_entry, "pipe")
         with SetWorkflowID(f"{prefix}:{message_id}"):  # one routing per message, even if replayed or requeued
             queues.pipeline_queue().enqueue(target, message_id)
     return str(result["outcome"])

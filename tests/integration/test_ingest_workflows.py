@@ -146,7 +146,7 @@ def test_tenant_text_is_stored_and_routed_to_pipeline(env: Env, recorded: Load) 
     row = message_for(env, raw_id)
     assert (row.direction, row.sender_identity) == (Direction.inbound, "+4915550000001")
     assert raw_status(env, raw_id) is RawEventStatus.processed
-    assert wait(f"pipe:{row.id}") == "stub"
+    assert wait(f"pipe:{row.id}") == "understood"
 
 
 def test_owner_button_reply_is_routed_to_owner_handler(env: Env, recorded: Load) -> None:
@@ -154,7 +154,7 @@ def test_owner_button_reply_is_routed_to_owner_handler(env: Env, recorded: Load)
     wait(event_workflow_id(raw_id))
     row = message_for(env, raw_id)
     assert row.meta["interactive_id"].startswith("apr:")
-    assert wait(f"owner:{row.id}") == "stub"
+    assert wait(f"owner:{row.id}") == "unknown"  # the recorded approval id does not exist: answered, not an error
 
 
 def test_echo_is_stored_outbound_without_routing(env: Env, recorded: Load) -> None:

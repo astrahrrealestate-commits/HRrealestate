@@ -8,9 +8,10 @@ little is in flight at deploy time; stranded ones are forked manually (`make wor
 from dbos import DBOS, DBOSConfig, ScheduleInput
 
 from app.core.settings import Settings
-from app.workflows import ingest, queues, stubs, system, timer_dispatch
+from app.workflows import actions, ingest, owner_reply, pipeline, queues, system, timer_dispatch
 
-_REGISTERED = (ingest, stubs, timer_dispatch)  # importing registers the workflow functions before launch
+# Importing registers the workflow functions before launch
+_REGISTERED = (actions, ingest, owner_reply, pipeline, timer_dispatch)
 
 SCHEDULES: list[ScheduleInput] = [
     {"schedule_name": "system.timer_sweep", "workflow_fn": system.timer_sweep, "schedule": "* * * * *"},

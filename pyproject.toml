@@ -156,6 +156,7 @@ ignore_imports = [
     "app.sender.** -> app.channels.whatsapp.outbound",
     "app.sender.** -> app.channels.gmail.drafts",
     "app.sender.** -> app.sender.settings",
+    "app.sender.** -> app.sender.whatsapp",
 ]
 allow_indirect_imports = false
 unmatched_ignore_imports_alerting = "warn"
