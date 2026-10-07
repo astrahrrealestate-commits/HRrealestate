@@ -60,8 +60,8 @@ def _fake_link_check(prompt: str) -> dict[str, object]:
 
 
 def _fake_case_summary(prompt: str) -> dict[str, object]:
-    # Use first 200 chars of prompt or cleaned summary
-    text = prompt.strip()[:200] or "Case opened."
+    blocks = re.findall(r"<message>\n(.*?)\n</message>", prompt, flags=re.S)
+    text = " ".join(blocks[-1].split())[:200] if blocks else "Case opened."
     return {"summary": text, "next_step": "Review and reply"}
 
 
