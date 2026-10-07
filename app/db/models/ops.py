@@ -32,6 +32,7 @@ class Timer(Base, CompanyScoped):
 
 class Outcome(Base, CompanyScoped):
     __tablename__ = "outcomes"
+    __table_args__ = (UniqueConstraint("action_id", "draft_version"),)  # one captured outcome per sent draft
 
     action_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actions.id"), index=True)
     draft_version: Mapped[int]

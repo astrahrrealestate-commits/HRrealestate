@@ -16,13 +16,14 @@ from app.workflows import (
     owner_notify,
     owner_reply,
     pipeline,
+    quality,
     queues,
     system,
     timer_dispatch,
 )
 
 # Importing registers the workflow functions before launch
-_REGISTERED = (actions, briefings, followups, ingest, owner_notify, owner_reply, pipeline, timer_dispatch)
+_REGISTERED = (actions, briefings, followups, ingest, owner_notify, owner_reply, pipeline, quality, timer_dispatch)
 
 SCHEDULES: list[ScheduleInput] = [
     {"schedule_name": "system.timer_sweep", "workflow_fn": system.timer_sweep, "schedule": "* * * * *"},
@@ -36,6 +37,7 @@ SCHEDULES: list[ScheduleInput] = [
     {"schedule_name": "ingest.requeue", "workflow_fn": ingest.requeue_failed, "schedule": "41 * * * *"},
     {"schedule_name": "pipeline.requeue", "workflow_fn": pipeline.requeue_failed, "schedule": "47 * * * *"},
     {"schedule_name": "briefing.ensure", "workflow_fn": briefings.ensure_briefings, "schedule": "5 * * * *"},
+    {"schedule_name": "outcomes.capture", "workflow_fn": quality.capture_cron, "schedule": "*/15 * * * *"},
 ]
 
 

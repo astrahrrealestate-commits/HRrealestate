@@ -75,11 +75,14 @@ def dbos_runtime(test_settings: Settings, migrated_engine: Engine) -> Iterator[N
     """Fresh DBOS executor per test against the session Postgres (schema `dbos`), per DBOS testing guidance."""
     from dbos import DBOS
 
+    from app.workflows.deps import set_engine
     from app.workflows.runtime import launch
 
     DBOS.destroy()
     launch(test_settings, reset_for_tests=True)
+    set_engine(migrated_engine)  # workflow steps use the test database, never DATABASE_URL from .env
     yield
+    set_engine(None)
     DBOS.destroy()
 
 
