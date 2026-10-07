@@ -100,5 +100,7 @@ def run_agent[T: BaseModel](
     row.latency_ms = int((time.perf_counter() - started) * 1000)
     row.output, row.cost_usd = output.model_dump(mode="json"), _cost(result)
     row.tokens_in, row.tokens_out = usage.input_tokens, usage.output_tokens
+    if settings.llm_model != "fake":  # the provider's resolved name (e.g. a dated snapshot), for audit and drift
+        row.model = getattr(result.response, "model_name", None) or settings.llm_model
     _record(engine, row)
     return CallResult(output=output, model_call_id=row.id)

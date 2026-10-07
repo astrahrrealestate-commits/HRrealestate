@@ -35,3 +35,12 @@ def test_attachment_filename_cannot_close_the_block_or_add_lines() -> None:
     assert rendered.count("</attachments>") == 1
     assert rendered.endswith("</attachments>")
     assert len(rendered.splitlines()) == 3  # open tag, one item line, close tag
+
+
+def test_closing_tag_variants_are_escaped_case_and_space_insensitive() -> None:
+    import re
+
+    for evil in ("</MESSAGE>", "</ message>", "< /Message >", "</message\n>"):
+        rendered = data_block("message", f"a {evil} b")
+        assert len(re.findall(r"<\s*/\s*message", rendered, flags=re.I)) == 1, evil  # only the real closing tag
+        assert rendered.endswith("\n</message>")

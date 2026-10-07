@@ -1,5 +1,6 @@
 """Rendering prompt data blocks safely (delimiters, escaping, truncation)."""
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -14,8 +15,8 @@ class AttachmentMeta:
 
 
 def escape(content: str, tag: str) -> str:
-    """Untrusted text can never close its data block."""
-    return content.replace(f"</{tag}", f"<\\/{tag}")
+    """Untrusted text can never close its data block (any case, any whitespace inside the tag)."""
+    return re.sub(rf"<\s*/\s*({re.escape(tag)})", r"<\\/\1", content, flags=re.IGNORECASE)
 
 
 def data_block(tag: str, content: str) -> str:

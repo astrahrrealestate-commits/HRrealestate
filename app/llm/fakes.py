@@ -18,23 +18,28 @@ def _extract_user_text(messages: list[ModelMessage]) -> str:
 
 def _fake_understanding(prompt: str) -> dict[str, object]:
     low = prompt.lower()
-    if re.search(r"\b(lek|lekkage|leak|leaking|heizung|verwarming|kapot|broken)\b", low):
-        category = Category.maintenance
-        intent = "Maintenance request"
-    elif re.search(r"\b(huur|miete|rent|betaling)\b", low):
-        category = Category.payment
-        intent = "Payment inquiry"
-    elif re.search(r"\b(contract|kündigung|opzeg)\b", low):
+    if re.search(r"(contract|kündigung|opzeg|verhuis)", low):
         category = Category.lease
         intent = "Lease inquiry"
-    elif re.search(r"\b(offerte|quote|factuur|invoice)\b", low):
+    elif re.search(r"(lek|leak|overstrom|flood|heizung|verwarming|kapot|broken|gaslucht|\bgas\b|brand|fire)", low):
+        category = Category.maintenance
+        intent = "Maintenance request"
+    elif re.search(r"(huur|miete|\brent\b|betal)", low):
+        category = Category.payment
+        intent = "Payment inquiry"
+    elif re.search(r"(offerte|quote|factuur|invoice)", low):
         category = Category.contractor_update
         intent = "Contractor update"
     else:
         category = Category.other
         intent = "General inquiry"
 
-    urgency = Urgency.emergency if re.search(r"\b(lek|lekkage|wasser|water|gas|brand|fire)\b", low) else Urgency.normal
+    if re.search(r"(overstrom|flood|gaslucht|\bgas\b|\bbrand\b|fire|rook|smoke|water staat)", low):
+        urgency = Urgency.emergency
+    elif category is Category.maintenance:
+        urgency = Urgency.high
+    else:
+        urgency = Urgency.normal
 
     if re.search(r"(ignore previous|iban|bankrekening wijzig)", low):
         suspicious = {"flag": True, "reason": "Suspicious instruction or payment details"}

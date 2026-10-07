@@ -94,7 +94,7 @@ def test_email_to_card_to_single_gmail_draft(
         migrated_engine,
         cid,
         TENANT,
-        "Er lekt water uit het plafond van de badkamer.",
+        "Overstroming! Er stroomt water uit het plafond van de badkamer.",
         Channel.gmail,
         {"subject": "Lekkage", "message_id": "<m9@example.test>", "from_name": "Sanne de Vries"},
     )

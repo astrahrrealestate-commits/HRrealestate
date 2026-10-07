@@ -25,7 +25,7 @@ def test_understanding_agent_fake_execution() -> None:
     settings = get_settings()
     ctx = CallContext(company_id=uuid4(), purpose="triage")
     prompt = understanding_prompt(
-        text="Help! Grote water lekkage in de keuken!",
+        text="Help! Overstroming in de keuken, het water staat op de vloer!",
         channel=Channel.whatsapp,
     )
     mock_engine = MagicMock()

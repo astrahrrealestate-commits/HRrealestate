@@ -20,15 +20,22 @@ log = get_logger(__name__)
 def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> UUID | None:
     """Triage an inbound message with Pydantic AI and record UnderstandingRow."""
     with Session(engine) as session:
-        existing = session.scalar(select(UnderstandingRow.id).where(UnderstandingRow.message_id == message_id))
+        msg = session.scalar(select(MessageRow).where(MessageRow.id == message_id))  # id from our own enqueue
+        if msg is None:
+            return None
+        existing = session.scalar(
+            select(UnderstandingRow.id).where(
+                UnderstandingRow.company_id == msg.company_id, UnderstandingRow.message_id == message_id
+            )
+        )
         if existing is not None:
             return existing
 
-        msg = session.scalar(select(MessageRow).where(MessageRow.id == message_id))
-        if msg is None:
-            return None
-
-        attachments = session.scalars(select(AttachmentRow).where(AttachmentRow.message_id == message_id)).all()
+        attachments = session.scalars(
+            select(AttachmentRow).where(
+                AttachmentRow.company_id == msg.company_id, AttachmentRow.message_id == message_id
+            )
+        ).all()
         att_metas = [
             AttachmentMeta(filename=a.filename, mime_type=a.mime_type, size_bytes=a.size_bytes) for a in attachments
         ]
@@ -48,7 +55,11 @@ def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> 
         model_call_id = res.model_call_id
 
         with Session(engine) as session, session.begin():
-            row = session.scalar(select(UnderstandingRow).where(UnderstandingRow.message_id == message_id))
+            row = session.scalar(
+                select(UnderstandingRow).where(
+                    UnderstandingRow.company_id == company_id, UnderstandingRow.message_id == message_id
+                )
+            )
             if row is None:
                 row = UnderstandingRow(
                     company_id=company_id,

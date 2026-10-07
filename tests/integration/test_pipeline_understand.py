@@ -51,7 +51,7 @@ def test_pipeline_entry_understand(
             sender_identity="+31612345678",
             direction=Direction.inbound,
             sent_at=NOW,
-            text="Help! Grote water lekkage in de keuken!",
+            text="Help! Overstroming in de keuken, het water staat op de vloer!",
             meta={},
         )
         session.add(msg)
