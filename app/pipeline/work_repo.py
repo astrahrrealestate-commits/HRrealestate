@@ -136,7 +136,7 @@ def _schedule_due(session: Session, wait: WaitRow) -> None:
         wait.company_id,
         WAIT_DUE,
         wait.expected_by,
-        {"wait_id": str(wait.id)},
+        {"wait_id": str(wait.id), "step": wait.chase_count},
         dedupe_key=f"wait:{wait.id}:{wait.chase_count}",
     )
 

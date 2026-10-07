@@ -75,7 +75,7 @@ def test_open_wait_schedules_timer_and_received_cancels_it(db: Session, company:
     assert work_repo.open_wait(db, company.id, case_id, party, about="again", expected_by=NOW) == wid
     timer = db.scalar(select(Timer).where(Timer.company_id == company.id, Timer.kind == work_repo.WAIT_DUE))
     assert timer is not None
-    assert (timer.due_at, timer.payload) == (NOW, {"wait_id": str(wid)})
+    assert (timer.due_at, timer.payload) == (NOW, {"wait_id": str(wid), "step": 0})
     assert work_repo.mark_received(db, company.id, case_id, party) == [wid]
     db.refresh(timer)
     assert timer.status is TimerStatus.cancelled

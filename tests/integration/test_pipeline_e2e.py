@@ -149,3 +149,33 @@ def test_closed_window_card_waits_until_harjot_writes(
     hello = _message(migrated_engine, cid, OWNER, "Hoi", Channel.whatsapp, {})
     DBOS.start_workflow(owner_reply.owner_reply, str(hello)).get_result()
     assert "interactive" in [m.payload["type"] for m in wa.sent]
+
+
+def test_overdue_wait_fires_through_the_timer_sweep_as_a_chaser_card(
+    stack: tuple[FakeWhatsAppOutbound, FakeDrafts], migrated_engine: Engine, committed_company: Company
+) -> None:
+    from app.contracts import CaseState
+    from app.db.models import WaitRow
+    from app.pipeline import case_repo, work_repo
+    from app.workflows import timer_dispatch
+
+    wa, _ = stack
+    cid = committed_company.id
+    _message(migrated_engine, cid, OWNER, "Goedemorgen", Channel.whatsapp, {})
+    mid = _message(migrated_engine, cid, TENANT, "Lekkage", Channel.gmail, {"subject": "Lek"})
+    DBOS.start_workflow(pipeline.pipeline_entry, str(mid)).get_result()
+    sent_before = len(wa.sent)
+    with Session(migrated_engine) as s, s.begin():
+        msg = s.get(MessageRow, mid)
+        assert msg is not None
+        case_id = case_repo.case_of_message(s, cid, mid)
+        assert case_id is not None
+        case_repo.transition(s, cid, case_id, CaseState.waiting_on_third_party, actor="system")
+        wid = work_repo.open_wait(s, cid, case_id, msg.person_id, about="Foto", expected_by=NOW)
+    assert DBOS.start_workflow(timer_dispatch.sweep_due, datetime.now(UTC)).get_result() >= 1
+    deadline = time.monotonic() + 20
+    while len(wa.sent) == sent_before and time.monotonic() < deadline:
+        time.sleep(0.1)
+    assert "Draft 1:" in str(wa.sent[sent_before].payload)
+    with Session(migrated_engine) as s:
+        assert s.scalar(select(WaitRow.chase_count).where(WaitRow.id == wid)) == 1
