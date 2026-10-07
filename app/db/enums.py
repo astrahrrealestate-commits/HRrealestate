@@ -89,3 +89,42 @@ class OutcomeLabel(StrEnum):
 class OutcomeSource(StrEnum):
     sent_folder = "sent_folder"
     echo = "echo"
+
+
+class PipelineStatus(StrEnum):
+    """Agent pipeline progress of one inbound message (spec phase-1 agents §M4)."""
+
+    pending = "pending"
+    done = "done"
+    failed = "failed"
+
+
+class TaskStatus(StrEnum):
+    open = "open"
+    done = "done"
+    snoozed = "snoozed"
+    cancelled = "cancelled"
+
+
+class TaskPriority(StrEnum):
+    p1 = "p1"
+    p2 = "p2"
+    p3 = "p3"
+
+
+class WaitStatus(StrEnum):
+    """Waiting-for item (#5): only `waiting` is open; the others are terminal or a ladder step."""
+
+    waiting = "waiting"
+    received = "received"
+    chased = "chased"
+    escalated = "escalated"
+    cancelled = "cancelled"
+
+
+class DocumentStatus(StrEnum):
+    pending = "pending"
+    filed = "filed"
+    review = "review"
+    skipped = "skipped"
+    failed = "failed"

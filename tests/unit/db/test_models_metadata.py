@@ -8,6 +8,8 @@ SPEC_TABLES = {
     "channel_identities", "units", "leases", "lease_parties", "raw_events", "messages", "attachments",
     "understandings", "cases", "case_links", "case_events", "actions", "action_revisions", "approvals", "sends",
     "timers", "outcomes", "model_calls",
+    # phase 1 agents (spec 2026-10-07)
+    "tasks", "waits", "documents", "metric_snapshots",
 }  # fmt: skip
 
 

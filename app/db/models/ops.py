@@ -1,11 +1,11 @@
-"""Operational tables: due-work timers, draft outcomes, LLM call log."""
+"""Operational tables: due-work timers, draft outcomes, LLM call log, daily quality metrics."""
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import ForeignKey, Index, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, Numeric, String, Text, UniqueConstraint, false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, CompanyScoped, str_enum
@@ -59,3 +59,17 @@ class ModelCall(Base, CompanyScoped):
     latency_ms: Mapped[int | None]
     langfuse_trace_id: Mapped[str | None] = mapped_column(String(64))
     error: Mapped[str | None] = mapped_column(Text)
+
+
+class MetricSnapshot(Base, CompanyScoped):
+    """One quality/cost/performance metric per company-day (#8 drift monitor)."""
+
+    __tablename__ = "metric_snapshots"
+    __company_id_leading_index__ = True
+    __table_args__ = (UniqueConstraint("company_id", "day", "metric"),)
+
+    day: Mapped[date]
+    metric: Mapped[str] = mapped_column(String(64))
+    value: Mapped[float]
+    baseline: Mapped[float | None]
+    breached: Mapped[bool] = mapped_column(default=False, server_default=false())

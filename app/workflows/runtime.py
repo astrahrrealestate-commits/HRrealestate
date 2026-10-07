@@ -18,7 +18,7 @@ SCHEDULES: list[ScheduleInput] = [
         "schedule_name": "gmail.watch_renew",
         "workflow_fn": ingest.gmail_watch_renew,
         "schedule": "0 3 * * *",
-        "cron_timezone": "Europe/Berlin",
+        "cron_timezone": "Europe/Amsterdam",
     },
     {"schedule_name": "gmail.backfill", "workflow_fn": ingest.gmail_backfill, "schedule": "17 * * * *"},
     {"schedule_name": "ingest.requeue", "workflow_fn": ingest.requeue_failed, "schedule": "41 * * * *"},
