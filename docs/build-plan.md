@@ -63,14 +63,17 @@ estateos/
 | **M0** | Prerequisites (owner: you plus Harjot) | Google Cloud project inside his Workspace; WhatsApp test number; Coexistence route confirmed (Meta directly or a partner); OpenAI organisation with an EU data processing agreement; BRIXX export received; someone named to label the first 100 emails |
 | **M1** | Skeleton | `docker compose up` runs Postgres, migrate, API and the DBOS worker (cron); first migration creates **every** table; CI runs ruff, mypy and pytest |
 | **M2** | Ingestion | WhatsApp: verification handshake, signature check (`X-Hub-Signature-256`), insert raw event, acknowledge, enqueue. Gmail: Pub/Sub endpoint, history sync, watch renewed **daily** by timer. Media saved to S3. **Test:** feeding the same recorded payload in twice gives exactly one message row |
-| **M3** | Directory | BRIXX export imported as a batch (people, units, leases, contractors, channel identities, with valid-from and valid-to dates); a phone number or email address looks up to a person, unit and lease |
-| **M4** | Understanding + call log | `llm/` interface, prompt v1, typed output; every call written to `model_calls` and Langfuse; `run_eval.py` reports accuracy on the golden set |
-| **M5** | Case engine | Identity → person → unit → lease; linking (same thread → same person with an open case → model check for borderline cases); rolling case summary. Linking accuracy measured |
-| **M6** | Proposals + rules | `Action` objects and 2–3 drafts for decisions; Phase 1 rules: everything external needs approval, suspicious messages become exceptions, pause switch per company |
-| **M7** | Owner channel + sender | Interactive WhatsApp messages to Harjot (reply buttons, list menu); owner command handler; Gmail drafts in the thread; 07:30 briefing via template plus timer; immediate urgent alerts. The sender uses an idempotency key and re-checks the approval and draft version |
-| **M8** | Outcomes + hardening | Sent folder and echo capture labels every draft; Sentry alerts; a test proving no code path sends to a tenant; database backups; one day of shadow running on live mail |
+| **M3** | Directory (**deferred**, user 2026-10-07) | BRIXX export imported as a batch (people, units, leases, contractors, channel identities, with valid-from and valid-to dates). Until then the directory is identity-first: an unknown phone/email becomes a person on first contact |
+| **M4** | Understanding + call log | `llm/` interface, prompt v1, typed output; every call written to `model_calls` and Langfuse; `make eval` reports accuracy on the golden set. Attachment **contents are not read** in Phase 1 (metadata only) |
+| **M5** | Case engine + tasks + waits | Identity → person; linking (same thread → the person's only open case → `link_check` agent among several → new case); rolling case summary. Owner tasks (#6) and waiting-for items (#5) with timers |
+| **M6** | Proposals + rules + chasing | `Action` objects and 2–3 drafts; Phase 1 rules: everything external needs approval, suspicious messages become exceptions, pause switch per company. Overdue waits produce chaser drafts, then an escalation |
+| **M7** | Owner channel + sender | Approval cards (reply buttons, list menu); owner commands (`tasks`, `done`, `snooze`, `waiting`, `pause`, `resume`, `help`) and owner Q&A; Gmail drafts in the thread; 07:30 daily and Friday weekly briefing; WhatsApp 24 h window (outbox + template); the sender re-checks approval, draft version, pause, allowlist and idempotency key |
+| **M9** | Document filing (#9) | Attachments classified from metadata, named and filed in Google Drive (`drive.file`); uncertain ones go to an owner review card |
+| **M8** | Outcomes + drift + hardening | Sent folder and echo capture labels every draft; daily drift snapshots (autonomy, cost, performance) with owner/Sentry alerts; a test proving no code path sends to a tenant; database backups; one day of shadow running on live mail |
 
-**Order:** M1 → M2 → M3, with M4 running in parallel once M1 is done (it only needs fixtures). Then M5 → M6 → M7 → M8. With two engineers:
+Agents per milestone: [specs/2026-10-07-estateos-phase1-agents-design.md](superpowers/specs/2026-10-07-estateos-phase1-agents-design.md).
+
+**Order:** M1 → M2 → M4 → M5 → M6 → M7 → M9 → M8 (M3 deferred until the BRIXX export arrives). With two engineers:
 - **Engineer A:** M1, M2, M3, and the channel side of M7.
 - **Engineer B:** M4, M5, M6, the owner logic in M7, and M8.
 

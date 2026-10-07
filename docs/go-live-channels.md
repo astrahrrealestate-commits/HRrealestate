@@ -127,6 +127,30 @@ Set the webhook URL `https://<api host>/webhooks/whatsapp` through 360dialog's w
 > Going live on 360dialog therefore needs either the platform secret, or a decision to accept 360dialog's
 > custom-header authentication instead (not implemented). Meta Cloud API has no such gap.
 
+### Owner template (both providers)
+
+WhatsApp only allows free-form messages to Harjot within 24 hours of his last message. Outside that window EstateOS
+holds owner messages (approval cards, briefings, alerts) in `owner_outbox` and sends **one** template instead; his
+next message (any text or tap) delivers everything that waited, oldest first.
+
+1. Create and get approval for a **utility** template named `estateos_pending`, language `en`, body
+   `You have {{1}} items waiting in EstateOS. Reply to see them.` (one body parameter: the number of items).
+2. Different name or language → set `OWNER_TEMPLATE_NAME` / `OWNER_TEMPLATE_LANGUAGE`.
+3. Until the template is approved, owner messages outside the window are not delivered (the provider rejects the
+   template); they stay queued and flush on Harjot's next message.
+
+## LLM
+
+Agents run on deterministic offline models until `LLM_MODEL` is set (default `fake`; prod refuses it).
+
+| Variable | Value |
+|---|---|
+| `LLM_MODEL` | Pydantic AI model string, e.g. `openai:gpt-4.1-mini` (OpenAI project with EU data residency) |
+| `OPENAI_API_KEY` | required for `openai:*` models |
+| `LANGFUSE_HOST` / `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | optional: every agent run traced to Langfuse (EU) |
+
+After switching, run `make eval agent=understanding version=v1` and compare with the fake-model report.
+
 ### Live checks
 
 | Variable *(check only)* | Value |

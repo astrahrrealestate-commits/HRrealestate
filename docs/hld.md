@@ -107,8 +107,12 @@ Schema per M1 spec (24 domain tables). DBOS keeps its own tables in schema `dbos
 covers everything. All domain rows carry `company_id`; repositories take `company_id` as a required argument.
 
 ## 6. AI design
-- **Agents:** `understanding` (structured `Understanding`), `link_check` (borderline case linking → bool + reason),
-  `proposer` (`list[Action]`), `owner_qa` (read-only answers). Each agent = Pydantic AI `Agent(output_type=Contract)`.
+- **Agents** (one Pydantic AI `Agent(output_type=Contract)` each, no tools): `understanding` (triage #2),
+  `link_check` + `case_summary` (context linking #3), `proposer` (reply drafting #4 and chasers #5), `owner_qa`
+  (read-only answers, preview of #10), `briefing` (#7), `doc_classifier` (#9). The orchestrator (#1), follow-up ladder
+  (#5), task manager (#6) and quality monitor (#8) are plain code. Map: specs/2026-10-07-estateos-phase1-agents-design.md.
+- **Offline by default:** `LLM_MODEL=fake` runs deterministic per-agent `FunctionModel`s (`app/llm/fakes.py`); prod
+  refuses it. Attachment contents are never sent to a model in Phase 1 (metadata only).
 - **Prompt files** in `app/llm/prompts/vN/<agent>.md`, loaded and hashed. Version and sha256 go on every `model_calls`
   row and Langfuse trace.
 - **Injection defence:** untrusted text only inside `<message>…</message>` data blocks. Agents have **no write tools**.

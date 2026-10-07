@@ -48,11 +48,41 @@ Spec: [2026-10-05-estateos-m1-foundation-design.md](superpowers/specs/2026-10-05
 - [ ] (from T9 review, before a 2nd company) `gmail_sync` queue: `partition_concurrency=1` + partition key = account id, so one slow mailbox never delays other tenants
 - [x] (carried from M1 review) raw_event insert + DBOS enqueue in one transaction (T7, commit/rollback test)
 - [x] **M2 closed** (2026-10-07): `make cov` 94.52% (601 passed), `make audit` "No known vulnerabilities found", `make harness-test` OK, `make smoke` "api ready: ok / worker: ok / logs: clean", `make sim-demo` "sim.demo.ok gmail=2 owner_buttons=1 whatsapp=2"; whole-branch reviewer VERDICT: ship (re-review after fixes). Live checks not yet run (no credentials). Merge: user decision.
-## M3 Directory
+## M3 Directory — deferred (user, 2026-10-07); identity-first directory instead (`app/directory/identity.py`)
+
+Phase 1 agents spec: [2026-10-07-estateos-phase1-agents-design.md](superpowers/specs/2026-10-07-estateos-phase1-agents-design.md) · branch `m4-agents`
+
 ## M4 Understanding + call log
-## M5 Case engine
-## M6 Proposals + rules
+- [x] `llm_model` setting (default `fake`, prod refuses fake/test, openai needs key); deps pydantic-ai 2.54, pydantic-evals, genai-prices, OTLP exporter, rapidfuzz
+- [x] llm core: prompt loader + sha256, data blocks (case/space-insensitive escaping), `run_agent` (model_calls row on success and failure, transient errors retried, timeout, cost, resolved model name), fake FunctionModels, Langfuse OTel
+- [x] understanding agent (#2) + prompt v1; `pipeline.entry` orchestrator (#1); messages.pipeline_status + hourly requeue (max 3)
+- [ ] golden set + `make eval` (peer session estateos-a8)
+
+## M5 Case engine + tasks + waits
+- [x] migration 0003: tasks, waits, documents, metric_snapshots, pipeline status, Europe/Amsterdam default, chase/briefing settings
+- [x] identity resolution, case repository, link stage (thread → only open case → `link_check` v2 → new), rolling `case_summary` v2, waits received reopen the case
+- [x] timer dispatcher (SKIP LOCKED + lease, per-kind handlers, max 5 attempts); task + wait repositories
+- [ ] linking accuracy eval (needs labelled set)
+
+## M6 Proposals + rules + chasing
+- [x] `Proposal` contract, proposer agent v1 (Dutch drafts, untrusted blocks), pure rules engine (100 % branch)
+- [x] propose stage: actions/approvals/tasks, replay-safe, proposer-failure notice
+- [x] follow-up (#5): waits after approved requests, business-day ladder (DST-safe), chaser drafts, escalation; reclaimed timers never chase twice
+
 ## M7 Owner channel + sender
-## M8 Outcomes + hardening
+- [x] sender `execute_action`: approval/version/pause/allowlist/idempotency re-checks; Gmail draft in thread; WhatsApp replies go to Harjot as copy-ready text
+- [x] approval cards (list menu / buttons), owner reply (tap twice = one draft), edit → revision, unknown taps answered, local actions (reminder → task, case state)
+- [x] owner commands (#6) + owner Q&A agent; WhatsApp 24 h window: owner_outbox + `estateos_pending` template, flush on Harjot's next message (migration 0004)
+- [x] briefings (#7): 07:30 daily + Friday 16:00 weekly per company timezone, agent text with template fallback
+- [x] G5: `make smoke` "api ready: ok", "worker: ok", "logs: clean"; `make sim-demo` "sim.demo.ok agents=ok gmail=2 owner_buttons=1 whatsapp=2"
+
+## M9 Document filing
+- [ ] classifier (metadata only) + Drive adapter + `file_document` (peer session estateos-a8); workflow + review card (wiring)
+
+## M8 Outcomes + drift + hardening
+- [x] outcome capture (Sent folder + echo → unchanged/edited/rewritten, migration 0005 unique per draft), 15-min cron
+- [x] drift (#8): daily snapshots vs 14-day median, per-company thresholds, owner + Sentry alert
+- [x] test: no approved action of any type on any channel reaches a tenant
+- [ ] one day of shadow running on live mail (needs live credentials, user)
 - [ ] (carried from M1) DBOS system-table retention/GC (minute cron writes ~1,440 workflow rows/day)
 - [ ] (carried from M1) image CVE scan in CI (Docker Scout reports 3 high Debian CVEs in python:3.12-slim)
