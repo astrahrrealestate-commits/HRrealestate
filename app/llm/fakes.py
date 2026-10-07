@@ -142,6 +142,26 @@ def _fake_briefing(prompt: str) -> dict[str, object]:
     return {"headline": f"{len(sections)} topics today (offline briefing).", "sections": sections[:6]}
 
 
+_DOC_KEYWORDS = (
+    (r"factuur|invoice|\bnota\b", "invoice", "Invoice"),
+    (r"huurcontract|huurovereenkomst|\blease\b", "lease", "Lease agreement"),
+    (r"offerte|prijsopgave|\bquote\b", "quote", "Quote"),
+    (r"paspoort|passport|id-kaart|identiteitskaart|rijbewijs", "id_document", "Identity document"),
+    (r"polis|verzekering|insurance", "insurance", "Insurance document"),
+    (r"keuring|certifica|energielabel|attest", "certificate", "Certificate"),
+)
+
+
+def _fake_doc_classifier(prompt: str) -> dict[str, object]:
+    low = prompt.lower()
+    for pattern, doc_type, title in _DOC_KEYWORDS:
+        if re.search(pattern, low):
+            return {"doc_type": doc_type, "title": title, "document_date": None, "confidence": 0.85}
+    if "mime_type: image/" in low:
+        return {"doc_type": "photo", "title": "Photo", "document_date": None, "confidence": 0.5}
+    return {"doc_type": "other", "title": "Document", "document_date": None, "confidence": 0.4}
+
+
 def model_for(agent_name: str) -> FunctionModel:
     def fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         user_text = _extract_user_text(messages)
@@ -159,6 +179,8 @@ def model_for(agent_name: str) -> FunctionModel:
             args = _fake_owner_qa(user_text)
         elif agent_name == "briefing":
             args = _fake_briefing(user_text)
+        elif agent_name == "doc_classifier":
+            args = _fake_doc_classifier(user_text)
         else:
             args = {}
 

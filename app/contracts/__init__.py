@@ -14,6 +14,7 @@ from app.contracts.action import (
 from app.contracts.button_id import MAX_BUTTON_ID_LEN, ButtonChoice, ButtonId
 from app.contracts.case_state import ALLOWED, CaseState, assert_transition, can_transition
 from app.contracts.common import Channel, Contract, Direction, Money
+from app.contracts.document import DocType, DocumentClassification
 from app.contracts.linking import LinkDecision
 from app.contracts.message import Attachment, Message, normalise_identity
 from app.contracts.owner_outputs import Briefing, BriefingSection, OwnerAnswer
@@ -40,6 +41,8 @@ __all__ = [
     "Contract",
     "CreateReminderPayload",
     "Direction",
+    "DocType",
+    "DocumentClassification",
     "Entities",
     "EscalatePayload",
     "LinkDecision",
