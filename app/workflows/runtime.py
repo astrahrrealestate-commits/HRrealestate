@@ -38,6 +38,7 @@ SCHEDULES: list[ScheduleInput] = [
     {"schedule_name": "pipeline.requeue", "workflow_fn": pipeline.requeue_failed, "schedule": "47 * * * *"},
     {"schedule_name": "briefing.ensure", "workflow_fn": briefings.ensure_briefings, "schedule": "5 * * * *"},
     {"schedule_name": "outcomes.capture", "workflow_fn": quality.capture_cron, "schedule": "*/15 * * * *"},
+    {"schedule_name": "drift.daily", "workflow_fn": quality.drift_cron, "schedule": "30 4 * * *"},
 ]
 
 
