@@ -3,6 +3,7 @@ import signal
 import subprocess
 import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -45,7 +46,7 @@ def test_same_workflow_id_runs_once(dbos_runtime: None, test_settings: Settings)
 def test_timer_sweep_scheduled_every_minute(dbos_runtime: None) -> None:
     schedules = {s["schedule_name"]: s for s in DBOS.list_schedules()}
     assert schedules["system.timer_sweep"]["schedule"] == "* * * * *"
-    assert timer_sweep(scheduled_time=None, context=None) is None  # type: ignore[arg-type,func-returns-value]
+    assert timer_sweep(scheduled_time=datetime(2000, 1, 1, tzinfo=UTC), context=None) is None  # type: ignore[func-returns-value]
 
 
 def test_relaunch_is_idempotent_and_keeps_paused_schedule(dbos_runtime: None, test_settings: Settings) -> None:

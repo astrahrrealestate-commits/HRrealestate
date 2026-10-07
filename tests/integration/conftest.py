@@ -120,13 +120,15 @@ def committed_company(migrated_engine: Engine) -> Iterator[Company]:
 
 
 def purge_company(engine: Engine, company_id: "UUID") -> None:
-    """Delete a committed company and every row the ingestion layer writes for it."""
+    """Delete a committed company and every company-scoped row, children first (FK order)."""
     from sqlalchemy import delete
 
-    from app.db.models import AttachmentRow, ChannelAccount, GmailSyncState, MessageRow, OwnerAccount, RawEvent
+    import app.db.models  # noqa: F401  (registers every table)
+    from app.db.base import Base
 
     with Session(engine) as session:
-        for model in (AttachmentRow, MessageRow, RawEvent, GmailSyncState, OwnerAccount, ChannelAccount):
-            session.execute(delete(model).where(model.company_id == company_id))
+        for table in reversed(Base.metadata.sorted_tables):
+            if "company_id" in table.c:
+                session.execute(delete(table).where(table.c.company_id == company_id))
         session.execute(delete(Company).where(Company.id == company_id))
         session.commit()

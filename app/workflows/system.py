@@ -5,6 +5,8 @@ from typing import Any
 
 from dbos import DBOS
 
+from app.workflows import timer_dispatch
+
 
 @DBOS.workflow(name="system.selfcheck")
 def selfcheck() -> str:
@@ -14,4 +16,5 @@ def selfcheck() -> str:
 
 @DBOS.workflow(name="system.timer_sweep")
 def timer_sweep(scheduled_time: datetime, context: Any) -> None:
-    """Claims due `timers` rows and dispatches them. M1: no timer kinds exist yet, so there is nothing to claim."""
+    """Every minute: claim due `timers` rows and fire one `timers.fire` workflow per claim (child workflow)."""
+    timer_dispatch.sweep_due(scheduled_time)
