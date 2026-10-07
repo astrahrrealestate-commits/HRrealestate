@@ -62,6 +62,9 @@ def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> 
                 session.add(row)
                 session.flush()
 
+            msg_row = session.get(MessageRow, message_id)
+            if msg_row is not None and msg_row.pipeline_status is PipelineStatus.failed:  # a requeued run succeeded
+                msg_row.pipeline_status, msg_row.pipeline_error = PipelineStatus.pending, None
             return row.id
 
     except AgentFailedError as exc:
@@ -81,3 +84,19 @@ def mark_pipeline_done(engine: Engine, message_id: UUID) -> None:
         msg = session.get(MessageRow, message_id)
         if msg is not None and msg.pipeline_status is not PipelineStatus.failed:
             msg.pipeline_status, msg.pipeline_error = PipelineStatus.done, None
+
+
+MAX_PIPELINE_ATTEMPTS = 3
+
+
+def requeue_candidates(engine: Engine) -> list[tuple[UUID, str]]:
+    """(message id, workflow id) of failed pipeline runs with attempts left. The id carries the attempt number, so a
+    sweep running twice enqueues each rerun once (system cron, all companies)."""
+    with Session(engine) as session:
+        rows = session.execute(
+            select(MessageRow.id, MessageRow.pipeline_attempts).where(
+                MessageRow.pipeline_status == PipelineStatus.failed,
+                MessageRow.pipeline_attempts < MAX_PIPELINE_ATTEMPTS,
+            )
+        ).all()
+    return [(mid, f"pipe:{mid}:r{attempts}") for mid, attempts in rows]

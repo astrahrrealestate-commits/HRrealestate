@@ -23,6 +23,7 @@ SCHEDULES: list[ScheduleInput] = [
     },
     {"schedule_name": "gmail.backfill", "workflow_fn": ingest.gmail_backfill, "schedule": "17 * * * *"},
     {"schedule_name": "ingest.requeue", "workflow_fn": ingest.requeue_failed, "schedule": "41 * * * *"},
+    {"schedule_name": "pipeline.requeue", "workflow_fn": pipeline.requeue_failed, "schedule": "47 * * * *"},
 ]
 
 

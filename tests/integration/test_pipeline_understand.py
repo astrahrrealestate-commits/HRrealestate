@@ -86,3 +86,49 @@ def test_pipeline_entry_understand(
     with Session(migrated_engine) as session:
         u_count = len(session.scalars(select(UnderstandingRow).where(UnderstandingRow.message_id == msg_id)).all())
         assert u_count == 1
+
+
+def test_failed_runs_are_requeued_until_three_attempts_and_success_clears_failed(
+    dbos_runtime: None, migrated_engine: Engine, committed_company: Company, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pydantic_ai.messages import ModelResponse, ToolCallPart
+    from pydantic_ai.models.function import FunctionModel
+
+    from app.pipeline.understand import requeue_candidates
+
+    cid = committed_company.id
+    with Session(migrated_engine) as session, session.begin():
+        raw = RawEvent(company_id=cid, provider=Channel.whatsapp, provider_msg_id=str(new_id()), payload={})
+        session.add(raw)
+        session.flush()
+        msg = MessageRow(
+            company_id=cid,
+            raw_event_id=raw.id,
+            channel=Channel.whatsapp,
+            provider_msg_id=raw.provider_msg_id,
+            thread_ref="+31611111111",
+            sender_identity="+31611111111",
+            direction=Direction.inbound,
+            sent_at=NOW,
+            text="Lekkage",
+            meta={},
+        )
+        session.add(msg)
+        session.flush()
+        msg_id = msg.id
+    bad = FunctionModel(lambda m, info: ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {"x": 1})]))
+    monkeypatch.setattr("app.llm.calls.build_model", lambda _s, _n: bad)
+    assert pipeline.pipeline_entry(str(msg_id)) == "failed"
+    assert [(m, wf) for m, wf in requeue_candidates(migrated_engine) if m == msg_id] == [(msg_id, f"pipe:{msg_id}:r1")]
+    monkeypatch.undo()
+    assert pipeline.pipeline_entry(str(msg_id)) == "understood"
+    with Session(migrated_engine) as session:
+        refreshed = session.get(MessageRow, msg_id)
+        assert refreshed is not None
+        assert (refreshed.pipeline_status, refreshed.pipeline_error) == (PipelineStatus.done, None)
+    assert all(m != msg_id for m, _ in requeue_candidates(migrated_engine))
+    with Session(migrated_engine) as session, session.begin():
+        row = session.get(MessageRow, msg_id)
+        assert row is not None
+        row.pipeline_status, row.pipeline_attempts = PipelineStatus.failed, 3
+    assert all(m != msg_id for m, _ in requeue_candidates(migrated_engine))  # gave up after 3 attempts

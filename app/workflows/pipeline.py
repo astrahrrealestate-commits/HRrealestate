@@ -1,9 +1,10 @@
 """Pipeline entry DBOS workflow: triage inbound messages, link cases, propose actions."""
 
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from dbos import DBOS
+from dbos import DBOS, SetWorkflowID
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -15,7 +16,8 @@ from app.ingestion.process import is_transient
 from app.llm.calls import is_transient as llm_transient
 from app.pipeline.link import link_message
 from app.pipeline.propose import propose_for_message
-from app.pipeline.understand import mark_pipeline_done, understand_message
+from app.pipeline.understand import mark_pipeline_done, requeue_candidates, understand_message
+from app.workflows import queues
 from app.workflows.deps import get_engine
 from app.workflows.owner_notify import alert_exceptions_step, send_card_step
 
@@ -88,3 +90,16 @@ def pipeline_entry(message_id: str) -> str:
     done_step(message_id)
     log.info("pipeline.entry.done", message_id=message_id, status=status, linked=case_id is not None)
     return status
+
+
+@DBOS.step(name="pipeline.requeue_candidates")
+def requeue_candidates_step() -> list[tuple[str, str]]:
+    return [(str(mid), wf) for mid, wf in requeue_candidates(get_engine())]
+
+
+@DBOS.workflow(name="pipeline.requeue")
+def requeue_failed(scheduled_time: datetime, context: Any) -> None:
+    """Hourly: rerun pipeline runs whose understanding failed (max 3 attempts per message)."""
+    for message_id, workflow_id in requeue_candidates_step():
+        with SetWorkflowID(workflow_id):
+            queues.pipeline_queue().enqueue(pipeline_entry, message_id)
