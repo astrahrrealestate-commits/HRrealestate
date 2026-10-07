@@ -120,6 +120,11 @@ def _fake_proposer(prompt: str) -> dict[str, object]:
     return {"actions": actions}
 
 
+def _fake_owner_qa(prompt: str) -> dict[str, object]:
+    cases = re.findall(r"^case: ([0-9a-f-]{36})", prompt, flags=re.M)
+    return {"answer": f"You have {len(cases)} open cases. (offline answer)", "case_refs": cases[:3]}
+
+
 def model_for(agent_name: str) -> FunctionModel:
     def fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         user_text = _extract_user_text(messages)
@@ -133,6 +138,8 @@ def model_for(agent_name: str) -> FunctionModel:
             args = _fake_case_summary(user_text)
         elif agent_name == "proposer":
             args = _fake_proposer(user_text)
+        elif agent_name == "owner_qa":
+            args = _fake_owner_qa(user_text)
         else:
             args = {}
 

@@ -1,0 +1,171 @@
+"""Harjot's text commands on WhatsApp (#6 Task Manager, owner controls). Anything else is a question (owner Q&A).
+
+pause | resume | tasks | done <n> | snooze <n> <30m|4h|2d|1w> | waiting | help
+"""
+
+import re
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from enum import StrEnum
+from uuid import UUID
+from zoneinfo import ZoneInfo
+
+from sqlalchemy import Engine, select
+from sqlalchemy.orm import Session
+
+from app.core.errors import AgentFailedError
+from app.core.settings import Settings
+from app.db.enums import WaitStatus
+from app.db.models import Case, Company, Person, TaskRow, WaitRow
+from app.llm.agents.owner_qa import FALLBACK_ANSWER, OWNER_QA, CaseBrief, accept_refs, owner_qa_prompt
+from app.llm.calls import CallContext, run_agent
+from app.pipeline import case_repo, work_repo
+
+
+class CommandKind(StrEnum):
+    pause = "pause"
+    resume = "resume"
+    tasks = "tasks"
+    done = "done"
+    snooze = "snooze"
+    waiting = "waiting"
+    help = "help"
+    question = "question"
+
+
+@dataclass(frozen=True)
+class Command:
+    kind: CommandKind
+    index: int | None = None
+    duration: timedelta | None = None
+    text: str | None = None
+
+
+HELP_TEXT = (
+    "Commands:\n"
+    "tasks - your open tasks\n"
+    "done <n> - mark task n done\n"
+    "snooze <n> <30m|4h|2d|1w> - hide task n for a while\n"
+    "waiting - who we are waiting on\n"
+    "pause / resume - stop or restart all proposals\n"
+    "Anything else is a question about your cases."
+)
+_UNITS = {"m": timedelta(minutes=1), "h": timedelta(hours=1), "d": timedelta(days=1), "w": timedelta(weeks=1)}
+MAX_SNOOZE = timedelta(weeks=8)
+_SIMPLE = {"pause", "resume", "tasks", "waiting", "help"}
+
+
+def parse_duration(raw: str) -> timedelta:
+    match = re.fullmatch(r"(\d{1,3})([mhdw])", raw.strip().lower())
+    if match is None:
+        raise ValueError(f"bad duration {raw[:12]!r}: use 30m, 4h, 2d or 1w")
+    value = int(match.group(1)) * _UNITS[match.group(2)]
+    if not timedelta(0) < value <= MAX_SNOOZE:
+        raise ValueError(f"duration {raw[:12]!r} must be between 1 minute and 8 weeks")
+    return value
+
+
+def parse_command(text: str) -> Command:
+    clean = text.strip()
+    words = clean.lower().split()
+    if clean == "?" or (len(words) == 1 and words[0] in _SIMPLE):
+        return Command(CommandKind.help if clean == "?" else CommandKind(words[0]))
+    if len(words) == 2 and words[0] == "done" and words[1].isdigit():
+        return Command(CommandKind.done, index=int(words[1]))
+    if len(words) == 3 and words[0] == "snooze" and words[1].isdigit():
+        try:
+            return Command(CommandKind.snooze, index=int(words[1]), duration=parse_duration(words[2]))
+        except ValueError:
+            pass
+    return Command(CommandKind.question, text=clean)
+
+
+def case_label(session: Session, case: Case) -> str:
+    name = session.scalar(select(Person.display_name).where(Person.id == case.primary_person_id)) or "Unknown sender"
+    return f"{name} · {case.category.value}"
+
+
+# ---- execution -----------------------------------------------------------------------------------------------------
+
+
+def _due(at: datetime | None, tz: str) -> str:
+    return f" (due {at.astimezone(ZoneInfo(tz)):%a %d %b %H:%M})" if at else ""
+
+
+def _tasks(session: Session, company: Company, now: datetime) -> str:
+    tasks = work_repo.open_tasks(session, company.id, now=now)
+    if not tasks:
+        return "No open tasks."
+    lines = [f"{i}. [{t.priority.value}] {t.title}{_due(t.due_at, company.timezone)}" for i, t in enumerate(tasks, 1)]
+    return "Open tasks:\n" + "\n".join(lines)
+
+
+def _task_at(session: Session, company_id: UUID, index: int, now: datetime) -> TaskRow | None:
+    tasks = work_repo.open_tasks(session, company_id, now=now)
+    return tasks[index - 1] if 1 <= index <= len(tasks) else None
+
+
+def _waiting(session: Session, company: Company) -> str:
+    waits = session.scalars(
+        select(WaitRow)
+        .where(WaitRow.company_id == company.id, WaitRow.status == WaitStatus.waiting)
+        .order_by(WaitRow.expected_by)
+    ).all()
+    if not waits:
+        return "Not waiting on anyone."
+    lines = [
+        f"{i}. {w.about}{_due(w.expected_by, company.timezone)}, {w.chase_count} reminders sent"
+        for i, w in enumerate(waits, 1)
+    ]
+    return "Waiting on:\n" + "\n".join(lines)
+
+
+def _question(engine: Engine, settings: Settings, company_id: UUID, question: str, now: datetime) -> str:
+    with Session(engine) as session:
+        cases = session.scalars(
+            select(Case)
+            .where(Case.company_id == company_id, Case.state.in_(case_repo.OPEN_STATES))
+            .order_by(Case.opened_at.desc())
+            .limit(20)
+        ).all()
+        briefs = [CaseBrief(c.id, case_label(session, c), c.state.value, c.urgency.value, c.summary) for c in cases]
+        tasks = [t.title for t in work_repo.open_tasks(session, company_id, now=now)]
+    try:
+        result = run_agent(
+            engine, settings, OWNER_QA, owner_qa_prompt(question, briefs, tasks), CallContext(company_id, "owner_qa")
+        )
+    except AgentFailedError:
+        return FALLBACK_ANSWER
+    return accept_refs(result.output, briefs).answer
+
+
+def _apply(session: Session, company: Company, cmd: Command, now: datetime) -> str:
+    if cmd.kind is CommandKind.help:
+        return HELP_TEXT
+    if cmd.kind is CommandKind.tasks:
+        return _tasks(session, company, now)
+    if cmd.kind is CommandKind.waiting:
+        return _waiting(session, company)
+    if cmd.kind in (CommandKind.pause, CommandKind.resume):
+        company.paused = cmd.kind is CommandKind.pause
+        return "Paused: no new proposals until `resume`." if company.paused else "Resumed."
+    task = _task_at(session, company.id, cmd.index or 0, now)
+    if task is None:
+        return f"There is no task {cmd.index}. Send `tasks` to see the list."
+    if cmd.kind is CommandKind.done:
+        work_repo.complete_task(session, company.id, task.id, at=now)
+        return f"Done: {task.title}"
+    until = now + (cmd.duration or timedelta(0))
+    work_repo.snooze_task(session, company.id, task.id, until=until)
+    return f"Snoozed: {task.title} until {until.astimezone(ZoneInfo(company.timezone)):%a %d %b %H:%M}"
+
+
+def run_command(engine: Engine, settings: Settings, company_id: UUID, cmd: Command, *, now: datetime) -> str:
+    """Execute one owner command and return the reply text (English)."""
+    if cmd.kind is CommandKind.question:
+        return _question(engine, settings, company_id, cmd.text or "", now)
+    with Session(engine) as session, session.begin():
+        company = session.get(Company, company_id)
+        if company is None:
+            return "Unknown company."
+        return _apply(session, company, cmd, now)

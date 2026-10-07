@@ -1,9 +1,10 @@
 """Harjot's WhatsApp messages: button taps decide approvals, the text after `edit` becomes a new draft revision.
 
-Text commands and questions (owner Q&A) are added on top of `handle_owner_message` by the owner-channel module.
+Any other text is a command (tasks, done, snooze, waiting, pause, resume, help) or a question for owner Q&A.
 """
 
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any
 from uuid import UUID
 
@@ -14,9 +15,10 @@ from sqlalchemy.orm import Session
 from app.channels.whatsapp import payloads
 from app.contracts import ButtonId
 from app.core.errors import InvalidButtonIdError, NotFoundError
+from app.core.settings import get_settings
 from app.core.workflow_names import OWNER_REPLY
 from app.db.models import ActionRow, MessageRow
-from app.pipeline import approvals
+from app.pipeline import approvals, owner_commands
 from app.pipeline.local_actions import LOCAL_TYPES
 from app.sender.execute import send_to_owner
 from app.workflows import queues
@@ -72,9 +74,21 @@ def handle_step(message_id: str) -> dict[str, Any]:
     return handle_owner_message(UUID(message_id))
 
 
+def _text(body: str, to: str) -> dict[str, Any]:
+    return payloads.text(to, body)
+
+
 @DBOS.step(name="owner.reply")
 def reply_step(company_id: str, key: str, text: str) -> None:
-    send_to_owner(get_sender_deps(), UUID(company_id), key, lambda to: payloads.text(to, text))
+    chunks = [text[i : i + payloads.TEXT_BODY_MAX] for i in range(0, len(text), payloads.TEXT_BODY_MAX)] or ["-"]
+    for n, chunk in enumerate(chunks):
+        send_to_owner(get_sender_deps(), UUID(company_id), f"{key}:{n}", partial(_text, chunk))
+
+
+@DBOS.step(name="owner.command")
+def command_step(company_id: str, text: str) -> str:
+    cmd = owner_commands.parse_command(text)
+    return owner_commands.run_command(get_engine(), get_settings(), UUID(company_id), cmd, now=datetime.now(UTC))
 
 
 @DBOS.workflow(name=OWNER_REPLY)
@@ -90,6 +104,9 @@ def owner_reply(message_id: str) -> str:
         reply_step(r["company_id"], f"owner:{message_id}:{kind}", UNKNOWN_PROMPT)
     elif kind == "edit":
         reply_step(r["company_id"], f"owner:{message_id}:edit", EDIT_PROMPT)
+    elif kind == "command":
+        reply = command_step(r["company_id"], r["text"])
+        reply_step(r["company_id"], f"owner:{message_id}:command", reply)
     elif kind == "revision":
         send_card_step(r["company_id"], r["approval_id"])
     return kind

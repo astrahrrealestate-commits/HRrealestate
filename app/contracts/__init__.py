@@ -16,6 +16,7 @@ from app.contracts.case_state import ALLOWED, CaseState, assert_transition, can_
 from app.contracts.common import Channel, Contract, Direction, Money
 from app.contracts.linking import LinkDecision
 from app.contracts.message import Attachment, Message, normalise_identity
+from app.contracts.owner_outputs import OwnerAnswer
 from app.contracts.prompt_ref import PromptRef
 from app.contracts.proposal import Proposal
 from app.contracts.summary import CaseSummary
@@ -43,6 +44,7 @@ __all__ = [
     "Message",
     "Money",
     "NotifyOwnerPayload",
+    "OwnerAnswer",
     "PromptRef",
     "Proposal",
     "ReplyDraftPayload",

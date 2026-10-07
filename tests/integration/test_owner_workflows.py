@@ -219,3 +219,10 @@ def test_local_actions_apply_without_sending(env: Env) -> None:
             == "Bel loodgieter"
         )
     assert actions.EXECUTE_ACTION == "actions.execute_action"
+
+
+def test_text_command_gets_a_reply(env: Env) -> None:
+    _pending(env)
+    mid = _owner_msg(env, "tasks")
+    assert DBOS.start_workflow(owner_reply.owner_reply, str(mid)).get_result() == "command"
+    assert any("Approve proposed action" in m.payload.get("text", {}).get("body", "") for m in env.wa.sent)
