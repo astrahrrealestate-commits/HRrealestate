@@ -65,6 +65,61 @@ def _fake_case_summary(prompt: str) -> dict[str, object]:
     return {"summary": text, "next_step": "Review and reply"}
 
 
+def _field(prompt: str, name: str) -> str:
+    m = re.search(rf"^{name}: (.*)$", prompt, flags=re.M)
+    return m.group(1).strip() if m else ""
+
+
+def _action(case_id: str, kind: str, payload: dict[str, object], rationale: str) -> dict[str, object]:
+    return {
+        "type": kind,
+        "case_id": case_id,
+        "payload": {"kind": kind, **payload},
+        "rationale": rationale,
+        "context_ref": [],
+        "draft_version": 1,
+    }
+
+
+def _fake_proposer(prompt: str) -> dict[str, object]:
+    case_id, channel = _field(prompt, "case_id"), _field(prompt, "channel") or "whatsapp"
+    subject = _field(prompt, "Subject")
+    reply_subject = f"Re: {subject}" if channel == "gmail" and subject not in ("", "-") else None
+    if "<mode>chase</mode>" in prompt:
+        variants = [
+            "Geachte heer/mevrouw,\n\nGraag herinneren wij u aan ons eerdere bericht. Kunt u reageren?"
+            "\n\nMet vriendelijke groet,\nHarjot",
+            "Beste,\n\nWij wachten nog op uw reactie. Laat u het ons weten?\n\nMet vriendelijke groet,\nHarjot",
+        ]
+        return {
+            "actions": [
+                _action(
+                    case_id,
+                    "reply_draft",
+                    {"channel": channel, "subject": reply_subject, "body_variants": variants},
+                    "Friendly chaser",
+                )
+            ]
+        }
+    variants = [
+        "Geachte heer/mevrouw,\n\nDank voor uw bericht. Wij nemen dit in behandeling en komen zo snel "
+        "mogelijk bij u terug.\n\nMet vriendelijke groet,\nHarjot",
+        "Geachte heer/mevrouw,\n\nDank voor uw bericht. Kunt u een foto sturen, zodat wij de juiste "
+        "vakman kunnen inschakelen?\n\nMet vriendelijke groet,\nHarjot",
+    ]
+    actions = [
+        _action(
+            case_id,
+            "reply_draft",
+            {"channel": channel, "subject": reply_subject, "body_variants": variants},
+            "Acknowledge and ask for details",
+        )
+    ]
+    if _field(prompt, "urgency") == "emergency":
+        actions.append(_action(case_id, "escalate", {"reason": "Emergency reported by tenant"}, "Emergency"))
+    return {"actions": actions}
+
+
 def model_for(agent_name: str) -> FunctionModel:
     def fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         user_text = _extract_user_text(messages)
@@ -76,6 +131,8 @@ def model_for(agent_name: str) -> FunctionModel:
             args = _fake_link_check(user_text)
         elif agent_name == "case_summary":
             args = _fake_case_summary(user_text)
+        elif agent_name == "proposer":
+            args = _fake_proposer(user_text)
         else:
             args = {}
 
