@@ -24,8 +24,8 @@ measured daily. **Phase 1 still sends nothing to tenants**: only Gmail drafts an
 | Long waits | DB rows + `timers`, never sleeping workflows (invariant 2). The minute `timer_sweep` (M1, no-op today) becomes a dispatcher: claim due rows `FOR UPDATE SKIP LOCKED`, enqueue `timer.fire` with id `timer:{timer_id}:{attempts}`. |
 | Company timezone | Default `Europe/Amsterdam` (Dutch market). Migration changes the server default and updates existing rows still on `Europe/Berlin`. |
 | Drive (#9) | Google Drive API v3 via google-api-python-client (already a dependency), scope `drive.file` (only files the app created). New ADR 0005. Adapter in `app/storage/drive.py` with a fake. |
-| PDF text | `pypdf` (text of the first pages is enough to classify). Docling (tech-stack) is deferred: it pulls PyTorch and models into the image for no Phase 1 gain. Recorded as an amendment in tech-stack.md. Photos/scans: model vision (fake returns `other`, low confidence → review queue). |
-| New dependencies | `pydantic-ai-slim[openai]`, `pydantic-evals`, `genai-prices`, `opentelemetry-exporter-otlp-proto-http`, `rapidfuzz`, `pypdf`. Each needs the user's go (dependency hook). |
+| Attachment contents | **Not read in this phase (user, 2026-10-07).** Agents see attachment metadata only: file name, MIME type, size, as `<attachments>` data next to the message. PDF text (Docling/pypdf) and image vision come later behind the same `documents` flow. |
+| New dependencies | `pydantic-ai-slim[openai]`, `pydantic-evals`, `genai-prices`, `opentelemetry-exporter-otlp-proto-http`, `rapidfuzz`. Each needs the user's go (dependency hook). |
 
 ## Agent map
 
@@ -141,16 +141,16 @@ Existing contracts are not changed. New LLM-facing ones follow the strict-schema
 
 ## M9 Document filing (#9)
 
-- After linking, each attachment of the message → `file_document` workflow (`doc:{attachment_id}`): extract text
-  (pypdf, first 3 pages) or image → `doc_classifier` agent → name
+- After linking, each attachment of the message → `file_document` workflow (`doc:{attachment_id}`):
+  `doc_classifier` agent on metadata only (file name, MIME type, size, message text, case summary) → name
   `YYYY-MM-DD_<doc_type>_<person or case ref>_<title>.<ext>` → if confidence ≥ 0.80 upload to
   `EstateOS/<doc_type>/<YYYY>/`, else `documents.status=review` + owner list message (suggested type, other types,
   `skip`). Owner choice → file with that type.
 - Drive idempotency: file `appProperties.estateos_attachment_id`; before upload, search by it; `documents` unique on
   attachment id. Folders created on demand, ids cached in `documents.drive_folder`.
 - Unit-based folders arrive with M3 (BRIXX); the naming rule is versioned so the later re-file is explicit.
-- **Done when:** a simulated PDF invoice is filed (fake Drive) with the expected name; a low-confidence photo goes to
-  review and is filed after the owner's choice; replay files once.
+- **Done when:** a simulated `factuur_2026-09.pdf` is filed (fake Drive) as an invoice with the expected name; a
+  `IMG_1234.jpg` with no context goes to review and is filed after the owner's choice; replay files once.
 
 ## M8 Outcomes, drift, hardening (#8)
 
@@ -189,6 +189,5 @@ real model is configured).
 ## Open points for the user
 
 1. Approve the new dependencies listed above.
-2. Docling deferred in favour of pypdf: OK?
-3. Drive scope `drive.file` means Harjot sees only EstateOS-created files/folders through the app; filing into his
+2. Drive scope `drive.file` means Harjot sees only EstateOS-created files/folders through the app; filing into his
    existing folders would need full `drive` scope. OK to start with `drive.file`?
