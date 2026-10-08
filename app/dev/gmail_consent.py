@@ -20,6 +20,7 @@ from googleapiclient.discovery import build
 
 from app.core.errors import UnsafeConfigurationError
 from app.core.logging import get_logger
+from app.storage.drive import DRIVE_SCOPES
 
 log = get_logger(__name__)
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -28,6 +29,8 @@ PURPOSES: dict[str, list[str]] = {
     "read": ["https://www.googleapis.com/auth/gmail.readonly"],
     "compose": ["https://www.googleapis.com/auth/gmail.compose"],
 }
+# Document filing (#9, ADR 0005): app-created files only. Opt-in (`--drive`), written as drive-file.json.
+DRIVE_PURPOSE: tuple[str, list[str]] = ("file", list(DRIVE_SCOPES))
 
 
 @dataclass(frozen=True)
@@ -36,14 +39,17 @@ class Consent:
     profile_email: Callable[[Credentials], str]  # the signed-in mailbox address
 
 
-def create_token_files(consent: Consent, mailbox: str, out_dir: Path) -> list[Path]:
-    """Consent once per purpose; write `gmail-<purpose>.json` only after every check passed."""
+def create_token_files(consent: Consent, mailbox: str, out_dir: Path, *, drive: bool = False) -> list[Path]:
+    """Consent once per purpose; write `gmail-<purpose>.json` (and `drive-file.json`) only after every check passed."""
     out_dir = out_dir.expanduser().resolve()
     if _inside(out_dir, REPO_ROOT):
         raise UnsafeConfigurationError(f"token files must live outside the repository, not in {out_dir}")
-    tokens = {purpose: _checked(consent, scopes, mailbox) for purpose, scopes in PURPOSES.items()}
+    wanted = {f"gmail-{purpose}": scopes for purpose, scopes in PURPOSES.items()}
+    if drive:
+        wanted[f"drive-{DRIVE_PURPOSE[0]}"] = DRIVE_PURPOSE[1]
+    tokens = {name: _checked(consent, scopes, mailbox) for name, scopes in wanted.items()}
     out_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    return [_write_private(out_dir / f"gmail-{purpose}.json", creds.to_json()) for purpose, creds in tokens.items()]
+    return [_write_private(out_dir / f"{name}.json", creds.to_json()) for name, creds in tokens.items()]
 
 
 def _inside(path: Path, root: Path) -> bool:
@@ -83,6 +89,9 @@ def google_consent(client_file: Path) -> Consent:
         return creds
 
     def profile_email(creds: Credentials) -> str:
+        if any("drive" in scope for scope in creds.granted_scopes or []):  # a Drive-only token cannot read Gmail
+            about = build("drive", "v3", credentials=creds, cache_discovery=False).about()
+            return str(about.get(fields="user(emailAddress)").execute()["user"]["emailAddress"])
         users = build("gmail", "v1", credentials=creds, cache_discovery=False).users()
         return str(users.getProfile(userId="me").execute()["emailAddress"])
 
@@ -94,10 +103,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--client", type=Path, required=True, help="OAuth Desktop client JSON")
     parser.add_argument("--mailbox", required=True, help="the mailbox address the tokens must belong to")
     parser.add_argument("--out-dir", type=Path, required=True, help="directory outside the repository")
+    parser.add_argument("--drive", action="store_true", help="also create drive-file.json (document filing, #9)")
     args = parser.parse_args(argv)
     if "@" not in args.mailbox:  # fail before two browser consents, not after
         parser.error(f"--mailbox must be an email address, got {args.mailbox!r}")
-    for path in create_token_files(google_consent(args.client.expanduser()), args.mailbox, args.out_dir):
+    consent = google_consent(args.client.expanduser())
+    for path in create_token_files(consent, args.mailbox, args.out_dir, drive=args.drive):
         log.info("gmail.consent.written", path=str(path))
     return 0
 

@@ -92,8 +92,8 @@ sim-demo: up ## G5: simulate WhatsApp + Gmail through the running stack and asse
 live-check: ## go-live gate: real WhatsApp/Gmail/S3 adapters (credentials: docs/go-live-channels.md); subset: k=gmail
 	$(UV) pytest tests/live --live -v $(if $(k),-k "$(k)")
 
-gmail-consent: ## Gmail token files (read + compose): make gmail-consent client=~/.estateos/client.json mailbox=you@x out=~/.estateos
-	$(UV) python -m app.dev.gmail_consent --client "$(client)" --mailbox "$(mailbox)" --out-dir "$(out)"
+gmail-consent: ## Google token files (read + compose, drive=1 adds Drive): make gmail-consent client=… mailbox=you@x out=~/.estateos
+	$(UV) python -m app.dev.gmail_consent --client "$(client)" --mailbox "$(mailbox)" --out-dir "$(out)" $(if $(drive),--drive)
 
 audit: ## dependency vulnerability audit
 	mkdir -p .claude/.cache

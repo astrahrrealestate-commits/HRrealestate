@@ -12,14 +12,14 @@ endpoint), so the API is deployed **before** deliveries are connected.
 
 1. **Rows.** Create the company, its channel accounts and the owner ([Onboarding rows](#onboarding-rows)).
    Deliveries for unknown numbers or mailboxes are acknowledged and logged, but create no work.
-2. **Credentials and settings** for [S3](#s3), [Gmail](#gmail) steps 1–5 and [WhatsApp](#whatsapp) (tokens, secrets),
-   without connecting any delivery yet.
+2. **Credentials and settings** for [S3](#s3), [Gmail](#gmail) steps 1–5, [WhatsApp](#whatsapp) (tokens, secrets),
+   [Drive](#drive-document-filing) and the [LLM](#llm), without connecting any delivery yet.
 3. **Checks that need no inbound traffic:**
-   `make live-check k="storage or mailbox or certs or draft or text_to_owner"`.
+   `make live-check k="storage or mailbox or certs or draft or text_to_owner or drive or llm"`.
 4. **Deploy** with `ENV=prod`. Startup refuses to boot while any required setting is missing or still fake.
 5. **Connect deliveries:** the WhatsApp webhook (Meta dashboard / 360dialog API) and the Gmail push subscription
    (Gmail step 6). Then register the Gmail watch: `make live-check k=watch` calls `users.watch`; the worker's daily
-   `gmail.watch_renew` (03:00 Europe/Berlin) also does, and records the cursor. Until a cursor is recorded, the
+   `gmail.watch_renew` (03:00 Europe/Amsterdam) also does, and records the cursor. Until a cursor is recorded, the
    first sync reads the last day of mail (duplicates are ignored).
 6. **Checks that need inbound traffic:** send a WhatsApp image and an email to the business number and mailbox.
    Each must produce a `raw_events` row and an `evt:` workflow (`make workflows`). Take the image's
@@ -146,6 +146,24 @@ next message (any text or tap) delivers everything that waited, oldest first.
 3. Until the template is approved, owner messages outside the window are not delivered (the provider rejects the
    template); they stay queued and flush on Harjot's next message.
 
+## Drive (document filing)
+
+Attachments are filed in Harjot's Google Drive under `EstateOS/<type>/<year>/` (ADR 0005). The scope is
+`drive.file`: the app sees and changes only what it created, never his existing files.
+
+1. Enable the **Google Drive API** in the same Google Cloud project as Gmail.
+2. Create the token together with the Gmail ones: `make gmail-consent client=… mailbox=… out=~/.estateos drive=1`
+   writes `drive-file.json` (exactly the `drive.file` scope, checked against the signed-in account).
+3. Settings:
+
+| Variable | Value |
+|---|---|
+| `DRIVE_PROVIDER` | `google` (prod refuses `fake`) |
+| `DRIVE_CREDENTIALS_FILE` | path to `drive-file.json` (0600, outside the repository) |
+
+`make live-check k=drive` creates `EstateOS/_live-check`, uploads one small file, finds it by its attachment id and
+deletes it again.
+
 ## LLM
 
 Agents run on deterministic offline models until `LLM_MODEL` is set (default `fake`; prod refuses it).
@@ -156,7 +174,11 @@ Agents run on deterministic offline models until `LLM_MODEL` is set (default `fa
 | `OPENAI_API_KEY` | required for `openai:*` models |
 | `LANGFUSE_HOST` / `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | optional: every agent run traced to Langfuse (EU) |
 
-After switching, run `make eval agent=understanding version=v1` and compare with the fake-model report.
+After switching:
+1. `make live-check k=llm` — one small call: the published understanding prompt on a synthetic Dutch emergency
+   message must come back as valid `Understanding` (maintenance, emergency/high).
+2. `make eval agent=understanding version=v1` and `make eval agent=linking version=v2`; compare with the
+   fake-model reports in `evals/reports/` (fake: understanding category 0.43, linking accuracy 0.83).
 
 ### Live checks
 
@@ -179,8 +201,14 @@ INSERT INTO channel_accounts (id, company_id, channel, address, is_owner_channel
   ('<id 2>', '<id 1>', 'whatsapp', '<phone_number_id>', false),
   ('<id 3>', '<id 1>', 'gmail', '<mailbox address, lower case>', false);
 INSERT INTO owner_accounts (id, company_id, display_name, whatsapp_e164, email) VALUES
-  ('<id 4>', '<id 1>', 'Harjot', '+49…', '<owner email>');
+  ('<id 4>', '<id 1>', 'Harjot', '+31…', '<owner email>');
 ```
+
+Company agent settings have Phase 1 defaults (change with `UPDATE companies SET … WHERE id = '<id 1>'`):
+`timezone` Europe/Amsterdam · `briefing_time` 07:30 · `weekly_weekday` 4 (Friday) / `weekly_time` 16:00 ·
+`chase_after_days` 3 business days · `escalate_after_chases` 2 · `drift_thresholds` `{}` (per-metric overrides,
+e.g. `{"llm_cost_usd": 3.0}`) · `paused` false (Harjot can also send `pause` / `resume`). The first briefing timers
+are scheduled within the hour by the `briefing.ensure` cron.
 
 ## Rollback
 

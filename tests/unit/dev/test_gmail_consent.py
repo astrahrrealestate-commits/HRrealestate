@@ -105,3 +105,15 @@ def test_cli_rejects_a_missing_mailbox_before_any_consent(tmp_path: Path, monkey
     monkeypatch.setattr(gc, "google_consent", lambda _client: pytest.fail("consent must not start"))
     with pytest.raises(SystemExit):
         gc.main(["--client", "c.json", "--mailbox", "", "--out-dir", str(tmp_path)])
+
+
+def test_drive_token_is_opt_in_and_has_only_the_drive_file_scope(tmp_path: Path) -> None:
+    from app.storage.drive import DRIVE_SCOPES
+
+    written = gc.create_token_files(_consent(), MAILBOX, tmp_path, drive=True)
+    assert [p.name for p in written] == ["gmail-read.json", "gmail-compose.json", "drive-file.json"]
+    assert json.loads(written[-1].read_text())["scopes"] == list(DRIVE_SCOPES)
+    assert [p.name for p in gc.create_token_files(_consent(), MAILBOX, tmp_path / "plain")] == [
+        "gmail-read.json",
+        "gmail-compose.json",
+    ]
