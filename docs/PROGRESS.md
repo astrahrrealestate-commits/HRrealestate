@@ -32,7 +32,7 @@ Spec: [2026-10-05-estateos-m1-foundation-design.md](superpowers/specs/2026-10-05
 
 ## M2 Ingestion (branch m2-channels; plan docs/superpowers/plans/2026-10-06-m2-channels.md)
 - [x] T1 settings + prod safety; T2 storage port; T3 WhatsApp inbound; T4 WhatsApp outbound + media; T5 Gmail normalisation; T6 Gmail mailbox + push + drafts; T7 migration 0002 + ingestion repository; T8 webhook routes — reviewer fixes applied
-- [ ] (carried from M1) polyfactory factories in `tests/factories.py`
+- [x] (carried from M1) polyfactory factories in `tests/factories.py`
 - [x] (carried from M1 review) company_id required on every ingestion read/write; cross-tenant integration tests (T7)
 - [x] (from T6 review) push route: resolve channel account by notice.email; unknown mailbox → 2xx, log, enqueue nothing (T8)
 - [x] (from T8 review, Task 9) gmail_sync serialised (dedicated `gmail_sync` queue, concurrency 1; cursor compare-and-swap, no lock across Gmail calls); notice.history_id ≤ stored → no-op
@@ -43,7 +43,7 @@ Spec: [2026-10-05-estateos-m1-foundation-design.md](superpowers/specs/2026-10-05
 - [ ] **decision for user:** 360dialog without a partner platform secret sends unsigned webhooks (rejected by design) — Meta Cloud API, get the platform secret, or approve custom-header auth
 - [x] **decided (2026-10-08):** Gmail OAuth consent via `make gmail-consent` (dev dep `google-auth-oauthlib`, two minimal-scope token files, mailbox + exact-scope checks, never inside the repo) — G1 "703 passed"; reviewer VERDICT: ship (lows fixed)
 - [x] whole-branch review fixes: prod boot refuses empty settings / missing bucket / missing creds file; postgres-safe WhatsApp payloads + filenames; single-company unparsed records; media failure keeps the message; resync race; spam→inbox relabel ingested; hour-bucketed requeue ids + `ingest.requeue_exhausted` + runbook; Meta `subscribed_apps` + echo field in go-live doc; modules split under 300 lines
-- [ ] (from M2 branch review, low) cache one verified Gmail mailbox client per address per thread (today: credential read + token refresh + getProfile per call)
+- [x] (from M2 branch review, low) cache one verified Gmail mailbox client per address per thread (`app/channels/registry.py`)
 - [ ] (from M2 branch review, low) migration: gmail `channel_accounts.address` lower-case CHECK or unique `(channel, lower(address))` (lookups are case-insensitive, constraint is not)
 - [ ] (from T9 review, before a 2nd company) `gmail_sync` queue: `partition_concurrency=1` + partition key = account id, so one slow mailbox never delays other tenants
 - [x] (carried from M1 review) raw_event insert + DBOS enqueue in one transaction (T7, commit/rollback test)
@@ -56,13 +56,13 @@ Phase 1 agents spec: [2026-10-07-estateos-phase1-agents-design.md](superpowers/s
 - [x] `llm_model` setting (default `fake`, prod refuses fake/test, openai needs key); deps pydantic-ai 2.54, pydantic-evals, genai-prices, OTLP exporter, rapidfuzz
 - [x] llm core: prompt loader + sha256, data blocks (case/space-insensitive escaping), `run_agent` (model_calls row on success and failure, transient errors retried, timeout, cost, resolved model name), fake FunctionModels, Langfuse OTel
 - [x] understanding agent (#2) + prompt v1; `pipeline.entry` orchestrator (#1); messages.pipeline_status + hourly requeue (max 3)
-- [ ] golden set + `make eval` (peer session estateos-a8)
+- [x] golden set + `make eval` (evals/golden/understanding.yaml, evals/run.py, make eval agent=understanding version=v1)
 
 ## M5 Case engine + tasks + waits
 - [x] migration 0003: tasks, waits, documents, metric_snapshots, pipeline status, Europe/Amsterdam default, chase/briefing settings
 - [x] identity resolution, case repository, link stage (thread → only open case → `link_check` v2 → new), rolling `case_summary` v2, waits received reopen the case
 - [x] timer dispatcher (SKIP LOCKED + lease, per-kind handlers, max 5 attempts); task + wait repositories
-- [ ] linking accuracy eval (needs labelled set)
+- [x] linking accuracy eval (evals/golden/linking.yaml, make eval agent=linking version=v2)
 
 ## M6 Proposals + rules + chasing
 - [x] `Proposal` contract, proposer agent v1 (Dutch drafts, untrusted blocks), pure rules engine (100 % branch)
@@ -77,12 +77,12 @@ Phase 1 agents spec: [2026-10-07-estateos-phase1-agents-design.md](superpowers/s
 - [x] G5: `make smoke` "api ready: ok", "worker: ok", "logs: clean"; `make sim-demo` "sim.demo.ok agents=ok gmail=2 owner_buttons=1 whatsapp=2"
 
 ## M9 Document filing
-- [ ] classifier (metadata only) + Drive adapter + `file_document` (peer session estateos-a8); workflow + review card (wiring)
+- [x] classifier (metadata only) + Drive adapter + `file_document` (app/pipeline/documents.py, app/storage/drive.py, doc_classifier agent); workflow + review card
 
 ## M8 Outcomes + drift + hardening
 - [x] outcome capture (Sent folder + echo → unchanged/edited/rewritten, migration 0005 unique per draft), 15-min cron
 - [x] drift (#8): daily snapshots vs 14-day median, per-company thresholds, owner + Sentry alert
 - [x] test: no approved action of any type on any channel reaches a tenant
 - [ ] one day of shadow running on live mail (needs live credentials, user)
-- [ ] (carried from M1) DBOS system-table retention/GC (minute cron writes ~1,440 workflow rows/day)
+- [x] (carried from M1) DBOS system-table retention/GC (daily DBOS system-table retention 30 days with DBOS GC)
 - [ ] (carried from M1) image CVE scan in CI (Docker Scout reports 3 high Debian CVEs in python:3.12-slim)

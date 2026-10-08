@@ -1,6 +1,7 @@
 """Build inbound-side channel adapters from settings (fakes by default). Outbound adapters are built in app.sender."""
 
 import re
+import threading
 from functools import lru_cache
 
 from googleapiclient.discovery import build
@@ -82,16 +83,29 @@ def fake_gmail_mailbox(settings: Settings, address: str) -> FakeMailbox:
     return FakeMailbox(address, DirMailboxStore(settings.storage_local_dir / "fake_gmail" / address))
 
 
+_local_mailboxes = threading.local()
+
+
 def gmail_mailbox(settings: Settings, address: str) -> GmailMailbox:
     if settings.gmail_provider == "fake":
         return fake_gmail_mailbox(settings, address)
     if not settings.gmail_credentials_file:
         raise UnsafeConfigurationError("gmail_provider 'google' needs GMAIL_CREDENTIALS_FILE (gmail.readonly)")
+    addr = _mailbox_address(address)
+    cache: dict[tuple[str, str], GmailMailbox] | None = getattr(_local_mailboxes, "cache", None)
+    if cache is None:
+        cache = {}
+        _local_mailboxes.cache = cache
+    key = (str(settings.gmail_credentials_file), addr)
+    if key in cache:
+        return cache[key]
+
     from google.oauth2.credentials import Credentials
 
     creds = Credentials.from_authorized_user_file(str(settings.gmail_credentials_file), READ_SCOPES)
-    mailbox = GoogleMailbox(build("gmail", "v1", credentials=creds, cache_discovery=False), _mailbox_address(address))
+    mailbox = GoogleMailbox(build("gmail", "v1", credentials=creds, cache_discovery=False), addr)
     mailbox.verify_address()  # never read another account's mail under this company
+    cache[key] = mailbox
     return mailbox
 
 
