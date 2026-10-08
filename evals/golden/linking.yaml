@@ -1,0 +1,103 @@
+# Golden set for the link_check agent (#3), in pydantic-evals Dataset format. Synthetic data only.
+# Each case is an AMBIGUOUS one (the code-side policy already handled same-thread and single-candidate cases):
+# a new message from a tenant who has 2-3 open cases. metadata.expected is the key of the case it continues, or
+# null when it is a new topic (a new case must be opened). Candidate summaries are English, as case_summary writes.
+cases:
+- name: link-01
+  inputs:
+    text: "Hij lekt nog steeds onder de gootsteen, ook na de reparatie van vorige week."
+    category: maintenance
+    candidates:
+      - {key: leak, category: maintenance, summary: "Tenant reported a leak under the kitchen sink; plumber repaired it last week."}
+      - {key: doorbell, category: maintenance, summary: "Doorbell at the front door does not work; low priority."}
+  metadata: {expected: leak}
+- name: link-02
+  inputs:
+    text: "De deurbel doet het weer niet, net als vorige maand."
+    category: maintenance
+    candidates:
+      - {key: leak, category: maintenance, summary: "Leak under the kitchen sink; plumber visit planned Thursday."}
+      - {key: doorbell, category: maintenance, summary: "Doorbell broken since September; electrician not yet booked."}
+  metadata: {expected: doorbell}
+- name: link-03
+  inputs:
+    text: "Er zit schimmel op het plafond van de badkamer."
+    category: maintenance
+    candidates:
+      - {key: leak, category: maintenance, summary: "Leak under the kitchen sink; waiting for the plumber's quote."}
+      - {key: heating, category: maintenance, summary: "Radiator in the living room stays cold; boiler checked."}
+  metadata: {expected: null}
+- name: link-04
+  inputs:
+    text: "Hierbij het betaalbewijs van de huur van oktober."
+    category: payment
+    candidates:
+      - {key: arrears, category: payment, summary: "October rent of EUR 950 not received; reminder sent on 5 October."}
+      - {key: deposit, category: payment, summary: "Tenant asks when the deposit from the previous flat will be returned."}
+  metadata: {expected: arrears}
+- name: link-05
+  inputs:
+    text: "Wanneer krijg ik mijn borg terug? Het is nu al zes weken."
+    category: payment
+    candidates:
+      - {key: arrears, category: payment, summary: "October rent paid late; settled on 12 October."}
+      - {key: deposit, category: payment, summary: "Tenant moved out of unit 3B on 31 August and asks about the deposit refund."}
+  metadata: {expected: deposit}
+- name: link-06
+  inputs:
+    text: "Kan ik de servicekosten van dit jaar inzien?"
+    category: payment
+    candidates:
+      - {key: arrears, category: payment, summary: "October rent of EUR 950 not received; reminder sent."}
+      - {key: deposit, category: payment, summary: "Deposit refund for the previous flat requested."}
+  metadata: {expected: null}
+- name: link-07
+  inputs:
+    text: "The radiator in the living room is cold again since this morning."
+    category: maintenance
+    candidates:
+      - {key: heating, category: maintenance, summary: "Living-room radiator not heating; installer bled it on 2 October."}
+      - {key: window, category: maintenance, summary: "Bedroom window does not close properly; draught."}
+      - {key: mould, category: maintenance, summary: "Mould on the bathroom ceiling; photos requested."}
+  metadata: {expected: heating}
+- name: link-08
+  inputs:
+    text: "Ik heb de foto's van de schimmel in de badkamer bijgevoegd."
+    category: maintenance
+    candidates:
+      - {key: heating, category: maintenance, summary: "Living-room radiator not heating."}
+      - {key: window, category: maintenance, summary: "Bedroom window does not close properly."}
+      - {key: mould, category: maintenance, summary: "Mould on the bathroom ceiling; owner asked the tenant for photos."}
+  metadata: {expected: mould}
+- name: link-09
+  inputs:
+    text: "De voordeur van het portiek klemt en gaat moeilijk dicht."
+    category: maintenance
+    candidates:
+      - {key: window, category: maintenance, summary: "Bedroom window of unit 4 does not close properly; draught."}
+      - {key: heating, category: maintenance, summary: "Radiator in the living room not heating."}
+  metadata: {expected: null}
+- name: link-10
+  inputs:
+    text: "Mijn opzegging gaat dus in per 1 januari, klopt dat?"
+    category: lease
+    candidates:
+      - {key: notice, category: lease, summary: "Tenant gave notice on 28 September; end date to be confirmed."}
+      - {key: sublet, category: lease, summary: "Tenant asked whether subletting for two months in summer is allowed."}
+  metadata: {expected: notice}
+- name: link-11
+  inputs:
+    text: "Mag mijn broer in juli twee maanden in mijn appartement wonen terwijl ik weg ben?"
+    category: lease
+    candidates:
+      - {key: notice, category: lease, summary: "Tenant gave notice on 28 September; end date 1 January."}
+      - {key: sublet, category: lease, summary: "Tenant asked about subletting during a summer stay abroad; owner has not answered."}
+  metadata: {expected: sublet}
+- name: link-12
+  inputs:
+    text: "Het lekt opnieuw, maar nu bij de wasmachineaansluiting in de badkamer."
+    category: maintenance
+    candidates:
+      - {key: leak, category: maintenance, summary: "Leak under the kitchen sink was repaired and confirmed fixed on 1 October."}
+      - {key: doorbell, category: maintenance, summary: "Doorbell broken."}
+  metadata: {expected: null}

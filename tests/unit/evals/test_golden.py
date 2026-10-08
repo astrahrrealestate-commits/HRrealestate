@@ -4,7 +4,14 @@ import pytest
 
 from app.contracts import Category, Understanding, Urgency
 from evals import run
-from evals.scoring import GoldenLabels, load_understanding, score_understanding
+from evals.scoring import (
+    GoldenLabels,
+    GoldenLinkLabel,
+    load_linking,
+    load_understanding,
+    score_linking,
+    score_understanding,
+)  # fmt: skip
 
 
 def _labels() -> list[GoldenLabels]:
@@ -45,14 +52,36 @@ def test_scores() -> None:
     assert wrong["suspicious_recall"] == 0.0
 
 
+def test_linking_set_labels_point_at_listed_candidates() -> None:
+    cases = load_linking().cases
+    assert len(cases) >= 10
+    for case in cases:
+        assert case.metadata is not None
+        keys = [c.key for c in case.inputs.candidates]
+        assert len(keys) >= 2, case.name  # only ambiguous cases reach the model
+        assert len(set(keys)) == len(keys), case.name
+        assert case.metadata.expected is None or case.metadata.expected in keys, case.name
+    assert sum(c.metadata is not None and c.metadata.expected is None for c in cases) >= 3
+
+
+def test_linking_scores() -> None:
+    labels = [GoldenLinkLabel(expected="a"), GoldenLinkLabel(expected="b"), GoldenLinkLabel(expected=None)]
+    assert score_linking(labels, ["a", "a", None]) == {
+        "accuracy": 2 / 3, "wrong_link_rate": 1 / 3, "link_recall": 0.5, "new_case_recall": 1.0,
+    }  # fmt: skip
+    assert score_linking(labels, [None, None, "a"])["wrong_link_rate"] == 1 / 3
+
+
+@pytest.mark.parametrize(("agent", "metric"), [("understanding", "category_accuracy:"), ("linking", "accuracy:")])
 def test_runner_on_fake_model_writes_report(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    agent: str, metric: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(run, "REPORTS", tmp_path)
     monkeypatch.setenv("LLM_MODEL", "fake")
-    assert run.main(["--agent", "understanding", "--version", "v1"]) == 0
+    version = "v1" if agent == "understanding" else "v2"
+    assert run.main(["--agent", agent, "--version", version]) == 0
     out = capsys.readouterr().out
-    assert "category_accuracy:" in out
+    assert metric in out
     assert "fake" in out
-    (report,) = tmp_path.glob("understanding-v1-*.md")
+    (report,) = tmp_path.glob(f"{agent}-{version}-*.md")
     assert "| metric | score |" in report.read_text(encoding="utf-8")

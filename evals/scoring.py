@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 from pydantic_evals import Dataset
@@ -51,4 +52,44 @@ def score_understanding(labels: Sequence[GoldenLabels], outputs: Sequence[Unders
             pairs, lambda g: g.urgency is Urgency.emergency, lambda o: o.urgency is Urgency.emergency
         ),
         "suspicious_recall": _recall(pairs, lambda g: g.suspicious, lambda o: o.suspicious.flag),
+    }
+
+
+class GoldenCandidate(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    key: str
+    category: Category
+    summary: str
+
+
+class GoldenLinkInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    text: str
+    category: Category
+    candidates: list[GoldenCandidate]
+
+
+class GoldenLinkLabel(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    expected: str | None  # candidate key, or None: a new topic, open a new case
+
+
+def load_linking(path: Path = GOLDEN_DIR / "linking.yaml") -> Dataset[GoldenLinkInput, Any, GoldenLinkLabel]:
+    return Dataset[GoldenLinkInput, Any, GoldenLinkLabel].from_file(path)
+
+
+def score_linking(labels: Sequence[GoldenLinkLabel], chosen: Sequence[str | None]) -> dict[str, float]:
+    """`wrong_link_rate` is the costly error: a message filed under another case. A missed link only opens a case."""
+    pairs = list(zip(labels, chosen, strict=True))
+    n = len(pairs) or 1
+    should_link = [(g, c) for g, c in pairs if g.expected is not None]
+    should_open = [c for g, c in pairs if g.expected is None]
+    return {
+        "accuracy": sum(g.expected == c for g, c in pairs) / n,
+        "wrong_link_rate": sum(c is not None and c != g.expected for g, c in pairs) / n,
+        "link_recall": sum(c == g.expected for g, c in should_link) / len(should_link) if should_link else 1.0,
+        "new_case_recall": sum(c is None for c in should_open) / len(should_open) if should_open else 1.0,
     }
