@@ -1,6 +1,7 @@
 """Integration fixtures: one throwaway Postgres 16 per test session (testcontainers), real Alembic migrations."""
 
 import os
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -133,19 +134,37 @@ def committed_company(migrated_engine: Engine) -> Iterator[Company]:
         session.add(company)
         session.commit()
     yield company
+    _stop_background_work()
     purge_company(migrated_engine, company.id)
+
+
+def _stop_background_work() -> None:
+    """Workflows a test started (process_event → pipeline_entry → …) may still be writing this company's rows; a
+    purge racing them hits FK violations and leaves rows that break the next test's setup. Stop the executor first
+    and let in-flight workflows finish (idempotent: fixtures destroy DBOS again in their own teardown)."""
+    from dbos import DBOS
+
+    DBOS.destroy(workflow_completion_timeout_sec=15)
 
 
 def purge_company(engine: Engine, company_id: "UUID") -> None:
     """Delete a committed company and every company-scoped row, children first (FK order)."""
     from sqlalchemy import delete
+    from sqlalchemy.exc import IntegrityError
 
     import app.db.models  # noqa: F401  (registers every table)
     from app.db.base import Base
 
-    with Session(engine) as session:
-        for table in reversed(Base.metadata.sorted_tables):
-            if "company_id" in table.c:
-                session.execute(delete(table).where(table.c.company_id == company_id))
-        session.execute(delete(Company).where(Company.id == company_id))
-        session.commit()
+    for attempt in range(3):  # a straggling write can still land between deletes: retry the whole purge
+        try:
+            with Session(engine) as session:
+                for table in reversed(Base.metadata.sorted_tables):
+                    if "company_id" in table.c:
+                        session.execute(delete(table).where(table.c.company_id == company_id))
+                session.execute(delete(Company).where(Company.id == company_id))
+                session.commit()
+            return
+        except IntegrityError:
+            if attempt == 2:
+                raise
+            time.sleep(1)
