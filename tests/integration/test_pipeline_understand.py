@@ -132,3 +132,81 @@ def test_failed_runs_are_requeued_until_three_attempts_and_success_clears_failed
         assert row is not None
         row.pipeline_status, row.pipeline_attempts = PipelineStatus.failed, 3
     assert all(m != msg_id for m, _ in requeue_candidates(migrated_engine))  # gave up after 3 attempts
+
+
+def _bad_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pydantic_ai.messages import ModelResponse, ToolCallPart
+    from pydantic_ai.models.function import FunctionModel
+
+    bad = FunctionModel(lambda m, info: ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {"x": 1})]))
+    monkeypatch.setattr("app.llm.calls.build_model", lambda _s, _n: bad)
+
+
+def _inbound(engine: Engine, cid: object, text: str = "Lekkage") -> object:
+    with Session(engine) as session, session.begin():
+        raw = RawEvent(company_id=cid, provider=Channel.whatsapp, provider_msg_id=str(new_id()), payload={})
+        session.add(raw)
+        session.flush()
+        msg = MessageRow(
+            company_id=cid,
+            raw_event_id=raw.id,
+            channel=Channel.whatsapp,
+            provider_msg_id=raw.provider_msg_id,
+            thread_ref="+31622222222",
+            sender_identity="+31622222222",
+            direction=Direction.inbound,
+            sent_at=NOW,
+            text=text,
+            meta={},
+        )
+        session.add(msg)
+        session.flush()
+        return msg.id
+
+
+def test_understanding_failure_with_attempts_left_links_nothing(
+    dbos_runtime: None, migrated_engine: Engine, committed_company: Company, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.db.models import CaseLink
+
+    _bad_model(monkeypatch)
+    msg_id = _inbound(migrated_engine, committed_company.id)
+    assert pipeline.pipeline_entry(str(msg_id)) == "failed"
+    with Session(migrated_engine) as session:
+        assert session.scalar(select(CaseLink.id).where(CaseLink.message_id == msg_id)) is None
+
+
+def test_final_understanding_failure_opens_an_other_case(
+    dbos_runtime: None, migrated_engine: Engine, committed_company: Company, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.db.models import Case, CaseLink
+
+    _bad_model(monkeypatch)
+    msg_id = _inbound(migrated_engine, committed_company.id)
+    with Session(migrated_engine) as session, session.begin():
+        row = session.get(MessageRow, msg_id)
+        assert row is not None
+        row.pipeline_attempts = 2  # this is the third and last attempt
+    assert pipeline.pipeline_entry(str(msg_id)) == "failed"
+    with Session(migrated_engine) as session:
+        category = session.scalar(
+            select(Case.category).join(CaseLink, CaseLink.case_id == Case.id).where(CaseLink.message_id == msg_id)
+        )
+    assert category is Category.other
+
+
+def test_unexpected_error_marks_the_message_failed_for_the_requeue(
+    dbos_runtime: None, migrated_engine: Engine, committed_company: Company, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(*_a: object, **_k: object) -> None:
+        raise ValueError("bug in a later stage")
+
+    monkeypatch.setattr("app.workflows.pipeline.link_message", boom)
+    msg_id = _inbound(migrated_engine, committed_company.id)
+    with pytest.raises(ValueError, match="bug in a later stage"):
+        pipeline.pipeline_entry(str(msg_id))
+    with Session(migrated_engine) as session:
+        row = session.get(MessageRow, msg_id)
+        assert row is not None
+        assert (row.pipeline_status, row.pipeline_attempts) == (PipelineStatus.failed, 1)
+        assert row.pipeline_error is not None

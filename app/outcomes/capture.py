@@ -51,6 +51,7 @@ def _pending(session: Session, now: datetime) -> list[tuple[ActionRow, Send]]:
 def _chosen_text(session: Session, action: ActionRow) -> str:
     choice = session.scalar(
         select(Approval.choice).where(
+            Approval.company_id == action.company_id,
             Approval.action_id == action.id,
             Approval.draft_version == action.draft_version,
             Approval.status == ApprovalStatus.approved,
@@ -66,7 +67,10 @@ def _sent_message(session: Session, action: ActionRow, send: Send) -> MessageRow
         select(MessageRow.thread_ref)
         .join(CaseLink, CaseLink.message_id == MessageRow.id)
         .where(
-            CaseLink.case_id == action.case_id, MessageRow.channel == channel, MessageRow.direction == Direction.inbound
+            CaseLink.company_id == action.company_id,
+            CaseLink.case_id == action.case_id,
+            MessageRow.channel == channel,
+            MessageRow.direction == Direction.inbound,
         )
     )
     return session.scalar(

@@ -132,3 +132,24 @@ def test_failed_proposer_falls_back_to_owner_notice(
     assert action.type is ActionType.notify_owner
     assert "could not draft" in action.payload["text"].lower()
     assert len(result.approval_ids) == 1
+
+
+def test_reply_channel_comes_from_the_message_not_the_model(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def wrong_channel(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        action = {
+            "type": "reply_draft",
+            "case_id": str(new_id()),
+            "rationale": "r",
+            "context_ref": [],
+            "draft_version": 1,
+            "payload": {"kind": "reply_draft", "channel": "whatsapp", "subject": None, "body_variants": ["A", "B"]},
+        }
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {"actions": [action]})])
+
+    monkeypatch.setattr("app.llm.calls.build_model", lambda _s, _n: FunctionModel(wrong_channel))
+    cid = committed_company.id
+    propose_for_message(migrated_engine, test_settings, _setup(migrated_engine, cid))  # a gmail message
+    [action] = _actions(migrated_engine, cid)
+    assert action.payload["channel"] == "gmail"

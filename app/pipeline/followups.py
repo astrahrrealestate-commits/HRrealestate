@@ -4,7 +4,7 @@ Timer-driven and replay-safe: a `wait.due` timer carries the chase step it was s
 wait is still on that step, so a reclaimed (re-fired) timer never chases twice.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import Engine, select
@@ -25,8 +25,8 @@ from app.contracts import (
 from app.core.errors import AgentFailedError, NotFoundError
 from app.core.logging import get_logger
 from app.core.settings import Settings
-from app.db.enums import ActionStatus, PersonKind
-from app.db.models import ActionRow, Case, CaseLink, Company, MessageRow, Person, WaitRow
+from app.db.enums import ActionStatus, ApprovalStatus, PersonKind, WaitStatus
+from app.db.models import ActionRow, Approval, Case, CaseLink, Company, MessageRow, Person, WaitRow
 from app.llm.agents.proposer import PROPOSER, ProposerContext, proposer_prompt
 from app.llm.calls import CallContext, run_agent
 from app.pipeline import approvals, case_repo, work_repo
@@ -83,7 +83,11 @@ def _latest_inbound(session: Session, case: Case) -> MessageRow | None:
     return session.scalar(
         select(MessageRow)
         .join(CaseLink, CaseLink.message_id == MessageRow.id)
-        .where(CaseLink.case_id == case.id, MessageRow.direction == Direction.inbound)
+        .where(
+            CaseLink.company_id == case.company_id,
+            CaseLink.case_id == case.id,
+            MessageRow.direction == Direction.inbound,
+        )
         .order_by(MessageRow.sent_at.desc())
         .limit(1)
     )
@@ -140,7 +144,12 @@ def _tenant_chaser(engine: Engine, settings: Settings, case: Case, wait: WaitRow
 
 
 def _contractor_chaser(session: Session, case: Case, wait: WaitRow) -> Action:
-    name = session.scalar(select(Person.display_name).where(Person.id == wait.party_person_id)) or "vakman"
+    name = (
+        session.scalar(
+            select(Person.display_name).where(Person.company_id == case.company_id, Person.id == wait.party_person_id)
+        )
+        or "vakman"
+    )
     payload = RequestContractorPayload(
         kind="request_contractor",
         contractor_person_id=wait.party_person_id,  # type: ignore[arg-type]
@@ -193,21 +202,55 @@ def _load(session: Session, wait_id: UUID) -> tuple[WaitRow, Case, Company, str]
         return None
     case = case_repo.get_case(session, wait.company_id, wait.case_id)
     company = _company(session, wait.company_id)
-    party = session.execute(select(Person.display_name, Person.kind).where(Person.id == wait.party_person_id)).first()
+    party = session.execute(
+        select(Person.display_name, Person.kind).where(
+            Person.company_id == wait.company_id, Person.id == wait.party_person_id
+        )
+    ).first()
     who = f"{party[0]} ({party[1].value})" if party else "the other party"
     return wait, case, company, who
+
+
+def _already_handled(wait: WaitRow, step: int) -> bool:
+    chased = wait.chase_count == step + 1
+    escalated = wait.status is WaitStatus.escalated and wait.chase_count == step
+    return chased or escalated
+
+
+def _step_approval(session: Session, wait: WaitRow) -> UUID | None:
+    since = wait.last_chased_at or wait.created_at
+    return session.scalar(
+        select(Approval.id)
+        .join(ActionRow, ActionRow.id == Approval.action_id)
+        .where(
+            ActionRow.company_id == wait.company_id,
+            ActionRow.case_id == wait.case_id,
+            ActionRow.type.in_([ActionType.reply_draft, ActionType.request_contractor, ActionType.escalate]),
+            ActionRow.created_at >= since - timedelta(seconds=5),
+            Approval.status == ApprovalStatus.pending,
+        )
+        .order_by(Approval.created_at.desc())
+        .limit(1)
+    )
 
 
 def handle_wait_due(engine: Engine, settings: Settings, wait_id: UUID, *, step: int, now: datetime) -> UUID | None:
     """Returns the approval to show Harjot (chaser or escalation), or None when nothing is due."""
     with Session(engine) as session:
         loaded = _load(session, wait_id)
-        if loaded is None or loaded[0].chase_count != step:
+        if loaded is None:
+            return None
+        if _already_handled(loaded[0], step):  # a re-fired timer: hand back the card it created, if still open
+            return _step_approval(session, loaded[0])
+        if loaded[0].chase_count != step:
             return None
         wait, case, company, who = loaded
         decision = next_step(wait.status, wait.chase_count, wait.expected_by, _policy(company), now)
         contractor = (
-            session.scalar(select(Person.kind).where(Person.id == wait.party_person_id)) is PersonKind.contractor
+            session.scalar(
+                select(Person.kind).where(Person.company_id == wait.company_id, Person.id == wait.party_person_id)
+            )
+            is PersonKind.contractor
         )
         msg = _latest_inbound(session, case)
     if decision is ChaseStep.none:

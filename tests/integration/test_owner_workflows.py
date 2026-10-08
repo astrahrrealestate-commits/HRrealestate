@@ -226,3 +226,67 @@ def test_text_command_gets_a_reply(env: Env) -> None:
     mid = _owner_msg(env, "tasks")
     assert DBOS.start_workflow(owner_reply.owner_reply, str(mid)).get_result() == "command"
     assert any("Approve proposed action" in m.payload.get("text", {}).get("body", "") for m in env.wa.sent)
+
+
+def test_replay_after_a_recorded_send_still_opens_the_wait(env: Env) -> None:
+    """Crash after the send was marked but before the step result was saved: the rerun sees `already`."""
+    from app.contracts import CaseState
+    from app.db.models import WaitRow
+    from app.pipeline import case_repo as repo
+    from app.sender.execute import execute_action
+
+    with Session(env.engine) as s, s.begin():
+        repo.transition(s, env.company_id, env.case_id, CaseState.waiting_on_third_party, actor="system")
+    approval_id = _pending(env)
+    with Session(env.engine) as s, s.begin():
+        approvals.decide(s, env.company_id, approval_id, ButtonChoice.d1, at=NOW)
+        action_id = s.scalar(select(ActionRow.id).where(ActionRow.case_id == env.case_id))
+    assert action_id is not None
+    assert execute_action(SenderDeps(env.engine, env.wa, lambda _a: env.drafts), action_id, 1).status == "sent"
+    assert DBOS.start_workflow(actions.execute_action_wf, str(action_id), 1, False).get_result() == "already"
+    with Session(env.engine) as s:
+        assert s.scalar(select(func.count()).select_from(WaitRow).where(WaitRow.case_id == env.case_id)) == 1
+
+
+def test_blocked_approval_tells_harjot_and_resume_runs_it(env: Env) -> None:
+    with Session(env.engine) as s, s.begin():
+        company = s.get(Company, env.company_id)
+        assert company is not None
+        company.paused = True
+    approval_id = _pending(env)
+    tap = _owner_msg(env, "Send draft 1", ButtonId(approval_id=approval_id, choice=ButtonChoice.d1).render())
+    DBOS.start_workflow(owner_reply.owner_reply, str(tap)).get_result()
+    with Session(env.engine) as s:
+        action_id = s.scalar(select(ActionRow.id).where(ActionRow.case_id == env.case_id))
+    assert _wait_for(f"exec:{action_id}:1") == "blocked"
+    assert any("Not sent" in m.payload.get("text", {}).get("body", "") for m in env.wa.sent)
+    assert env.drafts.created == []
+    resume = _owner_msg(env, "resume")
+    DBOS.start_workflow(owner_reply.owner_reply, str(resume)).get_result()
+    assert _wait_for(f"exec:{action_id}:1:resume:{resume}") == "sent"
+    assert [r.body for r in env.drafts.created] == ["Optie A"]
+
+
+def test_blank_or_command_text_after_edit_does_not_replace_the_draft(env: Env) -> None:
+    approval_id = _pending(env)
+    tap = _owner_msg(env, "Edit", ButtonId(approval_id=approval_id, choice=ButtonChoice.edit).render())
+    DBOS.start_workflow(owner_reply.owner_reply, str(tap)).get_result()
+    assert DBOS.start_workflow(owner_reply.owner_reply, str(_owner_msg(env, "   "))).get_result() != "revision"
+    assert DBOS.start_workflow(owner_reply.owner_reply, str(_owner_msg(env, "tasks"))).get_result() == "command"
+    with Session(env.engine) as s:
+        assert s.scalar(select(ActionRow.draft_version).where(ActionRow.case_id == env.case_id)) == 1
+    new_text = _owner_msg(env, "Beste Sanne, morgen om 10 uur.")
+    assert DBOS.start_workflow(owner_reply.owner_reply, str(new_text)).get_result() == "revision"
+
+
+def test_replayed_edit_message_is_recognised_as_its_own_revision(env: Env) -> None:
+    from app.workflows.owner_reply import handle_owner_message
+
+    approval_id = _pending(env)
+    tap = _owner_msg(env, "Edit", ButtonId(approval_id=approval_id, choice=ButtonChoice.edit).render())
+    DBOS.start_workflow(owner_reply.owner_reply, str(tap)).get_result()
+    text = _owner_msg(env, "Nieuwe tekst voor Sanne.")
+    first = handle_owner_message(text)
+    again = handle_owner_message(text)  # crash after commit, step re-runs
+    assert (first["kind"], again["kind"]) == ("revision", "revision")
+    assert first["approval_id"] == again["approval_id"]

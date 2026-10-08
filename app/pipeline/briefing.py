@@ -15,8 +15,8 @@ from app.contracts import Urgency
 from app.core.errors import AgentFailedError, NotFoundError
 from app.core.logging import get_logger
 from app.core.settings import Settings
-from app.db.enums import ActionStatus, ApprovalStatus
-from app.db.models import ActionRow, Approval, Case, Company, Person, Timer
+from app.db.enums import ActionStatus, ApprovalStatus, PipelineStatus
+from app.db.models import ActionRow, Approval, Case, Company, MessageRow, Person, Timer
 from app.llm.agents.briefing import BRIEFING, BriefingFacts, Kind, briefing_prompt, fallback_briefing, render_text
 from app.llm.calls import CallContext, run_agent
 from app.pipeline import case_repo, timers, work_repo
@@ -26,7 +26,12 @@ DAILY, WEEKLY = "briefing.daily", "briefing.weekly"
 
 
 def _label(session: Session, case: Case) -> str:
-    name = session.scalar(select(Person.display_name).where(Person.id == case.primary_person_id)) or "Unknown sender"
+    name = (
+        session.scalar(
+            select(Person.display_name).where(Person.company_id == case.company_id, Person.id == case.primary_person_id)
+        )
+        or "Unknown sender"
+    )
     return f"{name} · {case.category.value}"
 
 
@@ -89,6 +94,7 @@ def collect(engine: Engine, company_id: UUID, kind: Kind, now: datetime) -> Brie
                 ActionRow.created_at >= now - timedelta(days=7 if kind == "weekly" else 1),
             )
         ).all()
+        exceptions = [str(e) for e in exceptions] + _stuck(session, company_id, now)
         return BriefingFacts(
             kind=kind,
             day_label=f"{now.astimezone(tz):%a %d %b}",
@@ -96,9 +102,35 @@ def collect(engine: Engine, company_id: UUID, kind: Kind, now: datetime) -> Brie
             approvals=_approvals(session, company_id),
             overdue_tasks=[f"{t.title} (due {t.due_at.astimezone(tz):%a %H:%M})" for t in tasks if t.due_at],
             overdue_waits=[f"{w.about} ({w.chase_count} reminders)" for w in waits],
-            exceptions=[str(e) for e in exceptions],
+            exceptions=exceptions,
             stats=_stats(session, company_id, now - timedelta(days=7)) if kind == "weekly" else {},
         )
+
+
+def _stuck(session: Session, company_id: UUID, now: datetime) -> list[str]:
+    """What fell through: messages that could not be processed, approved actions that were not delivered."""
+    failed = session.scalar(
+        select(func.count())
+        .select_from(MessageRow)
+        .where(
+            MessageRow.company_id == company_id,
+            MessageRow.pipeline_status == PipelineStatus.failed,
+            MessageRow.created_at >= now - timedelta(days=7),
+        )
+    )
+    undelivered = session.scalar(
+        select(func.count())
+        .select_from(ActionRow)
+        .where(
+            ActionRow.company_id == company_id,
+            ActionRow.status.in_([ActionStatus.failed, ActionStatus.approved]),
+            ActionRow.created_at >= now - timedelta(days=7),
+        )
+    )
+    lines = [f"{failed} message(s) could not be processed; check them yourself"] if failed else []
+    return lines + (
+        [f"{undelivered} approved action(s) not delivered (send `resume` if paused)"] if undelivered else []
+    )
 
 
 def compose(engine: Engine, settings: Settings, company_id: UUID, kind: Kind, now: datetime) -> str:

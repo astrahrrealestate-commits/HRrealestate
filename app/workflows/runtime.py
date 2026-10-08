@@ -11,6 +11,7 @@ from app.core.settings import Settings
 from app.workflows import (
     actions,
     briefings,
+    documents,
     followups,
     ingest,
     owner_notify,
@@ -23,7 +24,18 @@ from app.workflows import (
 )
 
 # Importing registers the workflow functions before launch
-_REGISTERED = (actions, briefings, followups, ingest, owner_notify, owner_reply, pipeline, quality, timer_dispatch)
+_REGISTERED = (
+    actions,
+    briefings,
+    documents,
+    followups,
+    ingest,
+    owner_notify,
+    owner_reply,
+    pipeline,
+    quality,
+    timer_dispatch,
+)
 
 SCHEDULES: list[ScheduleInput] = [
     {"schedule_name": "system.timer_sweep", "workflow_fn": system.timer_sweep, "schedule": "* * * * *"},

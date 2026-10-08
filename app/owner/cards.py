@@ -11,7 +11,7 @@ from typing import Any
 from uuid import UUID
 
 from app.channels.whatsapp import payloads
-from app.contracts import ButtonChoice, ButtonId, Urgency
+from app.contracts import ButtonChoice, ButtonId, DocType, Urgency
 
 PayloadBuilder = Callable[[str], dict[str, Any]]
 _PREFIX = {Urgency.emergency: "[EMERGENCY] ", Urgency.high: "[HIGH] "}
@@ -80,3 +80,26 @@ def _text(body: str, to: str) -> dict[str, Any]:
 
 def exception_payload(case_label: str, reason: str) -> PayloadBuilder:
     return partial(_text, f"Needs your eyes (not drafted): {case_label}\n{reason}"[: payloads.TEXT_BODY_MAX])
+
+
+DOC_PREFIX = "doc:"
+_DOC_TYPES = tuple(t.value for t in DocType)
+
+
+def document_choice_id(attachment_id: UUID, choice: str) -> str:
+    return f"{DOC_PREFIX}{attachment_id}:{choice}"
+
+
+def _document_menu(attachment_id: UUID, body: str, suggested: str, to: str) -> dict[str, Any]:
+    order = [suggested, *(t for t in _DOC_TYPES if t != suggested)]
+    rows = [
+        payloads.ListRow(document_choice_id(attachment_id, t), f"File as {t.replace('_', ' ')}"[:24]) for t in order
+    ]
+    rows.append(payloads.ListRow(document_choice_id(attachment_id, "skip"), "Do not file"))
+    return payloads.list_menu(to, body[: payloads.BODY_MAX], "Choose", [payloads.ListSection("File as", rows[:10])])
+
+
+def document_review_payload(attachment_id: UUID, file_label: str, suggested: str, title: str) -> PayloadBuilder:
+    """Low-confidence filing: Harjot picks the type (or skips). Suggested type first."""
+    body = f"Document to file: {file_label}\nBest guess: {suggested.replace('_', ' ')} - {title}"
+    return partial(_document_menu, attachment_id, body, suggested)

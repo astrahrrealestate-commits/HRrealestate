@@ -21,13 +21,20 @@ KIND_LABEL = {
 
 
 def case_label(session: Session, case: Case) -> str:
-    name = session.scalar(select(Person.display_name).where(Person.id == case.primary_person_id)) or "Unknown sender"
+    name = (
+        session.scalar(
+            select(Person.display_name).where(Person.company_id == case.company_id, Person.id == case.primary_person_id)
+        )
+        or "Unknown sender"
+    )
     return f"{name} · {case.category.value}"
 
 
 def _intent(session: Session, action: ActionRow, case: Case) -> str:
     intent = session.scalar(
-        select(UnderstandingRow.body["intent"].astext).where(UnderstandingRow.message_id.in_(action.context_ref))
+        select(UnderstandingRow.body["intent"].astext).where(
+            UnderstandingRow.company_id == action.company_id, UnderstandingRow.message_id.in_(action.context_ref)
+        )
     )
     return intent or (case.summary.splitlines()[0] if case.summary else action.rationale)
 

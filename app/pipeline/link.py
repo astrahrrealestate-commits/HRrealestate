@@ -118,7 +118,12 @@ def _refresh_summary(engine: Engine, settings: Settings, f: _Facts, result: Link
     with Session(engine) as session:
         case = case_repo.get_case(session, f.company_id, result.case_id)
         previous, version = case.summary, case.summary_version
-        label = session.scalar(select(Person.display_name).where(Person.id == result.person_id)) or f.sender
+        label = (
+            session.scalar(
+                select(Person.display_name).where(Person.company_id == f.company_id, Person.id == result.person_id)
+            )
+            or f.sender
+        )
     prompt = case_summary_prompt(previous, [(f.sent_at, label, f.text)])
     try:
         out = run_agent(engine, settings, CASE_SUMMARY, prompt, CallContext(f.company_id, "case_summary")).output

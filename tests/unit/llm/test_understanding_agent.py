@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 from uuid import uuid4
 
 from app.contracts import Category, Channel, Urgency
-from app.core.settings import get_settings
+from app.core.settings import Settings
 from app.llm.agents.understanding import UNDERSTANDING, understanding_prompt
 from app.llm.calls import CallContext, run_agent
 from app.llm.render import AttachmentMeta
@@ -22,7 +22,7 @@ def test_understanding_prompt_rendering() -> None:
 
 
 def test_understanding_agent_fake_execution() -> None:
-    settings = get_settings()
+    settings = Settings(database_url="postgresql+psycopg://u:p@localhost:1/db", _env_file=None)  # type: ignore[call-arg]
     ctx = CallContext(company_id=uuid4(), purpose="triage")
     prompt = understanding_prompt(
         text="Help! Overstroming in de keuken, het water staat op de vloer!",

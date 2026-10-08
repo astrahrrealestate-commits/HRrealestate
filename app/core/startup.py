@@ -16,6 +16,11 @@ def production_problems(settings: Settings) -> list[str]:
         problems.append(f"llm_model is {settings.llm_model!r}")
     elif settings.llm_model.startswith("openai:") and not settings.openai_api_key:
         problems.append("openai_api_key is not set (llm_model is an openai model)")
+    if settings.drive_provider == "fake":
+        problems.append("drive_provider is 'fake'")
+    drive = settings.drive_credentials_file
+    if drive is None or not drive.is_file():
+        problems.append("drive_credentials_file is not set or not a readable file")
     if settings.storage_backend != "s3":
         problems.append(f"storage_backend is {settings.storage_backend!r} (prod needs 's3')")
     for name in (

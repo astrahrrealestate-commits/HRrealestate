@@ -13,17 +13,25 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.contracts import ButtonChoice, Urgency
+from app.contracts import ActionType, ButtonChoice, Urgency
 from app.core.errors import NotFoundError
 from app.db.enums import ActionStatus, ApprovalStatus, TaskPriority
 from app.db.models import ActionRevision, ActionRow, Approval
 from app.pipeline import work_repo
 
 EDIT_WINDOW = timedelta(hours=24)
-TASK_DUE = {Urgency.emergency: timedelta(hours=1), Urgency.high: timedelta(hours=4),
-            Urgency.normal: timedelta(hours=24), Urgency.low: timedelta(hours=72)}  # fmt: skip
-TASK_PRIORITY = {Urgency.emergency: TaskPriority.p1, Urgency.high: TaskPriority.p1,
-                 Urgency.normal: TaskPriority.p2, Urgency.low: TaskPriority.p3}  # fmt: skip
+TASK_DUE = {
+    Urgency.emergency: timedelta(hours=1),
+    Urgency.high: timedelta(hours=4),
+    Urgency.normal: timedelta(hours=24),
+    Urgency.low: timedelta(hours=72),
+}
+TASK_PRIORITY = {
+    Urgency.emergency: TaskPriority.p1,
+    Urgency.high: TaskPriority.p1,
+    Urgency.normal: TaskPriority.p2,
+    Urgency.low: TaskPriority.p3,
+}
 _VARIANT = {ButtonChoice.ok: 0, ButtonChoice.d1: 0, ButtonChoice.d2: 1, ButtonChoice.d3: 2}
 
 DecisionKind = Literal["execute", "edit", "rejected", "stale"]
@@ -57,15 +65,23 @@ def open_approval(
     )
     approval_id = session.execute(
         select(Approval.id).where(
-            Approval.company_id == company_id, Approval.action_id == action_id, Approval.draft_version == draft_version,
+            Approval.company_id == company_id,
+            Approval.action_id == action_id,
+            Approval.draft_version == draft_version,
             Approval.status.in_([ApprovalStatus.pending, ApprovalStatus.approved]),
         )
-    ).scalar_one()  # fmt: skip
+    ).scalar_one()
     work_repo.create_task(
-        session, company_id, title="Approve proposed action", assignee="owner", source="approval",
-        case_id=_action(session, company_id, action_id).case_id, action_id=action_id,
-        due_at=now + TASK_DUE[urgency], priority=TASK_PRIORITY[urgency],
-    )  # fmt: skip
+        session,
+        company_id,
+        title="Approve proposed action",
+        assignee="owner",
+        source="approval",
+        case_id=_action(session, company_id, action_id).case_id,
+        action_id=action_id,
+        due_at=now + TASK_DUE[urgency],
+        priority=TASK_PRIORITY[urgency],
+    )
     return approval_id
 
 
@@ -113,28 +129,72 @@ def decide(session: Session, company_id: UUID, approval_id: UUID, choice: Button
     return _previous(approval)
 
 
-def apply_owner_edit(session: Session, company_id: UUID, text: str, *, now: datetime) -> NewRevision | None:
-    """The owner's next text after tapping `edit` becomes draft_version + 1 with one variant, plus a new approval."""
+def _replayed_edit(session: Session, company_id: UUID, editor: str) -> NewRevision | None:
+    """The same owner message already produced a revision (a step re-run after commit): return it unchanged."""
+    row = session.execute(
+        select(ActionRevision.action_id, ActionRevision.draft_version, Approval.id)
+        .join(
+            Approval,
+            (Approval.action_id == ActionRevision.action_id) & (Approval.draft_version == ActionRevision.draft_version),
+        )
+        .where(ActionRevision.company_id == company_id, ActionRevision.edited_by == editor)
+    ).first()
+    return NewRevision(row[0], row[1], row[2]) if row else None
+
+
+def apply_owner_edit(
+    session: Session, company_id: UUID, text: str, *, now: datetime, message_id: UUID | None = None
+) -> NewRevision | None:
+    """The owner's next text after tapping `edit` becomes draft_version + 1 with one variant, plus a new approval.
+    Blank text never replaces a draft. `message_id` makes a re-run of the same message return its revision."""
+    editor = f"owner:{message_id}" if message_id else "owner"
+    if message_id is not None and (done := _replayed_edit(session, company_id, editor)) is not None:
+        return done
+    if not text.strip():
+        return None
     pending_edit = session.execute(
         select(Approval, ActionRow)
         .join(ActionRow, ActionRow.id == Approval.action_id)
         .where(
-            Approval.company_id == company_id, Approval.status == ApprovalStatus.edited,
-            Approval.decided_at >= now - EDIT_WINDOW, ActionRow.draft_version == Approval.draft_version,
+            Approval.company_id == company_id,
+            Approval.status == ApprovalStatus.edited,
+            Approval.decided_at >= now - EDIT_WINDOW,
+            ActionRow.draft_version == Approval.draft_version,
             ActionRow.status == ActionStatus.pending_approval,
         )
         .order_by(Approval.decided_at.desc())
         .limit(1)
         .with_for_update(of=ActionRow)
-    ).first()  # fmt: skip
+    ).first()
     if pending_edit is None:
         return None
     _, action = pending_edit
     payload: dict[str, Any] = {**action.payload, "body_variants": [text]}
     action.draft_version += 1
     action.payload = payload
-    session.add(ActionRevision(company_id=company_id, action_id=action.id, draft_version=action.draft_version,
-                               payload=payload, edited_by="owner"))  # fmt: skip
+    session.add(
+        ActionRevision(
+            company_id=company_id,
+            action_id=action.id,
+            draft_version=action.draft_version,
+            payload=payload,
+            edited_by=editor,
+        )
+    )
     session.flush()
     approval_id = open_approval(session, company_id, action.id, action.draft_version, urgency=Urgency.normal, now=now)
     return NewRevision(action.id, action.draft_version, approval_id)
+
+
+def approved_unexecuted(session: Session, company_id: UUID) -> list[tuple[UUID, int, ActionType]]:
+    """Approved actions that never ran (blocked while paused): `resume` re-runs them."""
+    rows = session.execute(
+        select(ActionRow.id, ActionRow.draft_version, ActionRow.type)
+        .join(Approval, (Approval.action_id == ActionRow.id) & (Approval.draft_version == ActionRow.draft_version))
+        .where(
+            ActionRow.company_id == company_id,
+            ActionRow.status == ActionStatus.approved,
+            Approval.status == ApprovalStatus.approved,
+        )
+    ).all()
+    return [(r[0], r[1], r[2]) for r in rows]

@@ -209,3 +209,112 @@ def test_due_briefing_timer_sends_one_briefing_and_schedules_the_next(
             select(Timer.kind).where(Timer.company_id == committed_company.id, Timer.status == TimerStatus.pending)
         ).all()
     assert set(kinds) >= {briefing.DAILY, briefing.WEEKLY}
+
+
+def test_attachments_are_filed_or_reviewed_then_filed_on_the_owner_tap(
+    stack: tuple[FakeWhatsAppOutbound, FakeDrafts],
+    migrated_engine: Engine,
+    committed_company: Company,
+    test_settings: Settings,
+) -> None:
+    import hashlib
+
+    from app.db.enums import DocumentStatus
+    from app.db.models import AttachmentRow, DocumentRow
+    from app.ingestion.process import IngestDeps
+    from app.storage.drive import MemoryDrive
+    from app.storage.memory import MemoryStorage
+    from app.workflows.deps import set_deps, set_drive
+
+    wa, _ = stack
+    cid = committed_company.id
+    storage, drive = MemoryStorage(), MemoryDrive()
+    set_deps(
+        IngestDeps(
+            engine=migrated_engine,
+            storage=storage,
+            enqueuer=None,
+            gmail_mailbox=None,  # type: ignore[arg-type]
+            whatsapp_media=None,
+            gmail_topic="t",
+        )
+    )  # type: ignore[arg-type]
+    set_drive(drive)
+    try:
+        _message(migrated_engine, cid, OWNER, "Goedemorgen", Channel.whatsapp, {})
+        mid = _message(migrated_engine, cid, TENANT, "Zie bijlagen", Channel.gmail, {"subject": "Bijlagen"})
+        ids = {}
+        with Session(migrated_engine) as s, s.begin():
+            for name, mime in (("factuur_2026-09.pdf", "application/pdf"), ("IMG_1234.jpg", "image/jpeg")):
+                data = (name * 3000).encode()
+                key = storage.put(f"{cid}/{name}", data, mime).key
+                att = AttachmentRow(
+                    company_id=cid,
+                    message_id=mid,
+                    s3_key=key,
+                    mime_type=mime,
+                    filename=name,
+                    size_bytes=len(data),
+                    sha256=hashlib.sha256(data).hexdigest(),
+                )
+                s.add(att)
+                s.flush()
+                ids[name] = att.id
+        DBOS.start_workflow(pipeline.pipeline_entry, str(mid)).get_result()
+        assert _wait(f"doc:{ids['factuur_2026-09.pdf']}") == DocumentStatus.filed.value
+        assert _wait(f"doc:{ids['IMG_1234.jpg']}") == DocumentStatus.review.value
+        tap = f"doc:{ids['IMG_1234.jpg']}:photo"
+        assert any(tap in str(m.payload) for m in wa.sent)  # the review card offers "File as photo"
+        owner_msg = _message(migrated_engine, cid, OWNER, "File as photo", Channel.whatsapp, {"interactive_id": tap})
+        assert DBOS.start_workflow(owner_reply.owner_reply, str(owner_msg)).get_result() == "document"
+        assert _wait(f"doc:{ids['IMG_1234.jpg']}:owner:photo") == DocumentStatus.filed.value
+        with Session(migrated_engine) as s:
+            statuses = set(s.scalars(select(DocumentRow.status).where(DocumentRow.company_id == cid)))
+        assert statuses == {DocumentStatus.filed}
+        assert len(drive.files) == 2
+    finally:
+        set_deps(None)
+        set_drive(None)
+
+
+class _FlakyOnce(FakeWhatsAppOutbound):
+    """Rate-limited on the first send, fine afterwards (WhatsApp 429)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.failed = False
+
+    def send(self, payload: dict[str, Any]) -> str:
+        from app.channels.whatsapp.outbound import WhatsAppSendError
+
+        if not self.failed:
+            self.failed = True
+            raise WhatsAppSendError("429 rate limited", code=130429, http_status=429, retryable=True, maybe_sent=False)
+        return super().send(payload)
+
+
+def test_a_transient_whatsapp_error_on_a_card_is_retried_not_fatal(
+    test_settings: Settings, migrated_engine: Engine, committed_company: Company
+) -> None:
+    flaky, drafts = _FlakyOnce(), FakeDrafts(FakeMailbox(MAILBOX, MemoryMailboxStore()))
+    with Session(migrated_engine) as s, s.begin():
+        s.add_all(
+            [
+                ChannelAccount(company_id=committed_company.id, channel=Channel.gmail, address=MAILBOX),
+                OwnerAccount(company_id=committed_company.id, display_name="Harjot", whatsapp_e164=OWNER),
+            ]
+        )
+    DBOS.destroy()
+    launch(test_settings, reset_for_tests=True, schedules=False)
+    set_engine(migrated_engine)
+    set_sender_deps(SenderDeps(migrated_engine, flaky, lambda _a: drafts))
+    try:
+        _message(migrated_engine, committed_company.id, OWNER, "Hoi", Channel.whatsapp, {})
+        mid = _message(migrated_engine, committed_company.id, TENANT, "Lekkage", Channel.gmail, {"subject": "L"})
+        assert DBOS.start_workflow(pipeline.pipeline_entry, str(mid)).get_result() == "understood"
+        assert flaky.failed
+        assert flaky.sent  # the card went out on the retry
+    finally:
+        set_sender_deps(None)
+        set_engine(None)
+        DBOS.destroy()

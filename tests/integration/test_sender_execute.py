@@ -244,3 +244,38 @@ def test_no_action_type_ever_reaches_a_tenant(env: Env, kind: ActionType, channe
     execute_action(env.deps, _approved(env, kind, payloads[kind], ButtonChoice.ok), 1)
     assert {m.payload["to"] for m in env.wa.sent} <= {OWNER.removeprefix("+")}
     assert all(r.to == TENANT for r in env.drafts.created)  # drafts only; Harjot sends them himself
+
+
+def test_payload_recipient_must_be_the_owner_number(env: Env) -> None:
+    from app.sender.targets import SendBlockedError
+
+    _owner_wrote(env)
+    tenant_payload = {"messaging_product": "whatsapp", "to": "31612345678", "type": "text", "text": {"body": "x"}}
+    with pytest.raises(SendBlockedError):
+        send_to_owner(env.deps, env.company_id, "owner:sneaky", lambda _to: tenant_payload)
+    assert env.wa.sent == []
+
+
+def test_flush_isolates_a_poison_item_and_uses_the_current_owner_number(env: Env) -> None:
+    from app.channels.whatsapp.outbound import WhatsAppSendError
+    from app.db.enums import OutboxStatus
+    from app.db.models import OwnerOutbox
+    from app.sender.execute import flush_owner_outbox
+
+    send_to_owner(env.deps, env.company_id, "approval:poison:0", _text)
+    send_to_owner(env.deps, env.company_id, "approval:good:0", _text)
+    original = env.wa.send
+
+    def picky(payload: dict) -> str:  # type: ignore[type-arg]
+        if payload.get("text", {}).get("body") == "card" and not getattr(picky, "done", False):
+            picky.done = True  # type: ignore[attr-defined]
+            raise WhatsAppSendError("bad param", code=131008, http_status=400, retryable=False, maybe_sent=False)
+        return original(payload)
+
+    env.wa.send = picky  # type: ignore[method-assign]
+    _owner_wrote(env)
+    assert flush_owner_outbox(env.deps, env.company_id) == 1
+    with Session(env.engine) as s:
+        statuses = dict(s.execute(select(OwnerOutbox.idempotency_key, OwnerOutbox.status)).all())
+    assert statuses == {"approval:poison:0": OutboxStatus.cancelled, "approval:good:0": OutboxStatus.sent}
+    assert env.wa.sent[-1].payload["to"] == OWNER.removeprefix("+")

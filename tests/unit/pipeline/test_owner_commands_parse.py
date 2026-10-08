@@ -41,3 +41,10 @@ def test_durations(raw: str, expected: timedelta) -> None:
 def test_bad_durations(raw: str) -> None:
     with pytest.raises(ValueError, match="duration"):
         parse_duration(raw)
+
+
+def test_task_reference() -> None:
+    cmd = parse_command("done a1b2c3")
+    assert (cmd.kind, cmd.ref) == (CommandKind.done, "a1b2c3")
+    snooze = parse_command("snooze a1b2c3 2d")
+    assert (snooze.kind, snooze.ref, snooze.duration) == (CommandKind.snooze, "a1b2c3", timedelta(days=2))

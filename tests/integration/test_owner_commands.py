@@ -76,3 +76,22 @@ def test_waiting_pause_resume_help_question(
     assert "Resumed" in _run(migrated_engine, test_settings, committed_company, "resume")
     assert _run(migrated_engine, test_settings, committed_company, "help") == HELP_TEXT
     assert "1 open cases" in _run(migrated_engine, test_settings, committed_company, "Hoe staat het met de lekkage?")
+
+
+def test_done_by_reference_survives_a_reordered_list(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    _seed(migrated_engine, committed_company)
+    listing = _run(migrated_engine, test_settings, committed_company, "tasks")
+    call_plumber_ref = next(line for line in listing.splitlines() if "Call plumber" in line).split("#")[1][:6]
+    with Session(migrated_engine) as s, s.begin():  # a new urgent task arrives and reorders the list
+        work_repo.create_task(
+            s,
+            committed_company.id,
+            title="New p1",
+            assignee="owner",
+            source="owner",
+            due_at=NOW,
+            priority=TaskPriority.p1,
+        )
+    assert _run(migrated_engine, test_settings, committed_company, f"done {call_plumber_ref}") == "Done: Call plumber"

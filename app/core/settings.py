@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     gmail_pubsub_topic: str | None = None  # projects/<p>/topics/<t> used by users.watch
     gmail_credentials_file: Path | None = None  # authorized-user JSON (Workspace internal OAuth app)
 
+    # Document filing (#9, ADR 0005): Drive with the `drive.file` scope only.
+    drive_provider: Literal["fake", "google"] = "fake"
+    drive_credentials_file: Path | None = None  # authorized-user JSON created with the drive.file scope
+
     storage_backend: Literal["local", "memory", "s3"] = "local"
     storage_local_dir: Path = Path(".data/storage")
     dev_signing_dir: Path = Path(".data/dev-keys")  # simulator keys for fake Pub/Sub tokens

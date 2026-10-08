@@ -48,7 +48,7 @@ def sweep_due(now: datetime) -> int:
     claimed = claim_step(now.isoformat())
     for item in claimed:
         with SetWorkflowID(f"timer:{item['id']}:{item['attempts']}"):
-            queues.pipeline_queue().enqueue(fire, item)
+            queues.timers_queue().enqueue(fire, item)
     return len(claimed)
 
 

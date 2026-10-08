@@ -111,3 +111,21 @@ def requeue_candidates(engine: Engine) -> list[tuple[UUID, str]]:
             )
         ).all()
     return [(mid, f"pipe:{mid}:r{attempts}") for mid, attempts in rows]
+
+
+def mark_pipeline_failed(engine: Engine, message_id: UUID, error: str) -> int:
+    """A stage outlived its retries (or hit a bug): mark the message for the hourly requeue. Returns attempts."""
+    with Session(engine) as session, session.begin():
+        msg = session.get(MessageRow, message_id)
+        if msg is None:
+            return 0
+        msg.pipeline_status, msg.pipeline_error = PipelineStatus.failed, error[:300]
+        msg.pipeline_attempts = (msg.pipeline_attempts or 0) + 1
+        return msg.pipeline_attempts
+
+
+def understanding_is_final_failure(engine: Engine, message_id: UUID) -> bool:
+    """The last allowed attempt failed: continue without an understanding (case `other`) and tell Harjot."""
+    with Session(engine) as session:
+        attempts = session.scalar(select(MessageRow.pipeline_attempts).where(MessageRow.id == message_id))
+    return (attempts or 0) >= MAX_PIPELINE_ATTEMPTS

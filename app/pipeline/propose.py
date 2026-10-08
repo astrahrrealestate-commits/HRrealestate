@@ -8,10 +8,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, select, text
 from sqlalchemy.orm import Session
 
-from app.contracts import Action, ActionType, NotifyOwnerPayload, Understanding
+from app.contracts import Action, ActionType, NotifyOwnerPayload, ReplyDraftPayload, Understanding
 from app.core.errors import AgentFailedError
 from app.core.logging import get_logger
 from app.core.settings import Settings
@@ -139,6 +139,14 @@ def _persist(
     return result
 
 
+def _trusted(action: Action, loaded: _Loaded) -> Action:
+    """Code owns the case, the version and the reply channel; the model only proposes content."""
+    update: dict[str, object] = {"case_id": loaded.ctx.case_id, "draft_version": 1}
+    if isinstance(action.payload, ReplyDraftPayload):
+        update["payload"] = action.payload.model_copy(update={"channel": loaded.ctx.channel})
+    return action.model_copy(update=update)
+
+
 def _prepare(engine: Engine, message_id: UUID) -> _Loaded | ProposeResult:
     with Session(engine) as session:
         msg = session.get(MessageRow, message_id)
@@ -160,10 +168,11 @@ def propose_for_message(engine: Engine, settings: Settings, message_id: UUID) ->
     if isinstance(loaded, ProposeResult):
         return loaded
     proposed = _propose(engine, settings, loaded)
-    actions = [a.model_copy(update={"case_id": loaded.ctx.case_id, "draft_version": 1}) for a in proposed]
+    actions = [_trusted(a, loaded) for a in proposed]
     contractors = frozenset(c.person_id for c in loaded.ctx.contractors)
     with Session(engine) as session, session.begin():
-        done = _existing(session, loaded.company_id, message_id)  # a concurrent replay finished first
+        session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"), {"k": f"propose:{message_id}"})
+        done = _existing(session, loaded.company_id, message_id)  # a concurrent run (pipe:/requeue) finished first
         if done is not None:
             return done
         return _persist(session, loaded, message_id, actions, contractors)

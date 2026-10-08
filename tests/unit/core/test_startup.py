@@ -20,6 +20,7 @@ REAL: dict[str, Any] = {
     "s3_bucket": "estateos-prod",
     "llm_model": "openai:gpt-4.1-mini",
     "openai_api_key": "sk-test",
+    "drive_provider": "google",
 }
 
 
@@ -28,6 +29,9 @@ def _credentials_file(tmp_path: Path) -> None:
     creds = tmp_path / "gmail-read.json"
     creds.write_text("{}")
     REAL["gmail_credentials_file"] = creds
+    drive = tmp_path / "drive-file.json"
+    drive.write_text("{}")
+    REAL["drive_credentials_file"] = drive
 
 
 def _s(**kw: Any) -> Settings:
@@ -52,6 +56,8 @@ def test_defaults_are_fakes_and_fine_outside_prod() -> None:
         ({"whatsapp_api_base_url": None}, "whatsapp_api_base_url"),
         ({"s3_bucket": None}, "s3_bucket"),
         ({"llm_model": "fake"}, "llm_model"),
+        ({"drive_provider": "fake"}, "drive_provider"),
+        ({"drive_credentials_file": None}, "drive_credentials_file"),
         ({"openai_api_key": None}, "openai_api_key"),
         ({"gmail_credentials_file": Path("/nonexistent/gmail.json")}, "gmail_credentials_file"),
         ({"gmail_credentials_file": Path(".")}, "gmail_credentials_file"),

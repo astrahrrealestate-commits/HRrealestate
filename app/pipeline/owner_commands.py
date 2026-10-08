@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from app.core.errors import AgentFailedError
+from app.core.errors import AgentFailedError, NotFoundError
 from app.core.settings import Settings
 from app.db.enums import WaitStatus
 from app.db.models import Case, Company, Person, TaskRow, WaitRow
@@ -39,13 +39,14 @@ class Command:
     index: int | None = None
     duration: timedelta | None = None
     text: str | None = None
+    ref: str | None = None  # stable task reference shown by `tasks` (#xxxxxx); preferred over the position
 
 
 HELP_TEXT = (
     "Commands:\n"
     "tasks - your open tasks\n"
-    "done <n> - mark task n done\n"
-    "snooze <n> <30m|4h|2d|1w> - hide task n for a while\n"
+    "done <#ref or n> - mark a task done\n"
+    "snooze <#ref or n> <30m|4h|2d|1w> - hide a task for a while\n"
     "waiting - who we are waiting on\n"
     "pause / resume - stop or restart all proposals\n"
     "Anything else is a question about your cases."
@@ -70,18 +71,33 @@ def parse_command(text: str) -> Command:
     words = clean.lower().split()
     if clean == "?" or (len(words) == 1 and words[0] in _SIMPLE):
         return Command(CommandKind.help if clean == "?" else CommandKind(words[0]))
-    if len(words) == 2 and words[0] == "done" and words[1].isdigit():
-        return Command(CommandKind.done, index=int(words[1]))
-    if len(words) == 3 and words[0] == "snooze" and words[1].isdigit():
+    target = _target(words[1].lstrip("#")) if len(words) in (2, 3) else None
+    if target is not None and len(words) == 2 and words[0] == "done":
+        return Command(CommandKind.done, index=target[0], ref=target[1])
+    if target is not None and len(words) == 3 and words[0] == "snooze":
         try:
-            return Command(CommandKind.snooze, index=int(words[1]), duration=parse_duration(words[2]))
+            return Command(CommandKind.snooze, index=target[0], ref=target[1], duration=parse_duration(words[2]))
         except ValueError:
             pass
     return Command(CommandKind.question, text=clean)
 
 
+def _target(token: str) -> tuple[int | None, str | None] | None:
+    """A position (1–999) or a 6-character task reference."""
+    if token.isdigit() and len(token) <= 3:
+        return int(token), None
+    if re.fullmatch(r"[0-9a-f]{6}", token):
+        return None, token
+    return None
+
+
 def case_label(session: Session, case: Case) -> str:
-    name = session.scalar(select(Person.display_name).where(Person.id == case.primary_person_id)) or "Unknown sender"
+    name = (
+        session.scalar(
+            select(Person.display_name).where(Person.company_id == case.company_id, Person.id == case.primary_person_id)
+        )
+        or "Unknown sender"
+    )
     return f"{name} · {case.category.value}"
 
 
@@ -96,12 +112,22 @@ def _tasks(session: Session, company: Company, now: datetime) -> str:
     tasks = work_repo.open_tasks(session, company.id, now=now)
     if not tasks:
         return "No open tasks."
-    lines = [f"{i}. [{t.priority.value}] {t.title}{_due(t.due_at, company.timezone)}" for i, t in enumerate(tasks, 1)]
+    lines = [
+        f"{i}. [{t.priority.value}] {t.title}{_due(t.due_at, company.timezone)} #{work_repo.short_ref(t.id)}"
+        for i, t in enumerate(tasks, 1)
+    ]
     return "Open tasks:\n" + "\n".join(lines)
 
 
-def _task_at(session: Session, company_id: UUID, index: int, now: datetime) -> TaskRow | None:
+def _task_at(session: Session, company_id: UUID, cmd: Command, now: datetime) -> TaskRow | None:
+    if cmd.ref is not None:
+        try:
+            task_id = work_repo.resolve_task(session, company_id, cmd.ref)
+        except NotFoundError:
+            return None
+        return session.get(TaskRow, task_id)
     tasks = work_repo.open_tasks(session, company_id, now=now)
+    index = cmd.index or 0
     return tasks[index - 1] if 1 <= index <= len(tasks) else None
 
 
@@ -149,9 +175,9 @@ def _apply(session: Session, company: Company, cmd: Command, now: datetime) -> s
     if cmd.kind in (CommandKind.pause, CommandKind.resume):
         company.paused = cmd.kind is CommandKind.pause
         return "Paused: no new proposals until `resume`." if company.paused else "Resumed."
-    task = _task_at(session, company.id, cmd.index or 0, now)
+    task = _task_at(session, company.id, cmd, now)
     if task is None:
-        return f"There is no task {cmd.index}. Send `tasks` to see the list."
+        return f"There is no task {cmd.ref or cmd.index}. Send `tasks` to see the list."
     if cmd.kind is CommandKind.done:
         work_repo.complete_task(session, company.id, task.id, at=now)
         return f"Done: {task.title}"

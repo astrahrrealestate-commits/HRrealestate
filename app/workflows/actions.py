@@ -1,15 +1,22 @@
 """`exec:{action_id}:{draft_version}`: deliver (sender) or apply (internal) one approved action, exactly once."""
 
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any
 from uuid import UUID
 
 from dbos import DBOS
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
+from app.channels.whatsapp import payloads
+from app.db.models import ActionRow
 from app.ingestion.process import is_transient
 from app.pipeline import followups, local_actions
 from app.sender.execute import execute_action
 from app.workflows.deps import get_engine, get_sender_deps
+from app.workflows.owner_notify import send_owner_message
+from app.workflows.retry import STEP_RETRY
 
 EXECUTE_ACTION = "actions.execute_action"
 
@@ -33,11 +40,29 @@ def apply_local_step(action_id: str, draft_version: int) -> str:
 
 
 @DBOS.step(name="actions.send", **_RETRY)
-def send_step(action_id: str, draft_version: int) -> str:
-    return execute_action(get_sender_deps(), UUID(action_id), draft_version).status
+def send_step(action_id: str, draft_version: int) -> list[str]:
+    outcome = execute_action(get_sender_deps(), UUID(action_id), draft_version)
+    return [outcome.status, outcome.reason or ""]
 
 
-@DBOS.step(name="actions.after_execute")
+@DBOS.step(name="actions.tell_blocked", **STEP_RETRY)
+def tell_blocked_step(action_id: str, key: str, reason: str) -> None:
+    """An approved action could not run: Harjot hears why (and that `resume` retries a paused one)."""
+    with Session(get_engine()) as session:
+        company_id = session.scalar(select(ActionRow.company_id).where(ActionRow.id == UUID(action_id)))
+    if company_id is None:
+        return
+    text = f"Not sent: {reason or 'the approval is no longer valid'}."
+    if "paused" in reason:
+        text += " Send `resume` to run approved actions."
+    send_owner_message(str(company_id), f"blocked:{key}", partial(_text, text))
+
+
+def _text(body: str, to: str) -> dict[str, Any]:
+    return payloads.text(to, body)
+
+
+@DBOS.step(name="actions.after_execute", **STEP_RETRY)
 def after_execute_step(action_id: str) -> str | None:
     """Sent requests wait for an answer (#5): open the wait that the chase ladder watches."""
     wait_id = followups.open_waits_after_execute(get_engine(), UUID(action_id), now=datetime.now(UTC))
@@ -46,7 +71,12 @@ def after_execute_step(action_id: str) -> str | None:
 
 @DBOS.workflow(name=EXECUTE_ACTION)
 def execute_action_wf(action_id: str, draft_version: int, local: bool) -> str:
-    outcome = apply_local_step(action_id, draft_version) if local else send_step(action_id, draft_version)
-    if outcome == "sent":
+    if local:
+        outcome, reason = apply_local_step(action_id, draft_version), "company paused or approval no longer valid"
+    else:
+        outcome, reason = send_step(action_id, draft_version)
+    if outcome in ("sent", "already"):  # "already": a replay after the send was recorded; open_wait is idempotent
         after_execute_step(action_id)
+    elif outcome == "blocked":
+        tell_blocked_step(action_id, DBOS.workflow_id or action_id, reason)
     return outcome

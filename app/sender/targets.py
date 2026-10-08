@@ -122,6 +122,7 @@ def assert_allowed(session: Session, company_id: UUID, plan: Plan) -> None:
     if plan.channel is Channel.gmail and plan.draft is not None and plan.whatsapp is None:
         return
     owners = set(session.scalars(select(OwnerAccount.whatsapp_e164).where(OwnerAccount.company_id == company_id)))
-    if plan.channel is Channel.whatsapp and plan.target in owners and plan.draft is None:
-        return
+    payload_to = "+" + str((plan.whatsapp or {}).get("to", "")).removeprefix("+")
+    if plan.channel is Channel.whatsapp and plan.target in owners and payload_to == plan.target and plan.draft is None:
+        return  # the recipient actually in the payload is checked too, not only the planned target
     raise SendBlockedError("Phase 1 allowlist: only Gmail drafts and messages to the owner")

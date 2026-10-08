@@ -88,3 +88,48 @@ def test_next_run_times_follow_company_timezone(migrated_engine: Engine, committ
     assert due[briefing.WEEKLY] == datetime(2026, 10, 9, 14, 0, tzinfo=UTC)  # Friday 16:00 Amsterdam
     with Session(migrated_engine) as s, s.begin():
         assert briefing.ensure_timers(s, NOW + timedelta(minutes=2)) == 0  # idempotent
+
+
+def test_failed_messages_and_unexecuted_approvals_reach_the_briefing(
+    migrated_engine: Engine, committed_company: Company
+) -> None:
+    from app.contracts import Channel, Direction
+    from app.core.ids import new_id
+    from app.db.enums import PipelineStatus
+    from app.db.models import MessageRow, RawEvent
+
+    with Session(migrated_engine) as s, s.begin():
+        raw = RawEvent(
+            company_id=committed_company.id, provider=Channel.gmail, provider_msg_id=str(new_id()), payload={}
+        )
+        s.add(raw)
+        s.flush()
+        s.add(
+            MessageRow(
+                company_id=committed_company.id,
+                raw_event_id=raw.id,
+                channel=Channel.gmail,
+                provider_msg_id=raw.provider_msg_id,
+                sender_identity="x@example.test",
+                direction=Direction.inbound,
+                sent_at=NOW,
+                text="?",
+                pipeline_status=PipelineStatus.failed,
+                pipeline_attempts=3,
+            )
+        )
+        case_id = case_repo.create_case(s, committed_company.id, None, Category.other, Urgency.normal)
+        s.add(
+            ActionRow(
+                company_id=committed_company.id,
+                case_id=case_id,
+                type=ActionType.notify_owner,
+                payload={"kind": "notify_owner", "text": "x"},
+                rationale="r",
+                context_ref=[],
+                status=ActionStatus.failed,
+            )
+        )
+    facts = briefing.collect(migrated_engine, committed_company.id, "daily", NOW + timedelta(hours=1))
+    assert any("could not be processed" in e for e in facts.exceptions)
+    assert any("not delivered" in e for e in facts.exceptions)

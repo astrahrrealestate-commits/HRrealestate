@@ -6,10 +6,12 @@ from dbos import DBOSClient
 from sqlalchemy import Engine
 
 from app.channels import registry
+from app.core.errors import UnsafeConfigurationError
 from app.core.settings import get_settings
 from app.db.session import make_engine
 from app.ingestion.process import IngestDeps
 from app.sender.execute import SenderDeps
+from app.storage.drive import DriveStore, GoogleDrive, MemoryDrive, build_drive_service
 from app.storage.factory import build_storage
 
 DEV_TOPIC = "projects/estateos-dev/topics/gmail"
@@ -72,3 +74,25 @@ def get_engine() -> Engine:
 def set_engine(engine: Engine | None) -> None:
     global _engine_override
     _engine_override = engine
+
+
+_drive_override: DriveStore | None = None
+
+
+@lru_cache(maxsize=1)
+def _default_drive() -> DriveStore:
+    settings = get_settings()
+    if settings.drive_provider == "fake":
+        return MemoryDrive()  # dev/sim: filing works end to end, nothing leaves the process
+    if settings.drive_credentials_file is None:
+        raise UnsafeConfigurationError("drive_provider 'google' needs drive_credentials_file")
+    return GoogleDrive(build_drive_service(settings.drive_credentials_file))
+
+
+def get_drive() -> DriveStore:
+    return _drive_override if _drive_override is not None else _default_drive()
+
+
+def set_drive(drive: DriveStore | None) -> None:
+    global _drive_override
+    _drive_override = drive

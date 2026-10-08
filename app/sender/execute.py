@@ -84,6 +84,7 @@ def _blocked_reason(session: Session, action: ActionRow, draft_version: int) -> 
 def _variant(session: Session, action: ActionRow, draft_version: int) -> int:
     choice = session.scalar(
         select(Approval.choice).where(
+            Approval.company_id == action.company_id,
             Approval.action_id == action.id,
             Approval.draft_version == draft_version,
             Approval.status == ApprovalStatus.approved,
@@ -183,17 +184,32 @@ def send_to_owner(deps: SenderDeps, company_id: UUID, key: str, build: Callable[
     return _direct(deps, company_id, key, payload, to)
 
 
+def _settle(deps: SenderDeps, row_id: UUID, status: OutboxStatus) -> None:
+    with Session(deps.engine) as session, session.begin():
+        row = session.get(OwnerOutbox, row_id)
+        if row is not None:
+            row.status = status
+
+
 def flush_owner_outbox(deps: SenderDeps, company_id: UUID) -> int:
-    """Harjot wrote: deliver what waited, oldest first. Stops (keeping the rest queued) if the window is closed."""
+    """Harjot wrote: deliver what waited, oldest first, to his *current* number. A message the provider rejects for
+    good is cancelled (logged) so it never blocks the rest; a transient error stops the flush and keeps the rest
+    queued for the next one. Returns the number delivered."""
     with Session(deps.engine) as session:
         to = owner_number(session, company_id)
         if not owner_window.window_open(owner_window.last_owner_message(session, company_id, to), datetime.now(UTC)):
             return 0
         items = [(row.id, row.idempotency_key, dict(row.payload)) for row in owner_window.queued(session, company_id)]
+    delivered = 0
     for row_id, key, payload in items:
-        _direct(deps, company_id, key, payload, to)
-        with Session(deps.engine) as session, session.begin():
-            row = session.get(OwnerOutbox, row_id)
-            if row is not None:
-                row.status = OutboxStatus.sent
-    return len(items)
+        try:
+            _direct(deps, company_id, key, {**payload, "to": to.removeprefix("+")}, to)
+        except Exception as exc:
+            if getattr(exc, "retryable", False):
+                break
+            log.error("owner.outbox_item_cancelled", key=key, error=type(exc).__name__)
+            _settle(deps, row_id, OutboxStatus.cancelled)
+            continue
+        _settle(deps, row_id, OutboxStatus.sent)
+        delivered += 1
+    return delivered
