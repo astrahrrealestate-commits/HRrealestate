@@ -15,7 +15,16 @@ from app.channels.gmail.drafts import DraftRequest
 from app.channels.whatsapp import payloads
 from app.contracts import ActionType, Channel, Direction
 from app.core.errors import EstateOSError
-from app.db.models import ActionRow, CaseLink, ChannelAccount, ChannelIdentity, MessageRow, OwnerAccount, Person
+from app.db.models import (
+    ActionRow,
+    CaseLink,
+    ChannelAccount,
+    ChannelIdentity,
+    MessageRow,
+    OwnerAccount,
+    Person,
+    RawEvent,
+)
 
 
 class SendBlockedError(EstateOSError):
@@ -62,15 +71,34 @@ def _latest_inbound(session: Session, company_id: UUID, case_id: UUID, channel: 
     )
 
 
-def _gmail_draft(session: Session, action: ActionRow, body: str, key: str) -> Plan:
-    msg = _latest_inbound(session, action.company_id, action.case_id, Channel.gmail)
-    mailbox = session.scalar(
-        select(ChannelAccount.address).where(
-            ChannelAccount.company_id == action.company_id, ChannelAccount.channel == Channel.gmail
+def _thread_mailbox(session: Session, msg: MessageRow) -> str | None:
+    """The company mailbox the thread lives in: recorded at ingest, else from the raw event (rows before that).
+
+    Only one of the company's own Gmail accounts qualifies: a thread id is only valid in its own mailbox.
+    """
+    address = msg.meta.get("mailbox") or session.scalar(
+        select(RawEvent.payload["mailbox"].astext).where(
+            RawEvent.id == msg.raw_event_id, RawEvent.company_id == msg.company_id
         )
     )
-    if msg is None or not msg.thread_ref or mailbox is None:
+    if not address:
+        return None
+    return session.scalar(
+        select(ChannelAccount.address).where(
+            ChannelAccount.company_id == msg.company_id,
+            ChannelAccount.channel == Channel.gmail,
+            ChannelAccount.address == str(address).lower(),
+        )
+    )
+
+
+def _gmail_draft(session: Session, action: ActionRow, body: str, key: str) -> Plan:
+    msg = _latest_inbound(session, action.company_id, action.case_id, Channel.gmail)
+    if msg is None or not msg.thread_ref:
         raise SendBlockedError("no Gmail thread on this case to draft a reply in")
+    mailbox = _thread_mailbox(session, msg)
+    if mailbox is None:
+        raise SendBlockedError("the mailbox this Gmail thread arrived in is not one of the company's accounts")
     subject = action.payload.get("subject") or msg.meta.get("subject") or ""
     subject = subject if subject.lower().startswith("re:") else f"Re: {subject}".strip()
     rfc_id = msg.meta.get("message_id")

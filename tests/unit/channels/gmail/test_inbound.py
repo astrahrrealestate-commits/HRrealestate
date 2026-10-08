@@ -344,3 +344,8 @@ def test_empty_plain_falls_back_to_html() -> None:
     msg.set_content("   ")
     msg.add_alternative("<p>Echter Inhalt</p>", subtype="html")
     assert parse_email(msg.as_bytes()).text == "Echter Inhalt"
+
+
+def test_meta_records_the_receiving_mailbox_lowercased(recorded: Load) -> None:
+    _, meta, _ = to_message(gm(recorded, "plain"), company_id=uuid4(), raw_event_id=uuid4(), mailbox=MAILBOX.upper())
+    assert meta["mailbox"] == MAILBOX

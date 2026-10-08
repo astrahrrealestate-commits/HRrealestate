@@ -55,6 +55,7 @@ def to_message(
         raise UnroutableMessageError(f"gmail message {gm.id}: sender not routable") from exc
     metadata: dict[str, Any] = {
         "type": "email",
+        "mailbox": mailbox,  # the company mailbox it arrived in: replies are drafted in this same mailbox
         "subject": parsed.subject,
         "message_id": parsed.message_id,
         "in_reply_to": parsed.in_reply_to,

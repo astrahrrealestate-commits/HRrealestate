@@ -22,6 +22,7 @@ from app.storage.drive import is_transient as drive_transient
 from app.workflows import queues
 from app.workflows.deps import get_deps, get_drive, get_engine
 from app.workflows.owner_notify import send_owner_message
+from app.workflows.retry import STEP_RETRY
 
 SKIP = "skip"
 
@@ -59,7 +60,7 @@ def skip_step(company_id: str, attachment_id: str) -> str:
     return skip_document(get_engine(), UUID(company_id), UUID(attachment_id)).value
 
 
-@DBOS.step(name="documents.review_card")
+@DBOS.step(name="documents.review_card", **STEP_RETRY)  # a provider blip must not lose the card
 def review_card_step(company_id: str, attachment_id: str) -> bool:
     with Session(get_engine()) as session:
         row = session.execute(
