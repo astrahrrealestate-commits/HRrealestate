@@ -20,6 +20,7 @@ from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import PipelineStatus
 from app.db.models import ActionRow, Approval, AttachmentRow, CaseLink, MessageRow, UnderstandingRow
+from app.dev import demo_documents
 from app.dev import fixtures as fx
 from app.dev.seed import seed_dev_tenant
 from app.dev.simulate import Simulator
@@ -173,9 +174,14 @@ def wait_for_pipeline(engine: Engine, sent: Sent, timeout: float) -> list[str]:
 def run_demo(sim: Simulator, engine: Engine, settings: Settings, *, timeout: float) -> int:
     tenant = seed_dev_tenant(engine)
     sent = send_scenario(sim, tenant.company_id)
+    docs = demo_documents.send_documents(sim)
     client = DBOSClient(system_database_url=settings.dbos_database_url)
     try:
-        found = wait_for_parity(engine, client, sent, timeout) or wait_for_pipeline(engine, sent, timeout)
+        found = (
+            wait_for_parity(engine, client, sent, timeout)
+            or wait_for_pipeline(engine, sent, timeout)
+            or demo_documents.wait_for_documents(engine, tenant.company_id, docs, timeout)
+        )
         if found:
             log.error("sim.demo.failed", problems=found)
             return 1
@@ -194,5 +200,7 @@ def run_demo(sim: Simulator, engine: Engine, settings: Settings, *, timeout: flo
                 photos=len(r.photos),
                 route=routes.get(r.id),
             )
-    log.info("sim.demo.ok", whatsapp=len(sent.whatsapp), gmail=len(sent.gmail), owner_buttons=1, agents="ok")
+    log.info(
+        "sim.demo.ok", whatsapp=len(sent.whatsapp), gmail=len(sent.gmail), owner_buttons=1, agents="ok", documents=2
+    )
     return 0
