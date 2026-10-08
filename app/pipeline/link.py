@@ -18,7 +18,7 @@ from app.core.errors import AgentFailedError
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import LinkMethod
-from app.db.models import CaseLink, MessageRow, Person, UnderstandingRow
+from app.db.models import AttachmentRow, CaseLink, MessageRow, Person, UnderstandingRow
 from app.llm.agents.case_summary import CASE_SUMMARY, case_summary_prompt
 from app.llm.agents.link_check import LINK_CHECK, CandidateCase, accept_link, link_check_prompt
 from app.llm.calls import CallContext, run_agent
@@ -47,6 +47,13 @@ class _Facts:
     urgency: Urgency
 
 
+def _has_attachments(session: Session, msg: MessageRow) -> bool:
+    found = session.scalar(
+        select(AttachmentRow.id).where(AttachmentRow.company_id == msg.company_id, AttachmentRow.message_id == msg.id)
+    )
+    return found is not None
+
+
 def _load(session: Session, message_id: UUID) -> _Facts | LinkResult | None:
     msg = session.scalar(select(MessageRow).where(MessageRow.id == message_id))
     if msg is None:
@@ -60,6 +67,8 @@ def _load(session: Session, message_id: UUID) -> _Facts | LinkResult | None:
         )
     )
     category, urgency = (und.category, und.urgency) if und else (Category.other, Urgency.normal)
+    if category is Category.spam and (not msg.text.strip() or _has_attachments(session, msg)):
+        category = Category.other  # a photo or file with no words is never dropped as spam: Harjot sees it
     return _Facts(msg.id, msg.company_id, msg.person_id, msg.sender_identity, msg.text, msg.sent_at, category, urgency)
 
 

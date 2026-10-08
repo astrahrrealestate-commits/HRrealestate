@@ -4,7 +4,7 @@ SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 .DEFAULT_GOAL := help
 
-COMPOSE := docker compose -f docker/compose.yml
+COMPOSE := docker compose -f docker/compose.yml $(if $(wildcard .env),--env-file .env)  # agent settings reach the containers
 UV      := uv run --frozen
 NEXT_REV = $(shell printf '%04d' $$(( $$(ls app/db/alembic/versions/[0-9]*.py 2>/dev/null | wc -l) + 1 )))
 

@@ -11,9 +11,23 @@ from app.llm import fakes
 
 
 def build_model(settings: Settings, agent_name: str) -> Model | str:
-    """`fake` → deterministic offline model for this agent; anything else is a Pydantic AI model string."""
+    """`fake` → deterministic offline model for this agent. OpenAI and Gemini models get their key from Settings
+    (environment or .env), not only from the process environment; any other string is passed to Pydantic AI."""
     if settings.llm_model == "fake":
         return fakes.model_for(agent_name)
+    provider, _, name = settings.llm_model.partition(":")
+    if provider == "google-gla":
+        from pydantic_ai.models.google import GoogleModel
+        from pydantic_ai.providers.google import GoogleProvider
+
+        key = settings.gemini_api_key.get_secret_value() if settings.gemini_api_key else None
+        return GoogleModel(name, provider=GoogleProvider(api_key=key))
+    if provider == "openai":
+        from pydantic_ai.models.openai import OpenAIChatModel
+        from pydantic_ai.providers.openai import OpenAIProvider
+
+        key = settings.openai_api_key.get_secret_value() if settings.openai_api_key else None
+        return OpenAIChatModel(name, provider=OpenAIProvider(api_key=key))
     return settings.llm_model
 
 

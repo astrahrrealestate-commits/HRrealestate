@@ -13,8 +13,12 @@ from app.llm.prompts import load_prompt
 from app.llm.runtime import build_model
 
 
-@pytest.mark.live("LLM_MODEL", "OPENAI_API_KEY")
+@pytest.mark.live("LLM_MODEL")
 def test_real_model_triages_a_dutch_emergency(live_settings: Settings) -> None:
+    from app.core.startup import production_problems
+
+    key_problems = [p for p in production_problems(live_settings.model_copy(update={"env": "prod"})) if "api_key" in p]
+    assert not key_problems, key_problems  # the provider's key is configured (OPENAI_API_KEY or GEMINI_API_KEY)
     agent = Agent(
         build_model(live_settings, "understanding"),
         output_type=Understanding,

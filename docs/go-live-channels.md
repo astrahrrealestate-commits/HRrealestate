@@ -172,13 +172,16 @@ Agents run on deterministic offline models until `LLM_MODEL` is set (default `fa
 |---|---|
 | `LLM_MODEL` | Pydantic AI model string, e.g. `openai:gpt-4.1-mini` (OpenAI project with EU data residency) |
 | `OPENAI_API_KEY` | required for `openai:*` models |
+| `GEMINI_API_KEY` | required for `google-gla:*` models, e.g. `LLM_MODEL=google-gla:gemini-2.5-flash` (Google AI Studio; testing only: no EU data processing agreement, use synthetic or test data) |
 | `LANGFUSE_HOST` / `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | optional: every agent run traced to Langfuse (EU) |
 
 After switching:
 1. `make live-check k=llm` — one small call: the published understanding prompt on a synthetic Dutch emergency
    message must come back as valid `Understanding` (maintenance, emergency/high).
 2. `make eval agent=understanding version=v1` and `make eval agent=linking version=v2`; compare with the
-   fake-model reports in `evals/reports/` (fake: understanding category 0.43, linking accuracy 0.83).
+   fake-model reports in `evals/reports/` (fake: understanding category 0.43, linking accuracy 0.83; Gemini 2.5
+   Flash on 2026-10-08: category 0.90, urgency 0.70, emergency and suspicious recall 1.00, linking accuracy 1.00).
+   On free-tier quotas set `EVAL_MAX_CONCURRENCY=1`.
 
 ### Live checks
 

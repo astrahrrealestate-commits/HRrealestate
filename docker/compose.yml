@@ -11,6 +11,14 @@ x-app: &app
     ENV: dev
     DATABASE_URL: postgresql+psycopg://estateos:estateos@postgres:5432/estateos
     SENTRY_DSN: ""
+    # Agents: interpolated from the shell or the repo-root env file (Makefile passes it); default offline fakes
+    LLM_MODEL: ${LLM_MODEL:-fake}
+    LLM_TIMEOUT_SEC: ${LLM_TIMEOUT_SEC:-60}
+    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    LANGFUSE_HOST: ${LANGFUSE_HOST:-}
+    LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+    LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
 
 services:
   postgres:

@@ -28,9 +28,10 @@ class Settings(BaseSettings):
     langfuse_public_key: str | None = None
     langfuse_secret_key: SecretStr | None = None
     openai_api_key: SecretStr | None = None
+    gemini_api_key: SecretStr | None = None  # Google AI Studio key for `google-gla:*` models (testing)
 
     # LLM agents (spec phase-1 agents). `fake` = deterministic offline models (app.llm.fakes); prod refuses it.
-    llm_model: str = "fake"  # Pydantic AI model string, e.g. "openai:gpt-4.1-mini"
+    llm_model: str = "fake"  # Pydantic AI model string, e.g. "openai:gpt-4.1-mini" or "google-gla:gemini-2.5-flash"
     llm_timeout_sec: float = 60.0
 
     # Owner channel: approved WhatsApp template that reopens the 24-hour window ("{{1}} items need you").

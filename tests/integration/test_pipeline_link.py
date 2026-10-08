@@ -164,3 +164,29 @@ def test_answer_from_awaited_party_closes_wait_and_reopens_case(
     with Session(migrated_engine) as s:
         assert work_repo.get_wait(s, cid, wid).status is WaitStatus.received
         assert s.scalar(select(Case.state).where(Case.id == first.case_id)) is CaseState.open
+
+
+def test_photo_only_message_marked_spam_still_opens_a_case(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    """A model may call an empty, attachment-only message spam; a tenant's photo must never be dropped."""
+    from app.db.models import AttachmentRow
+
+    cid = committed_company.id
+    mid = _message(migrated_engine, cid, "", category=Category.spam)
+    with Session(migrated_engine) as s, s.begin():
+        s.add(
+            AttachmentRow(
+                company_id=cid,
+                message_id=mid,
+                s3_key="k",
+                mime_type="image/jpeg",
+                filename="IMG.jpg",
+                size_bytes=50_000,
+                sha256="0" * 64,
+            )
+        )
+    result = link_message(migrated_engine, test_settings, mid)
+    assert result is not None
+    with Session(migrated_engine) as s:
+        assert s.scalar(select(Case.category).where(Case.id == result.case_id)) is Category.other

@@ -87,3 +87,10 @@ def test_non_openai_model_needs_no_openai_key() -> None:
     assert_production_safe(
         _s(env="prod", **{**REAL, "llm_model": "mistral:mistral-large-latest", "openai_api_key": None})
     )
+
+
+def test_gemini_model_needs_its_key() -> None:
+    gemini = {**REAL, "llm_model": "google-gla:gemini-2.5-flash", "openai_api_key": None}
+    with pytest.raises(UnsafeConfigurationError, match="gemini_api_key"):
+        assert_production_safe(_s(env="prod", **gemini))
+    assert_production_safe(_s(env="prod", **{**gemini, "gemini_api_key": "g-test"}))

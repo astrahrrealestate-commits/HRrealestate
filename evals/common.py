@@ -1,10 +1,16 @@
 """Shared eval plumbing: settings without a database, an agent built exactly like `run_agent` builds it, results."""
 
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, PostgresDsn
 from pydantic_ai import Agent
+
+if TYPE_CHECKING:
+    from pydantic_ai.retries import RetryConfig
+    from pydantic_evals.reporting import ReportCaseFailure
 
 from app.core.settings import Settings
 from app.llm.calls import AGENT_RETRIES
@@ -36,3 +42,27 @@ def spec_agent[T: BaseModel](
 
 def cell(text: str, limit: int = 60) -> str:
     return " ".join(text.split())[:limit].replace("|", "/")
+
+
+MAX_CONCURRENCY = int(os.environ.get("EVAL_MAX_CONCURRENCY", "3"))  # free-tier model quotas are a few requests/s
+
+
+def task_retry() -> "RetryConfig":
+    """Rate limits and 5xx from a real model are retried with backoff instead of crashing the case."""
+    from tenacity import retry_if_exception, stop_after_attempt, wait_exponential
+
+    from app.llm.calls import is_transient
+
+    return {
+        "stop": stop_after_attempt(6),
+        "wait": wait_exponential(multiplier=2, max=60),
+        "retry": retry_if_exception(is_transient),
+        "reraise": True,
+    }
+
+
+def crash_message(failures: "Sequence[ReportCaseFailure[Any, Any, Any]]") -> str:
+    lines = [
+        f"  {f.name}: {(f.error_message or '').splitlines()[0][:200] if f.error_message else '?'}" for f in failures
+    ]
+    return "\n".join([f"eval: {len(failures)} cases crashed", *lines])
