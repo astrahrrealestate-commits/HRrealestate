@@ -1,5 +1,6 @@
 """Shared fixtures for unit and integration tests."""
 
+import os
 from collections.abc import Callable
 from pathlib import Path
 
@@ -29,6 +30,13 @@ def recorded() -> Callable[[str, str], bytes]:
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption("--live", action="store_true", help="run only live provider checks (needs credentials)")
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Tests run the deterministic fake agents whatever a developer's `.env` selects (e.g. a real Gemini model);
+    only `--live` checks use the configured model. Environment variables win over `.env` in Settings."""
+    if not config.getoption("--live", default=False):
+        os.environ["LLM_MODEL"] = "fake"
 
 
 @pytest.hookimpl(trylast=True)  # after -k / -m deselection: only the selected live tests' settings are required
