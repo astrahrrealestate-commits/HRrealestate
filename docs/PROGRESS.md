@@ -74,10 +74,23 @@ Phase 1 agents spec: [2026-10-07-estateos-phase1-agents-design.md](superpowers/s
 - [x] approval cards (list menu / buttons), owner reply (tap twice = one draft), edit → revision, unknown taps answered, local actions (reminder → task, case state)
 - [x] owner commands (#6) + owner Q&A agent; WhatsApp 24 h window: owner_outbox + `estateos_pending` template, flush on Harjot's next message (migration 0004)
 - [x] briefings (#7): 07:30 daily + Friday 16:00 weekly per company timezone, agent text with template fallback
-- [x] G5: `make smoke` "api ready: ok", "worker: ok", "logs: clean"; `make sim-demo` "sim.demo.ok agents=ok gmail=2 owner_buttons=1 whatsapp=2"
+- [x] G5: `make smoke` "api ready: ok", "worker: ok", "logs: clean"; `make sim-demo` "sim.demo.ok agents=ok documents=2 gmail=2 owner_buttons=1 whatsapp=2" (2026-10-08, dev DB at migration 0007, no errors in stack logs)
 
 ## M9 Document filing
 - [x] classifier (metadata only) + Drive adapter + `file_document` (app/pipeline/documents.py, app/storage/drive.py, doc_classifier agent); workflow + review card
+
+## Review rounds (whole branch, 2026-10-08)
+- [x] round 1 (estateos-reviewer + peer): owner-step retries, pipeline failure handling (no silent drops, final failure → `other` case + alert), blocked approvals told + `resume` reruns, re-fired chase timers, blank/command edits, edit replay, task #refs, outbox per-item isolation + current owner number, payload recipient check, reply channel from the message, propose lock, timers queue, briefing lists stuck items, company_id scoping
+- [x] round 2 (peer): atomic send claim `pending → sending` (no double delivery, migration 0007), permanent failures tell Harjot, stranded-`pending` sweep with hour ids, lease renewal at handler start, refs-only done/snooze, thread's own Gmail mailbox for drafts, review-card retry, `<mode>` escaped; migration 0006 indexes + NULLS NOT DISTINCT waits
+- [x] G1 `make quick` "727 passed"; G2 integration "201 passed" (twice; flaky briefing-timer ordering fixed); test teardown waits for in-flight workflows
+
+## Go-live readiness (owner: user) — docs/go-live-channels.md
+- [x] `.env.example` lists every setting; prod boot refuses fakes / missing credentials (incl. LLM, Drive)
+- [x] `make gmail-consent … drive=1` creates gmail-read, gmail-compose and drive-file tokens (minimal scopes, account-checked)
+- [x] `make live-check` covers S3, Gmail (read, watch, push certs, draft), WhatsApp (text to owner, media), Drive, real LLM
+- [ ] WhatsApp template `estateos_pending` approved (Meta / 360dialog)
+- [ ] credentials + settings set, onboarding rows inserted, `make live-check` green
+- [ ] real `LLM_MODEL` + `make eval` (understanding v1, linking v2) compared with the fake reports
 
 ## M8 Outcomes + drift + hardening
 - [x] outcome capture (Sent folder + echo → unchanged/edited/rewritten, migration 0005 unique per draft), 15-min cron
