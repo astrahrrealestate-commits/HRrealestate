@@ -14,6 +14,7 @@ from app.workflows import (
     documents,
     followups,
     ingest,
+    maintenance,
     owner_notify,
     owner_reply,
     pipeline,
@@ -51,6 +52,12 @@ SCHEDULES: list[ScheduleInput] = [
     {"schedule_name": "briefing.ensure", "workflow_fn": briefings.ensure_briefings, "schedule": "5 * * * *"},
     {"schedule_name": "outcomes.capture", "workflow_fn": quality.capture_cron, "schedule": "*/15 * * * *"},
     {"schedule_name": "drift.daily", "workflow_fn": quality.drift_cron, "schedule": "30 4 * * *"},
+    {
+        "schedule_name": "maintenance.dbos_retention",
+        "workflow_fn": maintenance.dbos_retention,
+        "schedule": "50 3 * * *",
+        "cron_timezone": "Europe/Amsterdam",
+    },
 ]
 
 

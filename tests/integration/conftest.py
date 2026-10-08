@@ -1,5 +1,6 @@
 """Integration fixtures: one throwaway Postgres 16 per test session (testcontainers), real Alembic migrations."""
 
+import os
 from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -32,8 +33,21 @@ def alembic_config(url: str) -> Config:
 
 @pytest.fixture(scope="session")
 def pg_url() -> Iterator[str]:
+    """Also exported as DATABASE_URL, so code reading `get_settings()` (workflow steps) uses the test database and
+    never a developer `.env`."""
+    from app.core.settings import get_settings
+
     with PostgresContainer("postgres:16-alpine", driver="psycopg") as pg:
-        yield pg.get_connection_url()
+        url = pg.get_connection_url()
+        previous = os.environ.get("DATABASE_URL")
+        os.environ["DATABASE_URL"] = url
+        get_settings.cache_clear()
+        yield url
+        if previous is None:
+            os.environ.pop("DATABASE_URL", None)
+        else:
+            os.environ["DATABASE_URL"] = previous
+        get_settings.cache_clear()
 
 
 @pytest.fixture(scope="session")
