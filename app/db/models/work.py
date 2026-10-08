@@ -48,12 +48,14 @@ class WaitRow(Base, CompanyScoped):
     __tablename__ = "waits"
     __table_args__ = (
         Index(None, "status", "expected_by"),
+        Index(None, "source_action_id"),
         Index(
             "uq_waits_open",
             "case_id",
             "party_person_id",
             unique=True,
             postgresql_where=text("status = 'waiting'"),
+            postgresql_nulls_not_distinct=True,  # a wait on "whoever answers" (no party) is one per case too
         ),
     )
 
@@ -73,6 +75,7 @@ class DocumentRow(Base, CompanyScoped):
     """One filing decision per attachment. Phase 1 classifies from metadata only (contents are never read)."""
 
     __tablename__ = "documents"
+    __table_args__ = (Index(None, "model_call_id"),)
 
     attachment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("attachments.id"), unique=True)
     doc_type: Mapped[str] = mapped_column(String(32))  # app.contracts DocType value

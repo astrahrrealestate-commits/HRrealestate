@@ -41,6 +41,7 @@ class MessageRow(Base, CompanyScoped):
     __table_args__ = (
         UniqueConstraint("company_id", "channel", "provider_msg_id"),
         Index(None, "company_id", "thread_ref"),
+        Index(None, "pipeline_status", "pipeline_attempts"),  # hourly pipeline requeue sweep
     )
 
     raw_event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("raw_events.id"), index=True)
