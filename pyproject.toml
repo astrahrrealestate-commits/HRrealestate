@@ -50,6 +50,7 @@ dev = [
     "pytest-timeout>=2.3",
     "moto[s3]>=5.0",
     "cryptography>=43",
+    "google-auth-oauthlib>=1.5.0",
 ]
 
 [tool.uv]
@@ -88,7 +89,7 @@ exclude = ["app/db/alembic/versions/"]
 untyped_calls_exclude = ["google.auth", "google.oauth2"]  # google-auth ships partial hints; strict elsewhere
 
 [[tool.mypy.overrides]]
-module = ["testcontainers.*", "phonenumbers.*", "polyfactory.*", "boto3.*", "botocore.*", "moto.*", "googleapiclient.*", "mailparser_reply.*", "inscriptis.*", "requests.*"]
+module = ["testcontainers.*", "phonenumbers.*", "polyfactory.*", "boto3.*", "botocore.*", "moto.*", "googleapiclient.*", "google_auth_oauthlib.*", "mailparser_reply.*", "inscriptis.*", "requests.*"]
 ignore_missing_imports = true
 
 [tool.pydantic-mypy]

@@ -49,14 +49,21 @@ internal apps). Two separate credential files keep reading and drafting apart.
 1. In Harjot's Workspace, create a Google Cloud project. Enable the **Gmail API** and **Cloud Pub/Sub API**.
 2. OAuth consent screen: user type **Internal**. Create an OAuth client of type **Desktop app** and download
    `client.json`.
-3. Create the two authorized-user files (OAuth refresh tokens), signed in as the mailbox owner: one with scope
-   `gmail.readonly`, one with `gmail.compose`. Store both on the server outside the repository, readable only by
-   the app user.
+3. Create the two authorized-user files (OAuth refresh tokens), signed in as the mailbox owner:
 
-   > **Open decision (scope width):** `gcloud auth application-default login --scopes=…` also requires the
-   > `cloud-platform` scope, so files made that way can act on Harjot's whole Google Cloud account if stolen. A
-   > minimal-scope alternative is a ten-line consent script using `google-auth-oauthlib` (`InstalledAppFlow`) —
-   > a new dev dependency that needs approval. Until decided, do not create these files with `gcloud`.
+   ```
+   make gmail-consent client=~/.estateos/client.json mailbox=<mailbox> out=~/.estateos
+   ```
+
+   Two browser consents follow: the first writes `gmail-read.json` (`gmail.readonly`), the second
+   `gmail-compose.json` (`gmail.compose`). Grant every requested permission and nothing else. The tool refuses to
+   write when the account is not `<mailbox>`, when the granted scopes differ from the requested ones, or when the
+   output directory is inside the repository. Files are 0600. On a server, copy them outside the repository,
+   readable only by the app user. Do not use `gcloud auth application-default login` for this: it forces the
+   `cloud-platform` scope, so a stolen file could act on the whole Google Cloud account.
+
+   An External app in **Testing** status (consumer Gmail test mailbox) issues refresh tokens that expire after
+   7 days: rerun the command weekly. Internal Workspace apps have no such expiry.
 4. Pub/Sub topic, e.g. `projects/<project>/topics/gmail-estateos`. Grant
    `gmail-api-push@system.gserviceaccount.com` the **Pub/Sub Publisher** role on the topic.
 5. Create a service account for push authentication (no keys needed), e.g. `gmail-push@<project>.iam.gserviceaccount.com`.
@@ -69,8 +76,8 @@ internal apps). Two separate credential files keep reading and drafting apart.
 | Variable | Value |
 |---|---|
 | `GMAIL_PROVIDER` | `google` |
-| `GMAIL_CREDENTIALS_FILE` | path to the `gmail.readonly` authorized-user file (step 3) |
-| `GMAIL_SEND_CREDENTIALS_FILE` | path to the `gmail.compose` authorized-user file (read only by `app/sender`) |
+| `GMAIL_CREDENTIALS_FILE` | path to the `gmail.readonly` authorized-user file (step 3: `gmail-read.json`) |
+| `GMAIL_SEND_CREDENTIALS_FILE` | path to the `gmail.compose` authorized-user file (`gmail-compose.json`; read only by `app/sender`) |
 | `GMAIL_PUBSUB_TOPIC` | `projects/<project>/topics/gmail-estateos` |
 | `GMAIL_PUBSUB_AUDIENCE` | the audience configured on the push subscription |
 | `GMAIL_PUBSUB_SERVICE_ACCOUNT` | the push service account email (step 5) |

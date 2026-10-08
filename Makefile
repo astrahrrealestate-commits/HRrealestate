@@ -8,7 +8,7 @@ COMPOSE := docker compose -f docker/compose.yml
 UV      := uv run --frozen
 NEXT_REV = $(shell printf '%04d' $$(( $$(ls app/db/alembic/versions/[0-9]*.py 2>/dev/null | wc -l) + 1 )))
 
-.PHONY: help setup up up-db down logs ps migrate migration migrate-roundtrip alembic-check \
+.PHONY: help setup gmail-consent up up-db down logs ps migrate migration migrate-roundtrip alembic-check \
         fmt lint type boundaries test-unit test-int test cov quick check smoke audit eval \
         workflows harness-test clean sim-demo live-check
 
@@ -91,6 +91,9 @@ sim-demo: up ## G5: simulate WhatsApp + Gmail through the running stack and asse
 
 live-check: ## go-live gate: real WhatsApp/Gmail/S3 adapters (credentials: docs/go-live-channels.md); subset: k=gmail
 	$(UV) pytest tests/live --live -v $(if $(k),-k "$(k)")
+
+gmail-consent: ## Gmail token files (read + compose): make gmail-consent client=~/.estateos/client.json mailbox=you@x out=~/.estateos
+	$(UV) python -m app.dev.gmail_consent --client "$(client)" --mailbox "$(mailbox)" --out-dir "$(out)"
 
 audit: ## dependency vulnerability audit
 	mkdir -p .claude/.cache
