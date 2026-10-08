@@ -180,7 +180,9 @@ def run_demo(sim: Simulator, engine: Engine, settings: Settings, *, timeout: flo
         found = (
             wait_for_parity(engine, client, sent, timeout)
             or wait_for_pipeline(engine, sent, timeout)
-            or demo_documents.wait_for_documents(engine, tenant.company_id, docs, timeout)
+            or demo_documents.wait_for_documents(
+                engine, tenant.company_id, docs, timeout, real_model=settings.llm_model != "fake"
+            )
         )
         if found:
             log.error("sim.demo.failed", problems=found)

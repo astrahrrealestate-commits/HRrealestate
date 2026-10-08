@@ -54,11 +54,14 @@ def load_documents(engine: Engine, company_id: UUID, rfc_ids: tuple[str, ...]) -
         ]
 
 
-def document_problems(rows: list[DocRow]) -> list[str]:
+def document_problems(rows: list[DocRow], *, real_model: bool = False) -> list[str]:
+    """`real_model`: a real classifier may be sure enough to file the photo straight away (review is the fake's)."""
     found = {r.filename: r for r in rows}
     problems = [f"documents: no row for {name}" for name in EXPECTED if name not in found]
     for name, row in found.items():
         want = EXPECTED.get(name)
+        if real_model and name == PHOTO.filename and row.status in (DocumentStatus.filed, DocumentStatus.review):
+            continue
         if want is not None and row.status is not want:
             problems.append(f"documents: {name} is {row.status.value}, expected {want.value}")
     invoice = found.get(INVOICE.filename)
@@ -69,10 +72,12 @@ def document_problems(rows: list[DocRow]) -> list[str]:
     return problems
 
 
-def wait_for_documents(engine: Engine, company_id: UUID, rfc_ids: tuple[str, ...], timeout: float) -> list[str]:
+def wait_for_documents(
+    engine: Engine, company_id: UUID, rfc_ids: tuple[str, ...], timeout: float, *, real_model: bool = False
+) -> list[str]:
     deadline = time.monotonic() + timeout
     while True:
-        found = document_problems(load_documents(engine, company_id, rfc_ids))
+        found = document_problems(load_documents(engine, company_id, rfc_ids), real_model=real_model)
         if not found or time.monotonic() >= deadline:
             return found
         time.sleep(0.5)

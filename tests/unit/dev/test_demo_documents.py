@@ -37,3 +37,8 @@ def test_demo_attachments_pass_the_skip_rules() -> None:
     for att in (INVOICE, PHOTO):
         meta = FileMeta(att.filename, att.mime_type, len(att.data), datetime(2026, 10, 8, tzinfo=UTC))
         assert not should_skip(meta), att.filename
+
+
+def test_real_model_may_file_the_photo_directly() -> None:
+    assert document_problems([_invoice(), _photo(DocumentStatus.filed)], real_model=True) == []
+    assert document_problems([_invoice(DocumentStatus.review), _photo()], real_model=True)  # invoice still must file
