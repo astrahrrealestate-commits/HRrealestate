@@ -26,10 +26,10 @@ def on_briefing(timer: ClaimedTimer) -> None:
     outside the WhatsApp window the briefing waits behind the template nudge until Harjot replies."""
     kind: Kind = "weekly" if timer.kind == briefing.WEEKLY else "daily"
     now = datetime.now(UTC)
+    with Session(get_engine()) as session, session.begin():  # book the next runs first: a failed send never stops them
+        briefing.ensure_timers(session, now)
     text = briefing.compose(get_engine(), get_settings(), timer.company_id, kind, now)
     send_to_owner(get_sender_deps(), timer.company_id, f"briefing:{timer.id}", partial(_text, text))
-    with Session(get_engine()) as session, session.begin():
-        briefing.ensure_timers(session, now)
 
 
 @DBOS.step(name="briefing.ensure_timers")

@@ -63,7 +63,7 @@ def test_tasks_done_and_snooze_by_reference_only(
     assert _run(migrated_engine, test_settings, committed_company, f"done {approve}") == "Done: Approve reply"
     assert _run(migrated_engine, test_settings, committed_company, f"snooze #{plumber} 2d").startswith("Snoozed:")
     assert _run(migrated_engine, test_settings, committed_company, "tasks") == "No open tasks."
-    assert "no task" in _run(migrated_engine, test_settings, committed_company, "done ffffff").lower()
+    assert "no open task" in _run(migrated_engine, test_settings, committed_company, "done ffffff").lower()
     with Session(migrated_engine) as s:
         statuses = {t.title: t.status for t in s.query(TaskRow).filter(TaskRow.company_id == committed_company.id)}
     assert statuses == {"Approve reply": TaskStatus.done, "Call plumber": TaskStatus.snoozed}

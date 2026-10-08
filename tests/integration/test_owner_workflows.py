@@ -84,7 +84,7 @@ def env(test_settings: Settings, migrated_engine: Engine, committed_company: Com
             sent_at=NOW,
             text="Lekkage",
             person_id=person.id,
-            meta={"subject": "Lekkage"},
+            meta={"subject": "Lekkage", "mailbox": MAILBOX},
         )
         s.add(msg)
         s.flush()

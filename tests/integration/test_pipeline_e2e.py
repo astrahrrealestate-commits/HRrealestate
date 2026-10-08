@@ -53,6 +53,8 @@ def stack(
 
 
 def _message(engine: Engine, cid: UUID, sender: str, text: str, channel: Channel, meta: dict[str, Any]) -> UUID:
+    if channel is Channel.gmail:  # Gmail ingest always records the mailbox the thread lives in
+        meta = {"mailbox": MAILBOX, **meta}
     with Session(engine) as s, s.begin():
         raw = RawEvent(company_id=cid, provider=channel, provider_msg_id=str(new_id()), payload={})
         s.add(raw)
