@@ -6,7 +6,7 @@ DBOS step, so it may do I/O; it must be idempotent (a lease-expired timer is fir
 
 from collections.abc import Callable
 from dataclasses import asdict
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -55,6 +55,8 @@ def sweep_due(now: datetime) -> int:
 @DBOS.step(name="timers.run_handler")
 def run_handler_step(item: dict[str, Any]) -> str:
     claimed = ClaimedTimer(UUID(item["id"]), UUID(item["company_id"]), item["kind"], item["payload"], item["attempts"])
+    if not timers.renew(_db(), claimed.id, claimed.attempts, datetime.now(UTC)):
+        return "stale"  # waited in the queue past its lease and was reclaimed: the newer claim runs it
     handler = _handlers.get(claimed.kind)
     if handler is None:
         log.error("timer.unknown_kind", timer_id=item["id"], kind=claimed.kind)

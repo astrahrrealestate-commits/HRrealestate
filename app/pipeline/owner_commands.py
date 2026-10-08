@@ -1,6 +1,6 @@
 """Harjot's text commands on WhatsApp (#6 Task Manager, owner controls). Anything else is a question (owner Q&A).
 
-pause | resume | tasks | done <n> | snooze <n> <30m|4h|2d|1w> | waiting | help
+pause | resume | tasks | done <#ref> | snooze <#ref> <30m|4h|2d|1w> | waiting | help
 """
 
 import re
@@ -45,8 +45,8 @@ class Command:
 HELP_TEXT = (
     "Commands:\n"
     "tasks - your open tasks\n"
-    "done <#ref or n> - mark a task done\n"
-    "snooze <#ref or n> <30m|4h|2d|1w> - hide a task for a while\n"
+    "done <#ref> - mark a task done (refs are shown by `tasks`)\n"
+    "snooze <#ref> <30m|4h|2d|1w> - hide a task for a while\n"
     "waiting - who we are waiting on\n"
     "pause / resume - stop or restart all proposals\n"
     "Anything else is a question about your cases."
@@ -119,16 +119,12 @@ def _tasks(session: Session, company: Company, now: datetime) -> str:
     return "Open tasks:\n" + "\n".join(lines)
 
 
-def _task_at(session: Session, company_id: UUID, cmd: Command, now: datetime) -> TaskRow | None:
-    if cmd.ref is not None:
-        try:
-            task_id = work_repo.resolve_task(session, company_id, cmd.ref)
-        except NotFoundError:
-            return None
-        return session.get(TaskRow, task_id)
-    tasks = work_repo.open_tasks(session, company_id, now=now)
-    index = cmd.index or 0
-    return tasks[index - 1] if 1 <= index <= len(tasks) else None
+def _task_at(session: Session, company_id: UUID, ref: str) -> TaskRow | None:
+    try:
+        task_id = work_repo.resolve_task(session, company_id, ref)
+    except NotFoundError:
+        return None
+    return session.get(TaskRow, task_id)
 
 
 def _waiting(session: Session, company: Company) -> str:
@@ -175,9 +171,11 @@ def _apply(session: Session, company: Company, cmd: Command, now: datetime) -> s
     if cmd.kind in (CommandKind.pause, CommandKind.resume):
         company.paused = cmd.kind is CommandKind.pause
         return "Paused: no new proposals until `resume`." if company.paused else "Resumed."
-    task = _task_at(session, company.id, cmd, now)
+    if cmd.ref is None:  # positions shift as tasks arrive; a retried command must not hit a different task
+        return "Use the task's #ref from `tasks`, e.g. `done #a1b2c3`."
+    task = _task_at(session, company.id, cmd.ref)
     if task is None:
-        return f"There is no task {cmd.ref or cmd.index}. Send `tasks` to see the list."
+        return f"There is no open task #{cmd.ref}. Send `tasks` to see the list."
     if cmd.kind is CommandKind.done:
         work_repo.complete_task(session, company.id, task.id, at=now)
         return f"Done: {task.title}"

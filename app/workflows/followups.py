@@ -17,6 +17,7 @@ def on_wait_due(timer: ClaimedTimer) -> None:
     approval_id = followups.handle_wait_due(
         get_engine(),
         get_settings(),
+        timer.company_id,
         UUID(timer.payload["wait_id"]),
         step=int(timer.payload.get("step", 0)),
         now=datetime.now(UTC),

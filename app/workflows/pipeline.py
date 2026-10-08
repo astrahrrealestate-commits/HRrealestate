@@ -1,6 +1,6 @@
 """Pipeline entry DBOS workflow: triage inbound messages, link cases, propose actions."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import partial
 from typing import Any
 from uuid import UUID
@@ -51,9 +51,13 @@ _RETRY: dict[str, Any] = {
 def understand_step(message_id: str) -> str:
     engine = get_engine()
     settings = get_settings()
-    if understand_message(engine, settings, UUID(message_id)) is not None:
-        return "understood"
-    return "final" if understanding_is_final_failure(engine, UUID(message_id)) else "failed"
+    return "understood" if understand_message(engine, settings, UUID(message_id)) is not None else "failed"
+
+
+@DBOS.step(name="pipeline.final_failure", **_RETRY)
+def final_failure_step(message_id: str) -> bool:
+    """Its own step: a DB blip here must never re-run the LLM call above."""
+    return understanding_is_final_failure(get_engine(), UUID(message_id))
 
 
 @DBOS.step(name="pipeline.mark_failed", **_RETRY)
@@ -145,7 +149,9 @@ def pipeline_entry(message_id: str) -> str:
     try:
         status = understand_step(message_id)
         if status == "failed":
-            return "failed"
+            if not final_failure_step(message_id):
+                return "failed"
+            status = "final"
         linked = _after_understanding(message_id, final_failure=status == "final")
         done_step(message_id)
     except Exception as exc:  # DBOS cancellation is a BaseException and is not caught
@@ -156,13 +162,18 @@ def pipeline_entry(message_id: str) -> str:
 
 
 @DBOS.step(name="pipeline.requeue_candidates")
-def requeue_candidates_step() -> list[tuple[str, str]]:
-    return [(str(mid), wf) for mid, wf in requeue_candidates(get_engine())]
+def requeue_candidates_step(now_iso: str) -> list[tuple[str, str]]:
+    """Messages whose pipeline run is still waiting in a queue are skipped: a rerun would only race it."""
+    candidates = requeue_candidates(get_engine(), datetime.fromisoformat(now_iso))
+    if not candidates:
+        return []
+    queued = {w.workflow_id.split(":")[1] for w in DBOS.list_workflows(workflow_id_prefix="pipe:", status="ENQUEUED")}
+    return [(str(mid), wf) for mid, wf in candidates if str(mid) not in queued]
 
 
 @DBOS.workflow(name="pipeline.requeue")
 def requeue_failed(scheduled_time: datetime, context: Any) -> None:
-    """Hourly: rerun pipeline runs whose understanding failed (max 3 attempts per message)."""
-    for message_id, workflow_id in requeue_candidates_step():
+    """Hourly: rerun failed pipeline runs (max 3 attempts per message) and messages stranded in `pending`."""
+    for message_id, workflow_id in requeue_candidates_step(scheduled_time.astimezone(UTC).isoformat()):
         with SetWorkflowID(workflow_id):
             queues.pipeline_queue().enqueue(pipeline_entry, message_id)

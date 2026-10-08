@@ -119,19 +119,24 @@ def test_failed_runs_are_requeued_until_three_attempts_and_success_clears_failed
     bad = FunctionModel(lambda m, info: ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {"x": 1})]))
     monkeypatch.setattr("app.llm.calls.build_model", lambda _s, _n: bad)
     assert pipeline.pipeline_entry(str(msg_id)) == "failed"
-    assert [(m, wf) for m, wf in requeue_candidates(migrated_engine) if m == msg_id] == [(msg_id, f"pipe:{msg_id}:r1")]
+    sweep_at = datetime(2026, 10, 7, 12, 0, tzinfo=UTC)
+    assert [(m, wf) for m, wf in requeue_candidates(migrated_engine, sweep_at) if m == msg_id] == [
+        (msg_id, f"pipe:{msg_id}:r1:2026100712")
+    ]
     monkeypatch.undo()
     assert pipeline.pipeline_entry(str(msg_id)) == "understood"
     with Session(migrated_engine) as session:
         refreshed = session.get(MessageRow, msg_id)
         assert refreshed is not None
         assert (refreshed.pipeline_status, refreshed.pipeline_error) == (PipelineStatus.done, None)
-    assert all(m != msg_id for m, _ in requeue_candidates(migrated_engine))
+    assert all(m != msg_id for m, _ in requeue_candidates(migrated_engine, datetime.now(UTC)))
     with Session(migrated_engine) as session, session.begin():
         row = session.get(MessageRow, msg_id)
         assert row is not None
         row.pipeline_status, row.pipeline_attempts = PipelineStatus.failed, 3
-    assert all(m != msg_id for m, _ in requeue_candidates(migrated_engine))  # gave up after 3 attempts
+    assert all(
+        m != msg_id for m, _ in requeue_candidates(migrated_engine, datetime.now(UTC))
+    )  # gave up after 3 attempts
 
 
 def _bad_model(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -142,7 +147,7 @@ def _bad_model(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.llm.calls.build_model", lambda _s, _n: bad)
 
 
-def _inbound(engine: Engine, cid: object, text: str = "Lekkage") -> object:
+def _inbound(engine: Engine, cid: object, text: str = "Lekkage", sender: str = "+31622222222") -> object:
     with Session(engine) as session, session.begin():
         raw = RawEvent(company_id=cid, provider=Channel.whatsapp, provider_msg_id=str(new_id()), payload={})
         session.add(raw)
@@ -152,8 +157,8 @@ def _inbound(engine: Engine, cid: object, text: str = "Lekkage") -> object:
             raw_event_id=raw.id,
             channel=Channel.whatsapp,
             provider_msg_id=raw.provider_msg_id,
-            thread_ref="+31622222222",
-            sender_identity="+31622222222",
+            thread_ref=sender,
+            sender_identity=sender,
             direction=Direction.inbound,
             sent_at=NOW,
             text=text,
@@ -210,3 +215,29 @@ def test_unexpected_error_marks_the_message_failed_for_the_requeue(
         assert row is not None
         assert (row.pipeline_status, row.pipeline_attempts) == (PipelineStatus.failed, 1)
         assert row.pipeline_error is not None
+    monkeypatch.undo()  # the hourly requeue reruns it and the bug is gone: the message ends `done`, not `failed`
+    assert pipeline.pipeline_entry(str(msg_id)) == "understood"
+    with Session(migrated_engine) as session:
+        row = session.get(MessageRow, msg_id)
+        assert row is not None
+        assert (row.pipeline_status, row.pipeline_error) == (PipelineStatus.done, None)
+
+
+def test_inbound_message_stranded_in_pending_is_swept_but_owner_messages_are_not(
+    migrated_engine: Engine, committed_company: Company
+) -> None:
+    from datetime import timedelta
+
+    from app.db.models import OwnerAccount
+    from app.pipeline.understand import requeue_candidates
+
+    cid = committed_company.id
+    tenant_msg = _inbound(migrated_engine, cid)
+    with Session(migrated_engine) as session, session.begin():
+        session.add(OwnerAccount(company_id=cid, display_name="Harjot", whatsapp_e164="+31600000999"))
+    owner_msg = _inbound(migrated_engine, cid, sender="+31600000999")
+    later = datetime.now(UTC) + timedelta(hours=2)
+    swept = dict(requeue_candidates(migrated_engine, later))
+    assert swept[tenant_msg] == f"pipe:{tenant_msg}:p{later:%Y%m%d%H}"
+    assert owner_msg not in swept
+    assert tenant_msg not in dict(requeue_candidates(migrated_engine, datetime.now(UTC)))  # too fresh

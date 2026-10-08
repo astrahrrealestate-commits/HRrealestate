@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -19,6 +19,7 @@ from app.channels.gmail.drafts import GmailDrafts
 from app.channels.whatsapp import payloads
 from app.channels.whatsapp.outbound import WhatsAppOutbound
 from app.contracts import ButtonChoice, Channel
+from app.core.errors import EstateOSError
 from app.core.logging import get_logger
 from app.db.enums import ActionStatus, ApprovalStatus, OutboxStatus, SendStatus
 from app.db.models import ActionRow, Approval, Company, OwnerOutbox, Send
@@ -40,7 +41,7 @@ class SenderDeps:
 
 @dataclass(frozen=True)
 class ExecOutcome:
-    status: Literal["sent", "already", "blocked"]
+    status: Literal["sent", "already", "blocked", "failed"]
     reason: str | None = None
     provider_ref: str | None = None
 
@@ -106,7 +107,7 @@ def _mark(engine: Engine, key: str, status: SendStatus, ref: str | None, error: 
         send = session.execute(select(Send).where(Send.idempotency_key == key)).scalar_one()
         send.status, send.provider_ref, send.error = status, ref, error
         send.attempted_at = datetime.now(UTC)
-        if send.action_id is not None:
+        if send.action_id is not None and status is not SendStatus.pending:
             action = session.get(ActionRow, send.action_id)
             if action is not None:
                 action.status = ActionStatus.executed if status is SendStatus.sent else ActionStatus.failed
@@ -134,14 +135,35 @@ def execute_action(deps: SenderDeps, action_id: UUID, draft_version: int) -> Exe
     return _send(deps, key, plan)
 
 
+class SendFailedError(EstateOSError):
+    """An owner message the provider rejected for good (never retried automatically)."""
+
+
+def _begin_attempt(engine: Engine, key: str) -> bool:
+    """Atomic `pending → sending`: exactly one attempt may call the provider for a send."""
+    with Session(engine) as session, session.begin():
+        won = session.execute(
+            update(Send)
+            .where(Send.idempotency_key == key, Send.status == SendStatus.pending)
+            .values(status=SendStatus.sending, attempted_at=datetime.now(UTC))
+            .returning(Send.id)
+        ).first()
+    return won is not None
+
+
 def _send(deps: SenderDeps, key: str, plan: Plan) -> ExecOutcome:
+    if not _begin_attempt(deps.engine, key):  # another attempt holds it, or it already finished
+        return ExecOutcome("already", reason="another attempt holds this send")
     try:
         ref = _deliver(deps, plan)
     except Exception as exc:
-        if getattr(exc, "retryable", False):
-            raise  # transient: the DBOS step retries; the `sends` row stays pending
-        _mark(deps.engine, key, SendStatus.failed, None, f"{type(exc).__name__}: {str(exc)[:300]}")
-        raise
+        if getattr(exc, "retryable", False):  # definitely not delivered: free it for the step retry
+            _mark(deps.engine, key, SendStatus.pending, None, f"{type(exc).__name__}: {str(exc)[:300]}")
+            raise
+        prefix = "may have been delivered: " if getattr(exc, "maybe_sent", False) else ""
+        reason = f"{prefix}{type(exc).__name__}: {str(exc)[:200]}"
+        _mark(deps.engine, key, SendStatus.failed, None, reason)
+        return ExecOutcome("failed", reason=reason)
     _mark(deps.engine, key, SendStatus.sent, ref, None)
     return ExecOutcome("sent", provider_ref=ref)
 
@@ -153,7 +175,10 @@ def _direct(deps: SenderDeps, company_id: UUID, key: str, payload: dict[str, Any
         send = _claim(session, company_id, key, None, plan)
         if send.status is SendStatus.sent:
             return send.provider_ref
-    return _send(deps, key, plan).provider_ref
+    outcome = _send(deps, key, plan)
+    if outcome.status == "failed":
+        raise SendFailedError(outcome.reason or "owner message rejected")
+    return outcome.provider_ref
 
 
 def _nudge(deps: SenderDeps, company_id: UUID, to: str, last: datetime | None) -> None:

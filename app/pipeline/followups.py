@@ -119,7 +119,10 @@ def _tenant_chaser(engine: Engine, settings: Settings, case: Case, wait: WaitRow
     try:
         out = run_agent(engine, settings, PROPOSER, proposer_prompt(ctx), CallContext(case.company_id, "chaser"))
         reply = next(a for a in out.output.actions if a.type is ActionType.reply_draft)
-        return reply.model_copy(update={"case_id": case.id, "draft_version": 1})
+        payload = reply.payload.model_copy(
+            update={"channel": channel}
+        )  # the channel comes from the case, not the model
+        return reply.model_copy(update={"case_id": case.id, "draft_version": 1, "payload": payload})
     except (AgentFailedError, StopIteration):
         log.warning("followups.chaser_fallback", wait_id=str(wait.id))
         variants = [v.format(about=wait.about) for v in TENANT_CHASE]
@@ -196,8 +199,10 @@ def _store(session: Session, company: Company, case: Case, action: Action, now: 
     return approvals.open_approval(session, company.id, row.id, 1, urgency=case.urgency, now=now)
 
 
-def _load(session: Session, wait_id: UUID) -> tuple[WaitRow, Case, Company, str] | None:
-    wait = session.scalar(select(WaitRow).where(WaitRow.id == wait_id).with_for_update())
+def _load(session: Session, company_id: UUID, wait_id: UUID) -> tuple[WaitRow, Case, Company, str] | None:
+    wait = session.scalar(
+        select(WaitRow).where(WaitRow.company_id == company_id, WaitRow.id == wait_id).with_for_update()
+    )
     if wait is None:
         return None
     case = case_repo.get_case(session, wait.company_id, wait.case_id)
@@ -234,10 +239,12 @@ def _step_approval(session: Session, wait: WaitRow) -> UUID | None:
     )
 
 
-def handle_wait_due(engine: Engine, settings: Settings, wait_id: UUID, *, step: int, now: datetime) -> UUID | None:
+def handle_wait_due(
+    engine: Engine, settings: Settings, company_id: UUID, wait_id: UUID, *, step: int, now: datetime
+) -> UUID | None:
     """Returns the approval to show Harjot (chaser or escalation), or None when nothing is due."""
     with Session(engine) as session:
-        loaded = _load(session, wait_id)
+        loaded = _load(session, company_id, wait_id)
         if loaded is None:
             return None
         if _already_handled(loaded[0], step):  # a re-fired timer: hand back the card it created, if still open
@@ -265,7 +272,9 @@ def handle_wait_due(engine: Engine, settings: Settings, wait_id: UUID, *, step: 
     else:
         action = _escalation(case, wait, who)
     with Session(engine) as session, session.begin():
-        current = session.scalar(select(WaitRow).where(WaitRow.id == wait_id).with_for_update())
+        current = session.scalar(
+            select(WaitRow).where(WaitRow.company_id == company_id, WaitRow.id == wait_id).with_for_update()
+        )
         if current is None or current.chase_count != step or current.status is not wait.status:
             return None  # a concurrent run already handled this step
         approval_id = _store(session, company, case, action, now)

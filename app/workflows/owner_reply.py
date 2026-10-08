@@ -73,7 +73,10 @@ def handle_owner_message(message_id: UUID) -> dict[str, Any]:
                 d = approvals.decide(session, company_id, button.approval_id, button.choice, at=now)
             except NotFoundError:  # an old, foreign or forged button id: answer, never fail the workflow
                 return {"kind": "unknown", "company_id": str(company_id)}
-            local = session.scalar(select(ActionRow.type).where(ActionRow.id == d.action_id)) in LOCAL_TYPES
+            action_type = session.scalar(
+                select(ActionRow.type).where(ActionRow.company_id == company_id, ActionRow.id == d.action_id)
+            )
+            local = action_type in LOCAL_TYPES
             return {
                 "kind": d.kind,
                 "company_id": str(company_id),

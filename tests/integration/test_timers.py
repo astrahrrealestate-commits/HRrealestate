@@ -108,3 +108,14 @@ def test_unknown_kind_marks_timer_failed(
     tid = _schedule(migrated_engine, committed_company.id, "unknown", NOW, kind="nobody.handles")
     DBOS.start_workflow(timer_dispatch.sweep_due, NOW).get_result()
     _wait_status(migrated_engine, tid, TimerStatus.failed)
+
+
+def test_handler_start_renews_the_lease_and_a_stale_claim_does_nothing(
+    migrated_engine: Engine, committed_company: Company
+) -> None:
+    tid = _schedule(migrated_engine, committed_company.id, "renew", NOW)
+    [claimed] = timers.claim_due(migrated_engine, NOW)
+    later = NOW + timers.LEASE - timedelta(seconds=1)  # waited in the queue almost the whole lease
+    assert timers.renew(migrated_engine, tid, claimed.attempts, later) is True
+    assert timers.claim_due(migrated_engine, NOW + timers.LEASE + timedelta(seconds=1)) == []  # still leased
+    assert timers.renew(migrated_engine, tid, claimed.attempts + 1, later) is False  # another claim owns it

@@ -114,13 +114,13 @@ def test_due_wait_chases_twice_then_escalates_and_stale_timers_do_nothing(
     with Session(migrated_engine) as s, s.begin():
         wid = work_repo.open_wait(s, cid, case_id, tenant, about="Foto van de lekkage", expected_by=NOW)
     due = NOW + timedelta(minutes=1)
-    first = followups.handle_wait_due(migrated_engine, test_settings, wid, step=0, now=due)
+    first = followups.handle_wait_due(migrated_engine, test_settings, cid, wid, step=0, now=due)
     # reclaimed timer (crash before the card was sent): same approval again, so the card still goes out once
-    assert followups.handle_wait_due(migrated_engine, test_settings, wid, step=0, now=due) == first
+    assert followups.handle_wait_due(migrated_engine, test_settings, cid, wid, step=0, now=due) == first
     later = _wait(migrated_engine, cid, wid).expected_by + timedelta(minutes=1)
-    second = followups.handle_wait_due(migrated_engine, test_settings, wid, step=1, now=later)
+    second = followups.handle_wait_due(migrated_engine, test_settings, cid, wid, step=1, now=later)
     last = _wait(migrated_engine, cid, wid).expected_by + timedelta(minutes=1)
-    third = followups.handle_wait_due(migrated_engine, test_settings, wid, step=2, now=last)
+    third = followups.handle_wait_due(migrated_engine, test_settings, cid, wid, step=2, now=last)
     assert None not in (first, second, third)
     with Session(migrated_engine) as s:
         types = s.scalars(

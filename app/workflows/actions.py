@@ -77,6 +77,6 @@ def execute_action_wf(action_id: str, draft_version: int, local: bool) -> str:
         outcome, reason = send_step(action_id, draft_version)
     if outcome in ("sent", "already"):  # "already": a replay after the send was recorded; open_wait is idempotent
         after_execute_step(action_id)
-    elif outcome == "blocked":
+    elif outcome in ("blocked", "failed"):  # Harjot always hears when an approved action did not go out
         tell_blocked_step(action_id, DBOS.workflow_id or action_id, reason)
     return outcome

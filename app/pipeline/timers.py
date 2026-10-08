@@ -88,3 +88,14 @@ def finish(engine: Engine, timer_id: UUID, attempts: int, status: TimerStatus) -
             .where(Timer.id == timer_id, Timer.attempts == attempts, Timer.status == TimerStatus.running)
             .values(status=status, locked_until=None)
         )
+
+
+def renew(engine: Engine, timer_id: UUID, attempts: int, now: datetime) -> bool:
+    """A handler starts: extend the lease from now. False when the row was reclaimed (another claim owns it)."""
+    with Session(engine) as session, session.begin():
+        result = session.execute(
+            update(Timer)
+            .where(Timer.id == timer_id, Timer.attempts == attempts, Timer.status == TimerStatus.running)
+            .values(locked_until=now + LEASE)
+        )
+        return bool(result.rowcount)  # type: ignore[attr-defined]  # CursorResult of an UPDATE

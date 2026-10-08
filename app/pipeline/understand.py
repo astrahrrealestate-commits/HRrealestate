@@ -1,15 +1,17 @@
 """Understand message stage: runs the understanding agent and records UnderstandingRow."""
 
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
+from app.contracts import Direction
 from app.core.errors import AgentFailedError
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import PipelineStatus
-from app.db.models import AttachmentRow, MessageRow, UnderstandingRow
+from app.db.models import AttachmentRow, MessageRow, OwnerAccount, UnderstandingRow
 from app.llm.agents.understanding import UNDERSTANDING, understanding_prompt
 from app.llm.calls import CallContext, run_agent
 from app.llm.render import AttachmentMeta
@@ -29,6 +31,11 @@ def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> 
             )
         )
         if existing is not None:
+            if msg.pipeline_status is PipelineStatus.failed:  # a rerun after a later stage failed: try again
+                with Session(engine) as reset, reset.begin():
+                    stale = reset.get(MessageRow, message_id)
+                    if stale is not None and stale.pipeline_status is PipelineStatus.failed:
+                        stale.pipeline_status, stale.pipeline_error = PipelineStatus.pending, None
             return existing
 
         attachments = session.scalars(
@@ -100,17 +107,35 @@ def mark_pipeline_done(engine: Engine, message_id: UUID) -> None:
 MAX_PIPELINE_ATTEMPTS = 3
 
 
-def requeue_candidates(engine: Engine) -> list[tuple[UUID, str]]:
-    """(message id, workflow id) of failed pipeline runs with attempts left. The id carries the attempt number, so a
-    sweep running twice enqueues each rerun once (system cron, all companies)."""
+STALE_PENDING_AFTER = timedelta(hours=1)  # beyond step retries plus queue backlog
+STALE_PENDING_UNTIL = timedelta(days=7)  # older stragglers need a human
+
+
+def requeue_candidates(engine: Engine, now: datetime) -> list[tuple[UUID, str]]:
+    """(message id, workflow id) to rerun (system cron, all companies): failed runs with attempts left, and inbound
+    tenant messages stranded in `pending` (e.g. a deploy changed the workflow code). Ids carry the attempt or the
+    hour, so a sweep running twice enqueues each rerun once."""
+    owner = select(OwnerAccount.id).where(
+        OwnerAccount.company_id == MessageRow.company_id, OwnerAccount.whatsapp_e164 == MessageRow.sender_identity
+    )
     with Session(engine) as session:
-        rows = session.execute(
+        failed = session.execute(
             select(MessageRow.id, MessageRow.pipeline_attempts).where(
                 MessageRow.pipeline_status == PipelineStatus.failed,
                 MessageRow.pipeline_attempts < MAX_PIPELINE_ATTEMPTS,
             )
         ).all()
-    return [(mid, f"pipe:{mid}:r{attempts}") for mid, attempts in rows]
+        stranded = session.scalars(
+            select(MessageRow.id).where(
+                MessageRow.pipeline_status == PipelineStatus.pending,
+                MessageRow.direction == Direction.inbound,
+                MessageRow.created_at < now - STALE_PENDING_AFTER,
+                MessageRow.created_at > now - STALE_PENDING_UNTIL,
+                ~owner.exists(),
+            )
+        ).all()
+    hour = f"{now:%Y%m%d%H}"
+    return [(mid, f"pipe:{mid}:r{n}:{hour}") for mid, n in failed] + [(mid, f"pipe:{mid}:p{hour}") for mid in stranded]
 
 
 def mark_pipeline_failed(engine: Engine, message_id: UUID, error: str) -> int:

@@ -67,7 +67,11 @@ class ApprovalStatus(StrEnum):
 
 
 class SendStatus(StrEnum):
+    """pending → sending (one attempt holds the send; never re-sent blind) → sent | failed; a definitely-not-sent
+    transient error returns it to pending for the retry."""
+
     pending = "pending"
+    sending = "sending"
     sent = "sent"
     failed = "failed"
 

@@ -51,7 +51,9 @@ def _existing(session: Session, company_id: UUID, message_id: UUID) -> ProposeRe
         return None
     live = session.scalars(
         select(Approval.id).where(
-            Approval.action_id.in_([r.id for r in rows]), Approval.status == ApprovalStatus.pending
+            Approval.company_id == company_id,
+            Approval.action_id.in_([r.id for r in rows]),
+            Approval.status == ApprovalStatus.pending,
         )
     ).all()
     return ProposeResult(list(live), sum(r.status is ActionStatus.exception for r in rows))
@@ -60,7 +62,9 @@ def _existing(session: Session, company_id: UUID, message_id: UUID) -> ProposeRe
 def _load(session: Session, msg: MessageRow, case: Case, und: Understanding) -> _Loaded:
     company = session.get(Company, msg.company_id)
     waiting = session.scalars(
-        select(WaitRow.about).where(WaitRow.case_id == case.id, WaitRow.status == WaitStatus.waiting)
+        select(WaitRow.about).where(
+            WaitRow.company_id == msg.company_id, WaitRow.case_id == case.id, WaitRow.status == WaitStatus.waiting
+        )
     ).all()
     contractors = session.execute(
         select(Person.id, Person.display_name, Person.trade).where(
@@ -150,7 +154,15 @@ def _trusted(action: Action, loaded: _Loaded) -> Action:
 def _prepare(engine: Engine, message_id: UUID) -> _Loaded | ProposeResult:
     with Session(engine) as session:
         msg = session.get(MessageRow, message_id)
-        und = session.scalar(select(UnderstandingRow).where(UnderstandingRow.message_id == message_id))
+        und = (
+            session.scalar(
+                select(UnderstandingRow).where(
+                    UnderstandingRow.company_id == msg.company_id, UnderstandingRow.message_id == message_id
+                )
+            )
+            if msg
+            else None
+        )
         if msg is None or und is None:
             return ProposeResult()
         done = _existing(session, msg.company_id, message_id)

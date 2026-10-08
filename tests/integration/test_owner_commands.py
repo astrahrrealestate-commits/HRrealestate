@@ -47,17 +47,23 @@ def _seed(engine: Engine, company: Company) -> None:
         work_repo.open_wait(s, company.id, case_id, None, about="Offerte loodgieter", expected_by=NOW)
 
 
-def test_tasks_done_and_snooze_by_position(
+def _ref(listing: str, title: str) -> str:
+    return next(line for line in listing.splitlines() if title in line).split("#")[1][:6]
+
+
+def test_tasks_done_and_snooze_by_reference_only(
     migrated_engine: Engine, committed_company: Company, test_settings: Settings
 ) -> None:
     _seed(migrated_engine, committed_company)
     listing = _run(migrated_engine, test_settings, committed_company, "tasks")
     assert listing.splitlines()[1].startswith("1. [p1] Approve reply")
     assert "2. [p2] Call plumber" in listing
-    assert _run(migrated_engine, test_settings, committed_company, "done 1") == "Done: Approve reply"
-    assert _run(migrated_engine, test_settings, committed_company, "snooze 1 2d").startswith("Snoozed: Call plumber")
+    assert "#" in _run(migrated_engine, test_settings, committed_company, "done 1")  # a position: asks for the #ref
+    approve, plumber = _ref(listing, "Approve reply"), _ref(listing, "Call plumber")
+    assert _run(migrated_engine, test_settings, committed_company, f"done {approve}") == "Done: Approve reply"
+    assert _run(migrated_engine, test_settings, committed_company, f"snooze #{plumber} 2d").startswith("Snoozed:")
     assert _run(migrated_engine, test_settings, committed_company, "tasks") == "No open tasks."
-    assert "no task 5" in _run(migrated_engine, test_settings, committed_company, "done 5").lower()
+    assert "no task" in _run(migrated_engine, test_settings, committed_company, "done ffffff").lower()
     with Session(migrated_engine) as s:
         statuses = {t.title: t.status for t in s.query(TaskRow).filter(TaskRow.company_id == committed_company.id)}
     assert statuses == {"Approve reply": TaskStatus.done, "Call plumber": TaskStatus.snoozed}

@@ -279,3 +279,61 @@ def test_flush_isolates_a_poison_item_and_uses_the_current_owner_number(env: Env
         statuses = dict(s.execute(select(OwnerOutbox.idempotency_key, OwnerOutbox.status)).all())
     assert statuses == {"approval:poison:0": OutboxStatus.cancelled, "approval:good:0": OutboxStatus.sent}
     assert env.wa.sent[-1].payload["to"] == OWNER.removeprefix("+")
+
+
+def test_a_second_attempt_never_sends_while_one_holds_the_send(env: Env) -> None:
+    """N4: resume racing the original exec: only the attempt that claims `pending → sending` calls the provider."""
+    from sqlalchemy import update
+
+    action_id = _approved(env, ActionType.notify_owner, {"kind": "notify_owner", "text": "x"}, ButtonChoice.ok)
+    _owner_wrote(env)
+    calls: list[int] = []
+    original = env.wa.send
+
+    def racing(payload: dict) -> str:  # type: ignore[type-arg]
+        calls.append(1)
+        assert execute_action(env.deps, action_id, 1).status == "already"  # a concurrent attempt mid-send
+        return original(payload)
+
+    env.wa.send = racing  # type: ignore[method-assign]
+    assert execute_action(env.deps, action_id, 1).status == "sent"
+    assert len(calls) == 1
+    with Session(env.engine) as s:
+        assert s.scalar(select(Send.status).where(Send.action_id == action_id)) is SendStatus.sent
+        s.execute(update(Send).where(Send.action_id == action_id).values(status=SendStatus.sent))
+
+
+def test_transient_error_frees_the_send_for_the_retry(env: Env) -> None:
+    from app.channels.whatsapp.outbound import WhatsAppSendError
+
+    action_id = _approved(env, ActionType.notify_owner, {"kind": "notify_owner", "text": "x"}, ButtonChoice.ok)
+    original, failed = env.wa.send, []
+
+    def flaky(payload: dict) -> str:  # type: ignore[type-arg]
+        if not failed:
+            failed.append(1)
+            raise WhatsAppSendError("503", code=None, http_status=503, retryable=True, maybe_sent=False)
+        return original(payload)
+
+    env.wa.send = flaky  # type: ignore[method-assign]
+    with pytest.raises(WhatsAppSendError):
+        execute_action(env.deps, action_id, 1)
+    assert execute_action(env.deps, action_id, 1).status == "sent"  # what the step retry does
+    assert len(env.wa.sent) == 1
+
+
+def test_permanent_error_returns_failed_with_a_reason(env: Env) -> None:
+    from app.channels.whatsapp.outbound import WhatsAppSendError
+
+    action_id = _approved(env, ActionType.notify_owner, {"kind": "notify_owner", "text": "x"}, ButtonChoice.ok)
+
+    def broken(payload: dict) -> str:  # type: ignore[type-arg]
+        raise WhatsAppSendError("timeout after send", code=None, http_status=None, retryable=False, maybe_sent=True)
+
+    env.wa.send = broken  # type: ignore[method-assign]
+    outcome = execute_action(env.deps, action_id, 1)
+    assert outcome.status == "failed"
+    assert outcome.reason is not None
+    assert "may have been delivered" in outcome.reason
+    with Session(env.engine) as s:
+        assert s.scalar(select(ActionRow.status).where(ActionRow.id == action_id)) is ActionStatus.failed
