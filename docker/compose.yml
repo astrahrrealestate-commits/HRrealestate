@@ -6,7 +6,9 @@ x-app: &app
     context: ..
     dockerfile: docker/Dockerfile
   image: estateos:dev
-  volumes: [appdata:/app/.data]  # local storage, fake mailboxes/media, dev keys: simulator, api and worker share it
+  volumes:
+    - appdata:/app/.data  # local storage, fake mailboxes/media, dev keys: simulator, api and worker share it
+    - ${ESTATEOS_SECRETS_DIR:-${HOME}/.estateos}:/secrets:ro  # Google token files from `make gmail-consent`
   environment: &app-env
     ENV: dev
     DATABASE_URL: postgresql+psycopg://estateos:estateos@postgres:5432/estateos
@@ -19,6 +21,13 @@ x-app: &app
     LANGFUSE_HOST: ${LANGFUSE_HOST:-}
     LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
     LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+    # Real Gmail / Drive (testing): host paths in the env file become the same file names under /secrets
+    GMAIL_PROVIDER: ${GMAIL_PROVIDER:-fake}
+    GMAIL_CREDENTIALS_FILE: ${GMAIL_CREDENTIALS_FILE:+/secrets/gmail-read.json}
+    GMAIL_SEND_CREDENTIALS_FILE: ${GMAIL_SEND_CREDENTIALS_FILE:+/secrets/gmail-compose.json}
+    GMAIL_PUBSUB_TOPIC: ${GMAIL_PUBSUB_TOPIC:-}
+    DRIVE_PROVIDER: ${DRIVE_PROVIDER:-fake}
+    DRIVE_CREDENTIALS_FILE: ${DRIVE_CREDENTIALS_FILE:+/secrets/drive-file.json}
 
 services:
   postgres:

@@ -27,12 +27,17 @@ def _settings(tmp_path: Path, **kw: Any) -> Settings:
     )
 
 
-@pytest.mark.parametrize(
-    "override", [{"whatsapp_provider": "360dialog"}, {"gmail_provider": "google"}, {"env": "prod"}]
-)
-def test_refuses_prod_and_real_providers(tmp_path: Path, override: dict[str, str]) -> None:
-    with pytest.raises(UnsafeConfigurationError, match="fake providers"):
+@pytest.mark.parametrize("override", [{"whatsapp_provider": "360dialog"}, {"env": "prod"}])
+def test_refuses_prod_and_real_whatsapp(tmp_path: Path, override: dict[str, str]) -> None:
+    with pytest.raises(UnsafeConfigurationError, match="fake"):
         Simulator(_settings(tmp_path, **override), httpx.Client())
+
+
+def test_real_gmail_allows_whatsapp_taps_but_not_simulated_mail(tmp_path: Path) -> None:
+    """Testing a real mailbox: Harjot's taps are still simulated, but no fake mail may be injected."""
+    sim = Simulator(_settings(tmp_path, gmail_provider="google"), httpx.Client())
+    with pytest.raises(UnsafeConfigurationError, match="gmail"):
+        sim.gmail("a@example.test", "s", "b")
 
 
 def test_cli_refuses_prod_before_touching_the_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

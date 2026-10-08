@@ -13,6 +13,7 @@ Fake providers only: refuses to run in prod or against real providers.
 
 import argparse
 import mimetypes
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -34,8 +35,10 @@ log = get_logger(__name__)
 
 
 def ensure_simulation_allowed(settings: Settings) -> None:
-    if settings.env == "prod" or settings.whatsapp_provider != "fake" or settings.gmail_provider != "fake":
-        raise UnsafeConfigurationError("the simulator only runs against fake providers outside prod")
+    """Never in prod; WhatsApp is always simulated (owner taps). Gmail may be real (`gmail-pull` testing), then no
+    fake mail can be injected."""
+    if settings.env == "prod" or settings.whatsapp_provider != "fake":
+        raise UnsafeConfigurationError("the simulator only runs outside prod with a fake WhatsApp provider")
 
 
 class Simulator:
@@ -70,6 +73,10 @@ class Simulator:
         in_reply_to: str | None = None,
         attachment: fx.Attachment | None = None,
     ) -> str:
+        if self._settings.gmail_provider != "fake":
+            raise UnsafeConfigurationError(
+                "simulated mail needs GMAIL_PROVIDER=fake (use gmail-pull for a real mailbox)"
+            )
         """Deliver a mail to the dev mailbox and push the notification. Returns its RFC 822 Message-ID."""
         mailbox = registry.fake_gmail_mailbox(self._settings, fx.DEV_MAILBOX)
         message_id = f"<{uuid4().hex}@sim.estateos.test>"
@@ -133,6 +140,12 @@ def _parser() -> argparse.ArgumentParser:
     gmail.add_argument("--body", required=True)
     gmail.add_argument("--in-reply-to", help="Message-ID of an earlier mail (same thread)")
     gmail.add_argument("--attach", help="path to a file to attach")
+    pull = sub.add_parser("gmail-pull", help="real mailbox: register it and sync it once now (no Pub/Sub needed)")
+    pull.add_argument("--mailbox", required=True)
+    sub.add_parser("pending", help="pending approvals for the dev company, with the tap to approve each")
+    approve = sub.add_parser("approve", help="tap a pending approval as Harjot (simulated WhatsApp)")
+    approve.add_argument("--n", type=int, default=1, help="row number from `pending` (1 = newest)")
+    approve.add_argument("--choice", default="d1", choices=["ok", "d1", "d2", "d3", "rej"])
     demo = sub.add_parser("demo", help="seed, run the parity scenario and assert the stored rows (G5)")
     demo.add_argument("--timeout", type=float, default=60.0)
     return parser
@@ -159,6 +172,8 @@ def _run(args: argparse.Namespace, sim: Simulator, engine: Engine, settings: Set
 
     if args.command == "demo":
         return run_demo(sim, engine, settings, timeout=args.timeout)
+    if args.command in ("gmail-pull", "pending", "approve"):
+        return _run_real_gmail(args, sim, engine, settings)
     if args.command == "seed":
         log.info("sim.seeded", company_id=str(seed_dev_tenant(engine).company_id))
     elif args.command == "wa":
@@ -170,6 +185,35 @@ def _run(args: argparse.Namespace, sim: Simulator, engine: Engine, settings: Set
         attachment = _attachment(args.attach)
         mid = sim.gmail(args.sender, args.subject, args.body, in_reply_to=args.in_reply_to, attachment=attachment)
         log.info("sim.gmail", message_id=mid)
+    return 0
+
+
+def _run_real_gmail(args: argparse.Namespace, sim: Simulator, engine: Engine, settings: Settings) -> int:
+    from dbos import DBOSClient
+
+    from app.contracts import ButtonChoice, ButtonId
+    from app.dev import real_gmail
+    from app.dev.seed import seed_dev_tenant
+
+    if args.command == "gmail-pull":
+        client = DBOSClient(system_database_url=settings.dbos_database_url)
+        try:
+            log.info("sim.gmail_pull", workflow_id=real_gmail.pull_mailbox(engine, settings, client, args.mailbox))
+        finally:
+            client.destroy()
+        return 0
+    pending = real_gmail.pending_approvals(engine, seed_dev_tenant(engine).company_id)
+    if args.command == "pending":
+        for p in pending:
+            sys.stdout.write(f"{p.n}. [{p.kind}] {p.case_label}: {p.draft_preview}\n")
+        sys.stdout.write("approve with: python -m app.dev.simulate approve --n <n> --choice d1|d2|d3|ok|rej\n")
+        return 0
+    chosen = next((p for p in pending if p.n == args.n), None)
+    if chosen is None:
+        sys.stderr.write(f"no pending approval #{args.n}\n")
+        return 1
+    button = ButtonId(approval_id=chosen.approval_id, choice=ButtonChoice(args.choice)).render()
+    log.info("sim.approve", wamid=sim.button(button, "Approve", chosen.card_wamid or "wamid.SIMCARD"))
     return 0
 
 

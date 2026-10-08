@@ -92,6 +92,22 @@ Behaviour to know: the watch expires after 7 days and is renewed daily; an hourl
 never arrived; if the mailbox history cursor expires (long outage), the next sync re-reads the last 7 days and
 duplicates are ignored.
 
+### Quick local test with a real mailbox (no Pub/Sub, no public endpoint)
+
+The worker pulls the mailbox the way the hourly backfill does; WhatsApp stays simulated, so Harjot's taps are faked
+and nothing is ever sent. Approved replies become **real Gmail drafts** in the mailbox.
+
+1. Steps 1–3 above (an External app in Testing works for a personal Gmail; add yourself as a test user), with
+   `out=~/.estateos` (the stack mounts that directory read-only at `/secrets`; other directory: `ESTATEOS_SECRETS_DIR`).
+2. `.env`: `GMAIL_PROVIDER=google`, `GMAIL_CREDENTIALS_FILE=~/.estateos/gmail-read.json`,
+   `GMAIL_SEND_CREDENTIALS_FILE=~/.estateos/gmail-compose.json` (keep `WHATSAPP_PROVIDER` fake). Then `make up`.
+3. `LIVE_GMAIL_MAILBOX=<mailbox> make live-check k="mailbox or draft"`: read access and one self-addressed draft.
+4. Send the mailbox a test mail from another address (e.g. "Er lekt water uit de kraan in de keuken").
+5. `make gmail-pull mailbox=<mailbox>`: registers the mailbox on the dev company and syncs now (the first sync reads
+   the last day of mail; each run after reads only new history).
+6. `make pending`: lists the proposals waiting for approval. `make approve n=1 choice=d1`: taps draft 1 as Harjot.
+7. Open Gmail → Drafts: the reply sits in the tenant's thread. Nothing was sent; delete the draft any time.
+
 ## WhatsApp
 
 The provider decision is still open (Meta Cloud API directly, or 360dialog). Both are supported; set one.

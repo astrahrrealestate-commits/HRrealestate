@@ -10,7 +10,7 @@ NEXT_REV = $(shell printf '%04d' $$(( $$(ls app/db/alembic/versions/[0-9]*.py 2>
 
 .PHONY: help setup gmail-consent up up-db down logs ps migrate migration migrate-roundtrip alembic-check \
         fmt lint type boundaries test-unit test-int test cov quick check smoke audit eval \
-        workflows harness-test clean sim-demo live-check
+        workflows harness-test clean sim-demo live-check gmail-pull pending approve
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -88,6 +88,15 @@ smoke: up ## G5: stack up, api ready, worker executing, logs clean
 
 sim-demo: up ## G5: simulate WhatsApp + Gmail through the running stack and assert the stored rows
 	$(COMPOSE) exec -T api python -m app.dev.simulate demo
+
+gmail-pull: ## real Gmail test: register + sync a mailbox now (no Pub/Sub): make gmail-pull mailbox=you@gmail.com
+	$(COMPOSE) exec -T api python -m app.dev.simulate gmail-pull --mailbox "$(mailbox)"
+
+pending: ## pending approvals (dev company) with the tap to approve each
+	$(COMPOSE) exec -T api python -m app.dev.simulate pending
+
+approve: ## tap a pending approval as Harjot: make approve n=1 choice=d1
+	$(COMPOSE) exec -T api python -m app.dev.simulate approve --n "$(or $(n),1)" --choice "$(or $(choice),d1)"
 
 live-check: ## go-live gate: real WhatsApp/Gmail/S3 adapters (credentials: docs/go-live-channels.md); subset: k=gmail
 	$(UV) pytest tests/live --live -v $(if $(k),-k "$(k)")
