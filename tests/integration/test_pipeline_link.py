@@ -137,10 +137,11 @@ def test_several_open_cases_go_to_link_check(
     with Session(migrated_engine) as s, s.begin():
         person = s.scalar(select(Case.primary_person_id).where(Case.id == a.case_id))
         case_repo.create_case(s, cid, person, Category.payment, Urgency.normal)
-    later = _message(migrated_engine, cid, "Vraag", at=NOW + timedelta(days=5), category=Category.other)
+    later = _message(migrated_engine, cid, "Lekkage weer", at=NOW + timedelta(days=5), category=Category.other)
     result = link_message(migrated_engine, test_settings, later)
     assert result is not None
-    assert result.method is LinkMethod.model  # the fake picks the first listed (most recent) candidate
+    assert result.method is LinkMethod.model  # the fake picks the candidate whose summary shares a word ("lekkage")
+    assert result.case_id == a.case_id
 
 
 def test_spam_opens_no_case(migrated_engine: Engine, committed_company: Company, test_settings: Settings) -> None:

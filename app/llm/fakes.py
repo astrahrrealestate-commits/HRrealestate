@@ -16,6 +16,13 @@ def _extract_user_text(messages: list[ModelMessage]) -> str:
     return ""
 
 
+_SUSPICIOUS = (
+    r"ignore previous|iban|bankrekening wijzig"
+    r"|rekeningnummer\b.{0,40}\bgewijzigd|gewijzigd\b.{0,40}\brekeningnummer|nieuw(e)? rekeningnummer"
+    r"|verify your (bank|account|payment) details|update your (bank|payment) details"
+)
+
+
 def _fake_understanding(prompt: str) -> dict[str, object]:
     low = prompt.lower()
     if re.search(r"(contract|kündigung|opzeg|verhuis)", low):
@@ -41,7 +48,7 @@ def _fake_understanding(prompt: str) -> dict[str, object]:
     else:
         urgency = Urgency.normal
 
-    if re.search(r"(ignore previous|iban|bankrekening wijzig)", low):
+    if re.search(_SUSPICIOUS, low):
         suspicious = {"flag": True, "reason": "Suspicious instruction or payment details"}
     else:
         suspicious = {"flag": False, "reason": None}
@@ -57,11 +64,66 @@ def _fake_understanding(prompt: str) -> dict[str, object]:
     }
 
 
+_WORD = re.compile(r"[a-zà-ÿ]{4,}")
+_STOPWORDS = frozenset(
+    [
+        "deze",
+        "niet",
+        "maar",
+        "voor",
+        "heeft",
+        "hebben",
+        "wordt",
+        "worden",
+        "zijn",
+        "naar",
+        "over",
+        "onder",
+        "alle",
+        "weer",
+        "still",
+        "with",
+        "this",
+        "that",
+        "have",
+        "from",
+        "been",
+        "were",
+        "will",
+        "they",
+        "their",
+        "about",
+        "again",
+        "since",
+    ]
+)
+# Summaries are English (case_summary writes them), messages mostly Dutch: map common Dutch terms so the offline
+# fake can see an overlap a real model would see.
+_NL_EN = {
+    "lekt": "leak", "lekkage": "leak", "lekken": "leak", "gootsteen": "sink", "keuken": "kitchen",
+    "badkamer": "bathroom", "deurbel": "doorbell", "schimmel": "mould", "plafond": "ceiling", "borg": "deposit",
+    "huur": "rent", "verwarming": "heating", "kachel": "radiator", "opzegging": "notice", "onderhuur": "sublet",
+    "onderverhuren": "sublet", "wonen": "sublet", "raam": "window", "foto": "photos", "betaalbewijs": "rent",
+}  # fmt: skip
+
+
+def _terms(text: str) -> set[str]:
+    words = {w for w in _WORD.findall(text.lower()) if w not in _STOPWORDS}
+    return words | {_NL_EN[w] for w in words if w in _NL_EN}
+
+
 def _fake_link_check(prompt: str) -> dict[str, object]:
-    m = re.search(r"candidate:\s*([0-9a-fA-F-]{36})", prompt)
-    if m:
-        return {"case_id": m.group(1), "reason": "Matched candidate case", "confidence": 0.8}
-    return {"case_id": None, "reason": "No matching candidate case", "confidence": 0.8}
+    """Pick the candidate whose summary shares the most words with the message; none shared → new case."""
+    blocks = re.findall(r"<message>\n(.*?)\n</message>", prompt, flags=re.S)
+    message = _terms(blocks[-1]) if blocks else set()
+    best, best_score = None, 0
+    for case_id, summary in re.findall(r"candidate:\s*([0-9a-fA-F-]{36})[^\n]*\n\s*([^\n]*)", prompt):
+        score = len(message & _terms(summary))
+        if score > best_score:
+            best, best_score = case_id, score
+    if best is None:
+        return {"case_id": None, "reason": "No shared topic with any open case", "confidence": 0.7}
+    return {"case_id": best, "reason": "Shares the topic of this open case", "confidence": 0.8}
 
 
 def _fake_case_summary(prompt: str) -> dict[str, object]:
