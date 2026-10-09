@@ -33,10 +33,20 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Tests run the deterministic fake agents whatever a developer's `.env` selects (e.g. a real Gemini model);
-    only `--live` checks use the configured model. Environment variables win over `.env` in Settings."""
+    """Tests run on fakes whatever a developer's `.env` selects (a real Gemini model, a real Gmail mailbox, Drive);
+    only `--live` checks use the configured services. Environment variables win over `.env` in Settings; an empty
+    value means unset."""
     if not config.getoption("--live", default=False):
-        os.environ["LLM_MODEL"] = "fake"
+        for name, value in {
+            "LLM_MODEL": "fake",
+            "GMAIL_PROVIDER": "fake",
+            "WHATSAPP_PROVIDER": "fake",
+            "DRIVE_PROVIDER": "fake",
+            "GMAIL_CREDENTIALS_FILE": "",
+            "GMAIL_SEND_CREDENTIALS_FILE": "",
+            "DRIVE_CREDENTIALS_FILE": "",
+        }.items():
+            os.environ[name] = value
 
 
 @pytest.hookimpl(trylast=True)  # after -k / -m deselection: only the selected live tests' settings are required

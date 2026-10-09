@@ -115,5 +115,9 @@ def gmail_push_verifier(settings: Settings) -> PushVerifier:
         account = settings.gmail_pubsub_service_account or DEV_SERVICE_ACCOUNT
         return local_push_verifier(settings.dev_signing_dir, audience, account)
     if not settings.gmail_pubsub_audience or not settings.gmail_pubsub_service_account:
-        raise UnsafeConfigurationError("google push verification needs GMAIL_PUBSUB_AUDIENCE and _SERVICE_ACCOUNT")
+        if settings.env == "prod":
+            raise UnsafeConfigurationError("google push verification needs GMAIL_PUBSUB_AUDIENCE and _SERVICE_ACCOUNT")
+        # Local testing with a real mailbox and no Pub/Sub yet (`make gmail-pull`): the API still boots, and every
+        # push is answered 401 because no signing key can ever match.
+        return PushVerifier("pull-only", "pull-only@invalid", lambda _force_refresh: {})
     return google_push_verifier(settings.gmail_pubsub_audience, settings.gmail_pubsub_service_account)

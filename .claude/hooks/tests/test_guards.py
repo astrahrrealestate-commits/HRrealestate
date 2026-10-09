@@ -94,13 +94,29 @@ class BashGuard(unittest.TestCase):
         self.assertIsNone(bash("cat .env.example"))
         self.assertIsNone(bash("cp .env.example .env.example.bak"))
 
+    def test_env_append_allowed_but_never_read_or_overwrite(self) -> None:
+        """User decision 2026-10-09: settings may be appended to .env from the shell; nothing may read or replace it."""
+        self.assertIsNone(bash("printf '\\nLLM_MODEL=fake\\n' >> .env"))
+        self.assertIsNone(bash("echo GMAIL_PROVIDER=google >> .env"))
+        self.assertIsNone(bash("echo A=1 >> ./.env"))
+        for cmd in [
+            "echo A=1 > .env",
+            "echo A=1 >| .env",
+            "printf x >> .env; cat .env",
+            "echo A=1 >> .env && grep A .env",
+            "cat .env >> /tmp/x",
+            "tee -a .env",
+            "cp .env /tmp/x",
+            "sed -i s/a/b/ .env",
+        ]:
+            self.assertEqual(bash(cmd), "deny", cmd)
+
     def test_env_bypasses_denied(self) -> None:
         for cmd in [
             "cat >x .env",
             "cat 2>/dev/null .env",
             "grep KEY >out .env",
             "cat > .env <<'EOF'\nA=1\nEOF",
-            "cat >> .env",
             "echo A=1 > .env",
             "cat <<EOF .env\nx\nEOF",
             "cat <<EOF; cat .env\nx\nEOF",

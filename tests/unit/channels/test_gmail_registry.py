@@ -35,7 +35,7 @@ def test_push_verifier_selection(tmp_path: Path) -> None:
     google = _s(gmail_provider="google", gmail_pubsub_audience="aud", gmail_pubsub_service_account="sa@p.iam.test")
     assert isinstance(gmail_push_verifier(google), PushVerifier)
     with pytest.raises(UnsafeConfigurationError):
-        gmail_push_verifier(_s(gmail_provider="google"))
+        gmail_push_verifier(_s(gmail_provider="google", env="prod"))
 
 
 def test_drafts_factory() -> None:
@@ -52,3 +52,18 @@ def test_mailbox_address_validated_before_becoming_a_path(tmp_path: Path, addres
     assert not (tmp_path / "fake_gmail").exists() or all(
         p.parent == tmp_path / "fake_gmail" for p in (tmp_path / "fake_gmail").iterdir()
     )
+
+
+def test_real_gmail_without_pubsub_settings_boots_in_dev_and_rejects_every_push() -> None:
+    """Local pull testing (`make gmail-pull`): no Pub/Sub yet, so the API starts and answers every push with 401."""
+    from app.core.errors import PushRejectedError
+
+    verifier = gmail_push_verifier(_s(gmail_provider="google", env="dev"))
+    for header in (None, "Bearer abc", "Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IngifQ.e30.sig"):
+        with pytest.raises(PushRejectedError):
+            verifier.verify_token(header)
+
+
+def test_real_gmail_in_prod_still_needs_pubsub_settings() -> None:
+    with pytest.raises(UnsafeConfigurationError):
+        gmail_push_verifier(_s(gmail_provider="google", env="prod"))

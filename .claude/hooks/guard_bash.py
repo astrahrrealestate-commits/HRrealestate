@@ -50,7 +50,9 @@ ENV_READ = re.compile(
     r"(^|[\s;&|(`])(cat|less|more|head|tail|bat|grep|rg|sed|awk|source|\.|cp|mv|tee|base64|xxd|od|strings|nl|tac)\s+"
     r"[^|;&\n]*\.env(\.(?!example\b)\w+)?(?=[\s;&|)'\"`]|$)"
 )
-ENV_WRITE = re.compile(r">[>|]?\s*['\"]?(\S*/)?\.env(\.(?!example\b)\w+)?(?=[\s;&|)'\"`]|$)")
+# Overwrites (`>`, `>|`) are blocked. Appends (`>>`) are allowed (user decision 2026-10-09: the agent may add settings
+# lines); every read of the file stays blocked by ENV_READ / ENV_INPUT.
+ENV_WRITE = re.compile(r"(?<!>)>\|?\s*['\"]?(\S*/)?\.env(\.(?!example\b)\w+)?(?=[\s;&|)'\"`]|$)")
 ENV_INPUT = re.compile(r"<\s*['\"]?(\S*/)?\.env(\.(?!example\b)\w+)?(?=[\s;&|)'\"`]|$)")
 FILE_WRITING_OPENER = re.compile(r"^\s*(cat\b[^\n|;&]*>|tee\b)")
 
