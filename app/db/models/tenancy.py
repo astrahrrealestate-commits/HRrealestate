@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import ForeignKey, String, UniqueConstraint, false, text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.contracts import Channel
+from app.contracts import Channel, InteractiveChannel
 from app.db.base import Base, CompanyScoped, CreatedAtMixin, IdMixin, str_enum
 
 
@@ -45,6 +45,10 @@ class OwnerAccount(Base, CompanyScoped):
     display_name: Mapped[str] = mapped_column(String(200))
     whatsapp_e164: Mapped[str] = mapped_column(String(20))
     email: Mapped[str | None] = mapped_column(String(320))
+    chat_user: Mapped[str | None] = mapped_column(String(200))
+    interactive_channel: Mapped[InteractiveChannel | None] = mapped_column(
+        str_enum(InteractiveChannel), default=InteractiveChannel.whatsapp, server_default="whatsapp"
+    )
 
 
 class GmailSyncState(Base, CompanyScoped):

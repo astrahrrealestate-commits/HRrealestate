@@ -1,4 +1,4 @@
-"""Owner approval cards: pure WhatsApp payload builders (the recipient is filled in by the sender from the DB).
+"""Owner approval cards: pure message builders (the recipient is filled in by the sender from the DB).
 
 Drafts are shown in full in plain text messages (split at the 4096 limit); the choice follows as one interactive
 message: a list menu for 2–3 drafts, reply buttons otherwise. Every choice id is a `ButtonId` for one approval.
@@ -12,6 +12,8 @@ from uuid import UUID
 
 from app.channels.whatsapp import payloads
 from app.contracts import ButtonChoice, ButtonId, DocType, Urgency
+from app.owner.model import OwnerChoice, OwnerMessage
+from app.owner.render_whatsapp import render_whatsapp
 
 PayloadBuilder = Callable[[str], dict[str, Any]]
 _PREFIX = {Urgency.emergency: "[EMERGENCY] ", Urgency.high: "[HIGH] "}
@@ -46,40 +48,53 @@ def _draft_texts(card: ApprovalCard) -> list[str]:
     return _chunks("\n\n".join(parts))
 
 
-def _menu(card: ApprovalCard, to: str) -> dict[str, Any]:
-    rows = [
-        payloads.ListRow(_id(card, c), f"Send draft {i}", " ".join(d.split())[: payloads.LIST_ROW_DESCRIPTION_MAX])
-        for i, (c, d) in enumerate(zip(_DRAFT_CHOICES, card.drafts, strict=False), start=1)
-    ]
-    rows += [
-        payloads.ListRow(_id(card, ButtonChoice.edit), "Edit"),
-        payloads.ListRow(_id(card, ButtonChoice.rej), "Reject"),
-    ]
-    return payloads.list_menu(to, "Choose a draft, edit or reject.", "Choose", [payloads.ListSection("Options", rows)])
+def approval_messages(card: ApprovalCard) -> list[OwnerMessage]:
+    """Channel-neutral approval card messages: text blocks for drafts followed by choice buttons or list menu."""
+    if not card.drafts:
+        body = f"{_header(card)}\n\n{card.detail or ''}".strip()
+        no_draft_choices: tuple[OwnerChoice, ...] = (
+            OwnerChoice(_id(card, ButtonChoice.ok), "Approve"),
+            OwnerChoice(_id(card, ButtonChoice.rej), "Reject"),
+        )
+        return [OwnerMessage(text=body, choices=no_draft_choices)]
 
+    texts = [OwnerMessage(text=t) for t in _draft_texts(card)]
+    if len(card.drafts) == 1:
+        single_choices: tuple[OwnerChoice, ...] = (
+            OwnerChoice(_id(card, ButtonChoice.ok), "Approve"),
+            OwnerChoice(_id(card, ButtonChoice.edit), "Edit"),
+            OwnerChoice(_id(card, ButtonChoice.rej), "Reject"),
+        )
+        return [*texts, OwnerMessage(text="Approve, edit or reject this draft.", choices=single_choices)]
 
-def _buttons(card: ApprovalCard, body: str, choices: tuple[tuple[ButtonChoice, str], ...], to: str) -> dict[str, Any]:
-    items = [payloads.Button(_id(card, c), title) for c, title in choices]
-    return payloads.buttons(to, body[: payloads.BODY_MAX], items)
+    menu_choices = (
+        *(
+            OwnerChoice(_id(card, c), f"Send draft {i}", " ".join(d.split())[: payloads.LIST_ROW_DESCRIPTION_MAX])
+            for i, (c, d) in enumerate(zip(_DRAFT_CHOICES, card.drafts, strict=False), start=1)
+        ),
+        OwnerChoice(_id(card, ButtonChoice.edit), "Edit"),
+        OwnerChoice(_id(card, ButtonChoice.rej), "Reject"),
+    )
+    menu_msg = OwnerMessage(
+        text="Choose a draft, edit or reject.",
+        choices=menu_choices,
+        menu_title="Options",
+        menu_button="Choose",
+    )
+    return [*texts, menu_msg]
 
 
 def approval_payloads(card: ApprovalCard) -> list[PayloadBuilder]:
-    if not card.drafts:
-        body = f"{_header(card)}\n\n{card.detail or ''}".strip()
-        return [partial(_buttons, card, body, ((ButtonChoice.ok, "Approve"), (ButtonChoice.rej, "Reject")))]
-    texts: list[PayloadBuilder] = [partial(_text, t) for t in _draft_texts(card)]
-    if len(card.drafts) == 1:
-        choices = ((ButtonChoice.ok, "Approve"), (ButtonChoice.edit, "Edit"), (ButtonChoice.rej, "Reject"))
-        return [*texts, partial(_buttons, card, "Approve, edit or reject this draft.", choices)]
-    return [*texts, partial(_menu, card)]
+    """Backward-compatible WhatsApp payload builders."""
+    return [partial(render_whatsapp, m) for m in approval_messages(card)]
 
 
-def _text(body: str, to: str) -> dict[str, Any]:
-    return payloads.text(to, body)
+def exception_message(case_label: str, reason: str) -> OwnerMessage:
+    return OwnerMessage(text=f"Needs your eyes (not drafted): {case_label}\n{reason}"[: payloads.TEXT_BODY_MAX])
 
 
 def exception_payload(case_label: str, reason: str) -> PayloadBuilder:
-    return partial(_text, f"Needs your eyes (not drafted): {case_label}\n{reason}"[: payloads.TEXT_BODY_MAX])
+    return partial(render_whatsapp, exception_message(case_label, reason))
 
 
 DOC_PREFIX = "doc:"
@@ -90,16 +105,21 @@ def document_choice_id(attachment_id: UUID, choice: str) -> str:
     return f"{DOC_PREFIX}{attachment_id}:{choice}"
 
 
-def _document_menu(attachment_id: UUID, body: str, suggested: str, to: str) -> dict[str, Any]:
+def document_review_message(attachment_id: UUID, file_label: str, suggested: str, title: str) -> OwnerMessage:
+    body = f"Document to file: {file_label}\nBest guess: {suggested.replace('_', ' ')} - {title}"
     order = [suggested, *(t for t in _DOC_TYPES if t != suggested)]
-    rows = [
-        payloads.ListRow(document_choice_id(attachment_id, t), f"File as {t.replace('_', ' ')}"[:24]) for t in order
-    ]
-    rows.append(payloads.ListRow(document_choice_id(attachment_id, "skip"), "Do not file"))
-    return payloads.list_menu(to, body[: payloads.BODY_MAX], "Choose", [payloads.ListSection("File as", rows[:10])])
+    choices = (
+        *(OwnerChoice(document_choice_id(attachment_id, t), f"File as {t.replace('_', ' ')}"[:24]) for t in order),
+        OwnerChoice(document_choice_id(attachment_id, "skip"), "Do not file"),
+    )
+    return OwnerMessage(
+        text=body,
+        choices=choices[:10],
+        menu_title="File as",
+        menu_button="Choose",
+    )
 
 
 def document_review_payload(attachment_id: UUID, file_label: str, suggested: str, title: str) -> PayloadBuilder:
     """Low-confidence filing: Harjot picks the type (or skips). Suggested type first."""
-    body = f"Document to file: {file_label}\nBest guess: {suggested.replace('_', ' ')} - {title}"
-    return partial(_document_menu, attachment_id, body, suggested)
+    return partial(render_whatsapp, document_review_message(attachment_id, file_label, suggested, title))

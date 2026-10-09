@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     # Channels (spec M2 §4). Defaults are fakes: everything runs without provider access; prod refuses fakes.
     whatsapp_provider: Literal["fake", "cloud_api", "360dialog"] = "fake"
     gmail_provider: Literal["fake", "google"] = "fake"
+    google_chat_provider: Literal["fake", "google"] = "fake"
+    google_chat_project_number: str | None = None
     whatsapp_app_secret: SecretStr | None = None  # webhook HMAC: Meta app secret or 360dialog platform secret
     whatsapp_verify_token: SecretStr | None = None  # webhook subscription handshake
     whatsapp_api_base_url: str | None = None  # e.g. https://graph.facebook.com/v21.0 or https://waba-v2.360dialog.io

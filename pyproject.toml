@@ -147,15 +147,16 @@ name = "Send isolation: only app.sender touches outbound adapters and send crede
 type = "forbidden"
 source_modules = [
     "app", "app.*", "app.channels", "app.channels.*", "app.channels.whatsapp", "app.channels.whatsapp.*",
-    "app.channels.gmail", "app.channels.gmail.*",
+    "app.channels.gmail", "app.channels.gmail.*", "app.channels.google_chat", "app.channels.google_chat.*",
 ]
 forbidden_modules = [
-    "app.channels.whatsapp.outbound", "app.channels.gmail.drafts",
+    "app.channels.whatsapp.outbound", "app.channels.gmail.drafts", "app.channels.google_chat.outbound",
     "app.sender.settings", "app.sender.whatsapp",
 ]
 ignore_imports = [
     "app.sender.** -> app.channels.whatsapp.outbound",
     "app.sender.** -> app.channels.gmail.drafts",
+    "app.sender.** -> app.channels.google_chat.outbound",
     "app.sender.** -> app.sender.settings",
     "app.sender.** -> app.sender.whatsapp",
 ]

@@ -98,3 +98,7 @@ def test_email_special_use_domains(raw: str, ok: bool) -> None:
     else:
         with pytest.raises(ValueError):
             normalise_identity(raw)
+
+
+def test_google_chat_user_identity_accepted() -> None:
+    assert normalise_identity("users/1029384756") == "users/1029384756"

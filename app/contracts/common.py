@@ -5,6 +5,8 @@ LLM-facing contracts (`Understanding`, `Action`) must produce OpenAI strict-mode
 therefore live in `AfterValidator`s, which validate without appearing in the schema.
 """
 
+import hashlib
+from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated
@@ -39,6 +41,12 @@ NonBlankStr = Annotated[str, AfterValidator(require_non_blank)]
 class Channel(StrEnum):
     whatsapp = "whatsapp"
     gmail = "gmail"
+    google_chat = "google_chat"
+
+
+class InteractiveChannel(StrEnum):
+    whatsapp = "whatsapp"
+    google_chat = "google_chat"
 
 
 class Direction(StrEnum):
@@ -53,3 +61,41 @@ class Money(Contract):
         WithJsonSchema({"type": "string", "pattern": r"^-?[0-9]{1,10}(\.[0-9]{1,2})?$"}),
     ]
     currency: Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")]
+
+
+@dataclass(frozen=True)
+class DraftRequest:
+    idempotency_key: str
+    thread_id: str
+    to: str
+    subject: str
+    body: str
+    in_reply_to: str | None = None
+    references: str | None = None
+
+    @property
+    def key_token(self) -> str:
+        """Carried in `X-EstateOS-Key`. Gmail rewrites a draft's Message-ID, but keeps custom headers."""
+        return hashlib.sha256(self.idempotency_key.encode()).hexdigest()[:32]
+
+    @property
+    def rfc822_id(self) -> str:
+        digest = hashlib.sha256(self.idempotency_key.encode()).hexdigest()[:32]
+        return f"<draft-{digest}@estateos.invalid>"
+
+
+@dataclass(frozen=True)
+class EmailRequest:
+    idempotency_key: str
+    to: str
+    subject: str
+    body_text: str
+    body_html: str | None = None
+
+    @property
+    def key_token(self) -> str:
+        return hashlib.sha256(self.idempotency_key.encode()).hexdigest()[:32]
+
+    @property
+    def rfc822_id(self) -> str:
+        return f"<owner-{self.key_token}@estateos.invalid>"

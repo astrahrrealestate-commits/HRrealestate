@@ -1,6 +1,6 @@
 # Owner channels: morning email + Google Chat bot (alongside WhatsApp)
 
-Date: 2026-10-09 · Status: **draft, awaiting user review** · Decision (user, 2026-10-09): morning digest email in
+Date: 2026-10-09 · Status: **implemented** · Decision (user, 2026-10-09): morning digest email in
 Gmail **plus** an interactive Google Chat bot. WhatsApp stays supported. Parent: [phase-1 agents design](2026-10-07-estateos-phase1-agents-design.md).
 
 ## Goal
@@ -76,9 +76,31 @@ sender ignored. Live: `make live-check k=digest` (sends the digest to the mailbo
 Replacing WhatsApp (it stays selectable), replying to the digest email as a command channel, Chat spaces with several
 people, reading attachment contents, any message to a tenant.
 
-## Open points
+## Open points & Resolution
 
-1. Does Harjot's Workspace allow installing a custom Chat app (admin policy)? Needs his admin.
-2. Digest language: English (as the briefing) unless you want Dutch.
-3. Send the digest only when something needs him, or every morning including "quiet day"? Proposed: only when there
-   is at least one item; otherwise a one-line "nothing today" is **not** sent.
+1. **Workspace policy**: Harjot/admin enables custom Google Chat bot in Workspace. Webhook is `POST /webhooks/googlechat`.
+2. **Digest language**: English for the digest framing, Dutch for reply drafts and tenant-facing content.
+3. **Empty days**: Digest email is sent ONLY when there is at least one item requiring attention (`replies`, `decisions`, `tasks`, `waiting`, or `exceptions`).
+
+## Implemented Architecture
+
+1. **Triage Filter (`app/pipeline/understand.py`, `app/pipeline/propose.py`)**:
+   - `requires_reply: bool` field added to understanding contract and prompt.
+   - Proposer skips generating actions/drafts if `not requires_reply and not suspicious`.
+2. **Channel-Neutral Message Model (`app/contracts/owner.py`)**:
+   - `OwnerMessage`, `OwnerChoice` contracts.
+   - Renderers: `render_whatsapp` (WhatsApp list/button format, byte-identical to previous snapshots), `render_google_chat` (cardsV2 format with button actions).
+3. **Database Migration (`0008_owner_channels_chat_and_email.py`)**:
+   - Added `chat_user: str | None`, `interactive_channel: InteractiveChannel` (`whatsapp` | `google_chat`) to `owner_accounts`.
+   - Widened `Channel` enum check constraints to permit `google_chat`.
+4. **Morning Email Digest (`app/owner/digest.py`, `app/workflows/briefings.py`)**:
+   - Morning digest (07:30 company tz) and Friday summary (16:00).
+   - Collects reply proposals, non-reply approvals, due tasks, open waits, and exceptions.
+   - Displays "N messages ignored" for triaged mail requiring no response.
+   - If no interactive channel is configured, automatically drafts the first Dutch reply in the Gmail thread.
+   - Delivered to `owner_accounts.email` via Gmail drafts/send pipeline with allowlist enforcement.
+5. **Google Chat Bot (`app/channels/google_chat/`, `app/api/webhooks/google_chat.py`)**:
+   - Endpoint: `POST /webhooks/googlechat` verifying Bearer JWT from `chat@system.gserviceaccount.com`.
+   - Message and card click events parsed into standard `RawEvent` / `MessageRow` records.
+   - Sender routing in `app/ingestion/process.py` directs events from `OwnerAccount.chat_user` to `"owner"`, triggering `owner_reply` workflow.
+   - Interactive buttons (`Send draft 1/2/3`, `Edit`, `Reject`, document review) trigger workflow execution and Gmail draft creation.

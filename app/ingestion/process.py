@@ -148,6 +148,8 @@ def _normalise(
 ) -> tuple[Message, dict[str, Any], list[AttachmentInput]]:
     if provider is Channel.whatsapp:
         return _normalise_whatsapp(deps, company_id, raw_event_id, payload, last_attempt)
+    if provider is Channel.google_chat:
+        return _normalise_google_chat(company_id, raw_event_id, payload)
     mailbox = deps.gmail_mailbox(str(payload["mailbox"]))
     gm = mailbox.get_message(str(payload["message_id"]))  # NotFoundError: deleted since the push
     message, meta, parts = gmail_to_message(
@@ -155,6 +157,17 @@ def _normalise(
     )
     stored = [store_attachment(deps.storage, company_id, p.data, p.mime_type, p.filename) for p in parts]
     return message, meta, stored
+
+
+def _normalise_google_chat(
+    company_id: UUID, raw_event_id: UUID, payload: dict[str, Any]
+) -> tuple[Message, dict[str, Any], list[AttachmentInput]]:
+    from app.channels.google_chat.inbound import parse_chat_event
+    from app.channels.google_chat.inbound import to_message as chat_to_message
+
+    event = parse_chat_event(payload)
+    message, meta = chat_to_message(event, company_id=company_id, raw_event_id=raw_event_id)
+    return message, meta, []
 
 
 def _normalise_whatsapp(
@@ -178,10 +191,18 @@ def _normalise_whatsapp(
 
 
 def _route(session: Session, message: Message) -> str:
-    """Owner commands come only over WhatsApp, where the sender id is provider-verified. An email From: header is
-    trivially spoofable, so Gmail never routes to the owner handler in Phase 1."""
+    """Owner commands come only over WhatsApp and Google Chat, where the sender id is provider-verified.
+    An email From: header is trivially spoofable, so Gmail never routes to the owner handler in Phase 1."""
     if message.direction is Direction.outbound:
         return "none"
+    if message.channel is Channel.google_chat:
+        owner = session.scalar(
+            select(OwnerAccount.id).where(
+                OwnerAccount.company_id == message.company_id,
+                OwnerAccount.chat_user == message.sender_identity,
+            )
+        )
+        return "owner" if owner is not None else "none"
     if message.channel is not Channel.whatsapp:
         return "pipeline"
     owner = session.scalar(

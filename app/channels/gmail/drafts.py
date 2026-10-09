@@ -1,7 +1,6 @@
 """Gmail drafts (Phase 1's only email output). Imported ONLY by app.sender (import-linter + edit guard)."""
 
 import base64
-import hashlib
 import re
 from dataclasses import dataclass, field
 from email.headerregistry import Address
@@ -14,6 +13,7 @@ from googleapiclient.errors import HttpError
 from app.channels.gmail.fake import FakeMailbox
 from app.channels.gmail.google import is_rate_limited
 from app.channels.text_clean import clean_header
+from app.contracts import DraftRequest, EmailRequest
 from app.core.errors import EstateOSError
 
 COMPOSE_SCOPES = ["https://www.googleapis.com/auth/gmail.compose"]
@@ -23,27 +23,6 @@ class GmailDraftError(EstateOSError):
     def __init__(self, message: str, *, retryable: bool) -> None:
         super().__init__(message)
         self.retryable = retryable
-
-
-@dataclass(frozen=True)
-class DraftRequest:
-    idempotency_key: str  # e.g. exec:{action_id}:{draft_version} — becomes a deterministic Message-ID
-    thread_id: str
-    to: str
-    subject: str
-    body: str
-    in_reply_to: str | None = None
-    references: str | None = None
-
-    @property
-    def key_token(self) -> str:
-        """Carried in `X-EstateOS-Key`. Gmail rewrites a draft's Message-ID, but keeps custom headers."""
-        return hashlib.sha256(self.idempotency_key.encode()).hexdigest()[:32]
-
-    @property
-    def rfc822_id(self) -> str:
-        digest = hashlib.sha256(self.idempotency_key.encode()).hexdigest()[:32]
-        return f"<draft-{digest}@estateos.invalid>"
 
 
 MAX_REFERENCES = 8_000
@@ -72,6 +51,10 @@ class GmailDrafts(Protocol):
         """Create a draft in the thread; returns the provider draft id."""
         ...
 
+    def send_message(self, request: EmailRequest) -> str:
+        """Send an email (used for owner digest); returns provider message id."""
+        ...
+
 
 def build_mime(sender: str, request: DraftRequest) -> bytes:
     msg = EmailMessage()
@@ -88,12 +71,26 @@ def build_mime(sender: str, request: DraftRequest) -> bytes:
     return msg.as_bytes()
 
 
+def build_owner_email_mime(sender: str, request: EmailRequest) -> bytes:
+    msg = EmailMessage()
+    msg["From"] = sender
+    msg["To"] = _single_recipient(clean_header(request.to) or "")
+    msg["Subject"] = clean_header(request.subject) or ""
+    msg["Message-ID"] = request.rfc822_id
+    msg["X-EstateOS-Key"] = request.key_token
+    msg.set_content(request.body_text, charset="utf-8")
+    if request.body_html:
+        msg.add_alternative(request.body_html, subtype="html")
+    return msg.as_bytes()
+
+
 def _b64(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
 
 class GoogleDrafts:
     def __init__(self, service: Any, address: str) -> None:
+        self._service = service
         self._drafts = service.users().drafts()
         self._address = address
 
@@ -128,11 +125,23 @@ class GoogleDrafts:
         draft_id: str = response["id"]
         return draft_id
 
+    def send_message(self, request: EmailRequest) -> str:
+        raw = _b64(build_owner_email_mime(self._address, request))
+        try:
+            response = self._service.users().messages().send(userId="me", body={"raw": raw}).execute()
+        except HttpError as exc:
+            status = int(getattr(exc.resp, "status", 0) or 0)
+            retryable = status >= 500 or is_rate_limited(exc)
+            raise GmailDraftError(f"sending email failed: HTTP {status}", retryable=retryable) from exc
+        message_id: str = response["id"]
+        return message_id
+
 
 @dataclass
 class FakeDrafts:
     mailbox: FakeMailbox
     created: list[DraftRequest] = field(default_factory=list)
+    sent: list[EmailRequest] = field(default_factory=list)
 
     def create_draft(self, request: DraftRequest) -> str:
         existing = self.mailbox.find_by_header("X-EstateOS-Key", request.key_token, "DRAFT")
@@ -142,4 +151,13 @@ class FakeDrafts:
             build_mime(self.mailbox.address, request), labels=["DRAFT"], thread_id=request.thread_id
         )
         self.created.append(request)
+        return f"r-{message_id}"
+
+    def send_message(self, request: EmailRequest) -> str:
+        existing = self.mailbox.find_by_header("X-EstateOS-Key", request.key_token, "SENT")
+        if existing:
+            return f"r-{existing}"
+        raw = build_owner_email_mime(self.mailbox.address, request)
+        message_id = self.mailbox.add_message(raw, labels=["SENT"])
+        self.sent.append(request)
         return f"r-{message_id}"

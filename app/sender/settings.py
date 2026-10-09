@@ -17,3 +17,4 @@ class SenderSettings(BaseSettings):
     whatsapp_access_token: SecretStr | None = None
     whatsapp_phone_number_id: str | None = None
     gmail_send_credentials_file: Path | None = None
+    google_chat_service_account_file: Path | None = None

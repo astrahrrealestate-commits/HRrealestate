@@ -16,6 +16,7 @@ from app.channels.gmail.push import (
     google_push_verifier,
     local_push_verifier,
 )
+from app.channels.google_chat.verifier import ChatVerifier
 from app.channels.whatsapp.fake_media import DirWhatsAppMedia
 from app.channels.whatsapp.media import HttpWhatsAppMedia, WhatsAppMedia
 from app.channels.whatsapp.media_settings import WhatsAppMediaSettings
@@ -121,3 +122,10 @@ def gmail_push_verifier(settings: Settings) -> PushVerifier:
         # push is answered 401 because no signing key can ever match.
         return PushVerifier("pull-only", "pull-only@invalid", lambda _force_refresh: {})
     return google_push_verifier(settings.gmail_pubsub_audience, settings.gmail_pubsub_service_account)
+
+
+def google_chat_verifier(settings: Settings) -> ChatVerifier:
+    return ChatVerifier(
+        project_number=settings.google_chat_project_number,
+        provider=settings.google_chat_provider,
+    )

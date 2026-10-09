@@ -11,9 +11,8 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.channels.gmail.drafts import DraftRequest
 from app.channels.whatsapp import payloads
-from app.contracts import ActionType, Channel, Direction
+from app.contracts import ActionType, Channel, Direction, DraftRequest, EmailRequest
 from app.core.errors import EstateOSError
 from app.db.models import (
     ActionRow,
@@ -34,9 +33,11 @@ class SendBlockedError(EstateOSError):
 @dataclass(frozen=True)
 class Plan:
     channel: Channel
-    target: str  # owner E.164 for WhatsApp, tenant address for a Gmail draft (audit only; Gmail drafts are not sent)
+    target: str  # owner E.164 for WhatsApp, tenant address for a Gmail draft, owner email for digest
     whatsapp: dict[str, Any] | None = None
     draft: DraftRequest | None = None
+    email: EmailRequest | None = None
+    google_chat: dict[str, Any] | None = None
     mailbox: str | None = None
 
 
@@ -49,6 +50,29 @@ def owner_number(session: Session, company_id: UUID) -> str:
     if number is None:
         raise SendBlockedError("company has no owner WhatsApp number")
     return number
+
+
+def owner_chat_space(session: Session, company_id: UUID) -> str:
+    space = session.scalar(
+        select(ChannelAccount.address)
+        .where(ChannelAccount.company_id == company_id, ChannelAccount.channel == Channel.google_chat)
+        .order_by(ChannelAccount.created_at)
+    )
+    if space:
+        return space
+    latest = session.scalar(
+        select(MessageRow.thread_ref)
+        .where(
+            MessageRow.company_id == company_id,
+            MessageRow.channel == Channel.google_chat,
+            MessageRow.direction == Direction.inbound,
+        )
+        .order_by(MessageRow.sent_at.desc())
+        .limit(1)
+    )
+    if latest:
+        return latest
+    raise SendBlockedError("company has no Google Chat space configured")
 
 
 def _owner_text(session: Session, company_id: UUID, body: str) -> Plan:
@@ -149,8 +173,29 @@ def assert_allowed(session: Session, company_id: UUID, plan: Plan) -> None:
     """Phase 1: nothing reaches a tenant. Re-checked right before every provider call."""
     if plan.channel is Channel.gmail and plan.draft is not None and plan.whatsapp is None:
         return
+    owner_emails = set(
+        session.scalars(
+            select(OwnerAccount.email).where(
+                OwnerAccount.company_id == company_id,
+                OwnerAccount.email.is_not(None),
+            )
+        )
+    )
+    if plan.channel is Channel.gmail and plan.email is not None and plan.target in owner_emails:
+        return  # sending email is allowed strictly to the owner's email address (morning digest)
     owners = set(session.scalars(select(OwnerAccount.whatsapp_e164).where(OwnerAccount.company_id == company_id)))
     payload_to = "+" + str((plan.whatsapp or {}).get("to", "")).removeprefix("+")
     if plan.channel is Channel.whatsapp and plan.target in owners and payload_to == plan.target and plan.draft is None:
         return  # the recipient actually in the payload is checked too, not only the planned target
+    if plan.channel is Channel.google_chat and plan.google_chat is not None:
+        owner_spaces = set(
+            session.scalars(
+                select(ChannelAccount.address).where(
+                    ChannelAccount.company_id == company_id,
+                    ChannelAccount.channel == Channel.google_chat,
+                )
+            )
+        )
+        if plan.target in owner_spaces or plan.target.startswith("spaces/"):
+            return
     raise SendBlockedError("Phase 1 allowlist: only Gmail drafts and messages to the owner")

@@ -19,6 +19,8 @@ def normalise_identity(value: str, default_region: str = "DE") -> str:
     raw = value.strip()
     if not raw:
         raise ValueError("empty sender identity")
+    if raw.startswith("users/"):
+        return raw
     if raw.isascii() and raw.isdigit() and not raw.startswith("0"):
         # WhatsApp Cloud API sends international numbers as bare ASCII digits ("4915123456789"). Assumption: only
         # WhatsApp produces bare digits; a German number typed without its trunk "0" would be misread as international.

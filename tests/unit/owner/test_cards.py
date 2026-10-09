@@ -51,3 +51,24 @@ def test_exception_alert() -> None:
     body = exception_payload("Sanne · payment", "IBAN change requested")(TO)["text"]["body"]
     assert body.startswith("Needs your eyes (not drafted): Sanne · payment")
     assert "IBAN change requested" in body
+
+
+def test_approval_messages_neutral_model() -> None:
+    from app.owner.cards import approval_messages, document_review_message, exception_message
+
+    card = _card(("Draft 1", "Draft 2"), Urgency.normal)
+    msgs = approval_messages(card)
+    assert len(msgs) == 2
+    assert "Draft 1" in msgs[0].text
+    assert msgs[1].menu_title == "Options"
+    assert len(msgs[1].choices) == 4  # d1, d2, edit, rej
+
+    exc = exception_message("Case", "reason")
+    assert "reason" in exc.text
+    assert exc.choices == ()
+
+    doc = document_review_message(uuid4(), "file.pdf", "invoice", "Test invoice")
+    assert "file.pdf" in doc.text
+    assert len(doc.choices) == 10
+    assert doc.choices[0].label == "File as invoice"
+    assert doc.choices[-1].label == "Do not file"

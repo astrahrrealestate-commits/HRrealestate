@@ -11,7 +11,13 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.mark.parametrize(
-    "package", ["app/channels/__init__.py", "app/channels/whatsapp/__init__.py", "app/channels/gmail/__init__.py"]
+    "package",
+    [
+        "app/channels/__init__.py",
+        "app/channels/whatsapp/__init__.py",
+        "app/channels/gmail/__init__.py",
+        "app/channels/google_chat/__init__.py",
+    ],
 )
 def test_channel_package_inits_import_nothing(package: str) -> None:
     tree = ast.parse((ROOT / package).read_text())

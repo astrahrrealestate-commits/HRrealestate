@@ -16,15 +16,25 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.channels.gmail.drafts import GmailDrafts
+from app.channels.google_chat.outbound import GoogleChatOutbound
+from app.channels.google_chat.render import render_google_chat
 from app.channels.whatsapp import payloads
 from app.channels.whatsapp.outbound import WhatsAppOutbound
-from app.contracts import ButtonChoice, Channel
+from app.channels.whatsapp.render import render_whatsapp
+from app.contracts import ButtonChoice, Channel, EmailRequest, InteractiveChannel, OwnerMessage
 from app.core.errors import EstateOSError
 from app.core.logging import get_logger
 from app.db.enums import ActionStatus, ApprovalStatus, OutboxStatus, SendStatus
-from app.db.models import ActionRow, Approval, Company, OwnerOutbox, Send
+from app.db.models import ActionRow, Approval, ChannelAccount, Company, OwnerAccount, OwnerOutbox, Send
 from app.sender import owner_window
-from app.sender.targets import Plan, SendBlockedError, assert_allowed, owner_number, plan_for
+from app.sender.targets import (
+    Plan,
+    SendBlockedError,
+    assert_allowed,
+    owner_chat_space,
+    owner_number,
+    plan_for,
+)
 
 log = get_logger(__name__)
 _VARIANT = {ButtonChoice.d2: 1, ButtonChoice.d3: 2}
@@ -35,6 +45,7 @@ class SenderDeps:
     engine: Engine
     whatsapp: WhatsAppOutbound
     gmail_drafts: Callable[[str], GmailDrafts]  # mailbox address → drafts adapter
+    google_chat: GoogleChatOutbound | None = None
     template_name: str = "estateos_pending"
     template_language: str = "en"
 
@@ -97,6 +108,12 @@ def _variant(session: Session, action: ActionRow, draft_version: int) -> int:
 def _deliver(deps: SenderDeps, plan: Plan) -> str:
     if plan.channel is Channel.gmail and plan.draft is not None and plan.mailbox is not None:
         return deps.gmail_drafts(plan.mailbox).create_draft(plan.draft)
+    if plan.channel is Channel.gmail and plan.email is not None and plan.mailbox is not None:
+        return deps.gmail_drafts(plan.mailbox).send_message(plan.email)
+    if plan.channel is Channel.google_chat and plan.google_chat is not None:
+        if deps.google_chat is None:
+            raise SendBlockedError("Google Chat outbound not configured")
+        return deps.google_chat.send(plan.target, plan.google_chat)
     if plan.whatsapp is not None:
         return deps.whatsapp.send(plan.whatsapp)
     raise SendBlockedError("nothing to deliver")
@@ -188,16 +205,64 @@ def _nudge(deps: SenderDeps, company_id: UUID, to: str, last: datetime | None) -
     _direct(deps, company_id, owner_window.nudge_key(company_id, last), template, to)
 
 
-def send_to_owner(deps: SenderDeps, company_id: UUID, key: str, build: Callable[[str], dict[str, Any]]) -> str | None:
-    """Owner-channel messages that are not actions (approval cards, briefings, alerts). `build(to)` gets the owner's
-    number from the DB. Idempotent per `key`. Returns the provider message id, or None when the WhatsApp 24-hour
-    window is closed: then the message waits in the outbox behind one template nudge."""
+def _direct_chat(deps: SenderDeps, company_id: UUID, key: str, payload: dict[str, Any], space: str) -> str | None:
+    plan = Plan(Channel.google_chat, space, google_chat=payload)
     with Session(deps.engine) as session, session.begin():
+        assert_allowed(session, company_id, plan)
+        send = _claim(session, company_id, key, None, plan)
+        if send.status is SendStatus.sent:
+            return send.provider_ref
+    outcome = _send(deps, key, plan)
+    if outcome.status == "failed":
+        raise SendFailedError(outcome.reason or "owner chat message rejected")
+    return outcome.provider_ref
+
+
+def send_to_owner(
+    deps: SenderDeps, company_id: UUID, key: str, build: Callable[[str], dict[str, Any]] | Any
+) -> str | None:
+    """Owner-channel messages that are not actions (approval cards, briefings, alerts).
+    Supports both WhatsApp (with 24-hr outbox) and Google Chat (instant direct delivery).
+    """
+    with Session(deps.engine) as session:
         existing = session.scalar(select(Send).where(Send.idempotency_key == key))
         if existing is not None and existing.status is SendStatus.sent:
             return existing.provider_ref
-        to = owner_number(session, company_id)
-        payload = build(to)
+        owner = session.scalar(
+            select(OwnerAccount).where(OwnerAccount.company_id == company_id).order_by(OwnerAccount.created_at)
+        )
+        if owner is None:
+            raise SendBlockedError("company has no owner account")
+        interactive_channel = owner.interactive_channel
+        whatsapp_to = owner.whatsapp_e164
+        space = None
+        if interactive_channel == InteractiveChannel.google_chat:
+            space = owner_chat_space(session, company_id)
+
+    if interactive_channel == InteractiveChannel.google_chat and space is not None:
+        if isinstance(build, OwnerMessage):
+            payload = render_google_chat(build)
+        elif callable(build):
+            res = build(whatsapp_to)
+            if isinstance(res, OwnerMessage):
+                payload = render_google_chat(res)
+            elif isinstance(res, dict):
+                if "text" in res and isinstance(res["text"], dict) and "body" in res["text"]:
+                    payload = {"text": str(res["text"]["body"])}
+                elif "cardsV2" in res or "text" in res:
+                    payload = res
+                else:
+                    payload = {"text": str(res)}
+            else:
+                payload = {"text": str(res)}
+        else:
+            payload = {"text": str(build)}
+        return _direct_chat(deps, company_id, key, payload, space)
+
+    to = whatsapp_to
+    payload = render_whatsapp(build, to) if isinstance(build, OwnerMessage) else build(to)
+
+    with Session(deps.engine) as session, session.begin():
         assert_allowed(session, company_id, Plan(Channel.whatsapp, to, whatsapp=payload))
         last = owner_window.last_owner_message(session, company_id, to)
         is_open = owner_window.window_open(last, datetime.now(UTC))
@@ -207,6 +272,31 @@ def send_to_owner(deps: SenderDeps, company_id: UUID, key: str, build: Callable[
         _nudge(deps, company_id, to, last)
         return None
     return _direct(deps, company_id, key, payload, to)
+
+
+def send_owner_email(deps: SenderDeps, company_id: UUID, key: str, req: EmailRequest) -> str | None:
+    """Send an email to the owner (morning digest). Idempotent per `key`."""
+    with Session(deps.engine) as session, session.begin():
+        existing = session.scalar(select(Send).where(Send.idempotency_key == key))
+        if existing is not None and existing.status is SendStatus.sent:
+            return existing.provider_ref
+        mailbox = session.scalar(
+            select(ChannelAccount.address).where(
+                ChannelAccount.company_id == company_id,
+                ChannelAccount.channel == Channel.gmail,
+            )
+        )
+        if mailbox is None:
+            raise SendBlockedError("company has no Gmail mailbox configured to send from")
+        plan = Plan(Channel.gmail, req.to, email=req, mailbox=mailbox)
+        assert_allowed(session, company_id, plan)
+        send = _claim(session, company_id, key, None, plan)
+        if send.status is SendStatus.sent:
+            return send.provider_ref
+    outcome = _send(deps, key, plan)
+    if outcome.status == "failed":
+        raise SendFailedError(outcome.reason or "owner email rejected")
+    return outcome.provider_ref
 
 
 def _settle(deps: SenderDeps, row_id: UUID, status: OutboxStatus) -> None:
