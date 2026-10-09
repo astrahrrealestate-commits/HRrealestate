@@ -31,7 +31,7 @@ def build_sender_deps(settings: Settings, engine: Engine) -> SenderDeps:
         from app.channels.google_chat.outbound import FakeGoogleChatOutbound
 
         google_chat = FakeGoogleChatOutbound()
-    elif sender.google_chat_service_account_file:
+    elif settings.google_chat_provider == "google":
         from app.channels.google_chat.outbound import GoogleChatClient
 
         google_chat = GoogleChatClient(sender.google_chat_service_account_file)
