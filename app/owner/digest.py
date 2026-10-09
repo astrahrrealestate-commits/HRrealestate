@@ -6,6 +6,7 @@ interactive channel's short briefing. Weekly (Friday 16:00) likewise.
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from typing import Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -425,3 +426,130 @@ def render_digest_email(data: DigestData) -> tuple[str, str, str]:
     html_body = "".join(html_parts)
 
     return subject, text_body, html_body
+
+
+def render_digest_chat(data: DigestData) -> dict[str, Any]:
+    """Renders DigestData into an interactive Google Chat cardsV2 message."""
+    kind_title = "Daily Briefing" if data.kind == "daily" else "Weekly Summary"
+    sections: list[dict[str, Any]] = []
+
+    # KPI summary bar
+    num_replies = len(data.replies)
+    num_decisions = len(data.decisions)
+    num_tasks = len(data.tasks_due)
+    kpi_text = (
+        f"<b>📊 At a glance:</b>\n"
+        f"• {num_replies} replies needed\n"
+        f"• {num_decisions} decisions waiting\n"
+        f"• {num_tasks} tasks due today\n"
+        f"• {data.ignored_count} ignored (spam/receipts)"
+    )
+    sections.append(
+        {
+            "header": "Summary",
+            "widgets": [{"textParagraph": {"text": kpi_text}}],
+        }
+    )
+
+    # Cases needing reply
+    for r in data.replies:
+        widgets: list[dict[str, Any]] = []
+        info = f"<b>[{r.urgency.value.upper()}] {r.who}</b> · {r.category}\n<i>Situation:</i> {r.situation}"
+        widgets.append({"textParagraph": {"text": info}})
+
+        if r.drafts:
+            draft_1 = r.drafts[0]
+            widgets.append({"textParagraph": {"text": f"<b>Draft 1 (Recommended):</b>\n{draft_1}"}})
+
+        buttons: list[dict[str, Any]] = [
+            {
+                "text": "Send draft 1",
+                "onClick": {
+                    "action": {
+                        "function": "owner_action",
+                        "parameters": [{"key": "button_id", "value": f"apr:{r.approval_id}:d1"}],
+                    }
+                },
+            },
+            {
+                "text": "Edit",
+                "onClick": {
+                    "action": {
+                        "function": "owner_action",
+                        "parameters": [{"key": "button_id", "value": f"apr:{r.approval_id}:edit"}],
+                    }
+                },
+            },
+            {
+                "text": "Reject",
+                "onClick": {
+                    "action": {
+                        "function": "owner_action",
+                        "parameters": [{"key": "button_id", "value": f"apr:{r.approval_id}:rej"}],
+                    }
+                },
+            },
+        ]
+        if r.gmail_url:
+            buttons.append(
+                {
+                    "text": "Open in Gmail →",
+                    "onClick": {"openLink": {"url": r.gmail_url}},
+                }
+            )
+        widgets.append({"buttonList": {"buttons": buttons}})
+        sections.append(
+            {
+                "header": f"Needs Reply: {r.who}",
+                "widgets": widgets,
+            }
+        )
+
+    # Decisions
+    if data.decisions:
+        dec_text = "\n".join(f"• {d}" for d in data.decisions)
+        sections.append(
+            {
+                "header": "Decisions Waiting",
+                "widgets": [{"textParagraph": {"text": dec_text}}],
+            }
+        )
+
+    # Tasks
+    if data.tasks_due:
+        task_text = "\n".join(f"📋 {t}" for t in data.tasks_due)
+        sections.append(
+            {
+                "header": "Tasks Due Today",
+                "widgets": [{"textParagraph": {"text": task_text}}],
+            }
+        )
+
+    if data.ignored_count > 0:
+        sections.append(
+            {
+                "widgets": [
+                    {
+                        "textParagraph": {
+                            "text": f"<i>🛡️ {data.ignored_count} messages ignored (newsletters, receipts, spam).</i>"
+                        }
+                    }
+                ]
+            }
+        )
+
+    card: dict[str, Any] = {
+        "header": {
+            "title": f"EstateOS {kind_title}",
+            "subtitle": f"{data.date_label} · {data.company_name}",
+        },
+        "sections": sections,
+    }
+    return {
+        "cardsV2": [
+            {
+                "cardId": "estateos_digest_briefing",
+                "card": card,
+            }
+        ]
+    }

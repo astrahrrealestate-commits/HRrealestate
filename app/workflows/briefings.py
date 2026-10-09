@@ -10,12 +10,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.channels.whatsapp import payloads
-from app.contracts import Channel, EmailRequest
+from app.contracts import Channel, EmailRequest, InteractiveChannel
 from app.core.logging import get_logger
 from app.core.settings import get_settings
 from app.db.models import ActionRow, ChannelAccount, OwnerAccount
 from app.llm.agents.briefing import Kind
-from app.owner.digest import DigestCaseReply, collect_digest_data, render_digest_email
+from app.owner.digest import DigestCaseReply, collect_digest_data, render_digest_chat, render_digest_email
 from app.pipeline import briefing
 from app.pipeline.timers import ClaimedTimer
 from app.sender.execute import SenderDeps, send_owner_email, send_to_owner
@@ -89,6 +89,23 @@ def _create_gmail_thread_drafts(
             log.warning("digest.draft_creation_failed", approval_id=str(reply.approval_id), error=str(exc))
 
 
+def send_digest_chat(deps: SenderDeps, company_id: UUID, key: str, kind: Kind, now: datetime) -> str | None:
+    """Delivers the interactive cardsV2 briefing to Google Chat if owner interactive_channel is google_chat."""
+    with Session(deps.engine) as session:
+        owner = session.scalar(
+            select(OwnerAccount).where(OwnerAccount.company_id == company_id).order_by(OwnerAccount.created_at)
+        )
+        if owner is None or owner.interactive_channel != InteractiveChannel.google_chat:
+            return None
+        data = collect_digest_data(session, company_id, kind, now)
+        if not data.has_items:
+            log.info("digest.chat.empty_skipped", company_id=str(company_id))
+            return None
+
+    card_payload = render_digest_chat(data)
+    return send_to_owner(deps, company_id, key, card_payload)
+
+
 def on_briefing(timer: ClaimedTimer) -> None:
     """Runs inside the `timers.run_handler` step. One send key per timer, so a re-fired timer sends nothing twice;
     outside the WhatsApp window the briefing waits behind the template nudge until Harjot replies."""
@@ -96,8 +113,19 @@ def on_briefing(timer: ClaimedTimer) -> None:
     now = datetime.now(UTC)
     with Session(get_engine()) as session, session.begin():  # book the next runs first: a failed send never stops them
         briefing.ensure_timers(session, now)
-    text = briefing.compose(get_engine(), get_settings(), timer.company_id, kind, now)
-    send_to_owner(get_sender_deps(), timer.company_id, f"briefing:{timer.id}", partial(_text, text))
+
+    with Session(get_engine()) as session:
+        owner = session.scalar(
+            select(OwnerAccount).where(OwnerAccount.company_id == timer.company_id).order_by(OwnerAccount.created_at)
+        )
+        is_chat = owner is not None and owner.interactive_channel == InteractiveChannel.google_chat
+
+    if is_chat:
+        send_digest_chat(get_sender_deps(), timer.company_id, f"briefing:{timer.id}", kind, now)
+    else:
+        text = briefing.compose(get_engine(), get_settings(), timer.company_id, kind, now)
+        send_to_owner(get_sender_deps(), timer.company_id, f"briefing:{timer.id}", partial(_text, text))
+
     send_digest_email(get_sender_deps(), timer.company_id, f"digest:{timer.id}", kind, now)
 
 

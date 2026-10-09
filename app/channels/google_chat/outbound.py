@@ -32,14 +32,33 @@ class FakeGoogleChatOutbound:
 
 
 class GoogleChatClient:
-    def __init__(self, service_account_file: Path | str) -> None:
-        from google.oauth2 import service_account
-        from googleapiclient.discovery import build
+    def __init__(self, service_account_file: Path | str | None = None) -> None:
+        self._chat = None
+        if service_account_file:
+            from google.oauth2 import service_account
+            from googleapiclient.discovery import build
 
-        creds = service_account.Credentials.from_service_account_file(str(service_account_file), scopes=CHAT_SCOPES)
-        self._chat = build("chat", "v1", credentials=creds, cache_discovery=False)
+            creds = service_account.Credentials.from_service_account_file(str(service_account_file), scopes=CHAT_SCOPES)
+            self._chat = build("chat", "v1", credentials=creds, cache_discovery=False)
 
     def send(self, space: str, payload: dict[str, Any]) -> str:
+        if space.startswith("https://"):
+            import httpx
+
+            try:
+                res = httpx.post(space, json=payload, timeout=10.0)
+                if res.status_code >= 400:
+                    raise GoogleChatError(f"chat webhook failed: HTTP {res.status_code} {res.text[:200]}")
+                data = res.json()
+                return str(data.get("name") or "webhook/message")
+            except Exception as exc:
+                if isinstance(exc, GoogleChatError):
+                    raise
+                raise GoogleChatError(f"chat webhook network error: {exc}") from exc
+
+        if self._chat is None:
+            raise GoogleChatError("chat service account credentials not configured")
+
         from googleapiclient.errors import HttpError
 
         try:

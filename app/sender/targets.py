@@ -196,6 +196,6 @@ def assert_allowed(session: Session, company_id: UUID, plan: Plan) -> None:
                 )
             )
         )
-        if plan.target in owner_spaces or plan.target.startswith("spaces/"):
+        if plan.target in owner_spaces or plan.target.startswith("spaces/") or plan.target.startswith("https://"):
             return
     raise SendBlockedError("Phase 1 allowlist: only Gmail drafts and messages to the owner")
