@@ -89,7 +89,7 @@ class Simulator:
             in_reply_to=in_reply_to,
             attachment=attachment,
         )
-        parent = mailbox.find_by_rfc822_id(in_reply_to, "INBOX") if in_reply_to else None
+        parent = mailbox.find_by_header("Message-ID", in_reply_to, "INBOX") if in_reply_to else None
         thread = mailbox.get_message(parent).thread_id if parent else None
         mailbox.add_message(raw, labels=["INBOX", "UNREAD"], thread_id=thread)
         self._push(mailbox.current_history_id())

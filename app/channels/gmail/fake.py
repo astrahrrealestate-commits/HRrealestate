@@ -146,8 +146,8 @@ class FakeMailbox:
         message_id: str = self._store.append(build)["id"]
         return message_id
 
-    def find_by_rfc822_id(self, rfc822_id: str, label: str) -> str | None:
-        needle = f"Message-ID: {rfc822_id}".encode()
+    def find_by_header(self, name: str, value: str, label: str) -> str | None:
+        needle = f"{name}: {value}".encode()
         for record in self._store.records():
             if label in record["labelIds"] and needle in parse_api_message(record).raw:
                 found: str = record["id"]

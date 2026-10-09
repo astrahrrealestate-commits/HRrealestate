@@ -77,23 +77,37 @@ class RecordingHttp(HttpMockSequence):  # type: ignore[misc]
 
 
 def test_google_drafts_create_is_idempotent_and_errors_typed() -> None:
+    """Gmail rewrites a draft's Message-ID: the lookup is by our `X-EstateOS-Key` header among the thread's drafts."""
+    mine = {"id": "r-123", "message": {"id": "m", "threadId": "thread-0001"}}
+    other = {"id": "r-999", "message": {"id": "o", "threadId": "thread-0001"}}
+    elsewhere = {"id": "r-555", "message": {"id": "e", "threadId": "thread-0002"}}
+
+    def headers(value: str) -> str:
+        return json.dumps({"message": {"payload": {"headers": [{"name": "X-EstateOS-Key", "value": value}]}}})
+
     http = RecordingHttp(
         [
-            ({"status": "200"}, json.dumps({})),  # lookup: none yet
+            ({"status": "200"}, json.dumps({})),  # lookup: no drafts yet
             ({"status": "200"}, json.dumps({"id": "r-123", "message": {"id": "m", "threadId": "thread-0001"}})),
-            ({"status": "200"}, json.dumps({"drafts": [{"id": "r-123", "message": {"id": "m"}}]})),  # retry: found
+            ({"status": "200"}, json.dumps({"drafts": [elsewhere, other, mine]})),  # retry: scan the thread's drafts
+            ({"status": "200"}, headers("someone-else")),
+            ({"status": "200"}, headers(REQ.key_token)),
             ({"status": "200"}, json.dumps({})),
             ({"status": "400"}, json.dumps({"error": {"code": 400}})),
         ]
     )
     drafts = GoogleDrafts(build("gmail", "v1", http=http, static_discovery=True), ADDRESS)
     assert drafts.create_draft(REQ) == "r-123"
-    assert drafts.create_draft(REQ) == "r-123"  # no second drafts.create
-    assert [c[0] for c in http.calls] == ["GET", "POST", "GET"]
-    assert http.calls[0][2]["q"] == [f"rfc822msgid:{REQ.rfc822_id}"]
+    assert drafts.create_draft(REQ) == "r-123"  # found by header: no second drafts.create
+    assert [c[0] for c in http.calls] == ["GET", "POST", "GET", "GET", "GET"]  # other threads' drafts are not fetched
+    assert http.calls[0][2]["q"] == ["in:drafts"]
     with pytest.raises(GmailDraftError) as permanent:
         drafts.create_draft(REQ)
     assert permanent.value.retryable is False
+
+
+def test_mime_carries_the_idempotency_header_that_survives_gmail() -> None:
+    assert parsed(build_mime(ADDRESS, REQ))["X-EstateOS-Key"] == REQ.key_token
 
 
 def test_fake_drafts_idempotent_land_in_thread_and_are_never_read_back_as_sent() -> None:

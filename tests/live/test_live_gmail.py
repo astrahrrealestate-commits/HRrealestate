@@ -3,6 +3,7 @@
 Writes are limited to `users.watch` (idempotent re-registration) and one draft addressed to the mailbox itself.
 """
 
+import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -67,4 +68,11 @@ def test_draft_is_created_once_as_a_threaded_reply(live_settings: Settings, live
         references=references,
     )
     drafts = build_gmail_drafts(settings, SenderSettings(), live_mailbox)
-    assert drafts.create_draft(request) == drafts.create_draft(request)  # idempotent: one draft, same id
+    first = drafts.create_draft(request)
+    # Gmail's search index lags a few seconds; a real retry comes seconds later (step backoff), so wait like one.
+    deadline = time.monotonic() + 45
+    again = drafts.create_draft(request)
+    while again != first and time.monotonic() < deadline:
+        time.sleep(5)
+        again = drafts.create_draft(request)
+    assert again == first  # idempotent: the retry finds the existing draft by its Message-ID

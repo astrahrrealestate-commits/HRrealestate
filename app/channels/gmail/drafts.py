@@ -36,6 +36,11 @@ class DraftRequest:
     references: str | None = None
 
     @property
+    def key_token(self) -> str:
+        """Carried in `X-EstateOS-Key`. Gmail rewrites a draft's Message-ID, but keeps custom headers."""
+        return hashlib.sha256(self.idempotency_key.encode()).hexdigest()[:32]
+
+    @property
     def rfc822_id(self) -> str:
         digest = hashlib.sha256(self.idempotency_key.encode()).hexdigest()[:32]
         return f"<draft-{digest}@estateos.invalid>"
@@ -74,6 +79,7 @@ def build_mime(sender: str, request: DraftRequest) -> bytes:
     msg["To"] = _single_recipient(clean_header(request.to) or "")
     msg["Subject"] = clean_header(request.subject) or ""
     msg["Message-ID"] = request.rfc822_id
+    msg["X-EstateOS-Key"] = request.key_token
     if request.in_reply_to:
         msg["In-Reply-To"] = clean_header(request.in_reply_to, 1_000) or ""
     if request.references:
@@ -91,14 +97,28 @@ class GoogleDrafts:
         self._drafts = service.users().drafts()
         self._address = address
 
+    def _find(self, request: DraftRequest) -> str | None:
+        """An earlier attempt's draft: scan this thread's drafts for our header (Gmail's search cannot see it)."""
+        listed = self._drafts.list(userId="me", q="in:drafts", maxResults=100).execute(num_retries=3)
+        for draft in listed.get("drafts", []):
+            if draft.get("message", {}).get("threadId") != request.thread_id:
+                continue
+            full = self._drafts.get(userId="me", id=draft["id"], format="metadata").execute(num_retries=3)
+            headers = full.get("message", {}).get("payload", {}).get("headers", [])
+            if any(
+                h.get("name", "").lower() == "x-estateos-key" and h.get("value") == request.key_token for h in headers
+            ):
+                found: str = draft["id"]
+                return found
+        return None
+
     def create_draft(self, request: DraftRequest) -> str:
-        """Idempotent: a retry after an ambiguous failure finds the existing draft by its Message-ID."""
+        """Idempotent: a retry after an ambiguous failure finds the earlier draft by its `X-EstateOS-Key` header."""
         raw = _b64(build_mime(self._address, request))
         try:
-            existing = self._drafts.list(userId="me", q=f"rfc822msgid:{request.rfc822_id}").execute(num_retries=3)
-            if existing.get("drafts"):
-                found: str = existing["drafts"][0]["id"]
-                return found
+            existing = self._find(request)
+            if existing is not None:
+                return existing
             body = {"message": {"raw": raw, "threadId": request.thread_id}}
             response = self._drafts.create(userId="me", body=body).execute()
         except HttpError as exc:
@@ -115,7 +135,7 @@ class FakeDrafts:
     created: list[DraftRequest] = field(default_factory=list)
 
     def create_draft(self, request: DraftRequest) -> str:
-        existing = self.mailbox.find_by_rfc822_id(request.rfc822_id, "DRAFT")
+        existing = self.mailbox.find_by_header("X-EstateOS-Key", request.key_token, "DRAFT")
         if existing:
             return f"r-{existing}"
         message_id = self.mailbox.add_message(
