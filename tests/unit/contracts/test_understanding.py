@@ -13,10 +13,11 @@ def _u(**kw: Any) -> Understanding:
         "category": Category.maintenance,
         "intent": "report broken heating",
         "urgency": Urgency.high,
+        "requires_reply": True,
         "entities": Entities.none(),
         "suspicious": Suspicious(flag=False, reason=None),
         "confidence": 0.9,
-        "prompt_version": "understanding/v1",
+        "prompt_version": "understanding/v2",
     }
     return Understanding(**{**base, **kw})
 

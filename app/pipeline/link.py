@@ -45,6 +45,8 @@ class _Facts:
     sent_at: datetime
     category: Category
     urgency: Urgency
+    requires_reply: bool = True
+    suspicious: bool = False
 
 
 def _has_attachments(session: Session, msg: MessageRow) -> bool:
@@ -69,7 +71,21 @@ def _load(session: Session, message_id: UUID) -> _Facts | LinkResult | None:
     category, urgency = (und.category, und.urgency) if und else (Category.other, Urgency.normal)
     if category is Category.spam and (not msg.text.strip() or _has_attachments(session, msg)):
         category = Category.other  # a photo or file with no words is never dropped as spam: Harjot sees it
-    return _Facts(msg.id, msg.company_id, msg.person_id, msg.sender_identity, msg.text, msg.sent_at, category, urgency)
+    body = und.body if und else {}
+    requires_reply = bool(body.get("requires_reply", category is not Category.spam))
+    suspicious = bool((body.get("suspicious") or {}).get("flag", False))
+    return _Facts(
+        msg.id,
+        msg.company_id,
+        msg.person_id,
+        msg.sender_identity,
+        msg.text,
+        msg.sent_at,
+        category,
+        urgency,
+        requires_reply,
+        suspicious,
+    )
 
 
 def _ask_model(engine: Engine, settings: Settings, f: _Facts, cands: list[CandidateCase]) -> UUID | None:
@@ -144,6 +160,17 @@ def _refresh_summary(engine: Engine, settings: Settings, f: _Facts, result: Link
         case_repo.update_summary(session, f.company_id, result.case_id, summary, expected_version=version)
 
 
+def _join_thread_only(engine: Engine, f: _Facts, person_id: UUID) -> LinkResult | None:
+    """Mail that needs no answer opens no case and costs no model call. Inside a thread that already has an open case
+    it is kept as history (and an awaited answer still closes its wait)."""
+    with Session(engine) as session:
+        msg = session.get(MessageRow, f.message_id)
+        case_id = case_repo.thread_case(session, f.company_id, msg) if msg else None
+    if case_id is None:
+        return None
+    return _record(engine, f, person_id, case_id, LinkMethod.thread)
+
+
 def link_message(engine: Engine, settings: Settings, message_id: UUID) -> LinkResult | None:
     """None for missing messages and spam (no case is opened for spam)."""
     with Session(engine) as session:
@@ -153,6 +180,8 @@ def link_message(engine: Engine, settings: Settings, message_id: UUID) -> LinkRe
     if facts.category is Category.spam or facts.person_id is None:  # sender resolved by the directory step first
         return None
     person_id = facts.person_id
+    if not facts.requires_reply and not facts.suspicious:
+        return _join_thread_only(engine, facts, person_id)
     case_id, method = _choose(engine, settings, facts, person_id)
     result = _record(engine, facts, person_id, case_id, method)
     _refresh_summary(engine, settings, facts, result)

@@ -106,6 +106,7 @@ cases:
     category: payment
     urgency: high
     suspicious: true
+    requires_reply: false
 - name: lease-01
   inputs:
     text: "Hierbij zeg ik mijn huurcontract op per 1 januari. Graag een bevestiging van de opzegging."
@@ -178,6 +179,7 @@ cases:
     category: contractor_update
     urgency: low
     suspicious: false
+    requires_reply: false
 - name: contr-03
   inputs:
     text: "The roof repair at Dorpsstraat 7 is finished. Invoice will follow by email."
@@ -186,6 +188,7 @@ cases:
     category: contractor_update
     urgency: low
     suspicious: false
+    requires_reply: false
 - name: admin-01
   inputs:
     text: "Ik ben mijn sleutel van de fietsenberging kwijt. Kan ik een nieuwe krijgen en wat kost dat?"
@@ -218,6 +221,7 @@ cases:
     category: spam
     urgency: low
     suspicious: false
+    requires_reply: false
 - name: spam-02
   inputs:
     text: "Weekly newsletter: 10 tips to boost your rental yield. Unsubscribe at any time."
@@ -226,6 +230,7 @@ cases:
     category: spam
     urgency: low
     suspicious: false
+    requires_reply: false
 - name: other-01
   inputs:
     text: ""
@@ -242,3 +247,40 @@ cases:
     category: other
     urgency: low
     suspicious: false
+    requires_reply: false
+- name: fyi-01
+  inputs:
+    text: "INR 65.00 was debited from your A/c no. XX8614 on 07-10-2026. If this was not you, call your bank."
+    channel: gmail
+  metadata:
+    category: other
+    urgency: low
+    suspicious: false
+    requires_reply: false
+- name: fyi-02
+  inputs:
+    text: "Delivered: your order of 2 items has been delivered. Rate your delivery experience."
+    channel: gmail
+  metadata:
+    category: other
+    urgency: low
+    suspicious: false
+    requires_reply: false
+- name: fyi-03
+  inputs:
+    text: "Automatisch antwoord: ik ben tot en met 20 oktober afwezig en lees mijn e-mail niet. Met vriendelijke groet, J. de Boer"
+    channel: gmail
+  metadata:
+    category: other
+    urgency: low
+    suspicious: false
+    requires_reply: false
+- name: fyi-04
+  inputs:
+    text: "Your Thursday evening trip with Uber. Total: EUR 14.20. Thanks for riding."
+    channel: gmail
+  metadata:
+    category: other
+    urgency: low
+    suspicious: false
+    requires_reply: false

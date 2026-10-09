@@ -53,14 +53,20 @@ def _fake_understanding(prompt: str) -> dict[str, object]:
     else:
         suspicious = {"flag": False, "reason": None}
 
+    no_reply = category is Category.spam or re.search(
+        r"(unsubscribe|uitschrijven|newsletter|nieuwsbrief|delivered|bezorgd|out for delivery|was debited|"
+        r"order[- ]?bevestiging|receipt|bedankt voor|dank u wel voor|thank you for|thanks for)",
+        low,
+    )
     return {
         "category": category.value,
         "intent": intent,
         "urgency": urgency.value,
+        "requires_reply": not no_reply,
         "entities": {"people": [], "unit_refs": [], "dates": [], "amounts": []},
         "suspicious": suspicious,
         "confidence": 0.6,
-        "prompt_version": "understanding/v1",
+        "prompt_version": "understanding/v2",
     }
 
 

@@ -21,15 +21,23 @@ pytestmark = pytest.mark.integration
 NOW = datetime(2026, 10, 7, 9, 0, tzinfo=UTC)
 
 
-def _setup(engine: Engine, cid: UUID, *, urgency: Urgency = Urgency.normal, suspicious: bool = False) -> UUID:
+def _setup(
+    engine: Engine,
+    cid: UUID,
+    *,
+    urgency: Urgency = Urgency.normal,
+    suspicious: bool = False,
+    requires_reply: bool = True,
+) -> UUID:
     und = Understanding(
         category=Category.maintenance,
         intent="Leak",
         urgency=urgency,
+        requires_reply=requires_reply,
         entities=Entities.none(),
         suspicious=Suspicious(flag=suspicious, reason="IBAN change" if suspicious else None),
         confidence=0.9,
-        prompt_version="understanding/v1",
+        prompt_version="understanding/v2",
     )
     with Session(engine) as s, s.begin():
         p = Person(company_id=cid, kind=PersonKind.tenant, display_name="Sanne", valid_from=date(2026, 1, 1))
@@ -153,3 +161,27 @@ def test_reply_channel_comes_from_the_message_not_the_model(
     propose_for_message(migrated_engine, test_settings, _setup(migrated_engine, cid))  # a gmail message
     [action] = _actions(migrated_engine, cid)
     assert action.payload["channel"] == "gmail"
+
+
+def test_mail_that_needs_no_reply_gets_no_proposal_no_draft_and_no_model_call(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def forbidden(_s: object, _n: object) -> None:
+        raise AssertionError("the proposer must not be called for mail that needs no reply")
+
+    monkeypatch.setattr("app.llm.calls.build_model", forbidden)
+    cid = committed_company.id
+    result = propose_for_message(migrated_engine, test_settings, _setup(migrated_engine, cid, requires_reply=False))
+    assert (result.approval_ids, result.exceptions) == ([], 0)
+    assert _actions(migrated_engine, cid) == []
+
+
+def test_suspicious_mail_is_still_flagged_even_if_it_needs_no_reply(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    """A phishing mail that "needs no reply" must still reach Harjot as an exception, never vanish."""
+    cid = committed_company.id
+    mid = _setup(migrated_engine, cid, suspicious=True, requires_reply=False)
+    result = propose_for_message(migrated_engine, test_settings, mid)
+    assert result.exceptions == 1
+    assert {a.status for a in _actions(migrated_engine, cid)} == {ActionStatus.exception}

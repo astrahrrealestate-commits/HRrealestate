@@ -99,10 +99,11 @@ def _tenant_chaser(engine: Engine, settings: Settings, case: Case, wait: WaitRow
         category=case.category,
         intent=wait.about[:200],
         urgency=case.urgency,
+        requires_reply=True,
         entities=Entities.none(),
         suspicious=Suspicious(flag=False, reason=None),
         confidence=1.0,
-        prompt_version="understanding/v1",
+        prompt_version="understanding/v2",
     )
     ctx = ProposerContext(
         case_id=case.id,

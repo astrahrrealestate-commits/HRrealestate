@@ -39,7 +39,7 @@ def test_understanding_agent_fake_execution() -> None:
     res = run_agent(mock_engine, settings, UNDERSTANDING, prompt, ctx)
     assert res.output.category == Category.maintenance
     assert res.output.urgency == Urgency.emergency
-    assert res.output.prompt_version == "understanding/v1"
+    assert res.output.prompt_version == "understanding/v2"
     assert res.model_call_id is not None
 
 

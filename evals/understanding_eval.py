@@ -27,9 +27,10 @@ def run(version: str, settings: Settings) -> EvalResult:
         raise SystemExit(crash_message(report.failures))
     done = [(c.name, c.inputs, c.metadata, c.output) for c in report.cases if c.metadata is not None]
     misses = [
-        f"| {name} | {g.category.value}/{g.urgency.value} | {o.category.value}/{o.urgency.value} | {cell(i.text)} |"
+        f"| {name} | {g.category.value}/{g.urgency.value}/reply={g.requires_reply} "
+        f"| {o.category.value}/{o.urgency.value}/reply={o.requires_reply} | {cell(i.text)} |"
         for name, i, g, o in done
-        if (g.category, g.urgency) != (o.category, o.urgency)
+        if (g.category, g.urgency, g.requires_reply) != (o.category, o.urgency, o.requires_reply)
     ]
     scores = score_understanding([g for _, _, g, _ in done], [o for *_, o in done])
     return EvalResult(scores, misses, MISS_HEADER, loaded)

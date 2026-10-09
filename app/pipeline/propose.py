@@ -6,12 +6,13 @@ again. A failed proposer never drops the message: Harjot gets a "could not draft
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import Engine, select, text
 from sqlalchemy.orm import Session
 
-from app.contracts import Action, ActionType, NotifyOwnerPayload, ReplyDraftPayload, Understanding
+from app.contracts import Action, ActionType, Category, NotifyOwnerPayload, ReplyDraftPayload, Understanding
 from app.core.errors import AgentFailedError
 from app.core.logging import get_logger
 from app.core.settings import Settings
@@ -151,6 +152,13 @@ def _trusted(action: Action, loaded: _Loaded) -> Action:
     return action.model_copy(update=update)
 
 
+def _with_reply_flag(body: dict[str, Any]) -> dict[str, Any]:
+    """Understandings stored before `requires_reply` existed: spam never needed an answer, anything else did."""
+    if "requires_reply" in body:
+        return body
+    return {**body, "requires_reply": body.get("category") != Category.spam.value}
+
+
 def _prepare(engine: Engine, message_id: UUID) -> _Loaded | ProposeResult:
     with Session(engine) as session:
         msg = session.get(MessageRow, message_id)
@@ -172,7 +180,10 @@ def _prepare(engine: Engine, message_id: UUID) -> _Loaded | ProposeResult:
         if case_id is None:
             return ProposeResult()
         case = case_repo.get_case(session, msg.company_id, case_id)
-        return _load(session, msg, case, Understanding.model_validate(und.body))
+        understanding = Understanding.model_validate(_with_reply_flag(und.body))
+        if not understanding.requires_reply and not understanding.suspicious.flag:
+            return ProposeResult()  # nothing to answer: no proposal, no draft, no model call (suspicious mail stays)
+        return _load(session, msg, case, understanding)
 
 
 def propose_for_message(engine: Engine, settings: Settings, message_id: UUID) -> ProposeResult:

@@ -59,6 +59,7 @@ class Understanding(Contract):
     category: Category
     intent: Annotated[NonBlankStr, max_len(200)]
     urgency: Urgency
+    requires_reply: bool  # the owner must answer this person; False for FYI, newsletters, receipts, thank-yous
     entities: Entities
     suspicious: Suspicious
     confidence: Annotated[float, Field(ge=0.0, le=1.0)]

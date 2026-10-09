@@ -54,11 +54,15 @@ def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> 
             attachments=att_metas,
         )
         company_id = msg.company_id
+        wordless_with_files = not msg.text.strip() and bool(attachments)
 
     try:
         ctx = CallContext(company_id=company_id, purpose="triage")
         res = run_agent(engine, settings, UNDERSTANDING, prompt_text, ctx)
         understanding_data = res.output
+        if wordless_with_files and not understanding_data.requires_reply:
+            # a photo or file with no words (a leak, a document) is never skipped as "nothing to answer"
+            understanding_data = understanding_data.model_copy(update={"requires_reply": True})
         model_call_id = res.model_call_id
 
         with Session(engine) as session, session.begin():

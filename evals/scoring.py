@@ -25,6 +25,7 @@ class GoldenLabels(BaseModel):
     category: Category
     urgency: Urgency
     suspicious: bool
+    requires_reply: bool = True  # a human would owe this sender an answer
 
 
 def load_understanding(
@@ -52,6 +53,10 @@ def score_understanding(labels: Sequence[GoldenLabels], outputs: Sequence[Unders
             pairs, lambda g: g.urgency is Urgency.emergency, lambda o: o.urgency is Urgency.emergency
         ),
         "suspicious_recall": _recall(pairs, lambda g: g.suspicious, lambda o: o.suspicious.flag),
+        "reply_flag_accuracy": sum(g.requires_reply is o.requires_reply for g, o in pairs) / n,
+        # the two errors the owner feels: a draft for mail that needs none (noise), a reply he never hears about
+        "needless_draft_rate": 1 - _recall(pairs, lambda g: not g.requires_reply, lambda o: not o.requires_reply),
+        "missed_reply_rate": 1 - _recall(pairs, lambda g: g.requires_reply, lambda o: o.requires_reply),
     }
 
 

@@ -67,7 +67,7 @@ def test_pipeline_entry_understand(
         assert u_row is not None
         assert u_row.category == Category.maintenance
         assert u_row.urgency == Urgency.emergency
-        assert u_row.prompt_version == "understanding/v1"
+        assert u_row.prompt_version == "understanding/v2"
 
         call_row = session.scalar(select(ModelCall).where(ModelCall.id == u_row.model_call_id))
         assert call_row is not None
@@ -241,3 +241,45 @@ def test_inbound_message_stranded_in_pending_is_swept_but_owner_messages_are_not
     assert swept[tenant_msg] == f"pipe:{tenant_msg}:p{later:%Y%m%d%H}"
     assert owner_msg not in swept
     assert tenant_msg not in dict(requeue_candidates(migrated_engine, datetime.now(UTC)))  # too fresh
+
+
+def test_photo_only_message_always_needs_a_reply_whatever_the_model_says(
+    dbos_runtime: None, migrated_engine: Engine, committed_company: Company, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pydantic_ai.messages import ModelResponse, ToolCallPart
+    from pydantic_ai.models.function import FunctionModel
+
+    from app.db.models import AttachmentRow
+
+    def says_no_reply(messages: object, info: object) -> ModelResponse:
+        args = {
+            "category": "other",
+            "intent": "photo",
+            "urgency": "low",
+            "requires_reply": False,
+            "entities": {"people": [], "unit_refs": [], "dates": [], "amounts": []},
+            "suspicious": {"flag": False, "reason": None},
+            "confidence": 0.5,
+            "prompt_version": "x/v1",
+        }
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, args)])  # type: ignore[attr-defined]
+
+    monkeypatch.setattr("app.llm.calls.build_model", lambda _s, _n: FunctionModel(says_no_reply))
+    msg_id = _inbound(migrated_engine, committed_company.id, text="")
+    with Session(migrated_engine) as session, session.begin():
+        session.add(
+            AttachmentRow(
+                company_id=committed_company.id,
+                message_id=msg_id,
+                s3_key="k",
+                mime_type="image/jpeg",
+                filename="IMG.jpg",
+                size_bytes=50_000,
+                sha256="0" * 64,
+            )
+        )
+    assert pipeline.pipeline_entry(str(msg_id)) == "understood"
+    with Session(migrated_engine) as session:
+        body = session.scalar(select(UnderstandingRow.body).where(UnderstandingRow.message_id == msg_id))
+    assert body is not None
+    assert body["requires_reply"] is True
