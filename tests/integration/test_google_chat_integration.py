@@ -37,6 +37,7 @@ from app.main import create_app
 from app.pipeline import case_repo
 from app.sender.execute import SenderDeps
 from app.workflows import owner_reply
+from app.workflows.briefings import send_digest_chat
 from app.workflows.deps import set_engine, set_sender_deps
 from app.workflows.runtime import launch
 
@@ -315,3 +316,30 @@ def test_google_chat_message_runs_command_and_delivers_reply_to_chat(
     sent_space, sent_payload = chat_outbound.sent[0]
     assert sent_space == SPACE
     assert "commands" in sent_payload["text"].lower() or "tasks" in sent_payload["text"].lower()
+
+
+def test_send_digest_chat_delivers_cards_v2_as_native_dict_payload(
+    chat_env: tuple[TestClient, FakeGoogleChatOutbound, FakeDrafts, UUID, UUID],
+    migrated_engine: Engine,
+) -> None:
+    _client, chat_outbound, _drafts, cid, _case_id = chat_env
+    deps = SenderDeps(
+        engine=migrated_engine,
+        whatsapp=FakeWhatsAppOutbound(),
+        gmail_drafts=lambda _addr: _drafts,
+        google_chat=chat_outbound,
+    )
+
+    res = send_digest_chat(deps, cid, "briefing:chat-cards-1", "daily", NOW)
+    assert res is not None
+
+    # Crucial assertion: the payload delivered to Google Chat is a native cardsV2 dict,
+    # NEVER stringified into a {"text": "{'cardsV2': ...}"} fallback!
+    assert len(chat_outbound.sent) == 1
+    sent_space, sent_payload = chat_outbound.sent[0]
+    assert sent_space == SPACE
+    assert "cardsV2" in sent_payload
+    assert "text" not in sent_payload
+    card = sent_payload["cardsV2"][0]["card"]
+    assert "Daily Briefing" in card["header"]["title"]
+    assert len(card["sections"]) >= 1
