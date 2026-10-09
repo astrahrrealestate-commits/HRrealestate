@@ -141,6 +141,8 @@ def collect_digest_data(session: Session, company_id: UUID, kind: Kind, now: dat
                 thread_id=thread_id,
             )
         )
+    _urgency_order = {Urgency.emergency: 0, Urgency.high: 1, Urgency.normal: 2, Urgency.low: 3}
+    replies.sort(key=lambda r: _urgency_order.get(r.urgency, 99))
 
     # 2. Other decisions waiting (non-reply approvals)
     decision_rows = session.execute(
@@ -260,92 +262,166 @@ def render_digest_email(data: DigestData) -> tuple[str, str, str]:
     text_body = "\n".join(text_lines)
 
     css = (
-        "body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; "
-        "line-height: 1.5; color: #1f2937; margin: 0; padding: 24px; background-color: #f9fafb; }\n"
-        ".container { max-width: 680px; margin: 0 auto; background: #ffffff; border-radius: 8px; "
-        "border: 1px solid #e5e7eb; padding: 32px; }\n"
-        "h1 { font-size: 20px; font-weight: 700; color: #111827; margin: 0 0 4px 0; }\n"
-        ".date { font-size: 14px; color: #6b7280; margin-bottom: 24px; }\n"
-        "h2 { font-size: 16px; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb; "
-        "padding-bottom: 8px; margin-top: 28px; }\n"
-        ".card { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 16px; "
-        "margin-bottom: 16px; }\n"
-        ".badge-emergency { background: #fee2e2; color: #991b1b; padding: 2px 6px; border-radius: 4px; "
-        "font-size: 11px; font-weight: bold; }\n"
-        ".badge-high { background: #fef3c7; color: #92400e; padding: 2px 6px; border-radius: 4px; "
-        "font-size: 11px; font-weight: bold; }\n"
-        ".badge-normal { background: #e0f2fe; color: #075985; padding: 2px 6px; border-radius: 4px; "
-        "font-size: 11px; font-weight: bold; }\n"
-        ".badge-low { background: #f3f4f6; color: #4b5563; padding: 2px 6px; border-radius: 4px; "
-        "font-size: 11px; font-weight: bold; }\n"
-        ".draft { background: #ffffff; border-left: 3px solid #3b82f6; padding: 8px 12px; margin: 8px 0; "
-        "font-size: 13px; color: #374151; white-space: pre-wrap; }\n"
-        ".btn-link { display: inline-block; font-size: 12px; font-weight: 600; color: #2563eb; "
-        "text-decoration: none; margin-top: 6px; }\n"
-        "ul { padding-left: 20px; margin: 8px 0; }\n"
-        "li { margin-bottom: 6px; font-size: 14px; }\n"
-        ".ignored { font-size: 13px; color: #6b7280; font-style: italic; margin-top: 24px; padding-top: 12px; "
-        "border-top: 1px solid #e5e7eb; }\n"
+        "body { margin: 0; padding: 24px 12px; background-color: #f1f5f9; "
+        "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; "
+        "color: #1e293b; line-height: 1.5; -webkit-font-smoothing: antialiased; }\n"
+        ".wrapper { max-width: 620px; margin: 0 auto; }\n"
+        ".header { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px 12px 0 0; "
+        "padding: 24px 28px 20px; border-bottom: 2px solid #2563eb; }\n"
+        ".brand { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; "
+        "letter-spacing: 0.08em; color: #2563eb; background: #eff6ff; padding: 3px 8px; border-radius: 4px; "
+        "margin-bottom: 8px; }\n"
+        ".title { font-size: 22px; font-weight: 800; color: #0f172a; margin: 0 0 4px; letter-spacing: -0.02em; }\n"
+        ".subtitle { font-size: 13px; color: #64748b; margin: 0; }\n"
+        ".kpi-bar { display: table; width: 100%; background: #ffffff; border-left: 1px solid #e2e8f0; "
+        "border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; box-sizing: border-box; }\n"
+        ".kpi-cell { display: table-cell; padding: 12px 8px; text-align: center; border-right: 1px solid #f1f5f9; }\n"
+        ".kpi-cell:last-child { border-right: none; }\n"
+        ".kpi-num { font-size: 18px; font-weight: 700; }\n"
+        ".kpi-label { font-size: 11px; color: #64748b; font-weight: 500; text-transform: uppercase; }\n"
+        ".content { background: #ffffff; border: 1px solid #e2e8f0; border-top: none; "
+        "border-radius: 0 0 12px 12px; padding: 24px 28px; }\n"
+        ".section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; "
+        "color: #475569; margin: 28px 0 14px; padding-bottom: 6px; border-bottom: 1px solid #e2e8f0; }\n"
+        ".section-title:first-child { margin-top: 4px; }\n"
+        ".case-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; "
+        "margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }\n"
+        ".case-header { margin-bottom: 10px; font-size: 14px; color: #0f172a; }\n"
+        ".badge { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 10px; "
+        "font-weight: 700; letter-spacing: 0.04em; vertical-align: middle; margin-right: 6px; }\n"
+        ".badge-emergency { background: #fee2e2; color: #991b1b; }\n"
+        ".badge-high { background: #fef3c7; color: #92400e; }\n"
+        ".badge-normal { background: #e0f2fe; color: #0369a1; }\n"
+        ".badge-low { background: #f1f5f9; color: #475569; }\n"
+        ".tag { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; "
+        "background: #f1f5f9; color: #475569; margin-left: 6px; }\n"
+        ".situation-callout { background: #f8fafc; border-left: 3px solid #94a3b8; padding: 8px 12px; "
+        "border-radius: 0 4px 4px 0; font-size: 13px; color: #334155; margin: 10px 0; }\n"
+        ".draft-primary { background: #ffffff; border: 1px solid #bfdbfe; border-left: 4px solid #2563eb; "
+        "border-radius: 0 6px 6px 0; padding: 12px 14px; margin: 12px 0; }\n"
+        ".draft-tag { font-size: 11px; font-weight: 700; color: #2563eb; text-transform: uppercase; "
+        "letter-spacing: 0.04em; margin-bottom: 6px; }\n"
+        ".draft-body { font-size: 13px; color: #1e293b; line-height: 1.55; white-space: pre-wrap; "
+        "font-family: inherit; }\n"
+        ".alt-drafts { margin: 10px 0 6px; font-size: 12px; }\n"
+        ".alt-summary { cursor: pointer; color: #2563eb; font-weight: 600; padding: 4px 0; user-select: none; }\n"
+        ".alt-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 10px 12px; "
+        "margin-top: 6px; font-size: 13px; color: #475569; white-space: pre-wrap; line-height: 1.5; }\n"
+        ".action-row { margin-top: 14px; padding-top: 10px; border-top: 1px solid #f1f5f9; }\n"
+        ".btn-action { display: inline-block; background-color: #2563eb; color: #ffffff !important; "
+        "font-size: 12px; font-weight: 600; padding: 8px 16px; border-radius: 6px; text-decoration: none; }\n"
+        ".item-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; "
+        "margin-bottom: 8px; font-size: 13px; color: #334155; }\n"
+        ".item-card.exception { background: #fffbeb; border-color: #fde68a; color: #92400e; }\n"
+        ".ignored-footer { margin-top: 28px; padding: 14px; background: #f8fafc; border: 1px dashed #cbd5e1; "
+        "border-radius: 6px; font-size: 12px; color: #64748b; text-align: center; }\n"
+        ".footer-brand { margin-top: 18px; font-size: 11px; color: #94a3b8; text-align: center; }\n"
     )
+
+    num_replies = len(data.replies)
+    num_decisions = len(data.decisions)
+    num_tasks = len(data.tasks_due)
 
     # HTML version
     html_parts = [
         "<!DOCTYPE html>",
         "<html><head><meta charset='utf-8'>",
+        "<meta name='viewport' content='width=device-width, initial-scale=1.0'>",
         f"<style>{css}</style></head><body>",
-        "<div class='container'>",
-        f"<h1>EstateOS {kind_title}</h1>",
-        f"<div class='date'>{data.date_label}</div>",
+        "<div class='wrapper'>",
+        "<div class='header'>",
+        "<div class='brand'>EstateOS</div>",
+        f"<div class='title'>{kind_title}</div>",
+        f"<div class='subtitle'>{data.date_label} · {data.company_name}</div>",
+        "</div>",
+        "<div class='kpi-bar'>",
+        f"<div class='kpi-cell'><div class='kpi-num' style='color:#ef4444;'>{num_replies}</div>"
+        f"<div class='kpi-label'>Replies</div></div>",
+        f"<div class='kpi-cell'><div class='kpi-num' style='color:#f59e0b;'>{num_decisions}</div>"
+        f"<div class='kpi-label'>Decisions</div></div>",
+        f"<div class='kpi-cell'><div class='kpi-num' style='color:#3b82f6;'>{num_tasks}</div>"
+        f"<div class='kpi-label'>Tasks</div></div>",
+        f"<div class='kpi-cell'><div class='kpi-num' style='color:#64748b;'>{data.ignored_count}</div>"
+        f"<div class='kpi-label'>Filtered</div></div>",
+        "</div>",
+        "<div class='content'>",
     ]
 
     if data.replies:
-        html_parts.append("<h2>Needs your reply</h2>")
+        html_parts.append("<div class='section-title'>📬 Needs Your Reply</div>")
         for r in data.replies:
             badge_cls = f"badge-{r.urgency.value}"
-            link_html = f"<a class='btn-link' href='{r.gmail_url}'>Open thread in Gmail →</a>" if r.gmail_url else ""
-            html_parts.append(
-                f"<div class='card'>"
-                f"<div><span class='{badge_cls}'>{r.urgency.value.upper()}</span> "
-                f"<strong>{r.who}</strong> · {r.category}</div>"
-                f"<div style='font-size: 14px; margin: 6px 0; color: #4b5563;'>{r.situation}</div>"
+            link_html = (
+                f"<div class='action-row'><a class='btn-action' href='{r.gmail_url}'>Open thread in Gmail →</a></div>"
+                if r.gmail_url
+                else ""
             )
-            for i, d in enumerate(r.drafts, start=1):
-                escaped = d.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                html_parts.append(f"<div class='draft'><strong>Draft {i}:</strong><br>{escaped}</div>")
+
+            html_parts.append(
+                f"<div class='case-card'>"
+                f"<div class='case-header'>"
+                f"<span class='badge {badge_cls}'>{r.urgency.value.upper()}</span>"
+                f"<strong>{r.who}</strong>"
+                f"<span class='tag'>{r.category}</span>"
+                f"</div>"
+                f"<div class='situation-callout'><strong>Situation:</strong> {r.situation}</div>"
+            )
+
+            if r.drafts:
+                # Primary / recommended draft
+                d1 = r.drafts[0].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                html_parts.append(
+                    f"<div class='draft-primary'>"
+                    f"<div class='draft-tag'>Draft 1 (Recommended)</div>"
+                    f"<div class='draft-body'>{d1}</div>"
+                    f"</div>"
+                )
+
+                # Alternative drafts enclosed in collapsible details if present
+                if len(r.drafts) > 1:
+                    alt_count = len(r.drafts) - 1
+                    html_parts.append(
+                        f"<details class='alt-drafts'>"
+                        f"<summary class='alt-summary'>▶ View {alt_count} alternative draft(s)</summary>"
+                    )
+                    for idx, alt_d in enumerate(r.drafts[1:], start=2):
+                        alt_esc = alt_d.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                        html_parts.append(f"<div class='alt-card'><strong>Draft {idx}:</strong><br>{alt_esc}</div>")
+                    html_parts.append("</details>")
+
             if link_html:
                 html_parts.append(link_html)
             html_parts.append("</div>")
 
     if data.decisions:
-        html_parts.append("<h2>Decisions waiting</h2><ul>")
+        html_parts.append("<div class='section-title'>⚖️ Decisions Waiting</div>")
         for d in data.decisions:
-            html_parts.append(f"<li>{d}</li>")
-        html_parts.append("</ul>")
+            html_parts.append(f"<div class='item-card'>• {d}</div>")
 
     if data.tasks_due:
-        html_parts.append("<h2>Tasks due</h2><ul>")
+        html_parts.append("<div class='section-title'>⏱️ Tasks Due Today</div>")
         for t in data.tasks_due:
-            html_parts.append(f"<li>{t}</li>")
-        html_parts.append("</ul>")
+            html_parts.append(f"<div class='item-card'>📋 {t}</div>")
 
     if data.waiting_on_others:
-        html_parts.append("<h2>Waiting on others</h2><ul>")
+        html_parts.append("<div class='section-title'>⏳ Waiting On Others</div>")
         for w in data.waiting_on_others:
-            html_parts.append(f"<li>{w}</li>")
-        html_parts.append("</ul>")
+            html_parts.append(f"<div class='item-card'>⏳ {w}</div>")
 
     if data.exceptions:
-        html_parts.append("<h2>Exceptions</h2><ul>")
+        html_parts.append("<div class='section-title'>⚠️ Exceptions (Needs Eyes)</div>")
         for e in data.exceptions:
-            html_parts.append(f"<li>{e}</li>")
-        html_parts.append("</ul>")
+            html_parts.append(f"<div class='item-card exception'>⚠️ {e}</div>")
 
     if data.ignored_count > 0:
         html_parts.append(
-            f"<div class='ignored'>ℹ️ {data.ignored_count} message(s) ignored (newsletters, receipts, spam).</div>"
+            f"<div class='ignored-footer'>"
+            f"🛡️ <strong>{data.ignored_count} message(s) ignored</strong> "
+            f"(newsletters, receipts, automated updates left alone)."
+            f"</div>"
         )
 
-    html_parts.append("</div></body></html>")
+    html_parts.append("<div class='footer-brand'>EstateOS Automated Briefing</div></div></div></body></html>")
     html_body = "".join(html_parts)
 
     return subject, text_body, html_body
