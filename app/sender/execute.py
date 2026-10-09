@@ -242,6 +242,8 @@ def send_to_owner(
     if interactive_channel == InteractiveChannel.google_chat and space is not None:
         if isinstance(build, OwnerMessage):
             payload = render_google_chat(build)
+        elif isinstance(build, dict):
+            payload = build
         elif callable(build):
             res = build(whatsapp_to)
             if isinstance(res, OwnerMessage):

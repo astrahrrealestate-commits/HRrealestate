@@ -49,9 +49,7 @@ def send_digest_email(deps: SenderDeps, company_id: UUID, key: str, kind: Kind, 
             log.info("digest.empty_skipped", company_id=str(company_id))
             return None
 
-        no_interactive = not bool(owner.interactive_channel)
-        if no_interactive:
-            _create_gmail_thread_drafts(session, deps, company_id, data.replies)
+        _create_gmail_thread_drafts(session, deps, company_id, data.replies)
 
     subject, body_text, body_html = render_digest_email(data)
     req = EmailRequest(
@@ -67,7 +65,7 @@ def send_digest_email(deps: SenderDeps, company_id: UUID, key: str, kind: Kind, 
 def _create_gmail_thread_drafts(
     session: Session, deps: SenderDeps, company_id: UUID, replies: tuple[DigestCaseReply, ...]
 ) -> None:
-    """When no interactive channel exists, the first reply draft is placed in Gmail so Harjot can edit & send."""
+    """Places the first reply draft in each Gmail thread so Harjot can edit & send directly in Gmail."""
     mailbox = session.scalar(
         select(ChannelAccount.address).where(
             ChannelAccount.company_id == company_id, ChannelAccount.channel == Channel.gmail
@@ -101,6 +99,8 @@ def send_digest_chat(deps: SenderDeps, company_id: UUID, key: str, kind: Kind, n
         if not data.has_items:
             log.info("digest.chat.empty_skipped", company_id=str(company_id))
             return None
+
+        _create_gmail_thread_drafts(session, deps, company_id, data.replies)
 
     card_payload = render_digest_chat(data)
     return send_to_owner(deps, company_id, key, card_payload)

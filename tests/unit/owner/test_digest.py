@@ -51,7 +51,7 @@ def test_digest_with_replies_renders_clean_text_and_html() -> None:
     # Text body checks
     assert "Needs your reply" in text_body
     assert "[EMERGENCY] Sanne de Vries · maintenance" in text_body
-    assert "https://mail.google.com/mail/u/0/#inbox/thread-abc-123" in text_body
+    assert "https://mail.google.com/mail/u/0/#all/thread-abc-123" in text_body
     assert "Draft 1:\n    Beste Sanne, we sturen direct een loodgieter." in text_body
     assert "Decisions waiting" in text_body
     assert "Roof repair" in text_body
@@ -64,5 +64,21 @@ def test_digest_with_replies_renders_clean_text_and_html() -> None:
     assert "<html>" in html_body
     assert "badge-emergency" in html_body
     assert "Sanne de Vries" in html_body
-    assert "Open thread in Gmail →" in html_body
+    assert "Open draft in Gmail →" in html_body
     assert "12 message(s) ignored" in html_body
+
+
+def test_digest_case_reply_with_explicit_mailbox_routes_to_user_account() -> None:
+    reply = DigestCaseReply(
+        case_id=uuid4(),
+        approval_id=uuid4(),
+        action_id=uuid4(),
+        who="Sanne de Vries",
+        category="maintenance",
+        urgency=Urgency.emergency,
+        situation="Water leak",
+        drafts=("Beste Sanne",),
+        thread_id="thread-xyz-789",
+        mailbox="aditya@seedicon.com",
+    )
+    assert reply.gmail_url == "https://mail.google.com/mail/u/aditya@seedicon.com/#all/thread-xyz-789"

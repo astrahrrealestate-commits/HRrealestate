@@ -106,7 +106,12 @@ def _thread_mailbox(session: Session, msg: MessageRow) -> str | None:
         )
     )
     if not address:
-        return None
+        return session.scalar(
+            select(ChannelAccount.address).where(
+                ChannelAccount.company_id == msg.company_id,
+                ChannelAccount.channel == Channel.gmail,
+            )
+        )
     return session.scalar(
         select(ChannelAccount.address).where(
             ChannelAccount.company_id == msg.company_id,

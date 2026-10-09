@@ -163,6 +163,8 @@ def test_send_digest_email_delivers_once_and_is_idempotent(
     ref1 = send_digest_email(deps, cid, key, "daily", NOW)
     assert ref1 is not None
     assert len(fake_drafts.sent) == 1
+    assert len(fake_drafts.created) == 1
+    assert fake_drafts.created[0].body == "Beste Sanne, we sturen een monteur."
     sent_req = fake_drafts.sent[0]
     assert sent_req.to == OWNER_EMAIL
     assert "Daily Briefing" in sent_req.subject

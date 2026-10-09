@@ -21,6 +21,7 @@ from app.db.models import (
     Approval,
     Case,
     CaseLink,
+    ChannelAccount,
     Company,
     MessageRow,
     Person,
@@ -45,10 +46,14 @@ class DigestCaseReply:
     situation: str
     drafts: tuple[str, ...]
     thread_id: str | None = None
+    mailbox: str | None = None
 
     @property
     def gmail_url(self) -> str | None:
-        return f"https://mail.google.com/mail/u/0/#inbox/{self.thread_id}" if self.thread_id else None
+        if not self.thread_id:
+            return None
+        acct = self.mailbox or "0"
+        return f"https://mail.google.com/mail/u/{acct}/#all/{self.thread_id}"
 
 
 @dataclass(frozen=True)
@@ -70,14 +75,31 @@ class DigestData:
         return bool(self.replies or self.decisions or self.tasks_due or self.waiting_on_others or self.exceptions)
 
 
-def _latest_gmail_thread(session: Session, case_id: UUID) -> str | None:
+def _latest_gmail_thread_and_mailbox(
+    session: Session, company_id: UUID, case_id: UUID
+) -> tuple[str | None, str | None]:
     msg = session.scalar(
         select(MessageRow)
         .join(CaseLink, CaseLink.message_id == MessageRow.id)
-        .where(CaseLink.case_id == case_id, MessageRow.channel == Channel.gmail)
+        .where(
+            CaseLink.company_id == company_id,
+            CaseLink.case_id == case_id,
+            MessageRow.channel == Channel.gmail,
+        )
         .order_by(MessageRow.sent_at.desc())
+        .limit(1)
     )
-    return msg.thread_ref if msg else None
+    if not msg:
+        return None, None
+    mailbox = msg.meta.get("mailbox") if isinstance(msg.meta, dict) else None
+    if not mailbox:
+        mailbox = session.scalar(
+            select(ChannelAccount.address).where(
+                ChannelAccount.company_id == company_id,
+                ChannelAccount.channel == Channel.gmail,
+            )
+        )
+    return msg.thread_ref, (str(mailbox) if mailbox else None)
 
 
 def count_ignored_messages(session: Session, company_id: UUID, since: datetime) -> int:
@@ -128,7 +150,7 @@ def collect_digest_data(session: Session, company_id: UUID, kind: Kind, now: dat
         )
         situation = act.rationale or (case.summary.splitlines()[0] if case.summary else "Inbound inquiry")
         variants = tuple(act.payload.get("body_variants") or ())
-        thread_id = _latest_gmail_thread(session, case.id)
+        thread_id, mailbox = _latest_gmail_thread_and_mailbox(session, company_id, case.id)
         replies.append(
             DigestCaseReply(
                 case_id=case.id,
@@ -140,6 +162,7 @@ def collect_digest_data(session: Session, company_id: UUID, kind: Kind, now: dat
                 situation=situation,
                 drafts=variants,
                 thread_id=thread_id,
+                mailbox=mailbox,
             )
         )
     _urgency_order = {Urgency.emergency: 0, Urgency.high: 1, Urgency.normal: 2, Urgency.low: 3}
@@ -353,7 +376,7 @@ def render_digest_email(data: DigestData) -> tuple[str, str, str]:
         for r in data.replies:
             badge_cls = f"badge-{r.urgency.value}"
             link_html = (
-                f"<div class='action-row'><a class='btn-action' href='{r.gmail_url}'>Open thread in Gmail →</a></div>"
+                f"<div class='action-row'><a class='btn-action' href='{r.gmail_url}'>Open draft in Gmail →</a></div>"
                 if r.gmail_url
                 else ""
             )
@@ -451,8 +474,9 @@ def render_digest_chat(data: DigestData) -> dict[str, Any]:
         }
     )
 
-    # Cases needing reply
-    for r in data.replies:
+    # Cases needing reply (top 5 to stay within Google Chat card limits)
+    max_replies = 5
+    for r in data.replies[:max_replies]:
         widgets: list[dict[str, Any]] = []
         info = f"<b>[{r.urgency.value.upper()}] {r.who}</b> · {r.category}\n<i>Situation:</i> {r.situation}"
         widgets.append({"textParagraph": {"text": info}})
@@ -493,7 +517,7 @@ def render_digest_chat(data: DigestData) -> dict[str, Any]:
         if r.gmail_url:
             buttons.append(
                 {
-                    "text": "Open in Gmail →",
+                    "text": "Open draft in Gmail →",
                     "onClick": {"openLink": {"url": r.gmail_url}},
                 }
             )
@@ -505,9 +529,26 @@ def render_digest_chat(data: DigestData) -> dict[str, Any]:
             }
         )
 
+    if len(data.replies) > max_replies:
+        rem_replies = len(data.replies) - max_replies
+        sections.append(
+            {
+                "widgets": [
+                    {
+                        "textParagraph": {
+                            "text": f"<i>...and {rem_replies} more replies waiting in your morning email digest.</i>"
+                        }
+                    }
+                ]
+            }
+        )
+
     # Decisions
     if data.decisions:
-        dec_text = "\n".join(f"• {d}" for d in data.decisions)
+        dec_slice = data.decisions[:5]
+        dec_text = "\n".join(f"• {d}" for d in dec_slice)
+        if len(data.decisions) > 5:
+            dec_text += f"\n<i>...and {len(data.decisions) - 5} more in morning email</i>"
         sections.append(
             {
                 "header": "Decisions Waiting",
@@ -517,7 +558,10 @@ def render_digest_chat(data: DigestData) -> dict[str, Any]:
 
     # Tasks
     if data.tasks_due:
-        task_text = "\n".join(f"📋 {t}" for t in data.tasks_due)
+        task_slice = data.tasks_due[:5]
+        task_text = "\n".join(f"📋 {t}" for t in task_slice)
+        if len(data.tasks_due) > 5:
+            task_text += f"\n<i>...and {len(data.tasks_due) - 5} more in morning email</i>"
         sections.append(
             {
                 "header": "Tasks Due Today",
