@@ -115,7 +115,9 @@ def count_ignored_messages(session: Session, company_id: UUID, since: datetime) 
     ).all()
     ignored = 0
     for b in rows:
-        if not b.get("requires_reply", True) and not (b.get("suspicious") or {}).get("flag", False):
+        is_suspicious = bool((b.get("suspicious") or {}).get("flag", False))
+        is_spam_or_no_reply = (b.get("category") == "spam") or (b.get("requires_reply") is False)
+        if (is_spam_or_no_reply or not b.get("requires_reply", True)) and not is_suspicious:
             ignored += 1
     return ignored
 

@@ -45,7 +45,7 @@ def send_digest_email(deps: SenderDeps, company_id: UUID, key: str, kind: Kind, 
             return None
 
         data = collect_digest_data(session, company_id, kind, now)
-        if not data.has_items:
+        if not data.has_items and not data.ignored_count:
             log.info("digest.empty_skipped", company_id=str(company_id))
             return None
 
@@ -96,7 +96,7 @@ def send_digest_chat(deps: SenderDeps, company_id: UUID, key: str, kind: Kind, n
         if owner is None or owner.interactive_channel != InteractiveChannel.google_chat:
             return None
         data = collect_digest_data(session, company_id, kind, now)
-        if not data.has_items:
+        if not data.has_items and not data.ignored_count:
             log.info("digest.chat.empty_skipped", company_id=str(company_id))
             return None
 
