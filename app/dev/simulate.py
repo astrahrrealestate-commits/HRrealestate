@@ -142,6 +142,9 @@ def _parser() -> argparse.ArgumentParser:
     gmail.add_argument("--attach", help="path to a file to attach")
     pull = sub.add_parser("gmail-pull", help="real mailbox: register it and sync it once now (no Pub/Sub needed)")
     pull.add_argument("--mailbox", required=True)
+    pull.add_argument(
+        "--backfill", action="store_true", help="first pull reads the last day of mail (default: only new)"
+    )
     sub.add_parser("pending", help="pending approvals for the dev company, with the tap to approve each")
     approve = sub.add_parser("approve", help="tap a pending approval as Harjot (simulated WhatsApp)")
     approve.add_argument("--n", type=int, default=1, help="row number from `pending` (1 = newest)")
@@ -198,7 +201,10 @@ def _run_real_gmail(args: argparse.Namespace, sim: Simulator, engine: Engine, se
     if args.command == "gmail-pull":
         client = DBOSClient(system_database_url=settings.dbos_database_url)
         try:
-            log.info("sim.gmail_pull", workflow_id=real_gmail.pull_mailbox(engine, settings, client, args.mailbox))
+            log.info(
+                "sim.gmail_pull",
+                workflow_id=real_gmail.pull_mailbox(engine, settings, client, args.mailbox, backfill=args.backfill),
+            )
         finally:
             client.destroy()
         return 0

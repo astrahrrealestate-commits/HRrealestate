@@ -99,3 +99,25 @@ def test_pending_lists_newest_first_with_the_card_message(migrated_engine: Engin
     assert (mine.kind, mine.card_wamid) == ("reply_draft", "wamid.CARD")
     assert mine.draft_preview.startswith("Geachte heer")
     assert found[0].n == 1
+
+
+def test_first_pull_starts_from_now_and_backfill_is_opt_in(
+    migrated_engine: Engine, test_settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A real inbox holds personal mail: the first pull must not ingest the past unless asked."""
+    from app.db.models import GmailSyncState
+
+    google = test_settings.model_copy(update={"gmail_provider": "google"})
+    mailbox = FakeMailbox(REAL, MemoryMailboxStore())
+    mailbox.add_message(b"From: bank@example.test\r\nSubject: old\r\n\r\nold", labels=["INBOX"])
+    monkeypatch.setattr("app.dev.real_gmail.registry.gmail_mailbox", lambda _s, _a: mailbox)
+    real_gmail.pull_mailbox(migrated_engine, google, _Recorder(), REAL)
+    with Session(migrated_engine) as s:
+        state = s.scalar(select(GmailSyncState))
+        assert state is not None
+        assert state.history_id == str(mailbox.current_history_id())  # cursor at "now": the old mail is skipped
+        s.delete(state)
+        s.commit()
+    real_gmail.pull_mailbox(migrated_engine, google, _Recorder(), REAL, backfill=True)
+    with Session(migrated_engine) as s:
+        assert s.scalar(select(GmailSyncState)) is None  # no cursor: the first sync reads the last day

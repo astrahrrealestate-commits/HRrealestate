@@ -89,8 +89,8 @@ smoke: up ## G5: stack up, api ready, worker executing, logs clean
 sim-demo: up ## G5: simulate WhatsApp + Gmail through the running stack and assert the stored rows
 	$(COMPOSE) exec -T api python -m app.dev.simulate demo
 
-gmail-pull: ## real Gmail test: register + sync a mailbox now (no Pub/Sub): make gmail-pull mailbox=you@gmail.com
-	$(COMPOSE) exec -T api python -m app.dev.simulate gmail-pull --mailbox "$(mailbox)"
+gmail-pull: ## real Gmail test: sync NEW mail now, no Pub/Sub (backfill=1 also reads the last day): make gmail-pull mailbox=you@gmail.com
+	$(COMPOSE) exec -T api python -m app.dev.simulate gmail-pull --mailbox "$(mailbox)" $(if $(backfill),--backfill)
 
 pending: ## pending approvals (dev company) with the tap to approve each
 	$(COMPOSE) exec -T api python -m app.dev.simulate pending

@@ -103,8 +103,9 @@ and nothing is ever sent. Approved replies become **real Gmail drafts** in the m
    `GMAIL_SEND_CREDENTIALS_FILE=~/.estateos/gmail-compose.json` (keep `WHATSAPP_PROVIDER` fake). Then `make up`.
 3. `LIVE_GMAIL_MAILBOX=<mailbox> make live-check k="mailbox or draft"`: read access and one self-addressed draft.
 4. Send the mailbox a test mail from another address (e.g. "Er lekt water uit de kraan in de keuken").
-5. `make gmail-pull mailbox=<mailbox>`: registers the mailbox on the dev company and syncs now (the first sync reads
-   the last day of mail; each run after reads only new history).
+5. `make gmail-pull mailbox=<mailbox>`: registers the mailbox on the dev company and syncs **new mail only** (the
+   first pull starts from now, so a real inbox's past is not ingested; `backfill=1` also reads the last day). Send
+   the test mail first, then pull; run it again after each further test mail.
 6. `make pending`: lists the proposals waiting for approval. `make approve n=1 choice=d1`: taps draft 1 as Harjot.
 7. Open Gmail → Drafts: the reply sits in the tenant's thread. Nothing was sent; delete the draft any time.
 
