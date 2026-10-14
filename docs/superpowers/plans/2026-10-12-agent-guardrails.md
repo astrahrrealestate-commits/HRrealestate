@@ -215,6 +215,7 @@ def check_budget(
     if scope is not None:
         log.warning("llm.budget_blocked", company_id=str(company_id), purpose=purpose, scope=scope)
         raise BudgetExceededError(scope)
+```
 
 - [ ] **Step 6: Run unit test, expect PASS**
 
