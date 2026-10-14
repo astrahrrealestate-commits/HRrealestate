@@ -24,6 +24,10 @@ def test_dates_times_and_amounts_are_not_phone_numbers() -> None:
         "12 10 2026",
         "2026-10-12 14:30",
         "Bedrag 1.250,00 en 1.300,00",
+        "op 14-10-2026 09.30 uur",
+        "tussen 08.00 - 12.00 uur",
+        "14 oktober 2026, 09.30 - 11.30",
+        "dinsdag 14/10 13.00 - 17.00 uur",
     ):
         assert unverified(draft, "x") == [], draft
 
@@ -32,3 +36,5 @@ def test_real_phone_numbers_are_still_found() -> None:
     assert len(unverified("Bel 020 1234567", "x")) == 1
     assert len(unverified("Bel 06-12345678", "x")) == 1
     assert len(unverified("Bel 06 12 34 56 78", "x")) == 1
+    assert len(unverified("Bel +31 6 12345678", "x")) == 1
+    assert len(unverified("Bel (020) 123 45 67", "x")) == 1

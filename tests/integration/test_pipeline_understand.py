@@ -305,7 +305,71 @@ def test_understand_message_raises_budget_error_and_changes_nothing(
         assert msg is not None
         assert msg.pipeline_status == PipelineStatus.pending
         assert (msg.pipeline_attempts or 0) == 0
+        assert msg.pipeline_error == "budget"
         assert s.scalar(select(UnderstandingRow.id).where(UnderstandingRow.message_id == message_id)) is None
+
+
+def test_budget_blocked_message_is_swept_however_old_but_an_untagged_one_is_abandoned(
+    migrated_engine: Engine, committed_company: Company
+) -> None:
+    from datetime import timedelta
+
+    from app.pipeline.understand import requeue_candidates
+
+    blocked = _inbound(migrated_engine, committed_company.id)
+    untagged = _inbound(migrated_engine, committed_company.id)
+    with Session(migrated_engine) as session, session.begin():
+        row = session.get(MessageRow, blocked)
+        assert row is not None
+        row.pipeline_error = "budget"
+    swept = dict(requeue_candidates(migrated_engine, datetime.now(UTC) + timedelta(days=10)))
+    assert blocked in swept
+    assert untagged not in swept
+
+
+def test_pipeline_entry_blocks_on_budget_and_alerts_the_owner_once(
+    dbos_runtime: None,
+    migrated_engine: Engine,
+    committed_company: Company,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.channels.gmail.drafts import FakeDrafts
+    from app.channels.gmail.fake import FakeMailbox, MemoryMailboxStore
+    from app.channels.whatsapp.outbound import FakeWhatsAppOutbound
+    from app.core.settings import get_settings
+    from app.db.models import OwnerAccount, Send
+    from app.sender.execute import SenderDeps
+    from app.workflows.deps import set_sender_deps
+
+    cid = committed_company.id
+    owner = "+31600000100"
+    with Session(migrated_engine) as session, session.begin():
+        session.add(OwnerAccount(company_id=cid, display_name="Harjot", whatsapp_e164=owner))
+    _inbound(migrated_engine, cid, sender=owner)  # an open 24-hour window: the alert goes out directly
+    drafts = FakeDrafts(FakeMailbox("beheer@example.test", MemoryMailboxStore()))
+    set_sender_deps(SenderDeps(migrated_engine, FakeWhatsAppOutbound(), lambda _a: drafts))
+    first, second = _seed_inbound(migrated_engine, committed_company), _seed_inbound(migrated_engine, committed_company)
+    monkeypatch.setenv("LLM_DAILY_CALLS_CAP", "0")
+    get_settings.cache_clear()
+    try:
+        assert pipeline.pipeline_entry(str(first)) == "blocked"
+        assert pipeline.pipeline_entry(str(second)) == "blocked"
+    finally:
+        set_sender_deps(None)
+        monkeypatch.delenv("LLM_DAILY_CALLS_CAP")
+        get_settings.cache_clear()
+
+    with Session(migrated_engine) as session:
+        for mid in (first, second):
+            msg = session.get(MessageRow, mid)
+            assert msg is not None
+            assert (msg.pipeline_status, msg.pipeline_attempts or 0, msg.pipeline_error) == (
+                PipelineStatus.pending,
+                0,
+                "budget",
+            )
+        keys = session.scalars(select(Send.idempotency_key).where(Send.company_id == cid)).all()
+    assert keys == [f"budget:{cid}:{datetime.now(UTC):%Y%m%d}"]
 
 
 def test_scanner_hit_flags_the_stored_understanding_as_suspicious(

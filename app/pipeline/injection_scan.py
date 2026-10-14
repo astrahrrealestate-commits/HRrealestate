@@ -17,7 +17,9 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("claims a new role", re.compile(r"\b(you are now|new instructions?|system prompt|developer mode)\b", _FLAGS)),
     (
         "forged prompt delimiter",
-        re.compile(r"[<＜﹤]\s*/?\s*(message|data|system|assistant|instructions?)\b", _FLAGS),
+        re.compile(
+            r"[<\uff1c\ufe64]\s*/?\s*(message|data|system|assistant|instructions?)(?=[\s/>\uff1e\ufe65])", _FLAGS
+        ),
     ),
     (
         "payment details change",
@@ -26,8 +28,8 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
             _FLAGS,
         ),
     ),
-    ("hidden direction control characters", re.compile("[‪-‮⁦-⁩]")),
-    ("hidden zero-width run", re.compile("[​⁠﻿]{3,}")),
+    ("hidden direction control characters", re.compile("[\u202a-\u202e\u2066-\u2069]")),
+    ("hidden zero-width run", re.compile("[\u200b\u2060\ufeff]{3,}")),
 )
 
 

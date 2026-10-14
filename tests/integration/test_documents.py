@@ -121,6 +121,21 @@ def test_model_failure_marks_failed(migrated_engine: Engine, fake_settings: Sett
     assert row.drive_file_id is None
 
 
+def test_budget_block_sends_the_document_to_review_and_owner_choice_files_it(
+    migrated_engine: Engine, fake_settings: Settings, storage: MemoryStorage, company_id: UUID
+) -> None:
+    att = _attachment(migrated_engine, company_id, storage, "factuur.pdf", "application/pdf", PDF)
+    drive = MemoryDrive()
+    capped = fake_settings.model_copy(update={"llm_daily_calls_cap": 0})
+    assert file_document(migrated_engine, capped, storage, drive, company_id, att) is DocumentStatus.review
+    row = _doc(migrated_engine, att)
+    assert (row.status, row.error, row.model_call_id) == (DocumentStatus.review, None, None)
+    assert drive.files == {}
+    status = file_document(migrated_engine, capped, storage, drive, company_id, att, owner_doc_type=DocType.invoice)
+    assert status is DocumentStatus.filed
+    assert len(drive.files) == 1
+
+
 def test_other_company_cannot_file_it(migrated_engine: Engine, fake_settings: Settings, storage: MemoryStorage,
                                       company_id: UUID) -> None:  # fmt: skip
     att = _attachment(migrated_engine, company_id, storage, "factuur.pdf", "application/pdf", PDF)

@@ -39,6 +39,7 @@ def test_fake_answers_from_the_data() -> None:
     assert out.in_scope
     assert out.refusal_reason is None
     assert "2 open cases" in out.answer
+    assert answer_text(out) == out.answer
 
 
 @pytest.mark.parametrize(

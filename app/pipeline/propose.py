@@ -145,6 +145,7 @@ def _persist(
             )
         elif decision.verdict is Verdict.exception:
             result.exceptions += 1
+            log.info("pipeline.rules.exception", reason=decision.reason, action_type=a.type.value)
     return result
 
 

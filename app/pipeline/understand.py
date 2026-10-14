@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, or_, select
 from sqlalchemy.orm import Session
 
 from app.contracts import Direction, Suspicious
@@ -18,6 +18,7 @@ from app.llm.render import AttachmentMeta
 from app.pipeline.injection_scan import scan
 
 log = get_logger(__name__)
+BUDGET_BLOCKED = "budget"  # pipeline_error tag on a pending message waiting for the AI limit to reset
 
 
 def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> UUID | None:
@@ -96,7 +97,11 @@ def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> 
                 msg_row.pipeline_status, msg_row.pipeline_error = PipelineStatus.pending, None
             return row.id
 
-    except BudgetExceededError:  # wait, do not fail: the message stays pending for the hourly sweep
+    except BudgetExceededError:  # wait, do not fail: the message stays pending; the tag keeps the sweep retrying it
+        with Session(engine) as session, session.begin():
+            blocked = session.get(MessageRow, message_id)
+            if blocked is not None:
+                blocked.pipeline_error = BUDGET_BLOCKED
         raise
     except AgentFailedError as exc:
         log.warning("pipeline.understand.failed", message_id=str(message_id), error=str(exc))
@@ -143,7 +148,7 @@ def requeue_candidates(engine: Engine, now: datetime) -> list[tuple[UUID, str]]:
                 MessageRow.pipeline_status == PipelineStatus.pending,
                 MessageRow.direction == Direction.inbound,
                 MessageRow.created_at < now - STALE_PENDING_AFTER,
-                MessageRow.created_at > now - STALE_PENDING_UNTIL,
+                or_(MessageRow.created_at > now - STALE_PENDING_UNTIL, MessageRow.pipeline_error == BUDGET_BLOCKED),
                 ~owner.exists(),
             )
         ).all()
