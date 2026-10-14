@@ -1,5 +1,6 @@
 """Runtime configuration from environment / .env. Send credentials live in app.sender.settings, not here."""
 
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -33,6 +34,13 @@ class Settings(BaseSettings):
     # LLM agents (spec phase-1 agents). `fake` = deterministic offline models (app.llm.fakes); prod refuses it.
     llm_model: str = "fake"  # Pydantic AI model string, e.g. "openai:gpt-4.1-mini" or "google-gla:gemini-2.5-flash"
     llm_timeout_sec: float = 60.0
+    llm_max_output_tokens: int = 4000  # structural cap per call, always on
+    # Usage limits: None = unlimited (shipped disabled; set the env var to enable). Per company, UTC day/month.
+    llm_daily_budget_usd: Decimal | None = None
+    llm_monthly_budget_usd: Decimal | None = None
+    llm_daily_calls_cap: int | None = None
+    owner_qa_daily_cap: int | None = None  # owner questions per day
+    owner_qa_daily_budget_usd: Decimal | None = None
 
     # Owner channel: approved WhatsApp template that reopens the 24-hour window ("{{1}} items need you").
     owner_template_name: str = "estateos_pending"
