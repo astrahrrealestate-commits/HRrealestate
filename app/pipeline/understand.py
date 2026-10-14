@@ -6,7 +6,7 @@ from uuid import UUID
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from app.contracts import Direction
+from app.contracts import Direction, Suspicious
 from app.core.errors import AgentFailedError, BudgetExceededError
 from app.core.logging import get_logger
 from app.core.settings import Settings
@@ -15,6 +15,7 @@ from app.db.models import AttachmentRow, MessageRow, OwnerAccount, Understanding
 from app.llm.agents.understanding import UNDERSTANDING, understanding_prompt
 from app.llm.calls import CallContext, run_agent
 from app.llm.render import AttachmentMeta
+from app.pipeline.injection_scan import scan
 
 log = get_logger(__name__)
 
@@ -47,6 +48,7 @@ def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> 
             AttachmentMeta(filename=a.filename, mime_type=a.mime_type, size_bytes=a.size_bytes) for a in attachments
         ]
         subject = msg.meta.get("subject") if msg.meta else None
+        scan_reason = scan(f"{subject or ''}\n{msg.text}")
         prompt_text = understanding_prompt(
             text=msg.text,
             channel=msg.channel,
@@ -63,6 +65,11 @@ def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> 
         if wordless_with_files and not understanding_data.requires_reply:
             # a photo or file with no words (a leak, a document) is never skipped as "nothing to answer"
             understanding_data = understanding_data.model_copy(update={"requires_reply": True})
+        if scan_reason is not None and not understanding_data.suspicious.flag:
+            understanding_data = understanding_data.model_copy(
+                update={"suspicious": Suspicious(flag=True, reason=f"scanner: {scan_reason}")}
+            )
+            log.warning("pipeline.understand.injection_scanner_hit", message_id=str(message_id), reason=scan_reason)
         model_call_id = res.model_call_id
 
         with Session(engine) as session, session.begin():
