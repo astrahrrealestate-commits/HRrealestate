@@ -12,6 +12,14 @@ from app.llm.render import data_block
 FALLBACK_ANSWER = "Sorry, I could not answer that right now. Try `tasks` or `waiting`, or ask again later."
 
 
+REFUSAL_ANSWER = "I only answer questions about your cases and tasks. Try `tasks` or `waiting`, or send `help`."
+
+
+def answer_text(answer: OwnerAnswer) -> str:
+    """What Harjot sees: the model's answer only when the question was in scope; a fixed refusal otherwise."""
+    return answer.answer if answer.in_scope else REFUSAL_ANSWER
+
+
 @dataclass(frozen=True)
 class CaseBrief:
     case_id: UUID
@@ -26,7 +34,7 @@ def _unchanged(output: OwnerAnswer, _loaded: LoadedPrompt) -> OwnerAnswer:
 
 
 OWNER_QA = AgentSpec(
-    name="owner_qa", prompt=PromptRef(name="owner_qa", version="v1"), output_type=OwnerAnswer, finalize=_unchanged
+    name="owner_qa", prompt=PromptRef(name="owner_qa", version="v2"), output_type=OwnerAnswer, finalize=_unchanged
 )
 
 

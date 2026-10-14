@@ -193,9 +193,28 @@ def _fake_proposer(prompt: str) -> dict[str, object]:
     return {"actions": actions}
 
 
+_OFF_TOPIC = (
+    r"\b(poem|gedicht|recipe|recept|joke|grap|capital of|hoofdstad|python|javascript|bitcoin|translate|vertaal"
+    r"|ignore (all )?(previous|prior)|negeer (alle )?(vorige|eerdere))\b"
+)
+
+
 def _fake_owner_qa(prompt: str) -> dict[str, object]:
+    question = " ".join(re.findall(r"<message>\n(.*?)\n</message>", prompt, flags=re.S)).lower()
     cases = re.findall(r"^case: ([0-9a-f-]{36})", prompt, flags=re.M)
-    return {"answer": f"You have {len(cases)} open cases. (offline answer)", "case_refs": cases[:3]}
+    if re.search(_OFF_TOPIC, question):
+        return {
+            "in_scope": False,
+            "refusal_reason": "Unrelated to the business",
+            "answer": "Out of scope.",
+            "case_refs": [],
+        }
+    return {
+        "in_scope": True,
+        "refusal_reason": None,
+        "answer": f"You have {len(cases)} open cases. (offline answer)",
+        "case_refs": cases[:3],
+    }
 
 
 def _fake_briefing(prompt: str) -> dict[str, object]:
