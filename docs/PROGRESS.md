@@ -57,6 +57,7 @@ Phase 1 agents spec: [2026-10-07-estateos-phase1-agents-design.md](superpowers/s
 - [x] llm core: prompt loader + sha256, data blocks (case/space-insensitive escaping), `run_agent` (model_calls row on success and failure, transient errors retried, timeout, cost, resolved model name), fake FunctionModels, Langfuse OTel
 - [x] understanding agent (#2) + prompt v1; `pipeline.entry` orchestrator (#1); messages.pipeline_status + hourly requeue (max 3)
 - [x] golden set + `make eval` (evals/golden/understanding.yaml, evals/run.py, make eval agent=understanding version=v1)
+- [x] agent guardrails: owner Q&A scope (`owner_qa/v2`), per-company LLM budget/call caps (disabled by default), injection scanner feeding `suspicious`, draft output guard, owner_qa scope golden set; spec [2026-10-12-agent-guardrails-design.md](superpowers/specs/2026-10-12-agent-guardrails-design.md). Integration tests for these tasks NOT run (Docker unavailable); `make check`/`make smoke` pending
 
 ## M5 Case engine + tasks + waits
 - [x] migration 0003: tasks, waits, documents, metric_snapshots, pipeline status, Europe/Amsterdam default, chase/briefing settings
