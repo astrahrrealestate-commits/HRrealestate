@@ -15,3 +15,20 @@ def test_things_the_sender_wrote_are_allowed() -> None:
 
 def test_plain_text_is_clean() -> None:
     assert unverified("Er komt morgen iemand langs om 10:00.", "Het lekt") == []
+
+
+def test_dates_times_and_amounts_are_not_phone_numbers() -> None:
+    for draft in (
+        "Afspraak 12-10-2026 om 10:00",
+        "Van 12-10-2026 tot 14-10-2026",
+        "12 10 2026",
+        "2026-10-12 14:30",
+        "Bedrag 1.250,00 en 1.300,00",
+    ):
+        assert unverified(draft, "x") == [], draft
+
+
+def test_real_phone_numbers_are_still_found() -> None:
+    assert len(unverified("Bel 020 1234567", "x")) == 1
+    assert len(unverified("Bel 06-12345678", "x")) == 1
+    assert len(unverified("Bel 06 12 34 56 78", "x")) == 1
