@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from uuid import UUID
 
 import pytest
 from dbos import DBOS
@@ -9,10 +10,12 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.contracts import Category, Channel, Direction, Urgency
+from app.core.errors import BudgetExceededError
 from app.core.ids import new_id
 from app.core.settings import Settings
 from app.db.enums import PipelineStatus
 from app.db.models import Company, MessageRow, ModelCall, RawEvent, UnderstandingRow
+from app.pipeline.understand import understand_message
 from app.workflows import pipeline
 from app.workflows.deps import set_engine
 from app.workflows.runtime import launch
@@ -31,19 +34,14 @@ def dbos_runtime(test_settings: Settings, migrated_engine: Engine) -> Iterator[N
     DBOS.destroy()
 
 
-def test_pipeline_entry_understand(
-    dbos_runtime: None,
-    migrated_engine: Engine,
-    committed_company: Company,
-) -> None:
-    cid = committed_company.id
-    with Session(migrated_engine) as session, session.begin():
-        raw = RawEvent(company_id=cid, provider=Channel.whatsapp, provider_msg_id=str(new_id()), payload={})
+def _seed_inbound(engine: Engine, company: Company, text: str = "Er lekt water") -> UUID:
+    with Session(engine) as session, session.begin():
+        raw = RawEvent(company_id=company.id, provider=Channel.whatsapp, provider_msg_id=str(new_id()), payload={})
         session.add(raw)
         session.flush()
 
         msg = MessageRow(
-            company_id=cid,
+            company_id=company.id,
             raw_event_id=raw.id,
             channel=Channel.whatsapp,
             provider_msg_id=raw.provider_msg_id,
@@ -51,12 +49,22 @@ def test_pipeline_entry_understand(
             sender_identity="+31612345678",
             direction=Direction.inbound,
             sent_at=NOW,
-            text="Help! Overstroming in de keuken, het water staat op de vloer!",
+            text=text,
             meta={},
         )
         session.add(msg)
         session.flush()
-        msg_id = msg.id
+        return msg.id
+
+
+def test_pipeline_entry_understand(
+    dbos_runtime: None,
+    migrated_engine: Engine,
+    committed_company: Company,
+) -> None:
+    msg_id = _seed_inbound(
+        migrated_engine, committed_company, "Help! Overstroming in de keuken, het water staat op de vloer!"
+    )
 
     # Run the workflow
     status = pipeline.pipeline_entry(str(msg_id))
@@ -283,3 +291,18 @@ def test_photo_only_message_always_needs_a_reply_whatever_the_model_says(
         body = session.scalar(select(UnderstandingRow.body).where(UnderstandingRow.message_id == msg_id))
     assert body is not None
     assert body["requires_reply"] is True
+
+
+def test_understand_message_raises_budget_error_and_changes_nothing(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    message_id = _seed_inbound(migrated_engine, committed_company)
+    settings = test_settings.model_copy(update={"llm_daily_calls_cap": 0})
+    with pytest.raises(BudgetExceededError):
+        understand_message(migrated_engine, settings, message_id)
+    with Session(migrated_engine) as s:
+        msg = s.get(MessageRow, message_id)
+        assert msg is not None
+        assert msg.pipeline_status == PipelineStatus.pending
+        assert (msg.pipeline_attempts or 0) == 0
+        assert s.scalar(select(UnderstandingRow.id).where(UnderstandingRow.message_id == message_id)) is None

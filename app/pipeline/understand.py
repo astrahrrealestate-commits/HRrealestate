@@ -7,7 +7,7 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.contracts import Direction
-from app.core.errors import AgentFailedError
+from app.core.errors import AgentFailedError, BudgetExceededError
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import PipelineStatus
@@ -89,6 +89,8 @@ def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> 
                 msg_row.pipeline_status, msg_row.pipeline_error = PipelineStatus.pending, None
             return row.id
 
+    except BudgetExceededError:  # wait, do not fail: the message stays pending for the hourly sweep
+        raise
     except AgentFailedError as exc:
         log.warning("pipeline.understand.failed", message_id=str(message_id), error=str(exc))
         with Session(engine) as session, session.begin():

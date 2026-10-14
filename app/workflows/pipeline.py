@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.channels.whatsapp import payloads
+from app.core.errors import BudgetExceededError
 from app.core.logging import get_logger
 from app.core.settings import get_settings
 from app.core.workflow_names import PIPELINE_ENTRY
@@ -51,7 +52,21 @@ _RETRY: dict[str, Any] = {
 def understand_step(message_id: str) -> str:
     engine = get_engine()
     settings = get_settings()
-    return "understood" if understand_message(engine, settings, UUID(message_id)) is not None else "failed"
+    try:
+        return "understood" if understand_message(engine, settings, UUID(message_id)) is not None else "failed"
+    except BudgetExceededError:
+        return "budget"
+
+
+@DBOS.step(name="pipeline.alert_budget", **_RETRY)
+def alert_budget_step(company_id: str) -> bool:
+    """One alert per company per UTC day: the sender key is the idempotency key."""
+    day = f"{datetime.now(UTC):%Y%m%d}"
+    text = (
+        "EstateOS reached its AI usage limit. New messages wait and are retried every hour until the limit resets "
+        "or is raised."
+    )
+    return send_owner_message(company_id, f"budget:{company_id}:{day}", partial(_text, text))
 
 
 @DBOS.step(name="pipeline.final_failure", **_RETRY)
@@ -148,6 +163,11 @@ def pipeline_entry(message_id: str) -> str:
     """
     try:
         status = understand_step(message_id)
+        if status == "budget":
+            company_id = company_step(message_id)
+            if company_id is not None:
+                alert_budget_step(company_id)
+            return "blocked"
         if status == "failed":
             if not final_failure_step(message_id):
                 return "failed"
