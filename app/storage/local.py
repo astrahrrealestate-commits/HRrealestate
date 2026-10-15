@@ -40,5 +40,5 @@ class LocalStorage:
         return self._path(key).is_file()
 
     def presigned_url(self, key: str, ttl_seconds: int) -> str:
-        """Dev only: a file URI with an advisory `expires_in`; nothing serves it, so there is no real expiry."""
-        return f"{self._path(key).as_uri()}?expires_in={clamp_ttl(ttl_seconds)}"
+        """Dev only: an opaque relative URL with an advisory `expires_in`; nothing serves it, so no real expiry."""
+        return f"/dev-storage/{validate_key(key)}?expires_in={clamp_ttl(ttl_seconds)}"

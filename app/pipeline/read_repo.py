@@ -4,9 +4,10 @@ import base64
 import binascii
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, Select, and_, func, select, tuple_
+from sqlalchemy import ColumnElement, ScalarSelect, Select, and_, func, select, tuple_
 from sqlalchemy.orm import Session, aliased
 
 from app.contracts import Channel, Direction
@@ -15,10 +16,12 @@ from app.db.enums import PipelineStatus
 from app.db.models.dashboard import OwnerFeed
 from app.db.models.directory import Person
 from app.db.models.ingestion import AttachmentRow, MessageRow
-from app.db.models.pipeline import CaseLink
+from app.db.models.pipeline import CaseLink, UnderstandingRow
 
 MAX_PAGE = 100
 MAX_THREAD_MESSAGES = 200
+MAX_REF_LEN = 255  # messages.thread_ref / provider_msg_id are String(255)
+MAX_REASON_LEN = 200
 Cursor = tuple[datetime, UUID]
 
 
@@ -59,10 +62,10 @@ def encode_thread_key(channel: Channel, ref: str) -> str:
 
 def decode_thread_key(key: str) -> tuple[Channel, str]:
     try:
-        raw = base64.urlsafe_b64decode(key + "=" * (-len(key) % 4)).decode()
+        raw = base64.b64decode(key.replace("-", "+").replace("_", "/") + "=" * (-len(key) % 4), validate=True).decode()
         channel, sep, ref = raw.partition(":")
-        if not sep or not ref:
-            raise ValueError("missing ref")
+        if not sep or not ref or len(ref) > MAX_REF_LEN or any(ord(c) < 0x20 or c == "\x7f" for c in ref):
+            raise ValueError("bad ref")
         return Channel(channel), ref
     except (binascii.Error, ValueError):  # UnicodeDecodeError is a ValueError
         raise BadThreadKeyError("invalid thread key") from None
@@ -117,27 +120,41 @@ def _worst(pending: int, failed: int) -> PipelineStatus:
     return PipelineStatus.failed if failed else PipelineStatus.done
 
 
-def inbox_page(session: Session, company_id: UUID, *, before: Cursor | None, limit: int) -> list[ThreadRow]:
-    """One row per thread, newest activity first; `before` is the (last_at, last_message_id) of the previous page."""
-    r = _ranked(company_id).subquery()
-    m2 = aliased(MessageRow)
-    case_id = (
+def _same_thread(m: Any, r: Any) -> ColumnElement[bool]:
+    return and_(m.channel == r.c.channel, func.coalesce(m.thread_ref, m.provider_msg_id) == r.c.ref)
+
+
+def _case_id(r: Any, company_id: UUID) -> ScalarSelect[UUID]:
+    """Case of the newest linked message in the thread."""
+    m = aliased(MessageRow)
+    return (
         select(CaseLink.case_id)
-        .join(m2, and_(m2.id == CaseLink.message_id, m2.company_id == company_id))
-        .where(
-            CaseLink.company_id == company_id,
-            m2.channel == r.c.channel,
-            func.coalesce(m2.thread_ref, m2.provider_msg_id) == r.c.ref,
-        )
-        .order_by(m2.sent_at.desc(), m2.id.desc())
+        .join(m, and_(m.id == CaseLink.message_id, m.company_id == company_id))
+        .where(CaseLink.company_id == company_id, _same_thread(m, r))
+        .order_by(m.sent_at.desc(), m.id.desc())
         .limit(1)
         .scalar_subquery()
     )
-    q = (
-        select(r, Person.display_name, case_id.label("case_id"))
-        .outerjoin(Person, and_(Person.id == r.c.person_id, Person.company_id == company_id))
-        .where(r.c.rn == 1)
+
+
+def _person_name(r: Any, company_id: UUID) -> ScalarSelect[str]:
+    """Person of the newest inbound message that has one (the thread's last message may be our own reply)."""
+    m = aliased(MessageRow)
+    return (
+        select(Person.display_name)
+        .join(m, and_(m.person_id == Person.id, m.company_id == company_id))
+        .where(Person.company_id == company_id, m.direction == Direction.inbound, _same_thread(m, r))
+        .order_by(m.sent_at.desc(), m.id.desc())
+        .limit(1)
+        .scalar_subquery()
     )
+
+
+def inbox_page(session: Session, company_id: UUID, *, before: Cursor | None, limit: int) -> list[ThreadRow]:
+    """One row per thread, newest activity first; `before` is the (last_at, last_message_id) of the previous page."""
+    r = _ranked(company_id).subquery()
+    q = select(r, _person_name(r, company_id).label("display_name"), _case_id(r, company_id).label("case_id"))
+    q = q.where(r.c.rn == 1)
     if before is not None:
         q = q.where(tuple_(r.c.sent_at, r.c.id) < tuple_(*before))
     q = q.order_by(r.c.sent_at.desc(), r.c.id.desc()).limit(max(1, min(limit, MAX_PAGE)))
@@ -177,3 +194,18 @@ def thread_messages(session: Session, company_id: UUID, thread_key: str) -> list
 def attachments_for(session: Session, company_id: UUID, message_ids: list[UUID]) -> list[AttachmentRow]:
     q = select(AttachmentRow).where(AttachmentRow.company_id == company_id, AttachmentRow.message_id.in_(message_ids))
     return list(session.scalars(q.order_by(AttachmentRow.created_at, AttachmentRow.id)))
+
+
+def suspicious_flags(
+    session: Session, company_id: UUID, message_ids: list[UUID]
+) -> dict[UUID, tuple[bool, str | None]]:
+    """(flag, reason) from the understanding of each message; messages without one are (False, None)."""
+    q = select(UnderstandingRow.message_id, UnderstandingRow.body).where(
+        UnderstandingRow.company_id == company_id, UnderstandingRow.message_id.in_(message_ids)
+    )
+    out: dict[UUID, tuple[bool, str | None]] = {}
+    for message_id, body in session.execute(q):
+        info = body.get("suspicious") or {}
+        reason = info.get("reason")
+        out[message_id] = (bool(info.get("flag", False)), str(reason)[:MAX_REASON_LEN] if reason else None)
+    return out

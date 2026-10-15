@@ -32,3 +32,9 @@ def test_s3_presign_is_local_and_clamped() -> None:
 def test_invalid_key_rejected() -> None:
     with pytest.raises(ValueError):
         MemoryStorage().presigned_url("../x", 10)
+
+
+def test_local_url_is_relative_and_hides_server_path(tmp_path: Path) -> None:
+    url = LocalStorage(tmp_path).presigned_url("media/a/b", 60)
+    assert url.startswith("/dev-storage/media/a/b?")
+    assert str(tmp_path) not in url

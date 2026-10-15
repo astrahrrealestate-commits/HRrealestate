@@ -14,11 +14,13 @@ from app.api.v1.auth import Principal, require_principal
 from app.api.v1.schemas import AttachmentOut, InboxItem, ThreadMessage
 from app.db.models.ingestion import AttachmentRow, MessageRow
 from app.pipeline.read_repo import (
+    MAX_PAGE,
     BadCursorError,
     BadThreadKeyError,
     attachments_for,
     inbox_page,
     parse_cursor,
+    suspicious_flags,
     thread_messages,
 )
 from app.storage.ports import MAX_PRESIGN_TTL_S, ObjectStorage
@@ -51,7 +53,7 @@ def _attachment(a: AttachmentRow, storage: ObjectStorage) -> AttachmentOut:
     )
 
 
-def _message(m: MessageRow, atts: list[AttachmentOut]) -> ThreadMessage:
+def _message(m: MessageRow, atts: list[AttachmentOut], flag: tuple[bool, str | None]) -> ThreadMessage:
     return ThreadMessage(
         id=m.id,
         direction=m.direction,
@@ -60,7 +62,8 @@ def _message(m: MessageRow, atts: list[AttachmentOut]) -> ThreadMessage:
         text=m.text,
         delivery_status=m.delivery_status,
         pipeline_status=m.pipeline_status,
-        suspicious=bool(m.meta.get("suspicious")),
+        suspicious=flag[0],
+        suspicious_reason=flag[1],
         attachments=atts,
     )
 
@@ -68,11 +71,13 @@ def _message(m: MessageRow, atts: list[AttachmentOut]) -> ThreadMessage:
 def _read_thread(engine: Engine, storage: ObjectStorage, company_id: UUID, key: str) -> list[ThreadMessage]:
     with Session(engine) as session:
         messages = thread_messages(session, company_id, key)
-        found = attachments_for(session, company_id, [m.id for m in messages]) if messages else []
+        ids = [m.id for m in messages]
+        found = attachments_for(session, company_id, ids) if messages else []
+        flags = suspicious_flags(session, company_id, ids) if messages else {}
     by_message: dict[UUID, list[AttachmentOut]] = defaultdict(list)
     for a in found:
         by_message[a.message_id].append(_attachment(a, storage))
-    return [_message(m, by_message[m.id]) for m in messages]
+    return [_message(m, by_message[m.id], flags.get(m.id, (False, None))) for m in messages]
 
 
 @router.get("/inbox")
@@ -80,7 +85,7 @@ async def get_inbox(
     request: Request,
     principal: Annotated[Principal, Depends(require_principal)],
     before: str | None = None,
-    limit: Annotated[int, Query(ge=1)] = 50,
+    limit: Annotated[int, Query(ge=1, le=MAX_PAGE)] = 50,
 ) -> list[InboxItem]:
     try:
         return await run_in_threadpool(_read_inbox, request.app.state.engine, principal.company_id, before, limit)

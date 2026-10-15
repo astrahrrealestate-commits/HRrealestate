@@ -51,4 +51,5 @@ class ThreadMessage(BaseModel):
     delivery_status: DeliveryStatus | None
     pipeline_status: PipelineStatus
     suspicious: bool
+    suspicious_reason: str | None
     attachments: list[AttachmentOut]

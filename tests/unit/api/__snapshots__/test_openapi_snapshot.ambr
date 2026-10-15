@@ -213,6 +213,7 @@
               "required": false,
               "schema": {
                 "default": 50,
+                "maximum": 100,
                 "minimum": 1,
                 "title": "Limit",
                 "type": "integer"
@@ -626,6 +627,17 @@
             "title": "Suspicious",
             "type": "boolean"
           },
+          "suspicious_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suspicious Reason"
+          },
           "text": {
             "title": "Text",
             "type": "string"
@@ -640,6 +652,7 @@
           "delivery_status",
           "pipeline_status",
           "suspicious",
+          "suspicious_reason",
           "attachments"
         ],
         "title": "ThreadMessage",
