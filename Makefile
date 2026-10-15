@@ -109,7 +109,7 @@ audit: ## dependency vulnerability audit
 	uv export --frozen --no-hashes --format requirements-txt > .claude/.cache/req.txt
 	$(UV) pip-audit -r .claude/.cache/req.txt --strict
 
-eval: ## (M4) golden-set eval: make eval agent=understanding version=v2
+eval: ## (M4) golden-set eval: make eval agent=understanding|linking|owner_qa|concierge version=v2
 	$(UV) python -m evals.run --agent $(agent) --version $(version)
 
 workflows: up-db ## list recent DBOS workflows (ops)

@@ -64,6 +64,11 @@ def redact(text: str) -> str:
     return _redact_phones(text)
 
 
+def has_contact_details(text: str) -> bool:
+    """An `@` or a run of 8+ digits (dates and clock times excepted): what a plan's text must never carry."""
+    return "@" in text or _redact_phones(text) != text
+
+
 def sanitize(text: str) -> str:
     """Normalised, redacted and bounded: safe to store as a title or to show to the owner."""
     return redact(_normalise(text))[:MAX_TEXT]
