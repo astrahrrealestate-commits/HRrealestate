@@ -17,6 +17,21 @@ been run (Docker was unavailable); see [PROGRESS.md](PROGRESS.md).
 4. Every write (POST, DELETE), **including login**, must carry `X-EstateOS-Client: dashboard`, else `403`.
 5. `DELETE /api/v1/auth/session` clears the cookie (`204`). `GET /api/v1/me` returns `{email, company_id, owner_id}`.
 
+6. Every authenticated request also re-reads the owner row: if the owner was removed or his email changed, the next
+   call is `401` (the cookie alone does not keep a session alive).
+
+### Deployment: same origin (CORS)
+
+Serve the SPA from the **same origin** as the API, behind the reverse proxy (for example `https://app.example.com/`
+for the SPA and `https://app.example.com/api/v1/...` proxied to the API). The cookie is `SameSite=Strict`, and the
+`X-EstateOS-Client` header makes every write a non-simple request that a browser preflights, so a cross-origin SPA
+does not work by default. Only if the SPA must live on another origin, set `DASHBOARD_CORS_ORIGINS` to its exact
+origins, comma-separated (`https://dash.example.com,https://staging.example.com`); `*` is refused at startup. The API
+then answers preflights for those origins with credentials allowed, methods GET/POST/DELETE and the headers
+`X-EstateOS-Client` and `Content-Type`. Empty (the default) adds no CORS headers at all. Because the cookie is
+`SameSite=Strict`, a cross-origin SPA must still be on the same site (for example `dash.example.com` calling
+`api.example.com`); a different registrable domain is not supported. Prefer same-origin.
+
 Login errors: `401 invalid id token`, `403 not an owner account` (also when the email matches several companies),
 `503 identity provider unavailable` (retry), `429 rate_limited`. In dev, `DASHBOARD_AUTH_PROVIDER=fake` accepts the
 token `test-owner-token` for `owner@example.test`; prod refuses the fake provider.
@@ -61,7 +76,7 @@ Read (GET, cookie only):
 | Route | Response |
 |---|---|
 | `/me` | `{email, company_id, owner_id}` |
-| `/feed?after=&limit=` | `FeedItem[]` oldest first: `{id, kind, ref_id, payload, created_at, seen_at, resolved_at}`; kinds `approval`, `document_review`, `alert`, `briefing`, `task`, `agent_note` |
+| `/feed?after=&limit=` | `FeedItem[]` oldest first: `{id, kind, ref_id, payload, created_at, seen_at, resolved_at}`; kinds `approval`, `document_review`, `alert`, `briefing`, `task`, `agent_note`. `ref_id` is the approval id (`approval`) or the attachment id (`document_review`), else null. Approved contractor requests, escalations, owner notes and draft-mode WhatsApp replies arrive as `alert` items with the copy-ready text |
 | `/events` | SSE, see below |
 | `/inbox?before=&limit=` | `InboxItem[]`, newest thread first: `{thread_key, cursor, channel, last_at, last_text, sender, person_name, case_id, unread_pipeline, message_count}` |
 | `/threads/{thread_key}` | `ThreadMessage[]`: `{id, direction, sent_at, sender, text, delivery_status, pipeline_status, suspicious, suspicious_reason, attachments[{id, filename, mime_type, size_bytes, url}]}`; `404` for a bad key or empty thread. Attachment `url` is a short-lived presigned link |
@@ -132,18 +147,32 @@ Per company (`GET /company`), default `draft`.
 
 ### Blocked sends (alert items in the feed)
 
-The approval stays valid and nothing is sent. The alert text is `Reply not sent to the tenant: <reason>.` Reasons the
-SPA will see:
+The approval stays valid and nothing is sent. The alert text is `Reply not sent to the tenant: <reason>.`, or
+`Reply may not have reached the tenant: <reason>.` when the provider may have accepted it. One alert per action
+version, whatever path (decide, resume, retry) ran it. Reasons the SPA will see:
 
 - `WhatsApp window closed: the tenant wrote more than 23 h ago; reply by email or wait` (window measured from the
   tenant's last inbound message).
 - `hourly tenant send cap reached` (`TENANT_SENDS_PER_HOUR`, default 30 per company; drafts count too, see
   [go-live-channels.md](go-live-channels.md)).
 - `Gmail sending is not configured: GMAIL_REPLY_SEND_CREDENTIALS_FILE (gmail.send) is missing`.
-- `delivery status unknown: a previous attempt did not finish; check the thread before resending`. There is
-  currently no dashboard action to mark such an item sent or cancelled (parked, see PROGRESS).
+- `delivery status unknown: previous attempt never reported; check the thread before resending it yourself`: an
+  attempt started more than 30 minutes ago and never finished (the worker died mid-call). The send and the action are
+  marked failed once; `resume` will not run it again. There is no dashboard action to mark it sent (the owner checks
+  the thread and resends by hand if needed). A send still in flight (under 30 minutes) produces no alert.
+- `delivery status unknown: a previous attempt did not finish; ...` or `may have been delivered: ...`: the provider
+  call failed in a way that may still have delivered the message.
 - Others: company paused, mode back on `draft`, the recipient is no longer the case's own contact, the draft was
   edited after approval, body over WhatsApp's 4096 characters.
+
+### Lost enqueues (commit-then-crash sweep)
+
+Writes commit first and enqueue the background work second. If the API dies in between, the worker's
+`sweep.stranded` cron (every 5 minutes) picks the work up: approved actions decided 5 minutes to 24 hours ago that are
+still `approved` with no send recorded (company not paused; a paused company's actions wait for Resume), and agent
+turns still `pending` after 5 minutes (up to 24 hours). They are enqueued under the same ids the API uses
+(`exec:{action_id}:{draft_version}`, `concierge:{turn_id}`), so nothing runs twice; at most 200 per round. For the SPA
+this means a decision or an agent message can take up to about 5 minutes longer after a crash, never that it is lost.
 
 ## Running the simulator scenario
 

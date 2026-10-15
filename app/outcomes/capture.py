@@ -1,8 +1,9 @@
 """Outcome capture (#8): compare what Harjot actually sent with the draft he approved.
 
-Phase 1 never sends to tenants; Harjot sends the Gmail draft (it comes back through the Sent folder as an outbound
+In `outbound_mode=draft` Harjot sends the Gmail draft himself (it comes back through the Sent folder as an outbound
 message in the same thread) or pastes the WhatsApp text (it comes back as an echo). The first outbound message in
-that thread after delivery is compared with the chosen draft (rapidfuzz, normalised whitespace).
+that thread after delivery is compared with the chosen draft (rapidfuzz, normalised whitespace). In `send` mode the
+sender delivers the approved text itself, so the comparison reads `unchanged` (follow-up: label those sends apart).
 """
 
 from datetime import datetime, timedelta

@@ -157,7 +157,8 @@ dashboard (email/SMS alerts can be added later), attachment content analysis.
 ## Deviations from the first draft (recorded at the end of the build)
 
 - **No phrasing model call.** Answers are assembled deterministically from the executed steps (spec §4 had a second
-  call). At most one model call (the planner) per turn; none on the fast path.
+  call). A turn makes the planner call plus at most one `owner_qa` call (an `answer` step, or the fallback when the
+  planner fails); none on the fast path.
 - **Separate reply-send token.** Tenant replies use `GMAIL_REPLY_SEND_CREDENTIALS_FILE` (`gmail.send` +
   `gmail.metadata`), not the compose token; `make gmail-consent reply_send=1` creates it.
 - **Decide gate source.** The suspicious-message gate on `decide` reads the understandings listed in the action's
@@ -174,3 +175,12 @@ dashboard (email/SMS alerts can be added later), attachment content analysis.
 - **Migrations**: `0009` (dashboard tables, owner `interactive_channel`, company `outbound_mode`) and `0010` (index
   `agent_turns (company_id, updated_at, id)` for the SSE turn cursor).
 - **Auth/rate limits**: `itsdangerous` session cookie; in-process rate limits (ADR 0006).
+- **Owner channel default stays `whatsapp`** (this spec, §1 and §2, says `dashboard` by default). The model and
+  migration default of `owner_accounts.interactive_channel` remained `whatsapp`, pending the user's decision on
+  existing rows; a dashboard owner is switched by SQL (runbook: `docs/go-live-channels.md`, "Switching the owner to the
+  dashboard"). Approved owner-directed actions (contractor requests, escalations, owner notes, draft-mode WhatsApp
+  replies) follow the owner's channel, so a switched owner gets them in the feed.
+- **Final review fix wave**: in-flight tenant sends are skipped by `resume` and reported "in progress"; a send
+  `sending` for 30+ minutes is marked failed once with one alert (no mark-sent route); a 5-minute sweep re-enqueues
+  approved actions and pending turns stranded between commit and enqueue; optional `DASHBOARD_CORS_ORIGINS`; sessions
+  re-read the owner row per request.

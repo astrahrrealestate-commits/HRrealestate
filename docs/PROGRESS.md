@@ -121,13 +121,25 @@ Ticks below carry a quoted line from the build ledger (per-task `make quick` rep
 - [x] `make audit` 2026-10-15: `No known vulnerabilities found`
 - [x] `make harness-test` 2026-10-15: `Ran 16 tests ... OK`
 - [ ] `make cov`: needs Docker (runs integration tests): not run
-- [ ] whole-branch reviewer (estateos-reviewer): not dispatched in task 15; per-task reviews only
+- [x] whole-branch final review (opus, 60e2afb..76e4003): verdict "merge after fixes" (I1-I8, M1-M8); one fix wave below
+- [x] **Final review fix wave** (unit-tested; integration tests written, mypy-clean and collected, NOT run):
+  - I1 document-review cards (`docreview:{attachment_id}`, now `app.owner.cards.document_review_key`) land as `document_review` with `ref_id`
+  - I2 approved contractor requests, escalations, owner notes and draft-mode WhatsApp replies reach a `dashboard` owner as one feed row (`exec:` key, committed with the `sends` row marked sent); allowlist branch for the company's own owner feed; WhatsApp/Chat owners unchanged
+  - I3 ruling: code default stays `whatsapp`; deviation recorded in the spec; switch runbook in go-live-channels.md
+  - I4 the planner brief lists open tasks as `#<ref> <title>`
+  - I5 `resume` skips actions whose exec send is `sending`/`sent`/`failed`; a lost claim on a tenant send `sending` < 30 min is "in progress" (no alert); `tell_blocked_step` keys alerts by `blocked:exec:{a}:{v}`
+  - I6 a send `sending` 30+ min is marked failed once (send + action), one alert, never re-run by `resume`
+  - I7 `sweep.stranded` cron every 5 min re-enqueues approved actions and pending turns stranded between commit and enqueue (same ids, 200 per round)
+  - I8 same-origin deployment documented; optional `DASHBOARD_CORS_ORIGINS` allowlist (`*` refused)
+  - M1 sessions re-read the owner row per request; M2 import-linter contract `app.api` never imports `app.workflows`/`app.sender` (`Contracts: 6 kept, 0 broken.`); M3 stale docs fixed/annotated; M5 compose and `.env.example` wiring (unit-tested); M8 go-live note on draft mode for a dashboard-only owner
+  - G1 after the wave: `make quick` -> `1322 passed, 654 warnings`; integration suite `401 tests collected`, not run
 - [ ] G5 `make smoke`, `make sim-demo`: not run
 
 ### Dashboard follow-ups / parked (from the ledger)
-- N1 (medium): `/company/resume` races an in-flight tenant send: the resume run can lose `begin_attempt` and raise a false "status unknown" alert (nothing is double-sent). Fix: skip actions whose exec `Send` row is `sending` in `approved_unexecuted`, and treat a lost tenant `pending` attempt as in progress with no alert.
-- `STATUS_UNKNOWN` sends have no owner way out (no mark-sent/cancel route); owner re-target is refused on a number change.
-- A turn left `pending` if the process dies between commit and enqueue has no requeue sweep (an enqueue failure is handled: the turn is marked failed and the API returns 503).
+- Fixed in the final wave (were parked): N1 resume vs in-flight send (I5), stuck `STATUS_UNKNOWN` sends repeating (I6: failed once after 30 min), turns/actions stranded between commit and enqueue (I7 sweep). Their integration tests are written, not run.
+- No owner mark-sent/cancel route for a send whose status is unknown (ruling: the owner checks the thread and resends by hand); owner re-target is refused on a number change.
+- M4: outcome capture labels send-mode sends `unchanged` (the sender delivered the approved text itself); label them apart (follow-up).
+- The owner channel default is still `whatsapp` in code (spec says `dashboard`): needs the user's decision on existing rows.
 - SSE: a row that commits later than about 2 s after a later one can be missed until reconnect; no reconnect frame at lifetime end; generic error frame.
 - Sanitiser gaps in concierge answers: dotted-time hold such as `06.12 34 56 78`, bare domains.
 - `draft_reply` cannot re-draft after a decision.

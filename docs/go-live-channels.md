@@ -112,6 +112,23 @@ and nothing is ever sent. Approved replies become **real Gmail drafts** in the m
 6. `make pending`: lists the proposals waiting for approval. `make approve n=1 choice=d1`: taps draft 1 as Harjot.
 7. Open Gmail → Drafts: the reply sits in the tenant's thread. Nothing was sent; delete the draft any time.
 
+## Switching the owner to the dashboard
+
+`owner_accounts.interactive_channel` still defaults to `whatsapp` in code (the spec's `dashboard` default was not
+applied to existing rows; it waits for the user's decision). For a dashboard-only owner, switch his row once:
+
+```sql
+update owner_accounts set interactive_channel='dashboard' where company_id=<company>;
+```
+
+Since the final review fix wave this is complete: approval cards, alerts, briefings and the results of approved
+contractor requests, escalations and owner notes land in his dashboard feed (no WhatsApp message). Rollback: set it
+back to `whatsapp`.
+
+**Draft mode is of little use to a dashboard-only owner:** an approved Gmail reply becomes a Gmail draft in a mailbox
+he never opens, and a WhatsApp reply becomes copy-ready text in his feed that he must paste himself. Plan the switch to
+`send` (below) together with the dashboard switch.
+
 ## Switching a company to send
 
 Until this step every approved reply stays a Gmail draft or an owner-only message: `companies.outbound_mode` defaults
@@ -154,8 +171,11 @@ update companies set outbound_mode='draft' where id=<company>;
 - *Gmail sending is not configured: GMAIL_REPLY_SEND_CREDENTIALS_FILE (gmail.send) is missing* — create the token (step 3).
 - Others: company paused, mode back on `draft`, the recipient is no longer the case's own contact, the draft was edited
   after approval, a body over WhatsApp's 4096 characters.
-A send that failed after the provider may have accepted it is reported as "delivery status unknown": check the thread
-before resending.
+A send that failed after the provider may have accepted it is reported as "Reply may not have reached the tenant:
+... delivery status unknown": check the thread before resending. The same happens once to a send whose attempt never
+reported back within 30 minutes (the worker died mid-call): the send and the action are marked failed, `resume` will
+not retry it, and you resend by hand if the thread shows nothing. A send still in flight (under 30 minutes) is left
+alone: `resume` skips it and no alert is written.
 
 **Gmail scope caveat.** `gmail.compose` (drafts, owner digest) can technically also call `messages.send`, so OAuth
 scopes alone do not stop that token from sending. The separation is enforced in code: only `app/sender` holds either

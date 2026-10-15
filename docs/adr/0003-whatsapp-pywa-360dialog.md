@@ -18,6 +18,8 @@ separate agent number, for which plain Cloud API is fine.
 - Webhook payloads stay in Cloud API format, so the same fixtures work for both routes.
 - Partner fees apply. Partner choice is reversible (adapter boundary).
 - Phase 1 never sends to tenants, so the tenant number is inbound-only plus echo capture.
+  *(Superseded 2026-10-15 by [ADR 0006](0006-dashboard-owner-channel.md): in `outbound_mode=send` an approved reply
+  is sent to the tenant through `app/sender/`; `draft` mode, the default, keeps this behaviour.)*
 
 ## Amendment (2026-10-06, M2)
 
