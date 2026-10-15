@@ -156,7 +156,7 @@ class SessionRequest(BaseModel):
     id_token: str
 
 
-router = APIRouter(prefix="/api/v1", tags=["auth"])
+router = APIRouter(tags=["auth"])
 
 
 @router.post("/auth/session", dependencies=[Depends(require_csrf)])

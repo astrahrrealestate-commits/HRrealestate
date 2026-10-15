@@ -11,6 +11,7 @@ import app
 from app.api import health
 from app.api.deps import WorkflowClient
 from app.api.v1 import auth as dashboard_auth
+from app.api.v1.router import api_v1_router
 from app.api.webhooks import gmail as gmail_webhook
 from app.api.webhooks import google_chat as google_chat_webhook
 from app.api.webhooks import whatsapp as whatsapp_webhook
@@ -65,7 +66,7 @@ def create_app(
         redoc_url=None,
     )
     api.include_router(health.router)
-    api.include_router(dashboard_auth.router)
+    api.include_router(api_v1_router)
     api.include_router(whatsapp_webhook.router)
     api.include_router(gmail_webhook.router)
     api.include_router(google_chat_webhook.router)

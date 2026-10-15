@@ -1,0 +1,107 @@
+"""Owner feed: paged JSON (`/feed`) and a Server-Sent Events stream (`/events`).
+
+Postgres is the source of truth; the stream just polls it, so a restart or dropped connection loses nothing:
+the client reconnects with `Last-Event-ID` (the cursor of the last event it saw) and resumes.
+"""
+
+import asyncio
+import time
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
+from typing import Annotated
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import StreamingResponse
+from sqlalchemy import Engine
+from sqlalchemy.orm import Session
+
+from app.api.v1.auth import Principal, require_principal
+from app.api.v1.schemas import FeedItem
+from app.pipeline.read_repo import MAX_PAGE, BadCursorError, Cursor, feed_page, parse_cursor
+
+POLL_INTERVAL_S = 1.5
+PING_INTERVAL_S = 15.0
+_MAX_UUID = UUID(int=2**128 - 1)
+
+router = APIRouter(tags=["feed"])
+
+
+def _read_page(engine: Engine, company_id: UUID, after: Cursor | None, limit: int) -> list[FeedItem]:
+    with Session(engine) as session:
+        return [FeedItem.model_validate(r) for r in feed_page(session, company_id, after, limit)]
+
+
+def _cursor_of(item: FeedItem) -> Cursor:
+    return item.created_at, item.id
+
+
+def frame(item: FeedItem) -> str:
+    cursor = f"{item.created_at.isoformat()}|{item.id}"
+    return f"id: {cursor}\nevent: feed\ndata: {item.model_dump_json()}\n\n"
+
+
+def poll_frames(engine: Engine, company_id: UUID, after: Cursor) -> tuple[list[str], Cursor]:
+    """One poll: the SSE frames for rows after `after` (at most one page) and the advanced cursor."""
+    items = _read_page(engine, company_id, after, MAX_PAGE)
+    return [frame(i) for i in items], (_cursor_of(items[-1]) if items else after)
+
+
+def start_cursor(last_event_id: str | None) -> Cursor:
+    """Resume point. Missing or unparseable `Last-Event-ID` starts from "now" (only new rows), never an error."""
+    if last_event_id:
+        try:
+            return parse_cursor(last_event_id)
+        except BadCursorError:
+            pass
+    return datetime.now(UTC), _MAX_UUID
+
+
+async def event_stream(
+    request: Request,
+    engine: Engine,
+    company_id: UUID,
+    after: Cursor,
+    poll_interval: float | None = None,
+    ping_interval: float | None = None,
+) -> AsyncIterator[str]:
+    poll = POLL_INTERVAL_S if poll_interval is None else poll_interval
+    ping = PING_INTERVAL_S if ping_interval is None else ping_interval
+    last_sent = time.monotonic()
+    while not await request.is_disconnected():
+        frames, after = await run_in_threadpool(poll_frames, engine, company_id, after)
+        for f in frames:
+            yield f
+        now = time.monotonic()
+        if frames:
+            last_sent = now
+        elif now - last_sent >= ping:
+            last_sent = now
+            yield "event: ping\ndata: {}\n\n"
+        await asyncio.sleep(poll)
+
+
+@router.get("/feed")
+async def get_feed(
+    request: Request,
+    principal: Annotated[Principal, Depends(require_principal)],
+    after: str | None = None,
+    limit: Annotated[int, Query(ge=1)] = 50,
+) -> list[FeedItem]:
+    try:
+        cursor = parse_cursor(after) if after else None
+    except BadCursorError:
+        raise HTTPException(status_code=422, detail="invalid cursor") from None
+    return await run_in_threadpool(_read_page, request.app.state.engine, principal.company_id, cursor, limit)
+
+
+@router.get("/events")
+async def get_events(
+    request: Request, principal: Annotated[Principal, Depends(require_principal)]
+) -> StreamingResponse:
+    after = start_cursor(request.headers.get("last-event-id"))
+    stream = event_stream(request, request.app.state.engine, principal.company_id, after)
+    return StreamingResponse(
+        stream, media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    )
