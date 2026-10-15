@@ -263,13 +263,16 @@ def test_pause_resume_flag_and_reenqueue(world: World) -> None:
     assert world.client.post("/api/v1/company/resume", headers=H).json() == {"paused": False}
     assert world.client.get("/api/v1/company").json()["paused"] is False
     assert [c[0]["workflow_id"].startswith(f"exec:{world.a.action}:1:resume:") for c in world.wf.calls] == [True]
-    world.client.post("/api/v1/company/resume", headers=H)
-    assert len(world.wf.calls) == 1
+    world.client.post("/api/v1/company/resume", headers=H)  # not paused any more: still re-enqueues, new suffix
+    ids = [c[0]["workflow_id"] for c in world.wf.calls]
+    assert len(ids) == 2
+    assert len(set(ids)) == 2
+    assert all(i.startswith(f"exec:{world.a.action}:1:resume:") for i in ids)
     with Session(world.engine) as s:
         assert s.scalar(select(Company.paused).where(Company.id == world.b.company)) is False
 
 
-def _newer_harmless_message(w: World, *, link: bool = True) -> None:
+def _newer_harmless_message(w: World) -> None:
     with Session(w.engine) as s:
         raw = RawEvent(company_id=w.a.company, provider=Channel.gmail, provider_msg_id=f"n-{uuid4()}", payload={})
         s.add(raw)
