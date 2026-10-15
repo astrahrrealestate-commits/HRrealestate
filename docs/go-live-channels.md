@@ -120,7 +120,7 @@ to `draft`. In `send` mode an approve click sends the reply to the tenant, on th
 
 **Prerequisites**
 1. `make live-check k=outbound` is green. It lists the missing settings and exits 2 before any provider call when
-   the reply-send token or the mailbox is absent. When green it has sent one real reply **to the test mailbox itself**
+   any of `GMAIL_CREDENTIALS_FILE`, `GMAIL_REPLY_SEND_CREDENTIALS_FILE` or `LIVE_GMAIL_MAILBOX` is absent. When green it has sent one real reply **to the test mailbox itself**
    and proved that a repeated call returns the same message (no second email). With `LIVE_WHATSAPP_TEST_TO` set to the
    owner's number it also sends one WhatsApp text, and refuses any other number.
 2. Harjot's written OK to send to tenants on his behalf.
@@ -147,7 +147,10 @@ update companies set outbound_mode='draft' where id=<company>;
 **When a send is blocked** the approval stays valid, nothing is sent, and the dashboard feed shows why:
 - *WhatsApp window closed: the tenant wrote more than 23 h ago* — reply by email or wait for the tenant's next message.
 - *hourly tenant send cap reached* — `TENANT_SENDS_PER_HOUR` per company; retry later or raise the setting and restart.
-  Drafts created in the last hour count too, so the first hour after switching can hit the cap early.
+  The count (`app/sender/tenant_gate.tenant_sends_last_hour`) is every `sends` row of the company from the last hour
+  on Gmail or WhatsApp with status pending, sending or sent whose target is not an owner address, and it does not
+  look at the outbound mode. Draft-mode Gmail reply drafts are such rows (target: the tenant's address), so they count;
+  owner-only messages (WhatsApp texts to Harjot, digests) do not. The first hour after switching can hit the cap early.
 - *Gmail sending is not configured: GMAIL_REPLY_SEND_CREDENTIALS_FILE (gmail.send) is missing* — create the token (step 3).
 - Others: company paused, mode back on `draft`, the recipient is no longer the case's own contact, the draft was edited
   after approval, a body over WhatsApp's 4096 characters.

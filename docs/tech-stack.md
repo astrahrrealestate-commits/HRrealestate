@@ -46,6 +46,9 @@ unless vetoed.
 | Fuzzy matching (linking, outcomes) | **rapidfuzz** | thresholds |
 | BRIXX export import | **polars** (CSV/XLSX) + Pydantic row models | column mapping |
 | Object storage | **boto3** → S3-compatible EU bucket | — |
+| Dashboard session | **itsdangerous** (signed, time-limited cookie) + **google-auth** (ID token verify) | `app/api/v1/auth.py`, `ratelimit.py` (in-process token bucket; multi-instance needs Postgres counters, no Redis) |
+| Dashboard API | **FastAPI** routers `/api/v1` + SSE (`StreamingResponse`, Postgres-polled) | read models, decision routes; see [dashboard-api.md](dashboard-api.md) |
+| Super Agent | **Pydantic AI** planner (one call, typed `ConciergePlan`), code executor; answers assembled deterministically (no phrasing call) | plan validation and execution |
 | Logging | **structlog** (JSON) | — |
 | Errors | **Sentry** SDK (FastAPI + DBOS) | — |
 | Traces | **OpenTelemetry** (DBOS + Pydantic AI emit spans) → Langfuse | — |

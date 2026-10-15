@@ -71,6 +71,8 @@ estateos/
 | **M9** | Document filing (#9) | Attachments classified from metadata, named and filed in Google Drive (`drive.file`); uncertain ones go to an owner review card |
 | **M8** | Outcomes + drift + hardening | Sent folder and echo capture labels every draft; daily drift snapshots (autonomy, cost, performance) with owner/Sentry alerts; a test proving no code path sends to a tenant; database backups; one day of shadow running on live mail |
 
+**D (Dashboard + Super Agent, branch `d-dashboard`):** the owner's interface is the dashboard API, with real tenant sends after the approve click. Plan, spec and status: [PROGRESS.md](PROGRESS.md) section D, [dashboard-api.md](dashboard-api.md), [ADR 0006](adr/0006-dashboard-owner-channel.md).
+
 Agents per milestone: [specs/2026-10-07-estateos-phase1-agents-design.md](superpowers/specs/2026-10-07-estateos-phase1-agents-design.md).
 
 **Order:** M1 → M2 → M4 → M5 → M6 → M7 → M9 → M8 (M3 deferred until the BRIXX export arrives). With two engineers:

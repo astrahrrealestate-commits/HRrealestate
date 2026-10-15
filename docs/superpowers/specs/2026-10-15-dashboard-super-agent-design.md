@@ -153,3 +153,24 @@ dashboard (email/SMS alerts can be added later), attachment content analysis.
 1. Auth tool (Google ID-token verify plus own session, or an OIDC library): ADR 0006 proposes the former; confirm.
 2. Does the SPA need websockets instead of SSE? SSE chosen (one-way push, simple, proxy-friendly).
 3. Retention of mirrored attachments in S3 and presigned URL TTL (proposed 5 min).
+
+## Deviations from the first draft (recorded at the end of the build)
+
+- **No phrasing model call.** Answers are assembled deterministically from the executed steps (spec §4 had a second
+  call). At most one model call (the planner) per turn; none on the fast path.
+- **Separate reply-send token.** Tenant replies use `GMAIL_REPLY_SEND_CREDENTIALS_FILE` (`gmail.send` +
+  `gmail.metadata`), not the compose token; `make gmail-consent reply_send=1` creates it.
+- **Decide gate source.** The suspicious-message gate on `decide` reads the understandings listed in the action's
+  `context_ref`, not the latest understanding of the thread.
+- **Recipient.** The tenant recipient is the newest inbound message on the channel whose canonical sender identity is
+  one of the case's primary person's current identities (from the DB). A thread with only a roommate's messages has no
+  recipient and the send is blocked. Draft mode still addresses the raw sender (a draft only).
+- **Tenant subject** of a Gmail reply is taken from the thread, not from model output.
+- **Inbox `limit` above 100 is `422`** (advertised as `le=100`), not clamped; `/feed` still clamps.
+- **Edit card** is delivered from the API through the DB-only feed (`approval:{id}:{n}` keys), not through the old
+  owner-reply path.
+- **`resume`**: the concierge does not execute a planned `resume`; the chat message `resume` (owner command) and
+  `POST /company/resume` re-run approved, unexecuted actions.
+- **Migrations**: `0009` (dashboard tables, owner `interactive_channel`, company `outbound_mode`) and `0010` (index
+  `agent_turns (company_id, updated_at, id)` for the SSE turn cursor).
+- **Auth/rate limits**: `itsdangerous` session cookie; in-process rate limits (ADR 0006).
