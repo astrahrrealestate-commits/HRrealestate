@@ -10,6 +10,7 @@ from sqlalchemy import Engine
 import app
 from app.api import health
 from app.api.deps import WorkflowClient
+from app.api.v1 import auth as dashboard_auth
 from app.api.webhooks import gmail as gmail_webhook
 from app.api.webhooks import google_chat as google_chat_webhook
 from app.api.webhooks import whatsapp as whatsapp_webhook
@@ -29,6 +30,7 @@ def create_app(
     workflow_client: WorkflowClient | None = None,
     gmail_push_verifier: PushVerifier | None = None,
     google_chat_verifier: ChatVerifier | None = None,
+    id_token_verifier: dashboard_auth.IdTokenVerifier | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     assert_production_safe(settings)
@@ -47,6 +49,7 @@ def create_app(
         )
         api.state.gmail_push_verifier = gmail_push_verifier or registry.gmail_push_verifier(settings)
         api.state.google_chat_verifier = google_chat_verifier or registry.google_chat_verifier(settings)
+        api.state.id_token_verifier = id_token_verifier or dashboard_auth.dashboard_verifier(settings)
         yield
         if workflow_client is None:
             api.state.workflow_client.destroy()
@@ -62,6 +65,7 @@ def create_app(
         redoc_url=None,
     )
     api.include_router(health.router)
+    api.include_router(dashboard_auth.router)
     api.include_router(whatsapp_webhook.router)
     api.include_router(gmail_webhook.router)
     api.include_router(google_chat_webhook.router)
