@@ -3,7 +3,7 @@
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from app.contracts import (
     ActionType,
@@ -161,3 +161,38 @@ class CompanyOut(BaseModel):
     paused: bool
     outbound_mode: OutboundMode
     timezone: str
+
+
+class DecideIn(BaseModel):
+    choice: ButtonChoice
+    confirm_suspicious: bool = False
+
+
+class DecisionOut(BaseModel):
+    kind: Literal["execute", "edit", "rejected", "stale"]
+    stale: bool
+    action_id: UUID
+    draft_version: int
+    variant: int | None
+
+
+class EditIn(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
+
+
+class RevisionOut(BaseModel):
+    action_id: UUID
+    draft_version: int
+    approval_id: UUID
+
+
+class SnoozeIn(BaseModel):
+    duration: str = Field(max_length=16)
+
+
+class FileDocumentIn(BaseModel):
+    choice: str = Field(max_length=32)
+
+
+class PausedOut(BaseModel):
+    paused: bool

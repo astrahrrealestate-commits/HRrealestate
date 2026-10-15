@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.channels.whatsapp import payloads
+from app.core.workflow_names import EXECUTE_ACTION
 from app.db.models import ActionRow
 from app.ingestion.process import is_transient
 from app.pipeline import followups, local_actions
@@ -17,8 +18,6 @@ from app.sender.execute import execute_action
 from app.workflows.deps import get_engine, get_sender_deps
 from app.workflows.owner_notify import send_owner_message
 from app.workflows.retry import STEP_RETRY
-
-EXECUTE_ACTION = "actions.execute_action"
 
 
 def _retryable(exc: BaseException) -> bool:

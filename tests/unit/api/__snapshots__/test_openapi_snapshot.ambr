@@ -52,6 +52,144 @@
           ]
         }
       },
+      "/api/v1/approvals/{approval_id}/decide": {
+        "post": {
+          "operationId": "decide_api_v1_approvals__approval_id__decide_post",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "approval_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Approval Id",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecideIn"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/DecisionOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Decide",
+          "tags": [
+            "decisions"
+          ]
+        }
+      },
+      "/api/v1/approvals/{approval_id}/edit": {
+        "post": {
+          "operationId": "edit_api_v1_approvals__approval_id__edit_post",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "approval_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Approval Id",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditIn"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/RevisionOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Edit",
+          "tags": [
+            "decisions"
+          ]
+        }
+      },
       "/api/v1/auth/session": {
         "delete": {
           "operationId": "delete_session_api_v1_auth_session_delete",
@@ -303,6 +441,171 @@
           ]
         }
       },
+      "/api/v1/company/pause": {
+        "post": {
+          "operationId": "pause_api_v1_company_pause_post",
+          "parameters": [
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/PausedOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Pause",
+          "tags": [
+            "decisions"
+          ]
+        }
+      },
+      "/api/v1/company/resume": {
+        "post": {
+          "operationId": "resume_api_v1_company_resume_post",
+          "parameters": [
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/PausedOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Resume",
+          "tags": [
+            "decisions"
+          ]
+        }
+      },
+      "/api/v1/documents/{attachment_id}/file": {
+        "post": {
+          "operationId": "file_document_api_v1_documents__attachment_id__file_post",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "attachment_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Attachment Id",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileDocumentIn"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "202": {
+              "content": {
+                "application/json": {
+                  "schema": {}
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "File Document",
+          "tags": [
+            "decisions"
+          ]
+        }
+      },
       "/api/v1/events": {
         "get": {
           "operationId": "get_events_api_v1_events_get",
@@ -498,6 +801,118 @@
           "summary": "Get Tasks",
           "tags": [
             "work"
+          ]
+        }
+      },
+      "/api/v1/tasks/{ref}/done": {
+        "post": {
+          "operationId": "task_done_api_v1_tasks__ref__done_post",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "ref",
+              "required": true,
+              "schema": {
+                "title": "Ref",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "responses": {
+            "204": {
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Task Done",
+          "tags": [
+            "decisions"
+          ]
+        }
+      },
+      "/api/v1/tasks/{ref}/snooze": {
+        "post": {
+          "operationId": "task_snooze_api_v1_tasks__ref__snooze_post",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "ref",
+              "required": true,
+              "schema": {
+                "title": "Ref",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnoozeIn"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "204": {
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Task Snooze",
+          "tags": [
+            "decisions"
           ]
         }
       },
@@ -1142,6 +1557,70 @@
         "title": "CompanyOut",
         "type": "object"
       },
+      "DecideIn": {
+        "properties": {
+          "choice": {
+            "$ref": "#/components/schemas/ButtonChoice"
+          },
+          "confirm_suspicious": {
+            "default": false,
+            "title": "Confirm Suspicious",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "choice"
+        ],
+        "title": "DecideIn",
+        "type": "object"
+      },
+      "DecisionOut": {
+        "properties": {
+          "action_id": {
+            "format": "uuid",
+            "title": "Action Id",
+            "type": "string"
+          },
+          "draft_version": {
+            "title": "Draft Version",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "execute",
+              "edit",
+              "rejected",
+              "stale"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "variant": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variant"
+          }
+        },
+        "required": [
+          "kind",
+          "stale",
+          "action_id",
+          "draft_version",
+          "variant"
+        ],
+        "title": "DecisionOut",
+        "type": "object"
+      },
       "DeliveryStatus": {
         "description": "Outbound message delivery, moving forward only: sent < delivered < read; failed is terminal.",
         "enum": [
@@ -1160,6 +1639,21 @@
         ],
         "title": "Direction",
         "type": "string"
+      },
+      "EditIn": {
+        "properties": {
+          "text": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "EditIn",
+        "type": "object"
       },
       "FeedItem": {
         "properties": {
@@ -1241,6 +1735,20 @@
         ],
         "title": "FeedKind",
         "type": "string"
+      },
+      "FileDocumentIn": {
+        "properties": {
+          "choice": {
+            "maxLength": 32,
+            "title": "Choice",
+            "type": "string"
+          }
+        },
+        "required": [
+          "choice"
+        ],
+        "title": "FileDocumentIn",
+        "type": "object"
       },
       "HTTPValidationError": {
         "properties": {
@@ -1335,6 +1843,19 @@
         "title": "OutboundMode",
         "type": "string"
       },
+      "PausedOut": {
+        "properties": {
+          "paused": {
+            "title": "Paused",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "paused"
+        ],
+        "title": "PausedOut",
+        "type": "object"
+      },
       "PipelineStatus": {
         "description": "Agent pipeline progress of one inbound message (spec phase-1 agents \u00a7M4).",
         "enum": [
@@ -1344,6 +1865,31 @@
         ],
         "title": "PipelineStatus",
         "type": "string"
+      },
+      "RevisionOut": {
+        "properties": {
+          "action_id": {
+            "format": "uuid",
+            "title": "Action Id",
+            "type": "string"
+          },
+          "approval_id": {
+            "format": "uuid",
+            "title": "Approval Id",
+            "type": "string"
+          },
+          "draft_version": {
+            "title": "Draft Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action_id",
+          "draft_version",
+          "approval_id"
+        ],
+        "title": "RevisionOut",
+        "type": "object"
       },
       "SessionRequest": {
         "properties": {
@@ -1356,6 +1902,20 @@
           "id_token"
         ],
         "title": "SessionRequest",
+        "type": "object"
+      },
+      "SnoozeIn": {
+        "properties": {
+          "duration": {
+            "maxLength": 16,
+            "title": "Duration",
+            "type": "string"
+          }
+        },
+        "required": [
+          "duration"
+        ],
+        "title": "SnoozeIn",
         "type": "object"
       },
       "TaskOut": {

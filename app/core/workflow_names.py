@@ -11,6 +11,8 @@ PROCESS_EVENT = "ingest.process_event"
 GMAIL_SYNC = "ingest.gmail_sync"
 OWNER_REPLY = "owner.reply"
 PIPELINE_ENTRY = "pipeline.entry"
+EXECUTE_ACTION = "actions.execute_action"
+FILE_DOCUMENT = "documents.file_document"
 
 
 def event_workflow_id(raw_event_id: object) -> str:

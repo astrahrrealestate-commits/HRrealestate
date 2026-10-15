@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.contracts import DocType
 from app.core.settings import get_settings
+from app.core.workflow_names import FILE_DOCUMENT
 from app.db.models import AttachmentRow, DocumentRow
 from app.ingestion.process import is_transient
 from app.llm.calls import is_transient as llm_transient
@@ -75,7 +76,7 @@ def review_card_step(company_id: str, attachment_id: str) -> bool:
     return send_owner_message(company_id, f"docreview:{attachment_id}", build)
 
 
-@DBOS.workflow(name="documents.file_document")
+@DBOS.workflow(name=FILE_DOCUMENT)
 def file_document_wf(company_id: str, attachment_id: str, owner_choice: str | None) -> str:
     if owner_choice == SKIP:
         return skip_step(company_id, attachment_id)
