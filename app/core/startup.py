@@ -41,6 +41,8 @@ def production_problems(settings: Settings) -> list[str]:
     secret = settings.dashboard_session_secret
     if secret is None or len(secret.get_secret_value()) < 32:
         problems.append("dashboard_session_secret is not set or shorter than 32 characters")
+    if secret is not None and secret.get_secret_value().lower().startswith("dev-only"):
+        problems.append("dashboard_session_secret is the public dev-only default (docker/compose.yml)")
     if not settings.google_oauth_client_id:
         problems.append("google_oauth_client_id is not set")
     creds = settings.gmail_credentials_file

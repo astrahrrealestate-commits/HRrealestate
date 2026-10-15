@@ -81,6 +81,8 @@ def ensure_dashboard_allowed(settings: Settings) -> None:
 
 
 def skip_reason(settings: Settings) -> str | None:
+    if settings.dashboard_auth_provider != "fake":
+        return "dashboard auth provider is not fake"
     if settings.dashboard_session_secret is None:
         return "DASHBOARD_SESSION_SECRET is not set (the stack needs it to log in)"
     return None
@@ -227,7 +229,10 @@ def run_dashboard(sim: Simulator, engine: Engine, company_id: UUID, *, timeout: 
     try:
         return _scenario(sim, engine, company_id, timeout)
     finally:
-        restore(engine, company_id, previous)
+        try:
+            restore(engine, company_id, previous)
+        except Exception as exc:  # never mask the scenario's own error
+            log.error("sim.demo.dashboard_restore_failed", company_id=str(company_id), error=type(exc).__name__)
 
 
 def _scenario(sim: Simulator, engine: Engine, company_id: UUID, timeout: float) -> list[str]:

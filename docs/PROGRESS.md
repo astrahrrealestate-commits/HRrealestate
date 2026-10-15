@@ -117,7 +117,7 @@ Ticks below carry a quoted line from the build ledger (per-task `make quick` rep
 - [x] D5 rate limits (30/min agent, 10/min login per IP, 120/min decisions; `app/api/v1/ratelimit.py`) with unit tests in `tests/unit/api/test_ratelimit.py`; CRLF now allowed in agent text
 - [ ] D5 simulator `dashboard` scenario (`app/dev/demo_dashboard.py`, runs inside `make sim-demo`, ends with `dashboard=ok`; compose now forwards the dashboard settings, skip without a secret, provider guard, state restored): written, not run; only its pure helpers are unit-tested
 - [x] D5 docs: dashboard-api.md, ADR 0006 accepted, tech-stack, spec deviations, go-live nits
-- [x] G1 on 2026-10-15 (after task 15): `make quick` -> `1230 passed, 653 warnings`, import-linter contracts kept
+- [x] G1 on 2026-10-15 (after task 15): `make quick` -> `1246 passed, 652 warnings`, import-linter contracts kept
 - [x] `make audit` 2026-10-15: `No known vulnerabilities found`
 - [x] `make harness-test` 2026-10-15: `Ran 16 tests ... OK`
 - [ ] `make cov`: needs Docker (runs integration tests): not run

@@ -63,6 +63,8 @@ def test_defaults_are_fakes_and_fine_outside_prod() -> None:
         ({"dashboard_auth_provider": "fake"}, "dashboard_auth_provider"),
         ({"dashboard_session_secret": None}, "dashboard_session_secret"),
         ({"dashboard_session_secret": "short"}, "dashboard_session_secret"),
+        ({"dashboard_session_secret": "dev-only-session-secret-change-me-32-chars"}, "public dev-only default"),
+        ({"dashboard_session_secret": "DEV-ONLY-" + "x" * 30}, "public dev-only default"),
         ({"google_oauth_client_id": None}, "google_oauth_client_id"),
         ({"drive_credentials_file": None}, "drive_credentials_file"),
         ({"openai_api_key": None}, "openai_api_key"),
