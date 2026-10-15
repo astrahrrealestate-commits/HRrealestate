@@ -144,7 +144,20 @@ def prior_send(
     channel: Channel = Channel.whatsapp,
     key: str | None = None,
     action_id: UUID | None = None,
+    attempted_at: datetime | None = None,
 ) -> None:
     with Session(env.engine) as s, s.begin():
         s.add(Send(company_id=env.company_id, idempotency_key=key or f"prior:{new_id()}", channel=channel,
-                   target=target, status=status, action_id=action_id))  # fmt: skip
+                   target=target, status=status, action_id=action_id, attempted_at=attempted_at))  # fmt: skip
+
+
+def alert_count(env: Env) -> int:
+    with Session(env.engine) as s:
+        return int(
+            s.scalar(
+                select(func.count())
+                .select_from(OwnerFeed)
+                .where(OwnerFeed.company_id == env.company_id, OwnerFeed.kind == FeedKind.alert)
+            )
+            or 0
+        )

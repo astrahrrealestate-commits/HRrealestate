@@ -2,11 +2,17 @@
 
 `send_claimed` lets exactly one attempt call the provider (`pending → sending`). A definitely-not-sent transient error
 returns the row to pending and re-raises for the step retry; anything else is recorded as failed, never re-sent.
+A dashboard plan has no provider: its `owner_feed` row (same key) and the `sent` mark commit in one transaction, so
+a database error leaves nothing half-done and the step retry simply runs it again.
+
+An attempt that loses the claim to a tenant send still `sending` reports "in progress" (no failure, no alert) while
+the row is younger than `STUCK_AFTER`; an older one never reported back, so the row and the action are marked failed
+once (`STUCK`) and Harjot checks the thread before resending by hand. A failed action is never re-run by `resume`.
 """
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
@@ -14,6 +20,7 @@ from sqlalchemy import Engine, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.channels.dashboard import feed
 from app.channels.gmail.drafts import GmailDrafts
 from app.channels.google_chat.outbound import GoogleChatOutbound
 from app.channels.whatsapp.outbound import WhatsAppOutbound
@@ -52,6 +59,9 @@ def exec_key(action_id: UUID, draft_version: int) -> str:
 
 REUSED_KEY = "an earlier send under this key went to a different recipient or channel"
 STATUS_UNKNOWN = "delivery status unknown: a previous attempt did not finish; check the thread before resending"
+STUCK = "delivery status unknown: previous attempt never reported; check the thread before resending it yourself"
+IN_PROGRESS = "in progress: another attempt is sending this message"
+STUCK_AFTER = timedelta(minutes=30)  # a provider call never takes this long: the attempt died without reporting
 
 
 def reuse_refusal(send: Send, company_id: UUID, plan: Plan) -> str | None:
@@ -124,26 +134,94 @@ def begin_attempt(engine: Engine, key: str) -> bool:
     return won is not None
 
 
-def lost_attempt(tenant_send: bool, status: SendStatus | None, ref: str | None) -> ExecOutcome:
-    """Another attempt holds or finished the send. Sent → already. For a tenant message a `sending`/`failed` row
-    is not "done": nobody knows whether the tenant got it, so it is reported as failed (Harjot checks the thread).
+def stuck(attempted_at: datetime | None, now: datetime) -> bool:
+    """A `sending` row whose attempt started `STUCK_AFTER` ago (or never recorded a start) will not report back."""
+    return attempted_at is None or now - attempted_at >= STUCK_AFTER
+
+
+def lost_attempt(
+    tenant_send: bool,
+    status: SendStatus | None,
+    ref: str | None,
+    attempted_at: datetime | None = None,
+    now: datetime | None = None,
+) -> ExecOutcome:
+    """Another attempt holds or finished the send. Sent → already. For a tenant message a recent `sending` row is
+    in progress ("already", no alert); a stuck one is `STUCK` (the caller marks it failed once); a `failed` row is
+    not "done": nobody knows whether the tenant got it, so it is reported as failed (Harjot checks the thread).
     Owner-directed messages keep "already" (the holder reports its own outcome)."""
     if status is SendStatus.sent:
         return ExecOutcome("already", provider_ref=ref)
-    if tenant_send:
-        return ExecOutcome("failed", reason=STATUS_UNKNOWN)
-    return ExecOutcome("already", reason="another attempt holds this send")
+    if not tenant_send:
+        return ExecOutcome("already", reason="another attempt holds this send")
+    if status is SendStatus.sending:
+        if stuck(attempted_at, now or datetime.now(UTC)):
+            return ExecOutcome("failed", reason=STUCK)
+        return ExecOutcome("already", reason=IN_PROGRESS)
+    return ExecOutcome("failed", reason=STATUS_UNKNOWN)
 
 
-def _current(engine: Engine, key: str) -> tuple[SendStatus | None, str | None]:
+def give_up_stuck(engine: Engine, key: str, now: datetime) -> bool:
+    """Mark a stuck `sending` row (and its action) failed; True only for the one caller whose update won."""
+    with Session(engine) as session, session.begin():
+        row = session.execute(
+            update(Send)
+            .where(
+                Send.idempotency_key == key,
+                Send.status == SendStatus.sending,
+                (Send.attempted_at.is_(None)) | (Send.attempted_at <= now - STUCK_AFTER),
+            )
+            .values(status=SendStatus.failed, error=STUCK)
+            .returning(Send.action_id)
+        ).first()
+        if row is not None and row[0] is not None:
+            session.execute(update(ActionRow).where(ActionRow.id == row[0]).values(status=ActionStatus.failed))
+    return row is not None
+
+
+def _current(engine: Engine, key: str) -> tuple[SendStatus | None, str | None, datetime | None]:
     with Session(engine) as session:
-        row = session.execute(select(Send.status, Send.provider_ref).where(Send.idempotency_key == key)).first()
-    return (row[0], row[1]) if row is not None else (None, None)
+        row = session.execute(
+            select(Send.status, Send.provider_ref, Send.attempted_at).where(Send.idempotency_key == key)
+        ).first()
+    return (row[0], row[1], row[2]) if row is not None else (None, None, None)
+
+
+def _lost(engine: Engine, key: str, plan: Plan) -> ExecOutcome:
+    now = datetime.now(UTC)
+    outcome = lost_attempt(plan.tenant_send, *_current(engine, key), now)
+    if outcome.reason == STUCK and not give_up_stuck(engine, key, now):
+        return lost_attempt(plan.tenant_send, *_current(engine, key), now)  # another caller marked it first
+    return outcome
+
+
+def feed_claimed(engine: Engine, key: str, plan: Plan) -> ExecOutcome:
+    """Deliver a claimed dashboard plan: the feed row, the `sends` row marked sent and the action executed, at once."""
+    if plan.company_id is None or plan.owner_message is None:
+        raise SendBlockedError("nothing to deliver")
+    with Session(engine) as session, session.begin():
+        send = session.execute(select(Send).where(Send.idempotency_key == key).with_for_update()).scalar_one()
+        if send.status is SendStatus.sent:
+            return ExecOutcome("already", provider_ref=send.provider_ref)
+        kind = feed.kind_for_key(key)
+        row_id = feed.deliver(session, plan.company_id, key, kind, None, plan.owner_message)
+        send.status, send.provider_ref, send.error, send.attempted_at = SendStatus.sent, str(row_id), None, _now()
+        if send.action_id is not None:
+            session.execute(
+                update(ActionRow).where(ActionRow.id == send.action_id).values(status=ActionStatus.executed)
+            )
+    return ExecOutcome("sent", provider_ref=str(row_id))
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
 
 
 def send_claimed(deps: SenderDeps, key: str, plan: Plan) -> ExecOutcome:
+    if plan.channel is Channel.dashboard:  # no provider call: nothing can be half-sent
+        return feed_claimed(deps.engine, key, plan)
     if not begin_attempt(deps.engine, key):  # another attempt holds it, or it already finished
-        return lost_attempt(plan.tenant_send, *_current(deps.engine, key))
+        return _lost(deps.engine, key, plan)
     try:
         ref = deliver(deps, plan)
     except Exception as exc:

@@ -9,14 +9,15 @@ import pytest
 from sqlalchemy import Engine, select, update
 from sqlalchemy.orm import Session
 
+from app.channels.dashboard import feed
 from app.channels.gmail.drafts import GmailDraftError
 from app.channels.whatsapp import payloads
-from app.contracts import ActionType, ButtonChoice, Channel, OutboundMode
-from app.db.enums import ActionStatus, PersonKind, SendStatus
-from app.db.models import ActionRow, ChannelIdentity, Company, MessageRow, Person, Send
+from app.contracts import ActionType, ButtonChoice, Channel, InteractiveChannel, OutboundMode
+from app.db.enums import ActionStatus, FeedKind, PersonKind, SendStatus
+from app.db.models import ActionRow, ChannelIdentity, Company, MessageRow, OwnerAccount, OwnerFeed, Person, Send
 from app.sender.execute import execute_action
 from app.sender.plan import Plan
-from app.sender.targets import SendBlockedError, assert_allowed, plan_for
+from app.sender.targets import SendBlockedError, assert_allowed, owner_feed_target, plan_for
 from app.sender.tenant_gate import GMAIL_SEND_MISSING
 from tests.integration.send_mode_support import (
     OWNER,
@@ -143,6 +144,7 @@ def _contractor(env: Env) -> str:
 
 
 def test_contractor_requests_and_escalations_stay_with_the_owner_in_send_mode(env: Env) -> None:
+    set_rows(env, OwnerAccount, interactive_channel=InteractiveChannel.whatsapp)  # a WhatsApp owner: unchanged
     request = {"kind": "request_contractor", "contractor_person_id": _contractor(env), "body_variants": ["A", "B"]}
     escalation = {"kind": "escalate", "reason": "lekkage"}
     for kind, payload in ((ActionType.request_contractor, request), (ActionType.escalate, escalation)):
@@ -150,6 +152,58 @@ def test_contractor_requests_and_escalations_stay_with_the_owner_in_send_mode(en
     assert [m.payload["to"] for m in env.wa.sent] == [OWNER[1:], OWNER[1:]]
     assert "Copy and send" in env.wa.sent[0].payload["text"]["body"]
     assert env.replies.replies == []
+
+
+def _feed_rows(env: Env) -> list[OwnerFeed]:
+    with Session(env.engine) as s:
+        return list(s.scalars(select(OwnerFeed).where(OwnerFeed.company_id == env.company_id)))
+
+
+@pytest.mark.parametrize("mode", [OutboundMode.send, OutboundMode.draft])
+def test_dashboard_owner_gets_an_approved_contractor_request_in_the_feed(env: Env, mode: OutboundMode) -> None:
+    set_company(env, outbound_mode=mode)
+    set_rows(env, OwnerAccount, interactive_channel=InteractiveChannel.dashboard)
+    request = {"kind": "request_contractor", "contractor_person_id": _contractor(env), "body_variants": ["A", "B"]}
+    action_id = approved(env, ActionType.request_contractor, request, ButtonChoice.ok)
+    first = execute_action(env.deps, action_id, 1)
+    assert (first.status, execute_action(env.deps, action_id, 1).status) == ("sent", "already")
+    assert (env.wa.sent, env.replies.replies, env.drafts.created) == ([], [], [])
+    [row] = _feed_rows(env)
+    assert row.idempotency_key == feed.stored_key(env.company_id, f"exec:{action_id}:1")
+    assert (row.kind, str(row.id)) == (FeedKind.alert, first.provider_ref)
+    assert "Approved request for Jansen" in row.payload["text"]
+    with Session(env.engine) as s:
+        owner_id = s.scalar(select(OwnerAccount.id).where(OwnerAccount.company_id == env.company_id))
+        send = s.scalar(select(Send).where(Send.action_id == action_id))
+        assert send is not None
+        assert owner_id is not None
+        assert (send.channel, send.target, send.status) == (Channel.dashboard, owner_feed_target(owner_id),
+                                                            SendStatus.sent)  # fmt: skip
+        assert s.scalar(select(ActionRow.status).where(ActionRow.id == action_id)) is ActionStatus.executed
+
+
+def test_dashboard_owner_gets_escalations_and_draft_mode_whatsapp_replies_in_the_feed(env: Env) -> None:
+    set_company(env, outbound_mode=OutboundMode.draft)
+    set_rows(env, OwnerAccount, interactive_channel=InteractiveChannel.dashboard)
+    escalation = approved(env, ActionType.escalate, {"kind": "escalate", "reason": "lekkage"}, ButtonChoice.ok)
+    reply = approved(env, ActionType.reply_draft, {**REPLY, "channel": "whatsapp"}, ButtonChoice.d1)
+    assert [execute_action(env.deps, a, 1).status for a in (escalation, reply)] == ["sent", "sent"]
+    assert env.wa.sent == []
+    texts = sorted(r.payload["text"] for r in _feed_rows(env))
+    assert texts[0].startswith("Approved reply for")
+    assert texts[0].endswith("Optie A")
+    assert texts[1] == "Escalation: lekkage"
+
+
+def test_a_feed_plan_for_another_owner_is_refused(env: Env) -> None:
+    set_rows(env, OwnerAccount, interactive_channel=InteractiveChannel.dashboard)
+    action_id = approved(env, ActionType.escalate, {"kind": "escalate", "reason": "x"}, ButtonChoice.ok)
+    with Session(env.engine) as s:
+        plan = _plan(s, env, action_id)
+        assert plan.channel is Channel.dashboard
+        assert_allowed(s, env.company_id, plan)
+        with pytest.raises(SendBlockedError, match="owner feed"):
+            assert_allowed(s, env.company_id, replace(plan, target=owner_feed_target(env.case_id)))
 
 
 def _plan(s: Session, env: Env, action_id: UUID) -> Plan:

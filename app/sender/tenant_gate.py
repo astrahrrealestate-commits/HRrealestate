@@ -76,9 +76,19 @@ def blocked_key(action_id: UUID, draft_version: int) -> str:
     return f"blocked:exec:{action_id}:{draft_version}"
 
 
+_MAYBE_SENT = ("delivery status unknown", "may have been delivered")
+
+
+def alert_text(reason: str | None) -> str:
+    """The alert line; an attempt that may have reached the tenant never claims "not sent"."""
+    maybe = (reason or "").startswith(_MAYBE_SENT)
+    lead = "Reply may not have reached the tenant" if maybe else "Reply not sent to the tenant"
+    return f"{lead}: {reason or 'unknown reason'}."
+
+
 def tell_owner(engine: Engine, company_id: UUID, action_id: UUID, draft_version: int, reason: str | None) -> None:
     """One dashboard alert per action version saying why the reply did not reach the tenant (no message body)."""
-    text = f"Reply not sent to the tenant: {reason or 'unknown reason'}."
+    text = alert_text(reason)
     try:
         with Session(engine) as session, session.begin():
             key = blocked_key(action_id, draft_version)

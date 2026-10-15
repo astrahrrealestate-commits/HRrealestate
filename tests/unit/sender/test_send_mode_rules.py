@@ -1,5 +1,6 @@
 """Pure send-mode rules: thread subject, reply channel, body limits, lost attempts, `sends` row reuse."""
 
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -8,7 +9,16 @@ from app.channels.whatsapp import payloads
 from app.contracts import Channel
 from app.db.enums import SendStatus
 from app.db.models import Send
-from app.sender.delivery import REUSED_KEY, STATUS_UNKNOWN, ExecOutcome, lost_attempt, reuse_refusal
+from app.sender.delivery import (
+    IN_PROGRESS,
+    REUSED_KEY,
+    STATUS_UNKNOWN,
+    STUCK,
+    ExecOutcome,
+    lost_attempt,
+    reuse_refusal,
+    stuck,
+)
 from app.sender.errors import SendBlockedError
 from app.sender.gmail_reply import thread_subject
 from app.sender.plan import Plan
@@ -57,9 +67,34 @@ def test_a_lost_attempt_on_a_sent_row_is_already(tenant: bool) -> None:
     assert lost_attempt(tenant, SendStatus.sent, "ref-1") == ExecOutcome("already", provider_ref="ref-1")
 
 
-@pytest.mark.parametrize("status", [SendStatus.sending, SendStatus.failed, SendStatus.pending, None])
-def test_a_lost_tenant_attempt_that_did_not_finish_is_failed_unknown(status: SendStatus | None) -> None:
-    assert lost_attempt(True, status, None) == ExecOutcome("failed", reason=STATUS_UNKNOWN)
+NOW = datetime(2026, 10, 15, 12, 0, tzinfo=UTC)
+
+
+@pytest.mark.parametrize("status", [SendStatus.failed, SendStatus.pending, None])
+def test_a_lost_tenant_attempt_on_a_failed_row_stays_failed_unknown(status: SendStatus | None) -> None:
+    assert lost_attempt(True, status, None, NOW - timedelta(hours=2), NOW) == ExecOutcome(
+        "failed", reason=STATUS_UNKNOWN
+    )
+
+
+AGES = [timedelta(seconds=5), timedelta(minutes=9), timedelta(minutes=15), timedelta(minutes=29)]
+
+
+@pytest.mark.parametrize("age", AGES)
+def test_a_recent_sending_row_is_in_progress_without_failure_or_alert(age: timedelta) -> None:
+    assert lost_attempt(True, SendStatus.sending, None, NOW - age, NOW) == ExecOutcome("already", reason=IN_PROGRESS)
+
+
+@pytest.mark.parametrize("attempted", [NOW - timedelta(minutes=30), NOW - timedelta(hours=5), None])
+def test_a_sending_row_older_than_30_minutes_is_stuck(attempted: datetime | None) -> None:
+    assert lost_attempt(True, SendStatus.sending, None, attempted, NOW) == ExecOutcome("failed", reason=STUCK)
+    assert stuck(attempted, NOW)
+    assert "check the thread" in STUCK
+
+
+def test_stuck_boundary() -> None:
+    assert not stuck(NOW - timedelta(minutes=29, seconds=59), NOW)
+    assert stuck(NOW - timedelta(minutes=30), NOW)
 
 
 @pytest.mark.parametrize("status", [SendStatus.sending, SendStatus.failed])

@@ -1,8 +1,10 @@
 """Where an approved action goes. Recipients come from the DB only (invariant 6), never from model output.
 
-Allowlist: a Gmail *draft* in the tenant's thread, or a message to one of the company's owner addresses. In
-`outbound_mode=send` an approved reply also reaches the tenant (`tenant_plans`), re-checked by `assert_tenant`.
-In draft mode a tenant-facing WhatsApp reply is delivered to the owner as copy-ready text.
+Allowlist: a Gmail *draft* in the tenant's thread, or a message to one of the company's owner addresses (or the
+owner's own dashboard feed). In `outbound_mode=send` an approved reply also reaches the tenant (`tenant_plans`),
+re-checked by `assert_tenant`. In draft mode a tenant-facing WhatsApp reply is delivered to the owner as copy-ready
+text. Owner-directed text goes where the owner reads: the dashboard feed when his `interactive_channel` is
+`dashboard`, otherwise WhatsApp (unchanged for WhatsApp and Google Chat owners).
 """
 
 from datetime import datetime
@@ -12,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.channels.whatsapp import payloads
-from app.contracts import ActionType, Channel, Direction
+from app.contracts import ActionType, Channel, Direction, InteractiveChannel, OwnerMessage
 from app.db.models import ActionRow, ChannelAccount, ChannelIdentity, MessageRow, OwnerAccount, Person
 from app.sender.errors import SendBlockedError as SendBlockedError
 from app.sender.gmail_reply import gmail_draft as _gmail_draft
@@ -20,7 +22,12 @@ from app.sender.plan import Plan as Plan
 from app.sender.recipient import latest_inbound
 from app.sender.tenant_plans import assert_tenant, tenant_plan
 
-__all__ = ["Plan", "SendBlockedError", "_gmail_draft", "assert_allowed", "plan_for"]
+__all__ = ["Plan", "SendBlockedError", "_gmail_draft", "assert_allowed", "owner_feed_target", "plan_for"]
+
+
+def owner_feed_target(owner_id: UUID) -> str:
+    """The `sends.target` of a delivery to an owner's dashboard feed."""
+    return f"owner:{owner_id}"
 
 
 def owner_number(session: Session, company_id: UUID) -> str:
@@ -58,6 +65,12 @@ def owner_chat_space(session: Session, company_id: UUID) -> str:
 
 
 def _owner_text(session: Session, company_id: UUID, body: str) -> Plan:
+    owner = session.scalar(
+        select(OwnerAccount).where(OwnerAccount.company_id == company_id).order_by(OwnerAccount.created_at)
+    )  # the same owner `send_to_owner` addresses
+    if owner is not None and owner.interactive_channel is InteractiveChannel.dashboard:
+        target = owner_feed_target(owner.id)
+        return Plan(Channel.dashboard, target, owner_message=OwnerMessage(text=body), company_id=company_id)
     to = owner_number(session, company_id)
     return Plan(Channel.whatsapp, to, whatsapp=payloads.text(to, body[: payloads.TEXT_BODY_MAX]))
 
@@ -96,7 +109,8 @@ def plan_for(session: Session, action: ActionRow, variant: int, key: str, *, sen
     `send_mode` (the company's `outbound_mode` is `send`) only changes `reply_draft`: it reaches the tenant (Gmail
     reply in the thread with the thread's own subject, or WhatsApp text inside the window, never trimmed); any
     other payload channel is blocked. Contractor requests, escalations and owner notes stay
-    copy-ready text to the owner in every mode: sending to contractors is out of scope for v1.
+    copy-ready text to the owner in every mode (his dashboard feed when that is his channel, else WhatsApp):
+    sending to contractors is out of scope for v1.
     """
     payload = action.payload
     variants: list[str] = payload.get("body_variants") or []
@@ -118,6 +132,9 @@ def assert_allowed(session: Session, company_id: UUID, plan: Plan) -> None:
     recipient re-derived now); everything else must be a Gmail draft or go to the owner."""
     if plan.tenant_send:
         assert_tenant(session, company_id, plan)
+        return
+    if plan.channel is Channel.dashboard:
+        _assert_own_feed(session, company_id, plan)
         return
     if plan.channel is Channel.gmail and plan.draft is not None and plan.whatsapp is None and plan.email is None:
         return  # a draft: Harjot sends it himself from Gmail
@@ -147,3 +164,18 @@ def assert_allowed(session: Session, company_id: UUID, plan: Plan) -> None:
         if plan.target in owner_spaces or plan.target.startswith("spaces/") or plan.target.startswith("https://"):
             return
     raise SendBlockedError("Phase 1 allowlist: only Gmail drafts and messages to the owner")
+
+
+def _assert_own_feed(session: Session, company_id: UUID, plan: Plan) -> None:
+    """A dashboard plan carries only a feed message, for this company, to one of its dashboard owners."""
+    owners = session.scalars(
+        select(OwnerAccount.id).where(
+            OwnerAccount.company_id == company_id,
+            OwnerAccount.interactive_channel == InteractiveChannel.dashboard,
+        )
+    )
+    only_feed = plan.owner_message is not None and plan.whatsapp is None and plan.draft is None
+    only_feed = only_feed and plan.email is None and plan.google_chat is None
+    if only_feed and plan.company_id == company_id and plan.target in {owner_feed_target(o) for o in owners}:
+        return
+    raise SendBlockedError("Phase 1 allowlist: a dashboard delivery goes only to this company's owner feed")
