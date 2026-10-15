@@ -172,10 +172,12 @@ update companies set outbound_mode='draft' where id=<company>;
 - Others: company paused, mode back on `draft`, the recipient is no longer the case's own contact, the draft was edited
   after approval, a body over WhatsApp's 4096 characters.
 A send that failed after the provider may have accepted it is reported as "Reply may not have reached the tenant:
-... delivery status unknown": check the thread before resending. The same happens once to a send whose attempt never
-reported back within 30 minutes (the worker died mid-call): the send and the action are marked failed, `resume` will
-not retry it, and you resend by hand if the thread shows nothing. A send still in flight (under 30 minutes) is left
-alone: `resume` skips it and no alert is written.
+... delivery status unknown": check the thread before resending. A send whose worker died mid-call is NOT yet settled automatically: DBOS re-runs the same workflow, the dead
+attempt still looks "in flight" for 30 minutes, the run reports success without an alert, and nothing revisits the
+stuck `sending` row afterwards. **Known gap that blocks `outbound_mode=send`** (final review finding 1): a sweep
+for old `sending` rows (or treating a lost claim by the exec workflow itself as stuck) must be added, with an
+integration test, before any company is switched. Until then keep every company on `draft`. A send still in flight
+(under 30 minutes) is left alone: `resume` skips it and no alert is written.
 
 **Gmail scope caveat.** `gmail.compose` (drafts, owner digest) can technically also call `messages.send`, so OAuth
 scopes alone do not stop that token from sending. The separation is enforced in code: only `app/sender` holds either
