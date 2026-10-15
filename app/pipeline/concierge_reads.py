@@ -19,6 +19,7 @@ MAX_LISTED = 10
 MAX_HITS = 10
 SNIPPET = 120
 MAX_REVIEW = 20
+MAX_SUMMARY = 400
 
 
 def answer(ctx: Ctx, step: PlanStep) -> StepResult:
@@ -75,6 +76,9 @@ def list_waiting(ctx: Ctx, step: PlanStep) -> StepResult:
 
 
 def case_status(ctx: Ctx, step: PlanStep) -> StepResult:
+    """`data["summary"]` is the model-written case summary: untrusted, tenant-derived text. It is the owner's own
+    company data (also served by GET /cases/{id}), so it is returned, capped at 400 chars; the SPA must render it
+    as plain text."""
     if step.case_id is None:  # the executor validates first; kept for type narrowing
         return failed(step, NEED_DETAIL)
     with Session(ctx.engine) as session:
@@ -85,7 +89,7 @@ def case_status(ctx: Ctx, step: PlanStep) -> StepResult:
             "state": case.state.value,
             "urgency": case.urgency.value,
             "category": case.category.value,
-            "summary": case.summary,
+            "summary": case.summary[:MAX_SUMMARY],
         }
     summary = f"{label}: {case.state.value.replace('_', ' ')}, urgency {case.urgency.value}."
     return StepResult(step.intent, True, summary, data, "cases")

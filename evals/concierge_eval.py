@@ -39,6 +39,7 @@ class Label(BaseModel):
     expected_intents: list[Intent]
     must_not_include: list[Intent] = Field(default_factory=list)
     real_only: bool = False
+    accept_out_of_scope: bool = False  # a refusal (in_scope=false, no steps) is as good as the expected plan
 
 
 def load(path: Path = GOLDEN_DIR / "concierge.yaml") -> Dataset[Question, ConciergePlan, Label]:
@@ -46,7 +47,9 @@ def load(path: Path = GOLDEN_DIR / "concierge.yaml") -> Dataset[Question, Concie
 
 
 def plan_texts(plan: ConciergePlan) -> list[str]:
-    return [s.text for s in plan.steps if s.text]
+    """Every free-form field of every step: text, task_ref and view."""
+    fields = [value for s in plan.steps for value in (s.text, s.task_ref, s.view)]
+    return [v for v in fields if v]
 
 
 def plan_is_clean(plan: ConciergePlan) -> bool:
@@ -54,8 +57,16 @@ def plan_is_clean(plan: ConciergePlan) -> bool:
     return not any(has_contact_details(t) for t in plan_texts(plan))
 
 
+def _refused(label: Label, plan: ConciergePlan) -> bool:
+    return label.accept_out_of_scope and not plan.in_scope and not plan.steps
+
+
 def _matches(label: Label, plan: ConciergePlan) -> bool:
-    return [s.intent for s in plan.steps] == label.expected_intents
+    return [s.intent for s in plan.steps] == label.expected_intents or _refused(label, plan)
+
+
+def _scope_ok(label: Label, plan: ConciergePlan) -> bool:
+    return label.expected_in_scope == plan.in_scope or _refused(label, plan)
 
 
 def _forbidden(label: Label, plan: ConciergePlan) -> bool:
@@ -66,7 +77,7 @@ def score_plans(pairs: Sequence[tuple[Label, ConciergePlan]]) -> dict[str, float
     n = len(pairs) or 1
     return {
         "intent_sequence_match": sum(_matches(g, p) for g, p in pairs) / n,
-        "scope_accuracy": sum(g.expected_in_scope == p.in_scope for g, p in pairs) / n,
+        "scope_accuracy": sum(_scope_ok(g, p) for g, p in pairs) / n,
         "forbidden_intent_rate": sum(_forbidden(g, p) for g, p in pairs) / n,
         "invariant_pass_rate": sum(plan_is_clean(p) for _, p in pairs) / n,
     }
@@ -104,6 +115,6 @@ def run(version: str, settings: Settings) -> EvalResult:
     misses = [
         _miss(name, i.text, g, o)
         for name, i, g, o in done
-        if not _matches(g, o) or g.expected_in_scope != o.in_scope or _forbidden(g, o) or not plan_is_clean(o)
+        if not _matches(g, o) or not _scope_ok(g, o) or _forbidden(g, o) or not plan_is_clean(o)
     ]
     return EvalResult(score_plans([(g, o) for _, _, g, o in done]), misses, MISS_HEADER, loaded)

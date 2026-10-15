@@ -5,8 +5,10 @@ import re
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 _INJECTION = re.compile(
     r"ignore previous|iban|bankrekening wijzig|nieuw(e)? rekeningnummer|approve all|\bsend\b.{0,60}\bto\b"
+    r"|\b(email|send)\b.{0,60}@"
     r"|verify your (bank|account|payment) details|update your (bank|payment) details"
 )
+_PRONOUN = re.compile(r"\b(mark|snooze|reply to|chase|nudge)\s+(it|that|this|him|her|them)\b")
 _EMAIL = re.compile(r"\S+@\S+")
 _PHONE = re.compile(r"\+?\d[\d\s().-]{6,}\d")
 
@@ -65,4 +67,6 @@ def fake_concierge(prompt: str) -> dict[str, object]:
     low = question.lower()
     if _INJECTION.search(low):
         return {"in_scope": False, "steps": []}
+    if _PRONOUN.search(low):
+        return _plan(_step("clarify", text="Which one do you mean?"))
     return _by_ref(low) or _by_case(low, data.lower()) or _simple(low) or _plan(_step("answer", text=_safe(question)))

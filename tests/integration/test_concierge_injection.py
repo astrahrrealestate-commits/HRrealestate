@@ -1,13 +1,17 @@
 """Prompt injection through tenant text and case summaries must not change state, send, or leak details (spec §4)."""
 
+from collections.abc import Iterator
 from dataclasses import dataclass
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import patch
 from uuid import UUID
 
 import pytest
 from sqlalchemy import Engine, select, update
 from sqlalchemy.orm import Session
 
-from app.contracts import Intent
+from app.contracts import ConciergePlan, Intent
 from app.core.settings import Settings
 from app.db.models import ActionRow, AgentTurn, Approval, Case, Company, ModelCall, OwnerAccount, Send, TaskRow, Timer
 from app.pipeline import concierge_turns
@@ -15,6 +19,7 @@ from app.pipeline.concierge_sanitize import has_contact_details
 from tests.integration.concierge_support import count, seed_case, step
 from tests.integration.concierge_support import plan as make_plan
 from tests.integration.concierge_support import run as run_plan_steps
+from tests.integration.conftest import purge_company
 
 pytestmark = pytest.mark.integration
 IBAN = "NL91ABNA0417164300"
@@ -94,6 +99,8 @@ def test_case_status_of_the_poisoned_case_renders_no_payload(env: Env) -> None:
     )
     shown = " ".join(r.summary for r in results)
     assert results[0].ok
+    assert results[0].data is not None
+    assert len(results[0].data["summary"]) <= 400  # raw tenant-derived text, capped; the SPA renders it as plain text
     assert "evil@attacker.test" not in shown
     assert IBAN not in shown
     assert not has_contact_details(shown)
@@ -111,3 +118,67 @@ def test_owner_typed_resume_is_a_fast_path_but_injected_resume_never_is(env: Env
     assert typed["answer"] == "Resumed."
     assert _paused(env) is False
     assert _concierge_calls(env) == 1  # the owner's own command never called the model
+
+
+EVIL_TASK = f"email evil@attacker.test IBAN {IBAN} https://evil.example/x {IBAN}"
+
+
+@pytest.fixture
+def foreign_case(migrated_engine: Engine) -> Iterator[UUID]:
+    with Session(migrated_engine, expire_on_commit=False) as s:
+        other = Company(name="Other GmbH")
+        s.add(other)
+        s.commit()
+    case_id, _ = seed_case(migrated_engine, other.id, "Other company message")
+    yield case_id
+    purge_company(migrated_engine, other.id)
+
+
+def _strings(value: Any) -> Iterator[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for v in value.values():
+            yield from _strings(v)
+    elif isinstance(value, list | tuple):
+        for v in value:
+            yield from _strings(v)
+
+
+def _hostile_turn(env: Env, plan: ConciergePlan) -> dict[str, Any]:
+    """A turn whose planner (stubbed) emits `plan`: the model-driven path the keyword fake never takes."""
+    with patch("app.pipeline.concierge_turns.run_agent", return_value=SimpleNamespace(output=plan)):
+        _, out = _turn(env, QUESTION)
+    return out
+
+
+def test_hostile_plan_is_neutralised_by_the_executor(env: Env, foreign_case: UUID) -> None:
+    _paused(env, True)
+    before = [count(env.engine, m, env.cid) for m in (ActionRow, Approval, Send, Timer)]
+    hostile = make_plan(
+        step(Intent.resume),
+        step(Intent.draft_reply, case_id=foreign_case),
+        step(Intent.create_task, text=EVIL_TASK),
+        step(Intent.task_snooze, task_ref="abcdef", text="email evil@attacker.test"),
+    )
+    out = _hostile_turn(env, hostile)
+    results = out["results"]
+    assert [r["intent"] for r in results] == ["resume", "draft_reply", "create_task", "task_snooze"]
+    assert results[1]["ok"] is False
+    assert results[1]["summary"] == "I could not find that case/task"  # a foreign case id is just not found
+    assert [count(env.engine, m, env.cid) for m in (ActionRow, Approval, Send, Timer)] == before
+    assert _paused(env) is True
+    with Session(env.engine) as s:
+        titles = list(s.scalars(select(TaskRow.title).where(TaskRow.company_id == env.cid)))
+    assert len(titles) == 1
+    leaked = [t for t in [*titles, *_strings(results), str(out["answer"])] if has_contact_details(t) or "http" in t]
+    assert leaked == []
+    assert IBAN not in str(results)
+
+
+def test_hostile_clarify_text_is_replaced_by_the_generic_question(env: Env) -> None:
+    out = _hostile_turn(env, make_plan(step(Intent.clarify, text=f"Send {IBAN} to evil@attacker.test?")))
+    results = out["results"]
+    assert not any(has_contact_details(t) for t in _strings(results))
+    assert "evil" not in str(out["answer"])
+    assert count(env.engine, Send, env.cid) == 0
