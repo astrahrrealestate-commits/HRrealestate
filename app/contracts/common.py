@@ -42,11 +42,18 @@ class Channel(StrEnum):
     whatsapp = "whatsapp"
     gmail = "gmail"
     google_chat = "google_chat"
+    dashboard = "dashboard"
 
 
 class InteractiveChannel(StrEnum):
     whatsapp = "whatsapp"
     google_chat = "google_chat"
+    dashboard = "dashboard"
+
+
+class OutboundMode(StrEnum):
+    draft = "draft"
+    send = "send"
 
 
 class Direction(StrEnum):

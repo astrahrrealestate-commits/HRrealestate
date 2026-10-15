@@ -21,6 +21,7 @@ from app.contracts.common import (
     EmailRequest,
     InteractiveChannel,
     Money,
+    OutboundMode,
 )
 from app.contracts.document import DocType, DocumentClassification
 from app.contracts.linking import LinkDecision
@@ -61,6 +62,7 @@ __all__ = [
     "Message",
     "Money",
     "NotifyOwnerPayload",
+    "OutboundMode",
     "OwnerAnswer",
     "OwnerChoice",
     "OwnerMessage",

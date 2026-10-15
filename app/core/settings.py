@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     drive_provider: Literal["fake", "google"] = "fake"
     drive_credentials_file: Path | None = None  # authorized-user JSON created with the drive.file scope
 
+    # Dashboard (owner interface, ADR 0006). `fake` accepts test tokens; prod refuses it.
+    dashboard_auth_provider: Literal["fake", "google"] = "fake"
+    dashboard_session_secret: SecretStr | None = None
+    dashboard_session_ttl_min: int = 480
+    google_oauth_client_id: str | None = None  # audience of the owner's Google ID token
+
     storage_backend: Literal["local", "memory", "s3"] = "local"
     storage_local_dir: Path = Path(".data/storage")
     dev_signing_dir: Path = Path(".data/dev-keys")  # simulator keys for fake Pub/Sub tokens
