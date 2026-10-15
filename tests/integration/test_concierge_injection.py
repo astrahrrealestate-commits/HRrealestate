@@ -16,7 +16,7 @@ from app.core.settings import Settings
 from app.db.models import ActionRow, AgentTurn, Approval, Case, Company, ModelCall, OwnerAccount, Send, TaskRow, Timer
 from app.pipeline import concierge_turns
 from app.pipeline.concierge_sanitize import has_contact_details
-from tests.integration.concierge_support import count, seed_case, step
+from tests.integration.concierge_support import count, readable_strings, seed_case, step
 from tests.integration.concierge_support import plan as make_plan
 from tests.integration.concierge_support import run as run_plan_steps
 from tests.integration.conftest import purge_company
@@ -134,17 +134,6 @@ def foreign_case(migrated_engine: Engine) -> Iterator[UUID]:
     purge_company(migrated_engine, other.id)
 
 
-def _strings(value: Any) -> Iterator[str]:
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, dict):
-        for v in value.values():
-            yield from _strings(v)
-    elif isinstance(value, list | tuple):
-        for v in value:
-            yield from _strings(v)
-
-
 def _hostile_turn(env: Env, plan: ConciergePlan) -> dict[str, Any]:
     """A turn whose planner (stubbed) emits `plan`: the model-driven path the keyword fake never takes."""
     with patch("app.pipeline.concierge_turns.run_agent", return_value=SimpleNamespace(output=plan)):
@@ -171,14 +160,17 @@ def test_hostile_plan_is_neutralised_by_the_executor(env: Env, foreign_case: UUI
     with Session(env.engine) as s:
         titles = list(s.scalars(select(TaskRow.title).where(TaskRow.company_id == env.cid)))
     assert len(titles) == 1
-    leaked = [t for t in [*titles, *_strings(results), str(out["answer"])] if has_contact_details(t) or "http" in t]
+    leaked = [
+        t for t in [*titles, *readable_strings(results), str(out["answer"])] if has_contact_details(t) or "http" in t
+    ]
     assert leaked == []
     assert IBAN not in str(results)
+    assert "http" not in str(results).lower()
 
 
 def test_hostile_clarify_text_is_replaced_by_the_generic_question(env: Env) -> None:
     out = _hostile_turn(env, make_plan(step(Intent.clarify, text=f"Send {IBAN} to evil@attacker.test?")))
     results = out["results"]
-    assert not any(has_contact_details(t) for t in _strings(results))
+    assert not any(has_contact_details(t) for t in readable_strings(results))
     assert "evil" not in str(out["answer"])
     assert count(env.engine, Send, env.cid) == 0

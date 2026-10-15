@@ -65,7 +65,10 @@ def redact(text: str) -> str:
 
 
 def has_contact_details(text: str) -> bool:
-    """An `@` or a run of 8+ digits (dates and clock times excepted): what a plan's text must never carry."""
+    """An `@` or a run of 8+ digits (dates and clock times excepted): what a plan's text must never carry.
+
+    For free text only, not ids: a UUID's dash-separated digits can trip it. Skip id-shaped values before calling.
+    """
     return "@" in text or _redact_phones(text) != text
 
 

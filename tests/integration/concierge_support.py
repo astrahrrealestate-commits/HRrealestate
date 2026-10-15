@@ -1,5 +1,7 @@
 """Shared seed helpers for the concierge executor integration tests."""
 
+import re
+from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -29,6 +31,24 @@ from app.pipeline.concierge_base import StepResult
 
 NOW = datetime(2026, 10, 7, 9, 0, tzinfo=UTC)  # a Wednesday
 EVIL = "evil@attacker.test"
+
+
+ID_KEYS = frozenset({"task_id", "case_id", "approval_id", "approval_ids", "thread_key", "ref", "until"})
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
+
+
+def readable_strings(value: Any) -> Iterator[str]:
+    """Human-readable strings of a nested result: ids (id keys, UUID-shaped values) are skipped, free text is kept."""
+    if isinstance(value, str):
+        if not _UUID.fullmatch(value):
+            yield value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            if key not in ID_KEYS:
+                yield from readable_strings(item)
+    elif isinstance(value, list | tuple):
+        for item in value:
+            yield from readable_strings(item)
 
 
 def step(intent: Intent, **kw: Any) -> PlanStep:
