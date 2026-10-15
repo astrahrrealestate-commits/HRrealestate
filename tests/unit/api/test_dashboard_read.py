@@ -20,8 +20,8 @@ from app.main import create_app
 from app.pipeline.read_cases import ActivityRow
 from app.pipeline.work_repo import short_ref
 
-SETTINGS = Settings(  # type: ignore[call-arg]
-    database_url="postgresql+psycopg://u:p@localhost:1/db",
+SETTINGS = Settings(
+    database_url="postgresql+psycopg://u:p@localhost:1/db",  # type: ignore[arg-type]
     env="test",
     dashboard_session_secret=SecretStr("x" * 32),
     _env_file=None,
@@ -121,4 +121,14 @@ def test_activity_serialises(client: TestClient) -> None:
         body = client.get("/api/v1/activity", params={"limit": 5}).json()
     assert act.call_args.args[1:] == (PRINCIPAL.company_id, 5)
     assert body[0]["kind"] == "send"
+    assert "case_id" in body[0]
     assert set(ActivityItem.model_fields) == set(body[0])
+
+
+def test_latest_approval_is_highest_draft_version() -> None:
+    from app.pipeline.read_cases import pick_latest
+
+    action = uuid4()
+    v1 = SimpleNamespace(action_id=action, draft_version=1)
+    v2 = SimpleNamespace(action_id=action, draft_version=2)
+    assert pick_latest([v1, v2])[action] == v2  # type: ignore[list-item]  # rows arrive sorted by version

@@ -23,8 +23,11 @@ T0 = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def _settings(url: str) -> Settings:
-    return Settings(  # type: ignore[call-arg]
-        database_url=url, env="test", dashboard_session_secret=SecretStr("x" * 32), _env_file=None
+    return Settings(
+        database_url=url,  # type: ignore[arg-type]
+        env="test",
+        dashboard_session_secret=SecretStr("x" * 32),
+        _env_file=None,
     )
 
 

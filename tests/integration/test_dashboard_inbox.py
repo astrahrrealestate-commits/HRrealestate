@@ -14,9 +14,9 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from app.api.v1.auth import COOKIE, Principal, issue_session
-from app.contracts import Channel, Direction
+from app.contracts import CaseState, Category, Channel, Direction, Urgency
 from app.core.settings import Settings
-from app.db.enums import CaseState, Category, DeliveryStatus, LinkMethod, PersonKind, PipelineStatus, Urgency
+from app.db.enums import DeliveryStatus, LinkMethod, PersonKind, PipelineStatus
 from app.db.models import Case, CaseLink, Company, OwnerAccount, Person, UnderstandingRow
 from app.db.models.ingestion import AttachmentRow, MessageRow, RawEvent
 from app.main import create_app
@@ -85,8 +85,11 @@ def world(migrated_engine: Engine, pg_url: str) -> Iterator[World]:
                             filename="b-secret.png", size_bytes=1, sha256="cd" * 32))  # fmt: skip
         s.commit()
         principal = Principal(company_id=a.id, owner_id=owner.id, email="h@a.test")
-        settings = Settings(  # type: ignore[call-arg]
-            database_url=pg_url, env="test", dashboard_session_secret=SecretStr("x" * 32), _env_file=None
+        settings = Settings(
+            database_url=pg_url,  # type: ignore[arg-type]
+            env="test",
+            dashboard_session_secret=SecretStr("x" * 32),
+            _env_file=None,
         )
         app = create_app(settings, engine=migrated_engine, workflow_client=MagicMock(), storage=storage)
         with TestClient(app) as client:
