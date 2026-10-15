@@ -187,6 +187,70 @@
           ]
         }
       },
+      "/api/v1/inbox": {
+        "get": {
+          "operationId": "get_inbox_api_v1_inbox_get",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "before",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Before"
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "required": false,
+              "schema": {
+                "default": 50,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/InboxItem"
+                    },
+                    "title": "Response Get Inbox Api V1 Inbox Get",
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Get Inbox",
+          "tags": [
+            "inbox"
+          ]
+        }
+      },
       "/api/v1/me": {
         "get": {
           "operationId": "me_api_v1_me_get",
@@ -211,9 +275,125 @@
             "auth"
           ]
         }
+      },
+      "/api/v1/threads/{thread_key}": {
+        "get": {
+          "operationId": "get_thread_api_v1_threads__thread_key__get",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "thread_key",
+              "required": true,
+              "schema": {
+                "title": "Thread Key",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/ThreadMessage"
+                    },
+                    "title": "Response Get Thread Api V1 Threads  Thread Key  Get",
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Get Thread",
+          "tags": [
+            "inbox"
+          ]
+        }
       }
     },
     "schemas": {
+      "AttachmentOut": {
+        "properties": {
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "mime_type": {
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "filename",
+          "mime_type",
+          "size_bytes",
+          "url"
+        ],
+        "title": "AttachmentOut",
+        "type": "object"
+      },
+      "Channel": {
+        "enum": [
+          "whatsapp",
+          "gmail",
+          "google_chat",
+          "dashboard"
+        ],
+        "title": "Channel",
+        "type": "string"
+      },
+      "DeliveryStatus": {
+        "description": "Outbound message delivery, moving forward only: sent < delivered < read; failed is terminal.",
+        "enum": [
+          "sent",
+          "delivered",
+          "read",
+          "failed"
+        ],
+        "title": "DeliveryStatus",
+        "type": "string"
+      },
+      "Direction": {
+        "enum": [
+          "inbound",
+          "outbound"
+        ],
+        "title": "Direction",
+        "type": "string"
+      },
       "FeedItem": {
         "properties": {
           "created_at": {
@@ -308,6 +488,88 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "InboxItem": {
+        "properties": {
+          "case_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "channel": {
+            "$ref": "#/components/schemas/Channel"
+          },
+          "cursor": {
+            "title": "Cursor",
+            "type": "string"
+          },
+          "last_at": {
+            "format": "date-time",
+            "title": "Last At",
+            "type": "string"
+          },
+          "last_text": {
+            "title": "Last Text",
+            "type": "string"
+          },
+          "message_count": {
+            "title": "Message Count",
+            "type": "integer"
+          },
+          "person_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Person Name"
+          },
+          "sender": {
+            "title": "Sender",
+            "type": "string"
+          },
+          "thread_key": {
+            "title": "Thread Key",
+            "type": "string"
+          },
+          "unread_pipeline": {
+            "$ref": "#/components/schemas/PipelineStatus"
+          }
+        },
+        "required": [
+          "thread_key",
+          "cursor",
+          "channel",
+          "last_at",
+          "last_text",
+          "sender",
+          "person_name",
+          "case_id",
+          "unread_pipeline",
+          "message_count"
+        ],
+        "title": "InboxItem",
+        "type": "object"
+      },
+      "PipelineStatus": {
+        "description": "Agent pipeline progress of one inbound message (spec phase-1 agents \u00a7M4).",
+        "enum": [
+          "pending",
+          "done",
+          "failed"
+        ],
+        "title": "PipelineStatus",
+        "type": "string"
+      },
       "SessionRequest": {
         "properties": {
           "id_token": {
@@ -319,6 +581,68 @@
           "id_token"
         ],
         "title": "SessionRequest",
+        "type": "object"
+      },
+      "ThreadMessage": {
+        "properties": {
+          "attachments": {
+            "items": {
+              "$ref": "#/components/schemas/AttachmentOut"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "delivery_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeliveryStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "direction": {
+            "$ref": "#/components/schemas/Direction"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "pipeline_status": {
+            "$ref": "#/components/schemas/PipelineStatus"
+          },
+          "sender": {
+            "title": "Sender",
+            "type": "string"
+          },
+          "sent_at": {
+            "format": "date-time",
+            "title": "Sent At",
+            "type": "string"
+          },
+          "suspicious": {
+            "title": "Suspicious",
+            "type": "boolean"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "direction",
+          "sent_at",
+          "sender",
+          "text",
+          "delivery_status",
+          "pipeline_status",
+          "suspicious",
+          "attachments"
+        ],
+        "title": "ThreadMessage",
         "type": "object"
       },
       "ValidationError": {

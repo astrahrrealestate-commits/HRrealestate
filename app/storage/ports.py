@@ -7,6 +7,7 @@ from typing import Protocol
 from uuid import UUID
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+MAX_PRESIGN_TTL_S = 300  # dashboard download links are short-lived by design
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,10 @@ class ObjectStorage(Protocol):
 
     def exists(self, key: str) -> bool: ...
 
+    def presigned_url(self, key: str, ttl_seconds: int) -> str:
+        """Time-limited GET URL for `key`. `ttl_seconds` is clamped to `1..MAX_PRESIGN_TTL_S`."""
+        ...
+
 
 def validate_key(key: str) -> str:
     """Relative, normalised, no traversal: every adapter (fs or s3) stores exactly what it was given."""
@@ -37,6 +42,10 @@ def validate_key(key: str) -> str:
     if len(key.encode()) > 1024 or any(len(part.encode()) > 255 for part in parts):
         raise ValueError("storage key too long (1024 bytes total, 255 per segment)")
     return key
+
+
+def clamp_ttl(ttl_seconds: int) -> int:
+    return max(1, min(ttl_seconds, MAX_PRESIGN_TTL_S))
 
 
 def content_key(company_id: UUID, sha256: str, prefix: str = "media") -> str:

@@ -9,7 +9,7 @@ from typing import Any
 from botocore.exceptions import ClientError
 
 from app.core.errors import NotFoundError
-from app.storage.ports import StoredObject, describe, validate_key
+from app.storage.ports import StoredObject, clamp_ttl, describe, validate_key
 
 
 class S3Storage:
@@ -42,3 +42,12 @@ class S3Storage:
                 return False
             raise
         return True
+
+    def presigned_url(self, key: str, ttl_seconds: int) -> str:
+        """Local signing (no network call): the URL carries `X-Amz-Expires`."""
+        url: str = self._client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self._bucket, "Key": validate_key(key)},
+            ExpiresIn=clamp_ttl(ttl_seconds),
+        )
+        return url

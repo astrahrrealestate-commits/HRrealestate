@@ -23,6 +23,7 @@ from app.core.settings import Settings, get_settings
 from app.core.startup import assert_production_safe
 from app.core.telemetry import init_telemetry
 from app.db.session import make_engine
+from app.storage.ports import ObjectStorage
 
 
 def create_app(
@@ -32,6 +33,7 @@ def create_app(
     gmail_push_verifier: PushVerifier | None = None,
     google_chat_verifier: ChatVerifier | None = None,
     id_token_verifier: dashboard_auth.IdTokenVerifier | None = None,
+    storage: ObjectStorage | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     assert_production_safe(settings)
@@ -45,6 +47,7 @@ def create_app(
     async def lifespan(api: FastAPI) -> AsyncIterator[None]:
         api.state.engine = resolved_engine
         api.state.settings = settings
+        api.state.storage = storage
         api.state.workflow_client = workflow_client or DBOSClient(
             system_database_url=settings.dbos_database_url, lazy=True
         )
