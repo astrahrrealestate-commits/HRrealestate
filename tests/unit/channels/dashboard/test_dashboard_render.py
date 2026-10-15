@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 import pytest
 from syrupy.assertion import SnapshotAssertion
 
-from app.channels.dashboard.feed import kind_for_key, ref_for_key
+from app.channels.dashboard.feed import kind_for_key, ref_for_key, stored_key
 from app.channels.dashboard.render import to_payload
 from app.contracts import OwnerChoice, OwnerMessage
 from app.db.enums import FeedKind
@@ -54,3 +54,12 @@ def test_ref_id_only_for_approval_and_document_keys() -> None:
     assert ref_for_key(f"doc:{APPROVAL}:lease", FeedKind.document_review) is not None
     assert ref_for_key(f"briefing:{uuid4()}", FeedKind.briefing) is None
     assert ref_for_key("approval:a:0", FeedKind.approval) is None  # not a UUID: no ref, no crash
+
+
+def test_stored_key_is_namespaced_by_company_and_fits_the_column() -> None:
+    a, b = uuid4(), uuid4()
+    assert stored_key(a, "k") == f"{a}:k"
+    assert stored_key(a, "k") != stored_key(b, "k")
+    long = stored_key(a, "x" * 400)
+    assert len(long) == 255
+    assert long.startswith(f"{a}:")

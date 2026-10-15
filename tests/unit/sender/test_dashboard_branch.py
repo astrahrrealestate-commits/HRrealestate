@@ -52,8 +52,34 @@ def test_whatsapp_dict_falls_back_to_text() -> None:
 def test_resolve_message_never_crashes_on_odd_builds() -> None:
     assert resolve_message(CARD, "+31") is CARD
     assert resolve_message(lambda to: CARD, "+31") is CARD
-    assert resolve_message({"weird": 1}, "+31").text == "{'weird': 1}"
+    assert resolve_message({"weird": 1}, "+31").text == "(no text)"
     assert resolve_message(lambda to: 42, "+31").text == "42"
     interactive = {"interactive": {"body": {"text": "body!"}}}
     assert resolve_message(lambda to: interactive, "+31").text == "body!"
     assert resolve_message({"text": "chat"}, "+31").text == "chat"
+
+
+def test_dict_shapes_become_readable_text() -> None:
+    whatsapp = payloads.text("+31600000100", "from whatsapp")
+    chat_text = {"text": "plain chat"}
+    chat_card = {
+        "cardsV2": [
+            {
+                "card": {
+                    "header": {"title": "Daily briefing"},
+                    "sections": [
+                        {
+                            "widgets": [
+                                {"textParagraph": {"text": "2 approvals"}},
+                                {"decoratedText": {"text": "1 overdue task"}},
+                                {"buttonList": {"buttons": []}},
+                            ]
+                        }
+                    ],
+                }
+            }
+        ]
+    }
+    assert resolve_message(whatsapp, "+31").text == "from whatsapp"
+    assert resolve_message(chat_text, "+31").text == "plain chat"
+    assert resolve_message(chat_card, "+31").text == "Daily briefing\n2 approvals\n1 overdue task"

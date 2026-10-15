@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.api.v1.auth import COOKIE, Principal, issue_session
@@ -118,3 +118,24 @@ def test_documents_review_lists_only_status_review(seeded: Seeded) -> None:
     )  # fmt: skip
     assert body[0]["case_id"] == str(mine[1])
     assert client.get(f"/api/v1/documents/review?after={body[0]['cursor']}").json() == []
+
+
+def test_batched_suspicious_agrees_with_the_gate(migrated_engine: Engine, seeded: Seeded) -> None:
+    from app.pipeline.dashboard_decisions import is_suspicious, suspicious_by_action
+
+    _, mine, _ = seeded
+    with Session(migrated_engine) as s:
+        company_id = s.scalar(select(Case.company_id).where(Case.id == mine[1]))
+        assert company_id is not None
+        refd = s.scalars(select(ActionRow).where(ActionRow.case_id == mine[1])).all()
+        followup = ActionRow(
+            company_id=company_id, case_id=mine[1], type=ActionType.reply_draft, payload={}, rationale="r",
+            context_ref=[], status=ActionStatus.pending_approval,
+        )  # fmt: skip
+        s.add(followup)
+        s.flush()
+        actions = [*refd, followup]
+        batched = suspicious_by_action(s, company_id, actions)
+        assert batched == {a.id: is_suspicious(s, company_id, a) for a in actions}
+        assert batched[followup.id] is True  # no refs: falls back to the case's flagged message
+        s.rollback()

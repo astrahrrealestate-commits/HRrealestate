@@ -12,8 +12,25 @@ from app.channels.whatsapp.render import render_whatsapp
 from app.contracts import OwnerMessage
 
 
+def _card_text(payload: dict[str, Any]) -> str | None:
+    """Readable text of a Google Chat cardsV2 dict: header title, then textParagraph / decoratedText strings."""
+    lines: list[str] = []
+    for entry in payload.get("cardsV2") or []:
+        card = entry.get("card", {}) if isinstance(entry, dict) else {}
+        title = (card.get("header") or {}).get("title")
+        if title:
+            lines.append(str(title))
+        for section in card.get("sections") or []:
+            for widget in section.get("widgets") or []:
+                for name, field in (("textParagraph", "text"), ("decoratedText", "text")):
+                    value = (widget.get(name) or {}).get(field)
+                    if value:
+                        lines.append(str(value))
+    return "\n".join(lines) or None
+
+
 def _dict_text(payload: dict[str, Any]) -> str:
-    """The body text of a WhatsApp or Google Chat dict payload; never raises."""
+    """Readable body of a WhatsApp `{"text": {"body"}}`, Chat `{"text"}` / cardsV2 or WhatsApp interactive dict."""
     text = payload.get("text")
     interactive = payload.get("interactive")
     if isinstance(text, dict) and "body" in text:
@@ -22,7 +39,7 @@ def _dict_text(payload: dict[str, Any]) -> str:
         return text
     if isinstance(interactive, dict) and isinstance(interactive.get("body"), dict):
         return str(interactive["body"].get("text", ""))
-    return str(payload)[:4000]
+    return _card_text(payload) or "(no text)"
 
 
 def resolve_message(build: Any, to: str) -> OwnerMessage:

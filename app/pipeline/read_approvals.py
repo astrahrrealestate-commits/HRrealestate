@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.contracts import ActionType
 from app.db.enums import ApprovalStatus, DocumentStatus
 from app.db.models import ActionRow, Approval, AttachmentRow, Case, CaseLink, DocumentRow, Person
-from app.pipeline.dashboard_decisions import is_suspicious
+from app.pipeline.dashboard_decisions import suspicious_by_action
 from app.pipeline.read_repo import MAX_PAGE, Cursor
 
 
@@ -62,6 +62,7 @@ def pending_approvals(session: Session, company_id: UUID, after: Cursor | None, 
     if after is not None:
         q = q.where(tuple_(Approval.created_at, Approval.id) > tuple_(*after))
     rows = session.execute(q.order_by(Approval.created_at, Approval.id).limit(_cap(limit))).all()
+    flags = suspicious_by_action(session, company_id, [action for _, action, _, _ in rows])
     return [
         PendingApproval(
             id=approval.id,
@@ -71,7 +72,7 @@ def pending_approvals(session: Session, company_id: UUID, after: Cursor | None, 
             case_label=f"{name or UNKNOWN_SENDER} · {case.category.value}",
             drafts=tuple(action.payload.get("body_variants") or ()),
             draft_version=approval.draft_version,
-            suspicious=is_suspicious(session, company_id, action),
+            suspicious=flags[action.id],
             created_at=approval.created_at,
         )
         for approval, action, case, name in rows
@@ -79,12 +80,16 @@ def pending_approvals(session: Session, company_id: UUID, after: Cursor | None, 
 
 
 def _case_ids(session: Session, company_id: UUID, message_ids: list[UUID]) -> dict[UUID, UUID]:
+    """Message -> case; when a message has several links the oldest one wins (deterministic)."""
     rows = session.execute(
-        select(CaseLink.message_id, CaseLink.case_id).where(
-            CaseLink.company_id == company_id, CaseLink.message_id.in_(message_ids)
-        )
+        select(CaseLink.message_id, CaseLink.case_id)
+        .where(CaseLink.company_id == company_id, CaseLink.message_id.in_(message_ids))
+        .order_by(CaseLink.created_at, CaseLink.id)
     )
-    return dict(rows.tuples().all())
+    found: dict[UUID, UUID] = {}
+    for message_id, case_id in rows:
+        found.setdefault(message_id, case_id)
+    return found
 
 
 def review_documents(session: Session, company_id: UUID, after: Cursor | None, limit: int) -> list[ReviewDocument]:

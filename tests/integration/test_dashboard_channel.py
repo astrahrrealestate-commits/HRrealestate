@@ -134,7 +134,7 @@ def test_edit_delivers_new_revision_card_once(
         rows = s.scalars(select(OwnerFeed).where(OwnerFeed.company_id == cid, OwnerFeed.ref_id == new)).all()
         card = load_card(s, cid, new)
     keys = {x.idempotency_key for x in rows}
-    assert keys == {f"approval:{new}:{n}" for n in range(len(approval_messages(card)))}
+    assert keys == {feed.stored_key(cid, f"approval:{new}:{n}") for n in range(len(approval_messages(card)))}
     assert all(x.kind is FeedKind.approval for x in rows)
     feed_before = _count(migrated_engine, OwnerFeed, cid)
 
@@ -151,5 +151,26 @@ def test_foreign_company_cannot_resolve_other_cards(migrated_engine: Engine, com
         ref = _pending(migrated_engine, other.id)
         with Session(migrated_engine) as s, pytest.raises(Exception, match="not found"):
             load_card(s, committed_company.id, ref)
+    finally:
+        purge_company(migrated_engine, other.id)
+
+
+def test_two_companies_sharing_a_key_each_get_their_own_row(
+    migrated_engine: Engine, committed_company: Company
+) -> None:
+    with Session(migrated_engine, expire_on_commit=False) as s:
+        other = Company(name="Other")
+        s.add(other)
+        s.commit()
+    try:
+        ids = []
+        for company_id in (committed_company.id, other.id):
+            with Session(migrated_engine) as s, s.begin():
+                ids.append(
+                    feed.deliver(s, company_id, "briefing:shared", FeedKind.briefing, None, OwnerMessage(text="x"))
+                )
+        assert ids[0] != ids[1]
+        assert _count(migrated_engine, OwnerFeed, committed_company.id) == 1
+        assert _count(migrated_engine, OwnerFeed, other.id) == 1
     finally:
         purge_company(migrated_engine, other.id)

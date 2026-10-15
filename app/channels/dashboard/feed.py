@@ -12,7 +12,6 @@ from app.db.enums import FeedKind
 from app.db.models import OwnerFeed
 
 _APPROVAL_PREFIXES = ("approval:", "apr:")
-_ALERT_PREFIXES = ("blocked:", "nudge:", "alert")
 _BRIEFING_PREFIXES = ("brief", "weekly")
 
 
@@ -39,15 +38,26 @@ def ref_for_key(key: str, kind: FeedKind) -> UUID | None:
         return None
 
 
+KEY_MAX = 255  # owner_feed.idempotency_key is String(255)
+
+
+def stored_key(company_id: UUID, key: str) -> str:
+    """The column is globally unique, so the key is namespaced by company (`{company_id}:{key}`). A too-long caller
+    key is truncated, never the prefix."""
+    prefix = f"{company_id}:"
+    return prefix + key[: KEY_MAX - len(prefix)]
+
+
 def deliver(
     session: Session, company_id: UUID, key: str, kind: FeedKind, ref_id: UUID | None, message: OwnerMessage
 ) -> UUID:
-    """Idempotent on `key`: a replay inserts nothing and returns the existing row id (company-scoped)."""
+    """Idempotent on (company, `key`): a replay inserts nothing and returns the existing row id."""
+    stored = stored_key(company_id, key)
     session.execute(
         insert(OwnerFeed)
-        .values(company_id=company_id, idempotency_key=key, kind=kind, ref_id=ref_id, payload=to_payload(message))
+        .values(company_id=company_id, idempotency_key=stored, kind=kind, ref_id=ref_id, payload=to_payload(message))
         .on_conflict_do_nothing(index_elements=["idempotency_key"])
     )
     return session.execute(
-        select(OwnerFeed.id).where(OwnerFeed.company_id == company_id, OwnerFeed.idempotency_key == key)
+        select(OwnerFeed.id).where(OwnerFeed.company_id == company_id, OwnerFeed.idempotency_key == stored)
     ).scalar_one()

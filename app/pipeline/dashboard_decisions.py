@@ -3,7 +3,8 @@
 Execution is never started here: the caller commits, then enqueues `exec:{action_id}:{draft_version}`.
 """
 
-from collections.abc import Iterable
+from collections import defaultdict
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -32,16 +33,50 @@ def any_flagged(bodies: Iterable[dict[str, Any] | None]) -> bool:
     return any(bool(((b or {}).get("suspicious") or {}).get("flag", False)) for b in bodies)
 
 
+def flags_for(
+    actions: Sequence[ActionRow],
+    by_message: Mapping[UUID, list[dict[str, Any] | None]],
+    by_case: Mapping[UUID, list[dict[str, Any] | None]],
+) -> dict[UUID, bool]:
+    """Pure gate predicate: any message in `context_ref` flagged; no refs falls back to the case's messages."""
+    return {
+        a.id: any_flagged(body for m in a.context_ref for body in by_message.get(m, []))
+        if a.context_ref
+        else any_flagged(by_case.get(a.case_id, []))
+        for a in actions
+    }
+
+
+def suspicious_by_action(session: Session, company_id: UUID, actions: Sequence[ActionRow]) -> dict[UUID, bool]:
+    """The decide gate's suspicious flag for many actions in at most two queries."""
+    refs = {m for a in actions for m in a.context_ref}
+    by_message: dict[UUID, list[dict[str, Any] | None]] = defaultdict(list)
+    if refs:
+        q = select(UnderstandingRow.message_id, UnderstandingRow.body).where(
+            UnderstandingRow.company_id == company_id, UnderstandingRow.message_id.in_(refs)
+        )
+        for message_id, body in session.execute(q):
+            by_message[message_id].append(body)
+    cases = {a.case_id for a in actions if not a.context_ref}
+    by_case: dict[UUID, list[dict[str, Any] | None]] = defaultdict(list)
+    if cases:
+        q2 = (
+            select(CaseLink.case_id, UnderstandingRow.body)
+            .join(UnderstandingRow, CaseLink.message_id == UnderstandingRow.message_id)
+            .where(
+                CaseLink.company_id == company_id,
+                UnderstandingRow.company_id == company_id,
+                CaseLink.case_id.in_(cases),
+            )
+        )
+        for case_id, body in session.execute(q2):
+            by_case[case_id].append(body)
+    return flags_for(actions, by_message, by_case)
+
+
 def is_suspicious(session: Session, company_id: UUID, action: ActionRow) -> bool:
     """Any message the action answers (`context_ref`) was flagged; follow-ups with no refs fall back to the case."""
-    stmt = select(UnderstandingRow.body).where(UnderstandingRow.company_id == company_id)
-    if action.context_ref:
-        stmt = stmt.where(UnderstandingRow.message_id.in_(action.context_ref))
-    else:
-        stmt = stmt.join(CaseLink, CaseLink.message_id == UnderstandingRow.message_id).where(
-            CaseLink.company_id == company_id, CaseLink.case_id == action.case_id
-        )
-    return any_flagged(session.scalars(stmt).all())
+    return suspicious_by_action(session, company_id, [action])[action.id]
 
 
 def _approval_action(session: Session, company_id: UUID, approval_id: UUID) -> tuple[Approval, ActionRow]:
