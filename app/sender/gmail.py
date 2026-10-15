@@ -1,4 +1,9 @@
-"""Gmail adapter construction — compose- and send-scoped credentials live only here, in separate token files."""
+"""Gmail adapter construction — compose- and send-scoped credentials live only here, in separate token files.
+
+`gmail.compose` can technically call `messages.send` as well, so the OAuth scope alone does not stop the drafts
+token from sending. The separation is enforced in code: `assert_allowed` limits `send_message` to the owner's own
+email addresses, and tenant replies only ever use `build_gmail_sender` (GMAIL_REPLY_SEND_CREDENTIALS_FILE).
+"""
 
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build

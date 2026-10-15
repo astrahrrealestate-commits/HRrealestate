@@ -1,4 +1,11 @@
-"""Extra send-mode guards checked in the claim transaction (spec §5), and telling Harjot when a tenant send failed."""
+"""Extra send-mode guards checked in the claim transaction (spec §5), and telling Harjot when a tenant send failed.
+
+Credential separation note: Gmail's `gmail.compose` scope (the drafts/digest token) can technically call
+`messages.send` too. Separation is therefore enforced in code, not by OAuth scope alone: `assert_allowed` lets
+`send_message` reach only the owner's own email addresses, tenant replies only go through `send_reply` on the
+adapter built from the separate GMAIL_REPLY_SEND_CREDENTIALS_FILE (`SenderDeps.gmail_sender`), and only for plans
+`assert_tenant` accepted.
+"""
 
 from datetime import datetime, timedelta
 from uuid import UUID
@@ -10,7 +17,7 @@ from app.channels.dashboard import feed
 from app.contracts import Channel, OwnerMessage
 from app.core.logging import get_logger
 from app.db.enums import FeedKind, SendStatus
-from app.db.models import Company, OwnerAccount, Send
+from app.db.models import OwnerAccount, Send
 from app.sender.plan import Plan
 
 log = get_logger(__name__)
@@ -52,20 +59,21 @@ def tenant_gate(
 ) -> str | None:
     """Why a tenant plan may not be claimed, or None. Owner-directed and draft plans pass untouched.
 
-    The company row is locked (FOR NO KEY UPDATE) so concurrent tenant sends count each other against the cap.
+    The caller (`execute._prepare`) holds the company row FOR NO KEY UPDATE, so concurrent tenant sends of one
+    company count each other against the cap.
     """
     if not plan.tenant_send:
         return None
     if plan.channel is Channel.gmail and not gmail_send_ready:
         return GMAIL_SEND_MISSING
-    session.execute(select(Company.id).where(Company.id == company_id).with_for_update(key_share=True))  # NO KEY UPDATE
     if cap_reached(tenant_sends_last_hour(session, company_id, key, now), cap):
         return CAP_REACHED
     return None
 
 
 def blocked_key(action_id: UUID, draft_version: int) -> str:
-    return f"blocked:{action_id}:{draft_version}"
+    """`blocked:{exec_key}`: the key `actions.tell_blocked_step` uses too, so the dashboard shows one row."""
+    return f"blocked:exec:{action_id}:{draft_version}"
 
 
 def tell_owner(engine: Engine, company_id: UUID, action_id: UUID, draft_version: int, reason: str | None) -> None:

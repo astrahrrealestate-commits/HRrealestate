@@ -68,12 +68,25 @@ def after_execute_step(action_id: str) -> str | None:
     return str(wait_id) if wait_id else None
 
 
+EXHAUSTED = "could not send after retries; the approval is still valid"
+
+
+def _send_or_tell(action_id: str, draft_version: int) -> list[str]:
+    """Retries exhausted (or any error escaping the step): Harjot hears it, the `sends` row stays pending for a
+    later resume, and the error is re-raised so the workflow ends in ERROR, never looking successful."""
+    try:
+        return send_step(action_id, draft_version)
+    except Exception:
+        tell_blocked_step(action_id, DBOS.workflow_id or action_id, EXHAUSTED)  # no exception text: it may quote a body
+        raise
+
+
 @DBOS.workflow(name=EXECUTE_ACTION)
 def execute_action_wf(action_id: str, draft_version: int, local: bool) -> str:
     if local:
         outcome, reason = apply_local_step(action_id, draft_version), "company paused or approval no longer valid"
     else:
-        outcome, reason = send_step(action_id, draft_version)
+        outcome, reason = _send_or_tell(action_id, draft_version)
     if outcome in ("sent", "already"):  # "already": a replay after the send was recorded; open_wait is idempotent
         after_execute_step(action_id)
     elif outcome in ("blocked", "failed"):  # Harjot always hears when an approved action did not go out

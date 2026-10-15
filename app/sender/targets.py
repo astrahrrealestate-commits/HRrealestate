@@ -18,7 +18,7 @@ from app.sender.errors import SendBlockedError as SendBlockedError
 from app.sender.gmail_reply import gmail_draft as _gmail_draft
 from app.sender.plan import Plan as Plan
 from app.sender.recipient import latest_inbound
-from app.sender.tenant_plans import assert_tenant, tenant_gmail, tenant_whatsapp
+from app.sender.tenant_plans import assert_tenant, tenant_plan
 
 __all__ = ["Plan", "SendBlockedError", "_gmail_draft", "assert_allowed", "plan_for"]
 
@@ -82,10 +82,9 @@ def _counterpart(session: Session, action: ActionRow) -> str:
 
 
 def _reply_plan(session: Session, action: ActionRow, body: str, key: str, send_mode: bool, now: datetime) -> Plan:
-    gmail = action.payload.get("channel") == Channel.gmail.value
     if send_mode:
-        return tenant_gmail(session, action, body, key) if gmail else tenant_whatsapp(session, action, body, now)
-    if gmail:
+        return tenant_plan(session, action, body, key, now)
+    if action.payload.get("channel") == Channel.gmail.value:
         return _gmail_draft(session, action, body, key)
     who = _counterpart(session, action)
     return _owner_text(session, action.company_id, f"Approved reply for {who}. Copy and send:\n\n{body}")
@@ -95,7 +94,8 @@ def plan_for(session: Session, action: ActionRow, variant: int, key: str, *, sen
     """The delivery for an approved action. The sent text is the approved variant's body only.
 
     `send_mode` (the company's `outbound_mode` is `send`) only changes `reply_draft`: it reaches the tenant (Gmail
-    reply in the thread, or WhatsApp text inside the window). Contractor requests, escalations and owner notes stay
+    reply in the thread with the thread's own subject, or WhatsApp text inside the window, never trimmed); any
+    other payload channel is blocked. Contractor requests, escalations and owner notes stay
     copy-ready text to the owner in every mode: sending to contractors is out of scope for v1.
     """
     payload = action.payload

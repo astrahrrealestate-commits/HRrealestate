@@ -50,7 +50,19 @@ def exec_key(action_id: UUID, draft_version: int) -> str:
     return f"exec:{action_id}:{draft_version}"
 
 
+REUSED_KEY = "an earlier send under this key went to a different recipient or channel"
+STATUS_UNKNOWN = "delivery status unknown: a previous attempt did not finish; check the thread before resending"
+
+
+def reuse_refusal(send: Send, company_id: UUID, plan: Plan) -> str | None:
+    """A `sends` row is only ever reused for the same company, channel and recipient (never owner ↔ tenant)."""
+    same = send.company_id == company_id and send.channel is plan.channel and send.target == plan.target
+    return None if same else REUSED_KEY
+
+
 def claim(session: Session, company_id: UUID, key: str, action_id: UUID | None, plan: Plan) -> Send:
+    """Insert-or-lock the `sends` row for `key`. Raises SendBlockedError when the existing row is for another
+    recipient or channel."""
     session.execute(
         insert(Send)
         .values(
@@ -58,7 +70,11 @@ def claim(session: Session, company_id: UUID, key: str, action_id: UUID | None, 
         )
         .on_conflict_do_nothing(index_elements=["idempotency_key"])
     )
-    return session.execute(select(Send).where(Send.idempotency_key == key).with_for_update()).scalar_one()
+    send = session.execute(select(Send).where(Send.idempotency_key == key).with_for_update()).scalar_one()
+    reason = reuse_refusal(send, company_id, plan)
+    if reason is not None:
+        raise SendBlockedError(reason)
+    return send
 
 
 def deliver(deps: SenderDeps, plan: Plan) -> str:
@@ -108,9 +124,26 @@ def begin_attempt(engine: Engine, key: str) -> bool:
     return won is not None
 
 
+def lost_attempt(tenant_send: bool, status: SendStatus | None, ref: str | None) -> ExecOutcome:
+    """Another attempt holds or finished the send. Sent → already. For a tenant message a `sending`/`failed` row
+    is not "done": nobody knows whether the tenant got it, so it is reported as failed (Harjot checks the thread).
+    Owner-directed messages keep "already" (the holder reports its own outcome)."""
+    if status is SendStatus.sent:
+        return ExecOutcome("already", provider_ref=ref)
+    if tenant_send:
+        return ExecOutcome("failed", reason=STATUS_UNKNOWN)
+    return ExecOutcome("already", reason="another attempt holds this send")
+
+
+def _current(engine: Engine, key: str) -> tuple[SendStatus | None, str | None]:
+    with Session(engine) as session:
+        row = session.execute(select(Send.status, Send.provider_ref).where(Send.idempotency_key == key)).first()
+    return (row[0], row[1]) if row is not None else (None, None)
+
+
 def send_claimed(deps: SenderDeps, key: str, plan: Plan) -> ExecOutcome:
     if not begin_attempt(deps.engine, key):  # another attempt holds it, or it already finished
-        return ExecOutcome("already", reason="another attempt holds this send")
+        return lost_attempt(plan.tenant_send, *_current(deps.engine, key))
     try:
         ref = deliver(deps, plan)
     except Exception as exc:

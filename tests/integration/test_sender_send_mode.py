@@ -1,158 +1,63 @@
 """Send mode (spec §5): an approved reply reaches the case contact, and only under every guard."""
 
-from dataclasses import dataclass, replace
-from datetime import UTC, date, datetime, timedelta
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 import pytest
-from sqlalchemy import Engine, func, select, update
+from sqlalchemy import Engine, select, update
 from sqlalchemy.orm import Session
 
-from app.channels.dashboard import feed
-from app.channels.gmail.drafts import FakeDrafts, GmailDraftError
-from app.channels.gmail.fake import FakeMailbox, MemoryMailboxStore
+from app.channels.gmail.drafts import GmailDraftError
 from app.channels.whatsapp import payloads
-from app.channels.whatsapp.outbound import FakeWhatsAppOutbound
-from app.contracts import ActionType, ButtonChoice, Category, Channel, Direction, OutboundMode, Urgency
-from app.core.ids import new_id
-from app.db.enums import ActionStatus, FeedKind, LinkMethod, PersonKind, SendStatus
-from app.db.models import (
-    ActionRow,
-    ChannelAccount,
-    ChannelIdentity,
-    Company,
-    MessageRow,
-    OwnerAccount,
-    OwnerFeed,
-    Person,
-    RawEvent,
-    Send,
-)
-from app.pipeline import approvals, case_repo
-from app.sender.execute import SenderDeps, execute_action
+from app.contracts import ActionType, ButtonChoice, Channel, OutboundMode
+from app.db.enums import ActionStatus, PersonKind, SendStatus
+from app.db.models import ActionRow, ChannelIdentity, Company, MessageRow, Person, Send
+from app.sender.execute import execute_action
 from app.sender.plan import Plan
 from app.sender.targets import SendBlockedError, assert_allowed, plan_for
-from app.sender.tenant_gate import CAP_REACHED, GMAIL_SEND_MISSING
+from app.sender.tenant_gate import GMAIL_SEND_MISSING
+from tests.integration.send_mode_support import (
+    OWNER,
+    REPLY,
+    TENANT_MAIL,
+    TENANT_NR,
+    VALID_FROM,
+    Env,
+    alert_row,
+    approved,
+    assert_blocked,
+    make_env,
+    send_count,
+    set_company,
+    set_rows,
+)
 
 pytestmark = pytest.mark.integration
-MAILBOX, OWNER, OWNER_MAIL = "beheer@example.test", "+31600000100", "harjot@example.test"
-TENANT_MAIL, TENANT_NR, VALID_FROM = "sanne@example.test", "+31612345678", date(2026, 1, 1)
-REPLY: dict[str, Any] = {
-    "kind": "reply_draft",
-    "channel": "gmail",
-    "subject": None,
-    "body_variants": ["Optie A", "Optie B"],
-}
-
-
-@dataclass
-class Env:
-    engine: Engine
-    company_id: UUID
-    case_id: UUID
-    deps: SenderDeps
-    wa: FakeWhatsAppOutbound
-    drafts: FakeDrafts
-    replies: FakeDrafts
-
-
-def _inbound(s: Session, cid: UUID, person_id: UUID, channel: Channel, sender: str, at: datetime) -> MessageRow:
-    raw = RawEvent(company_id=cid, provider=channel, provider_msg_id=f"in-{new_id()}", payload={})
-    s.add(raw)
-    s.flush()
-    msg = MessageRow(
-        company_id=cid, raw_event_id=raw.id, channel=channel, provider_msg_id=raw.provider_msg_id,
-        thread_ref="thr-1" if channel is Channel.gmail else sender, sender_identity=sender,
-        direction=Direction.inbound, sent_at=at, created_at=at, text="Lekkage", person_id=person_id,
-        meta={"subject": "Lekkage badkamer", "message_id": "<m1@example.test>", "mailbox": MAILBOX},
-    )  # fmt: skip
-    s.add(msg)
-    s.flush()
-    return msg
 
 
 @pytest.fixture
 def env(migrated_engine: Engine, committed_company: Company) -> Env:
-    cid, recent = committed_company.id, datetime.now(UTC) - timedelta(hours=1)
-    with Session(migrated_engine) as s:
-        s.execute(update(Company).where(Company.id == cid).values(outbound_mode=OutboundMode.send))
-        owner = OwnerAccount(company_id=cid, display_name="Harjot", whatsapp_e164=OWNER, email=OWNER_MAIL)
-        s.add_all([ChannelAccount(company_id=cid, channel=Channel.gmail, address=MAILBOX), owner])
-        person = Person(company_id=cid, kind=PersonKind.tenant, display_name="Sanne", valid_from=VALID_FROM)
-        s.add(person)
-        s.flush()
-        for channel, identity in ((Channel.gmail, TENANT_MAIL), (Channel.whatsapp, TENANT_NR)):
-            s.add(ChannelIdentity(company_id=cid, person_id=person.id, channel=channel, identity=identity,
-                                  valid_from=VALID_FROM))  # fmt: skip
-        case_id = case_repo.create_case(s, cid, person.id, Category.maintenance, Urgency.high)
-        for channel, sender in ((Channel.gmail, "Sanne@Example.TEST"), (Channel.whatsapp, TENANT_NR)):
-            msg = _inbound(s, cid, person.id, channel, sender, recent)
-            case_repo.link_message(s, cid, case_id, msg.id, LinkMethod.new_case, None)
-        s.commit()
-    mailbox = FakeMailbox(MAILBOX, MemoryMailboxStore())
-    wa, drafts, replies = FakeWhatsAppOutbound(), FakeDrafts(mailbox), FakeDrafts(mailbox)
-    deps = SenderDeps(migrated_engine, wa, lambda _a: drafts, gmail_sender=lambda _a: replies)
-    return Env(migrated_engine, cid, case_id, deps, wa, drafts, replies)
-
-
-def _approved(env: Env, kind: ActionType, payload: dict[str, Any], choice: ButtonChoice = ButtonChoice.d2) -> UUID:
-    with Session(env.engine) as s:
-        a = ActionRow(company_id=env.company_id, case_id=env.case_id, type=kind, payload=payload, rationale="r",
-                      context_ref=[], status=ActionStatus.pending_approval)  # fmt: skip
-        s.add(a)
-        s.flush()
-        aid = approvals.open_approval(s, env.company_id, a.id, 1, urgency=Urgency.normal, now=datetime.now(UTC))
-        approvals.decide(s, env.company_id, aid, choice, at=datetime.now(UTC))
-        s.commit()
-        return a.id
-
-
-def _set(env: Env, model: Any, **values: Any) -> None:
-    with Session(env.engine) as s, s.begin():
-        s.execute(update(model).where(model.company_id == env.company_id).values(**values))
-
-
-def _set_company(env: Env, **values: Any) -> None:
-    with Session(env.engine) as s, s.begin():
-        s.execute(update(Company).where(Company.id == env.company_id).values(**values))
-
-
-def _alert(env: Env, action_id: UUID) -> OwnerFeed | None:
-    key = feed.stored_key(env.company_id, f"blocked:{action_id}:1")
-    with Session(env.engine) as s:
-        return s.scalar(
-            select(OwnerFeed).where(OwnerFeed.company_id == env.company_id, OwnerFeed.idempotency_key == key)
-        )
-
-
-def _sends(env: Env) -> int:
-    with Session(env.engine) as s:
-        return int(s.scalar(select(func.count()).select_from(Send).where(Send.company_id == env.company_id)) or 0)
-
-
-def _assert_blocked(env: Env, action_id: UUID, reason: str) -> None:
-    outcome = execute_action(env.deps, action_id, 1)
-    assert outcome.status == "blocked"
-    assert reason in (outcome.reason or "")
-    assert (env.wa.sent, env.drafts.created, env.replies.replies) == ([], [], [])
-    alert = _alert(env, action_id)
-    assert alert is not None
-    assert alert.kind is FeedKind.alert
-    assert reason in alert.payload["text"]
-    assert "Optie" not in alert.payload["text"]  # the reason only, never the message body
+    return make_env(migrated_engine, committed_company)
 
 
 def test_draft_mode_still_creates_a_gmail_draft(env: Env) -> None:
-    _set_company(env, outbound_mode=OutboundMode.draft)
-    action_id = _approved(env, ActionType.reply_draft, REPLY)
+    set_company(env, outbound_mode=OutboundMode.draft)
+    action_id = approved(env, ActionType.reply_draft, {**REPLY, "subject": "Model subject"})
     assert execute_action(env.deps, action_id, 1).status == "sent"
-    assert [r.body for r in env.drafts.created] == ["Optie B"]
+    assert [(r.body, r.subject) for r in env.drafts.created] == [("Optie B", "Re: Model subject")]  # unchanged
     assert env.replies.replies == []
 
 
+def test_send_mode_subject_comes_from_the_thread_never_the_proposal(env: Env) -> None:
+    action_id = approved(env, ActionType.reply_draft, {**REPLY, "subject": "Model subject"})
+    assert execute_action(env.deps, action_id, 1).status == "sent"
+    assert [r.subject for r in env.replies.replies] == ["Re: Lekkage badkamer"]
+
+
 def test_send_mode_gmail_sends_one_reply_to_the_canonical_contact(env: Env) -> None:
-    action_id = _approved(env, ActionType.reply_draft, REPLY)
+    action_id = approved(env, ActionType.reply_draft, REPLY)
     first = execute_action(env.deps, action_id, 1)
     assert (first.status, execute_action(env.deps, action_id, 1).status) == ("sent", "already")
     [req] = env.replies.replies
@@ -164,62 +69,44 @@ def test_send_mode_gmail_sends_one_reply_to_the_canonical_contact(env: Env) -> N
         assert (send.status, send.channel, send.target, send.provider_ref) == (
             SendStatus.sent, Channel.gmail, TENANT_MAIL, first.provider_ref)  # fmt: skip
         assert s.scalar(select(ActionRow.status).where(ActionRow.id == action_id)) is ActionStatus.executed
-    assert _alert(env, action_id) is None
+    assert alert_row(env, action_id) is None
 
 
 def test_send_mode_whatsapp_in_window_texts_the_contact(env: Env) -> None:
-    action_id = _approved(env, ActionType.reply_draft, {**REPLY, "channel": "whatsapp"}, ButtonChoice.d1)
+    action_id = approved(env, ActionType.reply_draft, {**REPLY, "channel": "whatsapp"}, ButtonChoice.d1)
     assert execute_action(env.deps, action_id, 1).status == "sent"
     assert [(m.payload["to"], m.payload["text"]["body"]) for m in env.wa.sent] == [(TENANT_NR[1:], "Optie A")]
 
 
 def test_whatsapp_window_closed_is_blocked_with_zero_calls(env: Env) -> None:
     old = datetime.now(UTC) - timedelta(hours=30)
-    _set(env, MessageRow, sent_at=old, created_at=old)
-    action_id = _approved(env, ActionType.reply_draft, {**REPLY, "channel": "whatsapp"})
-    _assert_blocked(env, action_id, "WhatsApp window closed")
-    assert _sends(env) == 0
+    set_rows(env, MessageRow, sent_at=old, created_at=old)
+    action_id = approved(env, ActionType.reply_draft, {**REPLY, "channel": "whatsapp"})
+    assert_blocked(env, action_id, "WhatsApp window closed")
+    assert send_count(env) == 0
 
 
 def test_a_sender_that_is_no_longer_the_contacts_identity_is_blocked(env: Env) -> None:
-    _set(env, ChannelIdentity, valid_to=datetime.now(UTC).date() - timedelta(days=1))
-    _assert_blocked(env, _approved(env, ActionType.reply_draft, REPLY), "no inbound message from the case contact")
+    set_rows(env, ChannelIdentity, valid_to=datetime.now(UTC).date() - timedelta(days=1))
+    assert_blocked(env, approved(env, ActionType.reply_draft, REPLY), "no inbound message from the case contact")
 
 
 def test_paused_company_is_blocked_and_told(env: Env) -> None:
-    _set_company(env, paused=True)
-    _assert_blocked(env, _approved(env, ActionType.reply_draft, REPLY), "company paused")
+    set_company(env, paused=True)
+    assert_blocked(env, approved(env, ActionType.reply_draft, REPLY), "company paused")
 
 
 def test_reply_edited_after_approval_is_blocked(env: Env) -> None:
-    action_id = _approved(env, ActionType.reply_draft, REPLY)
+    action_id = approved(env, ActionType.reply_draft, REPLY)
     with Session(env.engine) as s, s.begin():
         s.execute(update(ActionRow).where(ActionRow.id == action_id).values(draft_version=2))
-    _assert_blocked(env, action_id, "draft version superseded")
+    assert_blocked(env, action_id, "draft version superseded")
 
 
 def test_missing_gmail_send_token_blocks_and_never_falls_back_to_a_draft(env: Env) -> None:
     env.deps = replace(env.deps, gmail_sender=None)
-    _assert_blocked(env, _approved(env, ActionType.reply_draft, REPLY), GMAIL_SEND_MISSING)
-    assert _sends(env) == 0
-
-
-def _prior_send(env: Env, target: str) -> None:
-    with Session(env.engine) as s, s.begin():
-        s.add(Send(company_id=env.company_id, idempotency_key=f"prior:{new_id()}", channel=Channel.whatsapp,
-                   target=target, status=SendStatus.sent))  # fmt: skip
-
-
-def test_hourly_cap_blocks_tenant_sends(env: Env) -> None:
-    env.deps = replace(env.deps, tenant_sends_per_hour=1)
-    _prior_send(env, "+31699999999")
-    _assert_blocked(env, _approved(env, ActionType.reply_draft, REPLY), CAP_REACHED)
-
-
-def test_owner_messages_do_not_count_against_the_cap(env: Env) -> None:
-    env.deps = replace(env.deps, tenant_sends_per_hour=1)
-    _prior_send(env, OWNER)
-    assert execute_action(env.deps, _approved(env, ActionType.reply_draft, REPLY), 1).status == "sent"
+    assert_blocked(env, approved(env, ActionType.reply_draft, REPLY), GMAIL_SEND_MISSING)
+    assert send_count(env) == 0
 
 
 def test_ambiguous_gmail_failure_is_failed_not_retried_and_told(env: Env) -> None:
@@ -230,13 +117,13 @@ def test_ambiguous_gmail_failure_is_failed_not_retried_and_told(env: Env) -> Non
         raise GmailDraftError("sending reply failed: HTTP 503", retryable=False, maybe_sent=True)
 
     env.replies.send_reply = broken  # type: ignore[method-assign]
-    action_id = _approved(env, ActionType.reply_draft, REPLY)
+    action_id = approved(env, ActionType.reply_draft, REPLY)
     outcome = execute_action(env.deps, action_id, 1)
     assert outcome.status == "failed"
     assert "may have been delivered" in (outcome.reason or "")
     assert execute_action(env.deps, action_id, 1).status == "blocked"  # a failed action is never re-sent blindly
     assert len(calls) == 1
-    alert = _alert(env, action_id)
+    alert = alert_row(env, action_id)
     assert alert is not None
     assert "may have been delivered" in alert.payload["text"]
     with Session(env.engine) as s:
@@ -259,7 +146,7 @@ def test_contractor_requests_and_escalations_stay_with_the_owner_in_send_mode(en
     request = {"kind": "request_contractor", "contractor_person_id": _contractor(env), "body_variants": ["A", "B"]}
     escalation = {"kind": "escalate", "reason": "lekkage"}
     for kind, payload in ((ActionType.request_contractor, request), (ActionType.escalate, escalation)):
-        assert execute_action(env.deps, _approved(env, kind, payload, ButtonChoice.ok), 1).status == "sent"
+        assert execute_action(env.deps, approved(env, kind, payload, ButtonChoice.ok), 1).status == "sent"
     assert [m.payload["to"] for m in env.wa.sent] == [OWNER[1:], OWNER[1:]]
     assert "Copy and send" in env.wa.sent[0].payload["text"]["body"]
     assert env.replies.replies == []
@@ -272,7 +159,7 @@ def _plan(s: Session, env: Env, action_id: UUID) -> Plan:
 
 
 def test_mode_flipped_to_draft_after_planning_is_refused(env: Env) -> None:
-    action_id = _approved(env, ActionType.reply_draft, REPLY)
+    action_id = approved(env, ActionType.reply_draft, REPLY)
     with Session(env.engine) as s:
         plan = _plan(s, env, action_id)
         assert_allowed(s, env.company_id, plan)  # allowed while in send mode
@@ -282,7 +169,7 @@ def test_mode_flipped_to_draft_after_planning_is_refused(env: Env) -> None:
 
 
 def test_allowlist_rederives_the_recipient_and_ignores_the_plan(env: Env) -> None:
-    action_id = _approved(env, ActionType.reply_draft, REPLY)
+    action_id = approved(env, ActionType.reply_draft, REPLY)
     with Session(env.engine) as s:
         plan = _plan(s, env, action_id)
         assert plan.draft is not None

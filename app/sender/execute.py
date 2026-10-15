@@ -20,7 +20,6 @@ from app.channels.whatsapp import payloads
 from app.channels.whatsapp.render import render_whatsapp
 from app.contracts import (
     ActionType,
-    ButtonChoice,
     Channel,
     EmailRequest,
     InteractiveChannel,
@@ -28,9 +27,10 @@ from app.contracts import (
     OwnerMessage,
 )
 from app.core.logging import get_logger
-from app.db.enums import ActionStatus, ApprovalStatus, OutboxStatus, SendStatus
-from app.db.models import ActionRow, Approval, ChannelAccount, Company, OwnerAccount, OwnerOutbox, Send
+from app.db.enums import OutboxStatus, SendStatus
+from app.db.models import ActionRow, ChannelAccount, Company, OwnerAccount, OwnerOutbox, Send
 from app.sender import owner_window
+from app.sender.action_checks import approved_variant, blocked_reason, locked_action, sent_row
 from app.sender.dashboard import deliver_dashboard
 from app.sender.delivery import ExecOutcome as ExecOutcome
 from app.sender.delivery import SenderDeps as SenderDeps
@@ -47,52 +47,18 @@ from app.sender.targets import (
 from app.sender.tenant_gate import tell_owner, tenant_gate
 
 log = get_logger(__name__)
-_VARIANT = {ButtonChoice.d2: 1, ButtonChoice.d3: 2}
-
-
-def _blocked_reason(session: Session, action: ActionRow, draft_version: int) -> str | None:
-    company = session.get(Company, action.company_id)
-    if company is None or company.paused:
-        return "company paused"
-    if action.draft_version != draft_version:
-        return "draft version superseded"
-    approved = session.scalar(
-        select(Approval.id).where(
-            Approval.company_id == action.company_id,
-            Approval.action_id == action.id,
-            Approval.draft_version == draft_version,
-            Approval.status == ApprovalStatus.approved,
-        )
-    )
-    if approved is None:
-        return "not approved"
-    if action.status not in (ActionStatus.approved, ActionStatus.executed):
-        return f"action is {action.status.value}"
-    return None
-
-
-def _variant(session: Session, action: ActionRow, draft_version: int) -> int:
-    choice = session.scalar(
-        select(Approval.choice).where(
-            Approval.company_id == action.company_id,
-            Approval.action_id == action.id,
-            Approval.draft_version == draft_version,
-            Approval.status == ApprovalStatus.approved,
-        )
-    )
-    return _VARIANT.get(choice, 0) if choice else 0
 
 
 def _plan_checked(
     deps: SenderDeps, session: Session, action: ActionRow, draft_version: int, send_mode: bool, now: datetime
 ) -> Plan | str:
     """The allowed plan, or why not: pause/version/approval, plan, allowlist, then the send-mode gate (cap)."""
-    reason = _blocked_reason(session, action, draft_version)
+    reason = blocked_reason(session, action, draft_version)
     if reason is not None:
         return reason
     key = exec_key(action.id, draft_version)
     try:
-        variant = _variant(session, action, draft_version)
+        variant = approved_variant(session, action, draft_version)
         plan = plan_for(session, action, variant, key, send_mode=send_mode, now=now)
         assert_allowed(session, action.company_id, plan)
     except SendBlockedError as exc:
@@ -105,21 +71,27 @@ def _plan_checked(
 def _prepare(
     deps: SenderDeps, action_id: UUID, draft_version: int, key: str, now: datetime
 ) -> tuple[Plan | ExecOutcome, UUID | None]:
-    """One locked transaction: every re-check, then the claim. Also returns the company to tell if a tenant send
-    (send mode, reply_draft) does not go out."""
+    """One locked transaction: replay check, every re-check, then the claim. Also returns the company to tell if a
+    tenant send (send mode, reply_draft) does not go out."""
     with Session(deps.engine) as session, session.begin():
-        action = session.scalar(select(ActionRow).where(ActionRow.id == action_id).with_for_update())
+        action = locked_action(session, action_id)
         if action is None:
             return ExecOutcome("blocked", "action not found"), None
-        mode = session.scalar(select(Company.outbound_mode).where(Company.id == action.company_id))
-        send_mode = mode is OutboundMode.send
+        done = sent_row(session, action.company_id, key)
+        if done is not None:  # a replay after a real send: no re-checks, no false "not sent" alert
+            return ExecOutcome("already", provider_ref=done.provider_ref), None
+        company = session.get(Company, action.company_id)  # locked above
+        send_mode = company is not None and company.outbound_mode is OutboundMode.send
         tell = action.company_id if send_mode and action.type is ActionType.reply_draft else None
         checked = _plan_checked(deps, session, action, draft_version, send_mode, now)
+        try:
+            send = claim(session, action.company_id, key, action.id, checked) if isinstance(checked, Plan) else None
+        except SendBlockedError as exc:
+            checked = str(exc)
         if isinstance(checked, str):
             log.warning("sender.blocked", action_id=str(action_id), reason=checked)
             return ExecOutcome("blocked", checked), tell
-        send = claim(session, action.company_id, key, action.id, checked)
-        if send.status is SendStatus.sent:
+        if send is not None and send.status is SendStatus.sent:
             return ExecOutcome("already", provider_ref=send.provider_ref), None
     return checked, tell
 

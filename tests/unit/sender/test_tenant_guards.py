@@ -13,7 +13,7 @@ from app.channels.whatsapp.outbound import FakeWhatsAppOutbound
 from app.contracts import ActionType, Channel, Direction, DraftRequest, OutboundMode
 from app.db.enums import FeedKind
 from app.db.models import ActionRow, MessageRow
-from app.sender.delivery import SenderDeps, deliver
+from app.sender.delivery import SenderDeps, deliver, exec_key
 from app.sender.errors import SendBlockedError
 from app.sender.plan import Plan
 from app.sender.targets import assert_allowed
@@ -119,19 +119,28 @@ def _msg(age: timedelta, sender: str = TENANT_NR, channel: Channel = Channel.wha
     )  # fmt: skip
 
 
-def _action(channel: str) -> ActionRow:
-    payload = {"kind": "reply_draft", "channel": channel, "subject": None, "body_variants": ["A"]}
+def _action(channel: str, subject: str | None = None) -> ActionRow:
+    payload = {"kind": "reply_draft", "channel": channel, "subject": subject, "body_variants": ["A"]}
     return ActionRow(company_id=COMPANY, case_id=CASE, type=ActionType.reply_draft, payload=payload)
 
 
 def test_whatsapp_plan_goes_to_the_canonical_identity_inside_the_window() -> None:
     found = (_msg(timedelta(hours=22), sender="0031 6 12345678"), TENANT_NR)
     with patch("app.sender.tenant_plans.tenant_recipient", return_value=found):
-        plan = tenant_whatsapp(MagicMock(), _action("whatsapp"), "x" * 5000, NOW)
+        plan = tenant_whatsapp(MagicMock(), _action("whatsapp"), "x" * payloads.TEXT_BODY_MAX, NOW)
     assert (plan.target, plan.tenant_send, plan.case_id, plan.channel) == (TENANT_NR, True, CASE, Channel.whatsapp)
     assert plan.whatsapp is not None
     assert plan.whatsapp["to"] == TENANT_NR.removeprefix("+")
-    assert len(plan.whatsapp["text"]["body"]) == payloads.TEXT_BODY_MAX
+    assert plan.whatsapp["text"]["body"] == "x" * payloads.TEXT_BODY_MAX  # exactly the limit is sent untouched
+
+
+def test_whatsapp_plan_over_the_limit_is_blocked_never_trimmed() -> None:
+    found = (_msg(timedelta(hours=1)), TENANT_NR)
+    with (
+        patch("app.sender.tenant_plans.tenant_recipient", return_value=found),
+        pytest.raises(SendBlockedError, match="longer than WhatsApp's 4096 characters"),
+    ):
+        tenant_whatsapp(MagicMock(), _action("whatsapp"), "x" * (payloads.TEXT_BODY_MAX + 1), NOW)
 
 
 def test_whatsapp_plan_is_blocked_when_the_window_closed() -> None:
@@ -148,10 +157,11 @@ def test_gmail_plan_addresses_the_canonical_identity_not_the_raw_sender() -> Non
     session.scalar.return_value = MAILBOX  # the thread's mailbox is one of the company's accounts
     msg = _msg(timedelta(hours=2), sender="Sanne <Sanne@Example.TEST>", channel=Channel.gmail)
     with patch("app.sender.tenant_plans.tenant_recipient", return_value=(msg, TENANT_MAIL)):
-        plan = tenant_gmail(session, _action("gmail"), "Beste Sanne", "exec:a:1")
+        plan = tenant_gmail(session, _action("gmail", subject="Model subject"), "Beste Sanne", "exec:a:1")
     assert plan.draft is not None
     assert (plan.target, plan.draft.to, plan.tenant_send, plan.case_id) == (TENANT_MAIL, TENANT_MAIL, True, CASE)
     assert (plan.draft.thread_id, plan.draft.in_reply_to, plan.draft.body) == ("thr-1", "<m1>", "Beste Sanne")
+    assert plan.draft.subject == "Re: Lekkage"  # from the thread; the proposal's subject is ignored
 
 
 # -- cap and gate --------------------------------------------------------------------------------------------------
@@ -222,9 +232,9 @@ def test_tell_owner_writes_one_alert_with_the_reason_and_no_body() -> None:
     with patch("app.sender.tenant_gate.Session"), patch("app.sender.tenant_gate.feed.deliver") as feed_deliver:
         tell_owner(MagicMock(), COMPANY, action_id, 2, WINDOW_CLOSED)
     args = feed_deliver.call_args.args
-    assert args[1:5] == (COMPANY, f"blocked:{action_id}:2", FeedKind.alert, None)
+    assert args[1:5] == (COMPANY, f"blocked:exec:{action_id}:2", FeedKind.alert, None)
     assert WINDOW_CLOSED in args[5].text
-    assert blocked_key(action_id, 2) == f"blocked:{action_id}:2"
+    assert blocked_key(action_id, 2) == f"blocked:{exec_key(action_id, 2)}"  # = actions.tell_blocked_step's key
 
 
 def test_tell_owner_never_raises() -> None:
