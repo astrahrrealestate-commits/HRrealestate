@@ -43,6 +43,7 @@ from app.pipeline.concierge_outcome import (
     fallback_for,
     result_json,
     stored_answer,
+    task_brief,
 )
 
 log = get_logger(__name__)
@@ -136,7 +137,8 @@ def _brief(engine: Engine, start: TurnStart) -> tuple[list[CaseBrief], list[str]
             CaseBrief(c.id, owner_commands.case_label(session, c), c.state.value, c.urgency.value, c.summary)
             for c in cases
         ]
-        tasks = [t.title for t in work_repo.open_tasks(session, cid, now=start.at)[:MAX_BRIEF_TASKS]]
+        open_tasks = work_repo.open_tasks(session, cid, now=start.at)[:MAX_BRIEF_TASKS]
+        tasks = [task_brief(t.id, t.title) for t in open_tasks]
         history = read_turns.earlier_texts(
             session, cid, start.conversation_id, (start.at, start.turn_id), MAX_HISTORY_TURNS
         )

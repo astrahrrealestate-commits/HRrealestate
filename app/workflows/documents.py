@@ -17,7 +17,7 @@ from app.core.workflow_names import DOC_SKIP, FILE_DOCUMENT
 from app.db.models import AttachmentRow, DocumentRow
 from app.ingestion.process import is_transient
 from app.llm.calls import is_transient as llm_transient
-from app.owner.cards import document_review_payload
+from app.owner.cards import document_review_key, document_review_payload
 from app.pipeline.documents import file_document, skip_document
 from app.storage.drive import is_transient as drive_transient
 from app.workflows import queues
@@ -73,7 +73,7 @@ def review_card_step(company_id: str, attachment_id: str) -> bool:
         return False
     doc, filename, mime = row
     build = document_review_payload(UUID(attachment_id), filename or mime, doc.doc_type, doc.title)
-    return send_owner_message(company_id, f"docreview:{attachment_id}", build)
+    return send_owner_message(company_id, document_review_key(attachment_id), build)
 
 
 @DBOS.workflow(name=FILE_DOCUMENT)

@@ -105,6 +105,14 @@ def document_choice_id(attachment_id: UUID, choice: str) -> str:
     return f"{DOC_PREFIX}{attachment_id}:{choice}"
 
 
+DOC_REVIEW_PREFIX = "docreview:"
+
+
+def document_review_key(attachment_id: UUID | str) -> str:
+    """Owner-message key of the filing review card; the dashboard feed files it as `document_review`."""
+    return f"{DOC_REVIEW_PREFIX}{attachment_id}"
+
+
 def document_review_message(attachment_id: UUID, file_label: str, suggested: str, title: str) -> OwnerMessage:
     body = f"Document to file: {file_label}\nBest guess: {suggested.replace('_', ' ')} - {title}"
     order = [suggested, *(t for t in _DOC_TYPES if t != suggested)]

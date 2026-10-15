@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
+from uuid import UUID
 
 from pydantic_core import to_jsonable_python
 
@@ -14,6 +15,7 @@ from app.llm.agents.concierge import concierge_prompt
 from app.llm.agents.owner_qa import CaseBrief
 from app.pipeline.concierge import is_transient
 from app.pipeline.concierge_base import StepResult
+from app.pipeline.work_repo import short_ref
 
 MAX_BRIEF_CASES = 20
 MAX_BRIEF_TASKS = 20
@@ -55,6 +57,11 @@ class Outcome:
 def failed_outcome(exc: BaseException) -> Outcome:
     """Only the exception type is kept: its text may quote message content."""
     return Outcome(APOLOGY, status=TurnStatus.failed, error=type(exc).__name__)
+
+
+def task_brief(task_id: UUID, title: str) -> str:
+    """One open task in the planner's data block: `#<ref> <title>`, so a plan can name it as `task_ref`."""
+    return f"#{short_ref(task_id)} {title}"
 
 
 def build_prompt(text: str, history: Sequence[str], cases: Sequence[CaseBrief], tasks: Sequence[str]) -> str:

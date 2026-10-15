@@ -13,14 +13,15 @@ from app.db.models import OwnerFeed
 
 _APPROVAL_PREFIXES = ("approval:", "apr:")
 _BRIEFING_PREFIXES = ("brief", "weekly")
+_DOCUMENT_REVIEW_PREFIX = "docreview:"  # app.owner.cards.document_review_key (documents.review_card_step)
 
 
 def kind_for_key(key: str) -> FeedKind:
-    """approval:/apr: -> approval, doc: -> document_review, brief/weekly -> briefing,
+    """approval:/apr: -> approval, docreview: -> document_review, brief/weekly -> briefing,
     blocked:/nudge:/alert -> alert, everything else -> alert."""
     if key.startswith(_APPROVAL_PREFIXES):
         return FeedKind.approval
-    if key.startswith("doc:"):
+    if key.startswith(_DOCUMENT_REVIEW_PREFIX):
         return FeedKind.document_review
     if key.startswith(_BRIEFING_PREFIXES):
         return FeedKind.briefing
@@ -28,7 +29,7 @@ def kind_for_key(key: str) -> FeedKind:
 
 
 def ref_for_key(key: str, kind: FeedKind) -> UUID | None:
-    """The approval or attachment id carried in `approval:{uuid}:n` / `apr:{uuid}:c` / `doc:{uuid}:c`."""
+    """The approval or attachment id carried in `approval:{uuid}:n` / `apr:{uuid}:c` / `docreview:{uuid}`."""
     if kind not in (FeedKind.approval, FeedKind.document_review):
         return None
     _, _, rest = key.partition(":")

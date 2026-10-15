@@ -144,7 +144,7 @@ def send_to_owner(
     """Owner-channel messages that are not actions (approval cards, briefings, alerts).
     Supports WhatsApp (with 24-hr outbox), Google Chat (instant direct delivery) and the dashboard (one
     idempotent `owner_feed` row, returns the feed id; no window, outbox, Send row or provider call).
-    Dashboard feed kind from the key prefix: approval:/apr: approval, doc: document_review, brief/weekly briefing,
+    Dashboard feed kind from the key prefix: approval:/apr: approval, docreview: document_review, brief/weekly briefing,
     blocked:/nudge:/alert and everything else alert. `ref_id` is the UUID in approval/doc keys.
     """
     with Session(deps.engine) as session:
