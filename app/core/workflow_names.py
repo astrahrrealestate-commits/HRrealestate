@@ -16,6 +16,11 @@ FILE_DOCUMENT = "documents.file_document"
 CONCIERGE_TURN = "concierge.turn"
 
 
+def exec_workflow_id(action_id: object, draft_version: object) -> str:
+    """`exec:<action_id>:<draft_version>`: the one execution of an approved action version (same as its send key)."""
+    return f"exec:{action_id}:{draft_version}"
+
+
 def concierge_workflow_id(turn_id: object) -> str:
     """`concierge:<turn_id>`: one Super Agent run per turn; DBOS dedupes a repeated enqueue."""
     return f"concierge:{turn_id}"

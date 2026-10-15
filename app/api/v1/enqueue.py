@@ -10,6 +10,7 @@ from app.core.workflow_names import (
     FILE_DOCUMENT,
     PIPELINE_QUEUE,
     concierge_workflow_id,
+    exec_workflow_id,
 )
 
 
@@ -17,7 +18,7 @@ def enqueue_execute(
     client: WorkflowClient, action_id: UUID, version: int, local: bool, *, suffix: str | None = None
 ) -> None:
     """`exec:{action_id}:{version}` (resume adds `:resume:<request>`): DBOS dedupes a repeated id."""
-    workflow_id = f"exec:{action_id}:{version}" + (f":{suffix}" if suffix else "")
+    workflow_id = exec_workflow_id(action_id, version) + (f":{suffix}" if suffix else "")
     options = {"queue_name": PIPELINE_QUEUE, "workflow_name": EXECUTE_ACTION, "workflow_id": workflow_id}
     client.enqueue(options, str(action_id), version, local)
 
