@@ -81,7 +81,8 @@ def seeded(migrated_engine: Engine, pg_url: str, committed_company: Company) -> 
         other = Company(name="Other")
         s.add(other)
         s.flush()
-        owner = OwnerAccount(company_id=committed_company.id, display_name="H", whatsapp_e164="+31699999995")
+        owner = OwnerAccount(company_id=committed_company.id, display_name="H", whatsapp_e164="+31699999995",
+                             email="h@a.test")  # fmt: skip
         s.add(owner)
         mine = _seed(s, committed_company.id, "a", suspicious=True)
         theirs = _seed(s, other.id, "b", suspicious=False)

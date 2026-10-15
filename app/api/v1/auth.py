@@ -130,6 +130,16 @@ def owner_by_email(engine: Engine | Connection, email: str) -> Principal | None:
         return Principal(company_id=owner.company_id, owner_id=owner.id, email=owner.email or email)
 
 
+def owner_matches(engine: Engine | Connection, principal: Principal) -> bool:
+    """The session's owner row still exists in its company with the same email (primary-key lookup)."""
+    stmt = select(OwnerAccount.email).where(
+        OwnerAccount.id == principal.owner_id, OwnerAccount.company_id == principal.company_id
+    )
+    with Session(engine) as session:
+        email = session.scalar(stmt)
+    return email is not None and email.lower() == principal.email.lower()
+
+
 def _secure(settings: Settings) -> bool:
     return settings.env not in ("dev", "test")
 
@@ -138,7 +148,8 @@ def _short(email: str) -> str:
     return hashlib.sha256(email.lower().encode()).hexdigest()[:8]
 
 
-def require_principal(request: Request) -> Principal:
+def cookie_principal(request: Request) -> Principal:
+    """The signed-cookie checks alone (no I/O): signature, age. 401 when missing or invalid."""
     token = request.cookies.get(COOKIE)
     if not token:
         raise HTTPException(status_code=401, detail="not authenticated")
@@ -146,6 +157,16 @@ def require_principal(request: Request) -> Principal:
         return read_session(request.app.state.settings, token, datetime.now(UTC))
     except AuthError:
         raise HTTPException(status_code=401, detail="not authenticated") from None
+
+
+async def require_principal(request: Request) -> Principal:
+    """Signed-cookie checks first, then the owner row is re-read: a removed owner or a changed email ends the
+    session at once instead of at cookie expiry."""
+    principal = cookie_principal(request)
+    if not await run_in_threadpool(owner_matches, request.app.state.engine, principal):
+        log.info("dashboard_session_owner_gone", owner_id=str(principal.owner_id))
+        raise HTTPException(status_code=401, detail="not authenticated")
+    return principal
 
 
 def require_csrf(x_estateos_client: Annotated[str | None, Header()] = None) -> None:

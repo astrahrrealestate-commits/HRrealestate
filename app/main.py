@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from dbos import DBOSClient
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import Engine
 
 import app
@@ -70,6 +71,14 @@ def create_app(
         redoc_url=None,
     )
     api.state.rate_limiter = RateLimiter()
+    if settings.dashboard_cors_origins:  # default: none, the SPA is served same-origin behind the proxy
+        api.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(settings.dashboard_cors_origins),
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "DELETE"],
+            allow_headers=[dashboard_auth.CSRF_HEADER, "Content-Type"],
+        )
     api.include_router(health.router)
     api.include_router(api_v1_router)
     api.include_router(whatsapp_webhook.router)

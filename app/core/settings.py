@@ -3,10 +3,10 @@
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import PostgresDsn, SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import PostgresDsn, SecretStr, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 import app
 
@@ -73,6 +73,8 @@ class Settings(BaseSettings):
     dashboard_session_ttl_min: int = 480
     dashboard_trust_forwarded_for: bool = False  # rate-limit login by X-Forwarded-For (only behind a trusted proxy)
     google_oauth_client_id: str | None = None  # audience of the owner's Google ID token
+    # Exact SPA origins allowed cross-origin (comma-separated). Empty = no CORS (the SPA is served same-origin).
+    dashboard_cors_origins: Annotated[list[str], NoDecode] = []
 
     storage_backend: Literal["local", "memory", "s3"] = "local"
     storage_local_dir: Path = Path(".data/storage")
@@ -83,6 +85,20 @@ class Settings(BaseSettings):
     s3_bucket: str | None = None
     s3_access_key_id: str | None = None
     s3_secret_access_key: SecretStr | None = None
+
+    @field_validator("dashboard_cors_origins", mode="before")
+    @classmethod
+    def _cors_origins(cls, value: object) -> object:
+        """`https://a.example,https://b.example` or a list; a wildcard is refused (cookies ride along)."""
+        if value is None:  # `DASHBOARD_CORS_ORIGINS=` (empty means unset)
+            return []
+        items = value.split(",") if isinstance(value, str) else value
+        if not isinstance(items, list):
+            return value
+        origins = [str(item).strip().rstrip("/") for item in items if str(item).strip()]
+        if any("*" in origin for origin in origins):
+            raise ValueError("DASHBOARD_CORS_ORIGINS must list exact origins, never '*'")
+        return origins
 
     @property
     def sqlalchemy_url(self) -> str:

@@ -78,9 +78,9 @@ def _reject(retry_after: int) -> HTTPException:
 
 def limit_principal(group: str, per_minute: int) -> Callable[..., None]:
     def dependency(request: Request) -> None:
-        from app.api.v1.auth import require_principal  # auth imports this module for the login limit
+        from app.api.v1.auth import cookie_principal  # auth imports this module for the login limit
 
-        who = require_principal(request)  # 401 before any token is taken
+        who = cookie_principal(request)  # 401 before any token is taken (the route re-checks the owner row)
         wait = limiter_for(request).check(group, str(who.owner_id), per_minute)
         if wait is not None:
             raise _reject(wait)

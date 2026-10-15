@@ -38,6 +38,7 @@ def owner(migrated_engine: Engine, committed_company: Company) -> OwnerAccount:
             company_id=committed_company.id,
             display_name="Harjot",
             whatsapp_e164="+31600000100",
+            email="h@a.test",  # the session's email: require_principal re-checks the owner row
             interactive_channel=InteractiveChannel.dashboard,
         )
         s.add(o)
