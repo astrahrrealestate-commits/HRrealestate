@@ -13,10 +13,8 @@ from sqlalchemy.orm import Session
 
 from app.channels.whatsapp import payloads
 from app.contracts import ActionType, Channel, Direction, DraftRequest, EmailRequest
-from app.core.errors import EstateOSError
 from app.db.models import (
     ActionRow,
-    CaseLink,
     ChannelAccount,
     ChannelIdentity,
     MessageRow,
@@ -24,10 +22,8 @@ from app.db.models import (
     Person,
     RawEvent,
 )
-
-
-class SendBlockedError(EstateOSError):
-    """The action cannot be delivered within the Phase 1 rules (no thread, no owner number, not allowed)."""
+from app.sender.errors import SendBlockedError as SendBlockedError
+from app.sender.recipient import latest_inbound
 
 
 @dataclass(frozen=True)
@@ -80,21 +76,6 @@ def _owner_text(session: Session, company_id: UUID, body: str) -> Plan:
     return Plan(Channel.whatsapp, to, whatsapp=payloads.text(to, body[: payloads.TEXT_BODY_MAX]))
 
 
-def _latest_inbound(session: Session, company_id: UUID, case_id: UUID, channel: Channel) -> MessageRow | None:
-    return session.scalar(
-        select(MessageRow)
-        .join(CaseLink, CaseLink.message_id == MessageRow.id)
-        .where(
-            CaseLink.company_id == company_id,
-            CaseLink.case_id == case_id,
-            MessageRow.channel == channel,
-            MessageRow.direction == Direction.inbound,
-        )
-        .order_by(MessageRow.sent_at.desc())
-        .limit(1)
-    )
-
-
 def _thread_mailbox(session: Session, msg: MessageRow) -> str | None:
     """The company mailbox the thread lives in: recorded at ingest, else from the raw event (rows before that).
 
@@ -122,7 +103,7 @@ def _thread_mailbox(session: Session, msg: MessageRow) -> str | None:
 
 
 def _gmail_draft(session: Session, action: ActionRow, body: str, key: str) -> Plan:
-    msg = _latest_inbound(session, action.company_id, action.case_id, Channel.gmail)
+    msg = latest_inbound(session, action.company_id, action.case_id, Channel.gmail)
     if msg is None or not msg.thread_ref:
         raise SendBlockedError("no Gmail thread on this case to draft a reply in")
     mailbox = _thread_mailbox(session, msg)
@@ -151,7 +132,7 @@ def _contact(session: Session, company_id: UUID, person_id: UUID) -> str:
 
 
 def _counterpart(session: Session, action: ActionRow) -> str:
-    msg = _latest_inbound(session, action.company_id, action.case_id, Channel.whatsapp)
+    msg = latest_inbound(session, action.company_id, action.case_id, Channel.whatsapp)
     return msg.sender_identity if msg else "the tenant"
 
 
