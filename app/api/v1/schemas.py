@@ -1,12 +1,30 @@
 """Response schemas for the dashboard API."""
 
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict
 
-from app.contracts import Channel, Direction
-from app.db.enums import DeliveryStatus, FeedKind, PipelineStatus
+from app.contracts import (
+    ActionType,
+    ButtonChoice,
+    CaseState,
+    Category,
+    Channel,
+    Direction,
+    OutboundMode,
+    Urgency,
+)
+from app.db.enums import (
+    ActionStatus,
+    ApprovalStatus,
+    CaseEventKind,
+    DeliveryStatus,
+    FeedKind,
+    PipelineStatus,
+    TaskPriority,
+    TaskStatus,
+)
 
 
 class FeedItem(BaseModel):
@@ -53,3 +71,93 @@ class ThreadMessage(BaseModel):
     suspicious: bool
     suspicious_reason: str | None
     attachments: list[AttachmentOut]
+
+
+class CaseSummary(BaseModel):
+    id: UUID
+    state: CaseState
+    category: Category
+    urgency: Urgency
+    summary: str
+    opened_at: AwareDatetime
+    resolved_at: AwareDatetime | None
+
+
+class CaseEventOut(BaseModel):
+    id: UUID
+    kind: CaseEventKind
+    from_state: CaseState | None
+    to_state: CaseState | None
+    note: str | None
+    actor: str
+    created_at: AwareDatetime
+
+
+class ApprovalOut(BaseModel):
+    status: ApprovalStatus
+    draft_version: int
+    choice: ButtonChoice | None
+    decided_at: AwareDatetime | None
+
+
+class ActionOut(BaseModel):
+    id: UUID
+    type: ActionType
+    status: ActionStatus
+    draft_version: int
+    rationale: str
+    payload: dict[str, Any]
+    approval: ApprovalOut | None
+
+
+class CaseDetail(CaseSummary):
+    timeline: list[CaseEventOut]
+    message_ids: list[UUID]
+    actions: list[ActionOut]
+
+
+class TaskOut(BaseModel):
+    id: UUID
+    ref: str
+    title: str
+    assignee: str
+    due_at: AwareDatetime | None
+    priority: TaskPriority
+    status: TaskStatus
+    case_id: UUID | None
+
+
+class WaitOut(BaseModel):
+    id: UUID
+    case_id: UUID
+    about: str
+    expected_by: AwareDatetime
+    chase_count: int
+    last_chased_at: AwareDatetime | None
+
+
+class BriefingOut(BaseModel):
+    kind: str
+    day_label: str
+    urgent: list[str]
+    approvals: list[str]
+    overdue_tasks: list[str]
+    overdue_waits: list[str]
+    exceptions: list[str]
+    stats: dict[str, int]
+
+
+class ActivityItem(BaseModel):
+    kind: Literal["case_event", "send", "outcome"]
+    id: UUID
+    at: AwareDatetime
+    case_id: UUID | None
+    action_id: UUID | None
+    label: str
+
+
+class CompanyOut(BaseModel):
+    name: str
+    paused: bool
+    outbound_mode: OutboundMode
+    timezone: str
