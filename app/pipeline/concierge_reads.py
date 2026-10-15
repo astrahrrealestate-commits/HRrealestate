@@ -12,7 +12,7 @@ from app.llm.agents.briefing import fallback_briefing, render_text
 from app.llm.agents.owner_qa import FALLBACK_ANSWER
 from app.pipeline import briefing, case_repo, owner_commands, read_approvals, read_work, work_repo
 from app.pipeline.concierge_base import NEED_DETAIL, Ctx, StepResult, failed
-from app.pipeline.concierge_sanitize import clean_query, safe_question
+from app.pipeline.concierge_sanitize import normalise_query, safe_question
 from app.pipeline.read_repo import encode_thread_key
 
 MAX_LISTED = 10
@@ -22,11 +22,14 @@ MAX_REVIEW = 20
 
 
 def answer(ctx: Ctx, step: PlanStep) -> StepResult:
-    """The owner's own question goes to `owner_qa` (scope guard, refusal and budget fallbacks included)."""
-    cmd = owner_commands.Command(owner_commands.CommandKind.question, text=ctx.question)
-    text = owner_commands.run_command(ctx.engine, ctx.settings, ctx.company_id, cmd, now=ctx.now)
-    ok = text not in (FALLBACK_ANSWER, owner_commands.LIMIT_ANSWER)
-    return StepResult(step.intent, ok, text, None, None)
+    """The owner's own question goes to `owner_qa` (scope guard, refusal and budget fallbacks included), at most once
+    per plan: a later `answer` step reuses the first result."""
+    if "answer" not in ctx.memo:
+        cmd = owner_commands.Command(owner_commands.CommandKind.question, text=ctx.question)
+        text = owner_commands.run_command(ctx.engine, ctx.settings, ctx.company_id, cmd, now=ctx.now)
+        ok = text not in (FALLBACK_ANSWER, owner_commands.LIMIT_ANSWER)
+        ctx.memo["answer"] = StepResult(step.intent, ok, text, None, None)
+    return ctx.memo["answer"]
 
 
 def list_tasks(ctx: Ctx, step: PlanStep) -> StepResult:
@@ -89,15 +92,16 @@ def case_status(ctx: Ctx, step: PlanStep) -> StepResult:
 
 
 def search_inbox(ctx: Ctx, step: PlanStep) -> StepResult:
-    """Company-scoped ILIKE over message text, newest 10: thread keys and short snippets only, never full bodies."""
-    query = clean_query(step.text or "")
+    """Company-scoped, case-insensitive substring match over message text (the query is a bound parameter with LIKE
+    wildcards escaped), newest 10: thread keys and short snippets only, never full bodies."""
+    query = normalise_query(step.text or "")
     if not query:
         return failed(step, NEED_DETAIL)
     with Session(ctx.engine) as session:
         hits = session.execute(
             select(MessageRow.id, MessageRow.channel, MessageRow.thread_ref, MessageRow.provider_msg_id,
                    MessageRow.sent_at, MessageRow.text)
-            .where(MessageRow.company_id == ctx.company_id, MessageRow.text.ilike(f"%{query}%", escape="\\"))
+            .where(MessageRow.company_id == ctx.company_id, MessageRow.text.icontains(query, autoescape=True))
             .order_by(MessageRow.sent_at.desc(), MessageRow.id.desc())
             .limit(MAX_HITS)
         ).all()  # fmt: skip

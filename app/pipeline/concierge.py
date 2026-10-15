@@ -9,7 +9,8 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import Engine
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.orm import Session
 
 from app.contracts import ConciergePlan, Intent, PlanStep
@@ -17,7 +18,7 @@ from app.core.errors import NotFoundError
 from app.core.settings import Settings
 from app.llm.agents.owner_qa import REFUSAL_ANSWER
 from app.llm.calls import is_transient as llm_transient
-from app.pipeline import case_repo, concierge_reads, concierge_writes, work_repo
+from app.pipeline import case_repo, concierge_proposals, concierge_reads, concierge_writes, work_repo
 from app.pipeline.concierge_base import (
     NEED_DETAIL,
     NOT_FOUND,
@@ -53,8 +54,8 @@ _HANDLERS: dict[Intent, Handler] = {
     Intent.create_task: concierge_writes.create_task,
     Intent.pause: concierge_writes.pause,
     Intent.resume: concierge_writes.resume,
-    Intent.draft_reply: concierge_writes.draft_reply,
-    Intent.chase_now: concierge_writes.chase_now,
+    Intent.draft_reply: concierge_proposals.draft_reply,
+    Intent.chase_now: concierge_proposals.chase_now,
 }
 
 
@@ -101,9 +102,12 @@ def validate_plan(session: Session, company_id: UUID, plan: ConciergePlan) -> li
 
 
 def _transient(exc: BaseException) -> bool:
+    """Infrastructure hiccups the calling DBOS step should retry: DB connection/pool trouble, network, provider 5xx."""
     if bool(getattr(exc, "retryable", False)) or llm_transient(exc):
         return True
-    return isinstance(exc, OperationalError | OSError)
+    if isinstance(exc, DBAPIError) and exc.connection_invalidated:
+        return True
+    return isinstance(exc, OperationalError | InterfaceError | PoolTimeoutError | OSError)
 
 
 def _run_step(ctx: Ctx, step: PlanStep) -> StepResult:

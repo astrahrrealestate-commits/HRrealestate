@@ -223,7 +223,7 @@ def _already_handled(wait: WaitRow, step: int) -> bool:
     return chased or escalated
 
 
-def _step_approval(session: Session, wait: WaitRow) -> UUID | None:
+def pending_step_approval(session: Session, wait: WaitRow) -> UUID | None:
     since = wait.last_chased_at or wait.created_at
     return session.scalar(
         select(Approval.id)
@@ -258,7 +258,7 @@ def handle_wait_due(
         if loaded is None:
             return None
         if _already_handled(loaded[0], step):  # a re-fired timer: hand back the card it created, if still open
-            return _step_approval(session, loaded[0])
+            return pending_step_approval(session, loaded[0])
         if loaded[0].chase_count != step:
             return None
         wait, case, company, who = loaded

@@ -24,6 +24,7 @@ from app.pipeline import approvals, case_repo
 from app.pipeline.rules import RuleContext, Verdict, apply_rules
 
 log = get_logger(__name__)
+FALLBACK_RATIONALE = "Proposer failed"  # the "could not draft" notice; callers tell it apart from a real draft
 _STATUS = {
     Verdict.pending_approval: ActionStatus.pending_approval,
     Verdict.exception: ActionStatus.exception,
@@ -94,7 +95,7 @@ def _fallback(case_id: UUID) -> list[Action]:
             type=ActionType.notify_owner,
             case_id=case_id,
             payload=NotifyOwnerPayload(kind="notify_owner", text=text),
-            rationale="Proposer failed",
+            rationale=FALLBACK_RATIONALE,
             context_ref=[],
             draft_version=1,
         )

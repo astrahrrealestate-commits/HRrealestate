@@ -1,7 +1,8 @@
-"""Concierge sanitiser: model `text` never carries contact details, bank details or amounts to the owner or a query."""
+"""Concierge sanitiser: model `text` never carries links, contact details, bank details or amounts to the owner."""
 
 import re
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -9,27 +10,31 @@ from app.pipeline.concierge_sanitize import (
     GENERIC_QUESTION,
     MAX_TEXT,
     REDACTED,
-    clean_query,
+    normalise_query,
     redact,
     safe_question,
     sanitize,
 )
+from app.pipeline.output_guard import DATE, DOTTED_TIME
 
 _EMAIL = re.compile(r"\S+@\S+")
-_DIGITS8 = re.compile(r"\d(?:[\s().+-]*\d){7,}")
-_IBAN = re.compile(r"[A-Z]{2}\d{2}[A-Z0-9]{10,30}")
+_URL = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
+_DIGITS8 = re.compile(r"\d(?:[\s()./+-]*\d){7,}")
+_IBAN = re.compile(r"[A-Z]{2}\d{2}[A-Z0-9]{10,30}", re.IGNORECASE)
 _AMOUNT = re.compile(r"[€$£]\s?\d")
 
 emails = st.from_regex(r"[a-z0-9._%+-]{1,12}@[a-z0-9-]{1,10}\.[a-z]{2,4}", fullmatch=True)
-phones = st.from_regex(r"\+?[0-9]{2}[ -]?[0-9]{3}[ -]?[0-9]{3}[ -]?[0-9]{2,4}", fullmatch=True)
-ibans = st.from_regex(r"[A-Z]{2}[0-9]{2}[A-Z]{4}[0-9]{10}", fullmatch=True)
+urls = st.from_regex(r"(https?://|www\.)[a-z0-9-]{1,12}\.[a-z]{2,4}(/[a-z0-9]{0,8})?", fullmatch=True)
+phones = st.from_regex(r"\+?[0-9]{2}[ /-]?[0-9]{3}[ /-]?[0-9]{3}[ /-]?[0-9]{2,4}", fullmatch=True)
+ibans = st.from_regex(r"[A-Za-z]{2}[0-9]{2}[A-Za-z]{4}[0-9]{10}", fullmatch=True)
 amounts = st.from_regex(r"(€ ?[0-9]{1,5}([.,][0-9]{2})?|[0-9]{1,5},[0-9]{2} ?EUR)", fullmatch=True)
 words = st.text(alphabet=st.characters(categories=("L", "Zs", "P")), max_size=40)
 
 
 def _clean(out: str) -> None:
     assert not _EMAIL.search(out)
-    assert not _DIGITS8.search(out)
+    assert not _URL.search(out)
+    assert not _DIGITS8.search(DATE.sub(" ", DOTTED_TIME.sub(" ", out)))  # dates and times are kept
     assert not _IBAN.search(out)
     assert not _AMOUNT.search(out)
 
@@ -47,7 +52,7 @@ def test_sanitize_is_idempotent(raw: str) -> None:
     assert sanitize(once) == once
 
 
-@given(words, st.one_of(emails, phones, ibans, amounts), words)
+@given(words, st.one_of(emails, urls, phones, ibans, amounts), words)
 def test_planted_secret_is_removed(before: str, secret: str, after: str) -> None:
     out = sanitize(f"{before} {secret} {after}")
     assert secret not in out
@@ -60,22 +65,40 @@ def test_plain_words_are_kept(raw: str) -> None:
     assert sanitize(raw) == " ".join(raw.split())[:MAX_TEXT]
 
 
-def test_examples() -> None:
-    assert redact("mail jan@example.nl now") == f"mail {REDACTED} now"
-    assert redact("bel +31 6 1234 5678") == f"bel {REDACTED}"
-    assert redact("IBAN NL91ABNA0417164300 please") == f"IBAN {REDACTED} please"
-    assert redact("pay €950,00 today") == f"pay {REDACTED} today"
-    assert redact("pay 950 euro today") == f"pay {REDACTED} today"
-    assert redact("call plumber about flat 12") == "call plumber about flat 12"
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("mail jan@example.nl now", f"mail {REDACTED} now"),
+        ("mail jan [at] example [dot] nl now", f"mail {REDACTED} now"),
+        ("Re-authorise at https://evil.example/login now", f"Re-authorise at {REDACTED} now"),
+        ("log in on www.evil.example today", f"log in on {REDACTED} today"),
+        ("bel +31 6 1234 5678", f"bel {REDACTED}"),
+        ("bel 06/1234/5678", f"bel {REDACTED}"),
+        ("IBAN NL91ABNA0417164300 please", f"IBAN {REDACTED} please"),
+        ("iban nl91abna0417164300 please", f"iban {REDACTED} please"),
+        ("IBAN NL91 ABNA 0417 1643 00 please", f"IBAN {REDACTED} please"),
+        ("pay €950,00 today", f"pay {REDACTED} today"),
+        ("pay € 1 200 today", f"pay {REDACTED} today"),
+        ("pay 950 euro today", f"pay {REDACTED} today"),
+        ("inspect boiler on 2026-10-15", "inspect boiler on 2026-10-15"),
+        ("inspect boiler on 15-10-2026 at 10:30", "inspect boiler on 15-10-2026 at 10:30"),
+        ("call plumber about flat 12", "call plumber about flat 12"),
+        ("nr12 deze week langs", "nr12 deze week langs"),
+    ],
+)
+def test_examples(raw: str, expected: str) -> None:
+    assert redact(raw) == expected
 
 
 def test_safe_question_replaces_redacted_output() -> None:
     assert safe_question("Which tenant do you mean?") == "Which tenant do you mean?"
+    assert safe_question("Is the visit on 15-10-2026?") == "Is the visit on 15-10-2026?"
     assert safe_question("Send it to jan@example.nl?") == GENERIC_QUESTION
+    assert safe_question("Re-authorise at https://evil.example/login now") == GENERIC_QUESTION
+    assert safe_question("Check www.evil.example?") == GENERIC_QUESTION
     assert safe_question("   ") == GENERIC_QUESTION
 
 
-def test_clean_query_drops_redactions_and_escapes_wildcards() -> None:
-    assert clean_query("leak jan@example.nl") == "leak"
-    assert clean_query("100%_done\\") == "100\\%\\_done\\\\"
-    assert clean_query("+31612345678") == ""
+def test_normalise_query_keeps_terms_and_bounds_length() -> None:
+    assert normalise_query("  lekkage \n jan@example.nl 100%_x ") == "lekkage jan@example.nl 100%_x"
+    assert len(normalise_query("a" * 1000)) == MAX_TEXT

@@ -1,40 +1,67 @@
-"""Untrusted concierge `text` (task titles, clarify questions, search queries, durations): strip contact and bank
-details and amounts before the text reaches a DB query or the owner (CLAUDE.md invariant 6)."""
+"""Untrusted concierge `text` (task titles, clarify questions, durations): strip links, contact and bank details and
+amounts before the text reaches the owner (CLAUDE.md invariant 6).
+
+Dates and clock times (the draft output guard's patterns) are kept; any other run of 8+ digits is redacted.
+Known gaps (best effort): bare domains without `www.`/scheme (`evil.example/login`), numbers spelled out in words.
+"""
 
 import re
 import unicodedata
+
+from app.pipeline.output_guard import DATE, DOTTED_TIME, URL
 
 MAX_TEXT = 400
 REDACTED = "[redacted]"
 GENERIC_QUESTION = "Could you tell me a bit more about what you need?"
 
 _EMAIL = re.compile(r"\S+@\S+")
-_IBAN = re.compile(r"[A-Z]{2}\d{2}[A-Z0-9]{10,30}|[A-Z]{2}\d{2}(?: [A-Z0-9]{4}){2,7}(?: [A-Z0-9]{1,4})?")
+_OBFUSCATED_EMAIL = re.compile(r"\S+\s*[\[(]\s*at\s*[\])]\s*\S+(?:\s*[\[(]\s*dot\s*[\])]\s*\S+)+", re.IGNORECASE)
+_IBAN = re.compile(r"[A-Z]{2}\d{2}[A-Z0-9]{10,30}", re.IGNORECASE)
+_SPACED_IBAN = re.compile(r"[A-Z]{2}\d{2}(?: [A-Z0-9]{4}){2,7}(?: [A-Z0-9]{1,4})?", re.IGNORECASE)
+_NUM = r"\d[\d.,]*(?: \d{3}(?!\d)[\d.,]*)*"  # 950 · 1.200,50 · 1 200
 _AMOUNT = re.compile(
-    r"(?:[€$£]|(?<![a-z])(?:EUR|USD|GBP))\s?-?\d(?:[\d.,]*\d)?"
-    r"|\d(?:[\d.,]*\d)?\s?(?:[€$£]|(?:EUR|USD|GBP|euros?)(?![a-z]))",
+    rf"(?:[€$£]|(?<![a-z])(?:EUR|USD|GBP))\s?-?{_NUM}|{_NUM}\s?(?:[€$£]|(?:EUR|USD|GBP|euros?)(?![a-z]))",
     re.IGNORECASE,
 )
-_PHONE = re.compile(r"\+?\d(?:[\s().+-]*\d){7,}")  # 8+ digits, separators allowed: phones, account numbers
-_PATTERNS = (_EMAIL, _IBAN, _AMOUNT, _PHONE)  # emails first: they may hold digits
+_HOLD, _SLOT = 0xE000, 0xE100  # private-use marks for kept dates; `_normalise` drops private-use input characters
+_PHONE = re.compile(r"\+?\d(?:[\s()./+--]*\d){7,}")  # 8+ digits; a held date never splits a run
+_RESTORE = re.compile("([-])")
 
 
 def _normalise(text: str) -> str:
-    """Control characters become spaces, format characters (zero-width etc.) vanish, whitespace collapses."""
+    """Control characters become spaces, format and private-use characters vanish, whitespace collapses."""
     kept = []
     for ch in text:
         cat = unicodedata.category(ch)
         if cat == "Cc":
             kept.append(" ")
-        elif cat != "Cf":
+        elif cat not in ("Cf", "Co"):
             kept.append(ch)
     return " ".join("".join(kept).split())
 
 
+def _spaced_iban(match: re.Match[str]) -> str:
+    """Spaced groups only count as an IBAN when they carry an account number (8+ digits), not ordinary words."""
+    return REDACTED if sum(ch.isdigit() for ch in match.group(0)) >= 8 else match.group(0)
+
+
+def _redact_phones(text: str) -> str:
+    kept: list[str] = []
+
+    def hold(match: re.Match[str]) -> str:
+        kept.append(match.group(0))
+        return chr(_HOLD) + chr(_SLOT + len(kept) - 1)
+
+    held = DATE.sub(hold, DOTTED_TIME.sub(hold, text))  # same order as the draft output guard
+    redacted = _PHONE.sub(REDACTED, held)
+    return _RESTORE.sub(lambda m: kept[ord(m.group(1)) - _SLOT], redacted)
+
+
 def redact(text: str) -> str:
-    for pattern in _PATTERNS:
+    for pattern in (URL, _EMAIL, _OBFUSCATED_EMAIL, _IBAN):  # links and emails first: they may hold digits
         text = pattern.sub(REDACTED, text)
-    return text
+    text = _AMOUNT.sub(REDACTED, _SPACED_IBAN.sub(_spaced_iban, text))
+    return _redact_phones(text)
 
 
 def sanitize(text: str) -> str:
@@ -50,7 +77,6 @@ def safe_question(text: str) -> str:
     return plain[:MAX_TEXT]
 
 
-def clean_query(text: str) -> str:
-    """Search terms without redacted parts, with LIKE wildcards escaped (escape character `\\`)."""
-    terms = " ".join(sanitize(text).replace(REDACTED, " ").split())
-    return terms.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+def normalise_query(text: str) -> str:
+    """The owner's search terms, normalised and bounded. Not redacted: it is a bound, company-scoped parameter."""
+    return _normalise(text)[:MAX_TEXT]

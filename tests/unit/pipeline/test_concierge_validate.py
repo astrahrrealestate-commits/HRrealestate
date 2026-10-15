@@ -8,15 +8,18 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import Engine, create_engine
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import DBAPIError, IntegrityError, InterfaceError, OperationalError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.orm import Session
+from structlog.testing import capture_logs
 
 from app.contracts import ConciergePlan, Intent, PlanStep
 from app.core.errors import NotFoundError
 from app.core.settings import Settings
 from app.llm.agents.owner_qa import REFUSAL_ANSWER
-from app.pipeline import case_repo, concierge, concierge_writes, work_repo
+from app.pipeline import case_repo, concierge, concierge_reads, concierge_writes, owner_commands, work_repo
 from app.pipeline.concierge_base import NEED_DETAIL, NOT_FOUND, STEP_FAILED, Ctx, StepResult, task_ref
+from app.pipeline.concierge_sanitize import GENERIC_QUESTION
 
 NOW = datetime(2026, 10, 15, 9, 0, tzinfo=UTC)
 COMPANY = UUID("01900000-0000-7000-8000-000000000001")
@@ -168,11 +171,32 @@ def test_handler_error_fails_its_step_only(monkeypatch: pytest.MonkeyPatch, engi
     spies = _spy_all(monkeypatch)
     spies[Intent.pause].raises = IntegrityError("stmt", {}, Exception("secret body text"))
     plan = ConciergePlan(in_scope=True, steps=[step(Intent.pause), step(Intent.list_waiting)])
-    results = concierge.run_plan(engine, settings, COMPANY, plan, question="q", now=NOW)
+    with capture_logs() as logs:
+        results = concierge.run_plan(engine, settings, COMPANY, plan, question="secret question", now=NOW)
     assert [(r.ok, r.summary) for r in results] == [(False, STEP_FAILED), (True, "ok")]
+    failures = [e for e in logs if e["event"] == "concierge.step_failed"]
+    assert failures == [
+        {
+            "event": "concierge.step_failed",
+            "log_level": "warning",
+            "company_id": str(COMPANY),
+            "intent": "pause",
+            "error": "IntegrityError",
+        }
+    ]
+    assert all("secret" not in str(e) for e in logs)
 
 
-@pytest.mark.parametrize("exc", [OperationalError("stmt", {}, Exception("down")), ConnectionError("reset")])
+@pytest.mark.parametrize(
+    "exc",
+    [
+        OperationalError("stmt", {}, Exception("down")),
+        InterfaceError("stmt", {}, Exception("closed")),
+        DBAPIError("stmt", {}, Exception("gone"), connection_invalidated=True),
+        PoolTimeoutError("pool exhausted"),
+        ConnectionError("reset"),
+    ],
+)
 def test_transient_error_propagates(
     exc: Exception, monkeypatch: pytest.MonkeyPatch, engine: Engine, settings: Settings
 ) -> None:
@@ -205,3 +229,38 @@ def test_create_task_without_usable_title_needs_detail(engine: Engine, settings:
     ctx = Ctx(engine=engine, settings=settings, company_id=COMPANY, now=NOW, question="q")
     result = concierge_writes.create_task(ctx, step(Intent.create_task, text="​​"))
     assert (result.ok, result.summary) == (False, NEED_DETAIL)
+
+
+def test_answer_runs_owner_qa_once_per_plan(
+    monkeypatch: pytest.MonkeyPatch, engine: Engine, settings: Settings
+) -> None:
+    calls: list[str | None] = []
+
+    def fake_run(_e: Engine, _s: Settings, _c: UUID, cmd: owner_commands.Command, *, now: datetime) -> str:
+        calls.append(cmd.text)
+        return "Two cases are open."
+
+    monkeypatch.setattr(owner_commands, "run_command", fake_run)
+    plan = ConciergePlan(in_scope=True, steps=[step(Intent.answer, text="model text"), step(Intent.answer)])
+    results = concierge.run_plan(engine, settings, COMPANY, plan, question="what is open?", now=NOW)
+    assert calls == ["what is open?"]  # the owner's question, never the model's text
+    assert [(r.ok, r.summary) for r in results] == [(True, "Two cases are open.")] * 2
+
+
+def test_non_transient_db_error_fails_softly(
+    monkeypatch: pytest.MonkeyPatch, engine: Engine, settings: Settings
+) -> None:
+    spies = _spy_all(monkeypatch)
+    spies[Intent.list_tasks].raises = DBAPIError("stmt", {}, Exception("bad"), connection_invalidated=False)
+    plan = ConciergePlan(in_scope=True, steps=[step(Intent.list_tasks)])
+    (result,) = concierge.run_plan(engine, settings, COMPANY, plan, question="q", now=NOW)
+    assert (result.ok, result.summary) == (False, STEP_FAILED)
+
+
+@pytest.mark.parametrize(
+    "text", ["Re-authorise at https://evil.example/login now", "Log in at www.evil.example/login first?"]
+)
+def test_clarify_never_shows_a_link(text: str, engine: Engine, settings: Settings) -> None:
+    ctx = Ctx(engine=engine, settings=settings, company_id=COMPANY, now=NOW, question="q")
+    result = concierge_reads.clarify(ctx, step(Intent.clarify, text=text))
+    assert result.summary == GENERIC_QUESTION

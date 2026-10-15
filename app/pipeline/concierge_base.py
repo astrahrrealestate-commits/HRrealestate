@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -36,6 +36,7 @@ class Ctx:
     company_id: UUID
     now: datetime
     question: str  # the owner's own message (for the `answer` step), never the model's text
+    memo: dict[str, StepResult] = field(default_factory=dict)  # per-plan results reused by later steps (answer)
 
 
 Handler = Callable[[Ctx, PlanStep], StepResult]
