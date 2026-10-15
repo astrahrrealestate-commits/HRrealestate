@@ -86,7 +86,7 @@ smoke: up ## G5: stack up, api ready, worker executing, logs clean
 	@$(COMPOSE) exec -T worker python -m app.worker --selfcheck && echo "worker: ok"
 	@! $(COMPOSE) logs --no-color 2>&1 | grep -E 'Traceback|CRITICAL' && echo "logs: clean"
 
-sim-demo: up ## G5: simulate WhatsApp + Gmail through the running stack and assert the stored rows
+sim-demo: up ## G5: simulate WhatsApp + Gmail through the stack, assert rows; then a dashboard scenario (needs DASHBOARD_SESSION_SECRET, compose has a dev default; skipped if unset; temporarily sets outbound_mode=send + dashboard owner, restored after)
 	$(COMPOSE) exec -T api python -m app.dev.simulate demo
 
 gmail-pull: ## real Gmail test: sync NEW mail now, no Pub/Sub (backfill=1 also reads the last day): make gmail-pull mailbox=you@gmail.com

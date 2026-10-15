@@ -115,7 +115,7 @@ Ticks below carry a quoted line from the build ledger (per-task `make quick` rep
 - [x] D4 Super Agent (ConciergePlan, executor, workflow, chat endpoints): ledger "Task 13: complete (commits 27a8169..d698b38, review clean)"
 - [x] D5 concierge golden set and injection suite (unit part): ledger "Task 14: complete (commits d698b38..db24230, review clean)"; `LLM_MODEL=fake make eval agent=concierge version=v1` on 2026-10-15: `intent_sequence_match: 1.00`, `scope_accuracy: 1.00`, `forbidden_intent_rate: 0.00`, `invariant_pass_rate: 1.00`, `misses: 0` (fake model, not a real one). The injection integration tests are written, not run
 - [x] D5 rate limits (30/min agent, 10/min login per IP, 120/min decisions; `app/api/v1/ratelimit.py`) with unit tests in `tests/unit/api/test_ratelimit.py`; CRLF now allowed in agent text
-- [ ] D5 simulator `dashboard` scenario (`app/dev/demo_dashboard.py`, runs inside `make sim-demo`, ends with `dashboard=ok`): written, not run; only its pure assertion helper is unit-tested
+- [ ] D5 simulator `dashboard` scenario (`app/dev/demo_dashboard.py`, runs inside `make sim-demo`, ends with `dashboard=ok`; compose now forwards the dashboard settings, skip without a secret, provider guard, state restored): written, not run; only its pure helpers are unit-tested
 - [x] D5 docs: dashboard-api.md, ADR 0006 accepted, tech-stack, spec deviations, go-live nits
 - [x] G1 on 2026-10-15 (after task 15): `make quick` -> `1230 passed, 653 warnings`, import-linter contracts kept
 - [x] `make audit` 2026-10-15: `No known vulnerabilities found`
@@ -134,4 +134,5 @@ Ticks below carry a quoted line from the build ledger (per-task `make quick` rep
 - `normalise_identity` has no NL region default (separate change).
 - `handle_wait_due` is about 55 lines and `followups.py` 297 lines (over the style limits).
 - Inbox correlated subqueries per row (EXPLAIN later, index on coalesce); `owner_id` FK on conversations unindexed.
+- Minor ledger items: `fail_turn` raising inside the enqueue-failure path leaves a turn pending; a transient error mid `run_plan` re-executes the stored plan's steps (relies on step idempotency); `pending_step_approval` may match a same-plan `draft_reply`; the live outbound test checks the read-token mailbox, not the reply-send token identity; `test_migration_0009` covers only 2 CHECKs and there is no 0010-specific test; the concierge fake's injection pattern diverged from `_SUSPICIOUS`; `StepResult.data["summary"]` can carry the raw case summary (capped at 400 chars; the SPA must render plain text).
 - Others minor: `_RE_PREFIX` strips only `Re:` (not `Antw:`/`AW:`); a roommate-only thread has no tenant recipient; ApprovalOut may be stale after an edit before the v2 approval row exists; `/feed` clamps `limit` while `/inbox` returns 422; multi-instance rate limits need Postgres counters (ADR 0006).

@@ -18,7 +18,9 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.auth import COOKIE, CSRF_HEADER, CSRF_VALUE, FAKE_DEFAULT_TOKENS
 from app.contracts import Channel, InteractiveChannel, OutboundMode
+from app.core.errors import UnsafeConfigurationError
 from app.core.logging import get_logger
+from app.core.settings import Settings
 from app.db.enums import FeedKind, SendStatus, TurnStatus
 from app.db.models import ActionRow, AgentTurn, Company, MessageRow, ModelCall, OwnerAccount, OwnerFeed, Send
 from app.dev.simulate import Simulator
@@ -56,15 +58,62 @@ def dashboard_problems(facts: Facts, tenant_targets: frozenset[str]) -> list[str
     return found
 
 
-def prepare(engine: Engine, company_id: UUID) -> None:
-    """Send mode and the dashboard channel for the dev company (fake providers only)."""
+@dataclass(frozen=True)
+class Previous:
+    outbound_mode: OutboundMode
+    owners: tuple[tuple[UUID, InteractiveChannel | None, str | None], ...]  # (id, channel, email)
+
+
+def provider_problems(settings: Settings) -> list[str]:
+    """Send mode must only ever meet fake providers."""
+    found = []
+    for name in ("whatsapp_provider", "gmail_provider", "drive_provider"):
+        if getattr(settings, name) != "fake":
+            found.append(f"{name}={getattr(settings, name)}")
+    return found
+
+
+def ensure_dashboard_allowed(settings: Settings) -> None:
+    """Raise unless every provider is fake: the scenario switches the company to outbound_mode=send."""
+    found = provider_problems(settings)
+    if found:
+        raise UnsafeConfigurationError(f"the dashboard scenario needs fake providers only, got {', '.join(found)}")
+
+
+def skip_reason(settings: Settings) -> str | None:
+    if settings.dashboard_session_secret is None:
+        return "DASHBOARD_SESSION_SECRET is not set (the stack needs it to log in)"
+    return None
+
+
+def prepare(engine: Engine, company_id: UUID) -> Previous:
+    """Send mode and the dashboard channel for the dev company; returns what to restore."""
     with Session(engine) as session, session.begin():
+        mode = session.scalar(select(Company.outbound_mode).where(Company.id == company_id))
+        owners = session.execute(
+            select(OwnerAccount.id, OwnerAccount.interactive_channel, OwnerAccount.email).where(
+                OwnerAccount.company_id == company_id
+            )
+        ).all()
+        previous = Previous(mode or OutboundMode.draft, tuple((o.id, o.interactive_channel, o.email) for o in owners))
         session.execute(update(Company).where(Company.id == company_id).values(outbound_mode=OutboundMode.send))
         session.execute(
             update(OwnerAccount)
             .where(OwnerAccount.company_id == company_id)
             .values(interactive_channel=InteractiveChannel.dashboard, email=OWNER_EMAIL)
         )
+    return previous
+
+
+def restore(engine: Engine, company_id: UUID, previous: Previous) -> None:
+    with Session(engine) as session, session.begin():
+        session.execute(update(Company).where(Company.id == company_id).values(outbound_mode=previous.outbound_mode))
+        for owner_id, channel, email in previous.owners:
+            session.execute(
+                update(OwnerAccount)
+                .where(OwnerAccount.company_id == company_id, OwnerAccount.id == owner_id)
+                .values(interactive_channel=channel, email=email)
+            )
 
 
 def login(api: httpx.Client) -> None:
@@ -172,8 +221,16 @@ def targets() -> frozenset[str]:
 
 
 def run_dashboard(sim: Simulator, engine: Engine, company_id: UUID, *, timeout: float) -> list[str]:
-    """Returns the problems found (empty = `dashboard=ok`). Raises on API errors or timeouts."""
-    prepare(engine, company_id)
+    """Returns the problems found (empty = `dashboard=ok`). Raises on API errors or timeouts. The company and owner
+    are put back as they were, also on failure."""
+    previous = prepare(engine, company_id)
+    try:
+        return _scenario(sim, engine, company_id, timeout)
+    finally:
+        restore(engine, company_id, previous)
+
+
+def _scenario(sim: Simulator, engine: Engine, company_id: UUID, timeout: float) -> list[str]:
     sim.whatsapp(TENANT_E164, "Die Heizung im Flur ist kaputt, bitte schnell reparieren.")
     sim.gmail(f"Mieter 003 <{TENANT_EMAIL}>", "Heizung Flur", "Die Heizung im Flur ist kaputt.")
     api = sim.api
@@ -186,3 +243,17 @@ def run_dashboard(sim: Simulator, engine: Engine, company_id: UUID, *, timeout: 
     _wait_for_send(engine, company_id, action_id, timeout)
     turn_id = _post_tasks(api, timeout)
     return dashboard_problems(collect_facts(engine, company_id, action_id, turn_id), targets())
+
+
+def run_if_possible(
+    sim: Simulator, engine: Engine, settings: Settings, company_id: UUID, timeout: float
+) -> tuple[list[str], str]:
+    """(problems, "ok" | "skipped"). Real providers raise before the database is touched; a stack without a
+    session secret skips with a log line so the WhatsApp/Gmail demo still runs."""
+    ensure_dashboard_allowed(settings)
+    reason = skip_reason(settings)
+    if reason is not None:
+        log.warning("sim.demo.dashboard_skipped", reason=reason)
+        return [], "skipped"
+    problems = run_dashboard(sim, engine, company_id, timeout=timeout)
+    return problems, "ok"

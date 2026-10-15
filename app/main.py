@@ -11,6 +11,7 @@ import app
 from app.api import health
 from app.api.deps import WorkflowClient
 from app.api.v1 import auth as dashboard_auth
+from app.api.v1.ratelimit import RateLimiter
 from app.api.v1.router import api_v1_router
 from app.api.webhooks import gmail as gmail_webhook
 from app.api.webhooks import google_chat as google_chat_webhook
@@ -68,6 +69,7 @@ def create_app(
         openapi_url="/openapi.json" if settings.env != "prod" else None,
         redoc_url=None,
     )
+    api.state.rate_limiter = RateLimiter()
     api.include_router(health.router)
     api.include_router(api_v1_router)
     api.include_router(whatsapp_webhook.router)

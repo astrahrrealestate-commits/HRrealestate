@@ -29,6 +29,10 @@ x-app: &app
     GMAIL_PUBSUB_TOPIC: ${GMAIL_PUBSUB_TOPIC:-}
     DRIVE_PROVIDER: ${DRIVE_PROVIDER:-fake}
     DRIVE_CREDENTIALS_FILE: ${DRIVE_CREDENTIALS_FILE:+/secrets/drive-file.json}
+    # Dashboard API (dev stack only: the default secret is public, prod refuses the fake provider)
+    DASHBOARD_AUTH_PROVIDER: ${DASHBOARD_AUTH_PROVIDER:-fake}
+    DASHBOARD_SESSION_SECRET: ${DASHBOARD_SESSION_SECRET:-dev-only-session-secret-change-me-32-chars}
+    DASHBOARD_TRUST_FORWARDED_FOR: ${DASHBOARD_TRUST_FORWARDED_FOR:-false}
 
 services:
   postgres:

@@ -138,14 +138,56 @@ def test_decision_writes_are_limited_at_120(client: TestClient) -> None:
     assert codes[120] == 429
 
 
-def test_limiter_unit_retry_after_and_eviction() -> None:
-    clock = Clock()
-    lim = RateLimiter(clock=clock, max_buckets=4)
+def test_limiter_unit_retry_after() -> None:
+    lim = RateLimiter(clock=Clock())
     assert lim.check("g", "a", 1) is None
     assert lim.check("g", "a", 1) == 60
-    for i in range(20):
-        lim.check("g", f"k{i}", 1)
+
+
+def test_eviction_keeps_the_most_recently_used() -> None:
+    clock = Clock()
+    lim = RateLimiter(clock=clock, max_buckets=4)
+    for name in ("old1", "old2", "new1", "new2"):
+        lim.check("g", name, 1)
+        clock.now += 1
+    lim.check("g", "extra", 1)  # table full and nothing idle: the older half goes
     assert lim.size() <= 4
+    assert lim.check("g", "new2", 1) is not None  # still remembered (and still empty)
+    assert lim.check("g", "old1", 1) is None  # forgotten: a fresh bucket
+
+
+def test_idle_buckets_are_swept() -> None:
+    clock = Clock()
+    lim = RateLimiter(clock=clock, max_buckets=3)
+    for name in ("a", "b", "c"):
+        lim.check("g", name, 1)
     clock.now += 61
-    lim.check("g", "z", 1)
-    assert lim.size() <= 4
+    lim.check("g", "d", 1)
+    assert lim.size() == 1
+
+
+def test_missing_client_shares_the_unknown_bucket(client: TestClient) -> None:
+    from starlette.requests import Request
+
+    from app.api.v1.ratelimit import client_ip
+
+    scope = {"type": "http", "headers": [], "app": client.app}
+    assert client_ip(Request(scope)) == "unknown"
+
+
+@pytest.fixture
+def trusting_client(clock: Clock) -> Iterator[TestClient]:
+    app = create_app(SETTINGS.model_copy(update={"dashboard_trust_forwarded_for": True}), engine=MagicMock())
+    app.state.rate_limiter = RateLimiter(clock=clock)
+    with TestClient(app) as c:
+        yield c
+
+
+def test_forwarded_for_last_entry_is_used_when_trusted(trusting_client: TestClient) -> None:
+    def login(forwarded: str) -> int:
+        h = {**H, "X-Forwarded-For": forwarded}
+        return trusting_client.post("/api/v1/auth/session", json={"id_token": "bad"}, headers=h).status_code
+
+    assert [login("1.1.1.1, 9.9.9.9") for _ in range(10)] == [401] * 10
+    assert login("2.2.2.2, 9.9.9.9") == 429  # same last entry: same bucket, a spoofed first entry changes nothing
+    assert login("1.1.1.1, 8.8.8.8") == 401

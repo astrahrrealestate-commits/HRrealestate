@@ -60,11 +60,8 @@ class RateLimiter:
 
 
 def limiter_for(request: Request) -> RateLimiter:
-    state = request.app.state
-    existing: RateLimiter | None = getattr(state, "rate_limiter", None)
-    if existing is None:
-        existing = state.rate_limiter = RateLimiter()
-    return existing
+    limiter: RateLimiter = request.app.state.rate_limiter  # created once in create_app
+    return limiter
 
 
 def client_ip(request: Request) -> str:

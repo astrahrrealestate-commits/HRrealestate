@@ -45,10 +45,12 @@ token `test-owner-token` for `owner@example.test`; prod refuses the fake provide
 | Routes | Limit | Key |
 |---|---|---|
 | `POST /agent/messages` | 30 / min | owner |
-| `POST /auth/session` | 10 / min | client IP (`X-Forwarded-For` ignored unless `DASHBOARD_TRUST_FORWARDED_FOR=true`) |
+| `POST /auth/session` | 10 / min | client IP (`X-Forwarded-For` ignored unless `DASHBOARD_TRUST_FORWARDED_FOR=true`; a request without a client address shares one `unknown` bucket) |
 | approvals decide/edit, tasks done/snooze, documents file, company pause/resume | 120 / min | owner |
 
-GETs and the SSE stream are not limited. On `429` wait `Retry-After` seconds.
+Behind a reverse proxy, without `DASHBOARD_TRUST_FORWARDED_FOR` every login shares the proxy's IP bucket (10/min for
+all users together). Enable the flag only when the proxy overwrites `X-Forwarded-For` (the last entry is used), never when
+the API is reachable directly. GETs and the SSE stream are not limited. On `429` wait `Retry-After` seconds.
 - Agent text: 1 to the question limit (over it: `422` with a "too long" message); `\n`, `\t` and `\r\n` allowed; NUL and
   other control characters and whitespace-only text are `422`.
 
@@ -81,13 +83,12 @@ Writes (POST, need the CSRF header; the decision writes share the 120/min limit)
 | `/approvals/{id}/edit` | `{text}` (1 to 4000) | `200 {action_id, draft_version, approval_id}`: a new revision and a new approval card in the feed | `404`; `409 approval_not_editable` |
 | `/tasks/{ref}/done` | none; `ref` is the 6 to 36 char short id | `204` (repeating it is also `204`) | `404`, `422` bad ref |
 | `/tasks/{ref}/snooze` | `{duration}` like `30m`, `4h`, `2d`, `1w` (1 min to 8 weeks) | `204` | `404`, `422` |
-| `/documents/{attachment_id}/file` | `{choice: <doc type>\|skip}` | `202` (filing runs in the background) | `404`, `422 unknown document choice` |
+| `/documents/{attachment_id}/file` | `{choice}`, one of the document choices below | `202` (filing runs in the background) | `404`, `422 unknown document choice` |
 | `/company/pause`, `/company/resume` | none | `200 {paused}` | none; resume also re-runs approved but unexecuted actions |
 | `/agent/messages` | `{text, conversation_id?}` | `202 {conversation_id, turn_id}`; answer arrives via SSE or by polling the conversation | `404` for a foreign conversation; `503` if the turn could not be started (it is marked failed; send the message again) |
 | `/auth/session` | `{id_token}` | see Auth | see Auth |
 
-Doc types for `choice`: lease, invoice, quote, id_document, insurance, certificate, correspondence, photo (as in the
-`DocType` contract), or `skip`.
+Document choices (`DOC_CHOICES`): `lease`, `invoice`, `quote`, `id_document`, `insurance`, `certificate`, `correspondence`, `photo`, `other`, `skip`.
 
 A decision on an old draft version returns `kind: "stale"` (nothing is sent): refetch `/approvals`.
 
@@ -143,3 +144,13 @@ SPA will see:
   currently no dashboard action to mark such an item sent or cancelled (parked, see PROGRESS).
 - Others: company paused, mode back on `draft`, the recipient is no longer the case's own contact, the draft was
   edited after approval, body over WhatsApp's 4096 characters.
+
+## Running the simulator scenario
+
+`make sim-demo` ends with a `dashboard` scenario that logs in through this API with the fake token, so the api
+container needs `DASHBOARD_SESSION_SECRET` (at least 32 characters) and `DASHBOARD_AUTH_PROVIDER=fake`. `docker/compose.yml`
+forwards both with a dev-only default secret. Without a secret the scenario is skipped with a
+`sim.demo.dashboard_skipped` log line and the final line reads `dashboard=skipped`. It refuses to run unless the
+WhatsApp, Gmail and Drive providers are all fake. While it runs the dev company is in `outbound_mode=send` and the dev
+owner on the dashboard channel with email `owner@example.test`; both are restored afterwards, also on failure.
+Not yet run: Docker was unavailable.

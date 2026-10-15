@@ -176,6 +176,7 @@ def run_demo(sim: Simulator, engine: Engine, settings: Settings, *, timeout: flo
     sent = send_scenario(sim, tenant.company_id)
     docs = demo_documents.send_documents(sim)
     client = DBOSClient(system_database_url=settings.dbos_database_url)
+    dashboard = "skipped"
     try:
         found = (
             wait_for_parity(engine, client, sent, timeout)
@@ -185,7 +186,7 @@ def run_demo(sim: Simulator, engine: Engine, settings: Settings, *, timeout: flo
             )
         )
         if not found:
-            found = demo_dashboard.run_dashboard(sim, engine, tenant.company_id, timeout=timeout)
+            found, dashboard = demo_dashboard.run_if_possible(sim, engine, settings, tenant.company_id, timeout)
         if found:
             log.error("sim.demo.failed", problems=found)
             return 1
@@ -211,6 +212,6 @@ def run_demo(sim: Simulator, engine: Engine, settings: Settings, *, timeout: flo
         owner_buttons=1,
         agents="ok",
         documents=2,
-        dashboard="ok",
+        dashboard=dashboard,
     )
     return 0
