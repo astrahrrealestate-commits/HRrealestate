@@ -32,7 +32,7 @@ def any_flagged(bodies: Iterable[dict[str, Any] | None]) -> bool:
     return any(bool(((b or {}).get("suspicious") or {}).get("flag", False)) for b in bodies)
 
 
-def _is_suspicious(session: Session, company_id: UUID, action: ActionRow) -> bool:
+def is_suspicious(session: Session, company_id: UUID, action: ActionRow) -> bool:
     """Any message the action answers (`context_ref`) was flagged; follow-ups with no refs fall back to the case."""
     stmt = select(UnderstandingRow.body).where(UnderstandingRow.company_id == company_id)
     if action.context_ref:
@@ -79,7 +79,7 @@ def decide_approval(
 ) -> approvals.Decision:
     approval, action = _approval_action(session, company_id, approval_id)
     gated = approval.status is ApprovalStatus.pending and choice not in NON_APPROVING and not confirm_suspicious
-    if gated and _is_suspicious(session, company_id, action):
+    if gated and is_suspicious(session, company_id, action):
         raise SuspiciousNeedsConfirmError("suspicious sender: confirmation required")
     decision = approvals.decide(session, company_id, approval_id, choice, at=at)
     resolve_feed(session, company_id, approval_id, at=at)

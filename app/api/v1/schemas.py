@@ -196,3 +196,26 @@ class FileDocumentIn(BaseModel):
 
 class PausedOut(BaseModel):
     paused: bool
+
+
+class PendingApprovalOut(BaseModel):
+    id: UUID
+    cursor: str
+    action_id: UUID
+    action_type: ActionType
+    case_id: UUID
+    case_label: str
+    drafts: list[str]
+    draft_version: int
+    suspicious: bool
+    created_at: AwareDatetime
+
+
+class ReviewDocumentOut(BaseModel):
+    attachment_id: UUID
+    cursor: str
+    filename: str | None
+    mime_type: str
+    case_id: UUID | None
+    suggested_type: str
+    created_at: AwareDatetime

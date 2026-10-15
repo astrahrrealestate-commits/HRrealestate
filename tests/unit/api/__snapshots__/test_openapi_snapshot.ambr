@@ -52,6 +52,71 @@
           ]
         }
       },
+      "/api/v1/approvals": {
+        "get": {
+          "operationId": "get_approvals_api_v1_approvals_get",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "after",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "After"
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "required": false,
+              "schema": {
+                "default": 50,
+                "maximum": 100,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/PendingApprovalOut"
+                    },
+                    "title": "Response Get Approvals Api V1 Approvals Get",
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Get Approvals",
+          "tags": [
+            "reviews"
+          ]
+        }
+      },
       "/api/v1/approvals/{approval_id}/decide": {
         "post": {
           "operationId": "decide_api_v1_approvals__approval_id__decide_post",
@@ -536,6 +601,71 @@
           "summary": "Resume",
           "tags": [
             "decisions"
+          ]
+        }
+      },
+      "/api/v1/documents/review": {
+        "get": {
+          "operationId": "get_documents_to_review_api_v1_documents_review_get",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "after",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "After"
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "required": false,
+              "schema": {
+                "default": 50,
+                "maximum": 100,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/ReviewDocumentOut"
+                    },
+                    "title": "Response Get Documents To Review Api V1 Documents Review Get",
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Get Documents To Review",
+          "tags": [
+            "reviews"
           ]
         }
       },
@@ -1858,6 +1988,70 @@
         "title": "PausedOut",
         "type": "object"
       },
+      "PendingApprovalOut": {
+        "properties": {
+          "action_id": {
+            "format": "uuid",
+            "title": "Action Id",
+            "type": "string"
+          },
+          "action_type": {
+            "$ref": "#/components/schemas/ActionType"
+          },
+          "case_id": {
+            "format": "uuid",
+            "title": "Case Id",
+            "type": "string"
+          },
+          "case_label": {
+            "title": "Case Label",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "cursor": {
+            "title": "Cursor",
+            "type": "string"
+          },
+          "draft_version": {
+            "title": "Draft Version",
+            "type": "integer"
+          },
+          "drafts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Drafts",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "suspicious": {
+            "title": "Suspicious",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "cursor",
+          "action_id",
+          "action_type",
+          "case_id",
+          "case_label",
+          "drafts",
+          "draft_version",
+          "suspicious",
+          "created_at"
+        ],
+        "title": "PendingApprovalOut",
+        "type": "object"
+      },
       "PipelineStatus": {
         "description": "Agent pipeline progress of one inbound message (spec phase-1 agents \u00a7M4).",
         "enum": [
@@ -1867,6 +2061,66 @@
         ],
         "title": "PipelineStatus",
         "type": "string"
+      },
+      "ReviewDocumentOut": {
+        "properties": {
+          "attachment_id": {
+            "format": "uuid",
+            "title": "Attachment Id",
+            "type": "string"
+          },
+          "case_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "cursor": {
+            "title": "Cursor",
+            "type": "string"
+          },
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename"
+          },
+          "mime_type": {
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "suggested_type": {
+            "title": "Suggested Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "attachment_id",
+          "cursor",
+          "filename",
+          "mime_type",
+          "case_id",
+          "suggested_type",
+          "created_at"
+        ],
+        "title": "ReviewDocumentOut",
+        "type": "object"
       },
       "RevisionOut": {
         "properties": {

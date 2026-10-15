@@ -23,12 +23,15 @@ from app.api.v1.schemas import (
     RevisionOut,
     SnoozeIn,
 )
+from app.channels.dashboard import feed
 from app.contracts import ButtonChoice, DocType
 from app.core.errors import NotFoundError
 from app.core.logging import get_logger
 from app.core.workflow_names import DOC_SKIP
-from app.db.enums import TaskStatus
+from app.db.enums import FeedKind, TaskStatus
 from app.db.models import ActionRow, Company, DocumentRow, TaskRow
+from app.owner.card_data import load_card
+from app.owner.cards import approval_messages
 from app.pipeline import approvals, dashboard_decisions, owner_commands, work_repo
 from app.pipeline.local_actions import LOCAL_TYPES
 
@@ -79,6 +82,20 @@ def decide(approval_id: UUID, body: DecideIn, who: Owner, engine: Engine_, clien
     )
 
 
+def _deliver_revision_card(engine: Engine, company_id: UUID, approval_id: UUID) -> None:
+    """After the edit commits: the new revision's card goes to the feed (DB only, keys `approval:{id}:{n}`, so a
+    retry inserts nothing). The edit already stands, so a failure is logged; the approval still lists as pending."""
+    try:
+        with Session(engine) as session, session.begin():
+            card = load_card(session, company_id, approval_id)
+            for n, message in enumerate(approval_messages(card)):
+                feed.deliver(
+                    session, company_id, f"approval:{approval_id}:{n}", FeedKind.approval, approval_id, message
+                )
+    except Exception as exc:
+        log.error("dashboard.edit_card_not_delivered", approval_id=str(approval_id), error=type(exc).__name__)
+
+
 @router.post("/approvals/{approval_id}/edit")
 def edit(approval_id: UUID, body: EditIn, who: Owner, engine: Engine_) -> RevisionOut:
     try:
@@ -90,6 +107,7 @@ def edit(approval_id: UUID, body: EditIn, who: Owner, engine: Engine_) -> Revisi
         raise _not_found() from None
     except dashboard_decisions.NotEditableError:
         raise HTTPException(status_code=409, detail="approval_not_editable") from None
+    _deliver_revision_card(engine, who.company_id, rev.approval_id)
     return RevisionOut(action_id=rev.action_id, draft_version=rev.draft_version, approval_id=rev.approval_id)
 
 

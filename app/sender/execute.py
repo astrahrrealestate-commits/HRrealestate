@@ -27,6 +27,7 @@ from app.core.logging import get_logger
 from app.db.enums import ActionStatus, ApprovalStatus, OutboxStatus, SendStatus
 from app.db.models import ActionRow, Approval, ChannelAccount, Company, OwnerAccount, OwnerOutbox, Send
 from app.sender import owner_window
+from app.sender.dashboard import deliver_dashboard
 from app.sender.targets import (
     Plan,
     SendBlockedError,
@@ -222,7 +223,10 @@ def send_to_owner(
     deps: SenderDeps, company_id: UUID, key: str, build: Callable[[str], dict[str, Any]] | Any
 ) -> str | None:
     """Owner-channel messages that are not actions (approval cards, briefings, alerts).
-    Supports both WhatsApp (with 24-hr outbox) and Google Chat (instant direct delivery).
+    Supports WhatsApp (with 24-hr outbox), Google Chat (instant direct delivery) and the dashboard (one
+    idempotent `owner_feed` row, returns the feed id; no window, outbox, Send row or provider call).
+    Dashboard feed kind from the key prefix: approval:/apr: approval, doc: document_review, brief/weekly briefing,
+    blocked:/nudge:/alert and everything else alert. `ref_id` is the UUID in approval/doc keys.
     """
     with Session(deps.engine) as session:
         existing = session.scalar(select(Send).where(Send.idempotency_key == key))
@@ -238,6 +242,9 @@ def send_to_owner(
         space = None
         if interactive_channel == InteractiveChannel.google_chat:
             space = owner_chat_space(session, company_id)
+
+    if interactive_channel == InteractiveChannel.dashboard:
+        return deliver_dashboard(deps.engine, company_id, key, build, whatsapp_to)
 
     if interactive_channel == InteractiveChannel.google_chat and space is not None:
         if isinstance(build, OwnerMessage):
