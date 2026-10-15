@@ -3,6 +3,7 @@
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
+from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
@@ -99,3 +100,33 @@ def test_limit_is_clamped_to_100(migrated_engine: Engine, seeded: tuple[TestClie
 def test_bad_cursor_is_422(seeded: tuple[TestClient, list[OwnerFeed]]) -> None:
     client, _ = seeded
     assert client.get("/api/v1/feed", params={"after": "nonsense"}).status_code == 422
+
+
+def test_identical_created_at_pages_with_limit_one(
+    migrated_engine: Engine, seeded: tuple[TestClient, list[OwnerFeed]]
+) -> None:
+    client, rows = seeded
+    with Session(migrated_engine) as s:
+        company_id = rows[0].company_id
+        twins = [
+            OwnerFeed(
+                company_id=company_id,
+                idempotency_key=f"twin-{company_id}-{i}",
+                kind=FeedKind.alert,
+                payload={},
+                created_at=T0 + timedelta(days=1),
+            )
+            for i in range(2)
+        ]
+        s.add_all(twins)
+        s.commit()
+        expected = [str(r.id) for r in sorted(twins, key=lambda r: r.id)]
+    seen: list[str] = []
+    cursor = f"{(T0 + timedelta(days=1) - timedelta(seconds=1)).isoformat()}|{UUID(int=0)}"
+    for _ in range(3):
+        page = client.get("/api/v1/feed", params={"after": cursor, "limit": 1}).json()
+        if not page:
+            break
+        seen.append(page[0]["id"])
+        cursor = f"{page[0]['created_at']}|{page[0]['id']}"
+    assert seen == expected

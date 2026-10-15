@@ -2,213 +2,364 @@
 # name: test_v1_openapi_snapshot
   '''
   {
-    "/api/v1/auth/session": {
-      "delete": {
-        "operationId": "delete_session_api_v1_auth_session_delete",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "x-estateos-client",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Estateos-Client"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Delete Session",
-        "tags": [
-          "auth"
-        ]
-      },
-      "post": {
-        "operationId": "create_session_api_v1_auth_session_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "x-estateos-client",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Estateos-Client"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
+    "paths": {
+      "/api/v1/auth/session": {
+        "delete": {
+          "operationId": "delete_session_api_v1_auth_session_delete",
+          "parameters": [
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
               "schema": {
-                "$ref": "#/components/schemas/SessionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Create Session Api V1 Auth Session Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create Session",
-        "tags": [
-          "auth"
-        ]
-      }
-    },
-    "/api/v1/events": {
-      "get": {
-        "operationId": "get_events_api_v1_events_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Get Events",
-        "tags": [
-          "feed"
-        ]
-      }
-    },
-    "/api/v1/feed": {
-      "get": {
-        "operationId": "get_feed_api_v1_feed_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "after",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "After"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 50,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/FeedItem"
-                  },
-                  "title": "Response Get Feed Api V1 Feed Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Feed",
-        "tags": [
-          "feed"
-        ]
-      }
-    },
-    "/api/v1/me": {
-      "get": {
-        "operationId": "me_api_v1_me_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
+                "anyOf": [
+                  {
                     "type": "string"
                   },
-                  "title": "Response Me Api V1 Me Get",
-                  "type": "object"
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "responses": {
+            "204": {
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Delete Session",
+          "tags": [
+            "auth"
+          ]
+        },
+        "post": {
+          "operationId": "create_session_api_v1_auth_session_post",
+          "parameters": [
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionRequest"
                 }
               }
             },
-            "description": "Successful Response"
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "additionalProperties": true,
+                    "title": "Response Create Session Api V1 Auth Session Post",
+                    "type": "object"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Create Session",
+          "tags": [
+            "auth"
+          ]
+        }
+      },
+      "/api/v1/events": {
+        "get": {
+          "operationId": "get_events_api_v1_events_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {}
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Get Events",
+          "tags": [
+            "feed"
+          ]
+        }
+      },
+      "/api/v1/feed": {
+        "get": {
+          "operationId": "get_feed_api_v1_feed_get",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "after",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "After"
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "required": false,
+              "schema": {
+                "default": 50,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/FeedItem"
+                    },
+                    "title": "Response Get Feed Api V1 Feed Get",
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Get Feed",
+          "tags": [
+            "feed"
+          ]
+        }
+      },
+      "/api/v1/me": {
+        "get": {
+          "operationId": "me_api_v1_me_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "title": "Response Me Api V1 Me Get",
+                    "type": "object"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Me",
+          "tags": [
+            "auth"
+          ]
+        }
+      }
+    },
+    "schemas": {
+      "FeedItem": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/FeedKind"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "ref_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref Id"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "seen_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seen At"
           }
         },
-        "summary": "Me",
-        "tags": [
-          "auth"
-        ]
+        "required": [
+          "id",
+          "kind",
+          "ref_id",
+          "payload",
+          "created_at",
+          "seen_at",
+          "resolved_at"
+        ],
+        "title": "FeedItem",
+        "type": "object"
+      },
+      "FeedKind": {
+        "enum": [
+          "approval",
+          "document_review",
+          "alert",
+          "briefing",
+          "task",
+          "agent_note"
+        ],
+        "title": "FeedKind",
+        "type": "string"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "SessionRequest": {
+        "properties": {
+          "id_token": {
+            "title": "Id Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id_token"
+        ],
+        "title": "SessionRequest",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
       }
     }
   }

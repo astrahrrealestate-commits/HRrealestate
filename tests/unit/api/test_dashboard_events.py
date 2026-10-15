@@ -1,6 +1,8 @@
 import asyncio
+import itertools
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
+from typing import Any
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
@@ -83,11 +85,57 @@ def test_poll_frames_empty_keeps_cursor() -> None:
         assert events.poll_frames(MagicMock(), uuid4(), start) == ([], start)
 
 
-def test_start_cursor_bad_header_means_now() -> None:
-    before = datetime.now(UTC)
-    assert events.start_cursor("garbage")[0] >= before
-    assert events.start_cursor(None)[0] >= before
-    assert events.start_cursor(f"{T0.isoformat()}|{UUID(int=3)}") == (T0, UUID(int=3))
+def test_start_cursor_without_valid_header_lags_now() -> None:
+    now = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)
+    expected = (now - events.SSE_START_LAG, UUID(int=0))
+    assert events.start_cursor("garbage", now) == expected
+    assert events.start_cursor(None, now) == expected
+    assert events.start_cursor(f"{T0.isoformat()}|{UUID(int=3)}", now) == (T0, UUID(int=3))
+
+
+def test_cursor_plus_decoded_as_space_is_normalized() -> None:
+    stamp = datetime(2026, 1, 1, tzinfo=timezone(timedelta(hours=2)))
+    raw = f"{stamp.isoformat()}|{UUID(int=4)}".replace("+", " ")
+    assert parse_cursor(raw) == (stamp, UUID(int=4))
+
+
+def test_feed_accepts_space_for_plus(client: TestClient) -> None:
+    cursor = f"2026-01-01T00:00:00 02:00|{UUID(int=1)}"
+    with patch("app.api.v1.events._read_page", return_value=[]) as page:
+        assert client.get("/api/v1/feed", params={"after": cursor}).status_code == 200
+    assert page.call_args.args[2] is not None
+
+
+def _stream(request: MagicMock, **kw: Any) -> list[str]:
+    async def collect() -> list[str]:
+        gen = events.event_stream(request, MagicMock(), uuid4(), (T0, UUID(int=0)), poll_interval=0, **kw)
+        return [f async for f in gen]
+
+    return asyncio.run(collect())
+
+
+def _connected(request: MagicMock) -> None:
+    async def never() -> bool:
+        return False
+
+    request.is_disconnected = never
+
+
+def test_event_stream_error_emits_error_frame_and_stops() -> None:
+    request = MagicMock()
+    _connected(request)
+    with patch("app.api.v1.events._read_page", side_effect=RuntimeError("secret detail")):
+        out = _stream(request)
+    assert out == ['event: error\ndata: {"detail":"stream ended"}\n\n']
+
+
+def test_event_stream_ends_after_max_lifetime() -> None:
+    request = MagicMock()
+    _connected(request)
+    ticks = itertools.count(0, 10)
+    with patch("app.api.v1.events._read_page", return_value=[]):
+        out = _stream(request, ping_interval=1000, max_lifetime=25, clock=lambda: float(next(ticks)))
+    assert out == []
 
 
 def test_event_stream_emits_feed_then_ping_then_stops() -> None:
@@ -112,3 +160,19 @@ def test_event_stream_emits_feed_then_ping_then_stops() -> None:
     assert out[0].startswith("id: ")
     assert "event: feed" in out[0]
     assert out[1] == "event: ping\ndata: {}\n\n"
+
+
+def test_poll_pages_identical_created_at_without_skips() -> None:
+    """Rows sharing created_at are ordered by id; the cursor carries both, so limit=1 paging loses nothing."""
+    rows = [_item(1), _item(2), _item(3)]
+
+    def fake_read(_e: object, _c: object, after: tuple[datetime, UUID], _limit: int) -> list[FeedItem]:
+        return [r for r in rows if (r.created_at, r.id) > after][:1]
+
+    cursor = (T0, UUID(int=0))
+    seen: list[UUID] = []
+    with patch("app.api.v1.events._read_page", side_effect=fake_read):
+        for _ in range(4):
+            frames, cursor = events.poll_frames(MagicMock(), uuid4(), cursor)
+            seen += [UUID(f.split("|")[1].split("\n")[0]) for f in frames]
+    assert seen == [UUID(int=1), UUID(int=2), UUID(int=3)]

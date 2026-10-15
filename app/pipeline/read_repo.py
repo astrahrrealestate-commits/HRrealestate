@@ -22,7 +22,7 @@ def parse_cursor(raw: str) -> Cursor:
     try:
         if not sep:
             raise ValueError("missing separator")
-        created_at = datetime.fromisoformat(stamp)
+        created_at = datetime.fromisoformat(stamp.replace(" ", "+"))  # a raw "+" in a query string decodes to " "
         if created_at.tzinfo is None:
             raise ValueError("naive timestamp")
         return created_at, UUID(ident)
