@@ -1,0 +1,125 @@
+"""Delivery core shared by actions and owner messages: claim a `sends` row, one provider attempt, record it.
+
+`send_claimed` lets exactly one attempt call the provider (`pending → sending`). A definitely-not-sent transient error
+returns the row to pending and re-raises for the step retry; anything else is recorded as failed, never re-sent.
+"""
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Literal
+from uuid import UUID
+
+from sqlalchemy import Engine, select, update
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
+
+from app.channels.gmail.drafts import GmailDrafts
+from app.channels.google_chat.outbound import GoogleChatOutbound
+from app.channels.whatsapp.outbound import WhatsAppOutbound
+from app.contracts import Channel
+from app.core.errors import EstateOSError
+from app.db.enums import ActionStatus, SendStatus
+from app.db.models import ActionRow, Send
+from app.sender.errors import SendBlockedError
+from app.sender.plan import Plan
+from app.sender.tenant_gate import GMAIL_SEND_MISSING
+
+
+@dataclass(frozen=True)
+class SenderDeps:
+    engine: Engine
+    whatsapp: WhatsAppOutbound
+    gmail_drafts: Callable[[str], GmailDrafts]  # mailbox address → drafts adapter
+    google_chat: GoogleChatOutbound | None = None
+    template_name: str = "estateos_pending"
+    template_language: str = "en"
+    # Send mode: mailbox → adapter built with the separate `gmail.send` token; None = tenant Gmail sends blocked.
+    gmail_sender: Callable[[str], GmailDrafts] | None = None
+    tenant_sends_per_hour: int = 30
+
+
+@dataclass(frozen=True)
+class ExecOutcome:
+    status: Literal["sent", "already", "blocked", "failed"]
+    reason: str | None = None
+    provider_ref: str | None = None
+
+
+def exec_key(action_id: UUID, draft_version: int) -> str:
+    return f"exec:{action_id}:{draft_version}"
+
+
+def claim(session: Session, company_id: UUID, key: str, action_id: UUID | None, plan: Plan) -> Send:
+    session.execute(
+        insert(Send)
+        .values(
+            company_id=company_id, action_id=action_id, idempotency_key=key, channel=plan.channel, target=plan.target
+        )
+        .on_conflict_do_nothing(index_elements=["idempotency_key"])
+    )
+    return session.execute(select(Send).where(Send.idempotency_key == key).with_for_update()).scalar_one()
+
+
+def deliver(deps: SenderDeps, plan: Plan) -> str:
+    if plan.tenant_send and plan.channel is Channel.gmail:
+        if deps.gmail_sender is None or plan.draft is None or plan.mailbox is None:
+            raise SendBlockedError(GMAIL_SEND_MISSING)
+        return deps.gmail_sender(plan.mailbox).send_reply(plan.draft)
+    if plan.tenant_send and plan.channel is not Channel.whatsapp:
+        raise SendBlockedError(f"{plan.channel.value} is not a tenant reply channel")
+    if plan.channel is Channel.gmail and plan.draft is not None and plan.mailbox is not None:
+        return deps.gmail_drafts(plan.mailbox).create_draft(plan.draft)
+    if plan.channel is Channel.gmail and plan.email is not None and plan.mailbox is not None:
+        return deps.gmail_drafts(plan.mailbox).send_message(plan.email)
+    if plan.channel is Channel.google_chat and plan.google_chat is not None:
+        if deps.google_chat is None:
+            raise SendBlockedError("Google Chat outbound not configured")
+        return deps.google_chat.send(plan.target, plan.google_chat)
+    if plan.whatsapp is not None:
+        return deps.whatsapp.send(plan.whatsapp)
+    raise SendBlockedError("nothing to deliver")
+
+
+def mark(engine: Engine, key: str, status: SendStatus, ref: str | None, error: str | None) -> None:
+    with Session(engine) as session, session.begin():
+        send = session.execute(select(Send).where(Send.idempotency_key == key)).scalar_one()
+        send.status, send.provider_ref, send.error = status, ref, error
+        send.attempted_at = datetime.now(UTC)
+        if send.action_id is not None and status is not SendStatus.pending:
+            action = session.get(ActionRow, send.action_id)
+            if action is not None:
+                action.status = ActionStatus.executed if status is SendStatus.sent else ActionStatus.failed
+
+
+class SendFailedError(EstateOSError):
+    """An owner message the provider rejected for good (never retried automatically)."""
+
+
+def begin_attempt(engine: Engine, key: str) -> bool:
+    """Atomic `pending → sending`: exactly one attempt may call the provider for a send."""
+    with Session(engine) as session, session.begin():
+        won = session.execute(
+            update(Send)
+            .where(Send.idempotency_key == key, Send.status == SendStatus.pending)
+            .values(status=SendStatus.sending, attempted_at=datetime.now(UTC))
+            .returning(Send.id)
+        ).first()
+    return won is not None
+
+
+def send_claimed(deps: SenderDeps, key: str, plan: Plan) -> ExecOutcome:
+    if not begin_attempt(deps.engine, key):  # another attempt holds it, or it already finished
+        return ExecOutcome("already", reason="another attempt holds this send")
+    try:
+        ref = deliver(deps, plan)
+    except Exception as exc:
+        if getattr(exc, "retryable", False):  # definitely not delivered: free it for the step retry
+            mark(deps.engine, key, SendStatus.pending, None, f"{type(exc).__name__}: {str(exc)[:300]}")
+            raise
+        prefix = "may have been delivered: " if getattr(exc, "maybe_sent", False) else ""
+        reason = f"{prefix}{type(exc).__name__}: {str(exc)[:200]}"
+        mark(deps.engine, key, SendStatus.failed, None, reason)
+        return ExecOutcome("failed", reason=reason)
+    mark(deps.engine, key, SendStatus.sent, ref, None)
+    return ExecOutcome("sent", provider_ref=ref)

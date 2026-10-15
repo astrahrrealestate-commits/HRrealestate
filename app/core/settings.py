@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     # Owner channel: approved WhatsApp template that reopens the 24-hour window ("{{1}} items need you").
     owner_template_name: str = "estateos_pending"
     owner_template_language: str = "en"
+    # Send mode (companies.outbound_mode=send): tenant replies per company per rolling hour; at the cap → blocked.
+    tenant_sends_per_hour: int = 30
 
     # Channels (spec M2 §4). Defaults are fakes: everything runs without provider access; prod refuses fakes.
     whatsapp_provider: Literal["fake", "cloud_api", "360dialog"] = "fake"

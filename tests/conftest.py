@@ -44,6 +44,7 @@ def pytest_configure(config: pytest.Config) -> None:
             "DRIVE_PROVIDER": "fake",
             "GMAIL_CREDENTIALS_FILE": "",
             "GMAIL_SEND_CREDENTIALS_FILE": "",
+            "GMAIL_REPLY_SEND_CREDENTIALS_FILE": "",
             "DRIVE_CREDENTIALS_FILE": "",
         }.items():
             os.environ[name] = value

@@ -1,40 +1,26 @@
 """Where an approved action goes. Recipients come from the DB only (invariant 6), never from model output.
 
-Phase 1 allowlist: a Gmail *draft* in the tenant's thread, or a WhatsApp message to one of the company's owner
-numbers. A tenant-facing WhatsApp reply is delivered to the owner as copy-ready text.
+Allowlist: a Gmail *draft* in the tenant's thread, or a message to one of the company's owner addresses. In
+`outbound_mode=send` an approved reply also reaches the tenant (`tenant_plans`), re-checked by `assert_tenant`.
+In draft mode a tenant-facing WhatsApp reply is delivered to the owner as copy-ready text.
 """
 
-from dataclasses import dataclass
-from typing import Any
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.channels.whatsapp import payloads
-from app.contracts import ActionType, Channel, Direction, DraftRequest, EmailRequest
-from app.db.models import (
-    ActionRow,
-    ChannelAccount,
-    ChannelIdentity,
-    MessageRow,
-    OwnerAccount,
-    Person,
-    RawEvent,
-)
+from app.contracts import ActionType, Channel, Direction
+from app.db.models import ActionRow, ChannelAccount, ChannelIdentity, MessageRow, OwnerAccount, Person
 from app.sender.errors import SendBlockedError as SendBlockedError
+from app.sender.gmail_reply import gmail_draft as _gmail_draft
+from app.sender.plan import Plan as Plan
 from app.sender.recipient import latest_inbound
+from app.sender.tenant_plans import assert_tenant, tenant_gmail, tenant_whatsapp
 
-
-@dataclass(frozen=True)
-class Plan:
-    channel: Channel
-    target: str  # owner E.164 for WhatsApp, tenant address for a Gmail draft, owner email for digest
-    whatsapp: dict[str, Any] | None = None
-    draft: DraftRequest | None = None
-    email: EmailRequest | None = None
-    google_chat: dict[str, Any] | None = None
-    mailbox: str | None = None
+__all__ = ["Plan", "SendBlockedError", "_gmail_draft", "assert_allowed", "plan_for"]
 
 
 def owner_number(session: Session, company_id: UUID) -> str:
@@ -76,47 +62,6 @@ def _owner_text(session: Session, company_id: UUID, body: str) -> Plan:
     return Plan(Channel.whatsapp, to, whatsapp=payloads.text(to, body[: payloads.TEXT_BODY_MAX]))
 
 
-def _thread_mailbox(session: Session, msg: MessageRow) -> str | None:
-    """The company mailbox the thread lives in: recorded at ingest, else from the raw event (rows before that).
-
-    Only one of the company's own Gmail accounts qualifies: a thread id is only valid in its own mailbox.
-    """
-    address = msg.meta.get("mailbox") or session.scalar(
-        select(RawEvent.payload["mailbox"].astext).where(
-            RawEvent.id == msg.raw_event_id, RawEvent.company_id == msg.company_id
-        )
-    )
-    if not address:
-        return session.scalar(
-            select(ChannelAccount.address).where(
-                ChannelAccount.company_id == msg.company_id,
-                ChannelAccount.channel == Channel.gmail,
-            )
-        )
-    return session.scalar(
-        select(ChannelAccount.address).where(
-            ChannelAccount.company_id == msg.company_id,
-            ChannelAccount.channel == Channel.gmail,
-            ChannelAccount.address == str(address).lower(),
-        )
-    )
-
-
-def _gmail_draft(session: Session, action: ActionRow, body: str, key: str) -> Plan:
-    msg = latest_inbound(session, action.company_id, action.case_id, Channel.gmail)
-    if msg is None or not msg.thread_ref:
-        raise SendBlockedError("no Gmail thread on this case to draft a reply in")
-    mailbox = _thread_mailbox(session, msg)
-    if mailbox is None:
-        raise SendBlockedError("the mailbox this Gmail thread arrived in is not one of the company's accounts")
-    subject = action.payload.get("subject") or msg.meta.get("subject") or ""
-    subject = subject if subject.lower().startswith("re:") else f"Re: {subject}".strip()
-    rfc_id = msg.meta.get("message_id")
-    refs = " ".join(r for r in (msg.meta.get("references"), rfc_id) if r) or None
-    draft = DraftRequest(key, msg.thread_ref, msg.sender_identity, subject, body, in_reply_to=rfc_id, references=refs)
-    return Plan(Channel.gmail, msg.sender_identity, draft=draft, mailbox=mailbox)
-
-
 def _contact(session: Session, company_id: UUID, person_id: UUID) -> str:
     name = session.scalar(select(Person.display_name).where(Person.id == person_id, Person.company_id == company_id))
     idents = session.scalars(
@@ -136,15 +81,28 @@ def _counterpart(session: Session, action: ActionRow) -> str:
     return msg.sender_identity if msg else "the tenant"
 
 
-def plan_for(session: Session, action: ActionRow, variant: int, key: str) -> Plan:
+def _reply_plan(session: Session, action: ActionRow, body: str, key: str, send_mode: bool, now: datetime) -> Plan:
+    gmail = action.payload.get("channel") == Channel.gmail.value
+    if send_mode:
+        return tenant_gmail(session, action, body, key) if gmail else tenant_whatsapp(session, action, body, now)
+    if gmail:
+        return _gmail_draft(session, action, body, key)
+    who = _counterpart(session, action)
+    return _owner_text(session, action.company_id, f"Approved reply for {who}. Copy and send:\n\n{body}")
+
+
+def plan_for(session: Session, action: ActionRow, variant: int, key: str, *, send_mode: bool, now: datetime) -> Plan:
+    """The delivery for an approved action. The sent text is the approved variant's body only.
+
+    `send_mode` (the company's `outbound_mode` is `send`) only changes `reply_draft`: it reaches the tenant (Gmail
+    reply in the thread, or WhatsApp text inside the window). Contractor requests, escalations and owner notes stay
+    copy-ready text to the owner in every mode: sending to contractors is out of scope for v1.
+    """
     payload = action.payload
     variants: list[str] = payload.get("body_variants") or []
     body = variants[min(variant, len(variants) - 1)] if variants else ""
-    if action.type is ActionType.reply_draft and payload.get("channel") == Channel.gmail.value:
-        return _gmail_draft(session, action, body, key)
     if action.type is ActionType.reply_draft:
-        who = _counterpart(session, action)
-        return _owner_text(session, action.company_id, f"Approved reply for {who}. Copy and send:\n\n{body}")
+        return _reply_plan(session, action, body, key, send_mode, now)
     if action.type is ActionType.request_contractor:
         who = _contact(session, action.company_id, UUID(payload["contractor_person_id"]))
         return _owner_text(session, action.company_id, f"Approved request for {who}. Copy and send:\n\n{body}")
@@ -156,9 +114,13 @@ def plan_for(session: Session, action: ActionRow, variant: int, key: str) -> Pla
 
 
 def assert_allowed(session: Session, company_id: UUID, plan: Plan) -> None:
-    """Phase 1: nothing reaches a tenant. Re-checked right before every provider call."""
-    if plan.channel is Channel.gmail and plan.draft is not None and plan.whatsapp is None:
+    """Re-checked right before every claim. A tenant plan passes only through `assert_tenant` (send mode re-read and
+    recipient re-derived now); everything else must be a Gmail draft or go to the owner."""
+    if plan.tenant_send:
+        assert_tenant(session, company_id, plan)
         return
+    if plan.channel is Channel.gmail and plan.draft is not None and plan.whatsapp is None and plan.email is None:
+        return  # a draft: Harjot sends it himself from Gmail
     owner_emails = set(
         session.scalars(
             select(OwnerAccount.email).where(
