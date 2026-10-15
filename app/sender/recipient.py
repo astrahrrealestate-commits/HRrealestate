@@ -16,6 +16,9 @@ from app.db.models import Case, CaseLink, ChannelAccount, ChannelIdentity, Messa
 from app.sender.errors import SendBlockedError
 from app.sender.owner_window import WINDOW
 
+CANDIDATES = 50
+TENANT_CHANNELS = (Channel.whatsapp, Channel.gmail)
+
 
 def latest_inbound(session: Session, company_id: UUID, case_id: UUID, channel: Channel) -> MessageRow | None:
     return session.scalar(
@@ -65,24 +68,47 @@ def _current_identities(session: Session, company_id: UUID, person_id: UUID, cha
     return {c for value in stored if (c := canonical(value))}
 
 
+def _candidates(session: Session, company_id: UUID, case_id: UUID, channel: Channel) -> list[MessageRow]:
+    """The newest inbound messages of the case on the channel, newest first (deterministic order)."""
+    return list(
+        session.scalars(
+            select(MessageRow)
+            .join(CaseLink, CaseLink.message_id == MessageRow.id)
+            .where(
+                CaseLink.company_id == company_id,
+                MessageRow.company_id == company_id,
+                CaseLink.case_id == case_id,
+                MessageRow.channel == channel,
+                MessageRow.direction == Direction.inbound,
+            )
+            .order_by(MessageRow.sent_at.desc(), MessageRow.created_at.desc(), MessageRow.id.desc())
+            .limit(CANDIDATES)
+        )
+    )
+
+
 def tenant_recipient(session: Session, company_id: UUID, case_id: UUID, channel: Channel) -> tuple[MessageRow, str]:
-    """The latest inbound message of the case on `channel` and its sender, if that sender is the case contact."""
+    """The newest inbound message on `channel` written by the case's primary contact, and that contact's identity.
+
+    Messages from anyone else (roommate, forwarder, spoofed sender, the company itself) are skipped, never used.
+    """
+    if channel not in TENANT_CHANNELS:
+        raise SendBlockedError(f"{channel.value} is not a tenant reply channel")
     case = session.scalar(select(Case).where(Case.id == case_id, Case.company_id == company_id))
     if case is None:
         raise SendBlockedError("case not found")
     if case.primary_person_id is None:
         raise SendBlockedError("case has no contact person")
-    msg = latest_inbound(session, company_id, case_id, channel)
-    if msg is None:
-        raise SendBlockedError(f"no inbound {channel.value} message on this case to reply to")
-    identity = canonical(msg.sender_identity)
-    if identity is None or identity in _own_addresses(session, company_id):
-        raise SendBlockedError("recipient is not the case contact")
-    if identity not in _current_identities(session, company_id, case.primary_person_id, channel):
-        raise SendBlockedError("recipient is not the case contact")
-    return msg, identity
+    allowed = _current_identities(session, company_id, case.primary_person_id, channel)
+    allowed -= _own_addresses(session, company_id)
+    for msg in _candidates(session, company_id, case_id, channel):
+        identity = canonical(msg.sender_identity)
+        if identity is not None and identity in allowed:
+            return msg, identity
+    raise SendBlockedError("no inbound message from the case contact on this channel")
 
 
 def whatsapp_window_open(msg: MessageRow, now: datetime) -> bool:
     """Free-form WhatsApp is allowed within WINDOW of the inbound's receipt time; exactly at the boundary is closed."""
-    return msg.created_at > now - WINDOW
+    received = min(msg.sent_at, msg.created_at)  # the older of the two clocks: the conservative anchor
+    return received > now - WINDOW

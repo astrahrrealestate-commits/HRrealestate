@@ -2,7 +2,7 @@
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import MagicMock
 from urllib.parse import parse_qs, urlparse
 from uuid import UUID
@@ -71,7 +71,9 @@ def world(migrated_engine: Engine, pg_url: str) -> Iterator[World]:
                                body=body, prompt_version="v1"))  # fmt: skip
         s.add(AttachmentRow(company_id=a.id, message_id=wa.id, s3_key="media/a/ab/abc", mime_type="image/jpeg",
                             filename="p.jpg", size_bytes=3, sha256="ab" * 32))  # fmt: skip
-        person = Person(company_id=a.id, kind=PersonKind.tenant, display_name="Tina Tenant")
+        person = Person(
+            company_id=a.id, kind=PersonKind.tenant, display_name="Tina Tenant", valid_from=date(2026, 1, 1)
+        )
         s.add(person)
         s.flush()
         g1 = s.query(MessageRow).filter_by(company_id=a.id, provider_msg_id="g1").one()
