@@ -9,9 +9,9 @@ from uuid import UUID
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from fastapi.concurrency import run_in_threadpool
-from itsdangerous import BadSignature, URLSafeTimedSerializer
+from itsdangerous import BadData, URLSafeTimedSerializer
 from pydantic import BaseModel
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Connection, Engine, func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import EstateOSError
@@ -22,6 +22,7 @@ log = structlog.get_logger(__name__)
 COOKIE = "eo_session"
 CSRF_HEADER = "X-EstateOS-Client"
 CSRF_VALUE = "dashboard"
+MAX_CLOCK_SKEW_S = 60
 FAKE_DEFAULT_TOKENS = {"test-owner-token": "owner@example.test"}
 
 
@@ -29,8 +30,8 @@ class AuthError(EstateOSError):
     """Missing, invalid or expired credentials."""
 
 
-class UnknownOwnerError(AuthError):
-    """A verified identity that is not an owner account."""
+class IdentityProviderUnavailableError(AuthError):
+    """The identity provider could not be reached (maps to 503, not 401)."""
 
 
 @dataclass(frozen=True)
@@ -62,15 +63,18 @@ class GoogleIdTokenVerifier:
         self._client_id = client_id
 
     def verify(self, token: str) -> str:
+        from google.auth.exceptions import GoogleAuthError, TransportError
         from google.auth.transport import requests as google_requests
         from google.oauth2 import id_token
 
         try:
             claims = id_token.verify_oauth2_token(token, google_requests.Request(), self._client_id)
-        except ValueError:
+        except TransportError:
+            raise IdentityProviderUnavailableError("identity provider unavailable") from None
+        except (ValueError, GoogleAuthError):
             raise AuthError("invalid id token") from None
         email = claims.get("email")
-        if not claims.get("email_verified") or not isinstance(email, str):
+        if claims.get("email_verified") is not True or not isinstance(email, str):
             raise AuthError("email not verified")
         return email
 
@@ -102,20 +106,31 @@ def issue_session(settings: Settings, principal: Principal, now: datetime) -> st
 def read_session(settings: Settings, token: str, now: datetime) -> Principal:
     try:
         data = _serializer(settings).loads(token)
-        if now.timestamp() - int(data["iat"]) > settings.dashboard_session_ttl_min * 60:
+        age = now.timestamp() - int(data["iat"])
+        if age > settings.dashboard_session_ttl_min * 60 or age < -MAX_CLOCK_SKEW_S:
             raise AuthError("session expired")
         return Principal(company_id=UUID(data["c"]), owner_id=UUID(data["o"]), email=str(data["e"]))
-    except (BadSignature, KeyError, TypeError, ValueError):
+    except (BadData, KeyError, TypeError, ValueError):
         raise AuthError("invalid session") from None
 
 
-def owner_by_email(engine: Engine, email: str) -> Principal | None:
-    stmt = select(OwnerAccount).where(func.lower(OwnerAccount.email) == email.lower())
+def owner_by_email(engine: Engine | Connection, email: str) -> Principal | None:
+    # Deliberately no company_id filter: this lookup decides which company the principal belongs to.
+    # Emails are not unique across companies, so anything but exactly one match is refused.
+    stmt = select(OwnerAccount).where(func.lower(OwnerAccount.email) == email.lower()).limit(2)
     with Session(engine) as session:
-        owner = session.scalars(stmt).first()
-        if owner is None or owner.email is None:
+        owners = session.scalars(stmt).all()
+        if len(owners) > 1:
+            log.warning("dashboard_login_ambiguous_owner")
             return None
-        return Principal(company_id=owner.company_id, owner_id=owner.id, email=owner.email)
+        if not owners:
+            return None
+        owner = owners[0]
+        return Principal(company_id=owner.company_id, owner_id=owner.id, email=owner.email or email)
+
+
+def _secure(settings: Settings) -> bool:
+    return settings.env not in ("dev", "test")
 
 
 def _short(email: str) -> str:
@@ -144,11 +159,13 @@ class SessionRequest(BaseModel):
 router = APIRouter(prefix="/api/v1", tags=["auth"])
 
 
-@router.post("/auth/session")
+@router.post("/auth/session", dependencies=[Depends(require_csrf)])
 async def create_session(body: SessionRequest, request: Request, response: Response) -> dict[str, Any]:
     state = request.app.state
     try:
-        email = state.id_token_verifier.verify(body.id_token)
+        email = await run_in_threadpool(state.id_token_verifier.verify, body.id_token)
+    except IdentityProviderUnavailableError:
+        raise HTTPException(status_code=503, detail="identity provider unavailable") from None
     except AuthError:
         raise HTTPException(status_code=401, detail="invalid id token") from None
     principal = await run_in_threadpool(owner_by_email, state.engine, email)
@@ -162,15 +179,15 @@ async def create_session(body: SessionRequest, request: Request, response: Respo
         max_age=settings.dashboard_session_ttl_min * 60,
         httponly=True,
         samesite="strict",
-        secure=settings.env not in ("dev", "test"),
+        secure=_secure(settings),
     )
     log.info("dashboard_login", email_hash=_short(email))
     return {"email": principal.email, "company_id": str(principal.company_id)}
 
 
 @router.delete("/auth/session", status_code=204, dependencies=[Depends(require_csrf)])
-def delete_session(response: Response) -> None:
-    response.delete_cookie(COOKIE, httponly=True, samesite="strict")
+def delete_session(request: Request, response: Response) -> None:
+    response.delete_cookie(COOKIE, httponly=True, samesite="strict", secure=_secure(request.app.state.settings))
 
 
 @router.get("/me")
