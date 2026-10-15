@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy import Connection, Engine, func, select
 from sqlalchemy.orm import Session
 
+from app.api.v1.ratelimit import auth_limit
 from app.core.errors import EstateOSError
 from app.core.settings import Settings
 from app.db.models.tenancy import OwnerAccount
@@ -159,7 +160,7 @@ class SessionRequest(BaseModel):
 router = APIRouter(tags=["auth"])
 
 
-@router.post("/auth/session", dependencies=[Depends(require_csrf)])
+@router.post("/auth/session", dependencies=[Depends(require_csrf), Depends(auth_limit)])
 async def create_session(body: SessionRequest, request: Request, response: Response) -> dict[str, Any]:
     state = request.app.state
     try:

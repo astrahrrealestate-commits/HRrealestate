@@ -232,7 +232,7 @@ class AgentMessageIn(BaseModel):
     def _clean_text(cls, value: str) -> str:
         if len(value) > MAX_QUESTION_CHARS:
             raise ValueError(TOO_LONG)
-        if any(ord(ch) < 0x20 and ch not in "\n\t" for ch in value):
+        if any(ord(ch) < 0x20 and ch not in "\n\t\r" for ch in value):
             raise ValueError("text must not contain control characters")
         if not value.strip():
             raise ValueError("text must not be blank")

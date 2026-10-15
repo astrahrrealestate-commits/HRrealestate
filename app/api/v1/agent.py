@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import WorkflowClient, get_engine, get_workflow_client
 from app.api.v1 import enqueue
 from app.api.v1.auth import Principal, require_csrf, require_principal
+from app.api.v1.ratelimit import agent_limit
 from app.api.v1.schemas import AgentMessageIn, AgentMessageOut, ConversationOut, TurnOut
 from app.core.errors import NotFoundError
 from app.core.logging import get_logger
@@ -41,7 +42,7 @@ def _start_turn(engine: Engine, client: WorkflowClient, company_id: UUID, turn_i
         raise HTTPException(status_code=503, detail=START_FAILED) from None
 
 
-@router.post("/agent/messages", status_code=202, dependencies=[Depends(require_csrf)])
+@router.post("/agent/messages", status_code=202, dependencies=[Depends(require_csrf), Depends(agent_limit)])
 def post_message(body: AgentMessageIn, who: Owner, engine: Engine_, client: Client) -> AgentMessageOut:
     try:
         with Session(engine) as session, session.begin():

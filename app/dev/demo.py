@@ -20,7 +20,7 @@ from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import PipelineStatus
 from app.db.models import ActionRow, Approval, AttachmentRow, CaseLink, MessageRow, UnderstandingRow
-from app.dev import demo_documents
+from app.dev import demo_dashboard, demo_documents
 from app.dev import fixtures as fx
 from app.dev.seed import seed_dev_tenant
 from app.dev.simulate import Simulator
@@ -184,6 +184,8 @@ def run_demo(sim: Simulator, engine: Engine, settings: Settings, *, timeout: flo
                 engine, tenant.company_id, docs, timeout, real_model=settings.llm_model != "fake"
             )
         )
+        if not found:
+            found = demo_dashboard.run_dashboard(sim, engine, tenant.company_id, timeout=timeout)
         if found:
             log.error("sim.demo.failed", problems=found)
             return 1
@@ -203,6 +205,12 @@ def run_demo(sim: Simulator, engine: Engine, settings: Settings, *, timeout: flo
                 route=routes.get(r.id),
             )
     log.info(
-        "sim.demo.ok", whatsapp=len(sent.whatsapp), gmail=len(sent.gmail), owner_buttons=1, agents="ok", documents=2
+        "sim.demo.ok",
+        whatsapp=len(sent.whatsapp),
+        gmail=len(sent.gmail),
+        owner_buttons=1,
+        agents="ok",
+        documents=2,
+        dashboard="ok",
     )
     return 0

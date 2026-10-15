@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import WorkflowClient, get_engine, get_workflow_client
 from app.api.v1 import enqueue
 from app.api.v1.auth import Principal, require_csrf, require_principal
+from app.api.v1.ratelimit import decision_limit
 from app.api.v1.schemas import (
     DecideIn,
     DecisionOut,
@@ -35,7 +36,7 @@ from app.owner.cards import approval_messages
 from app.pipeline import approvals, dashboard_decisions, owner_commands, work_repo
 from app.pipeline.local_actions import LOCAL_TYPES
 
-router = APIRouter(tags=["decisions"], dependencies=[Depends(require_csrf)])
+router = APIRouter(tags=["decisions"], dependencies=[Depends(require_csrf), Depends(decision_limit)])
 log = get_logger(__name__)
 NOT_FOUND = "not found"
 DOC_CHOICES = frozenset({t.value for t in DocType} | {DOC_SKIP})

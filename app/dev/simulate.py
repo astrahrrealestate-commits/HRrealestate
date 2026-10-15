@@ -47,6 +47,11 @@ class Simulator:
         self._settings = settings
         self._http = http
 
+    @property
+    def api(self) -> httpx.Client:
+        """The API client (cookies persist), for scenarios that call the v1 routes."""
+        return self._http
+
     def whatsapp(self, sender_e164: str, text: str, *, name: str = "Mieter", image: fx.Attachment | None = None) -> str:
         wamid, now = f"wamid.SIM{uuid4().hex.upper()}", datetime.now(UTC)
         if image is None:
@@ -149,7 +154,7 @@ def _parser() -> argparse.ArgumentParser:
     approve = sub.add_parser("approve", help="tap a pending approval as Harjot (simulated WhatsApp)")
     approve.add_argument("--n", type=int, default=1, help="row number from `pending` (1 = newest)")
     approve.add_argument("--choice", default="d1", choices=["ok", "d1", "d2", "d3", "rej"])
-    demo = sub.add_parser("demo", help="seed, run the parity scenario and assert the stored rows (G5)")
+    demo = sub.add_parser("demo", help="seed, run the parity and dashboard scenarios and assert the stored rows (G5)")
     demo.add_argument("--timeout", type=float, default=60.0)
     return parser
 

@@ -154,7 +154,7 @@ def test_enqueue_failure_marks_turn_failed_and_answers_503() -> None:
     assert len(broken.calls) == 1  # no second enqueue
 
 
-@pytest.mark.parametrize("text", ["   ", "\n\t ", "hi\x00there", "bell\x07", "esc\x1b[31m", "line\rbreak", "\x1f"])
+@pytest.mark.parametrize("text", ["   ", "\n\t ", "hi\x00there", "bell\x07", "esc\x1b[31m", "\x1f"])
 def test_blank_or_control_text_is_422(client: TestClient, wf: FakeClient, text: str) -> None:
     with patch("app.api.v1.agent.concierge_turns.create_turn") as create:
         r = client.post(URL, json={"text": text}, headers=H)
@@ -168,3 +168,10 @@ def test_newlines_and_tabs_are_allowed(client: TestClient, wf: FakeClient) -> No
         r = client.post(URL, json={"text": "first line\n\tsecond line?"}, headers=H)
     assert r.status_code == 202
     assert create.call_args.args[4] == "first line\n\tsecond line?"
+
+
+def test_crlf_text_is_allowed(client: TestClient, wf: FakeClient) -> None:
+    with patch("app.api.v1.agent.concierge_turns.create_turn", return_value=(uuid4(), uuid4())) as create:
+        r = client.post(URL, json={"text": "one\r\ntwo?"}, headers=H)
+    assert r.status_code == 202
+    assert create.call_args.args[4] == "one\r\ntwo?"

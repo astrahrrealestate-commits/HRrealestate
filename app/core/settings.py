@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     dashboard_auth_provider: Literal["fake", "google"] = "fake"
     dashboard_session_secret: SecretStr | None = None
     dashboard_session_ttl_min: int = 480
+    dashboard_trust_forwarded_for: bool = False  # rate-limit login by X-Forwarded-For (only behind a trusted proxy)
     google_oauth_client_id: str | None = None  # audience of the owner's Google ID token
 
     storage_backend: Literal["local", "memory", "s3"] = "local"

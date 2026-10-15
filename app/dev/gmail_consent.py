@@ -115,7 +115,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out-dir", type=Path, required=True, help="directory outside the repository")
     parser.add_argument("--drive", action="store_true", help="also create drive-file.json (document filing, #9)")
     parser.add_argument(
-        "--reply-send", action="store_true", help="also create gmail-reply-send.json (tenant replies, send mode)"
+        "--reply-send",
+        action="store_true",
+        help=(
+            "also create gmail-reply-send.json (tenant replies, send mode); "
+            "re-consents three tokens: read, compose, reply-send"
+        ),
     )
     args = parser.parse_args(argv)
     if "@" not in args.mailbox:  # fail before two browser consents, not after
