@@ -22,9 +22,23 @@ from app.pipeline import concierge_turns, read_turns
 router = APIRouter(tags=["agent"])
 log = get_logger(__name__)
 NOT_FOUND = "not found"
+START_FAILED = "could not start the assistant; try again"
 Owner = Annotated[Principal, Depends(require_principal)]
 Engine_ = Annotated[Engine, Depends(get_engine)]
 Client = Annotated[WorkflowClient, Depends(get_workflow_client)]
+
+
+def _start_turn(engine: Engine, client: WorkflowClient, company_id: UUID, turn_id: UUID) -> None:
+    """Enqueue after commit. If that fails the turn is marked failed (never left pending with no workflow) and the
+    client gets 503 to retry with a new message."""
+    try:
+        enqueue.enqueue_turn(client, turn_id)
+    except Exception as exc:
+        log.error(
+            "dashboard.agent_enqueue_failed", company_id=str(company_id), turn_id=str(turn_id), error=type(exc).__name__
+        )
+        concierge_turns.fail_turn(engine, turn_id, type(exc).__name__)
+        raise HTTPException(status_code=503, detail=START_FAILED) from None
 
 
 @router.post("/agent/messages", status_code=202, dependencies=[Depends(require_csrf)])
@@ -36,7 +50,7 @@ def post_message(body: AgentMessageIn, who: Owner, engine: Engine_, client: Clie
             )
     except NotFoundError:
         raise HTTPException(status_code=404, detail=NOT_FOUND) from None
-    enqueue.enqueue_turn(client, turn_id)  # after commit
+    _start_turn(engine, client, who.company_id, turn_id)
     log.info("dashboard.agent_turn_created", company_id=str(who.company_id), turn_id=str(turn_id))
     return AgentMessageOut(conversation_id=conversation_id, turn_id=turn_id)
 

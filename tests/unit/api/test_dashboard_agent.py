@@ -130,3 +130,41 @@ def test_foreign_conversation_get_is_404(client: TestClient) -> None:
     with patch("app.api.v1.agent.read_turns.conversation_turns", return_value=None):
         r = client.get(f"/api/v1/agent/conversations/{uuid4()}")
     assert (r.status_code, r.json()) == (404, {"detail": "not found"})
+
+
+class BrokenClient(FakeClient):
+    def enqueue(self, options: Any, *args: Any) -> Any:
+        self.calls.append((options, args))
+        raise ConnectionError("dbos system db down")
+
+
+def test_enqueue_failure_marks_turn_failed_and_answers_503() -> None:
+    broken, engine, turn = BrokenClient(), MagicMock(), uuid4()
+    app = create_app(SETTINGS, engine=engine, workflow_client=broken)
+    with (
+        patch("app.api.v1.agent.Session", MagicMock()),
+        patch("app.api.v1.agent.concierge_turns.create_turn", return_value=(uuid4(), turn)),
+        patch("app.api.v1.agent.concierge_turns.fail_turn") as fail,
+        TestClient(app) as c,
+    ):
+        c.cookies.set(COOKIE, issue_session(SETTINGS, PRINCIPAL, datetime.now(UTC)))
+        r = c.post(URL, json={"text": "tasks"}, headers=H)
+    assert (r.status_code, r.json()) == (503, {"detail": "could not start the assistant; try again"})
+    fail.assert_called_once_with(engine, turn, "ConnectionError")
+    assert len(broken.calls) == 1  # no second enqueue
+
+
+@pytest.mark.parametrize("text", ["   ", "\n\t ", "hi\x00there", "bell\x07", "esc\x1b[31m", "line\rbreak", "\x1f"])
+def test_blank_or_control_text_is_422(client: TestClient, wf: FakeClient, text: str) -> None:
+    with patch("app.api.v1.agent.concierge_turns.create_turn") as create:
+        r = client.post(URL, json={"text": text}, headers=H)
+    assert r.status_code == 422
+    create.assert_not_called()
+    assert wf.calls == []
+
+
+def test_newlines_and_tabs_are_allowed(client: TestClient, wf: FakeClient) -> None:
+    with patch("app.api.v1.agent.concierge_turns.create_turn", return_value=(uuid4(), uuid4())) as create:
+        r = client.post(URL, json={"text": "first line\n\tsecond line?"}, headers=H)
+    assert r.status_code == 202
+    assert create.call_args.args[4] == "first line\n\tsecond line?"

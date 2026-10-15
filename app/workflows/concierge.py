@@ -12,16 +12,26 @@ from app.core.logging import get_logger
 from app.core.settings import get_settings
 from app.core.workflow_names import CONCIERGE_TURN
 from app.pipeline import concierge_turns
+from app.pipeline.concierge import is_transient
 from app.workflows import queues
 from app.workflows.actions import execute_action_wf
 from app.workflows.deps import get_engine
 from app.workflows.owner_reply import approved_unexecuted_step
-from app.workflows.retry import STEP_RETRY
+from app.workflows.retry import STEP_RETRY, retryable
 
 log = get_logger(__name__)
 
 
-@DBOS.step(name="concierge.run_turn", **STEP_RETRY)
+def turn_retryable(exc: BaseException) -> bool:
+    """The global policy plus what the concierge executor treats as transient (pool timeouts, invalidated
+    connections, OSError): run_turn re-raises exactly those, so the step must retry them."""
+    return retryable(exc) or is_transient(exc)
+
+
+TURN_RETRY = {**STEP_RETRY, "should_retry": turn_retryable}
+
+
+@DBOS.step(name="concierge.run_turn", **TURN_RETRY)
 def run_turn_step(turn_id: str) -> None:
     concierge_turns.run_turn(get_engine(), get_settings(), UUID(turn_id))
 

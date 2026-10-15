@@ -27,9 +27,12 @@ URL = "/api/v1/agent/messages"
 class FakeClient:
     def __init__(self) -> None:
         self.calls: list[tuple[dict[str, Any], tuple[Any, ...]]] = []
+        self.down = False
 
     def enqueue(self, options: Any, *args: Any) -> Any:
         self.calls.append((options, args))
+        if self.down:
+            raise ConnectionError("dbos system db down")
 
     def enqueue_in_transaction(self, conn_or_session: Any, options: Any, *args: Any) -> Any:
         raise AssertionError("not used")
@@ -144,3 +147,36 @@ def test_turn_events_are_owner_scoped_and_cursor_ordered(world: World) -> None:
         assert [r.id for r in rows] == [mine]
         after = (rows[0].updated_at, rows[0].id)
         assert read_turns.turns_changed_after(s, world.company, world.owner, after) == []
+
+
+def test_enqueue_failure_marks_the_committed_turn_failed(world: World) -> None:
+    world.wf.down = True
+    r = world.client.post(URL, json={"text": "tasks"}, headers=H)
+    assert (r.status_code, r.json()) == (503, {"detail": "could not start the assistant; try again"})
+    assert len(world.wf.calls) == 1
+    with Session(world.engine) as s:
+        rows = s.scalars(select(AgentTurn).where(AgentTurn.company_id == world.company)).all()
+    assert [(t.status, t.error) for t in rows] == [(TurnStatus.failed, "ConnectionError")]
+    assert rows[0].answer
+    assert rows[0].updated_at > rows[0].created_at
+
+
+@pytest.mark.parametrize("text", ["   ", "hi\x00there", "bell\x07"])
+def test_blank_or_control_text_is_422_and_writes_nothing(world: World, text: str) -> None:
+    assert world.client.post(URL, json={"text": text}, headers=H).status_code == 422
+    assert _turns(world) == 0
+
+
+def test_a_turn_failed_at_enqueue_is_never_run_later(world: World, test_settings: Settings) -> None:
+    """The enqueue may have reached DBOS before raising: a late workflow run must not revive the failed turn."""
+    from app.pipeline import concierge_turns
+
+    world.wf.down = True
+    world.client.post(URL, json={"text": "tasks"}, headers=H)
+    with Session(world.engine) as s:
+        turn = s.scalars(select(AgentTurn).where(AgentTurn.company_id == world.company)).one()
+        before = (turn.status, turn.answer, turn.updated_at)
+    concierge_turns.run_turn(world.engine, test_settings, turn.id)
+    with Session(world.engine) as s:
+        again = s.scalars(select(AgentTurn).where(AgentTurn.id == turn.id)).one()
+    assert (again.status, again.answer, again.updated_at) == before

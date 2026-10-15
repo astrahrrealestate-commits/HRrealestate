@@ -2,8 +2,10 @@
 
 `run_turn` order: exact owner commands take the fast path (no model, works when the budget is spent); a question is
 screened, planned by the concierge agent (one model call), executed by `run_plan`, and the answer is assembled from
-the step summaries. The work clock is the turn's `created_at`, so a retried step replays the same decisions;
-`updated_at` uses the database clock at each write so every status change moves the SSE turn cursor.
+the step summaries. The plan is stored before it executes and the results right after (status stays `running`), so
+a retried step reuses the stored plan (no second model call) and never executes stored results again. The work clock
+is the turn's `created_at`, so a retried step replays the same decisions; `updated_at` uses the database clock at
+each write so every status change moves the SSE turn cursor.
 Logs carry ids and status only, never the owner's text.
 """
 
@@ -44,6 +46,7 @@ from app.pipeline.concierge_outcome import (
 )
 
 log = get_logger(__name__)
+FINAL = (TurnStatus.done, TurnStatus.failed)  # terminal: never re-run, never overwritten
 
 
 @dataclass(frozen=True)
@@ -76,11 +79,11 @@ def create_turn(
 
 
 def _start(engine: Engine, turn_id: UUID) -> TurnStart | None:
-    """Lock the turn and mark it running; None when it is missing or already done. Loaded by id alone (the
+    """Lock the turn and mark it running; None when it is missing, done or failed. Loaded by id alone (the
     workflow's only input); the company comes from the row and scopes everything after."""
     with Session(engine) as session, session.begin():
         turn = session.scalar(select(AgentTurn).where(AgentTurn.id == turn_id).with_for_update())
-        if turn is None or turn.status is TurnStatus.done:
+        if turn is None or turn.status in FINAL:
             return None
         session.execute(
             update(AgentTurn)
@@ -92,22 +95,31 @@ def _start(engine: Engine, turn_id: UUID) -> TurnStart | None:
         )
 
 
-def _finish(engine: Engine, company_id: UUID, turn_id: UUID, outcome: Outcome) -> None:
-    """Plan, results, answer and status in one transaction; a turn already done is left as it is."""
+def _update(engine: Engine, company_id: UUID, turn_id: UUID, values: dict[str, Any]) -> None:
+    """One short transaction on a turn that is not done or failed; `updated_at` from the DB clock so the SSE cursor
+    moves."""
     with Session(engine) as session, session.begin():
         session.execute(
             update(AgentTurn)
-            .where(AgentTurn.company_id == company_id, AgentTurn.id == turn_id, AgentTurn.status != TurnStatus.done)
-            .values(
-                plan=outcome.plan,
-                results=outcome.results,
-                answer=outcome.answer,
-                prompt_ref=outcome.prompt_ref,
-                status=outcome.status,
-                error=outcome.error,
-                updated_at=func.clock_timestamp(),
-            )
+            .where(AgentTurn.company_id == company_id, AgentTurn.id == turn_id, AgentTurn.status.not_in(FINAL))
+            .values(**values, updated_at=func.clock_timestamp())
         )
+
+
+def _finish(engine: Engine, company_id: UUID, turn_id: UUID, outcome: Outcome) -> None:
+    """Answer and status in one transaction; plan/results only when the outcome carries them (a failure after the
+    plan was stored keeps it). A done or failed turn is left as it is."""
+    values: dict[str, Any] = {
+        "answer": outcome.answer,
+        "prompt_ref": outcome.prompt_ref,
+        "status": outcome.status,
+        "error": outcome.error,
+    }
+    if outcome.plan is not None:
+        values["plan"] = outcome.plan
+    if outcome.results is not None:
+        values["results"] = outcome.results
+    _update(engine, company_id, turn_id, values)
     log.info("concierge.turn_finished", company_id=str(company_id), turn_id=str(turn_id), status=outcome.status.value)
 
 
@@ -164,27 +176,39 @@ def _plan(engine: Engine, settings: Settings, start: TurnStart) -> ConciergePlan
     return result.output
 
 
+def _planned(engine: Engine, settings: Settings, start: TurnStart) -> ConciergePlan | Outcome:
+    """The stored plan of an earlier attempt, else a fresh one (stored before anything executes, so a retry runs
+    the same plan and never asks the model twice)."""
+    if start.plan is not None:
+        return ConciergePlan.model_validate(start.plan)
+    plan = _plan(engine, settings, start)
+    if isinstance(plan, ConciergePlan):
+        _update(engine, start.company_id, start.turn_id, {"plan": plan.model_dump(mode="json")})
+    return plan
+
+
 def _outcome(engine: Engine, settings: Settings, start: TurnStart) -> Outcome:
     if start.results is not None:  # executed by an earlier attempt: finish, never execute twice
         return Outcome(stored_answer(start.results), start.plan, start.results, PROMPT_REF)
-    cmd = owner_commands.parse_command(start.text)
-    if cmd.kind is not owner_commands.CommandKind.question:
-        return Outcome(owner_commands.run_command(engine, settings, start.company_id, cmd, now=start.at))
-    refused = owner_commands.screen_question(start.text)
-    if refused is not None:
-        return Outcome(refused)
-    plan = _plan(engine, settings, start)
+    if start.plan is None:
+        cmd = owner_commands.parse_command(start.text)
+        if cmd.kind is not owner_commands.CommandKind.question:
+            return Outcome(owner_commands.run_command(engine, settings, start.company_id, cmd, now=start.at))
+        refused = owner_commands.screen_question(start.text)
+        if refused is not None:
+            return Outcome(refused)
+    plan = _planned(engine, settings, start)
     if isinstance(plan, Outcome):
         return plan
     results = run_plan(engine, settings, start.company_id, plan, question=start.text, now=start.at)
-    return Outcome(
-        assemble_answer(results), plan.model_dump(mode="json"), [result_json(r) for r in results], PROMPT_REF
-    )
+    stored = [result_json(r) for r in results]
+    _update(engine, start.company_id, start.turn_id, {"results": stored})
+    return Outcome(assemble_answer(results), plan.model_dump(mode="json"), stored, PROMPT_REF)
 
 
 def run_turn(engine: Engine, settings: Settings, turn_id: UUID) -> None:
     """All I/O of a turn (called from the DBOS step). Transient errors propagate so the step retries; any other
-    error fails the turn with a fixed apology. Safe to re-run: a done turn is skipped."""
+    error fails the turn with a fixed apology. Safe to re-run: a done or failed turn is skipped."""
     start = _start(engine, turn_id)
     if start is None:
         return

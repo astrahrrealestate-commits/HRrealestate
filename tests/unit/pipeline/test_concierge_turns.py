@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import OperationalError
 
 from app.contracts import ConciergePlan, Intent, PlanStep
@@ -26,8 +27,8 @@ PLAN = ConciergePlan(
 )
 
 
-def _start(text: str, results: list[dict[str, Any]] | None = None) -> ct.TurnStart:
-    return ct.TurnStart(uuid4(), uuid4(), uuid4(), text, AT, results, None)
+def _start(text: str, results: list[dict[str, Any]] | None = None, plan: dict[str, Any] | None = None) -> ct.TurnStart:
+    return ct.TurnStart(uuid4(), uuid4(), uuid4(), text, AT, results, plan)
 
 
 @pytest.fixture
@@ -39,8 +40,9 @@ def io() -> Iterator[dict[str, MagicMock]]:
             f"{M}.run_plan", return_value=[StepResult(Intent.list_tasks, True, "No open tasks.", None, "tasks")]
         ) as rp,
         patch(f"{M}.owner_commands.run_command", return_value="cmd reply") as cmd,
+        patch(f"{M}._update") as upd,
     ):
-        yield {"brief": brief, "agent": agent, "plan": rp, "cmd": cmd}
+        yield {"brief": brief, "agent": agent, "plan": rp, "cmd": cmd, "update": upd}
 
 
 def test_exact_command_takes_the_fast_path_without_a_model(io: dict[str, MagicMock]) -> None:
@@ -144,3 +146,73 @@ def test_run_turn_other_error_fails_with_type_name_only() -> None:
         ct.run_turn(MagicMock(), MagicMock(), uuid4())
     outcome = finish.call_args.args[3]
     assert (outcome.status, outcome.answer, outcome.error) == (TurnStatus.failed, APOLOGY, "ValueError")
+
+
+LISTED = [{"intent": "list_tasks", "ok": True, "summary": "No open tasks.", "data": None, "view": "tasks"}]
+
+
+def test_plan_is_stored_before_it_runs_and_results_right_after(io: dict[str, MagicMock]) -> None:
+    order = MagicMock()
+    order.attach_mock(io["update"], "update")
+    order.attach_mock(io["plan"], "run_plan")
+    start = _start("what is open?")
+    ct._outcome(MagicMock(), MagicMock(), start)
+    names = [c[0] for c in order.mock_calls]
+    assert names == ["update", "run_plan", "update"]
+    assert io["update"].call_args_list[0].args[1:] == (
+        start.company_id,
+        start.turn_id,
+        {"plan": PLAN.model_dump(mode="json")},
+    )
+    assert io["update"].call_args_list[1].args[3] == {"results": LISTED}
+
+
+def test_stored_plan_is_reused_without_a_model_call(io: dict[str, MagicMock]) -> None:
+    out = ct._outcome(MagicMock(), MagicMock(), _start("what is open?", plan=PLAN.model_dump(mode="json")))
+    io["agent"].assert_not_called()
+    io["brief"].assert_not_called()
+    assert io["plan"].call_args.args[3] == PLAN
+    assert io["update"].call_count == 1  # only the results: the plan is already stored
+    assert io["update"].call_args.args[3] == {"results": LISTED}
+    assert out.results == LISTED
+
+
+def test_failure_outcomes_do_not_wipe_a_stored_plan() -> None:
+    with patch(f"{M}._update") as upd:
+        ct._finish(MagicMock(), uuid4(), uuid4(), Outcome(APOLOGY, status=TurnStatus.failed, error="X"))
+    assert "plan" not in upd.call_args.args[3]
+    assert "results" not in upd.call_args.args[3]
+
+
+def _sql(stmt: Any) -> str:
+    return str(stmt.compile(dialect=postgresql.dialect()))
+
+
+def test_every_turn_write_stamps_updated_at_with_the_db_clock() -> None:
+    session_cls = MagicMock()
+    session = session_cls.return_value.__enter__.return_value
+    session.scalar.return_value = MagicMock(status=TurnStatus.pending)
+    with patch(f"{M}.Session", session_cls):
+        ct._start(MagicMock(), uuid4())
+        ct._update(MagicMock(), uuid4(), uuid4(), {"plan": {}})
+        ct._finish(MagicMock(), uuid4(), uuid4(), Outcome("ok"))
+    updates = [_sql(c.args[0]) for c in session.execute.call_args_list]
+    assert len(updates) == 3
+    for sql in updates:
+        assert sql.startswith("UPDATE agent_turns SET")
+        assert "updated_at=clock_timestamp()" in sql
+        assert "agent_turns.company_id = " in sql
+
+
+def test_failed_turns_are_terminal_like_done() -> None:
+    session_cls = MagicMock()
+    session = session_cls.return_value.__enter__.return_value
+    for status in (TurnStatus.done, TurnStatus.failed):
+        session.scalar.return_value = MagicMock(status=status)
+        with patch(f"{M}.Session", session_cls):
+            assert ct._start(MagicMock(), uuid4()) is None
+    session.execute.assert_not_called()
+    with patch(f"{M}.Session", session_cls):
+        ct._update(MagicMock(), uuid4(), uuid4(), {"answer": "x"})
+    sql = _sql(session.execute.call_args.args[0])
+    assert "agent_turns.status NOT IN" in sql

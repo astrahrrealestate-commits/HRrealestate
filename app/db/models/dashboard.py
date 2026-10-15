@@ -36,7 +36,10 @@ class AgentConversation(Base, CompanyScoped):
 class AgentTurn(Base, CompanyScoped):
     __tablename__ = "agent_turns"
     __company_id_leading_index__ = True
-    __table_args__ = (Index(None, "company_id", "conversation_id", "created_at"),)
+    __table_args__ = (
+        Index(None, "company_id", "conversation_id", "created_at"),
+        Index(None, "company_id", "updated_at", "id"),  # SSE turn cursor (migration 0010)
+    )
 
     conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agent_conversations.id"))
     text: Mapped[str] = mapped_column(Text)

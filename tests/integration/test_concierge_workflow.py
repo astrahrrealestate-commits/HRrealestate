@@ -9,6 +9,7 @@ from uuid import UUID
 import pytest
 from dbos import DBOS, SetWorkflowID
 from sqlalchemy import Engine, func, select, update
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.errors import AgentFailedError
@@ -166,20 +167,63 @@ def test_injection_text_is_refused_and_changes_nothing(env: Env) -> None:
         assert s.scalar(select(Company.paused).where(Company.id == env.cid)) is False
 
 
-def test_turn_with_stored_results_is_not_executed_again(env: Env, test_settings: Settings) -> None:
-    turn_id = _turn(env, JANSEN)
-    stored = [{"intent": "task_done", "ok": True, "summary": "Done: Call plumber", "data": None, "view": "tasks"}]
+LIST_PLAN = {
+    "in_scope": True,
+    "steps": [{"intent": "list_tasks", "case_id": None, "task_ref": None, "text": None, "view": None}],
+}
+
+
+def _seed_state(env: Env, turn_id: UUID, **values: Any) -> None:
+    """The state run_turn leaves behind when an attempt stops after storing the plan (and maybe the results)."""
     with Session(env.engine) as s, s.begin():
         s.execute(
             update(AgentTurn)
             .where(AgentTurn.company_id == env.cid, AgentTurn.id == turn_id)
-            .values(status=TurnStatus.running, results=stored, plan={"in_scope": True, "steps": []},
-                    updated_at=func.clock_timestamp())
-        )  # fmt: skip
+            .values(status=TurnStatus.running, updated_at=func.clock_timestamp(), **values)
+        )
+
+
+def test_stored_plan_is_executed_without_a_second_model_call(env: Env, test_settings: Settings) -> None:
+    seed_task(env.engine, env.cid, "Call plumber")
+    turn_id = _turn(env, JANSEN)
+    _seed_state(env, turn_id, plan=LIST_PLAN)
     concierge_turns.run_turn(env.engine, test_settings, turn_id)
     row = _row(env, turn_id)
-    assert (row.status, row.answer, row.results) == (TurnStatus.done, "Done: Call plumber", stored)
+    assert row.status is TurnStatus.done
+    assert row.plan == LIST_PLAN
+    assert row.results is not None
+    assert [r["intent"] for r in row.results] == ["list_tasks"]
+    assert "Call plumber" in (row.answer or "")
     assert _calls(env) == 0
+
+
+def test_stored_plan_and_results_finish_without_executing(env: Env, test_settings: Settings) -> None:
+    turn_id = _turn(env, JANSEN)
+    stored = [{"intent": "task_done", "ok": True, "summary": "Done: Call plumber", "data": None, "view": "tasks"}]
+    _seed_state(env, turn_id, plan=LIST_PLAN, results=stored)
+    with patch("app.pipeline.concierge_turns.run_plan") as executor:
+        concierge_turns.run_turn(env.engine, test_settings, turn_id)
+    executor.assert_not_called()
+    row = _row(env, turn_id)
+    assert (row.status, row.answer, row.results, row.plan) == (TurnStatus.done, "Done: Call plumber", stored, LIST_PLAN)
+    assert _calls(env) == 0
+
+
+def test_transient_executor_error_retry_reuses_the_stored_plan(env: Env, test_settings: Settings) -> None:
+    seed_task(env.engine, env.cid, "Call plumber")
+    turn_id = _turn(env, "which tasks are open?")
+    down = OperationalError("select", {}, Exception("db restarting"))
+    with patch("app.pipeline.concierge_turns.run_plan", side_effect=down), pytest.raises(OperationalError):
+        concierge_turns.run_turn(env.engine, test_settings, turn_id)
+    mid = _row(env, turn_id)
+    assert mid.status is TurnStatus.running
+    assert mid.plan is not None
+    assert mid.results is None
+    concierge_turns.run_turn(env.engine, test_settings, turn_id)  # the DBOS step retry
+    row = _row(env, turn_id)
+    assert (row.status, row.plan) == (TurnStatus.done, mid.plan)
+    assert "Call plumber" in (row.answer or "")
+    assert _calls(env, "concierge") == 1
 
 
 def test_symbols_only_are_answered_without_a_model(env: Env) -> None:
@@ -202,7 +246,18 @@ def test_resume_command_unpauses(env: Env) -> None:
 def test_each_status_change_moves_updated_at(env: Env, test_settings: Settings) -> None:
     turn_id = _turn(env, "help")
     created = _row(env, turn_id).updated_at
-    concierge_turns.run_turn(env.engine, test_settings, turn_id)
+    seen: list[tuple[TurnStatus, Any]] = []
+    real = concierge_turns._outcome
+
+    def spy(engine: Engine, settings: Settings, start: concierge_turns.TurnStart) -> Any:
+        mid = _row(env, turn_id)  # committed by _start
+        seen.append((mid.status, mid.updated_at))
+        return real(engine, settings, start)
+
+    with patch("app.pipeline.concierge_turns._outcome", side_effect=spy):
+        concierge_turns.run_turn(env.engine, test_settings, turn_id)
     row = _row(env, turn_id)
-    assert row.updated_at > created
+    [(running_status, running_at)] = seen
+    assert running_status is TurnStatus.running
+    assert created < running_at < row.updated_at
     assert row.answer == owner_commands.HELP_TEXT

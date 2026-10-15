@@ -39,23 +39,64 @@ def test_poller_starts_five_minutes_back_and_is_owner_scoped() -> None:
     poller = turn_events.TurnPoller(MagicMock(), company, owner, now=NOW)
     with patch(P, return_value=[]) as read:
         assert poller.poll() == []
-    assert read.call_args.args[1:] == (company, owner, (NOW - timedelta(minutes=5), UUID(int=0)))
+    since = NOW - timedelta(minutes=5) - turn_events.OVERLAP
+    assert read.call_args.args[1:] == (company, owner, (since, UUID(int=0)))
 
 
-def test_poller_advances_its_cursor_and_emits_each_change_once() -> None:
-    later = T0 + timedelta(seconds=1)
-    rows = [_turn(1, TurnStatus.running, T0), _turn(1, TurnStatus.done, later)]
+class FakeTurns:
+    """The agent_turns table as the poller sees it: one current row per turn id."""
 
-    def fake_read(_e: object, _c: object, _o: object, after: tuple[datetime, UUID]) -> list[TurnEvent]:
-        return [r for r in rows if (r.updated_at, r.id) > after][:1]
+    def __init__(self) -> None:
+        self.rows: dict[UUID, TurnEvent] = {}
+        self.queries: list[tuple[datetime, UUID]] = []
 
-    poller = turn_events.TurnPoller(MagicMock(), uuid4(), uuid4(), now=T0)
-    seen: list[str] = []
-    with patch(P, side_effect=fake_read):
-        for _ in range(3):
-            seen += [json.loads(f.split("data: ", 1)[1])["status"] for f in poller.poll()]
-    assert seen == ["running", "done"]
-    assert poller.after == (later, UUID(int=1))
+    def set(self, event: TurnEvent) -> None:
+        self.rows[event.id] = event
+
+    def read(self, _e: object, _c: object, _o: object, after: tuple[datetime, UUID]) -> list[TurnEvent]:
+        self.queries.append(after)
+        return sorted(
+            (r for r in self.rows.values() if (r.updated_at, r.id) > after), key=lambda r: (r.updated_at, r.id)
+        )
+
+
+def _statuses(frames: list[str]) -> list[str]:
+    return [json.loads(f.split("data: ", 1)[1])["status"] for f in frames]
+
+
+def test_each_change_is_sent_once_despite_the_overlap_reread() -> None:
+    table, poller = FakeTurns(), turn_events.TurnPoller(MagicMock(), uuid4(), uuid4(), now=T0)
+    table.set(_turn(1, TurnStatus.running, T0))
+    with patch(P, side_effect=table.read):
+        first = poller.poll()
+        again = poller.poll()  # re-reads the overlap window: nothing new
+        table.set(_turn(1, TurnStatus.done, T0 + timedelta(seconds=1)))
+        done = poller.poll()
+        last = poller.poll()
+    assert (_statuses(first), again, _statuses(done), last) == (["running"], [], ["done"], [])
+    assert poller.after == (T0 + timedelta(seconds=1), UUID(int=1))
+    assert table.queries[-1][0] == T0 + timedelta(seconds=1) - turn_events.OVERLAP
+
+
+def test_late_commit_behind_the_cursor_is_still_sent() -> None:
+    table, poller = FakeTurns(), turn_events.TurnPoller(MagicMock(), uuid4(), uuid4(), now=T0)
+    table.set(_turn(2, TurnStatus.running, T0 + timedelta(seconds=5)))
+    with patch(P, side_effect=table.read):
+        assert _statuses(poller.poll()) == ["running"]
+        # stamped 1 s before the cursor, committed only now (slow transaction)
+        table.set(_turn(3, TurnStatus.done, T0 + timedelta(seconds=4)))
+        assert _statuses(poller.poll()) == ["done"]
+        assert poller.poll() == []
+    assert poller.after == (T0 + timedelta(seconds=5), UUID(int=2))
+
+
+def test_sent_set_is_pruned_behind_the_window() -> None:
+    table, poller = FakeTurns(), turn_events.TurnPoller(MagicMock(), uuid4(), uuid4(), now=T0)
+    with patch(P, side_effect=table.read):
+        for n in range(1, 6):
+            table.set(_turn(n, TurnStatus.done, T0 + timedelta(seconds=10 * n)))
+            poller.poll()
+    assert poller.sent == {(UUID(int=5), T0 + timedelta(seconds=50))}
 
 
 def _connected_twice() -> MagicMock:
