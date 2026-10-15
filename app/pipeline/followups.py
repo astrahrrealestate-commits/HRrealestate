@@ -241,9 +241,18 @@ def _step_approval(session: Session, wait: WaitRow) -> UUID | None:
 
 
 def handle_wait_due(
-    engine: Engine, settings: Settings, company_id: UUID, wait_id: UUID, *, step: int, now: datetime
+    engine: Engine,
+    settings: Settings,
+    company_id: UUID,
+    wait_id: UUID,
+    *,
+    step: int,
+    now: datetime,
+    force: bool = False,
 ) -> UUID | None:
-    """Returns the approval to show Harjot (chaser or escalation), or None when nothing is due."""
+    """Returns the approval to show Harjot (chaser or escalation), or None when nothing is due.
+
+    `force` (the owner asked to chase now) treats a wait that is not yet due as due; the ladder is unchanged."""
     with Session(engine) as session:
         loaded = _load(session, company_id, wait_id)
         if loaded is None:
@@ -253,7 +262,8 @@ def handle_wait_due(
         if loaded[0].chase_count != step:
             return None
         wait, case, company, who = loaded
-        decision = next_step(wait.status, wait.chase_count, wait.expected_by, _policy(company), now)
+        decide_at = max(now, wait.expected_by) if force else now
+        decision = next_step(wait.status, wait.chase_count, wait.expected_by, _policy(company), decide_at)
         contractor = (
             session.scalar(
                 select(Person.kind).where(Person.company_id == wait.company_id, Person.id == wait.party_person_id)
