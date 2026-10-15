@@ -35,7 +35,7 @@ class NewMail:
     inbox: list[str] = field(default_factory=list)  # messages that gained INBOX (spam rescue, un-archive)
 
 
-def sync_mailbox(deps: IngestDeps, account_id: UUID, push_history_id: int) -> int:
+def sync_mailbox(deps: IngestDeps, account_id: UUID, push_history_id: int, max_messages: int | None = 2) -> int:
     """Record one raw event per new Gmail message and advance the cursor. Returns the number recorded."""
     with Session(deps.engine) as session:
         account = session.get(ChannelAccount, account_id)
@@ -46,6 +46,8 @@ def sync_mailbox(deps: IngestDeps, account_id: UUID, push_history_id: int) -> in
     if cursor is not None and push_history_id <= cursor:
         return 0  # stale or duplicate notification
     mail = _new_mail(deps.gmail_mailbox(address), cursor)
+    if max_messages and len(mail.ids) > max_messages:
+        mail.ids = mail.ids[:max_messages]
     with Session(deps.engine) as session, session.begin():
         _ensure_state(session, company_id, account_id)
         state = _locked_state(session, company_id, account_id)

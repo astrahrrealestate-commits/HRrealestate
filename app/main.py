@@ -5,10 +5,11 @@ from contextlib import asynccontextmanager
 
 from dbos import DBOSClient
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import Engine
 
 import app
-from app.api import health
+from app.api import dashboard, health, inbox, maintenance, properties, tenants
 from app.api.deps import WorkflowClient
 from app.api.webhooks import gmail as gmail_webhook
 from app.api.webhooks import google_chat as google_chat_webhook
@@ -61,7 +62,20 @@ def create_app(
         openapi_url="/openapi.json" if settings.env != "prod" else None,
         redoc_url=None,
     )
+    api.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     api.include_router(health.router)
+    api.include_router(dashboard.router)
+    api.include_router(inbox.router)
+    api.include_router(maintenance.router)
+    api.include_router(properties.router)
+    api.include_router(tenants.router)
     api.include_router(whatsapp_webhook.router)
     api.include_router(gmail_webhook.router)
     api.include_router(google_chat_webhook.router)

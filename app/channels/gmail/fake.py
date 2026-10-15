@@ -5,7 +5,10 @@ one mailbox across processes. `MemoryMailboxStore` is for tests.
 """
 
 import base64
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # Windows compatibility fallback
 import json
 import os
 import tempfile
@@ -74,7 +77,8 @@ class DirMailboxStore:
     @contextmanager
     def _locked_state(self) -> Iterator[dict[str, int]]:
         with (self._root / "state.lock").open("a+") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+            if fcntl is not None:
+                fcntl.flock(lock, fcntl.LOCK_EX)
             path = self._root / "state.json"
             state = json.loads(path.read_text()) if path.exists() else {"history": 0, "expired_before": 0}
             yield state

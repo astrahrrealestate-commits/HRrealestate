@@ -51,6 +51,10 @@ class GmailDrafts(Protocol):
         """Create a draft in the thread; returns the provider draft id."""
         ...
 
+    def send_draft(self, draft_id: str) -> str:
+        """Sends an existing staged draft; returns provider message id."""
+        ...
+
     def send_message(self, request: EmailRequest) -> str:
         """Send an email (used for owner digest); returns provider message id."""
         ...
@@ -125,6 +129,17 @@ class GoogleDrafts:
         draft_id: str = response["id"]
         return draft_id
 
+    def send_draft(self, draft_id: str) -> str:
+        """Sends an existing staged draft via Gmail API."""
+        try:
+            response = self._drafts.send(userId="me", body={"id": draft_id}).execute()
+        except HttpError as exc:
+            status = int(getattr(exc.resp, "status", 0) or 0)
+            retryable = status >= 500 or is_rate_limited(exc)
+            raise GmailDraftError(f"sending draft failed: HTTP {status}", retryable=retryable) from exc
+        message_id: str = response["id"]
+        return message_id
+
     def send_message(self, request: EmailRequest) -> str:
         raw = _b64(build_owner_email_mime(self._address, request))
         try:
@@ -152,6 +167,9 @@ class FakeDrafts:
         )
         self.created.append(request)
         return f"r-{message_id}"
+
+    def send_draft(self, draft_id: str) -> str:
+        return f"sent-{draft_id}"
 
     def send_message(self, request: EmailRequest) -> str:
         existing = self.mailbox.find_by_header("X-EstateOS-Key", request.key_token, "SENT")

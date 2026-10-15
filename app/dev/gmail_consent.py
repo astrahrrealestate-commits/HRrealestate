@@ -73,8 +73,12 @@ def _checked(consent: Consent, scopes: list[str], mailbox: str) -> Credentials:
 
 
 def _write_private(path: Path, text: str) -> Path:
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)  # never write through a symlink
-    os.fchmod(fd, 0o600)  # before any byte: O_CREAT's mode does not apply to an existing file
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(path, flags, 0o600)  # never write through a symlink where supported
+    if hasattr(os, "fchmod"):
+        os.fchmod(fd, 0o600)  # before any byte: O_CREAT's mode does not apply to an existing file
     with os.fdopen(fd, "w") as handle:
         handle.write(text)
     return path

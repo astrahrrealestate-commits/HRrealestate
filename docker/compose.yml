@@ -8,26 +8,29 @@ x-app: &app
   image: estateos:dev
   volumes:
     - appdata:/app/.data  # local storage, fake mailboxes/media, dev keys: simulator, api and worker share it
-    - ${ESTATEOS_SECRETS_DIR:-${HOME}/.estateos}:/secrets:ro  # Google token files from `make gmail-consent`
+    - ../app:/app/app:ro  # live code mount for hot development
+    - ${ESTATEOS_SECRETS_DIR:-${HOME}/.estateos}:/secrets:ro  # Google token files
+  env_file:
+    - ../.env
   environment: &app-env
     ENV: dev
     DATABASE_URL: postgresql+psycopg://estateos:estateos@postgres:5432/estateos
     SENTRY_DSN: ""
-    # Agents: interpolated from the shell or the repo-root env file (Makefile passes it); default offline fakes
-    LLM_MODEL: ${LLM_MODEL:-fake}
+    # Agents: Gemini 2.5 Flash
+    LLM_MODEL: ${LLM_MODEL:-google-gla:gemini-2.5-flash}
     LLM_TIMEOUT_SEC: ${LLM_TIMEOUT_SEC:-60}
     OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     LANGFUSE_HOST: ${LANGFUSE_HOST:-}
     LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
     LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
-    # Real Gmail / Drive (testing): host paths in the env file become the same file names under /secrets
+    # Real Gmail provider with mounted credentials from env
     GMAIL_PROVIDER: ${GMAIL_PROVIDER:-fake}
     GMAIL_CREDENTIALS_FILE: ${GMAIL_CREDENTIALS_FILE:+/secrets/gmail-read.json}
     GMAIL_SEND_CREDENTIALS_FILE: ${GMAIL_SEND_CREDENTIALS_FILE:+/secrets/gmail-compose.json}
     GMAIL_PUBSUB_TOPIC: ${GMAIL_PUBSUB_TOPIC:-}
     DRIVE_PROVIDER: ${DRIVE_PROVIDER:-fake}
-    DRIVE_CREDENTIALS_FILE: ${DRIVE_CREDENTIALS_FILE:+/secrets/drive-file.json}
+    DRIVE_CREDENTIALS_FILE: ${DRIVE_CREDENTIALS_FILE:-}
 
 services:
   postgres:
@@ -53,7 +56,7 @@ services:
 
   api:
     <<: *app
-    command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+    command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/app"]
     ports: ["127.0.0.1:${API_PORT:-8000}:8000"]
     depends_on:
       migrate: {condition: service_completed_successfully}
