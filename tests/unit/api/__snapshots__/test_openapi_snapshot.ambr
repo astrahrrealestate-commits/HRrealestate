@@ -813,6 +813,7 @@
               "name": "ref",
               "required": true,
               "schema": {
+                "pattern": "^[0-9a-f-]{6,36}$",
                 "title": "Ref",
                 "type": "string"
               }
@@ -864,6 +865,7 @@
               "name": "ref",
               "required": true,
               "schema": {
+                "pattern": "^[0-9a-f-]{6,36}$",
                 "title": "Ref",
                 "type": "string"
               }

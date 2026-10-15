@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import Engine, select, update
+from fastapi import APIRouter, Depends, HTTPException, Path
+from sqlalchemy import Engine, String, cast, func, select, update
 from sqlalchemy.orm import Session
 
 from app.api.deps import WorkflowClient, get_engine, get_workflow_client
@@ -23,18 +23,20 @@ from app.api.v1.schemas import (
     RevisionOut,
     SnoozeIn,
 )
-from app.contracts import DocType
+from app.contracts import ButtonChoice, DocType
 from app.core.errors import NotFoundError
 from app.core.logging import get_logger
-from app.db.models import ActionRow, AttachmentRow, Company
+from app.core.workflow_names import DOC_SKIP
+from app.db.enums import TaskStatus
+from app.db.models import ActionRow, Company, DocumentRow, TaskRow
 from app.pipeline import approvals, dashboard_decisions, owner_commands, work_repo
 from app.pipeline.local_actions import LOCAL_TYPES
 
 router = APIRouter(tags=["decisions"], dependencies=[Depends(require_csrf)])
 log = get_logger(__name__)
 NOT_FOUND = "not found"
-SKIP = "skip"
-DOC_CHOICES = frozenset({t.value for t in DocType} | {SKIP})
+DOC_CHOICES = frozenset({t.value for t in DocType} | {DOC_SKIP})
+TaskRef = Annotated[str, Path(pattern=r"^[0-9a-f-]{6,36}$")]  # no LIKE wildcards reach resolve_task
 Owner = Annotated[Principal, Depends(require_principal)]
 Engine_ = Annotated[Engine, Depends(get_engine)]
 Client = Annotated[WorkflowClient, Depends(get_workflow_client)]
@@ -53,6 +55,8 @@ def _is_local(session: Session, company_id: UUID, action_id: UUID) -> bool:
 
 @router.post("/approvals/{approval_id}/decide")
 def decide(approval_id: UUID, body: DecideIn, who: Owner, engine: Engine_, client: Client) -> DecisionOut:
+    if body.choice is ButtonChoice.edit:
+        raise HTTPException(status_code=422, detail="use /approvals/{id}/edit")
     try:
         with Session(engine) as session, session.begin():
             d = dashboard_decisions.decide_approval(
@@ -89,18 +93,35 @@ def edit(approval_id: UUID, body: EditIn, who: Owner, engine: Engine_) -> Revisi
     return RevisionOut(action_id=rev.action_id, draft_version=rev.draft_version, approval_id=rev.approval_id)
 
 
+def _already_done(session: Session, company_id: UUID, ref: str) -> bool:
+    return (
+        session.scalar(
+            select(func.count())
+            .select_from(TaskRow)
+            .where(
+                TaskRow.company_id == company_id,
+                TaskRow.status == TaskStatus.done,
+                cast(TaskRow.id, String).like(f"%{ref}"),
+            )
+        )
+        == 1
+    )
+
+
 @router.post("/tasks/{ref}/done", status_code=204)
-def task_done(ref: str, who: Owner, engine: Engine_) -> None:
+def task_done(ref: TaskRef, who: Owner, engine: Engine_) -> None:
     try:
         with Session(engine) as session, session.begin():
             task_id = work_repo.resolve_task(session, who.company_id, ref)
             work_repo.complete_task(session, who.company_id, task_id, at=datetime.now(UTC))
     except NotFoundError:
-        raise _not_found() from None
+        with Session(engine) as session:
+            if not _already_done(session, who.company_id, ref):  # a repeated click is not an error
+                raise _not_found() from None
 
 
 @router.post("/tasks/{ref}/snooze", status_code=204)
-def task_snooze(ref: str, body: SnoozeIn, who: Owner, engine: Engine_) -> None:
+def task_snooze(ref: TaskRef, body: SnoozeIn, who: Owner, engine: Engine_) -> None:
     try:
         delta = owner_commands.parse_duration(body.duration)
     except ValueError as exc:
@@ -119,8 +140,8 @@ def file_document(attachment_id: UUID, body: FileDocumentIn, who: Owner, engine:
         raise HTTPException(status_code=422, detail="unknown document choice")
     with Session(engine) as session:
         known = session.scalar(
-            select(AttachmentRow.id).where(
-                AttachmentRow.company_id == who.company_id, AttachmentRow.id == attachment_id
+            select(DocumentRow.id).where(
+                DocumentRow.company_id == who.company_id, DocumentRow.attachment_id == attachment_id
             )
         )
     if known is None:
@@ -149,11 +170,9 @@ def resume(who: Owner, engine: Engine_, client: Client) -> PausedOut:
     changed = _set_paused(engine, who.company_id, False)
     if changed:
         log.info("dashboard.company_resumed", company_id=str(who.company_id))
-        request_id = uuid4().hex
-        with Session(engine) as session:
-            pending = approvals.approved_unexecuted(session, who.company_id)
-        for action_id, version, action_type in pending:
-            enqueue.enqueue_execute(
-                client, action_id, version, action_type in LOCAL_TYPES, suffix=f"resume:{request_id}"
-            )
+    request_id = uuid4().hex  # always re-enqueue: duplicates are safe (exec claim + DBOS id)
+    with Session(engine) as session:
+        pending = approvals.approved_unexecuted(session, who.company_id)
+    for action_id, version, action_type in pending:
+        enqueue.enqueue_execute(client, action_id, version, action_type in LOCAL_TYPES, suffix=f"resume:{request_id}")
     return PausedOut(paused=False)

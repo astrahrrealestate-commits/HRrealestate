@@ -3,7 +3,9 @@
 Execution is never started here: the caller commits, then enqueues `exec:{action_id}:{draft_version}`.
 """
 
+from collections.abc import Iterable
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select, update
@@ -11,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.contracts import ButtonChoice
 from app.core.errors import EstateOSError, NotFoundError
-from app.db.enums import FeedKind
+from app.db.enums import ApprovalStatus, FeedKind
 from app.db.models import ActionRow, Approval, CaseLink, OwnerFeed, UnderstandingRow
 from app.pipeline import approvals
 
@@ -26,30 +28,31 @@ class NotEditableError(EstateOSError):
     """The approval is no longer the live draft, or the new text is blank."""
 
 
-def _is_suspicious(session: Session, company_id: UUID, case_id: UUID | None) -> bool:
-    if case_id is None:
-        return False
-    body = session.scalar(
-        select(UnderstandingRow.body)
-        .join(CaseLink, CaseLink.message_id == UnderstandingRow.message_id)
-        .where(
-            CaseLink.company_id == company_id, UnderstandingRow.company_id == company_id, CaseLink.case_id == case_id
+def any_flagged(bodies: Iterable[dict[str, Any] | None]) -> bool:
+    return any(bool(((b or {}).get("suspicious") or {}).get("flag", False)) for b in bodies)
+
+
+def _is_suspicious(session: Session, company_id: UUID, action: ActionRow) -> bool:
+    """Any message the action answers (`context_ref`) was flagged; follow-ups with no refs fall back to the case."""
+    stmt = select(UnderstandingRow.body).where(UnderstandingRow.company_id == company_id)
+    if action.context_ref:
+        stmt = stmt.where(UnderstandingRow.message_id.in_(action.context_ref))
+    else:
+        stmt = stmt.join(CaseLink, CaseLink.message_id == UnderstandingRow.message_id).where(
+            CaseLink.company_id == company_id, CaseLink.case_id == action.case_id
         )
-        .order_by(UnderstandingRow.created_at.desc())
-        .limit(1)
-    )
-    return bool(((body or {}).get("suspicious") or {}).get("flag", False))
+    return any_flagged(session.scalars(stmt).all())
 
 
-def _approval_case(session: Session, company_id: UUID, approval_id: UUID) -> UUID | None:
+def _approval_action(session: Session, company_id: UUID, approval_id: UUID) -> tuple[Approval, ActionRow]:
     row = session.execute(
-        select(ActionRow.case_id)
-        .join(Approval, Approval.action_id == ActionRow.id)
+        select(Approval, ActionRow)
+        .join(ActionRow, Approval.action_id == ActionRow.id)
         .where(Approval.id == approval_id, Approval.company_id == company_id, ActionRow.company_id == company_id)
     ).first()
     if row is None:
         raise NotFoundError(f"approval {approval_id} not found")
-    return row[0]
+    return row[0], row[1]
 
 
 def resolve_feed(session: Session, company_id: UUID, approval_id: UUID, *, at: datetime) -> None:
@@ -74,8 +77,9 @@ def decide_approval(
     at: datetime,
     confirm_suspicious: bool,
 ) -> approvals.Decision:
-    case_id = _approval_case(session, company_id, approval_id)
-    if choice not in NON_APPROVING and not confirm_suspicious and _is_suspicious(session, company_id, case_id):
+    approval, action = _approval_action(session, company_id, approval_id)
+    gated = approval.status is ApprovalStatus.pending and choice not in NON_APPROVING and not confirm_suspicious
+    if gated and _is_suspicious(session, company_id, action):
         raise SuspiciousNeedsConfirmError("suspicious sender: confirmation required")
     decision = approvals.decide(session, company_id, approval_id, choice, at=at)
     resolve_feed(session, company_id, approval_id, at=at)
@@ -89,7 +93,11 @@ def edit_approval(
     if not text.strip():
         raise NotEditableError("blank text never replaces a draft")
     decision = approvals.decide(session, company_id, approval_id, ButtonChoice.edit, at=at)
-    revision = approvals.apply_owner_edit(session, company_id, text, now=at) if decision.kind == "edit" else None
+    revision = (
+        approvals.apply_owner_edit(session, company_id, text, now=at, approval_id=approval_id)
+        if decision.kind == "edit"
+        else None
+    )
     if revision is None or revision.action_id != decision.action_id:
         raise NotEditableError("approval is not the live draft")
     resolve_feed(session, company_id, approval_id, at=at)

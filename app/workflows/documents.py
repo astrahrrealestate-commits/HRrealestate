@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.contracts import DocType
 from app.core.settings import get_settings
-from app.core.workflow_names import FILE_DOCUMENT
+from app.core.workflow_names import DOC_SKIP, FILE_DOCUMENT
 from app.db.models import AttachmentRow, DocumentRow
 from app.ingestion.process import is_transient
 from app.llm.calls import is_transient as llm_transient
@@ -25,7 +25,7 @@ from app.workflows.deps import get_deps, get_drive, get_engine
 from app.workflows.owner_notify import send_owner_message
 from app.workflows.retry import STEP_RETRY
 
-SKIP = "skip"
+SKIP = DOC_SKIP
 
 
 def _retryable(exc: BaseException) -> bool:

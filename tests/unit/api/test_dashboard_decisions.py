@@ -14,7 +14,7 @@ from app.core.errors import NotFoundError
 from app.core.settings import Settings
 from app.main import create_app
 from app.pipeline.approvals import Decision, NewRevision
-from app.pipeline.dashboard_decisions import NotEditableError, SuspiciousNeedsConfirmError
+from app.pipeline.dashboard_decisions import NotEditableError, SuspiciousNeedsConfirmError, any_flagged
 
 SETTINGS = Settings(
     database_url="postgresql+psycopg://u:p@localhost:1/db",  # type: ignore[arg-type]
@@ -132,7 +132,7 @@ def test_snooze_and_done_use_company_and_resolved_task(client: TestClient) -> No
 
 def test_unknown_task_404(client: TestClient) -> None:
     with patch("app.api.v1.decisions.work_repo.resolve_task", side_effect=NotFoundError("x")):
-        assert client.post("/api/v1/tasks/zzzz/done", headers=H).status_code == 404
+        assert client.post("/api/v1/tasks/abcd1234/done", headers=H).status_code == 404
 
 
 def test_document_choice_validated(client: TestClient) -> None:
@@ -175,7 +175,30 @@ def test_resume_reenqueues_approved_unexecuted(client: TestClient, wf: FakeClien
     assert args == (str(a), 4, True)
 
 
-def test_resume_when_not_paused_enqueues_nothing(client: TestClient, wf: FakeClient) -> None:
-    with patch("app.api.v1.decisions._set_paused", return_value=False):
+def test_resume_when_not_paused_still_reenqueues_approved(client: TestClient, wf: FakeClient) -> None:
+    a = uuid4()
+    with (
+        patch("app.api.v1.decisions._set_paused", return_value=False),
+        patch("app.api.v1.decisions.approvals.approved_unexecuted", return_value=[(a, 1, ActionType.reply_draft)]),
+    ):
+        assert client.post("/api/v1/company/resume", headers=H).status_code == 200
+    assert len(wf.calls) == 1
+
+
+def test_resume_with_nothing_approved_enqueues_nothing(client: TestClient, wf: FakeClient) -> None:
+    with (
+        patch("app.api.v1.decisions._set_paused", return_value=False),
+        patch("app.api.v1.decisions.approvals.approved_unexecuted", return_value=[]),
+    ):
         assert client.post("/api/v1/company/resume", headers=H).status_code == 200
     assert wf.calls == []
+
+
+def test_decide_edit_choice_422_and_bad_task_ref_422(client: TestClient) -> None:
+    assert _decide(client, choice="edit").status_code == 422
+    assert client.post("/api/v1/tasks/%25%25%25%25%25%25/done", headers=H).status_code == 422
+
+
+def test_any_flagged_predicate() -> None:
+    assert any_flagged([{"suspicious": {"flag": False}}, {"suspicious": {"flag": True}}])
+    assert not any_flagged([None, {}, {"suspicious": None}, {"suspicious": {"flag": False}}])

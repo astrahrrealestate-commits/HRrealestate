@@ -29,3 +29,6 @@ def requeue_workflow_id(raw_event_id: object, attempt: int, now: object) -> str:
 def stale_event_workflow_id(raw_event_id: object, now: object) -> str:
     """Rerun of an event stranded in `pending`; one per hour at most (`now` is a datetime)."""
     return f"evt:{raw_event_id}:p{now:%Y%m%d%H}"
+
+
+DOC_SKIP = "skip"  # owner choice: do not file this attachment

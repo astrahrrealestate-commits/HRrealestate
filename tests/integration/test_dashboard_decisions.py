@@ -24,6 +24,7 @@ from app.db.models import (
     Case,
     CaseLink,
     Company,
+    DocumentRow,
     OwnerAccount,
     OwnerFeed,
     TaskRow,
@@ -57,6 +58,8 @@ class Side:
     approval: UUID
     task: UUID
     attachment: UUID
+    message: UUID
+    bare_attachment: UUID
 
 
 @dataclass
@@ -93,8 +96,15 @@ def _side(s: Session, company: Company, tag: str, *, suspicious: bool) -> Side:
     )
     s.add(UnderstandingRow(company_id=company.id, message_id=msg.id, category=Category.other, urgency=Urgency.high,
                            body={"suspicious": {"flag": suspicious}}, prompt_version="understanding/v2"))  # fmt: skip
+    bare = AttachmentRow(company_id=company.id, message_id=msg.id, s3_key="k2", mime_type="application/pdf",
+                         filename="b.pdf", size_bytes=1, sha256="1" * 64)  # fmt: skip
+    s.add(bare)
     s.flush()
-    return Side(company.id, case.id, action.id, approval.id, task.id, att.id)
+    action.context_ref = [msg.id]
+    s.add(DocumentRow(company_id=company.id, attachment_id=att.id, doc_type="lease", title="t", file_name="a.pdf",
+                      confidence=0.9))  # fmt: skip
+    s.flush()
+    return Side(company.id, case.id, action.id, approval.id, task.id, att.id, msg.id, bare.id)
 
 
 @pytest.fixture
@@ -120,8 +130,8 @@ def world(migrated_engine: Engine, pg_url: str) -> Iterator[World]:
             yield World(client, wf, a, b, migrated_engine)
         ids = [ca.id, cb.id]
         for model in (
-            OwnerFeed, ActionRevision, UnderstandingRow, CaseLink, AttachmentRow, MessageRow, RawEvent, Approval,
-            TaskRow, ActionRow, Case,
+            OwnerFeed, DocumentRow, ActionRevision, UnderstandingRow, CaseLink, AttachmentRow, MessageRow,
+            RawEvent, Approval, TaskRow, ActionRow, Case,
         ):  # fmt: skip
             s.query(model).filter(model.company_id.in_(ids)).delete(synchronize_session=False)
         s.query(OwnerAccount).filter(OwnerAccount.id == owner.id).delete()
@@ -257,3 +267,88 @@ def test_pause_resume_flag_and_reenqueue(world: World) -> None:
     assert len(world.wf.calls) == 1
     with Session(world.engine) as s:
         assert s.scalar(select(Company.paused).where(Company.id == world.b.company)) is False
+
+
+def _newer_harmless_message(w: World, *, link: bool = True) -> None:
+    with Session(w.engine) as s:
+        raw = RawEvent(company_id=w.a.company, provider=Channel.gmail, provider_msg_id=f"n-{uuid4()}", payload={})
+        s.add(raw)
+        s.flush()
+        msg = MessageRow(company_id=w.a.company, raw_event_id=raw.id, channel=Channel.gmail,
+                         provider_msg_id=raw.provider_msg_id, thread_ref="t", sender_identity="x@y.test",
+                         direction=Direction.inbound, sent_at=T0 + timedelta(hours=1), text="ok")  # fmt: skip
+        s.add(msg)
+        s.flush()
+        s.add_all([
+            CaseLink(company_id=w.a.company, case_id=w.a.case, message_id=msg.id, method=LinkMethod.thread),
+            UnderstandingRow(company_id=w.a.company, message_id=msg.id, category=Category.other, urgency=Urgency.high,
+                             body={"suspicious": {"flag": False}}, prompt_version="understanding/v2"),
+        ])  # fmt: skip
+        s.commit()
+
+
+def test_newer_harmless_message_cannot_bypass_the_gate(world: World) -> None:
+    _newer_harmless_message(world)
+    r = _decide(world, world.a.approval)
+    assert (r.status_code, r.json()["detail"]) == (409, "confirm_suspicious_required")
+    assert world.wf.calls == []
+
+
+def test_empty_context_ref_falls_back_to_any_flagged_on_case(world: World) -> None:
+    _newer_harmless_message(world)
+    with Session(world.engine) as s:
+        s.query(ActionRow).filter(ActionRow.id == world.a.action).update({"context_ref": []})
+        s.commit()
+    assert _decide(world, world.a.approval).status_code == 409
+    assert world.wf.calls == []
+
+
+def test_replay_of_approved_suspicious_returns_first_decision(world: World) -> None:
+    first = _decide(world, world.a.approval, confirm_suspicious=True)
+    replay = _decide(world, world.a.approval)
+    assert replay.status_code == 200
+    assert replay.json() == first.json()
+
+
+def test_edit_after_approval_is_409_and_enqueues_nothing(world: World) -> None:
+    _decide(world, world.a.approval, confirm_suspicious=True)
+    world.wf.calls.clear()
+    r = world.client.post(f"/api/v1/approvals/{world.a.approval}/edit", json={"text": "late"}, headers=H)
+    assert r.status_code == 409
+    assert world.wf.calls == []
+
+
+def test_deciding_the_old_approval_after_an_edit_returns_edit_without_enqueue(world: World) -> None:
+    world.client.post(f"/api/v1/approvals/{world.a.approval}/edit", json={"text": "new"}, headers=H)
+    r = _decide(world, world.a.approval, confirm_suspicious=True)
+    assert r.json()["kind"] == "edit"
+    assert world.wf.calls == []
+
+
+def test_decide_edit_choice_is_422(world: World) -> None:
+    assert _decide(world, world.a.approval, "edit").status_code == 422
+
+
+def test_done_twice_is_idempotent(world: World) -> None:
+    ref = short_ref(world.a.task)
+    assert world.client.post(f"/api/v1/tasks/{ref}/done", headers=H).status_code == 204
+    assert world.client.post(f"/api/v1/tasks/{ref}/done", headers=H).status_code == 204
+
+
+def test_task_ref_wildcards_rejected(world: World) -> None:
+    assert world.client.post("/api/v1/tasks/%25%25%25%25%25%25/done", headers=H).status_code == 422
+
+
+def test_attachment_without_document_row_404(world: World) -> None:
+    r = world.client.post(f"/api/v1/documents/{world.a.bare_attachment}/file", json={"choice": "lease"}, headers=H)
+    assert r.status_code == 404
+    assert world.wf.calls == []
+
+
+def test_resume_when_not_paused_still_reenqueues_approved(world: World) -> None:
+    with Session(world.engine) as s:
+        s.query(ActionRow).filter(ActionRow.id == world.a.action).update({"status": ActionStatus.approved})
+        s.query(Approval).filter(Approval.id == world.a.approval).update({"status": ApprovalStatus.approved})
+        s.commit()
+    assert world.client.post("/api/v1/company/resume", headers=H).status_code == 200
+    assert len(world.wf.calls) == 1
