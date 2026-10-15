@@ -18,6 +18,7 @@ from app.db.models import ModelCall
 
 log = get_logger(__name__)
 OWNER_QA_PURPOSE = "owner_qa"
+CONCIERGE_PURPOSE = "concierge"
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,11 @@ def _limits(settings: Settings, purpose: str, usage: Usage) -> list[tuple[str, D
         rows += [
             ("owner_qa_daily_budget", settings.owner_qa_daily_budget_usd, usage.purpose_spend_day),
             ("owner_qa_daily_calls", settings.owner_qa_daily_cap, usage.purpose_calls_day),
+        ]
+    if purpose == CONCIERGE_PURPOSE:
+        rows += [
+            ("concierge_daily_budget", settings.concierge_daily_budget_usd, usage.purpose_spend_day),
+            ("concierge_daily_calls", settings.concierge_daily_cap, usage.purpose_calls_day),
         ]
     return rows
 

@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from app.core.settings import Settings
-from app.llm.budget import OWNER_QA_PURPOSE, Usage, exceeded
+from app.llm.budget import CONCIERGE_PURPOSE, OWNER_QA_PURPOSE, Usage, exceeded
 
 ZERO = Decimal(0)
 
@@ -37,3 +37,11 @@ def test_owner_qa_caps_apply_only_to_owner_qa() -> None:
     u = _usage(purpose_calls_day=2)
     assert exceeded(s, OWNER_QA_PURPOSE, u) == "owner_qa_daily_calls"
     assert exceeded(s, "triage", u) is None
+
+
+def test_concierge_caps_apply_only_to_concierge() -> None:
+    s = _settings(concierge_daily_cap=2, concierge_daily_budget_usd="1")
+    assert exceeded(s, CONCIERGE_PURPOSE, _usage(purpose_calls_day=2)) == "concierge_daily_calls"
+    assert exceeded(s, CONCIERGE_PURPOSE, _usage(purpose_spend_day=Decimal(1))) == "concierge_daily_budget"
+    assert exceeded(s, OWNER_QA_PURPOSE, _usage(purpose_calls_day=2)) is None
+    assert exceeded(_settings(), CONCIERGE_PURPOSE, _usage(purpose_calls_day=99)) is None

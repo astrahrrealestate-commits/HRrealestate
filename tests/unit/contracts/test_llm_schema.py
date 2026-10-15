@@ -9,6 +9,7 @@ from app.contracts import (
     Action,
     Briefing,
     CaseSummary,
+    ConciergePlan,
     DocumentClassification,
     LinkDecision,
     OwnerAnswer,
@@ -42,7 +43,17 @@ def _walk(node: Any, path: str = "$") -> list[str]:
 
 @pytest.mark.parametrize(
     "model",
-    [Understanding, Action, LinkDecision, CaseSummary, Proposal, OwnerAnswer, Briefing, DocumentClassification],
+    [
+        Understanding,
+        Action,
+        LinkDecision,
+        CaseSummary,
+        Proposal,
+        OwnerAnswer,
+        Briefing,
+        DocumentClassification,
+        ConciergePlan,
+    ],
 )
 def test_strict_mode_compatible(model: type[BaseModel]) -> None:
     assert _walk(model.model_json_schema()) == []

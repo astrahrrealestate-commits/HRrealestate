@@ -23,6 +23,7 @@ from app.contracts.common import (
     Money,
     OutboundMode,
 )
+from app.contracts.concierge import ConciergePlan, Intent, PlanStep
 from app.contracts.document import DocType, DocumentClassification
 from app.contracts.linking import LinkDecision
 from app.contracts.message import Attachment, Message, normalise_identity
@@ -48,6 +49,7 @@ __all__ = [
     "CaseSummary",
     "Category",
     "Channel",
+    "ConciergePlan",
     "Contract",
     "CreateReminderPayload",
     "Direction",
@@ -57,6 +59,7 @@ __all__ = [
     "EmailRequest",
     "Entities",
     "EscalatePayload",
+    "Intent",
     "InteractiveChannel",
     "LinkDecision",
     "Message",
@@ -66,6 +69,7 @@ __all__ = [
     "OwnerAnswer",
     "OwnerChoice",
     "OwnerMessage",
+    "PlanStep",
     "PromptRef",
     "Proposal",
     "ReplyDraftPayload",

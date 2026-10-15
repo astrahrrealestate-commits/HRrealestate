@@ -6,6 +6,7 @@ from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart, User
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from app.contracts import Category, Urgency
+from app.llm.fakes_concierge import fake_concierge
 
 
 def _extract_user_text(messages: list[ModelMessage]) -> str:
@@ -264,6 +265,8 @@ def model_for(agent_name: str) -> FunctionModel:
             args = _fake_proposer(user_text)
         elif agent_name == "owner_qa":
             args = _fake_owner_qa(user_text)
+        elif agent_name == "concierge":
+            args = fake_concierge(user_text)
         elif agent_name == "briefing":
             args = _fake_briefing(user_text)
         elif agent_name == "doc_classifier":

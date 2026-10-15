@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     llm_daily_calls_cap: int | None = None
     owner_qa_daily_cap: int | None = None  # owner questions per day
     owner_qa_daily_budget_usd: Decimal | None = None
+    concierge_daily_cap: int | None = None  # Super Agent plans per day
+    concierge_daily_budget_usd: Decimal | None = None
 
     # Owner channel: approved WhatsApp template that reopens the 24-hour window ("{{1}} items need you").
     owner_template_name: str = "estateos_pending"
