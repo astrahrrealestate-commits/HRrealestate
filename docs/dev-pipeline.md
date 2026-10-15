@@ -49,3 +49,8 @@ mocking the unit under test.
 - [ ] No TODOs without an issue link; no commented-out code; no `print`
 - [ ] Docs touched if behaviour or contract changed (spec / HLD / ADR)
 - [ ] PROGRESS.md item ticked with evidence
+
+## Open gate notes
+- **G2 outstanding for dashboard tasks 1-9** (D1-D3): written while Docker was down, so their integration tests
+  (collected and mypy-clean, never run) and the migration round-trip have not been executed. Run `make check` once
+  Docker is available and fix what it finds before relying on send mode.

@@ -104,8 +104,9 @@ Phase 1 agents spec: [2026-10-07-estateos-phase1-agents-design.md](superpowers/s
 ## D Dashboard + Super Agent (#10) — spec [2026-10-15-dashboard-super-agent-design.md](superpowers/specs/2026-10-15-dashboard-super-agent-design.md)
 - [x] spec + ADR 0006 written (user decisions 2026-10-15: dashboard-only owner, real sends on approve, backend API only)
 - [ ] spec review by user → implementation plan
-- [ ] D1 foundation: migration 0009, auth, /api/v1 skeleton, SSE feed
-- [ ] D2 read API: inbox, cases, tasks, waits, briefing, activity
-- [ ] D3 decisions + sending: approvals API, dashboard owner channel, sender `send` mode, live-check outbound
+- [x] D1 foundation: migration 0009, auth, /api/v1 skeleton, SSE feed. G1 evidence: `make quick` -> 801 passed (task 1), 809 passed (auth), 842 passed (after review fixes), SSE feed 881 passed (task 4).
+- [x] D2 read API: inbox, cases, tasks, waits, briefing, activity. G1 evidence: `make quick` -> 903/904 passed (task 5), 923 passed (task 6 decisions).
+- [x] D3 decisions + sending: approvals API, dashboard owner channel, sender `send` mode, live-check outbound. G1 evidence: `make quick` -> `1045 passed, 4 warnings` (send mode after review fixes), `Contracts: 5 kept, 0 broken.`
+- [ ] **G2 outstanding for dashboard tasks 1-9 (D1-D3):** integration tests (342 collected, mypy clean) and the migration round-trip have NOT been run, because Docker was down. `make check` must run once Docker is back, before D3 is trusted; `make live-check k=outbound` also needs real credentials.
 - [ ] D4 Super Agent: ConciergePlan, executor, workflow, chat endpoints
 - [ ] D5 hardening: concierge golden set, injection tests, rate limits, docs, sim-demo via API

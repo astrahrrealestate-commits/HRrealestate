@@ -1,4 +1,4 @@
-"""Gmail consent: create the two authorized-user token files with minimal scopes (docs/go-live-channels.md, Gmail 3).
+"""Gmail consent: create the authorized-user token files with minimal scopes (docs/go-live-channels.md, Gmail 3).
 
 One browser consent per file, so the read token cannot draft and the compose token cannot read. A file is written only
 when the signed-in account is the expected mailbox and the granted scopes are exactly the requested ones. Output must
@@ -31,6 +31,12 @@ PURPOSES: dict[str, list[str]] = {
 }
 # Document filing (#9, ADR 0005): app-created files only. Opt-in (`--drive`), written as drive-file.json.
 DRIVE_PURPOSE: tuple[str, list[str]] = ("file", list(DRIVE_SCOPES))
+# Tenant replies in send mode: its own token, never the compose one. Same values as the sender's SEND_SCOPES (tested);
+# gmail.metadata lets the idempotency lookup (threads.get) run. Opt-in (`--reply-send`): gmail-reply-send.json.
+REPLY_SEND_PURPOSE: tuple[str, list[str]] = (
+    "reply-send",
+    ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.metadata"],
+)
 
 
 @dataclass(frozen=True)
@@ -39,7 +45,9 @@ class Consent:
     profile_email: Callable[[Credentials], str]  # the signed-in mailbox address
 
 
-def create_token_files(consent: Consent, mailbox: str, out_dir: Path, *, drive: bool = False) -> list[Path]:
+def create_token_files(
+    consent: Consent, mailbox: str, out_dir: Path, *, drive: bool = False, reply_send: bool = False
+) -> list[Path]:
     """Consent once per purpose; write `gmail-<purpose>.json` (and `drive-file.json`) only after every check passed."""
     out_dir = out_dir.expanduser().resolve()
     if _inside(out_dir, REPO_ROOT):
@@ -47,6 +55,8 @@ def create_token_files(consent: Consent, mailbox: str, out_dir: Path, *, drive: 
     wanted = {f"gmail-{purpose}": scopes for purpose, scopes in PURPOSES.items()}
     if drive:
         wanted[f"drive-{DRIVE_PURPOSE[0]}"] = DRIVE_PURPOSE[1]
+    if reply_send:
+        wanted[f"gmail-{REPLY_SEND_PURPOSE[0]}"] = REPLY_SEND_PURPOSE[1]
     tokens = {name: _checked(consent, scopes, mailbox) for name, scopes in wanted.items()}
     out_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     return [_write_private(out_dir / f"{name}.json", creds.to_json()) for name, creds in tokens.items()]
@@ -104,11 +114,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mailbox", required=True, help="the mailbox address the tokens must belong to")
     parser.add_argument("--out-dir", type=Path, required=True, help="directory outside the repository")
     parser.add_argument("--drive", action="store_true", help="also create drive-file.json (document filing, #9)")
+    parser.add_argument(
+        "--reply-send", action="store_true", help="also create gmail-reply-send.json (tenant replies, send mode)"
+    )
     args = parser.parse_args(argv)
     if "@" not in args.mailbox:  # fail before two browser consents, not after
         parser.error(f"--mailbox must be an email address, got {args.mailbox!r}")
     consent = google_consent(args.client.expanduser())
-    for path in create_token_files(consent, args.mailbox, args.out_dir, drive=args.drive):
+    for path in create_token_files(consent, args.mailbox, args.out_dir, drive=args.drive, reply_send=args.reply_send):
         log.info("gmail.consent.written", path=str(path))
     return 0
 

@@ -14,6 +14,16 @@ from app.sender.settings import SenderSettings
 
 Configured = Callable[[str], bool]
 
+# Settings a named live check needs. Reused by the test markers, so the list and the gate cannot drift apart.
+LIVE_REQUIREMENTS: dict[str, tuple[str, ...]] = {
+    # Tenant reply path in send mode: reads one thread (read token), sends to the mailbox itself (reply-send token).
+    "outbound": ("GMAIL_CREDENTIALS_FILE", "GMAIL_REPLY_SEND_CREDENTIALS_FILE", "LIVE_GMAIL_MAILBOX"),
+}
+
+
+def live_requirements(name: str) -> tuple[str, ...]:
+    return LIVE_REQUIREMENTS[name]
+
 
 def _present(value: object) -> bool:
     if isinstance(value, SecretStr):

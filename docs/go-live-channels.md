@@ -78,10 +78,13 @@ internal apps). Two separate credential files keep reading and drafting apart.
 | `GMAIL_PROVIDER` | `google` |
 | `GMAIL_CREDENTIALS_FILE` | path to the `gmail.readonly` authorized-user file (step 3: `gmail-read.json`) |
 | `GMAIL_SEND_CREDENTIALS_FILE` | path to the `gmail.compose` authorized-user file (`gmail-compose.json`; read only by `app/sender`) |
+| `GMAIL_REPLY_SEND_CREDENTIALS_FILE` | send mode only: path to the `gmail.send` + `gmail.metadata` authorized-user file (`gmail-reply-send.json`, created with `reply_send=1`; read only by `app/sender`; separate from the compose token) |
+| `TENANT_SENDS_PER_HOUR` | send mode only: tenant sends per company and hour (default 30); beyond it approvals are blocked |
 | `GMAIL_PUBSUB_TOPIC` | `projects/<project>/topics/gmail-estateos` |
 | `GMAIL_PUBSUB_AUDIENCE` | the audience configured on the push subscription |
 | `GMAIL_PUBSUB_SERVICE_ACCOUNT` | the push service account email (step 5) |
 | `LIVE_GMAIL_MAILBOX` *(check only)* | Harjot's mailbox address |
+| `LIVE_WHATSAPP_TEST_TO` *(check only)* | optional: the owner's number (must equal `LIVE_WHATSAPP_OWNER`); lets the outbound check send one WhatsApp text |
 
 The live checks: read history and recent mail with the read-only credentials (and confirm they belong to that
 mailbox), register the watch on the topic, fetch Google's push signing certs, and create **one** draft addressed to
@@ -108,6 +111,53 @@ and nothing is ever sent. Approved replies become **real Gmail drafts** in the m
    the test mail first, then pull; run it again after each further test mail.
 6. `make pending`: lists the proposals waiting for approval. `make approve n=1 choice=d1`: taps draft 1 as Harjot.
 7. Open Gmail → Drafts: the reply sits in the tenant's thread. Nothing was sent; delete the draft any time.
+
+## Switching a company to send
+
+Until this step every approved reply stays a Gmail draft or an owner-only message: `companies.outbound_mode` defaults
+to `draft`. In `send` mode an approve click sends the reply to the tenant, on the channel the tenant wrote on
+(Gmail reply in the same thread, or a WhatsApp text inside the 24 h window). The mode is per company.
+
+**Prerequisites**
+1. `make live-check k=outbound` is green. It lists the missing settings and exits 2 before any provider call when
+   the reply-send token or the mailbox is absent. When green it has sent one real reply **to the test mailbox itself**
+   and proved that a repeated call returns the same message (no second email). With `LIVE_WHATSAPP_TEST_TO` set to the
+   owner's number it also sends one WhatsApp text, and refuses any other number.
+2. Harjot's written OK to send to tenants on his behalf.
+3. The reply-send token: `make gmail-consent client=~/.estateos/client.json mailbox=<mailbox> out=~/.estateos reply_send=1`
+   writes `gmail-reply-send.json` (scopes `gmail.send` + `gmail.metadata`, nothing else; the consent also rewrites the
+   read and compose files). Set `GMAIL_REPLY_SEND_CREDENTIALS_FILE` to it and redeploy (compose maps it to
+   `/secrets/gmail-reply-send.json`). Without it Gmail replies are blocked, never sent through the compose token.
+
+**Switch** (one company):
+
+```sql
+update companies set outbound_mode='send' where id=<company>;
+```
+
+**Verify:** make a test tenant (your own address or number) write in, approve the proposed reply in the dashboard and
+confirm it arrives. Check the `sends` row is `sent`. Only then tell Harjot to approve real cases.
+
+**Rollback** (takes effect for the next send; approvals already sent cannot be recalled):
+
+```sql
+update companies set outbound_mode='draft' where id=<company>;
+```
+
+**When a send is blocked** the approval stays valid, nothing is sent, and the dashboard feed shows why:
+- *WhatsApp window closed: the tenant wrote more than 23 h ago* — reply by email or wait for the tenant's next message.
+- *hourly tenant send cap reached* — `TENANT_SENDS_PER_HOUR` per company; retry later or raise the setting and restart.
+  Drafts created in the last hour count too, so the first hour after switching can hit the cap early.
+- *Gmail sending is not configured: GMAIL_REPLY_SEND_CREDENTIALS_FILE (gmail.send) is missing* — create the token (step 3).
+- Others: company paused, mode back on `draft`, the recipient is no longer the case's own contact, the draft was edited
+  after approval, a body over WhatsApp's 4096 characters.
+A send that failed after the provider may have accepted it is reported as "delivery status unknown": check the thread
+before resending.
+
+**Gmail scope caveat.** `gmail.compose` (drafts, owner digest) can technically also call `messages.send`, so OAuth
+scopes alone do not stop that token from sending. The separation is enforced in code: only `app/sender` holds either
+token, `send_message` is limited to the owner's own addresses, and tenant replies go only through `send_reply` on the
+separate reply-send token.
 
 ## WhatsApp
 
