@@ -100,3 +100,12 @@ Phase 1 agents spec: [2026-10-07-estateos-phase1-agents-design.md](superpowers/s
 - [ ] one day of shadow running on live mail (needs live credentials, user)
 - [x] (carried from M1) DBOS system-table retention/GC (daily DBOS system-table retention 30 days with DBOS GC)
 - [ ] (carried from M1) image CVE scan in CI (Docker Scout reports 3 high Debian CVEs in python:3.12-slim)
+
+## D Dashboard + Super Agent (#10) — spec [2026-10-15-dashboard-super-agent-design.md](superpowers/specs/2026-10-15-dashboard-super-agent-design.md)
+- [x] spec + ADR 0006 written (user decisions 2026-10-15: dashboard-only owner, real sends on approve, backend API only)
+- [ ] spec review by user → implementation plan
+- [ ] D1 foundation: migration 0009, auth, /api/v1 skeleton, SSE feed
+- [ ] D2 read API: inbox, cases, tasks, waits, briefing, activity
+- [ ] D3 decisions + sending: approvals API, dashboard owner channel, sender `send` mode, live-check outbound
+- [ ] D4 Super Agent: ConciergePlan, executor, workflow, chat endpoints
+- [ ] D5 hardening: concierge golden set, injection tests, rate limits, docs, sim-demo via API
