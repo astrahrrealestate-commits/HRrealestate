@@ -3,7 +3,14 @@
 from uuid import UUID
 
 from app.api.deps import WorkflowClient
-from app.core.workflow_names import DOCUMENTS_QUEUE, EXECUTE_ACTION, FILE_DOCUMENT, PIPELINE_QUEUE
+from app.core.workflow_names import (
+    CONCIERGE_TURN,
+    DOCUMENTS_QUEUE,
+    EXECUTE_ACTION,
+    FILE_DOCUMENT,
+    PIPELINE_QUEUE,
+    concierge_workflow_id,
+)
 
 
 def enqueue_execute(
@@ -23,3 +30,13 @@ def enqueue_filing(client: WorkflowClient, company_id: UUID, attachment_id: UUID
         "queue_partition_key": str(company_id),
     }
     client.enqueue(options, str(company_id), str(attachment_id), choice)
+
+
+def enqueue_turn(client: WorkflowClient, turn_id: UUID) -> None:
+    """`concierge:{turn_id}` on the pipeline queue, after the turn row committed."""
+    options = {
+        "queue_name": PIPELINE_QUEUE,
+        "workflow_name": CONCIERGE_TURN,
+        "workflow_id": concierge_workflow_id(turn_id),
+    }
+    client.enqueue(options, str(turn_id))

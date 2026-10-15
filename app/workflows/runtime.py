@@ -11,6 +11,7 @@ from app.core.settings import Settings
 from app.workflows import (
     actions,
     briefings,
+    concierge,
     documents,
     followups,
     ingest,
@@ -28,6 +29,7 @@ from app.workflows import (
 _REGISTERED = (
     actions,
     briefings,
+    concierge,
     documents,
     followups,
     ingest,

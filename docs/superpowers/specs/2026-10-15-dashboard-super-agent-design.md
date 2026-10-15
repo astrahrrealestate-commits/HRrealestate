@@ -86,6 +86,8 @@ Writes return the new state. Every write goes through the same services and guar
   click sends**. The agent can never approve on his behalf and never chooses a recipient.
 - Specialists are existing code and agents called in a fixed order. No agent-to-agent LLM loops; every turn is bounded
   (max steps, one model call to plan, one optional call to phrase the answer).
+  *Deviation (v1, Task 13):* the phrasing call is dropped. The answer is the step summaries, one per line in plan
+  order, assembled in code; step results never go back to a model. This keeps turns bounded and cheap.
 - `agent_conversations(id, company_id, owner_id)` and `agent_turns(id, conversation_id, text, plan jsonb, results jsonb,
   answer, status, prompt_ref, created_at)`; workflow id `concierge:{turn_id}`; per-company turn and token caps reuse the
   M4 budget. Failure falls back to `owner_qa`, then to a fixed message. Migration 0009.

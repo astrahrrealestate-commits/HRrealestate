@@ -2,6 +2,7 @@
 
 Postgres is the source of truth; the stream just polls it, so a restart or dropped connection loses nothing:
 the client reconnects with `Last-Event-ID` (the cursor of the last event it saw) and resumes.
+The stream also carries Super Agent `turn` events; their cursor scheme is in `app.api.v1.turn_events`.
 """
 
 import asyncio
@@ -20,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.auth import Principal, require_principal
 from app.api.v1.schemas import FeedItem
+from app.api.v1.turn_events import TurnPoller
 from app.pipeline.read_repo import MAX_PAGE, BadCursorError, Cursor, feed_page, parse_cursor
 
 POLL_INTERVAL_S = 1.5
@@ -75,6 +77,7 @@ async def event_stream(
     ping_interval: float | None = None,
     max_lifetime: float | None = None,
     clock: Callable[[], float] = time.monotonic,
+    turns: TurnPoller | None = None,
 ) -> AsyncIterator[str]:
     """Poll loop. Ends on disconnect, on error (final `error` frame) or after `max_lifetime` so the client
     reconnects and re-authenticates."""
@@ -87,6 +90,8 @@ async def event_stream(
             return
         try:
             frames, after = await run_in_threadpool(poll_frames, engine, company_id, after)
+            if turns is not None:
+                frames += await run_in_threadpool(turns.poll)
         except Exception as exc:
             log.warning("dashboard.events.stream_error", error=type(exc).__name__)
             yield 'event: error\ndata: {"detail":"stream ended"}\n\n'
@@ -121,7 +126,9 @@ async def get_events(
     request: Request, principal: Annotated[Principal, Depends(require_principal)]
 ) -> StreamingResponse:
     after = start_cursor(request.headers.get("last-event-id"))
-    stream = event_stream(request, request.app.state.engine, principal.company_id, after)
+    engine = request.app.state.engine
+    turns = TurnPoller(engine, principal.company_id, principal.owner_id)
+    stream = event_stream(request, engine, principal.company_id, after, turns=turns)
     return StreamingResponse(
         stream, media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
     )

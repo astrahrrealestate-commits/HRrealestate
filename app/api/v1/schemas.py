@@ -3,7 +3,7 @@
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
 from app.contracts import (
     ActionType,
@@ -24,7 +24,9 @@ from app.db.enums import (
     PipelineStatus,
     TaskPriority,
     TaskStatus,
+    TurnStatus,
 )
+from app.pipeline.owner_commands import MAX_QUESTION_CHARS, TOO_LONG
 
 
 class FeedItem(BaseModel):
@@ -219,3 +221,52 @@ class ReviewDocumentOut(BaseModel):
     case_id: UUID | None
     suggested_type: str
     created_at: AwareDatetime
+
+
+class AgentMessageIn(BaseModel):
+    text: str = Field(min_length=1, json_schema_extra={"maxLength": MAX_QUESTION_CHARS})
+    conversation_id: UUID | None = None
+
+    @field_validator("text")
+    @classmethod
+    def _not_too_long(cls, value: str) -> str:
+        if len(value) > MAX_QUESTION_CHARS:
+            raise ValueError(TOO_LONG)
+        return value
+
+
+class AgentMessageOut(BaseModel):
+    conversation_id: UUID
+    turn_id: UUID
+
+
+class TurnOut(BaseModel):
+    """`plan`/`results` may quote untrusted message text: data for the SPA to show as text, never markup."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    text: str
+    status: TurnStatus
+    plan: dict[str, Any] | None
+    results: list[dict[str, Any]] | None
+    answer: str | None
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+
+
+class ConversationOut(BaseModel):
+    id: UUID
+    turns: list[TurnOut]
+
+
+class TurnEvent(BaseModel):
+    """SSE `turn` event: the turn's current state."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    conversation_id: UUID
+    status: TurnStatus
+    answer: str | None
+    updated_at: AwareDatetime

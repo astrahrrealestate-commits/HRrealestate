@@ -13,6 +13,12 @@ OWNER_REPLY = "owner.reply"
 PIPELINE_ENTRY = "pipeline.entry"
 EXECUTE_ACTION = "actions.execute_action"
 FILE_DOCUMENT = "documents.file_document"
+CONCIERGE_TURN = "concierge.turn"
+
+
+def concierge_workflow_id(turn_id: object) -> str:
+    """`concierge:<turn_id>`: one Super Agent run per turn; DBOS dedupes a repeated enqueue."""
+    return f"concierge:{turn_id}"
 
 
 def event_workflow_id(raw_event_id: object) -> str:

@@ -31,7 +31,7 @@ from app.pipeline.concierge_base import (
     task_ref,
 )
 
-__all__ = ["MAX_STEPS", "StepResult", "check_step", "needs_detail", "run_plan", "validate_plan"]
+__all__ = ["MAX_STEPS", "StepResult", "check_step", "is_transient", "needs_detail", "run_plan", "validate_plan"]
 
 MAX_STEPS = 4
 _USES_CASE = frozenset({Intent.case_status, Intent.draft_reply, Intent.chase_now, Intent.open_view})
@@ -101,7 +101,7 @@ def validate_plan(session: Session, company_id: UUID, plan: ConciergePlan) -> li
     return [s for s in plan.steps[:MAX_STEPS] if check_step(session, company_id, s) is None]
 
 
-def _transient(exc: BaseException) -> bool:
+def is_transient(exc: BaseException) -> bool:
     """Infrastructure hiccups the calling DBOS step should retry: DB connection/pool trouble, network, provider 5xx."""
     if bool(getattr(exc, "retryable", False)) or llm_transient(exc):
         return True
@@ -119,7 +119,7 @@ def _run_step(ctx: Ctx, step: PlanStep) -> StepResult:
             return failed(step, problem)
         return _HANDLERS[step.intent](ctx, step)
     except Exception as exc:
-        if _transient(exc):
+        if is_transient(exc):
             raise
         log.warning(
             "concierge.step_failed", company_id=str(ctx.company_id), intent=step.intent.value, error=type(exc).__name__
