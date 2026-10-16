@@ -12,14 +12,17 @@ from pydantic_core import to_jsonable_python
 from app.core.errors import AgentFailedError, BudgetExceededError
 from app.db.enums import TurnStatus
 from app.llm.agents.concierge import concierge_prompt
-from app.llm.agents.owner_qa import CaseBrief
+from app.llm.agents.owner_qa import FALLBACK_ANSWER, CaseBrief
 from app.pipeline.concierge import is_transient
 from app.pipeline.concierge_base import StepResult
+from app.pipeline.owner_commands import LIMIT_ANSWER
 from app.pipeline.work_repo import short_ref
 
 MAX_BRIEF_CASES = 20
 MAX_BRIEF_TASKS = 20
-MAX_HISTORY_TURNS = 4
+MAX_HISTORY_TURNS = 6
+MAX_OWNER_CHARS = 400
+MAX_ANSWER_CHARS = 300
 PROMPT_REF = "concierge/v1"
 EMPTY_PLAN = "I am not sure what to do with that. Try rephrasing it, or send `help` for the commands."
 APOLOGY = "Sorry, something went wrong with that message. Please try again in a moment."
@@ -64,11 +67,34 @@ def task_brief(task_id: UUID, title: str) -> str:
     return f"#{short_ref(task_id)} {title}"
 
 
+NO_INFORMATION = (APOLOGY, FALLBACK_ANSWER, LIMIT_ANSWER, EMPTY_PLAN)
+
+
+def _cap(text: str, limit: int) -> str:
+    return " ".join(text.split())[:limit]
+
+
+def history_lines(exchanges: Sequence[tuple[str, str | None, TurnStatus]]) -> list[str]:
+    """`owner: ...` then `assistant: ...` lines of the last `MAX_HISTORY_TURNS` usable exchanges, oldest first.
+    Failed turns, turns without an answer and the fixed texts that carry no information are skipped. The answers can
+    quote tenant text, so these lines only ever reach a model through the escaped history block."""
+    usable = [
+        (text, answer)
+        for text, answer, status in exchanges
+        if status is TurnStatus.done and answer and answer.strip() not in NO_INFORMATION
+    ]
+    lines: list[str] = []
+    for text, answer in usable[-MAX_HISTORY_TURNS:]:
+        lines.append(f"owner: {_cap(text, MAX_OWNER_CHARS)}")
+        lines.append(f"assistant: {_cap(answer, MAX_ANSWER_CHARS)}")
+    return lines
+
+
 def build_prompt(text: str, history: Sequence[str], cases: Sequence[CaseBrief], tasks: Sequence[str]) -> str:
-    """The planner prompt with the brief capped: newest 20 cases and 20 tasks, the last 4 earlier turns."""
+    """The planner prompt with the brief capped: newest 20 cases and 20 tasks, the history lines already capped."""
     return concierge_prompt(
         text,
-        list(history)[-MAX_HISTORY_TURNS:],
+        list(history)[-2 * MAX_HISTORY_TURNS :],
         list(cases)[:MAX_BRIEF_CASES],
         list(tasks)[:MAX_BRIEF_TASKS],
     )

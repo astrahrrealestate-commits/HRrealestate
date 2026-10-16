@@ -66,14 +66,14 @@ def _brief(n: int) -> CaseBrief:
 def test_prompt_caps_cases_tasks_and_history() -> None:
     cases = [_brief(n) for n in range(1, 31)]
     tasks = [f"task-{n}" for n in range(30)]
-    history = [f"earlier-{n}" for n in range(10)]
+    history = [f"earlier-{n:02d}" for n in range(16)]
     prompt = build_prompt("what now?", history, cases, tasks)
     assert prompt.count("case: ") == MAX_BRIEF_CASES
     assert prompt.count("task: ") == MAX_BRIEF_TASKS
     assert str(UUID(int=20)) in prompt
     assert str(UUID(int=21)) not in prompt
     kept = [h for h in history if h in prompt]
-    assert kept == history[-MAX_HISTORY_TURNS:]
+    assert kept == history[-2 * MAX_HISTORY_TURNS :]
     assert "<message>\nwhat now?\n</message>" in prompt
 
 

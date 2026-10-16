@@ -8,7 +8,8 @@ from app.llm.calls import AgentSpec
 from app.llm.prompts import LoadedPrompt
 from app.llm.render import data_block
 
-MAX_HISTORY = 6
+MAX_HISTORY = 12  # lines: `owner:` and `assistant:` for each of 6 turns
+MAX_HISTORY_LINE = 420  # an `owner: ` prefix plus 400 characters
 
 
 def _unchanged(output: ConciergePlan, _loaded: LoadedPrompt) -> ConciergePlan:
@@ -28,5 +29,5 @@ def concierge_prompt(
     ]
     tasks = [f"task: {t}" for t in open_tasks]
     data = "\n".join([*lines, *tasks]) or "no open cases or tasks"
-    history = "\n".join(" ".join(r.split())[:400] for r in recent[-MAX_HISTORY:]) or "no earlier messages"
+    history = "\n".join(" ".join(r.split())[:MAX_HISTORY_LINE] for r in recent[-MAX_HISTORY:]) or "no earlier messages"
     return f"{data_block('data', data)}\n{data_block('history', history)}\n{data_block('message', question)}"

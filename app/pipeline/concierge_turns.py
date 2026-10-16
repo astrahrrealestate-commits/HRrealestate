@@ -41,6 +41,7 @@ from app.pipeline.concierge_outcome import (
     build_prompt,
     failed_outcome,
     fallback_for,
+    history_lines,
     result_json,
     stored_answer,
     task_brief,
@@ -139,10 +140,10 @@ def _brief(engine: Engine, start: TurnStart) -> tuple[list[CaseBrief], list[str]
         ]
         open_tasks = work_repo.open_tasks(session, cid, now=start.at)[:MAX_BRIEF_TASKS]
         tasks = [task_brief(t.id, t.title) for t in open_tasks]
-        history = read_turns.earlier_texts(
+        exchanges = read_turns.earlier_exchanges(
             session, cid, start.conversation_id, (start.at, start.turn_id), MAX_HISTORY_TURNS
         )
-    return briefs, tasks, history
+    return briefs, tasks, history_lines(exchanges)
 
 
 def _owner_qa(engine: Engine, settings: Settings, start: TurnStart) -> str:

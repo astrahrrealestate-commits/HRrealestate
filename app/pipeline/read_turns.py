@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
 
+from app.db.enums import TurnStatus
 from app.db.models import AgentConversation, AgentTurn
 
 MAX_CONVERSATION_TURNS = 50
@@ -40,21 +41,28 @@ def conversation_turns(
     return list(reversed(newest))
 
 
-def earlier_texts(
+def earlier_exchanges(
     session: Session, company_id: UUID, conversation_id: UUID, before: TurnCursor, limit: int
-) -> list[str]:
-    """The owner's texts of the `limit` turns before `before` (created_at, id) in the conversation, oldest first."""
-    rows = session.scalars(
-        select(AgentTurn.text)
+) -> list[tuple[str, str | None, TurnStatus]]:
+    """(owner text, answer, status) of the `limit` answered, not failed turns before `before` (created_at, id) in the
+    conversation, oldest first. The conversation is joined on the company, so a foreign conversation yields nothing."""
+    rows = session.execute(
+        select(AgentTurn.text, AgentTurn.answer, AgentTurn.status)
+        .join(
+            AgentConversation,
+            (AgentConversation.id == AgentTurn.conversation_id) & (AgentConversation.company_id == company_id),
+        )
         .where(
             AgentTurn.company_id == company_id,
             AgentTurn.conversation_id == conversation_id,
+            AgentTurn.status == TurnStatus.done,
+            AgentTurn.answer.is_not(None),
             tuple_(AgentTurn.created_at, AgentTurn.id) < tuple_(*before),
         )
         .order_by(AgentTurn.created_at.desc(), AgentTurn.id.desc())
         .limit(limit)
     ).all()
-    return list(reversed(rows))
+    return [(r.text, r.answer, r.status) for r in reversed(rows)]
 
 
 def turns_changed_after(
