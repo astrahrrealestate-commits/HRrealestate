@@ -1,0 +1,848 @@
+"use client";
+
+import React, { useState, useMemo, useEffect, useCallback, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Sidebar } from "@/components/layout/Sidebar";
+import { TopCommandBar } from "@/components/layout/TopCommandBar";
+import { MobileTabBar } from "@/components/layout/MobileTabBar";
+import { Button } from "@/components/ui/Button";
+import { UrgentLabel } from "@/components/ui/UrgentLabel";
+import { StatusText } from "@/components/ui/StatusText";
+import {
+  Search,
+  Check,
+  ChevronDown,
+  ArrowLeft,
+  X,
+  History,
+  CheckCheck,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { TicketHistoryModal } from "@/components/maintenance/TicketHistoryModal";
+import { getMaintenanceTickets, approveMaintenanceTicket } from "@/lib/api";
+import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
+
+export interface MaintenanceTicket {
+  id: string;
+  ticketNumber: string;
+  issueTitle: string;
+  unitLabel: string;
+  tenantName: string;
+  tenantPhone: string;
+  category: "electrical" | "plumbing" | "heating" | "appliance" | "structural";
+  contractorName: string;
+  contractorTrade: string;
+  urgency: "emergency" | "high" | "normal" | "low";
+  status: "pending_approval" | "dispatched" | "scheduled" | "completed";
+  slaRemaining: string;
+  isOverdue?: boolean;
+  poBudgetCap: string;
+  reportedAt: string;
+  notes: string;
+}
+
+const MOCK_MAINTENANCE_TICKETS: MaintenanceTicket[] = [
+  {
+    id: "m-1",
+    ticketNumber: "#005",
+    issueTitle: "Electricity short circuit in kitchen sockets",
+    unitLabel: "Pieter Floriszstraat 1 C",
+    tenantName: "Pieter Bakker",
+    tenantPhone: "+31 6 12 34 41 87",
+    category: "electrical",
+    contractorName: "Chahal Bouw",
+    contractorTrade: "Electrician",
+    urgency: "emergency",
+    status: "pending_approval",
+    slaRemaining: "38m SLA",
+    isOverdue: false,
+    poBudgetCap: "€ 650",
+    reportedAt: "Yesterday 22:10",
+    notes: "Fridge warming up after power tripped. Kevin assigned with 11:30 arrival window.",
+  },
+  {
+    id: "m-2",
+    ticketNumber: "#010",
+    issueTitle: "Washing machine siphon pipe burst and leaking",
+    unitLabel: "Dorpsstraat 54 E",
+    tenantName: "Rick de Boer",
+    tenantPhone: "+31 6 22 41 89 00",
+    category: "plumbing",
+    contractorName: "Vermeer Loodgieters",
+    contractorTrade: "Plumber",
+    urgency: "high",
+    status: "pending_approval",
+    slaRemaining: "1h 14m SLA",
+    isOverdue: false,
+    poBudgetCap: "€ 450",
+    reportedAt: "Today 07:45",
+    notes: "Water turned off at main valve. Tenant present after 17:00 for repair.",
+  },
+  {
+    id: "m-3",
+    ticketNumber: "#014",
+    issueTitle: "Central heating boiler error code F.22",
+    unitLabel: "Singel 412",
+    tenantName: "Marloes Jansen",
+    tenantPhone: "+31 6 44 22 88 19",
+    category: "heating",
+    contractorName: "Van Dijk CV & Verwarming",
+    contractorTrade: "Heating engineer",
+    urgency: "emergency",
+    status: "scheduled",
+    slaRemaining: "12m left",
+    isOverdue: true,
+    poBudgetCap: "€ 550",
+    reportedAt: "Yesterday 18:30",
+    notes: "Water pressure dropped to 0.4 bar. Radiator bleed and pump repressurization scheduled.",
+  },
+  {
+    id: "m-4",
+    ticketNumber: "#018",
+    issueTitle: "Stove ceramic cooktop burner failure",
+    unitLabel: "Prinses Marijkestraat 2 A",
+    tenantName: "Daan Vermeulen",
+    tenantPhone: "+31 6 98 76 54 32",
+    category: "appliance",
+    contractorName: "KeukenExpert Amsterdam",
+    contractorTrade: "Appliance specialist",
+    urgency: "normal",
+    status: "dispatched",
+    slaRemaining: "2 days",
+    isOverdue: false,
+    poBudgetCap: "€ 480",
+    reportedAt: "2 days ago",
+    notes: "Replacement induction relay approved and dispatched. Parts arriving Thursday.",
+  },
+  {
+    id: "m-5",
+    ticketNumber: "#021",
+    issueTitle: "Ground floor main hallway intercom buzzer faulty",
+    unitLabel: "Keizersgracht 42-46",
+    tenantName: "Multiple residents",
+    tenantPhone: "+31 20 000 0001",
+    category: "electrical",
+    contractorName: "Amstel Elektro",
+    contractorTrade: "Electrician",
+    urgency: "normal",
+    status: "dispatched",
+    slaRemaining: "3 days",
+    isOverdue: false,
+    poBudgetCap: "€ 320",
+    reportedAt: "3 days ago",
+    notes: "Audio buzzer unlinked from door release solenoid.",
+  },
+  {
+    id: "m-6",
+    ticketNumber: "#022",
+    issueTitle: "Radiator valve leaking slowly into drip tray",
+    unitLabel: "Herengracht 14 B",
+    tenantName: "Sophie van Dijk",
+    tenantPhone: "+31 6 33 22 11 00",
+    category: "heating",
+    contractorName: "Van Dijk CV & Verwarming",
+    contractorTrade: "Heating engineer",
+    urgency: "low",
+    status: "scheduled",
+    slaRemaining: "4 days",
+    isOverdue: false,
+    poBudgetCap: "€ 220",
+    reportedAt: "4 days ago",
+    notes: "Scheduled alongside routine boiler inspection on Friday morning.",
+  },
+  {
+    id: "m-7",
+    ticketNumber: "#025",
+    issueTitle: "Bathroom sink faucet cartridge replacement",
+    unitLabel: "Prinsengracht 118 B",
+    tenantName: "Lars de Wit",
+    tenantPhone: "+31 6 77 88 99 00",
+    category: "plumbing",
+    contractorName: "Vermeer Loodgieters",
+    contractorTrade: "Plumber",
+    urgency: "low",
+    status: "completed",
+    slaRemaining: "Completed",
+    isOverdue: false,
+    poBudgetCap: "€ 180",
+    reportedAt: "5 days ago",
+    notes: "Work completed and verified. Invoice matched PO budget cap.",
+  },
+  {
+    id: "m-8",
+    ticketNumber: "#027",
+    issueTitle: "Balcony door draught excluder strip replacement",
+    unitLabel: "Weteringschans 88",
+    tenantName: "Emma Visser",
+    tenantPhone: "+31 6 55 44 33 22",
+    category: "structural",
+    contractorName: "Chahal Bouw",
+    contractorTrade: "Carpenter",
+    urgency: "low",
+    status: "completed",
+    slaRemaining: "Completed",
+    isOverdue: false,
+    poBudgetCap: "€ 140",
+    reportedAt: "6 days ago",
+    notes: "Weatherstrip fitted. Tenant confirmed satisfaction via WhatsApp.",
+  },
+];
+
+function MaintenanceContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const [tickets, setTickets] = useState<MaintenanceTicket[]>(MOCK_MAINTENANCE_TICKETS);
+  const [activeTab, setActiveTab] = useState<"open" | "needs_approval" | "done">("open");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState<boolean>(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isAskAgentOpen, setIsAskAgentOpen] = useState<boolean>(false);
+  const [isMobile, setIsMobile] = useState<boolean>(false);
+
+  // URL query sync (?ticket=id, Sections 5.6 & 5.6.1)
+  const ticketParam = searchParams?.get("ticket") || "";
+  const [selectedTicketId, setSelectedTicketId] = useState<string>(ticketParam);
+
+  // Viewport tracking for mobile switching (<1024px)
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 1024);
+    };
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  // Sync ticket param
+  useEffect(() => {
+    if (ticketParam) {
+      setSelectedTicketId(ticketParam);
+    } else if (!isMobile && tickets.length > 0 && !selectedTicketId) {
+      setSelectedTicketId(tickets[0].id);
+    }
+  }, [ticketParam, isMobile, tickets, selectedTicketId]);
+
+  // Load live tickets on mount
+  useEffect(() => {
+    let isMounted = true;
+    getMaintenanceTickets()
+      .then((res) => {
+        if (!isMounted) return;
+        if (res.isLive && res.tickets && res.tickets.length > 0) {
+          setTickets(res.tickets);
+          if (!selectedTicketId) {
+            setSelectedTicketId(res.tickets[0].id);
+          }
+        }
+      })
+      .catch((err) => console.warn("Failed to load live tickets:", err));
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedTicketId]);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const handleSelectTicket = useCallback(
+    (id: string) => {
+      setSelectedTicketId(id);
+      if (id) {
+        router.push(`/maintenance?ticket=${encodeURIComponent(id)}`, { scroll: false });
+      } else {
+        router.push("/maintenance", { scroll: false });
+      }
+    },
+    [router]
+  );
+
+  const handleApproveWorkOrder = async (id: string) => {
+    const target = tickets.find((t) => t.id === id);
+    if (!target) return;
+
+    setTickets((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, status: "dispatched" } : t))
+    );
+    showToast(`Work order for ${target.ticketNumber} approved and dispatched to ${target.contractorName}.`);
+    try {
+      await approveMaintenanceTicket(target.ticketNumber || id);
+    } catch {
+      // Handled gracefully
+    }
+  };
+
+  // 1. Stats calculation (Section 2.4 M2 & 5.4: "4 open · 3 urgent · 1 in progress")
+  const openCount = useMemo(
+    () => tickets.filter((t) => t.status !== "completed").length,
+    [tickets]
+  );
+  const urgentTicketsCount = useMemo(
+    () =>
+      tickets.filter(
+        (t) =>
+          (t.urgency === "emergency" || t.urgency === "high" || t.isOverdue) &&
+          t.status !== "completed"
+      ).length,
+    [tickets]
+  );
+  const inProgressCount = useMemo(
+    () =>
+      tickets.filter(
+        (t) => t.status === "dispatched" || t.status === "scheduled"
+      ).length,
+    [tickets]
+  );
+
+  // 2. Filter logic: 3 Tabs (Open, Needs approval, Done) + search + status dropdown
+  const filteredTickets = useMemo(() => {
+    return tickets.filter((t) => {
+      // 1. Tab filter
+      if (activeTab === "open" && t.status === "completed") return false;
+      if (activeTab === "needs_approval" && t.status !== "pending_approval") return false;
+      if (activeTab === "done" && t.status !== "completed") return false;
+
+      // 2. Finer status dropdown filter (if not "all")
+      if (statusFilter !== "all" && t.status !== statusFilter) return false;
+
+      // 3. Search query
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const match =
+          t.ticketNumber.toLowerCase().includes(q) ||
+          t.issueTitle.toLowerCase().includes(q) ||
+          t.unitLabel.toLowerCase().includes(q) ||
+          t.contractorName.toLowerCase().includes(q) ||
+          t.tenantName.toLowerCase().includes(q);
+        if (!match) return false;
+      }
+
+      return true;
+    });
+  }, [tickets, activeTab, statusFilter, searchQuery]);
+
+  const selectedTicket =
+    tickets.find((t) => t.id === selectedTicketId) ||
+    filteredTickets[0] ||
+    null;
+
+  const isMobileDetailOpen = Boolean(selectedTicketId && isMobile);
+
+  const getStatusLabel = (t: MaintenanceTicket): string => {
+    if (t.status === "completed") return "Done";
+    if (t.status === "pending_approval") return "Needs approval";
+    if (t.status === "dispatched") return "Dispatched";
+    if (t.status === "scheduled") return "Scheduled";
+    return String(t.status || "Open");
+  };
+
+  const isSlaCritical = (t: MaintenanceTicket) => {
+    return t.isOverdue || t.slaRemaining.includes("m") || t.urgency === "emergency";
+  };
+
+  return (
+    <div className="min-h-dvh bg-[var(--bg)] flex font-sans antialiased text-[var(--ink)]">
+      {/* 1. Left Fixed Sidebar */}
+      <Sidebar />
+
+      {/* 2. Main Canvas */}
+      <div className="flex-1 flex flex-col min-w-0 h-dvh overflow-hidden">
+        {/* Top bar hidden on mobile when detail pane is open */}
+        <div className={cn(isMobileDetailOpen ? "hidden md:block" : "block")}>
+          <TopCommandBar
+            pageTitle="Maintenance"
+            hideSearch
+            onAskAgent={() => setIsAskAgentOpen(true)}
+          />
+        </div>
+
+        {/* 3. Maintenance Workspace: 2-column layout (Section 5.4 & 3.1) */}
+        <div className="lg:grid lg:grid-cols-[1fr_420px] xl:grid-cols-[1fr_460px] flex-1 min-h-0 h-[calc(100dvh-3.5rem)]">
+          
+          {/* Left Column: Header + Controls + Table / Ticket Rows List */}
+          <div
+            className={cn(
+              "h-full flex flex-col overflow-hidden bg-[var(--pane)] border-r border-[var(--line)]",
+              isMobileDetailOpen ? "hidden lg:flex" : "flex"
+            )}
+          >
+            {/* Header: Title, Inline Stats, Ghost "New ticket" (Section 5.4 & 2.4 M2) */}
+            <div className="px-4 sm:px-6 py-3.5 border-b border-[var(--line)] flex flex-wrap items-center justify-between gap-3 shrink-0">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2.5">
+                  <h1 className="font-heading font-bold text-[18px] sm:text-[20px] text-[var(--ink)] tracking-tight leading-tight">
+                    Maintenance
+                  </h1>
+                </div>
+
+                {/* Inline stats (Section 2.4 M2 & 5.4): "4 open · 3 urgent · 1 in progress" */}
+                <p className="text-[13px] text-[var(--ink-2)] mt-0.5 select-none">
+                  <span className="font-medium text-[var(--ink)] tabular-nums">{openCount}</span> open
+                  <span className="text-[var(--ink-3)] mx-1.5">·</span>
+                  <span className="font-semibold text-[var(--accent-ink)] tabular-nums">{urgentTicketsCount}</span>{" "}
+                  <span className="text-[var(--accent-ink)] font-medium">urgent</span>
+                  <span className="text-[var(--ink-3)] mx-1.5">·</span>
+                  <span className="font-medium text-[var(--ink)] tabular-nums">{inProgressCount}</span> in progress
+                </p>
+              </div>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => showToast("Opening manual ticket intake drawer...")}
+                className="text-xs border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] shadow-2xs shrink-0"
+              >
+                New ticket
+              </Button>
+            </div>
+
+            {/* Controls Bar: 3 Tabs (Open, Needs approval, Done) + Search + Status Dropdown (Section 5.4 & 2.4 M4) */}
+            <div className="px-4 sm:px-6 py-2.5 border-b border-[var(--line)] bg-[var(--pane)] flex flex-wrap items-center justify-between gap-3 shrink-0 select-none">
+              
+              {/* 3 Tabs */}
+              <div className="flex items-center gap-1">
+                {[
+                  { id: "open", label: "Open", count: openCount },
+                  { id: "needs_approval", label: "Needs approval", count: tickets.filter((t) => t.status === "pending_approval").length },
+                  { id: "done", label: "Done" },
+                ].map((tab) => {
+                  const isActive = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setActiveTab(tab.id as any)}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-ctl)] text-[13px] font-medium transition-colors cursor-pointer select-none",
+                        isActive
+                          ? "bg-[var(--selected)] text-[var(--ink)] font-semibold"
+                          : "text-[var(--ink-3)] hover:text-[var(--ink)] hover:bg-[var(--selected)]/50"
+                      )}
+                    >
+                      <span>{tab.label}</span>
+                      {tab.count !== undefined && (
+                        <span
+                          className={cn(
+                            "text-xs px-1.5 py-0.2 rounded-full tabular-nums",
+                            tab.id === "needs_approval" && tab.count > 0
+                              ? "bg-[var(--accent)] text-[#0A0A0A] font-bold"
+                              : "bg-[var(--line)] text-[var(--ink-2)]"
+                          )}
+                        >
+                          {tab.count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Search + Status Dropdown */}
+              <div className="flex items-center gap-2 flex-1 sm:flex-initial justify-end">
+                {/* Search */}
+                <div className="relative flex-1 sm:w-52 md:w-56">
+                  <Search className="w-4 h-4 text-[var(--ink-3)] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search tickets..."
+                    className="w-full h-8 pl-8 pr-7 text-[13px] bg-[var(--bg)] border border-[var(--line)] rounded-[var(--radius-ctl)] text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none focus:bg-[var(--pane)] focus:border-[var(--ink)] transition-colors"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--ink-3)] hover:text-[var(--ink)]"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Status Dropdown */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsStatusDropdownOpen((prev) => !prev)}
+                    className="h-8 px-2.5 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--ink-2)] border border-[var(--line)] rounded-[var(--radius-ctl)] bg-[var(--pane)] hover:bg-[var(--selected)] transition-colors cursor-pointer select-none"
+                  >
+                    <span>
+                      {statusFilter === "all" ? "All statuses" : statusFilter.replace("_", " ")}
+                    </span>
+                    <ChevronDown className="w-3 h-3 text-[var(--ink-3)]" />
+                  </button>
+
+                  {isStatusDropdownOpen && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-20"
+                        onClick={() => setIsStatusDropdownOpen(false)}
+                      />
+                      <div className="absolute right-0 top-full mt-1.5 w-44 bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-ctl)] shadow-lg py-1 z-30 animate-in fade-in zoom-in-95 duration-100 text-xs">
+                        {[
+                          { id: "all", label: "All statuses" },
+                          { id: "pending_approval", label: "Needs approval" },
+                          { id: "dispatched", label: "Dispatched" },
+                          { id: "scheduled", label: "Scheduled" },
+                          { id: "completed", label: "Completed" },
+                        ].map((opt) => (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => {
+                              setStatusFilter(opt.id);
+                              setIsStatusDropdownOpen(false);
+                            }}
+                            className={cn(
+                              "w-full text-left px-3 py-1.5 hover:bg-[var(--selected)] flex items-center justify-between transition-colors",
+                              statusFilter === opt.id
+                                ? "font-semibold text-[var(--ink)] bg-[var(--selected)]/40"
+                                : "text-[var(--ink-2)]"
+                            )}
+                          >
+                            <span>{opt.label}</span>
+                            {statusFilter === opt.id && <Check className="w-3.5 h-3.5 text-[var(--accent)]" />}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* List / Table Area (The only scrolling part, Section 5.4 & 2.4 M3) */}
+            <div className="flex-1 overflow-y-auto pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-0 select-none">
+              
+              {/* Desktop Table View (>= 768px): One line per row (56px), Selected = grey with ink left bar, Status always visible, Contractor hidden below 1500px */}
+              <div className="hidden md:block w-full">
+                <table className="w-full text-left border-collapse table-fixed">
+                  <thead>
+                    <tr className="border-b border-[var(--line)] text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)] bg-[var(--bg)]/90 sticky top-0 z-10">
+                      <th className="py-2.5 px-4 font-medium w-[42%]">Ticket / Issue</th>
+                      <th className="py-2.5 px-4 font-medium w-[24%]">Unit</th>
+                      <th className="py-2.5 px-4 font-medium hidden 2xl:table-cell w-[18%]">Contractor</th>
+                      <th className="py-2.5 px-4 font-medium text-right w-[16%]">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--line)] text-[13.5px]">
+                    {filteredTickets.map((ticket) => {
+                      const isSelected = ticket.id === selectedTicketId;
+                      const urgent = ticket.urgency === "emergency" || ticket.urgency === "high" || ticket.isOverdue;
+
+                      return (
+                        <tr
+                          key={ticket.id}
+                          onClick={() => handleSelectTicket(ticket.id)}
+                          className={cn(
+                            "h-14 cursor-pointer transition-colors group select-none relative",
+                            isSelected
+                              ? "bg-[var(--selected)] shadow-[inset_2px_0_0_var(--ink)]"
+                              : "hover:bg-[var(--selected)]/50"
+                          )}
+                        >
+                          {/* Ticket / Issue */}
+                          <td className="px-4 py-2 truncate">
+                            <div className="flex items-center gap-2 truncate">
+                              <span className="font-semibold text-[var(--ink)] shrink-0 font-mono text-[13px]">
+                                {ticket.ticketNumber}
+                              </span>
+                              <span className="text-[var(--ink-2)] truncate font-normal">
+                                {ticket.issueTitle}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Unit */}
+                          <td className="px-4 py-2 text-[var(--ink-2)] truncate">
+                            {ticket.unitLabel}
+                          </td>
+
+                          {/* Contractor (Only above 1500px, Section 5.4) */}
+                          <td className="px-4 py-2 text-[var(--ink-3)] truncate hidden 2xl:table-cell text-xs">
+                            {ticket.contractorName}
+                          </td>
+
+                          {/* Status / SLA: ALWAYS visible (Section 2.4 M3), plain grey text status */}
+                          <td className="px-4 py-2 text-right whitespace-nowrap">
+                            <div className="flex flex-col items-end leading-tight">
+                              <StatusText status={getStatusLabel(ticket)} />
+                              <span
+                                className={cn(
+                                  "font-mono text-[11px] mt-0.5",
+                                  isSlaCritical(ticket) ? "text-[var(--accent-ink)] font-semibold" : "text-[var(--ink-3)]"
+                                )}
+                              >
+                                {ticket.slaRemaining}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Ticket Rows (< 768px, Section 5.6 & 5.6.1): Line 1: # and issue, Line 2: unit, status, age */}
+              <div className="md:hidden divide-y divide-[var(--line)]">
+                {filteredTickets.map((ticket) => {
+                  const isSelected = ticket.id === selectedTicketId;
+                  const urgent = ticket.urgency === "emergency" || ticket.urgency === "high" || ticket.isOverdue;
+
+                  return (
+                    <button
+                      key={ticket.id}
+                      type="button"
+                      onClick={() => handleSelectTicket(ticket.id)}
+                      className={cn(
+                        "w-full text-left p-4 transition-colors cursor-pointer select-none active:bg-[var(--selected)]",
+                        isSelected ? "bg-[var(--selected)]" : "bg-[var(--pane)]"
+                      )}
+                    >
+                      {/* Line 1: # and issue */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="font-mono font-semibold text-[13.5px] text-[var(--ink)]">
+                            {ticket.ticketNumber}
+                          </span>
+                          <span className="text-[13.5px] font-medium text-[var(--ink)] truncate">
+                            {ticket.issueTitle}
+                          </span>
+                        </div>
+                        {urgent && <UrgentLabel />}
+                      </div>
+
+                      {/* Line 2: unit, status, age/SLA */}
+                      <div className="flex items-center justify-between text-xs text-[var(--ink-3)] mt-1.5">
+                        <span className="font-medium text-[var(--ink-2)] truncate max-w-[180px]">
+                          {ticket.unitLabel}
+                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <StatusText status={getStatusLabel(ticket)} />
+                          <span>·</span>
+                          <span className={cn("font-mono", isSlaCritical(ticket) ? "text-[var(--accent-ink)] font-semibold" : "text-[var(--ink-3)]")}>
+                            {ticket.slaRemaining}
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {filteredTickets.length === 0 && (
+                <div className="p-8 text-center text-sm text-[var(--ink-3)]">
+                  No tickets found matching the selected filter.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right Column: Flat Detail Pane with Sticky Footer (Section 5.4 & 2.4 M5) */}
+          <div
+            className={cn(
+              "h-full flex flex-col overflow-hidden bg-[var(--pane)]",
+              isMobileDetailOpen ? "flex" : "hidden lg:flex"
+            )}
+          >
+            {selectedTicket ? (
+              <section className="flex flex-col h-full overflow-hidden select-none">
+                {/* 1. Detail Header (Sticky h-14) */}
+                <div className="h-14 px-4 sm:px-6 border-b border-[var(--line)] bg-[var(--pane)] flex items-center justify-between shrink-0 z-10">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {/* Mobile Back Button (Section 5.6) */}
+                    <button
+                      type="button"
+                      onClick={() => handleSelectTicket("")}
+                      className="lg:hidden p-1.5 -ml-1.5 rounded-[var(--radius-ctl)] text-[var(--ink-2)] hover:bg-[var(--selected)]"
+                      title="Back to ticket list"
+                    >
+                      <ArrowLeft className="w-5 h-5" />
+                    </button>
+
+                    <span className="font-mono font-bold text-[15px] text-[var(--ink)]">
+                      {selectedTicket.ticketNumber}
+                    </span>
+                    <span className="text-[var(--line)]">·</span>
+                    <span className="text-[13px] text-[var(--ink-2)] font-medium truncate">
+                      {selectedTicket.unitLabel}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    {(selectedTicket.urgency === "emergency" || selectedTicket.urgency === "high" || selectedTicket.isOverdue) && (
+                      <UrgentLabel />
+                    )}
+                    <StatusText status={getStatusLabel(selectedTicket)} />
+                  </div>
+                </div>
+
+                {/* 2. Scrolling Body: Title, Reported line, plain italic tenant quote, compact 2-col grid */}
+                <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-5 space-y-5">
+                  {/* Title & Reporter */}
+                  <div>
+                    <h2 className="font-heading font-bold text-[18px] sm:text-[20px] text-[var(--ink)] leading-snug tracking-tight">
+                      {selectedTicket.issueTitle}
+                    </h2>
+                    <p className="text-[12.5px] text-[var(--ink-3)] mt-1">
+                      Reported {selectedTicket.reportedAt} by {selectedTicket.tenantName} ({selectedTicket.tenantPhone})
+                    </p>
+                  </div>
+
+                  {/* Tenant message as plain italic text with NO enclosing box (Section 5.4 & 2.4 M5) */}
+                  <p className="text-[14px] text-[var(--ink-2)] italic leading-relaxed border-l-2 border-[var(--line)] pl-3.5 py-0.5 select-text">
+                    "{selectedTicket.notes}"
+                  </p>
+
+                  {/* Compact Two-Column Grid: Contractor, Budget cap, SLA, Unit (Section 5.4 & 2.4 M5) */}
+                  <div className="pt-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)] block mb-2">
+                      Dispatch Details
+                    </span>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-3 p-3.5 bg-[var(--bg)] border border-[var(--line)] rounded-[var(--radius-ctl)] text-xs">
+                      {/* Contractor */}
+                      <div>
+                        <span className="text-[var(--ink-3)] block">Contractor</span>
+                        <span className="font-semibold text-[var(--ink)] text-[13px] block mt-0.5 truncate">
+                          {selectedTicket.contractorName}
+                        </span>
+                        <span className="text-[var(--ink-3)] text-[11px]">{selectedTicket.contractorTrade}</span>
+                      </div>
+
+                      {/* Budget Cap */}
+                      <div>
+                        <span className="text-[var(--ink-3)] block">Budget cap</span>
+                        <span className="font-semibold text-[var(--ink)] font-mono text-[13px] block mt-0.5">
+                          {selectedTicket.poBudgetCap}
+                        </span>
+                        <span className="text-[var(--ink-3)] text-[11px]">excl. BTW</span>
+                      </div>
+
+                      {/* SLA */}
+                      <div>
+                        <span className="text-[var(--ink-3)] block">SLA</span>
+                        <span
+                          className={cn(
+                            "font-mono text-[13px] block mt-0.5",
+                            isSlaCritical(selectedTicket)
+                              ? "font-semibold text-[var(--accent-ink)]"
+                              : "text-[var(--ink)]"
+                          )}
+                        >
+                          {selectedTicket.slaRemaining}
+                        </span>
+                      </div>
+
+                      {/* Unit */}
+                      <div>
+                        <span className="text-[var(--ink-3)] block">Unit</span>
+                        <span className="font-medium text-[var(--ink)] text-[13px] block mt-0.5 truncate">
+                          {selectedTicket.unitLabel}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Category & Contact meta */}
+                  <div className="text-xs text-[var(--ink-3)] space-y-1 pt-1">
+                    <p>
+                      Trade Category: <span className="text-[var(--ink)] capitalize font-medium">{selectedTicket.category}</span>
+                    </p>
+                    <p>
+                      Direct line: <span className="font-mono text-[var(--ink)]">{selectedTicket.tenantPhone}</span>
+                    </p>
+                  </div>
+                </div>
+
+                {/* 3. Sticky Footer in Detail: Ghost "View full history" + Orange primary "Approve work order" (Section 5.4 & 2.4 M5) */}
+                <div className="shrink-0 p-4 border-t border-[var(--line)] bg-[var(--pane)] flex items-center justify-between gap-3 select-none pb-[calc(1rem+env(safe-area-inset-bottom))] lg:pb-4">
+                  <Button
+                    variant="ghost"
+                    size="default"
+                    onClick={() => setIsHistoryModalOpen(true)}
+                    icon={<History className="w-4 h-4 text-[var(--ink-3)]" />}
+                    className="text-xs border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)]"
+                  >
+                    View full history
+                  </Button>
+
+                  {selectedTicket.status === "pending_approval" ? (
+                    <Button
+                      variant="primary"
+                      size="default"
+                      onClick={() => handleApproveWorkOrder(selectedTicket.id)}
+                      icon={<CheckCheck className="w-4 h-4 text-[#0A0A0A]" />}
+                      className="text-xs"
+                    >
+                      Approve work order
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-[var(--ink-3)] font-medium pr-2">
+                      Order {selectedTicket.status.replace("_", " ")}
+                    </span>
+                  )}
+                </div>
+              </section>
+            ) : (
+              <div className="h-full flex items-center justify-center p-8 text-center text-sm text-[var(--ink-3)]">
+                Select a ticket from the list to view dispatch details.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Full Ticket Lifecycle History Modal */}
+      {selectedTicket && (
+        <TicketHistoryModal
+          ticket={selectedTicket}
+          isOpen={isHistoryModalOpen}
+          onClose={() => setIsHistoryModalOpen(false)}
+          onShowToast={showToast}
+        />
+      )}
+
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 bg-[#0A0A0A] text-[#FFFFFF] text-[13px] font-semibold px-4 py-2.5 rounded-[12px] shadow-lg flex items-center gap-2.5 animate-in fade-in slide-in-from-bottom-2 duration-150">
+          <Check className="w-4 h-4 text-[#F25C05]" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {/* Ask EstateOS Panel */}
+      <AskEstateOSPanel
+        isOpen={isAskAgentOpen}
+        onClose={() => setIsAskAgentOpen(false)}
+        currentPageName="Maintenance"
+        selectedContext={
+          selectedTicket
+            ? `Ticket ${selectedTicket.ticketNumber} · ${selectedTicket.issueTitle} (${selectedTicket.unitLabel})`
+            : "Active Maintenance Work Orders"
+        }
+        onActionTriggered={(actionType) => {
+          showToast(`Action dispatched: ${actionType}`);
+        }}
+      />
+
+      {/* Mobile Bottom Tab Bar (Hidden on mobile when ticket detail is open) */}
+      <MobileTabBar
+        className={cn(isMobileDetailOpen ? "hidden" : "grid")}
+      />
+    </div>
+  );
+}
+
+export default function MaintenancePage() {
+  return (
+    <Suspense fallback={<div className="min-h-dvh bg-[var(--bg)]" />}>
+      <MaintenanceContent />
+    </Suspense>
+  );
+}

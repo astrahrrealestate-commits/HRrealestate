@@ -1,0 +1,89 @@
+@import "tailwindcss";
+@theme {
+  --color-bg: var(--bg);
+  --color-pane: var(--pane);
+  --color-selected: var(--selected);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --radius-pane: var(--radius-pane);
+  --radius-ctl: var(--radius-ctl);
+}
+
+@layer base {
+  :root {
+    /* Section 3.3 Tokens */
+    --bg: #F6F6F4;        /* page + handled rows */
+    --pane: #FFFFFF;      /* panes + unanswered rows */
+    --selected: #F0F0EE;  /* selected row, bubbles */
+    --line: #E8E8E5;
+    --ink: #0A0A0A;
+    --ink-2: #444444;
+    --ink-3: #6B6B6B;
+    --accent: #F25C05;      /* fills, dots, sparkle */
+    --accent-ink: #B93C00;  /* orange text */
+    --radius-pane: 12px;
+    --radius-ctl: 8px;
+
+    /* Legacy / Compatibility Aliases */
+    --surface: var(--pane);
+    --sunken: var(--selected);
+    --line-2: #D2D2CE;
+    --orange: var(--accent);
+    --orange-ink: var(--accent-ink);
+    --tint: #FFF1E7;
+    --btn-bg: #0A0A0A;
+    --btn-fg: #FFFFFF;
+    --r-sm: var(--radius-ctl);
+    --r: var(--radius-pane);
+    --r-lg: 18px;
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-hanken), "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, .font-heading {
+    font-family: var(--font-bricolage), "Bricolage Grotesque", -apple-system, BlinkMacSystemFont, sans-serif;
+    letter-spacing: -0.02em;
+    font-weight: 700;
+  }
+
+  code, kbd, samp, pre, .font-mono {
+    font-family: var(--font-mono), "IBM Plex Mono", monospace;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-3);
+}
+
+/* Tabular figures for monetary & numeric data */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
