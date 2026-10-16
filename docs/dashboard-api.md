@@ -158,8 +158,9 @@ version, whatever path (decide, resume, retry) ran it. Reasons the SPA will see:
 - `Gmail sending is not configured: GMAIL_REPLY_SEND_CREDENTIALS_FILE (gmail.send) is missing`.
 - `delivery status unknown: previous attempt never reported; check the thread before resending it yourself`: an
   attempt started more than 30 minutes ago and never finished (the worker died mid-call). The send and the action are
-  marked failed once; `resume` will not run it again. There is no dashboard action to mark it sent (the owner checks
-  the thread and resends by hand if needed). A send still in flight (under 30 minutes) produces no alert.
+  marked failed once; `resume` will not run it again. The 5-minute sweep settles such a row even when no attempt
+  re-runs it (a worker died mid-call), with the same single alert. There is no dashboard action to mark it sent (the
+  owner checks the thread and resends by hand if needed). A send still in flight (under 30 minutes) produces no alert.
 - `delivery status unknown: a previous attempt did not finish; ...` or `may have been delivered: ...`: the provider
   call failed in a way that may still have delivered the message.
 - Others: company paused, mode back on `draft`, the recipient is no longer the case's own contact, the draft was
@@ -171,8 +172,17 @@ Writes commit first and enqueue the background work second. If the API dies in b
 `sweep.stranded` cron (every 5 minutes) picks the work up: approved actions decided 5 minutes to 24 hours ago that are
 still `approved` with no send recorded (company not paused; a paused company's actions wait for Resume), and agent
 turns still `pending` after 5 minutes (up to 24 hours). They are enqueued under the same ids the API uses
-(`exec:{action_id}:{draft_version}`, `concierge:{turn_id}`), so nothing runs twice; at most 200 per round. For the SPA
-this means a decision or an agent message can take up to about 5 minutes longer after a crash, never that it is lost.
+(`exec:{action_id}:{draft_version}`, `concierge:{turn_id}`), so nothing runs twice; at most 200 per round (up to 1000
+candidates are read and checked against DBOS first, so actions whose run already exists, such as blocked ones, cannot
+crowd out newer stranded work). For the SPA this means a decision or an agent message can take up to about 5 minutes
+longer after a crash, never that it is lost.
+
+**Limit: anything stranded longer than 24 hours is not swept.** An approval decided, or a turn created, more than a day
+before the worker came back stays as it is (`approved` / `pending`). That needs an operator: confirm DBOS has no run under its
+workflow id (`make workflows`), decide whether it should still run, and if so enqueue it under that same id.
+
+The same cron settles tenant sends stuck `sending` for 30 minutes or more (see the reasons above): one alert, the
+send and the action failed, never re-sent. Paused companies are included (settling sends nothing).
 
 ## Running the simulator scenario
 
