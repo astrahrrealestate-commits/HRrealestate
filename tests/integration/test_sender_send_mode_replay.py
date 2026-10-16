@@ -96,7 +96,7 @@ def _resumable(env: Env) -> list[Any]:
 def test_an_in_flight_send_is_in_progress_no_alert_and_not_resumed(env: Env, minutes: float) -> None:
     action_id = _sending(env, minutes)
     outcome = execute_action(env.deps, action_id, 1)
-    assert (outcome.status, outcome.reason) == ("already", IN_PROGRESS)
+    assert (outcome.status, outcome.reason) == ("in_progress", IN_PROGRESS)
     assert env.replies.replies == []
     assert alert_row(env, action_id) is None
     assert _statuses(env, action_id) == (ActionStatus.approved, SendStatus.sending)

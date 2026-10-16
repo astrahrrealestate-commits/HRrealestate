@@ -5,7 +5,14 @@ The API commits first and enqueues second (invariant 1); a crash in between stra
 re-enqueues under the SAME deterministic workflow id, so a run that exists (queued, running or finished) is never
 started twice. Selection is bounded: rows older than `SWEEP_AFTER` (the normal path has enqueued by then) and younger
 than `LOOKBACK` (older work is stale; DBOS history is kept for 30 days, so a re-enqueue is always deduped against it),
-at most `BATCH` per round. Paused companies' actions are left to `resume`.
+at most `BATCH` per round. Paused companies' actions are left to `resume`. Anything stranded longer than `LOOKBACK`
+is not swept: that needs an operator (docs/dashboard-api.md).
+
+Actions that already have an exec `sends` row are excluded in SQL (NOT EXISTS). Actions whose run DBOS already knows
+(a blocked action stays `approved` with no send row) can only be filtered against DBOS, so up to `SCAN` rows are read
+and checked before the `BATCH` cut: known runs cannot starve newer stranded ones.
+
+The third kind, tenant sends stuck `sending`, is selected and settled by `app.sender.stuck` (same cron).
 """
 
 from collections.abc import Collection, Sequence
@@ -25,7 +32,8 @@ from app.pipeline.local_actions import LOCAL_TYPES
 
 SWEEP_AFTER = timedelta(minutes=5)
 LOOKBACK = timedelta(hours=24)
-BATCH = 200
+BATCH = 200  # enqueues per round
+SCAN = 5 * BATCH  # raw candidates read per round before the DBOS known-id filter
 SWEEP_TYPES = frozenset(
     {
         ActionType.reply_draft,

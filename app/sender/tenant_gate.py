@@ -32,13 +32,18 @@ def cap_reached(recent: int, cap: int) -> bool:
     return recent >= cap
 
 
-def tenant_sends_last_hour(session: Session, company_id: UUID, key: str, now: datetime) -> int:
-    """Gmail/WhatsApp `sends` of the company in the last hour that did not go to an owner (this key excluded)."""
+def owner_targets(session: Session, company_id: UUID) -> set[str]:
+    """Every owner number and email of the company, as stored and lowercased: `sends` targets that are not a tenant."""
     owner_rows = session.execute(
         select(OwnerAccount.whatsapp_e164, OwnerAccount.email).where(OwnerAccount.company_id == company_id)
     ).all()
     owners = {value for row in owner_rows for value in row if value}
-    owners |= {value.lower() for value in owners}
+    return owners | {value.lower() for value in owners}
+
+
+def tenant_sends_last_hour(session: Session, company_id: UUID, key: str, now: datetime) -> int:
+    """Gmail/WhatsApp `sends` of the company in the last hour that did not go to an owner (this key excluded)."""
+    owners = owner_targets(session, company_id)
     count = session.scalar(
         select(func.count())
         .select_from(Send)
@@ -86,12 +91,24 @@ def alert_text(reason: str | None) -> str:
     return f"{lead}: {reason or 'unknown reason'}."
 
 
+def blocked_text(reason: str, tenant_reply: bool) -> str:
+    """The owner-channel notice for an approved action that did not run (`actions.tell_blocked_step`). A tenant
+    reply uses the dashboard alert's wording, so it never claims "not sent" when the tenant may have it."""
+    text = alert_text(reason) if tenant_reply else f"Not sent: {reason or 'the approval is no longer valid'}."
+    if "paused" in reason:
+        text += " Send `resume` to run approved actions."
+    return text
+
+
+def write_alert(session: Session, company_id: UUID, key: str, reason: str | None) -> None:
+    """The dashboard alert row (idempotent on `key`), inside the caller's transaction."""
+    feed.deliver(session, company_id, key, FeedKind.alert, None, OwnerMessage(text=alert_text(reason)))
+
+
 def tell_owner(engine: Engine, company_id: UUID, action_id: UUID, draft_version: int, reason: str | None) -> None:
     """One dashboard alert per action version saying why the reply did not reach the tenant (no message body)."""
-    text = alert_text(reason)
     try:
         with Session(engine) as session, session.begin():
-            key = blocked_key(action_id, draft_version)
-            feed.deliver(session, company_id, key, FeedKind.alert, None, OwnerMessage(text=text))
+            write_alert(session, company_id, blocked_key(action_id, draft_version), reason)
     except Exception as exc:  # telling must never turn a recorded outcome into an error
         log.error("sender.tell_owner_failed", action_id=str(action_id), error=type(exc).__name__)

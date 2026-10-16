@@ -5,9 +5,15 @@ returns the row to pending and re-raises for the step retry; anything else is re
 A dashboard plan has no provider: its `owner_feed` row (same key) and the `sent` mark commit in one transaction, so
 a database error leaves nothing half-done and the step retry simply runs it again.
 
-An attempt that loses the claim to a tenant send still `sending` reports "in progress" (no failure, no alert) while
-the row is younger than `STUCK_AFTER`; an older one never reported back, so the row and the action are marked failed
-once (`STUCK`) and Harjot checks the thread before resending by hand. A failed action is never re-run by `resume`.
+An attempt that loses the claim to a send still `sending` reports `in_progress` (no failure, no alert, no follow-up
+wait; "already" only ever means sent). For a tenant send that row is left to its holder while younger than
+`STUCK_AFTER`; an older one never reported back (the worker died mid-call), so the row and the action are marked failed
+once (`STUCK`, one alert) and Harjot checks the thread before resending by hand. The 5-minute sweep
+(`app.sender.stuck`) does the same for rows nobody re-attempts. A failed action is never re-run by `resume`.
+
+Lock order: `feed_claimed` and `give_up_stuck` lock the action row before the `sends` row (Company -> Action -> Send,
+as `execute._prepare`). `mark` writes the send first; only the attempt holding the claim calls it, and a rare
+deadlock with a give-up is aborted by Postgres and retried by the step.
 """
 
 from collections.abc import Callable
@@ -30,7 +36,7 @@ from app.db.enums import ActionStatus, SendStatus
 from app.db.models import ActionRow, Send
 from app.sender.errors import SendBlockedError
 from app.sender.plan import Plan
-from app.sender.tenant_gate import GMAIL_SEND_MISSING
+from app.sender.tenant_gate import GMAIL_SEND_MISSING, write_alert
 
 
 @dataclass(frozen=True)
@@ -48,7 +54,7 @@ class SenderDeps:
 
 @dataclass(frozen=True)
 class ExecOutcome:
-    status: Literal["sent", "already", "blocked", "failed"]
+    status: Literal["sent", "already", "in_progress", "blocked", "failed"]
     reason: str | None = None
     provider_ref: str | None = None
 
@@ -146,36 +152,51 @@ def lost_attempt(
     attempted_at: datetime | None = None,
     now: datetime | None = None,
 ) -> ExecOutcome:
-    """Another attempt holds or finished the send. Sent → already. For a tenant message a recent `sending` row is
-    in progress ("already", no alert); a stuck one is `STUCK` (the caller marks it failed once); a `failed` row is
-    not "done": nobody knows whether the tenant got it, so it is reported as failed (Harjot checks the thread).
-    Owner-directed messages keep "already" (the holder reports its own outcome)."""
+    """Another attempt holds or finished the send. Sent → already (the only "done"). For a tenant message a recent
+    `sending` row is `in_progress` (no alert); a stuck one is `STUCK` (the caller marks it failed once); a `failed`
+    row is not "done": nobody knows whether the tenant got it, so it is reported as failed (Harjot checks the thread).
+    Owner-directed messages are `in_progress` (the holder reports its own outcome)."""
     if status is SendStatus.sent:
         return ExecOutcome("already", provider_ref=ref)
     if not tenant_send:
-        return ExecOutcome("already", reason="another attempt holds this send")
+        return ExecOutcome("in_progress", reason="another attempt holds this send")
     if status is SendStatus.sending:
         if stuck(attempted_at, now or datetime.now(UTC)):
             return ExecOutcome("failed", reason=STUCK)
-        return ExecOutcome("already", reason=IN_PROGRESS)
+        return ExecOutcome("in_progress", reason=IN_PROGRESS)
     return ExecOutcome("failed", reason=STATUS_UNKNOWN)
 
 
-def give_up_stuck(engine: Engine, key: str, now: datetime) -> bool:
-    """Mark a stuck `sending` row (and its action) failed; True only for the one caller whose update won."""
+def _lock_action(session: Session, key: str, company_id: UUID | None) -> None:
+    """Lock the send's action row first (Company -> Action -> Send, as `execute._prepare`)."""
+    scope = [Send.company_id == company_id] if company_id is not None else []
+    action_id = session.scalar(select(Send.action_id).where(Send.idempotency_key == key, *scope))
+    if action_id is not None:
+        action_scope = [ActionRow.company_id == company_id] if company_id is not None else []
+        session.execute(select(ActionRow.id).where(ActionRow.id == action_id, *action_scope).with_for_update())
+
+
+def give_up_stuck(engine: Engine, key: str, now: datetime, *, company_id: UUID | None = None) -> bool:
+    """Mark a stuck `sending` row and its action failed and write the one alert (`blocked:{key}`), in one
+    transaction. The conditional UPDATE has one winner: True only for that caller, so nobody alerts twice."""
+    scope = [Send.company_id == company_id] if company_id is not None else []
     with Session(engine) as session, session.begin():
+        _lock_action(session, key, company_id)
         row = session.execute(
             update(Send)
             .where(
                 Send.idempotency_key == key,
+                *scope,
                 Send.status == SendStatus.sending,
                 (Send.attempted_at.is_(None)) | (Send.attempted_at <= now - STUCK_AFTER),
             )
             .values(status=SendStatus.failed, error=STUCK)
-            .returning(Send.action_id)
+            .returning(Send.action_id, Send.company_id)
         ).first()
         if row is not None and row[0] is not None:
-            session.execute(update(ActionRow).where(ActionRow.id == row[0]).values(status=ActionStatus.failed))
+            action = ActionRow.id == row[0], ActionRow.company_id == row[1]
+            session.execute(update(ActionRow).where(*action).values(status=ActionStatus.failed))
+            write_alert(session, row[1], f"blocked:{key}", STUCK)
     return row is not None
 
 
@@ -200,6 +221,7 @@ def feed_claimed(engine: Engine, key: str, plan: Plan) -> ExecOutcome:
     if plan.company_id is None or plan.owner_message is None:
         raise SendBlockedError("nothing to deliver")
     with Session(engine) as session, session.begin():
+        _lock_action(session, key, plan.company_id)  # Action before Send, like every other claim path
         send = session.execute(select(Send).where(Send.idempotency_key == key).with_for_update()).scalar_one()
         if send.status is SendStatus.sent:
             return ExecOutcome("already", provider_ref=send.provider_ref)
