@@ -184,3 +184,37 @@ dashboard (email/SMS alerts can be added later), attachment content analysis.
   `sending` for 30+ minutes is marked failed once with one alert (no mark-sent route); a 5-minute sweep re-enqueues
   approved actions and pending turns stranded between commit and enqueue; optional `DASHBOARD_CORS_ORIGINS`; sessions
   re-read the owner row per request.
+
+
+## Amendment 2026-10-16: page-aware Super Agent, conversation memory, stuck-send sweep
+
+Decisions (user, 2026-10-16): the agent must know what the page it was opened on shows; the SPA sends a **text
+snapshot** of the page (user's choice over IDs only), plus the open entity IDs; conversation memory and the stuck-send
+sweep are included.
+
+### Page context (`page` on `POST /agent/messages`, optional)
+- `PageContext` = `view` (enum: inbox, thread, case, approvals, tasks, waiting, documents, briefing, other),
+  `case_id|thread_key|approval_id|task_ref|attachment_id` (optional, open entity), `filters` (short key/value
+  strings), `visible_ids` (at most 50 ids of rows on screen), `snapshot` (what the page displays as text, at most
+  6000 characters, collapsed whitespace, control characters rejected).
+- **The snapshot is client-supplied and therefore unverified.** It goes into the planner prompt only inside a
+  `<page_snapshot>` data block labelled as unverified UI text, with tags escaped like every untrusted block
+  (invariant 6). It can answer "what does this page say", explain what the owner sees, and resolve "this/it/the
+  first one". It can never be an ID source, a recipient, or a permission: any case/task/approval the planner names is
+  still resolved company-scoped by the executor, and ids named only in the snapshot text are not trusted.
+- **Server facts:** every id in the structured fields is validated company-scoped and, when valid, replaced by facts
+  loaded from the DB (case state/urgency/summary capped, last thread messages capped, approval drafts and suspicious
+  flag, open waits). These go in a separate `<page_facts>` block and are authoritative; the snapshot is not. A foreign
+  or unknown id is dropped and reported as "that page item no longer exists".
+- Stored on the turn (`agent_turns.page_context` jsonb, migration 0011) so a retried turn reuses the same context.
+- Prompt `concierge/v2` (v1 stays published): adds the page blocks, "this/it/them resolve to the page entity" and that
+  the snapshot is unverified display text.
+
+### Conversation memory
+The brief's history carries the last 6 turns of this conversation as owner text plus the agent's own answer (answer
+capped at 300 characters), all inside the escaped history block.
+
+### Stuck-send sweep (final review finding 1)
+A cron step finds tenant `sends` rows in `sending` longer than the stuck threshold and settles them once (send and
+action failed, one alert), so a worker crash mid-send is no longer silent. A lost claim reports "in progress" as a
+distinct outcome that does not open the follow-up wait early.
