@@ -6,6 +6,7 @@ from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart, User
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from app.contracts import Category, Urgency
+from app.llm.fakes_concierge import fake_concierge
 
 
 def _extract_user_text(messages: list[ModelMessage]) -> str:
@@ -193,9 +194,28 @@ def _fake_proposer(prompt: str) -> dict[str, object]:
     return {"actions": actions}
 
 
+_OFF_TOPIC = (
+    r"\b(poem|gedicht|recipe|recept|joke|grap|capital of|hoofdstad|python|javascript|bitcoin|translate|vertaal"
+    r"|ignore (all )?(previous|prior)|negeer (alle )?(vorige|eerdere))\b"
+)
+
+
 def _fake_owner_qa(prompt: str) -> dict[str, object]:
+    question = " ".join(re.findall(r"<message>\n(.*?)\n</message>", prompt, flags=re.S)).lower()
     cases = re.findall(r"^case: ([0-9a-f-]{36})", prompt, flags=re.M)
-    return {"answer": f"You have {len(cases)} open cases. (offline answer)", "case_refs": cases[:3]}
+    if re.search(_OFF_TOPIC, question):
+        return {
+            "in_scope": False,
+            "refusal_reason": "Unrelated to the business",
+            "answer": "Out of scope.",
+            "case_refs": [],
+        }
+    return {
+        "in_scope": True,
+        "refusal_reason": None,
+        "answer": f"You have {len(cases)} open cases. (offline answer)",
+        "case_refs": cases[:3],
+    }
 
 
 def _fake_briefing(prompt: str) -> dict[str, object]:
@@ -245,6 +265,8 @@ def model_for(agent_name: str) -> FunctionModel:
             args = _fake_proposer(user_text)
         elif agent_name == "owner_qa":
             args = _fake_owner_qa(user_text)
+        elif agent_name == "concierge":
+            args = fake_concierge(user_text)
         elif agent_name == "briefing":
             args = _fake_briefing(user_text)
         elif agent_name == "doc_classifier":

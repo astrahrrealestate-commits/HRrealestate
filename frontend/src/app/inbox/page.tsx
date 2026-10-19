@@ -98,6 +98,10 @@ function InboxContent() {
     (id: string) => {
       setSelectedThreadId(id);
       if (id) {
+        // Mark as read like Gmail
+        setThreads((prev) =>
+          prev.map((t) => (t.id === id ? { ...t, isRead: true } : t))
+        );
         router.push(`/inbox?thread=${encodeURIComponent(id)}`, { scroll: false });
       } else {
         router.push("/inbox", { scroll: false });
@@ -352,6 +356,8 @@ function InboxContent() {
             pageTitle="Inbox"
             hideSearch
             onAskAgent={() => setIsAskAgentOpen(true)}
+            onSyncMailbox={handleSyncMailbox}
+            isSyncing={isSyncing}
           />
         </div>
 

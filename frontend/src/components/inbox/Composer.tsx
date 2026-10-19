@@ -4,9 +4,11 @@ import React, { useState, useEffect, useRef } from "react";
 import { Sparkles, Check, RotateCcw, Send, MessageSquare, Mail, Maximize2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
+import { DraftOption } from "@/types/dashboard";
 
 export interface ComposerProps {
   draftText?: string;
+  drafts?: DraftOption[];
   detectedLanguage?: string;
   channel?: "whatsapp" | "gmail" | string;
   onAcceptAndSend?: (text: string, channel: string) => void;
@@ -21,13 +23,14 @@ export interface ComposerProps {
 /**
  * Composer implements Sections 5.2, 5.6, 5.6.1 & 6.2:
  * - Sticky at the bottom of the conversation, never scrolls away.
- * - State 1: AI draft ready with editable textarea, Reject, Edit, Accept and send.
+ * - State 1: AI draft ready with editable textarea, draft switcher tabs, Reject, Edit, Accept and send.
  * - State 2: Sent state ("✓ Sent via WhatsApp · 08:21 · Undo" for 30s).
  * - State 3: Normal reply input with channel switch and "Draft with AI".
  * - Mobile responsive: 16px font (no iOS zoom), full-height edit sheet, mobile button stack.
  */
 export function Composer({
   draftText = "",
+  drafts = [],
   detectedLanguage = "Dutch (detected)",
   channel = "whatsapp",
   onAcceptAndSend,
@@ -39,6 +42,7 @@ export function Composer({
   className,
 }: ComposerProps) {
   const [content, setContent] = useState(draftText);
+  const [selectedDraftId, setSelectedDraftId] = useState<string>(drafts[0]?.id || "d1");
   const [activeChannel, setActiveChannel] = useState<string>(channel);
   const [isEditingFull, setIsEditingFull] = useState(false);
   const [fullEditText, setFullEditText] = useState("");
@@ -50,7 +54,10 @@ export function Composer({
   useEffect(() => {
     setContent(draftText);
     setActiveChannel(channel);
-  }, [draftText, channel]);
+    if (drafts.length > 0) {
+      setSelectedDraftId(drafts[0].id);
+    }
+  }, [draftText, channel, drafts]);
 
   // Handle sent state countdown
   useEffect(() => {
@@ -143,10 +150,10 @@ export function Composer({
           className
         )}
       >
-        {/* Draft Header Line */}
+        {/* Draft Header Line with Alternative Draft Tabs */}
         {hasDraft ? (
-          <div className="flex items-center justify-between text-xs text-[var(--ink-3)]">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-[var(--ink-3)]">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="inline-flex items-center gap-1.5 font-medium text-[var(--ink-2)]">
                 <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
                 <span>AI draft · {detectedLanguage}</span>
@@ -165,13 +172,37 @@ export function Composer({
                   </>
                 )}
               </span>
+
+              {/* Draft Switcher Tabs if multiple drafts available */}
+              {drafts && drafts.length > 1 && (
+                <div className="flex items-center gap-1 ml-2 bg-[var(--bg)] p-0.5 rounded-[var(--radius-ctl)] border border-[var(--line)]">
+                  {drafts.map((d, idx) => (
+                    <button
+                      key={d.id || `draft-${idx}`}
+                      type="button"
+                      onClick={() => {
+                        setSelectedDraftId(d.id || `d${idx + 1}`);
+                        setContent(d.text);
+                      }}
+                      className={cn(
+                        "px-2 py-0.5 rounded text-[11px] transition-colors cursor-pointer",
+                        selectedDraftId === (d.id || `d${idx + 1}`)
+                          ? "bg-[var(--pane)] text-[var(--ink)] font-semibold shadow-2xs border border-[var(--line)]"
+                          : "text-[var(--ink-3)] hover:text-[var(--ink)]"
+                      )}
+                    >
+                      {d.label ? (d.label.includes("Draft 1") ? "Draft 1" : d.label.includes("Draft 2") ? "Draft 2" : `Draft ${idx + 1}`) : `Draft ${idx + 1}`}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Mobile Expand Button */}
             <button
               type="button"
               onClick={handleOpenFullEdit}
-              className="md:hidden inline-flex items-center gap-1 text-[var(--ink-3)] hover:text-[var(--ink)]"
+              className="md:hidden inline-flex items-center gap-1 text-[var(--ink-3)] hover:text-[var(--ink)] self-end sm:self-auto"
               title="Expand full screen editor"
             >
               <Maximize2 className="w-3 h-3" />

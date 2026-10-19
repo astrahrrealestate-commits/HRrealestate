@@ -3,11 +3,11 @@
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, or_, select
 from sqlalchemy.orm import Session
 
-from app.contracts import Direction
-from app.core.errors import AgentFailedError
+from app.contracts import Direction, Suspicious
+from app.core.errors import AgentFailedError, BudgetExceededError
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import PipelineStatus
@@ -15,8 +15,10 @@ from app.db.models import AttachmentRow, MessageRow, OwnerAccount, Understanding
 from app.llm.agents.understanding import UNDERSTANDING, understanding_prompt
 from app.llm.calls import CallContext, run_agent
 from app.llm.render import AttachmentMeta
+from app.pipeline.injection_scan import scan
 
 log = get_logger(__name__)
+BUDGET_BLOCKED = "budget"  # pipeline_error tag on a pending message waiting for the AI limit to reset
 
 
 def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> UUID | None:
@@ -47,6 +49,7 @@ def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> 
             AttachmentMeta(filename=a.filename, mime_type=a.mime_type, size_bytes=a.size_bytes) for a in attachments
         ]
         subject = msg.meta.get("subject") if msg.meta else None
+        scan_reason = scan(f"{subject or ''}\n{msg.text}")
         prompt_text = understanding_prompt(
             text=msg.text,
             channel=msg.channel,
@@ -63,6 +66,11 @@ def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> 
         if wordless_with_files and not understanding_data.requires_reply:
             # a photo or file with no words (a leak, a document) is never skipped as "nothing to answer"
             understanding_data = understanding_data.model_copy(update={"requires_reply": True})
+        if scan_reason is not None and not understanding_data.suspicious.flag:
+            understanding_data = understanding_data.model_copy(
+                update={"suspicious": Suspicious(flag=True, reason=f"scanner: {scan_reason}")}
+            )
+            log.warning("pipeline.understand.injection_scanner_hit", message_id=str(message_id), reason=scan_reason)
         model_call_id = res.model_call_id
 
         with Session(engine) as session, session.begin():
@@ -89,6 +97,12 @@ def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> 
                 msg_row.pipeline_status, msg_row.pipeline_error = PipelineStatus.pending, None
             return row.id
 
+    except BudgetExceededError:  # wait, do not fail: the message stays pending; the tag keeps the sweep retrying it
+        with Session(engine) as session, session.begin():
+            blocked = session.get(MessageRow, message_id)
+            if blocked is not None:
+                blocked.pipeline_error = BUDGET_BLOCKED
+        raise
     except AgentFailedError as exc:
         log.warning("pipeline.understand.failed", message_id=str(message_id), error=str(exc))
         with Session(engine) as session, session.begin():
@@ -134,7 +148,7 @@ def requeue_candidates(engine: Engine, now: datetime) -> list[tuple[UUID, str]]:
                 MessageRow.pipeline_status == PipelineStatus.pending,
                 MessageRow.direction == Direction.inbound,
                 MessageRow.created_at < now - STALE_PENDING_AFTER,
-                MessageRow.created_at > now - STALE_PENDING_UNTIL,
+                or_(MessageRow.created_at > now - STALE_PENDING_UNTIL, MessageRow.pipeline_error == BUDGET_BLOCKED),
                 ~owner.exists(),
             )
         ).all()

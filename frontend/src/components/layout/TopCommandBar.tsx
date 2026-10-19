@@ -1,11 +1,13 @@
 "use client";
 
 import React, { useRef, useEffect } from "react";
-import { Sparkles, Search, X } from "lucide-react";
+import { Sparkles, Search, X, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface TopCommandBarProps {
   onAskAgent?: () => void;
+  onSyncMailbox?: () => void;
+  isSyncing?: boolean;
   searchQuery?: string;
   onSearchChange?: (q: string) => void;
   pageTitle?: string;
@@ -24,6 +26,8 @@ interface TopCommandBarProps {
  */
 export function TopCommandBar({
   onAskAgent,
+  onSyncMailbox,
+  isSyncing = false,
   searchQuery,
   onSearchChange,
   pageTitle,
@@ -109,11 +113,29 @@ export function TopCommandBar({
         )}
       </div>
 
-      {/* Right: Prototype sample data notice & Ask EstateOS Button */}
-      <div className="flex items-center gap-3 flex-shrink-0 ml-3">
-        <span className="text-[12px] text-[var(--ink-3)] font-normal hidden md:inline-block">
+      {/* Right: Prototype sample data notice & Sync Mailbox & Ask EstateOS Button */}
+      <div className="flex items-center gap-2.5 flex-shrink-0 ml-3">
+        <span className="text-[12px] text-[var(--ink-3)] font-normal hidden lg:inline-block">
           Prototype · sample data
         </span>
+
+        {/* Sync Mailbox button */}
+        {onSyncMailbox && (
+          <button
+            type="button"
+            onClick={onSyncMailbox}
+            disabled={isSyncing}
+            className={cn(
+              "inline-flex items-center gap-1.5 h-8 px-2.5 sm:px-3 rounded-[var(--radius-ctl)] border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] text-[var(--ink)] text-[12.5px] font-medium transition-colors cursor-pointer disabled:opacity-50 select-none shadow-2xs"
+            )}
+            title="Sync mailbox with Gmail & WhatsApp"
+          >
+            <RotateCw
+              className={cn("w-3.5 h-3.5 text-[var(--ink-2)]", isSyncing && "animate-spin text-[var(--accent)]")}
+            />
+            <span className="hidden sm:inline">Sync mailbox</span>
+          </button>
+        )}
 
         {/* Restyled Ask EstateOS Button (Section 2.1 G3 & 5.6):
             - Desktop: White pill, 1px line border, orange sparkle, ink text

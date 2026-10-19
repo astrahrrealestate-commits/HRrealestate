@@ -13,10 +13,11 @@ from sqlalchemy.orm import Session
 
 from app.contracts import DocType
 from app.core.settings import get_settings
+from app.core.workflow_names import DOC_SKIP, FILE_DOCUMENT
 from app.db.models import AttachmentRow, DocumentRow
 from app.ingestion.process import is_transient
 from app.llm.calls import is_transient as llm_transient
-from app.owner.cards import document_review_payload
+from app.owner.cards import document_review_key, document_review_payload
 from app.pipeline.documents import file_document, skip_document
 from app.storage.drive import is_transient as drive_transient
 from app.workflows import queues
@@ -24,7 +25,7 @@ from app.workflows.deps import get_deps, get_drive, get_engine
 from app.workflows.owner_notify import send_owner_message
 from app.workflows.retry import STEP_RETRY
 
-SKIP = "skip"
+SKIP = DOC_SKIP
 
 
 def _retryable(exc: BaseException) -> bool:
@@ -72,10 +73,10 @@ def review_card_step(company_id: str, attachment_id: str) -> bool:
         return False
     doc, filename, mime = row
     build = document_review_payload(UUID(attachment_id), filename or mime, doc.doc_type, doc.title)
-    return send_owner_message(company_id, f"docreview:{attachment_id}", build)
+    return send_owner_message(company_id, document_review_key(attachment_id), build)
 
 
-@DBOS.workflow(name="documents.file_document")
+@DBOS.workflow(name=FILE_DOCUMENT)
 def file_document_wf(company_id: str, attachment_id: str, owner_choice: str | None) -> str:
     if owner_choice == SKIP:
         return skip_step(company_id, attachment_id)

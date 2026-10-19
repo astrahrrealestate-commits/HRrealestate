@@ -1,32 +1,41 @@
 """The only code path that delivers anything (invariant 5).
 
 `execute_action` re-checks, in one locked transaction: approval approved for this draft version, the action still on
-that version, the company not paused, the Phase 1 allowlist and `sends.idempotency_key`. The provider call happens
-after that commit; a retry finds the `sends` row and never delivers twice once it is marked sent.
+that version, the company not paused, `outbound_mode`, the allowlist (tenant recipient re-derived from the DB), the
+hourly tenant send cap and `sends.idempotency_key`. The provider call happens after that commit; a retry finds the
+`sends` row and never delivers twice once it is marked sent. A tenant send that is blocked or fails leaves a
+dashboard alert saying why.
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Engine, select, update
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.channels.gmail.drafts import GmailDrafts
-from app.channels.google_chat.outbound import GoogleChatOutbound
 from app.channels.google_chat.render import render_google_chat
 from app.channels.whatsapp import payloads
-from app.channels.whatsapp.outbound import WhatsAppOutbound
 from app.channels.whatsapp.render import render_whatsapp
-from app.contracts import ButtonChoice, Channel, EmailRequest, InteractiveChannel, OwnerMessage
-from app.core.errors import EstateOSError
+from app.contracts import (
+    ActionType,
+    Channel,
+    EmailRequest,
+    InteractiveChannel,
+    OutboundMode,
+    OwnerMessage,
+)
 from app.core.logging import get_logger
-from app.db.enums import ActionStatus, ApprovalStatus, OutboxStatus, SendStatus
-from app.db.models import ActionRow, Approval, ChannelAccount, Company, OwnerAccount, OwnerOutbox, Send
+from app.db.enums import OutboxStatus, SendStatus
+from app.db.models import ActionRow, ChannelAccount, Company, OwnerAccount, OwnerOutbox, Send
 from app.sender import owner_window
+from app.sender.action_checks import approved_variant, blocked_reason, locked_action, sent_row
+from app.sender.dashboard import deliver_dashboard
+from app.sender.delivery import ExecOutcome as ExecOutcome
+from app.sender.delivery import SenderDeps as SenderDeps
+from app.sender.delivery import SendFailedError as SendFailedError
+from app.sender.delivery import claim, exec_key, send_claimed
 from app.sender.targets import (
     Plan,
     SendBlockedError,
@@ -35,164 +44,75 @@ from app.sender.targets import (
     owner_number,
     plan_for,
 )
+from app.sender.tenant_gate import tell_owner, tenant_gate
 
 log = get_logger(__name__)
-_VARIANT = {ButtonChoice.d2: 1, ButtonChoice.d3: 2}
 
 
-@dataclass(frozen=True)
-class SenderDeps:
-    engine: Engine
-    whatsapp: WhatsAppOutbound
-    gmail_drafts: Callable[[str], GmailDrafts]  # mailbox address → drafts adapter
-    google_chat: GoogleChatOutbound | None = None
-    template_name: str = "estateos_pending"
-    template_language: str = "en"
+def _plan_checked(
+    deps: SenderDeps, session: Session, action: ActionRow, draft_version: int, send_mode: bool, now: datetime
+) -> Plan | str:
+    """The allowed plan, or why not: pause/version/approval, plan, allowlist, then the send-mode gate (cap)."""
+    reason = blocked_reason(session, action, draft_version)
+    if reason is not None:
+        return reason
+    key = exec_key(action.id, draft_version)
+    try:
+        variant = approved_variant(session, action, draft_version)
+        plan = plan_for(session, action, variant, key, send_mode=send_mode, now=now)
+        assert_allowed(session, action.company_id, plan)
+    except SendBlockedError as exc:
+        return str(exc)
+    gate = tenant_gate(session, action.company_id, key, plan, now, cap=deps.tenant_sends_per_hour,
+                       gmail_send_ready=deps.gmail_sender is not None)  # fmt: skip
+    return gate if gate is not None else plan
 
 
-@dataclass(frozen=True)
-class ExecOutcome:
-    status: Literal["sent", "already", "blocked", "failed"]
-    reason: str | None = None
-    provider_ref: str | None = None
-
-
-def exec_key(action_id: UUID, draft_version: int) -> str:
-    return f"exec:{action_id}:{draft_version}"
-
-
-def _claim(session: Session, company_id: UUID, key: str, action_id: UUID | None, plan: Plan) -> Send:
-    session.execute(
-        insert(Send)
-        .values(
-            company_id=company_id, action_id=action_id, idempotency_key=key, channel=plan.channel, target=plan.target
-        )
-        .on_conflict_do_nothing(index_elements=["idempotency_key"])
-    )
-    return session.execute(select(Send).where(Send.idempotency_key == key).with_for_update()).scalar_one()
-
-
-def _blocked_reason(session: Session, action: ActionRow, draft_version: int) -> str | None:
-    company = session.get(Company, action.company_id)
-    if company is None or company.paused:
-        return "company paused"
-    if action.draft_version != draft_version:
-        return "draft version superseded"
-    approved = session.scalar(
-        select(Approval.id).where(
-            Approval.company_id == action.company_id,
-            Approval.action_id == action.id,
-            Approval.draft_version == draft_version,
-            Approval.status == ApprovalStatus.approved,
-        )
-    )
-    if approved is None:
-        return "not approved"
-    if action.status not in (ActionStatus.approved, ActionStatus.executed):
-        return f"action is {action.status.value}"
-    return None
-
-
-def _variant(session: Session, action: ActionRow, draft_version: int) -> int:
-    choice = session.scalar(
-        select(Approval.choice).where(
-            Approval.company_id == action.company_id,
-            Approval.action_id == action.id,
-            Approval.draft_version == draft_version,
-            Approval.status == ApprovalStatus.approved,
-        )
-    )
-    return _VARIANT.get(choice, 0) if choice else 0
-
-
-def _deliver(deps: SenderDeps, plan: Plan) -> str:
-    if plan.channel is Channel.gmail and plan.draft is not None and plan.mailbox is not None:
-        return deps.gmail_drafts(plan.mailbox).create_draft(plan.draft)
-    if plan.channel is Channel.gmail and plan.email is not None and plan.mailbox is not None:
-        return deps.gmail_drafts(plan.mailbox).send_message(plan.email)
-    if plan.channel is Channel.google_chat and plan.google_chat is not None:
-        if deps.google_chat is None:
-            raise SendBlockedError("Google Chat outbound not configured")
-        return deps.google_chat.send(plan.target, plan.google_chat)
-    if plan.whatsapp is not None:
-        return deps.whatsapp.send(plan.whatsapp)
-    raise SendBlockedError("nothing to deliver")
-
-
-def _mark(engine: Engine, key: str, status: SendStatus, ref: str | None, error: str | None) -> None:
-    with Session(engine) as session, session.begin():
-        send = session.execute(select(Send).where(Send.idempotency_key == key)).scalar_one()
-        send.status, send.provider_ref, send.error = status, ref, error
-        send.attempted_at = datetime.now(UTC)
-        if send.action_id is not None and status is not SendStatus.pending:
-            action = session.get(ActionRow, send.action_id)
-            if action is not None:
-                action.status = ActionStatus.executed if status is SendStatus.sent else ActionStatus.failed
+def _prepare(
+    deps: SenderDeps, action_id: UUID, draft_version: int, key: str, now: datetime
+) -> tuple[Plan | ExecOutcome, UUID | None]:
+    """One locked transaction: replay check, every re-check, then the claim. Also returns the company to tell if a
+    tenant send (send mode, reply_draft) does not go out."""
+    with Session(deps.engine) as session, session.begin():
+        action = locked_action(session, action_id)
+        if action is None:
+            return ExecOutcome("blocked", "action not found"), None
+        done = sent_row(session, action.company_id, key)
+        if done is not None:  # a replay after a real send: no re-checks, no false "not sent" alert
+            return ExecOutcome("already", provider_ref=done.provider_ref), None
+        company = session.get(Company, action.company_id)  # locked above
+        send_mode = company is not None and company.outbound_mode is OutboundMode.send
+        tell = action.company_id if send_mode and action.type is ActionType.reply_draft else None
+        checked = _plan_checked(deps, session, action, draft_version, send_mode, now)
+        try:
+            send = claim(session, action.company_id, key, action.id, checked) if isinstance(checked, Plan) else None
+        except SendBlockedError as exc:
+            checked = str(exc)
+        if isinstance(checked, str):
+            log.warning("sender.blocked", action_id=str(action_id), reason=checked)
+            return ExecOutcome("blocked", checked), tell
+        if send is not None and send.status is SendStatus.sent:
+            return ExecOutcome("already", provider_ref=send.provider_ref), None
+    return checked, tell
 
 
 def execute_action(deps: SenderDeps, action_id: UUID, draft_version: int) -> ExecOutcome:
     key = exec_key(action_id, draft_version)
-    with Session(deps.engine) as session, session.begin():
-        action = session.scalar(select(ActionRow).where(ActionRow.id == action_id).with_for_update())
-        if action is None:
-            return ExecOutcome("blocked", "action not found")
-        reason = _blocked_reason(session, action, draft_version)
-        if reason is not None:
-            log.warning("sender.blocked", action_id=str(action_id), reason=reason)
-            return ExecOutcome("blocked", reason)
-        try:
-            plan = plan_for(session, action, _variant(session, action, draft_version), key)
-            assert_allowed(session, action.company_id, plan)
-        except SendBlockedError as exc:
-            log.warning("sender.blocked", action_id=str(action_id), reason=str(exc))
-            return ExecOutcome("blocked", str(exc))
-        send = _claim(session, action.company_id, key, action.id, plan)
-        if send.status is SendStatus.sent:
-            return ExecOutcome("already", provider_ref=send.provider_ref)
-    return _send(deps, key, plan)
-
-
-class SendFailedError(EstateOSError):
-    """An owner message the provider rejected for good (never retried automatically)."""
-
-
-def _begin_attempt(engine: Engine, key: str) -> bool:
-    """Atomic `pending → sending`: exactly one attempt may call the provider for a send."""
-    with Session(engine) as session, session.begin():
-        won = session.execute(
-            update(Send)
-            .where(Send.idempotency_key == key, Send.status == SendStatus.pending)
-            .values(status=SendStatus.sending, attempted_at=datetime.now(UTC))
-            .returning(Send.id)
-        ).first()
-    return won is not None
-
-
-def _send(deps: SenderDeps, key: str, plan: Plan) -> ExecOutcome:
-    if not _begin_attempt(deps.engine, key):  # another attempt holds it, or it already finished
-        return ExecOutcome("already", reason="another attempt holds this send")
-    try:
-        ref = _deliver(deps, plan)
-    except Exception as exc:
-        if getattr(exc, "retryable", False):  # definitely not delivered: free it for the step retry
-            _mark(deps.engine, key, SendStatus.pending, None, f"{type(exc).__name__}: {str(exc)[:300]}")
-            raise
-        prefix = "may have been delivered: " if getattr(exc, "maybe_sent", False) else ""
-        reason = f"{prefix}{type(exc).__name__}: {str(exc)[:200]}"
-        _mark(deps.engine, key, SendStatus.failed, None, reason)
-        return ExecOutcome("failed", reason=reason)
-    _mark(deps.engine, key, SendStatus.sent, ref, None)
-    return ExecOutcome("sent", provider_ref=ref)
+    prepared, tell = _prepare(deps, action_id, draft_version, key, datetime.now(UTC))
+    outcome = prepared if isinstance(prepared, ExecOutcome) else send_claimed(deps, key, prepared)
+    if tell is not None and outcome.status in ("blocked", "failed"):
+        tell_owner(deps.engine, tell, action_id, draft_version, outcome.reason)
+    return outcome
 
 
 def _direct(deps: SenderDeps, company_id: UUID, key: str, payload: dict[str, Any], to: str) -> str | None:
     plan = Plan(Channel.whatsapp, to, whatsapp=payload)
     with Session(deps.engine) as session, session.begin():
         assert_allowed(session, company_id, plan)
-        send = _claim(session, company_id, key, None, plan)
+        send = claim(session, company_id, key, None, plan)
         if send.status is SendStatus.sent:
             return send.provider_ref
-    outcome = _send(deps, key, plan)
+    outcome = send_claimed(deps, key, plan)
     if outcome.status == "failed":
         raise SendFailedError(outcome.reason or "owner message rejected")
     return outcome.provider_ref
@@ -209,10 +129,10 @@ def _direct_chat(deps: SenderDeps, company_id: UUID, key: str, payload: dict[str
     plan = Plan(Channel.google_chat, space, google_chat=payload)
     with Session(deps.engine) as session, session.begin():
         assert_allowed(session, company_id, plan)
-        send = _claim(session, company_id, key, None, plan)
+        send = claim(session, company_id, key, None, plan)
         if send.status is SendStatus.sent:
             return send.provider_ref
-    outcome = _send(deps, key, plan)
+    outcome = send_claimed(deps, key, plan)
     if outcome.status == "failed":
         raise SendFailedError(outcome.reason or "owner chat message rejected")
     return outcome.provider_ref
@@ -222,7 +142,10 @@ def send_to_owner(
     deps: SenderDeps, company_id: UUID, key: str, build: Callable[[str], dict[str, Any]] | Any
 ) -> str | None:
     """Owner-channel messages that are not actions (approval cards, briefings, alerts).
-    Supports both WhatsApp (with 24-hr outbox) and Google Chat (instant direct delivery).
+    Supports WhatsApp (with 24-hr outbox), Google Chat (instant direct delivery) and the dashboard (one
+    idempotent `owner_feed` row, returns the feed id; no window, outbox, Send row or provider call).
+    Dashboard feed kind from the key prefix: approval:/apr: approval, docreview: document_review, brief/weekly briefing,
+    blocked:/nudge:/alert and everything else alert. `ref_id` is the UUID in approval/doc keys.
     """
     with Session(deps.engine) as session:
         existing = session.scalar(select(Send).where(Send.idempotency_key == key))
@@ -238,6 +161,9 @@ def send_to_owner(
         space = None
         if interactive_channel == InteractiveChannel.google_chat:
             space = owner_chat_space(session, company_id)
+
+    if interactive_channel == InteractiveChannel.dashboard:
+        return deliver_dashboard(deps.engine, company_id, key, build, whatsapp_to)
 
     if interactive_channel == InteractiveChannel.google_chat and space is not None:
         if isinstance(build, OwnerMessage):
@@ -292,10 +218,10 @@ def send_owner_email(deps: SenderDeps, company_id: UUID, key: str, req: EmailReq
             raise SendBlockedError("company has no Gmail mailbox configured to send from")
         plan = Plan(Channel.gmail, req.to, email=req, mailbox=mailbox)
         assert_allowed(session, company_id, plan)
-        send = _claim(session, company_id, key, None, plan)
+        send = claim(session, company_id, key, None, plan)
         if send.status is SendStatus.sent:
             return send.provider_ref
-    outcome = _send(deps, key, plan)
+    outcome = send_claimed(deps, key, plan)
     if outcome.status == "failed":
         raise SendFailedError(outcome.reason or "owner email rejected")
     return outcome.provider_ref

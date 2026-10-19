@@ -20,6 +20,7 @@ import {
   getDashboardRadar,
   getDashboardInquiries,
   getAutonomousLogs,
+  getDashboardBriefing,
   syncGmailInbox,
   ProspectiveInquiry,
 } from "@/lib/api";
@@ -183,6 +184,27 @@ export default function TodayPage() {
 
   // Briefing mode: Daily pulse vs Weekly recap
   const [briefingKind, setBriefingKind] = useState<"daily" | "weekly">("daily");
+  const [briefingData, setBriefingData] = useState<{
+    headline: string;
+    summarySentence: string;
+    sections: Array<{ category: string; headline: string; details: string; urgency: string }>;
+  } | null>(null);
+  const [isBriefingExpanded, setIsBriefingExpanded] = useState<boolean>(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    getDashboardBriefing(briefingKind)
+      .then(({ data, isLive }) => {
+        if (isMounted && isLive && data) {
+          setBriefingData(data);
+        }
+      })
+      .catch((err) => console.warn("Failed to load live briefing:", err));
+
+    return () => {
+      isMounted = false;
+    };
+  }, [briefingKind]);
 
   return (
     <div className="min-h-dvh bg-[var(--bg)] flex font-sans antialiased text-[var(--ink)]">
@@ -241,39 +263,93 @@ export default function TodayPage() {
             </div>
 
             {/* Sparkle Briefing Sentence with linked counts */}
-            <p className="text-[14px] sm:text-[15px] text-[var(--ink-2)] leading-relaxed pt-1">
-              <span className="text-[var(--accent)] font-bold mr-1.5 select-none">✦</span>
-              {briefingKind === "daily" ? (
-                <>
-                  Since yesterday evening I read 22 messages and answered 17.{" "}
-                  <Link
-                    href="/inbox"
-                    className="font-semibold text-[var(--ink)] hover:underline underline-offset-4 whitespace-nowrap"
-                  >
-                    {currentNeedsYouCount} need your call
-                  </Link>
-                  {currentUrgentCount > 0 ? (
-                    <>
-                      ,{" "}
-                      <Link
-                        href="/inbox"
-                        className="font-semibold text-[var(--accent-ink)] hover:underline underline-offset-4 whitespace-nowrap"
-                      >
-                        {currentUrgentCount} is urgent
-                      </Link>
-                    </>
-                  ) : null}
-                  .
-                </>
-              ) : (
-                <>
-                  Portfolio operating at peak efficiency across all 110 units. Zero SLA breaches recorded this week.{" "}
-                  <strong className="font-semibold text-[var(--ink)]">
-                    142 background operations completed without manual data entry.
-                  </strong>
-                </>
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 pt-1">
+              <p className="text-[14px] sm:text-[15px] text-[var(--ink-2)] leading-relaxed">
+                <span className="text-[var(--accent)] font-bold mr-1.5 select-none">✦</span>
+                {briefingData?.summarySentence ? (
+                  <span>{briefingData.summarySentence} </span>
+                ) : briefingKind === "daily" ? (
+                  <>Since yesterday evening I read 22 messages and answered 17. </>
+                ) : (
+                  <>Portfolio operating at peak efficiency across all 110 units. </>
+                )}
+                <Link
+                  href="/inbox"
+                  className="font-semibold text-[var(--ink)] hover:underline underline-offset-4 whitespace-nowrap"
+                >
+                  {currentNeedsYouCount} need your call
+                </Link>
+                {currentUrgentCount > 0 ? (
+                  <>
+                    ,{" "}
+                    <Link
+                      href="/inbox"
+                      className="font-semibold text-[var(--accent-ink)] hover:underline underline-offset-4 whitespace-nowrap"
+                    >
+                      {currentUrgentCount} is urgent
+                    </Link>
+                  </>
+                ) : null}
+                .
+              </p>
+
+              {briefingData?.sections && briefingData.sections.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setIsBriefingExpanded((prev) => !prev)}
+                  className="text-xs font-semibold text-[var(--ink-2)] hover:text-[var(--ink)] flex items-center gap-1 cursor-pointer shrink-0 self-start py-1 px-2 rounded-md hover:bg-[var(--selected)] transition-colors border border-[var(--line)]"
+                >
+                  <span>{isBriefingExpanded ? "Hide briefing breakdown" : "View briefing breakdown"}</span>
+                  <ChevronDown
+                    className={cn(
+                      "w-3.5 h-3.5 transition-transform duration-200",
+                      isBriefingExpanded && "rotate-180"
+                    )}
+                  />
+                </button>
               )}
-            </p>
+            </div>
+
+            {/* Expandable Briefing Breakdown from Backend */}
+            {isBriefingExpanded && briefingData?.sections && (
+              <div className="mt-3 p-4 bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] space-y-3 shadow-2xs animate-in fade-in duration-200">
+                <div className="text-xs font-bold uppercase tracking-wider text-[var(--ink-3)]">
+                  Live Executive Breakdown · {briefingKind === "daily" ? "Morning Pulse" : "Weekly Recap"}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {briefingData.sections.map((sec, idx) => (
+                    <div
+                      key={idx}
+                      className={cn(
+                        "p-3 rounded-lg border text-xs space-y-1.5",
+                        sec.urgency === "emergency"
+                          ? "bg-[var(--accent)]/5 border-[var(--accent)]/30 text-[var(--ink)]"
+                          : sec.urgency === "high"
+                          ? "bg-amber-500/5 border-amber-500/30 text-[var(--ink)]"
+                          : "bg-[var(--bg)] border-[var(--line)] text-[var(--ink)]"
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold uppercase tracking-wider text-[11px] text-[var(--ink-3)]">
+                          {sec.category}
+                        </span>
+                        {sec.urgency === "emergency" && (
+                          <span className="font-mono text-[10px] font-bold text-[var(--accent-ink)] bg-[var(--accent)]/15 px-1.5 py-0.5 rounded">
+                            Action
+                          </span>
+                        )}
+                      </div>
+                      <div className="font-semibold text-[13px] text-[var(--ink)] leading-snug">
+                        {sec.headline}
+                      </div>
+                      <div className="text-[12px] text-[var(--ink-2)] leading-relaxed">
+                        {sec.details}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* StatLine: Inline numbers separated by dividers, no boxes */}
             <div className="pt-1">

@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import ForeignKey, String, UniqueConstraint, false, text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.contracts import Channel, InteractiveChannel
+from app.contracts import Channel, InteractiveChannel, OutboundMode
 from app.db.base import Base, CompanyScoped, CreatedAtMixin, IdMixin, str_enum
 
 
@@ -24,6 +24,9 @@ class Company(Base, IdMixin, CreatedAtMixin):
     weekly_weekday: Mapped[int] = mapped_column(default=4, server_default="4")  # Monday = 0
     weekly_time: Mapped[time] = mapped_column(default=time(16, 0), server_default="16:00")
     drift_thresholds: Mapped[dict[str, Any]] = mapped_column(default=dict, server_default=text("'{}'::jsonb"))
+    outbound_mode: Mapped[OutboundMode] = mapped_column(
+        str_enum(OutboundMode), default=OutboundMode.draft, server_default=OutboundMode.draft.value
+    )
 
 
 class ChannelAccount(Base, CompanyScoped):

@@ -1,7 +1,7 @@
 """In-process storage for tests."""
 
 from app.core.errors import NotFoundError
-from app.storage.ports import StoredObject, describe, validate_key
+from app.storage.ports import StoredObject, clamp_ttl, describe, validate_key
 
 
 class MemoryStorage:
@@ -20,3 +20,6 @@ class MemoryStorage:
 
     def exists(self, key: str) -> bool:
         return validate_key(key) in self._objects
+
+    def presigned_url(self, key: str, ttl_seconds: int) -> str:
+        return f"memory://{validate_key(key)}?expires_in={clamp_ttl(ttl_seconds)}"

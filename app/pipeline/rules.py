@@ -1,7 +1,8 @@
 """Rules engine: pure policy functions over contracts. No I/O imports (import-linter contract).
 
 Phase 1 policy, first match wins: company paused → `paused`; suspicious message → `exception` (Harjot reviews it by
-hand); `request_contractor` for someone not on file → `exception`; a second state update or a second reply draft on
+hand); `request_contractor` for someone not on file → `exception`; a reply draft that introduces a link, IBAN or
+phone number absent from the source conversation → `exception`; a second state update or a second reply draft on
 the same channel → `drop`; everything else → `pending_approval` (nothing external happens without Harjot).
 """
 
@@ -11,6 +12,7 @@ from enum import StrEnum
 from uuid import UUID
 
 from app.contracts import Action, ActionType, ReplyDraftPayload, RequestContractorPayload
+from app.pipeline.output_guard import unverified
 
 
 class Verdict(StrEnum):
@@ -25,6 +27,7 @@ class RuleContext:
     paused: bool
     suspicious: bool
     contractor_ids: frozenset[UUID]
+    source_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -50,6 +53,8 @@ def _decide(action: Action, ctx: RuleContext, seen: set[str]) -> RuleDecision:
     payload = action.payload
     if isinstance(payload, RequestContractorPayload) and payload.contractor_person_id not in ctx.contractor_ids:
         return RuleDecision(action, Verdict.exception, "contractor is not on file")
+    if isinstance(payload, ReplyDraftPayload) and unverified("\n".join(payload.body_variants), ctx.source_text):
+        return RuleDecision(action, Verdict.exception, "draft contains an unverified link, account or phone number")
     key = _duplicate_key(action)
     if key is not None and key in seen:
         return RuleDecision(action, Verdict.drop, "duplicate")

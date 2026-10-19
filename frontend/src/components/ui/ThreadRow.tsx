@@ -19,6 +19,7 @@ export interface ThreadRowItem {
   urgent?: boolean;
   waitingDays?: number;
   count?: number;
+  isRead?: boolean;
   status: "needs_you" | "handled" | "waiting" | string;
 }
 
@@ -48,6 +49,7 @@ export function ThreadRow({
   onSnooze,
   className,
 }: ThreadRowProps) {
+  const isUnread = t.isRead === false || (t.isRead === undefined && t.status === "needs_you");
   const needsYou = t.status === "needs_you";
   const dateObj = t.lastAt instanceof Date ? t.lastAt : new Date(t.lastAt);
   const formattedTime = formatListTime(t.lastAt || dateObj);
@@ -60,16 +62,17 @@ export function ThreadRow({
       aria-current={selected}
       className={cn(
         "group grid w-full grid-cols-[8px_40px_1fr_auto] items-start gap-3 border-b border-[var(--line)] px-4 py-3 text-left transition-colors cursor-pointer select-none relative focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
-        needsYou ? "bg-[var(--pane)]" : "bg-[var(--bg)] text-[var(--ink-3)]",
+        // Gmail-style contrast: unread rows are elevated crisp pane with rich text, read rows are calm muted bg
+        isUnread ? "bg-[var(--pane)]" : "bg-[var(--bg)]/60 text-[var(--ink-3)]",
         selected && "bg-[var(--selected)] shadow-[inset_2px_0_0_var(--ink)]",
         className
       )}
     >
-      {/* 8px orange dot or transparent spacer */}
+      {/* 8px orange dot or unread dot */}
       <span
         className={cn(
           "mt-4 h-2 w-2 rounded-full flex-shrink-0 transition-colors",
-          needsYou ? "bg-[var(--accent)]" : "bg-transparent"
+          needsYou ? "bg-[var(--accent)]" : isUnread ? "bg-[var(--ink-2)]" : "bg-transparent"
         )}
       />
 
@@ -81,23 +84,25 @@ export function ThreadRow({
         <span
           className={cn(
             "block truncate text-[14.5px] leading-snug",
-            needsYou ? "font-semibold text-[var(--ink)]" : "font-normal text-[var(--ink-2)]"
+            isUnread ? "font-bold text-[var(--ink)]" : "font-normal text-[var(--ink-2)]"
           )}
         >
           {t.contactName}
         </span>
 
-        <span className="block truncate text-sm text-[var(--ink-2)] leading-normal mt-0.5">
+        <span className="block truncate text-sm leading-normal mt-0.5">
           {t.unit ? (
-            <span className="font-semibold text-[var(--ink)]">{t.unit}</span>
+            <span className={cn("text-[var(--ink)]", isUnread ? "font-bold" : "font-semibold")}>{t.unit}</span>
           ) : null}
           {t.unit && t.subject ? (
             <span className="text-[var(--ink-3)] font-normal"> · </span>
           ) : null}
-          <span>{t.subject}</span>
+          <span className={isUnread ? "font-semibold text-[var(--ink)]" : "font-normal text-[var(--ink-2)]"}>
+            {t.subject}
+          </span>
         </span>
 
-        <span className="block truncate text-sm text-[var(--ink-3)] leading-normal">
+        <span className={cn("block truncate text-sm leading-normal", isUnread ? "text-[var(--ink-2)] font-medium" : "text-[var(--ink-3)]")}>
           {t.lastFromUs && "You: "}
           {t.snippet}
         </span>
@@ -106,7 +111,10 @@ export function ThreadRow({
       {/* Time & urgency / waiting indicator */}
       <span className="flex flex-col items-end gap-1 whitespace-nowrap text-xs flex-shrink-0 pt-0.5">
         <time
-          className="font-mono text-[var(--ink-2)] text-[12px] font-medium"
+          className={cn(
+            "font-mono text-[12px]",
+            isUnread ? "font-bold text-[var(--ink)]" : "font-medium text-[var(--ink-3)]"
+          )}
           title={isoTime || formattedTime}
         >
           {formattedTime}

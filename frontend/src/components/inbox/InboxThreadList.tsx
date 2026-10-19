@@ -127,6 +127,7 @@ export function InboxThreadList({
                 lastAt: t.receivedAt,
                 urgent: isUrgent(t),
                 count: t.messages?.length || 1,
+                isRead: t.isRead,
                 status: needsAttention ? "needs_you" : "handled",
               };
 

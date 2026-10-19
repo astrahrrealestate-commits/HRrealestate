@@ -16,6 +16,7 @@ import {
   Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { askAgent } from "@/lib/api";
 
 export interface AssistantAction {
   label: string;
@@ -145,7 +146,7 @@ export function AskEstateOSPanel({
     ];
   }, [currentPageName]);
 
-  const handleSendQuery = (queryText: string) => {
+  const handleSendQuery = async (queryText: string) => {
     const trimmed = queryText.trim();
     if (!trimmed) return;
 
@@ -160,12 +161,31 @@ export function AskEstateOSPanel({
     setInputQuery("");
     setIsTyping(true);
 
-    // Generate intelligent contextual response
-    setTimeout(() => {
-      const response = generateAssistantResponse(trimmed, currentPageName, selectedContext);
-      setMessages((prev) => [...prev, response]);
+    try {
+      const res = await askAgent(trimmed, `${currentPageName}: ${selectedContext}`);
+      const botMsg: AssistantMessage = {
+        id: `agent-${Date.now()}`,
+        sender: "assistant",
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        text: res.answer,
+        actions: res.suggestedAction
+          ? [
+              {
+                label: res.suggestedAction,
+                actionType: "navigate",
+                payload: "/maintenance",
+                isPrimary: true,
+              },
+            ]
+          : undefined,
+      };
+      setMessages((prev) => [...prev, botMsg]);
+    } catch {
+      const fallbackResponse = generateAssistantResponse(trimmed, currentPageName, selectedContext);
+      setMessages((prev) => [...prev, fallbackResponse]);
+    } finally {
       setIsTyping(false);
-    }, 700);
+    }
   };
 
   const handleActionClick = (action: AssistantAction) => {

@@ -17,12 +17,18 @@ from app.contracts import DraftRequest, EmailRequest
 from app.core.errors import EstateOSError
 
 COMPOSE_SCOPES = ["https://www.googleapis.com/auth/gmail.compose"]
+# Tenant replies (send mode): `gmail.send` to send, `gmail.metadata` to find an earlier attempt's message by header.
+SEND_SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.metadata"]
+KEY_HEADER = "X-EstateOS-Key"
 
 
 class GmailDraftError(EstateOSError):
-    def __init__(self, message: str, *, retryable: bool) -> None:
+    """`retryable` only when nothing was sent; `maybe_sent` when the provider may have delivered it (never retried)."""
+
+    def __init__(self, message: str, *, retryable: bool, maybe_sent: bool = False) -> None:
         super().__init__(message)
-        self.retryable = retryable
+        self.retryable = retryable and not maybe_sent
+        self.maybe_sent = maybe_sent
 
 
 MAX_REFERENCES = 8_000
@@ -51,12 +57,12 @@ class GmailDrafts(Protocol):
         """Create a draft in the thread; returns the provider draft id."""
         ...
 
-    def send_draft(self, draft_id: str) -> str:
-        """Sends an existing staged draft; returns provider message id."""
-        ...
-
     def send_message(self, request: EmailRequest) -> str:
         """Send an email (used for owner digest); returns provider message id."""
+        ...
+
+    def send_reply(self, request: DraftRequest) -> str:
+        """Send the reply in `thread_id` (idempotent through `X-EstateOS-Key`); returns the provider message id."""
         ...
 
 
@@ -90,6 +96,32 @@ def build_owner_email_mime(sender: str, request: EmailRequest) -> bytes:
 
 def _b64(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def _has_key(message: dict[str, Any], token: str) -> bool:
+    headers = message.get("payload", {}).get("headers", [])
+    return any(h.get("name", "").lower() == KEY_HEADER.lower() and h.get("value") == token for h in headers)
+
+
+def _lookup_error(exc: Exception) -> GmailDraftError:
+    """The pre-send lookup failed: nothing was sent, so transient failures may be retried."""
+    if isinstance(exc, HttpError):
+        status = int(getattr(exc.resp, "status", 0) or 0)
+        retryable = status >= 500 or is_rate_limited(exc)
+        return GmailDraftError(f"reply lookup failed: HTTP {status}", retryable=retryable)
+    return GmailDraftError(f"reply lookup failed: {type(exc).__name__}", retryable=True)
+
+
+def _send_error(exc: Exception) -> GmailDraftError:
+    """429 → nothing sent, retry; other 4xx → rejected, nothing sent; 5xx/transport after the request → ambiguous."""
+    if isinstance(exc, HttpError):
+        status = int(getattr(exc.resp, "status", 0) or 0)
+        if is_rate_limited(exc):
+            return GmailDraftError(f"sending reply rate-limited: HTTP {status}", retryable=True)
+        if 400 <= status < 500:
+            return GmailDraftError(f"sending reply rejected: HTTP {status}", retryable=False)
+        return GmailDraftError(f"sending reply failed: HTTP {status}", retryable=False, maybe_sent=True)
+    return GmailDraftError(f"sending reply failed: {type(exc).__name__}", retryable=False, maybe_sent=True)
 
 
 class GoogleDrafts:
@@ -129,17 +161,6 @@ class GoogleDrafts:
         draft_id: str = response["id"]
         return draft_id
 
-    def send_draft(self, draft_id: str) -> str:
-        """Sends an existing staged draft via Gmail API."""
-        try:
-            response = self._drafts.send(userId="me", body={"id": draft_id}).execute()
-        except HttpError as exc:
-            status = int(getattr(exc.resp, "status", 0) or 0)
-            retryable = status >= 500 or is_rate_limited(exc)
-            raise GmailDraftError(f"sending draft failed: HTTP {status}", retryable=retryable) from exc
-        message_id: str = response["id"]
-        return message_id
-
     def send_message(self, request: EmailRequest) -> str:
         raw = _b64(build_owner_email_mime(self._address, request))
         try:
@@ -151,12 +172,44 @@ class GoogleDrafts:
         message_id: str = response["id"]
         return message_id
 
+    def _sent_in_thread(self, request: DraftRequest) -> str | None:
+        """An earlier attempt's sent message in this thread, found by our header (drafts do not count)."""
+        thread = (
+            self._service.users()
+            .threads()
+            .get(userId="me", id=request.thread_id, format="metadata", metadataHeaders=[KEY_HEADER])
+            .execute(num_retries=3)
+        )
+        for message in thread.get("messages", []):
+            if "DRAFT" not in message.get("labelIds", []) and _has_key(message, request.key_token):
+                found: str = message["id"]
+                return found
+        return None
+
+    def send_reply(self, request: DraftRequest) -> str:
+        """Idempotent: a retry finds the earlier message by `X-EstateOS-Key`. The send itself is never retried here."""
+        raw = _b64(build_mime(self._address, request))
+        try:
+            existing = self._sent_in_thread(request)
+        except Exception as exc:
+            raise _lookup_error(exc) from exc
+        if existing is not None:
+            return existing
+        body = {"raw": raw, "threadId": request.thread_id}
+        try:
+            response = self._service.users().messages().send(userId="me", body=body).execute()
+        except Exception as exc:
+            raise _send_error(exc) from exc
+        message_id: str = response["id"]
+        return message_id
+
 
 @dataclass
 class FakeDrafts:
     mailbox: FakeMailbox
     created: list[DraftRequest] = field(default_factory=list)
     sent: list[EmailRequest] = field(default_factory=list)
+    replies: list[DraftRequest] = field(default_factory=list)
 
     def create_draft(self, request: DraftRequest) -> str:
         existing = self.mailbox.find_by_header("X-EstateOS-Key", request.key_token, "DRAFT")
@@ -168,9 +221,6 @@ class FakeDrafts:
         self.created.append(request)
         return f"r-{message_id}"
 
-    def send_draft(self, draft_id: str) -> str:
-        return f"sent-{draft_id}"
-
     def send_message(self, request: EmailRequest) -> str:
         existing = self.mailbox.find_by_header("X-EstateOS-Key", request.key_token, "SENT")
         if existing:
@@ -179,3 +229,12 @@ class FakeDrafts:
         message_id = self.mailbox.add_message(raw, labels=["SENT"])
         self.sent.append(request)
         return f"r-{message_id}"
+
+    def send_reply(self, request: DraftRequest) -> str:
+        existing = self.mailbox.find_by_header(KEY_HEADER, request.key_token, "SENT")
+        if existing:
+            return existing
+        raw = build_mime(self.mailbox.address, request)
+        message_id = self.mailbox.add_message(raw, labels=["SENT"], thread_id=request.thread_id)
+        self.replies.append(request)
+        return message_id

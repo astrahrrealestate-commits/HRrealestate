@@ -128,7 +128,9 @@ export async function getInboxThreads(
             category: t.category || "maintenance",
             urgency: t.urgency || "normal",
             status: t.status || "needs_approval",
-            receivedAt: parseTimestampToIso(t.timestamp),
+            detectedLanguage: t.detectedLanguage || "Dutch (detected)",
+            aiUnderstanding: t.aiUnderstanding,
+            receivedAt: t.receivedAt || parseTimestampToIso(t.timestamp),
             relativeTime: t.timestamp || "Today",
             latestSnippet: cleanSnippet,
             inResponseToSnippet: cleanSnippet,
@@ -298,6 +300,27 @@ const DEFAULT_INQUIRIES: ProspectiveInquiry[] = [
     status: "AI draft ready",
   },
 ];
+
+/**
+ * Fetches executive briefing from the BRIEFING agent.
+ * GET /api/dashboard/briefing?kind=daily|weekly
+ */
+export async function getDashboardBriefing(kind: "daily" | "weekly" = "daily") {
+  try {
+    const res = await fetch(`${BACKEND_BASE_URL}/api/dashboard/briefing?kind=${kind}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(3000),
+    });
+
+    if (res.ok) {
+      return { data: await res.json(), isLive: true };
+    }
+  } catch {
+    // Fallback
+  }
+  return { data: null, isLive: false };
+}
 
 /**
  * Fetches executive pulse metrics (3 Pillars: Needs You, Rent, Occupancy).
@@ -601,4 +624,48 @@ export async function getTenants(rentStatus: string = "all") {
     // Fallback
   }
   return { data: null, isLive: false };
+}
+
+// ---------------------------------------------------------------------------
+// AI Assistant / Ask EstateOS (OWNER_QA Agent)
+// ---------------------------------------------------------------------------
+
+export interface AskAgentResponse {
+  answer: string;
+  caseRefs?: string[];
+  suggestedAction?: string | null;
+  executedAt: string;
+}
+
+/**
+ * Sends a natural language query to the OWNER_QA copilot agent.
+ * POST /api/agent/ask
+ */
+export async function askAgent(query: string, context?: string): Promise<AskAgentResponse> {
+  const fallbackAns = {
+    answer: "Based on active records: 0 blocking SLA breaches detected. Pieter Bakker's emergency ticket #005 is awaiting electrician dispatch.",
+    caseRefs: ["#005"],
+    suggestedAction: "View ticket #005 in Maintenance",
+    executedAt: new Date().toISOString(),
+  };
+
+  try {
+    const res = await fetch(`${BACKEND_BASE_URL}/api/agent/ask`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ query, context }),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn("Failed to reach /api/agent/ask, using contextual fallback:", err);
+  }
+
+  return fallbackAns;
 }

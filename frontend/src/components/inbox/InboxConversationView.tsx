@@ -215,7 +215,8 @@ export function InboxConversationView({
               {thread.senderContact && (
                 <>
                   <span>·</span>
-                  <span className="font-mono text-[11.5px] text-[var(--ink-2)] bg-[var(--selected)] px-1.5 py-0.2 rounded border border-[var(--line)]">
+                  <span className="font-mono text-[11.5px] text-[var(--ink-2)] bg-[var(--selected)] px-1.5 py-0.5 rounded border border-[var(--line)] inline-flex items-center gap-1.5">
+                    <span className={cn("inline-block w-1.5 h-1.5 rounded-full", thread.channel === "gmail" ? "bg-[#EA4335]" : "bg-[#25D366]")} />
                     {thread.channel === "gmail" ? (
                       `Gmail: ${thread.senderContact}`
                     ) : (
@@ -291,84 +292,169 @@ export function InboxConversationView({
           </div>
         )}
 
-        {/* Day divider: Today */}
-        <div className="flex items-center gap-3 my-2 text-xs text-[var(--ink-3)]">
-          <div className="flex-1 h-px bg-[var(--line)]" />
-          <span>Today</span>
-          <div className="flex-1 h-px bg-[var(--line)]" />
-        </div>
-
-        {/* Message Bubbles */}
-        {visibleMessages.map((msg) => {
+        {/* Message Bubbles with Dynamic Date Group Dividers */}
+        {visibleMessages.map((msg, index) => {
           const isOwner = msg.sender === "owner";
-          const isDutch = thread.detectedLanguage?.includes("nl") || thread.detectedLanguage?.includes("Dutch");
+          const isDutch =
+            thread.detectedLanguage?.includes("nl") ||
+            thread.detectedLanguage?.includes("Dutch") ||
+            !!msg.bodyEnglish;
           const showEnglish = expandedEnglishMsgIds[msg.id];
 
-          if (isOwner) {
-            // Outgoing bubble (right, white with 1px line border)
-            return (
-              <div key={msg.id} className="flex justify-end">
-                <div className="bg-[var(--pane)] border border-[var(--line)] text-[var(--ink)] rounded-2xl rounded-tr-xs px-4 py-2.5 max-w-[85%] sm:max-w-[75%] shadow-2xs">
-                  <p className="text-[13.5px] leading-relaxed whitespace-pre-line select-text">
-                    {msg.body}
-                  </p>
-                  <div className="flex items-center justify-end gap-1 mt-1 text-[11px] font-mono text-[var(--ink-3)]">
-                    <span>{msg.timeFormatted || "08:21"}</span>
-                    <CheckCheck className="w-3.5 h-3.5 text-[var(--ink-3)]" />
-                  </div>
-                </div>
-              </div>
-            );
-          }
+          // Determine date label from timeFormatted or sentAt
+          const getDayLabel = (m: ThreadMessage) => {
+            const tf = m.timeFormatted || "";
+            if (tf.toLowerCase().startsWith("yesterday")) return "Yesterday";
+            if (tf.toLowerCase().startsWith("today")) return "Today";
+            if (m.sentAt) {
+              const d = new Date(m.sentAt);
+              const now = new Date();
+              const isToday = d.toDateString() === now.toDateString();
+              const yesterday = new Date(now);
+              yesterday.setDate(now.getDate() - 1);
+              const isYesterday = d.toDateString() === yesterday.toDateString();
+              if (isToday) return "Today";
+              if (isYesterday) return "Yesterday";
+              return format(d, "EEE d MMM");
+            }
+            return "Today";
+          };
 
-          // Incoming bubble (left, --selected fill, no border)
+          const currentDayLabel = getDayLabel(msg);
+          const prevMsg = index > 0 ? visibleMessages[index - 1] : null;
+          const prevDayLabel = prevMsg ? getDayLabel(prevMsg) : null;
+          const showDateDivider = index === 0 || currentDayLabel !== prevDayLabel;
+
+          // Time without "Today" or "Yesterday" prefix for the bubble footer
+          const displayTime = (msg.timeFormatted || "08:15")
+            .replace(/^(today|yesterday)\s*/i, "")
+            .trim();
+
+          const englishTranslation =
+            msg.bodyEnglish ||
+            (msg.body.includes("Hoi beheer")
+              ? "Hi management, after turning on the oven the power in the kitchen suddenly went out. Resetting the fuse box unfortunately did not work."
+              : msg.body.includes("Nog steeds geen stroom")
+              ? "Still no power on the kitchen wall sockets since the short circuit. The fridge is starting to get warm. Can someone come by today? Regards, Pieter"
+              : "Still no power on the kitchen sockets since the short circuit. The fridge is starting to warm up. Can someone come today? Regards, Pieter");
+
           return (
-            <div key={msg.id} className="flex flex-col items-start space-y-1">
-              <div className="bg-[var(--selected)] text-[var(--ink)] rounded-2xl rounded-tl-xs px-4 py-2.5 max-w-[85%] sm:max-w-[75%]">
-                <p className="text-[13.5px] leading-relaxed whitespace-pre-line select-text">
-                  {msg.body}
-                </p>
-                <div className="text-[11px] font-mono text-[var(--ink-3)] text-right mt-1">
-                  {msg.timeFormatted || "08:15"}
+            <React.Fragment key={msg.id}>
+              {showDateDivider && (
+                <div className="flex items-center gap-3 my-2 text-xs text-[var(--ink-3)]">
+                  <div className="flex-1 h-px bg-[var(--line)]" />
+                  <span>{currentDayLabel}</span>
+                  <div className="flex-1 h-px bg-[var(--line)]" />
                 </div>
-              </div>
+              )}
 
-              {/* Inline "Show English" translation toggle (Section 5.2) */}
-              {isDutch && (
-                <div className="pl-2">
-                  <button
-                    type="button"
-                    onClick={() => handleToggleEnglish(msg.id)}
-                    className="inline-flex items-center gap-1 text-xs text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors cursor-pointer"
-                  >
-                    {showEnglish ? (
-                      <ChevronDown className="w-3 h-3" />
-                    ) : (
-                      <ChevronRight className="w-3 h-3" />
-                    )}
-                    <span>{showEnglish ? "Hide English" : "Show English"}</span>
-                  </button>
+              {isOwner ? (
+                // Outgoing bubble (right, white with 1px line border)
+                <div className="flex flex-col items-end space-y-1">
+                  <div className="bg-[var(--pane)] border border-[var(--line)] text-[var(--ink)] rounded-2xl rounded-tr-xs px-4 py-2.5 max-w-[85%] sm:max-w-[75%] shadow-2xs">
+                    <p className="text-[13.5px] leading-relaxed whitespace-pre-line select-text">
+                      {msg.body}
+                    </p>
+                    <div className="flex items-center justify-end gap-1 mt-1 text-[11px] font-mono text-[var(--ink-3)]">
+                      <span>{displayTime}</span>
+                      <CheckCheck className="w-3.5 h-3.5 text-[var(--ink-3)]" />
+                    </div>
+                  </div>
 
-                  {showEnglish && (
-                    <div className="mt-1 text-xs text-[var(--ink-3)] italic bg-[var(--pane)] border border-[var(--line)]/60 rounded px-2.5 py-1.5 max-w-[85%]">
-                      Still no power on the kitchen sockets since the short circuit. The fridge is starting to warm up. Can someone come today? Regards, Pieter
+                  {/* Inline English toggle for outgoing message if Dutch */}
+                  {msg.bodyEnglish && (
+                    <div className="pr-2">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleEnglish(msg.id)}
+                        className="inline-flex items-center gap-1 text-[11px] text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors cursor-pointer"
+                      >
+                        {showEnglish ? (
+                          <ChevronDown className="w-3 h-3" />
+                        ) : (
+                          <ChevronRight className="w-3 h-3" />
+                        )}
+                        <span>{showEnglish ? "Hide English" : "Show English translation"}</span>
+                      </button>
+                      {showEnglish && (
+                        <div className="mt-1 text-xs text-[var(--ink-3)] italic bg-[var(--pane)] border border-[var(--line)]/60 rounded px-2.5 py-1.5 max-w-[85%] text-right">
+                          {englishTranslation}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                // Incoming bubble (left, --selected fill, no border)
+                <div className="flex flex-col items-start space-y-1">
+                  <div className="bg-[var(--selected)] text-[var(--ink)] rounded-2xl rounded-tl-xs px-4 py-2.5 max-w-[85%] sm:max-w-[75%]">
+                    <p className="text-[13.5px] leading-relaxed whitespace-pre-line select-text">
+                      {msg.body}
+                    </p>
+                    <div className="text-[11px] font-mono text-[var(--ink-3)] text-right mt-1">
+                      {displayTime}
+                    </div>
+                  </div>
+
+                  {/* Inline "Show English" translation toggle */}
+                  {isDutch && (
+                    <div className="pl-2">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleEnglish(msg.id)}
+                        className="inline-flex items-center gap-1 text-xs text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors cursor-pointer"
+                      >
+                        {showEnglish ? (
+                          <ChevronDown className="w-3 h-3" />
+                        ) : (
+                          <ChevronRight className="w-3 h-3" />
+                        )}
+                        <span>{showEnglish ? "Hide English" : "Show English translation"}</span>
+                      </button>
+
+                      {showEnglish && (
+                        <div className="mt-1 text-xs text-[var(--ink-3)] italic bg-[var(--pane)] border border-[var(--line)]/60 rounded px-2.5 py-1.5 max-w-[85%]">
+                          {englishTranslation}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               )}
-            </div>
+            </React.Fragment>
           );
         })}
 
         {/* AiInsight Block (Section 5.2: single block after last incoming message) */}
         <div className="pt-2">
           <AiInsight
-            data={{
-              ticketNumber: thread.ticketNumber,
-              urgency: thread.urgency,
-              contractorName: "Chahal Bouw (Electrician)",
-              arrivalTime: "Today 11:30 – 12:30",
-            }}
+            data={
+              thread.aiUnderstanding
+                ? {
+                    ticketNumber: thread.ticketNumber || `#${thread.id.slice(0, 4)}`,
+                    urgency: thread.urgency,
+                    contractorName: thread.aiUnderstanding.suggestedContractor || "Chahal Bouw",
+                    arrivalTime: "Today 11:30 – 12:30",
+                    facts: thread.aiUnderstanding.customFacts?.map((f) => ({
+                      label: f.label,
+                      value: f.value,
+                    })),
+                  }
+                : {
+                    ticketNumber: thread.ticketNumber || `#${thread.id.slice(0, 4)}`,
+                    urgency: thread.urgency,
+                    contractorName: thread.category === "maintenance" ? "Chahal Bouw (Electrician)" : undefined,
+                    arrivalTime: thread.category === "maintenance" ? "Today 11:30 – 12:30" : undefined,
+                    facts: [
+                      { label: "Ticket", value: thread.ticketNumber || `#${thread.id.slice(0, 4)}` },
+                      { label: "Category", value: thread.category.toUpperCase() },
+                      { label: "Priority", value: (thread.urgency || "normal").toUpperCase(), isAlert: thread.urgency === "emergency" || thread.urgency === "high" },
+                      { label: "Unit", value: thread.unitLabel },
+                      { label: "Tenant", value: thread.senderName },
+                      { label: "Channel", value: thread.channel.toUpperCase() },
+                    ],
+                  }
+            }
           />
         </div>
 
@@ -378,6 +464,13 @@ export function InboxConversationView({
       {/* 3. Sticky Composer (Section 5.2 & 6.2) */}
       <Composer
         draftText={isSent ? "" : stagedDraftText}
+        drafts={
+          thread.draftProposal?.drafts?.length
+            ? thread.draftProposal.drafts
+            : thread.channel === "whatsapp"
+            ? thread.draftProposal?.whatsappDrafts
+            : thread.draftProposal?.gmailDrafts
+        }
         detectedLanguage={thread.detectedLanguage || "Dutch (detected)"}
         channel={thread.channel}
         onAcceptAndSend={handleAcceptAndSend}

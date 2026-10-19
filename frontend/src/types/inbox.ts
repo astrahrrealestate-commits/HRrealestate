@@ -27,6 +27,7 @@ export interface ThreadMessage {
   sentAt: string;
   timeFormatted: string;
   body: string;
+  bodyEnglish?: string;
   channel: ChannelType;
   attachments?: Array<{
     name: string;
@@ -62,6 +63,7 @@ export interface InboxThread {
   category: MessageCategory;
   urgency: UrgencyLevel;
   status: ThreadStatus;
+  isRead?: boolean;
   receivedAt: string; // ISO
   relativeTime: string;
   latestSnippet: string;

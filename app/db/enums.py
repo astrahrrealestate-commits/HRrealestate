@@ -140,3 +140,19 @@ class OutboxStatus(StrEnum):
     queued = "queued"
     sent = "sent"
     cancelled = "cancelled"
+
+
+class FeedKind(StrEnum):
+    approval = "approval"
+    document_review = "document_review"
+    alert = "alert"
+    briefing = "briefing"
+    task = "task"
+    agent_note = "agent_note"
+
+
+class TurnStatus(StrEnum):
+    pending = "pending"
+    running = "running"
+    done = "done"
+    failed = "failed"

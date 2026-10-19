@@ -9,14 +9,14 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import String, cast, exists, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.contracts import ActionType, ButtonChoice, Urgency
 from app.core.errors import NotFoundError
-from app.db.enums import ActionStatus, ApprovalStatus, TaskPriority
-from app.db.models import ActionRevision, ActionRow, Approval
+from app.db.enums import ActionStatus, ApprovalStatus, SendStatus, TaskPriority
+from app.db.models import ActionRevision, ActionRow, Approval, Send
 from app.pipeline import work_repo
 
 EDIT_WINDOW = timedelta(hours=24)
@@ -143,21 +143,30 @@ def _replayed_edit(session: Session, company_id: UUID, editor: str) -> NewRevisi
 
 
 def apply_owner_edit(
-    session: Session, company_id: UUID, text: str, *, now: datetime, message_id: UUID | None = None
+    session: Session,
+    company_id: UUID,
+    text: str,
+    *,
+    now: datetime,
+    message_id: UUID | None = None,
+    approval_id: UUID | None = None,
 ) -> NewRevision | None:
     """The owner's next text after tapping `edit` becomes draft_version + 1 with one variant, plus a new approval.
-    Blank text never replaces a draft. `message_id` makes a re-run of the same message return its revision."""
+    Blank text never replaces a draft. `message_id` makes a re-run of the same message return its revision.
+    `approval_id` (dashboard) targets exactly that approval instead of the latest edited one."""
     editor = f"owner:{message_id}" if message_id else "owner"
     if message_id is not None and (done := _replayed_edit(session, company_id, editor)) is not None:
         return done
     if not text.strip():
         return None
+    target = [Approval.id == approval_id] if approval_id is not None else []
     pending_edit = session.execute(
         select(Approval, ActionRow)
         .join(ActionRow, ActionRow.id == Approval.action_id)
         .where(
             Approval.company_id == company_id,
             Approval.status == ApprovalStatus.edited,
+            *target,
             Approval.decided_at >= now - EDIT_WINDOW,
             ActionRow.draft_version == Approval.draft_version,
             ActionRow.status == ActionStatus.pending_approval,
@@ -186,8 +195,17 @@ def apply_owner_edit(
     return NewRevision(action.id, action.draft_version, approval_id)
 
 
+def exec_send(company_id: UUID) -> Any:
+    """Correlated filter: a `sends` row of the company under the action's current `exec:{action_id}:{version}` key
+    (the sender's `exec_key`, built in SQL)."""
+    key = "exec:" + cast(ActionRow.id, String) + ":" + cast(ActionRow.draft_version, String)
+    return (Send.company_id == company_id) & (Send.action_id == ActionRow.id) & (Send.idempotency_key == key)
+
+
 def approved_unexecuted(session: Session, company_id: UUID) -> list[tuple[UUID, int, ActionType]]:
-    """Approved actions that never ran (blocked while paused): `resume` re-runs them."""
+    """Approved actions that never ran (blocked while paused): `resume` re-runs them. An action whose exec send is
+    held (`sending`) or finished (`sent`/`failed`) is skipped: only a missing or `pending` row may run again."""
+    held = exists().where(exec_send(company_id), Send.status != SendStatus.pending)
     rows = session.execute(
         select(ActionRow.id, ActionRow.draft_version, ActionRow.type)
         .join(Approval, (Approval.action_id == ActionRow.id) & (Approval.draft_version == ActionRow.draft_version))
@@ -195,6 +213,7 @@ def approved_unexecuted(session: Session, company_id: UUID) -> list[tuple[UUID, 
             ActionRow.company_id == company_id,
             ActionRow.status == ActionStatus.approved,
             Approval.status == ApprovalStatus.approved,
+            ~held,
         )
     ).all()
     return [(r[0], r[1], r[2]) for r in rows]

@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
@@ -13,6 +14,7 @@ import {
   Check,
   ChevronDown,
   ArrowLeft,
+  ArrowUpRight,
   X,
   History,
   CheckCheck,
@@ -709,9 +711,19 @@ function MaintenanceContent() {
                       {/* Contractor */}
                       <div>
                         <span className="text-[var(--ink-3)] block">Contractor</span>
-                        <span className="font-semibold text-[var(--ink)] text-[13px] block mt-0.5 truncate">
-                          {selectedTicket.contractorName}
-                        </span>
+                        <div className="flex items-center justify-between gap-1 mt-0.5">
+                          <span className="font-semibold text-[var(--ink)] text-[13px] truncate">
+                            {selectedTicket.contractorName}
+                          </span>
+                          <Link
+                            href="/inbox?thread=thread-2"
+                            className="text-[11px] text-[var(--ink-2)] hover:text-[var(--accent-ink)] inline-flex items-center gap-0.5 font-medium shrink-0"
+                            title="Open contractor thread in Inbox"
+                          >
+                            <span>Message</span>
+                            <ArrowUpRight className="w-3 h-3" />
+                          </Link>
+                        </div>
                         <span className="text-[var(--ink-3)] text-[11px]">{selectedTicket.contractorTrade}</span>
                       </div>
 

@@ -10,15 +10,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.channels.whatsapp import payloads
+from app.core.workflow_names import EXECUTE_ACTION
 from app.db.models import ActionRow
 from app.ingestion.process import is_transient
 from app.pipeline import followups, local_actions
 from app.sender.execute import execute_action
+from app.sender.tenant_gate import blocked_key
 from app.workflows.deps import get_engine, get_sender_deps
 from app.workflows.owner_notify import send_owner_message
 from app.workflows.retry import STEP_RETRY
-
-EXECUTE_ACTION = "actions.execute_action"
 
 
 def _retryable(exc: BaseException) -> bool:
@@ -46,8 +46,9 @@ def send_step(action_id: str, draft_version: int) -> list[str]:
 
 
 @DBOS.step(name="actions.tell_blocked", **STEP_RETRY)
-def tell_blocked_step(action_id: str, key: str, reason: str) -> None:
-    """An approved action could not run: Harjot hears why (and that `resume` retries a paused one)."""
+def tell_blocked_step(action_id: str, draft_version: int, reason: str) -> None:
+    """An approved action could not run: Harjot hears why (and that `resume` retries a paused one). Keyed by
+    `blocked_key` (the sender's tenant alert key too), never the workflow id, so a resume run adds no second alert."""
     with Session(get_engine()) as session:
         company_id = session.scalar(select(ActionRow.company_id).where(ActionRow.id == UUID(action_id)))
     if company_id is None:
@@ -55,7 +56,7 @@ def tell_blocked_step(action_id: str, key: str, reason: str) -> None:
     text = f"Not sent: {reason or 'the approval is no longer valid'}."
     if "paused" in reason:
         text += " Send `resume` to run approved actions."
-    send_owner_message(str(company_id), f"blocked:{key}", partial(_text, text))
+    send_owner_message(str(company_id), blocked_key(UUID(action_id), draft_version), partial(_text, text))
 
 
 def _text(body: str, to: str) -> dict[str, Any]:
@@ -69,14 +70,27 @@ def after_execute_step(action_id: str) -> str | None:
     return str(wait_id) if wait_id else None
 
 
+EXHAUSTED = "could not send after retries; the approval is still valid"
+
+
+def _send_or_tell(action_id: str, draft_version: int) -> list[str]:
+    """Retries exhausted (or any error escaping the step): Harjot hears it, the `sends` row stays pending for a
+    later resume, and the error is re-raised so the workflow ends in ERROR, never looking successful."""
+    try:
+        return send_step(action_id, draft_version)
+    except Exception:
+        tell_blocked_step(action_id, draft_version, EXHAUSTED)  # no exception text: it may quote a body
+        raise
+
+
 @DBOS.workflow(name=EXECUTE_ACTION)
 def execute_action_wf(action_id: str, draft_version: int, local: bool) -> str:
     if local:
         outcome, reason = apply_local_step(action_id, draft_version), "company paused or approval no longer valid"
     else:
-        outcome, reason = send_step(action_id, draft_version)
+        outcome, reason = _send_or_tell(action_id, draft_version)
     if outcome in ("sent", "already"):  # "already": a replay after the send was recorded; open_wait is idempotent
         after_execute_step(action_id)
     elif outcome in ("blocked", "failed"):  # Harjot always hears when an approved action did not go out
-        tell_blocked_step(action_id, DBOS.workflow_id or action_id, reason)
+        tell_blocked_step(action_id, draft_version, reason)
     return outcome

@@ -65,22 +65,22 @@ export function Avatar({
       {normalizedChannel && (
         <span
           className={cn(
-            "absolute -bottom-0.5 -right-0.5 rounded-full bg-[var(--pane)] border border-[var(--line)] flex items-center justify-center text-[var(--ink-2)] shadow-xs",
+            "absolute -bottom-0.5 -right-0.5 rounded-full bg-[var(--pane)] border border-[var(--line)] flex items-center justify-center shadow-xs",
             badgeSizeClasses[size]
           )}
           title={`Channel: ${channel}`}
         >
           {normalizedChannel.includes("whatsapp") && (
-            <MessageSquare className={iconSizeClasses[size]} strokeWidth={2} />
+            <MessageSquare className={cn(iconSizeClasses[size], "text-[#25D366]")} strokeWidth={2.2} />
           )}
           {normalizedChannel.includes("gmail") && (
-            <Mail className={iconSizeClasses[size]} strokeWidth={2} />
+            <Mail className={cn(iconSizeClasses[size], "text-[#EA4335]")} strokeWidth={2.2} />
           )}
           {normalizedChannel.includes("portal") && (
-            <Globe className={iconSizeClasses[size]} strokeWidth={2} />
+            <Globe className={cn(iconSizeClasses[size], "text-[var(--ink-2)]")} strokeWidth={2} />
           )}
           {normalizedChannel.includes("phone") && (
-            <Phone className={iconSizeClasses[size]} strokeWidth={2} />
+            <Phone className={cn(iconSizeClasses[size], "text-[var(--ink-2)]")} strokeWidth={2} />
           )}
         </span>
       )}

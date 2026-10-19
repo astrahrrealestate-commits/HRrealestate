@@ -21,6 +21,18 @@ class AgentFailedError(EstateOSError):
     """An LLM agent call failed (validation or model error)."""
 
 
+class BudgetExceededError(AgentFailedError):
+    """A company LLM budget or call cap is spent.
+
+    Subclasses AgentFailedError so every call site's existing graceful fallback applies; callers that must wait
+    instead of degrading (the understand step) catch it first.
+    """
+
+    def __init__(self, scope: str) -> None:
+        super().__init__(f"llm limit reached: {scope}")
+        self.scope = scope
+
+
 class NotFoundError(EstateOSError):
     """A requested row does not exist (within the caller's company)."""
 

@@ -11,6 +11,7 @@ from app.core.settings import Settings
 from app.workflows import (
     actions,
     briefings,
+    concierge,
     documents,
     followups,
     ingest,
@@ -20,6 +21,7 @@ from app.workflows import (
     pipeline,
     quality,
     queues,
+    sweeps,
     system,
     timer_dispatch,
 )
@@ -28,6 +30,7 @@ from app.workflows import (
 _REGISTERED = (
     actions,
     briefings,
+    concierge,
     documents,
     followups,
     ingest,
@@ -35,6 +38,7 @@ _REGISTERED = (
     owner_reply,
     pipeline,
     quality,
+    sweeps,
     timer_dispatch,
 )
 
@@ -49,6 +53,7 @@ SCHEDULES: list[ScheduleInput] = [
     {"schedule_name": "gmail.backfill", "workflow_fn": ingest.gmail_backfill, "schedule": "17 * * * *"},
     {"schedule_name": "ingest.requeue", "workflow_fn": ingest.requeue_failed, "schedule": "41 * * * *"},
     {"schedule_name": "pipeline.requeue", "workflow_fn": pipeline.requeue_failed, "schedule": "47 * * * *"},
+    {"schedule_name": "sweep.stranded", "workflow_fn": sweeps.sweep_stranded, "schedule": "*/5 * * * *"},
     {"schedule_name": "briefing.ensure", "workflow_fn": briefings.ensure_briefings, "schedule": "5 * * * *"},
     {"schedule_name": "outcomes.capture", "workflow_fn": quality.capture_cron, "schedule": "*/15 * * * *"},
     {"schedule_name": "drift.daily", "workflow_fn": quality.drift_cron, "schedule": "30 4 * * *"},

@@ -11,6 +11,19 @@ PROCESS_EVENT = "ingest.process_event"
 GMAIL_SYNC = "ingest.gmail_sync"
 OWNER_REPLY = "owner.reply"
 PIPELINE_ENTRY = "pipeline.entry"
+EXECUTE_ACTION = "actions.execute_action"
+FILE_DOCUMENT = "documents.file_document"
+CONCIERGE_TURN = "concierge.turn"
+
+
+def exec_workflow_id(action_id: object, draft_version: object) -> str:
+    """`exec:<action_id>:<draft_version>`: the one execution of an approved action version (same as its send key)."""
+    return f"exec:{action_id}:{draft_version}"
+
+
+def concierge_workflow_id(turn_id: object) -> str:
+    """`concierge:<turn_id>`: one Super Agent run per turn; DBOS dedupes a repeated enqueue."""
+    return f"concierge:{turn_id}"
 
 
 def event_workflow_id(raw_event_id: object) -> str:
@@ -27,3 +40,6 @@ def requeue_workflow_id(raw_event_id: object, attempt: int, now: object) -> str:
 def stale_event_workflow_id(raw_event_id: object, now: object) -> str:
     """Rerun of an event stranded in `pending`; one per hour at most (`now` is a datetime)."""
     return f"evt:{raw_event_id}:p{now:%Y%m%d%H}"
+
+
+DOC_SKIP = "skip"  # owner choice: do not file this attachment

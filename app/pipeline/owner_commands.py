@@ -13,13 +13,17 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from app.core.errors import AgentFailedError, NotFoundError
+from app.core.errors import AgentFailedError, BudgetExceededError, NotFoundError
+from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import WaitStatus
 from app.db.models import Case, Company, Person, TaskRow, WaitRow
-from app.llm.agents.owner_qa import FALLBACK_ANSWER, OWNER_QA, CaseBrief, accept_refs, owner_qa_prompt
+from app.llm.agents.owner_qa import FALLBACK_ANSWER, OWNER_QA, CaseBrief, accept_refs, answer_text, owner_qa_prompt
+from app.llm.budget import OWNER_QA_PURPOSE
 from app.llm.calls import CallContext, run_agent
 from app.pipeline import case_repo, work_repo
+
+log = get_logger(__name__)
 
 
 class CommandKind(StrEnum):
@@ -51,9 +55,22 @@ HELP_TEXT = (
     "pause / resume - stop or restart all proposals\n"
     "Anything else is a question about your cases."
 )
+MAX_QUESTION_CHARS = 500
+NOT_A_QUESTION = "Send a question about your cases, or `help` for the commands."
+TOO_LONG = f"That is too long. Please keep questions under {MAX_QUESTION_CHARS} characters."
+LIMIT_ANSWER = "The AI question limit is reached for now. `tasks`, `waiting` and `help` still work."
 _UNITS = {"m": timedelta(minutes=1), "h": timedelta(hours=1), "d": timedelta(days=1), "w": timedelta(weeks=1)}
 MAX_SNOOZE = timedelta(weeks=8)
 _SIMPLE = {"pause", "resume", "tasks", "waiting", "help"}
+
+
+def screen_question(text: str) -> str | None:
+    """A reply when the text must not reach the model (empty, symbols only, too long); None when it may."""
+    if not any(ch.isalnum() for ch in text):
+        return NOT_A_QUESTION
+    if len(text) > MAX_QUESTION_CHARS:
+        return TOO_LONG
+    return None
 
 
 def parse_duration(raw: str) -> timedelta:
@@ -154,11 +171,20 @@ def _question(engine: Engine, settings: Settings, company_id: UUID, question: st
         tasks = [t.title for t in work_repo.open_tasks(session, company_id, now=now)]
     try:
         result = run_agent(
-            engine, settings, OWNER_QA, owner_qa_prompt(question, briefs, tasks), CallContext(company_id, "owner_qa")
+            engine,
+            settings,
+            OWNER_QA,
+            owner_qa_prompt(question, briefs, tasks),
+            CallContext(company_id, OWNER_QA_PURPOSE),
         )
+    except BudgetExceededError:
+        return LIMIT_ANSWER
     except AgentFailedError:
         return FALLBACK_ANSWER
-    return accept_refs(result.output, briefs).answer
+    answer = accept_refs(result.output, briefs)
+    if not answer.in_scope:
+        log.info("owner_qa.refused")
+    return answer_text(answer)
 
 
 def _apply(session: Session, company: Company, cmd: Command, now: datetime) -> str:
@@ -187,7 +213,8 @@ def _apply(session: Session, company: Company, cmd: Command, now: datetime) -> s
 def run_command(engine: Engine, settings: Settings, company_id: UUID, cmd: Command, *, now: datetime) -> str:
     """Execute one owner command and return the reply text (English)."""
     if cmd.kind is CommandKind.question:
-        return _question(engine, settings, company_id, cmd.text or "", now)
+        rejected = screen_question(cmd.text or "")
+        return rejected or _question(engine, settings, company_id, cmd.text or "", now)
     with Session(engine) as session, session.begin():
         company = session.get(Company, company_id)
         if company is None:

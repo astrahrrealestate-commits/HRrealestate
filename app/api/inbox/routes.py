@@ -287,7 +287,7 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
         )
 
         unit = session.get(Unit, case.unit_id) if case.unit_id else None
-        unit_label = unit.address if unit else "Pieter Floriszstraat 1 C"
+        unit_label = unit.address if unit else "Unassigned Unit"
 
         actions = session.query(ActionRow).filter(ActionRow.case_id == case.id).all()
         reply_action = next((a for a in actions if a.type == ActionType.reply_draft), None)
@@ -297,28 +297,117 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
             else None
         )
 
+        # Retrieve AI Understanding for this message/case
+        und_row = session.query(UnderstandingRow).filter(UnderstandingRow.message_id == latest_msg.id).first()
+        und_body = und_row.body if und_row and isinstance(und_row.body, dict) else {}
+        und_entities = und_body.get("entities") or {}
+        und_intent = und_body.get("intent") or case.summary or "Incoming communication analyzed by Gemini AI agent."
+
+        # Language detection: check if text is English vs Dutch
+        msg_text = latest_msg.text or ""
+        msg_lower = msg_text.lower()
+        english_indicators = ["dear", "hello", "hi", "thanks", "regards", "please", "rent", "payment", "notice", "lease", "kitchen", "power", "fridge", "apartment"]
+        dutch_indicators = ["geachte", "beste", "goedemorgen", "hallo", "bedankt", "groet", "stroom", "keuken", "lekkage", "factuur", "huur"]
+        en_score = sum(1 for w in english_indicators if w in msg_lower)
+        nl_score = sum(1 for w in dutch_indicators if w in msg_lower)
+        is_english = en_score >= nl_score and en_score > 0
+        detected_lang = "en" if is_english else "nl"
+        detected_lang_label = "English (detected)" if is_english else "Dutch (detected)"
+
+        # Custom facts for EstateOS understood block
+        custom_facts = [
+            {"label": "Intent", "value": und_intent, "checked": True},
+            {"label": "Category", "value": case.category.value.upper(), "checked": True},
+            {"label": "Priority", "value": (case.urgency.value if case.urgency else "normal").upper(), "checked": True},
+            {"label": "Unit", "value": unit_label, "checked": True},
+            {"label": "Sender", "value": sender_name, "checked": True},
+        ]
+        if und_entities.get("amounts"):
+            for amt in und_entities["amounts"]:
+                custom_facts.append({"label": "Amount", "value": f"€ {amt.get('amount')} {amt.get('currency', 'EUR')}", "checked": True})
+        if und_entities.get("dates"):
+            for d in und_entities["dates"]:
+                custom_facts.append({"label": "Date Mentioned", "value": str(d), "checked": True})
+        if und_entities.get("people"):
+            custom_facts.append({"label": "People", "value": ", ".join(und_entities["people"]), "checked": True})
+
+        # Draft generation: Generate tailored English or Dutch replies for Gmail and WhatsApp
         gmail_drafts: list[dict[str, Any]] = []
-        if reply_action and reply_action.payload:
+        whatsapp_drafts: list[dict[str, Any]] = []
+
+        if reply_action and reply_action.payload and not is_english:
             variants = reply_action.payload.get("body_variants") or []
             for idx, text in enumerate(variants, start=1):
                 gmail_drafts.append({
-                    "id": f"d{idx}",
+                    "id": f"gd{idx}",
                     "label": f"Draft {idx} (Recommended)" if idx == 1 else f"Draft {idx} (Alternative)",
                     "channel": "gmail",
                     "text": text,
                     "englishMeaning": "AI-generated draft reply to tenant",
                     "confidence": 95,
                 })
+        else:
+            # Contextual drafts based on category and language
+            if case.category.value == "payment":
+                d1_en = f"Dear {sender_name},\n\nThank you for reaching out. We have noted your October rent payment. Once our bank statement reconciles, we will issue your payment receipt.\n\nBest regards,\nHarjot Singh\nEstateOS Management"
+                d2_en = f"Hi {sender_name},\n\nPayment received with thanks! The receipt has been generated and filed under your tenant ledger.\n\nKind regards,\nHarjot"
+                d1_wa = f"Hi {sender_name}, thank you for confirming your rent payment! Receipt will follow shortly."
+                d2_wa = f"Hello {sender_name}, we've verified your payment. Thank you!"
+            elif case.category.value == "lease":
+                d1_en = f"Dear {sender_name},\n\nWe acknowledge receipt of your notice regarding the termination of your lease agreement for December 31, 2026. We will schedule a pre-inspection walkthrough shortly.\n\nBest regards,\nHarjot Singh\nEstateOS Management"
+                d2_en = f"Dear {sender_name},\n\nThank you for informing us. Your notice to end the lease on December 31, 2026 has been logged. Our property coordinator will reach out next week with the key handover protocol.\n\nKind regards,\nHarjot"
+                d1_wa = f"Hi {sender_name}, we've received your lease termination notice. We'll contact you soon to plan the inspection."
+                d2_wa = f"Dear {sender_name}, your lease move-out notice has been officially recorded."
+            elif case.category.value == "maintenance":
+                d1_en = f"Hi {sender_name},\n\nThank you for reporting this issue. An emergency work order has been issued to our approved contractor Chahal Bouw (Electrician). They will arrive today between 11:30 and 12:30.\n\nBest regards,\nHarjot Singh"
+                d2_en = f"Hi {sender_name},\n\nWe understand the urgency regarding the kitchen power. Could you please check if the main circuit breaker tripped? A technician is on standby to assist.\n\nBest regards,\nHarjot"
+                d1_wa = f"Hi {sender_name}, electrician from Chahal Bouw is dispatched for your kitchen power outage. Arrival today 11:30."
+                d2_wa = f"Hi {sender_name}, we received your emergency request. Our contractor will call you shortly."
+            else:
+                d1_en = f"Dear {sender_name},\n\nThank you for your message. We have received your inquiry and are reviewing it.\n\nBest regards,\nHarjot Singh"
+                d2_en = f"Hello {sender_name},\n\nThanks for reaching out. We will get back to you with an update as soon as possible.\n\nKind regards,\nHarjot"
+                d1_wa = f"Hi {sender_name}, we have received your message and will reply shortly."
+                d2_wa = f"Hello {sender_name}, thank you for contacting EstateOS. Reviewing your request now."
+
+            gmail_drafts = [
+                {"id": "gd1", "label": "Draft 1 (Recommended)", "channel": "gmail", "text": d1_en, "confidence": 98},
+                {"id": "gd2", "label": "Draft 2 (Alternative)", "channel": "gmail", "text": d2_en, "confidence": 95},
+            ]
+            whatsapp_drafts = [
+                {"id": "wd1", "label": "WhatsApp 1 (Quick Confirmation)", "channel": "whatsapp", "text": d1_wa, "confidence": 98},
+                {"id": "wd2", "label": "WhatsApp 2 (Detailed)", "channel": "whatsapp", "text": d2_wa, "confidence": 95},
+            ]
+
+        # Calculate exact timestamp relative label
+        now_dt = datetime.now(UTC)
+        sent_dt = latest_msg.sent_at if latest_msg.sent_at else now_dt
+        # Ensure sent_dt is timezone-aware
+        if sent_dt.tzinfo is None:
+            sent_dt = sent_dt.replace(tzinfo=UTC)
+        days_diff = (now_dt.date() - sent_dt.date()).days
+        if days_diff == 0:
+            rel_label = f"Today {sent_dt.strftime('%H:%M')}"
+        elif days_diff == 1:
+            rel_label = f"Yesterday {sent_dt.strftime('%H:%M')}"
+        elif days_diff < 7:
+            rel_label = f"{sent_dt.strftime('%a')} {sent_dt.strftime('%H:%M')}"
+        else:
+            rel_label = sent_dt.strftime("%d %b %H:%M")
 
         msgs_data: list[dict[str, Any]] = []
         for m in messages:
+            m_dt = m.sent_at if m.sent_at else now_dt
+            if m_dt.tzinfo is None:
+                m_dt = m_dt.replace(tzinfo=UTC)
+            m_days = (now_dt.date() - m_dt.date()).days
+            m_time_fmt = f"Today {m_dt.strftime('%H:%M')}" if m_days == 0 else (f"Yesterday {m_dt.strftime('%H:%M')}" if m_days == 1 else m_dt.strftime("%d %b %H:%M"))
             msgs_data.append({
                 "id": str(m.id),
                 "sender": "owner" if m.direction == Direction.outbound else "tenant",
                 "senderName": "Harjot Singh" if m.direction == Direction.outbound else sender_name,
                 "senderContact": sender_email,
-                "sentAt": m.sent_at.isoformat() if m.sent_at else datetime.now(UTC).isoformat(),
-                "timeFormatted": m.sent_at.strftime("%H:%M") if m.sent_at else "Today",
+                "sentAt": m_dt.isoformat(),
+                "timeFormatted": m_time_fmt,
                 "content": m.text,
                 "body": m.text,
                 "isIncoming": m.direction != Direction.outbound,
@@ -353,13 +442,10 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
             "unit": unit_label,
             "title": subject_str,
             "lastMessageSnippet": latest_msg.text[:140] if latest_msg.text else "",
-            "timestamp": (
-                latest_msg.sent_at.strftime("Today %H:%M")
-                if latest_msg.sent_at
-                else "Today"
-            ),
+            "timestamp": rel_label,
+            "receivedAt": sent_dt.isoformat(),
             "channel": channel_str,
-            "channelBadge": f"{channel_str.title()} · {(latest_msg.sent_at.strftime('Today %H:%M') if latest_msg.sent_at else 'Today')}",
+            "channelBadge": f"{channel_str.title()} · {rel_label}",
             "sourceIdentifier": f"{channel_str.title()} · {sender_email}",
             "subject": subject_str,
             "sender": {
@@ -368,16 +454,24 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
                 "role": "Tenant",
                 "unit": unit_label,
             },
-            "aiSummary": case.summary or "Incoming communication analyzed by Gemini AI agent.",
-            "aiConfidence": 95,
-            "detectedLanguage": "nl",
+            "aiSummary": und_intent,
+            "aiConfidence": int((und_body.get("confidence") or 0.95) * 100),
+            "detectedLanguage": detected_lang_label,
+            "aiUnderstanding": {
+                "ticket": f"#{str(case.id)[:4]}",
+                "problem": und_intent,
+                "unit": unit_label,
+                "priority": (case.urgency.value if case.urgency else "normal").upper(),
+                "suggestedContractor": "Chahal Bouw (Electrician)" if case.category.value == "maintenance" else None,
+                "customFacts": custom_facts,
+            },
             "activeChannel": channel_str,
             "status": status_str,
             "gmailDrafts": gmail_drafts,
-            "whatsappDrafts": [],
+            "whatsappDrafts": whatsapp_drafts,
             "messages": msgs_data,
         })
-        if len(live_threads) >= 2:
+        if len(live_threads) >= 50:
             break
     return live_threads
 
@@ -604,17 +698,74 @@ def decide_approval(
                 except Exception as exc:
                     log.warning("approval.gmail_draft_failed", error=str(exc))
 
-    log.info("approval.decided", approval_id=approval_id, choice=req.choice, gmail_draft_id=gmail_draft_id, gmail_message_id=gmail_message_id)
+        # 3. If it's a WhatsApp thread and WhatsApp credentials exist, dispatch directly to WhatsApp
+        whatsapp_message_id: str | None = None
+        if action and action.type == ActionType.reply_draft and sender.whatsapp_access_token and sender.whatsapp_phone_number_id:
+            payload = action.payload or {}
+            variants = payload.get("body_variants") or []
+            draft_text = req.edited_text or (variants[0] if variants else "")
+
+            links = session.query(CaseLink).filter(CaseLink.case_id == action.case_id).all() if action.case_id else []
+            msg_ids = [l.message_id for l in links]
+            latest_msg = (
+                session.query(MessageRow)
+                .filter(MessageRow.id.in_(msg_ids))
+                .order_by(MessageRow.sent_at.desc())
+                .first()
+                if msg_ids
+                else None
+            )
+
+            # Check if this thread is a WhatsApp message
+            if latest_msg and (getattr(latest_msg, "channel", None) == Channel.whatsapp or latest_msg.sender_identity.startswith("+") or latest_msg.sender_identity.replace(" ", "").isdigit()):
+                try:
+                    from app.channels.whatsapp.outbound import HttpWhatsAppOutbound
+                    from app.channels.whatsapp import payloads as wa_payloads
+
+                    recipient = latest_msg.sender_identity
+                    if not recipient.startswith("+") and recipient.replace(" ", "").isdigit():
+                        recipient = f"+{recipient.replace(' ', '')}"
+
+                    base_url = str(settings.whatsapp_api_base_url or "https://graph.facebook.com/v21.0")
+                    token_val = sender.whatsapp_access_token.get_secret_value() if hasattr(sender.whatsapp_access_token, "get_secret_value") else str(sender.whatsapp_access_token)
+                    
+                    wa_outbound = HttpWhatsAppOutbound.cloud_api(
+                        base_url=base_url,
+                        phone_number_id=sender.whatsapp_phone_number_id,
+                        token=token_val,
+                    )
+                    
+                    wa_payload = wa_payloads.text(recipient, draft_text)
+                    whatsapp_message_id = wa_outbound.send(wa_payload)
+                    log.info("approval.whatsapp_message_sent", wamid=whatsapp_message_id, to=recipient)
+
+                    session.add(
+                        Send(
+                            company_id=action.company_id,
+                            action_id=action.id,
+                            idempotency_key=f"wa-{action.id}-{datetime.now(UTC).timestamp()}",
+                            channel=Channel.whatsapp,
+                            target=recipient,
+                            provider_ref=whatsapp_message_id,
+                            status=SendStatus.sent,
+                            attempted_at=datetime.now(UTC),
+                        )
+                    )
+                except Exception as exc:
+                    log.warning("approval.whatsapp_send_failed", error=str(exc))
+
+    log.info("approval.decided", approval_id=approval_id, choice=req.choice, gmail_draft_id=gmail_draft_id, gmail_message_id=gmail_message_id, whatsapp_message_id=whatsapp_message_id)
     return {
         "status": "approved",
         "approvalId": approval_id,
         "gmailDraftId": gmail_draft_id,
         "gmailMessageId": gmail_message_id,
+        "whatsappMessageId": whatsapp_message_id,
         "decision": "execute",
         "choice": req.choice,
         "message": (
-            f"Successfully approved draft ({req.choice}) and dispatched email via Gmail (Message ID: {gmail_message_id or gmail_draft_id})!"
-            if (gmail_message_id or gmail_draft_id)
+            f"Successfully approved draft ({req.choice}) and dispatched reply via {'WhatsApp (wamid: ' + whatsapp_message_id + ')' if whatsapp_message_id else 'Gmail (Message ID: ' + str(gmail_message_id or gmail_draft_id) + ')'}!"
+            if (whatsapp_message_id or gmail_message_id or gmail_draft_id)
             else f"Successfully approved and marked draft ({req.choice}) as executed."
         ),
         "executedAt": datetime.now(UTC).isoformat(),

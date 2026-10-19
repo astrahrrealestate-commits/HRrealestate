@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 from app.core.errors import NotFoundError
-from app.storage.ports import StoredObject, describe, validate_key
+from app.storage.ports import StoredObject, clamp_ttl, describe, validate_key
 
 
 class LocalStorage:
@@ -38,3 +38,7 @@ class LocalStorage:
 
     def exists(self, key: str) -> bool:
         return self._path(key).is_file()
+
+    def presigned_url(self, key: str, ttl_seconds: int) -> str:
+        """Dev only: an opaque relative URL with an advisory `expires_in`; nothing serves it, so no real expiry."""
+        return f"/dev-storage/{validate_key(key)}?expires_in={clamp_ttl(ttl_seconds)}"

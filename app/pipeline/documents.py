@@ -20,7 +20,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.contracts import DocType, DocumentClassification
-from app.core.errors import AgentFailedError, EstateOSError, NotFoundError
+from app.core.errors import AgentFailedError, BudgetExceededError, EstateOSError, NotFoundError
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import DocumentStatus
@@ -131,6 +131,9 @@ def _decide(engine: Engine, settings: Settings, f: _Filing) -> tuple[DocumentCla
         return DocumentStatus.skipped
     try:
         cls, call_id = _classify(engine, settings, f)
+    except BudgetExceededError:  # not a classification failure: Harjot's choice files it without an LLM call
+        _upsert(engine, f, _values(f, DocumentStatus.review, _placeholder(f)))
+        return DocumentStatus.review
     except AgentFailedError as exc:
         _upsert(engine, f, _values(f, DocumentStatus.failed, _placeholder(f), error=str(exc)[:500]))
         return DocumentStatus.failed

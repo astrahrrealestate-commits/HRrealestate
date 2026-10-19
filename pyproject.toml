@@ -14,6 +14,7 @@ dependencies = [
     "google-auth>=2.36",
     "httpx>=0.28",
     "inscriptis>=2.5",
+    "itsdangerous>=2.2.0",
     "mail-parser-reply>=1.30",
     "opentelemetry-exporter-otlp-proto-http>=1.45.1",
     "opentelemetry-sdk>=1.45.1",
@@ -183,6 +184,12 @@ source_modules = [
     "app.channels",
 ]
 forbidden_modules = ["app.dev"]
+
+[[tool.importlinter.contracts]]
+name = "API enqueues by name only: never imports workflows or the sender"
+type = "forbidden"
+source_modules = ["app.api"]
+forbidden_modules = ["app.workflows", "app.sender"]
 
 [[tool.importlinter.contracts]]
 name = "Rules engine is pure (no I/O layers)"
