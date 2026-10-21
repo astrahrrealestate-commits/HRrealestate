@@ -17,6 +17,7 @@
 - Budget-blocked pipeline messages stay `pending`; the existing hourly stranded-`pending` sweep retries them for 7 days. No "manual review" task needed. Owner gets one alert per day, made idempotent by the sender key `budget:<day>` (no migration, no marker table).
 - Blocked attempts are logged (`llm.budget_blocked`), not written to `model_calls` (they would inflate the call counts they are checked against).
 - Tenant-text truncation already exists (`render.data_block`, 8000 chars). Not repeated.
+- Unverified link/IBAN/phone in a reply draft makes the action an `exception` (as for suspicious mail), not a card banner.
 
 ## Global Constraints
 
@@ -215,6 +216,7 @@ def check_budget(
     if scope is not None:
         log.warning("llm.budget_blocked", company_id=str(company_id), purpose=purpose, scope=scope)
         raise BudgetExceededError(scope)
+```
 
 - [ ] **Step 6: Run unit test, expect PASS**
 

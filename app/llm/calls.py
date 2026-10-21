@@ -25,6 +25,7 @@ from app.core.errors import AgentFailedError
 from app.core.ids import new_id
 from app.core.settings import Settings
 from app.db.models import ModelCall
+from app.llm.budget import check_budget
 from app.llm.prompts import LoadedPrompt, load_prompt
 from app.llm.runtime import build_model
 
@@ -82,13 +83,17 @@ def run_agent[T: BaseModel](
     engine: Engine, settings: Settings, spec: AgentSpec[T], user_prompt: str, ctx: CallContext
 ) -> CallResult[T]:
     loaded = load_prompt(spec.prompt)
+    check_budget(engine, settings, ctx.company_id, ctx.purpose)
     agent = Agent(
         build_model(settings, spec.name), output_type=spec.output_type, instructions=loaded.text, retries=AGENT_RETRIES
     )
     row = _row(spec, loaded, settings, ctx, user_prompt)
     started = time.perf_counter()
     try:
-        result = agent.run_sync(user_prompt, model_settings=ModelSettings(timeout=settings.llm_timeout_sec))
+        result = agent.run_sync(
+            user_prompt,
+            model_settings=ModelSettings(timeout=settings.llm_timeout_sec, max_tokens=settings.llm_max_output_tokens),
+        )
         output = spec.finalize(result.output, loaded)
     except Exception as exc:
         row.latency_ms, row.error = int((time.perf_counter() - started) * 1000), f"{type(exc).__name__}: {exc}"[:2000]

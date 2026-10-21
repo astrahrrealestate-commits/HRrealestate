@@ -10,8 +10,9 @@ from app.contracts import Category, Urgency
 from app.core.settings import Settings
 from app.db.enums import TaskPriority, TaskStatus
 from app.db.models import Company, TaskRow
+from app.llm.agents.owner_qa import REFUSAL_ANSWER
 from app.pipeline import case_repo, work_repo
-from app.pipeline.owner_commands import HELP_TEXT, parse_command, run_command
+from app.pipeline.owner_commands import HELP_TEXT, LIMIT_ANSWER, NOT_A_QUESTION, parse_command, run_command
 
 pytestmark = pytest.mark.integration
 NOW = datetime(2026, 10, 7, 9, 0, tzinfo=UTC)
@@ -101,3 +102,25 @@ def test_done_by_reference_survives_a_reordered_list(
             priority=TaskPriority.p1,
         )
     assert _run(migrated_engine, test_settings, committed_company, f"done {call_plumber_ref}") == "Done: Call plumber"
+
+
+def test_off_topic_question_gets_the_fixed_refusal(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    _seed(migrated_engine, committed_company)
+    reply = _run(migrated_engine, test_settings, committed_company, "Write me a poem about spring")
+    assert reply == REFUSAL_ANSWER
+
+
+def test_question_over_the_daily_cap_gets_the_limit_reply(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    settings = test_settings.model_copy(update={"owner_qa_daily_cap": 0})
+    assert _run(migrated_engine, settings, committed_company, "Wat is de status?") == LIMIT_ANSWER
+    assert _run(migrated_engine, settings, committed_company, "tasks") == "No open tasks."
+
+
+def test_gibberish_never_reaches_the_model(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    assert _run(migrated_engine, test_settings, committed_company, "🙂🙂") == NOT_A_QUESTION

@@ -116,7 +116,11 @@ def _persist(
     session: Session, loaded: _Loaded, message_id: UUID, actions: list[Action], contractors: frozenset[UUID]
 ) -> ProposeResult:
     und = loaded.ctx.understanding
-    rule_ctx = RuleContext(paused=loaded.paused, suspicious=und.suspicious.flag, contractor_ids=contractors)
+    c = loaded.ctx
+    source = "\n".join([c.subject or "", c.message_text, c.case_summary, *c.waiting])
+    rule_ctx = RuleContext(
+        paused=loaded.paused, suspicious=und.suspicious.flag, contractor_ids=contractors, source_text=source
+    )
     result = ProposeResult()
     for decision in apply_rules(actions, rule_ctx):
         if decision.verdict is Verdict.drop:
@@ -141,6 +145,7 @@ def _persist(
             )
         elif decision.verdict is Verdict.exception:
             result.exceptions += 1
+            log.info("pipeline.rules.exception", reason=decision.reason, action_type=a.type.value)
     return result
 
 
