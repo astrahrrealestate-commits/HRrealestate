@@ -27,6 +27,7 @@ from app.db.models import (
     Person,
     Unit,
 )
+from app.llm.agents.doc_qa import Passage
 
 MAX_HITS = 50
 SNIPPET_OPTIONS = "StartSel=«, StopSel=», MaxFragments=1, MaxWords=35, MinWords=12"
@@ -45,6 +46,8 @@ class DocFilter:
     date_from: date | None = None
     date_to: date | None = None
     needs_link: bool = False
+    any_link: tuple[tuple[DocLinkKind, UUID], ...] = ()  # linked to at least one of these (a case's whole scope)
+    readable_only: bool = False  # drops documents flagged suspicious: for text that reaches a model
 
 
 @dataclass(frozen=True)
@@ -104,6 +107,10 @@ def _filters(company_id: UUID, flt: DocFilter) -> list[ColumnElement[bool]]:
         conds.append(func.coalesce(DocumentRow.document_date, func.date(DocumentRow.created_at)) >= flt.date_from)
     if flt.date_to:
         conds.append(func.coalesce(DocumentRow.document_date, func.date(DocumentRow.created_at)) <= flt.date_to)
+    if flt.any_link:
+        conds.append(or_(*(_link_exists(company_id, kind, ref) for kind, ref in flt.any_link)))
+    if flt.readable_only:
+        conds.append(DocumentRow.suspicious.is_(False))
     if flt.needs_link:
         unresolved = func.coalesce(func.jsonb_array_length(DocumentRow.facts["unresolved"]), 0)
         conds.append(and_(DocumentRow.facts.is_not(None), unresolved > 0))
@@ -138,17 +145,21 @@ def _tsquery(query: str) -> Any:
     return func.websearch_to_tsquery("dutch", query).op("||")(func.websearch_to_tsquery("simple", query))
 
 
-def _content_hits(session: Session, company_id: UUID, query: str, flt: DocFilter, limit: int) -> list[DocHit]:
-    """Best chunk per document, ranked by `ts_rank_cd`, with a highlighted snippet from that chunk."""
-    tsq = _tsquery(query)
+def _best_chunks(company_id: UUID, tsq: Any) -> Any:
+    """One row per document: its best matching chunk and that chunk's rank."""
     rank = func.ts_rank_cd(DocumentChunk.tsv, tsq).label("rank")
-    best = (
+    return (
         select(DocumentChunk.document_id, DocumentChunk.text, rank)
         .where(DocumentChunk.company_id == company_id, DocumentChunk.tsv.op("@@")(tsq))
         .ext(distinct_on(DocumentChunk.document_id))
         .order_by(DocumentChunk.document_id, rank.desc())
         .subquery()
     )
+
+
+def _content_hits(session: Session, company_id: UUID, query: str, flt: DocFilter, limit: int) -> list[DocHit]:
+    """Best chunk per document, ranked by `ts_rank_cd`, with a highlighted snippet from that chunk."""
+    best = _best_chunks(company_id, _tsquery(query))
     snippet = func.ts_headline("dutch", best.c.text, func.websearch_to_tsquery("dutch", query), SNIPPET_OPTIONS)
     stmt = (
         select(DocumentRow, snippet, best.c.rank)
@@ -158,6 +169,20 @@ def _content_hits(session: Session, company_id: UUID, query: str, flt: DocFilter
         .limit(limit)
     )
     return [_hit(d, snip, float(r)) for d, snip, r in session.execute(stmt)]
+
+
+def top_passages(session: Session, company_id: UUID, question: str, flt: DocFilter = DocFilter(),  # noqa: B008
+                 limit: int = 4) -> list[Passage]:  # fmt: skip
+    """Best chunk of the best `limit` documents for a question (any word may match; most overlap ranks first)."""
+    best = _best_chunks(company_id, _tsquery(any_of(question)))
+    stmt = (
+        select(DocumentRow, best.c.text, best.c.rank)
+        .join(best, best.c.document_id == DocumentRow.id)
+        .where(*_filters(company_id, flt))
+        .order_by(best.c.rank.desc(), DocumentRow.created_at.desc())
+        .limit(max(1, min(limit, MAX_HITS)))
+    )
+    return [Passage(d.id, d.title, d.doc_type, d.document_date, text, float(r)) for d, text, r in session.execute(stmt)]
 
 
 def _metadata_hits(session: Session, company_id: UUID, query: str, flt: DocFilter, skip: set[UUID],

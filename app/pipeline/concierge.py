@@ -18,7 +18,14 @@ from app.core.errors import NotFoundError
 from app.core.settings import Settings
 from app.llm.agents.owner_qa import REFUSAL_ANSWER
 from app.llm.calls import is_transient as llm_transient
-from app.pipeline import case_repo, concierge_proposals, concierge_reads, concierge_writes, work_repo
+from app.pipeline import (
+    case_repo,
+    concierge_documents,
+    concierge_proposals,
+    concierge_reads,
+    concierge_writes,
+    work_repo,
+)
 from app.pipeline.concierge_base import (
     NEED_DETAIL,
     NOT_FOUND,
@@ -34,10 +41,21 @@ from app.pipeline.concierge_base import (
 __all__ = ["MAX_STEPS", "StepResult", "check_step", "is_transient", "needs_detail", "run_plan", "validate_plan"]
 
 MAX_STEPS = 4
-_USES_CASE = frozenset({Intent.case_status, Intent.draft_reply, Intent.chase_now, Intent.open_view})
+_USES_CASE = frozenset(
+    {
+        Intent.case_status,
+        Intent.draft_reply,
+        Intent.chase_now,
+        Intent.open_view,
+        Intent.find_document,
+        Intent.read_document,
+    }
+)
 _NEEDS_CASE = frozenset({Intent.case_status, Intent.draft_reply, Intent.chase_now})
 _NEEDS_TASK = frozenset({Intent.task_done, Intent.task_snooze})
-_NEEDS_TEXT = frozenset({Intent.task_snooze, Intent.create_task, Intent.clarify, Intent.search_inbox})
+_NEEDS_TEXT = frozenset(
+    {Intent.task_snooze, Intent.create_task, Intent.clarify, Intent.search_inbox, Intent.find_document}
+)
 
 _HANDLERS: dict[Intent, Handler] = {
     Intent.answer: concierge_reads.answer,
@@ -47,6 +65,8 @@ _HANDLERS: dict[Intent, Handler] = {
     Intent.search_inbox: concierge_reads.search_inbox,
     Intent.briefing_now: concierge_reads.briefing_now,
     Intent.file_document: concierge_reads.file_document,
+    Intent.find_document: concierge_documents.find_document,
+    Intent.read_document: concierge_documents.read_document,
     Intent.open_view: concierge_reads.open_view,
     Intent.clarify: concierge_reads.clarify,
     Intent.task_done: concierge_writes.task_done,

@@ -17,7 +17,7 @@ def _unchanged(output: ConciergePlan, _loaded: LoadedPrompt) -> ConciergePlan:
 
 
 CONCIERGE = AgentSpec(
-    name="concierge", prompt=PromptRef(name="concierge", version="v1"), output_type=ConciergePlan, finalize=_unchanged
+    name="concierge", prompt=PromptRef(name="concierge", version="v2"), output_type=ConciergePlan, finalize=_unchanged
 )
 
 

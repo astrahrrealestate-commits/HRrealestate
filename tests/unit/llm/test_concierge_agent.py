@@ -83,7 +83,7 @@ def test_prompt_escapes_hostile_text_in_every_block() -> None:
 
 def test_prompt_v1_loads_with_hash() -> None:
     loaded = load_prompt(CONCIERGE.prompt)
-    assert CONCIERGE.prompt.key == "concierge/v1"
+    assert CONCIERGE.prompt.key == "concierge/v2"
     assert re.fullmatch(r"[0-9a-f]{64}", loaded.sha256)
     assert "in_scope=false" in loaded.text
 

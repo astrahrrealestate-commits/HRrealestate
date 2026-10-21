@@ -23,7 +23,7 @@ MAX_BRIEF_TASKS = 20
 MAX_HISTORY_TURNS = 6
 MAX_OWNER_CHARS = 400
 MAX_ANSWER_CHARS = 300
-PROMPT_REF = "concierge/v1"
+PROMPT_REF = "concierge/v2"
 EMPTY_PLAN = "I am not sure what to do with that. Try rephrasing it, or send `help` for the commands."
 APOLOGY = "Sorry, something went wrong with that message. Please try again in a moment."
 

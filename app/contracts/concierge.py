@@ -24,6 +24,8 @@ class Intent(StrEnum):
     draft_reply = "draft_reply"
     chase_now = "chase_now"
     file_document = "file_document"
+    find_document = "find_document"
+    read_document = "read_document"
     open_view = "open_view"
     clarify = "clarify"
 

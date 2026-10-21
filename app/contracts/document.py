@@ -75,3 +75,16 @@ class ExtractedText(Contract):
     """Output of the doc_ocr agent: the text read off a scan or photo, verbatim."""
 
     text: Annotated[str, max_len(30_000)]
+
+
+class DocQuote(Contract):
+    doc_ref: Annotated[NonBlankStr, max_len(8)]  # the ref of the excerpt the words were copied from
+    text: Annotated[NonBlankStr, max_len(300)]  # copied verbatim; code checks it appears in that excerpt
+
+
+class DocAnswer(Contract):
+    """Output of the doc_qa agent: an answer grounded in quotes. `found=False`: the excerpts do not answer it."""
+
+    found: bool
+    answer: Annotated[str, max_len(600)]
+    quotes: Annotated[list[DocQuote], Field(max_length=3)]

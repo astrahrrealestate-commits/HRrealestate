@@ -295,6 +295,24 @@ def _fake_doc_reader(prompt: str) -> dict[str, object]:
     }  # fmt: skip
 
 
+_ENTRY = re.compile(r"\[ref ([0-9a-f]{8})\] ([^\n]*)\n(.*?)(?=\n\n---\n\n|\Z)", re.S)
+
+
+def _fake_doc_qa(prompt: str) -> dict[str, object]:
+    """Offline answer: the excerpt sentence sharing the most words with the question, quoted verbatim."""
+    excerpts, question = _block(prompt, "excerpts"), _block(prompt, "message").lower()
+    wanted = {w for w in re.findall(r"[^\W_]{4,}", question) if w not in {"what", "does", "wat", "staat", "hoe"}}
+    best: tuple[int, str, str] = (0, "", "")
+    for ref, _title, text in _ENTRY.findall(excerpts):
+        for sentence in re.split(r"(?<=[.!?\n])\s+", text):
+            score = len(wanted & set(re.findall(r"[^\W_]{4,}", sentence.lower())))
+            if score > best[0] and len(sentence.strip()) >= 8:
+                best = (score, ref, sentence.strip()[:300])
+    if best[0] == 0:
+        return {"found": False, "answer": "The excerpts do not answer that.", "quotes": []}
+    return {"found": True, "answer": best[2], "quotes": [{"doc_ref": best[1], "text": best[2]}]}
+
+
 def model_for(agent_name: str) -> FunctionModel:
     def fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         user_text = _extract_user_text(messages)
@@ -318,6 +336,8 @@ def model_for(agent_name: str) -> FunctionModel:
             args = _fake_doc_classifier(user_text)
         elif agent_name == "doc_reader":
             args = _fake_doc_reader(user_text)
+        elif agent_name == "doc_qa":
+            args = _fake_doc_qa(user_text)
         elif agent_name == "doc_ocr":
             args = {"text": _extract_binary(messages).removeprefix(b"SCAN").decode("utf-8", errors="replace").strip()}
         else:

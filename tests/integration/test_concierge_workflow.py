@@ -105,7 +105,7 @@ def test_question_plans_once_and_stores_plan_and_results(env: Env) -> None:
     assert row.results is not None
     assert [r["intent"] for r in row.results] == [s["intent"] for s in row.plan["steps"]]
     assert row.answer
-    assert row.prompt_ref == "concierge/v1"
+    assert row.prompt_ref == "concierge/v2"
     assert row.error is None
 
 

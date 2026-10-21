@@ -16,7 +16,7 @@ def test_valid_plan() -> None:
 
 
 def test_intent_list_is_exact() -> None:
-    assert len(Intent) == 16
+    assert len(Intent) == 18
 
 
 def test_rejects_five_steps() -> None:

@@ -41,6 +41,28 @@ def _simple(low: str) -> dict[str, object] | None:
     return None
 
 
+_DOC_NOUN = (
+    r"(?:documents?|docs?|contracts?|leases?|huurcontract|huurovereenkomst|invoices?|facturen|factuur|quotes?"
+    r"|offertes?|polis|insurance|certificates?)"
+)
+_ASKS = re.compile(
+    r"\bwhat\b.{0,40}\b(say|says|said|stand)\b|\bwhat\b.{0,20}\b(deposit|rent|notice)\b|\bwat\b.{0,30}\bstaat\b"
+    r"|\baccording to\b|\bhow (much|long)\b.{0,40}\b(lease|contract|invoice|quote)\b"
+)
+_SHOW = re.compile(
+    rf"\b(find|show|pull up|get|open|search|zoek|toon)\b.{{0,60}}\b{_DOC_NOUN}\b"
+    rf"|\b{_DOC_NOUN}\b.{{0,30}}\b(of|for|from|van|voor)\b"
+)
+
+
+def _documents(low: str, question: str, case_id: str | None) -> dict[str, object] | None:
+    if _ASKS.search(low) and re.search(rf"\b{_DOC_NOUN}\b", low):
+        return _plan(_step("read_document", case_id=case_id, text=_safe(question)))
+    if _SHOW.search(low):
+        return _plan(_step("find_document", case_id=case_id, text=_safe(question)))
+    return None
+
+
 def _by_ref(low: str) -> dict[str, object] | None:
     if m := re.search(r"\bsnooze\s+#([0-9a-f]{6,8})\s+(?:for\s+)?(\d+[mhdw])\b", low):
         return _plan(_step("task_snooze", task_ref=m.group(1), text=m.group(2)))
@@ -69,4 +91,11 @@ def fake_concierge(prompt: str) -> dict[str, object]:
         return {"in_scope": False, "steps": []}
     if _PRONOUN.search(low):
         return _plan(_step("clarify", text="Which one do you mean?"))
-    return _by_ref(low) or _by_case(low, data.lower()) or _simple(low) or _plan(_step("answer", text=_safe(question)))
+    case_id = (re.search(_UUID, low) or [None])[0]
+    return (
+        _by_ref(low)
+        or _by_case(low, data.lower())
+        or _documents(low, question, case_id)
+        or _simple(low)
+        or _plan(_step("answer", text=_safe(question)))
+    )

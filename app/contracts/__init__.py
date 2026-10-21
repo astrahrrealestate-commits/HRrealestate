@@ -25,7 +25,9 @@ from app.contracts.common import (
 )
 from app.contracts.concierge import ConciergePlan, Intent, PlanStep
 from app.contracts.document import (
+    DocAnswer,
     DocParty,
+    DocQuote,
     DocType,
     DocumentClassification,
     DocumentFacts,
@@ -61,7 +63,9 @@ __all__ = [
     "Contract",
     "CreateReminderPayload",
     "Direction",
+    "DocAnswer",
     "DocParty",
+    "DocQuote",
     "DocType",
     "DocumentClassification",
     "DocumentFacts",

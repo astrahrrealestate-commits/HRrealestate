@@ -12,7 +12,7 @@ from evals import concierge_eval
 from evals.common import eval_settings
 from evals.concierge_eval import Label, load, plan_is_clean, runnable, score_plans
 
-MIN_GROUPS = {"read": 8, "task": 6, "pause": 4, "reply": 4, "clarify": 4, "out_of_scope": 4}
+MIN_GROUPS = {"read": 8, "task": 6, "pause": 4, "reply": 4, "clarify": 4, "out_of_scope": 4, "documents": 7}
 
 
 def _fake() -> Settings:
