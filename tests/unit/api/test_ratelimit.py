@@ -55,7 +55,7 @@ def client(clock: Clock) -> Iterator[TestClient]:
     app.state.rate_limiter = RateLimiter(clock=clock)
     with (
         patch("app.api.v1.agent.Session", MagicMock()),
-        patch("app.api.v1.agent.concierge_turns.create_turn", side_effect=lambda *a: (uuid4(), uuid4())),
+        patch("app.api.v1.agent.concierge_turns.create_turn", side_effect=lambda *a, **kw: (uuid4(), uuid4())),
         TestClient(app) as c,
     ):
         app.state.rate_limiter = RateLimiter(clock=clock)  # lifespan does not own it; keep the injected clock

@@ -29,6 +29,7 @@ from app.contracts.linking import LinkDecision
 from app.contracts.message import Attachment, Message, normalise_identity
 from app.contracts.owner import OwnerChoice, OwnerMessage
 from app.contracts.owner_outputs import Briefing, BriefingSection, OwnerAnswer
+from app.contracts.page_context import PageContext, PageView
 from app.contracts.prompt_ref import PromptRef
 from app.contracts.proposal import Proposal
 from app.contracts.summary import CaseSummary
@@ -69,6 +70,8 @@ __all__ = [
     "OwnerAnswer",
     "OwnerChoice",
     "OwnerMessage",
+    "PageContext",
+    "PageView",
     "PlanStep",
     "PromptRef",
     "Proposal",

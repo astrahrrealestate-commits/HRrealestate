@@ -45,6 +45,9 @@ class AgentTurn(Base, CompanyScoped):
     text: Mapped[str] = mapped_column(Text)
     plan: Mapped[dict[str, Any] | None]
     results: Mapped[list[Any] | None] = mapped_column(JSONB, default=None)
+    # The validated PageContext (request JSON) plus, once a run resolved it, its server facts under "resolved"
+    # (migration 0011). Client display text inside it is unverified data, never instructions.
+    page_context: Mapped[dict[str, Any] | None]
     answer: Mapped[str | None] = mapped_column(Text)
     status: Mapped[TurnStatus] = mapped_column(
         str_enum(TurnStatus), default=TurnStatus.pending, server_default=TurnStatus.pending.value

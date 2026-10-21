@@ -17,7 +17,7 @@ from uuid import UUID
 from sqlalchemy import Engine, func, select, update
 from sqlalchemy.orm import Session
 
-from app.contracts import ConciergePlan
+from app.contracts import ConciergePlan, PageContext
 from app.core.errors import NotFoundError
 from app.core.logging import get_logger
 from app.core.settings import Settings
@@ -63,10 +63,17 @@ class TurnStart:
 
 
 def create_turn(
-    session: Session, company_id: UUID, owner_id: UUID, conversation_id: UUID | None, text: str
+    session: Session,
+    company_id: UUID,
+    owner_id: UUID,
+    conversation_id: UUID | None,
+    text: str,
+    *,
+    page: PageContext | None = None,
 ) -> tuple[UUID, UUID]:
     """A `pending` turn in the owner's conversation (created when None). A foreign or other owner's conversation
-    raises NotFoundError. The caller commits, then enqueues `concierge:{turn_id}`."""
+    raises NotFoundError. The validated page context is stored on the turn: a retried run reads it from the row,
+    never from the request. The caller commits, then enqueues `concierge:{turn_id}`."""
     if conversation_id is None:
         conversation = AgentConversation(company_id=company_id, owner_id=owner_id)
         session.add(conversation)
@@ -74,7 +81,13 @@ def create_turn(
         conversation_id = conversation.id
     elif not read_turns.owns_conversation(session, company_id, owner_id, conversation_id):
         raise NotFoundError("conversation not found")
-    turn = AgentTurn(company_id=company_id, conversation_id=conversation_id, text=text, status=TurnStatus.pending)
+    turn = AgentTurn(
+        company_id=company_id,
+        conversation_id=conversation_id,
+        text=text,
+        status=TurnStatus.pending,
+        page_context=None if page is None else page.model_dump(mode="json"),
+    )
     session.add(turn)
     session.flush()
     return conversation_id, turn.id
