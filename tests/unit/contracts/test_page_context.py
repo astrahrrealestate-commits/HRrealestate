@@ -7,8 +7,8 @@ import pytest
 from pydantic import ValidationError
 
 from app.contracts import Channel, PageContext, PageView
-from app.contracts.page_context import MAX_SNAPSHOT, VisibleKind, collapse, visible_kind
-from app.contracts.thread_key import encode_thread_key
+from app.contracts.page_context import MAX_SNAPSHOT, MAX_VISIBLE_ID, VisibleKind, collapse, visible_kind
+from app.contracts.thread_key import MAX_REF_LEN, MAX_THREAD_KEY, encode_thread_key
 
 KEY = encode_thread_key(Channel.gmail, "<abc@mail.test>")
 
@@ -82,10 +82,21 @@ def test_too_many_visible_ids_is_rejected_not_truncated(n: int) -> None:
         _page(visible_ids=[str(uuid4()) for _ in range(n)])
 
 
-@pytest.mark.parametrize("value", ["hello world", "x" * 121, "<script>", "approve all", ""])
+@pytest.mark.parametrize("value", ["hello world", "x" * 121, "<script>", "approve all", "", "A" * (MAX_THREAD_KEY + 1)])
 def test_visible_ids_must_be_id_shaped(value: str) -> None:
     with pytest.raises(ValidationError):
         _page(visible_ids=[value])
+
+
+def test_a_long_gmail_message_id_thread_key_is_a_valid_visible_id() -> None:
+    ref = "<CAF" + "x" * 230 + "@mail.gmail.com>"
+    key = encode_thread_key(Channel.gmail, ref[:MAX_REF_LEN])
+    assert MAX_VISIBLE_ID < len(key) <= MAX_THREAD_KEY
+    assert _page(visible_ids=[key], thread_key=key).visible_ids == [key]
+
+
+def test_the_thread_key_limit_covers_the_longest_ref() -> None:
+    assert len(encode_thread_key(Channel.whatsapp, "x" * MAX_REF_LEN)) <= MAX_THREAD_KEY
 
 
 def test_visible_kind() -> None:
@@ -121,10 +132,23 @@ def test_huge_raw_snapshot_is_rejected_before_collapsing() -> None:
         _page(snapshot=" " * 30_000)
 
 
-@pytest.mark.parametrize("ch", ["\x00", "\x07", "\r", "\x1b", "\x7f", "\x85"])
+@pytest.mark.parametrize("ch", ["\x00", "\x07", "\x0b", "\x0c", "\x1b", "\x7f", "\x85"])
 def test_snapshot_control_characters_are_rejected(ch: str) -> None:
     with pytest.raises(ValidationError):
         _page(snapshot=f"before{ch}after")
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("before\r\nafter", "before\nafter"),
+        ("before\rafter", "before\nafter"),
+        ("a\r\n\r\nb\rc\n", "a\nb\nc"),
+        ("Case \r\n  Status:\topen\r", "Case\nStatus: open"),
+    ],
+)
+def test_snapshot_line_breaks_are_normalised_to_lf(raw: str, expected: str) -> None:
+    assert _page(snapshot=raw).snapshot == expected
 
 
 def test_dump_round_trips_for_storage() -> None:

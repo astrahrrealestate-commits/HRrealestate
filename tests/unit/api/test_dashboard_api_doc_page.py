@@ -15,6 +15,7 @@ from app.contracts.page_context import (
     MAX_VISIBLE_ID,
     PageView,
 )
+from app.contracts.thread_key import MAX_THREAD_KEY
 
 DOC = Path(__file__).resolve().parents[3] / "docs" / "dashboard-api.md"
 
@@ -39,7 +40,8 @@ def test_documented_limits_match_the_contract() -> None:
         f"at most {MAX_SNAPSHOT} characters after whitespace is collapsed",
         f"raw input over {MAX_RAW_SNAPSHOT} characters",
         f"at most {MAX_VISIBLE} strings ({MAX_VISIBLE + 1} or more is `422`)",
-        f"at most {MAX_VISIBLE_ID} chars",
+        f"each a UUID or task ref of at most {MAX_VISIBLE_ID} chars, or a thread key of at most {MAX_THREAD_KEY} chars",
+        "`\\r\\n` and a lone `\\r` become `\\n`",
         f"at most {MAX_FILTERS} pairs, key 1 to {MAX_FILTER_KEY} chars, value at most {MAX_FILTER_VALUE}",
     ):
         assert phrase in section, phrase

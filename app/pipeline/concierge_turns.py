@@ -30,6 +30,7 @@ from app.llm.agents.concierge import CONCIERGE
 from app.llm.agents.owner_qa import FALLBACK_ANSWER, CaseBrief
 from app.llm.budget import CONCIERGE_PURPOSE
 from app.llm.calls import CallContext, run_agent
+from app.llm.page_blocks import PagePrompt
 from app.pipeline import case_repo, concierge_page, owner_commands, read_turns, work_repo
 from app.pipeline.concierge import run_plan
 from app.pipeline.concierge_outcome import (
@@ -40,7 +41,6 @@ from app.pipeline.concierge_outcome import (
     PROMPT_REF,
     Fallback,
     Outcome,
-    PagePrompt,
     assemble_answer,
     build_prompt,
     failed_outcome,

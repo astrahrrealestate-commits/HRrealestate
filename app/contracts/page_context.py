@@ -15,7 +15,7 @@ from uuid import UUID
 from pydantic import AfterValidator, Field, field_validator
 
 from app.contracts.common import Contract
-from app.contracts.thread_key import BadThreadKeyError, decode_thread_key
+from app.contracts.thread_key import MAX_THREAD_KEY, BadThreadKeyError, decode_thread_key
 
 MAX_SNAPSHOT = 6000  # characters after whitespace is collapsed
 MAX_RAW_SNAPSHOT = 4 * MAX_SNAPSHOT  # bounds the work before collapsing
@@ -23,8 +23,7 @@ MAX_FILTERS = 10
 MAX_FILTER_KEY = 40
 MAX_FILTER_VALUE = 120
 MAX_VISIBLE = 50
-MAX_VISIBLE_ID = 120
-MAX_THREAD_KEY = 400  # base64 of `{channel}:{ref}` with a 255-char ref
+MAX_VISIBLE_ID = 120  # UUIDs and task refs; a visible thread key may be up to MAX_THREAD_KEY
 TASK_REF = re.compile(r"#?[0-9a-fA-F]{6,8}")
 _THREAD_KEY = re.compile(r"[A-Za-z0-9_-]+")
 _BLANK_RUN = re.compile(r"[ \t]+")
@@ -87,9 +86,14 @@ def _thread_key(value: str) -> str:
 
 
 def _visible_id(value: str) -> str:
-    if len(value) > MAX_VISIBLE_ID or visible_kind(value) is None:
-        raise ValueError("visible ids must be UUIDs, thread keys or task refs of at most 120 characters")
-    kind = visible_kind(value)
+    """Per-kind limits: a UUID or task ref is at most MAX_VISIBLE_ID characters, a thread key (long Gmail
+    Message-IDs) at most MAX_THREAD_KEY."""
+    kind = visible_kind(value) if len(value) <= MAX_THREAD_KEY else None
+    if kind is None or (kind is not VisibleKind.thread_key and len(value) > MAX_VISIBLE_ID):
+        raise ValueError(
+            f"visible ids must be UUIDs or task refs of at most {MAX_VISIBLE_ID} characters, "
+            f"or thread keys of at most {MAX_THREAD_KEY}"
+        )
     if kind is VisibleKind.task_ref:
         return value.lstrip("#").lower()
     return str(UUID(value)) if kind is VisibleKind.uuid else value
@@ -132,8 +136,9 @@ class PageContext(Contract):
     def _check_snapshot(cls, value: str) -> str:
         if len(value) > MAX_RAW_SNAPSHOT:
             raise ValueError(f"snapshot must be at most {MAX_SNAPSHOT} characters")
+        value = value.replace("\r\n", "\n").replace("\r", "\n")  # CRLF and lone CR are line breaks
         if any(_is_control(ch) and ch not in "\n\t" for ch in value):
-            raise ValueError("snapshot must not contain control characters other than newline and tab")
+            raise ValueError("snapshot must not contain control characters other than newline, tab and CR")
         collapsed = collapse(value)
         if len(collapsed) > MAX_SNAPSHOT:
             raise ValueError(f"snapshot must be at most {MAX_SNAPSHOT} characters after collapsing whitespace")

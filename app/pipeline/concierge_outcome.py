@@ -13,6 +13,7 @@ from app.core.errors import AgentFailedError, BudgetExceededError
 from app.db.enums import TurnStatus
 from app.llm.agents.concierge import CONCIERGE, concierge_prompt
 from app.llm.agents.owner_qa import FALLBACK_ANSWER, CaseBrief
+from app.llm.page_blocks import NO_PAGE, PagePrompt
 from app.pipeline.concierge import is_transient
 from app.pipeline.concierge_base import StepResult
 from app.pipeline.owner_commands import LIMIT_ANSWER
@@ -55,17 +56,6 @@ class Outcome:
     prompt_ref: str | None = None
     status: TurnStatus = TurnStatus.done
     error: str | None = None
-
-
-@dataclass(frozen=True)
-class PagePrompt:
-    """What the planner sees of the open page: server facts text and the unverified client snapshot."""
-
-    facts: str = ""
-    snapshot: str = ""
-
-
-NO_PAGE = PagePrompt()
 
 
 def failed_outcome(exc: BaseException) -> Outcome:
@@ -117,6 +107,7 @@ def build_prompt(
         list(tasks)[:MAX_BRIEF_TASKS],
         page.facts,
         page.snapshot,
+        page.filters,
     )
 
 

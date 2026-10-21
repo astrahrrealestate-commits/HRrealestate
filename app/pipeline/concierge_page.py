@@ -17,8 +17,8 @@ from sqlalchemy.orm import Session
 
 from app.contracts import PageContext
 from app.core.logging import get_logger
+from app.llm.page_blocks import NO_PAGE, PagePrompt
 from app.pipeline.concierge import is_transient
-from app.pipeline.concierge_outcome import NO_PAGE, PagePrompt
 from app.pipeline.page_facts import facts_text, resolve_page_facts
 
 log = get_logger(__name__)
@@ -38,13 +38,10 @@ def stored_page(stored: dict[str, Any] | None) -> tuple[PageContext | None, dict
     return page, resolved if isinstance(resolved, dict) else None
 
 
-def snapshot_text(page: PageContext) -> str:
-    """The unverified block: the filters the page says are applied, then the page's own text."""
+def filters_line(page: PageContext) -> str:
+    """The filters the page says are applied, as one unverified line (rendered before the snapshot)."""
     filters = "; ".join(f"{k}={v}" for k, v in page.filters.items())
-    lines = [f"filters: {' '.join(filters.split())}"] if filters else []
-    if page.snapshot:
-        lines.append(page.snapshot)
-    return "\n".join(lines)
+    return f"filters: {' '.join(filters.split())}" if filters else ""
 
 
 def _resolve(engine: Engine, company_id: UUID, page: PageContext) -> dict[str, Any]:
@@ -67,6 +64,7 @@ def page_prompt(
     if page is None:
         return NO_PAGE, None
     if resolved is not None:
-        return PagePrompt(str(resolved.get("facts") or ""), snapshot_text(page)), None
+        return PagePrompt(str(resolved.get("facts") or ""), page.snapshot, filters_line(page)), None
     fresh = _resolve(engine, company_id, page)
-    return PagePrompt(fresh["facts"], snapshot_text(page)), {**page.model_dump(mode="json"), RESOLVED: fresh}
+    prompt = PagePrompt(fresh["facts"], page.snapshot, filters_line(page))
+    return prompt, {**page.model_dump(mode="json"), RESOLVED: fresh}

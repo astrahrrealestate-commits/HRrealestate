@@ -110,6 +110,14 @@ def test_first_run_resolves_once_and_stores_facts_before_the_model_call(io: dict
     assert "<page_snapshot>\nfilters: status=open\nJoris\n</page_snapshot>" in prompt
 
 
+def test_five_filters_and_a_full_snapshot_keep_the_snapshot_end(io: dict[str, MagicMock]) -> None:
+    filters = {f"key{i}": "v" * 120 for i in range(5)}
+    ct._outcome(MagicMock(), MagicMock(), _start(_stored(filters=filters, snapshot="x" * 5999 + "Z")))
+    prompt = _prompt(io)
+    assert "x" * 5999 + "Z\n</page_snapshot>" in prompt
+    assert "filters: key0=" in prompt
+
+
 def test_retry_reuses_the_stored_facts_without_resolving_again(io: dict[str, MagicMock]) -> None:
     page = {**_stored(), "resolved": {"facts": "view: case\nopen case: stored-facts", "dropped": []}}
     ct._outcome(MagicMock(), MagicMock(), _start(page))

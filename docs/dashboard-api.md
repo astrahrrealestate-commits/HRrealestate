@@ -119,13 +119,13 @@ mean the item the owner is looking at. Leave it out (or `null`) when the agent i
 | `thread_key` | optional, as returned by `/inbox` (an invalid key is `422`) | last 8 messages of the thread (160 chars each) and its case |
 | `task_ref` | optional, 6 to 8 hex characters (`#` allowed) | the open task's title, due date and status (open or snoozed tasks only; a done task counts as no longer existing) |
 | `filters` | object of strings, at most 10 pairs, key 1 to 40 chars, value at most 120, no control characters | passed as unverified text |
-| `visible_ids` | at most 50 strings (51 or more is `422`), each a UUID, thread key or task ref of at most 120 chars | ids that belong to your company get a short label in screen order ("the first one") |
-| `snapshot` | string, at most 6000 characters after whitespace is collapsed (runs of spaces/tabs become one space, blank lines are dropped; raw input over 24000 characters is `422` before collapsing); `\n` and `\t` allowed, any other control character (NUL, `\r`, ESC, ...) is `422`; blank means no snapshot | passed as unverified text |
+| `visible_ids` | at most 50 strings (51 or more is `422`), each a UUID or task ref of at most 120 chars, or a thread key of at most 400 chars (long Gmail Message-IDs) | ids that belong to your company get a short label in screen order ("the first one") |
+| `snapshot` | string, at most 6000 characters after whitespace is collapsed (runs of spaces/tabs become one space, blank lines are dropped; raw input over 24000 characters is `422` before collapsing); `\n` and `\t` allowed, `\r\n` and a lone `\r` become `\n`, any other control character (NUL, ESC, ...) is `422`; blank means no snapshot | passed as unverified text |
 
 How the SPA builds it:
 - `snapshot`: the visible text of the main panel (for example `innerText` of the page body without the agent panel and
-  navigation), normalised to `\n` line breaks and cut to 6000 characters on the client. Over-long text is rejected,
-  never truncated by the server.
+  navigation), cut to 6000 characters on the client (the server turns `\r\n` and `\r` into `\n`). Over-long text is
+  rejected, never truncated by the server.
 - Ids: the open entity's id in its field (`case_id` on a case page, `thread_key` on a thread, `approval_id` on an
   approval, `task_ref` on a task, `attachment_id` on a document) and the ids of the rows on screen, top to bottom, in
   `visible_ids`.

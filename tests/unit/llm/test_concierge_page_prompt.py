@@ -8,9 +8,10 @@ import pytest
 
 from app.contracts import ConciergePlan, Intent
 from app.core.settings import Settings
-from app.llm.agents.concierge import CONCIERGE, MAX_SNAPSHOT, concierge_prompt
+from app.llm.agents.concierge import CONCIERGE, concierge_prompt
 from app.llm.agents.owner_qa import CaseBrief
 from app.llm.calls import CallContext, run_agent
+from app.llm.page_blocks import MAX_SNAPSHOT
 from app.llm.render import BLOCK_TAGS, MAX_BODY_CHARS
 from app.pipeline.page_facts import ApprovalFact, CaseFact, MessageFact, PageFacts, TaskFact, ThreadFact, facts_text
 
@@ -74,6 +75,17 @@ def test_snapshot_block_is_capped_and_facts_obey_the_body_limit() -> None:
     facts = re.search(r"<page_facts>\n(.*?)\n</page_facts>", prompt, flags=re.S)
     assert facts is not None
     assert facts.group(1).endswith("[…truncated]")
+
+
+def test_filters_never_cut_the_end_of_a_full_snapshot() -> None:
+    filters = "filters: " + "; ".join(f"key{i}={'v' * 100}" for i in range(5))
+    snapshot = "s" * (MAX_SNAPSHOT - 1) + "Z"
+    prompt = concierge_prompt("hi", [], CASES, [], "", snapshot, filters)
+    block = re.search(r"<page_snapshot>\n(.*?)\n</page_snapshot>", prompt, flags=re.S)
+    assert block is not None
+    assert block.group(1) == f"{filters}\n{snapshot}"
+    only_filters = concierge_prompt("hi", [], CASES, [], "", "", filters)
+    assert f"<page_snapshot>\n{filters}\n</page_snapshot>" in only_filters
 
 
 def _plan(question: str, facts: str = "", snapshot: str = "") -> ConciergePlan:

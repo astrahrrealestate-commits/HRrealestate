@@ -10,6 +10,7 @@ from app.contracts.common import Channel
 from app.core.errors import EstateOSError
 
 MAX_REF_LEN = 255  # messages.thread_ref / provider_msg_id are String(255)
+MAX_THREAD_KEY = 400  # base64 of `{channel}:{ref}` with a MAX_REF_LEN ref is at most 348 characters
 
 
 class BadThreadKeyError(EstateOSError):
