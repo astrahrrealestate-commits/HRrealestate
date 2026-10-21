@@ -1,6 +1,6 @@
 # Project context (auto)
 
-Generated: 2026-10-15T17:46:10.286Z
+Generated: 2026-10-21T06:07:21.890Z
 
 ## Detected stack
 
@@ -10,10 +10,17 @@ Generated: 2026-10-15T17:46:10.286Z
 ## Git
 
 - Branch: `d-dashboard`
-- HEAD: `769a32e`
+- HEAD: `43ba8a9`
 
 ## Recent commits
 
+- `43ba8a9` docs(dashboard): page context _(Aditya Jain, 2026-10-21)_
+- `5538efb` feat(agent): concierge prompt v2, page-aware brief and fake _(Aditya Jain, 2026-10-21)_
+- `b5f2d9a` feat(agent): page context contract, resolver and migration 0011 _(Aditya Jain, 2026-10-21)_
+- `a8c9e7f` feat(agent): conversation memory includes the agent's own answers _(Aditya Jain, 2026-10-16)_
+- `590402e` docs(dashboard): stuck-send sweep replaces the send-mode gap _(Aditya Jain, 2026-10-16)_
+- `8fe886b` fix(sender): settle stuck tenant sends, in-progress outcome _(Aditya Jain, 2026-10-16)_
+- `81920dd` docs: page-aware super agent amendment and plan _(Aditya Jain, 2026-10-16)_
 - `769a32e` docs(dashboard): record the stuck-send gap that blocks send mode _(Aditya Jain, 2026-10-15)_
 - `9fdb959` docs(dashboard): final review wave: same-origin/CORS, sweep, sends, owner switch _(Aditya Jain, 2026-10-15)_
 - `fa4dfa6` feat(api): cors allowlist, session recheck, api import contract, settings wiring _(Aditya Jain, 2026-10-15)_
@@ -27,16 +34,13 @@ Generated: 2026-10-15T17:46:10.286Z
 - `db24230` fix(evals): ignore ids in the injection walk _(Aditya Jain, 2026-10-15)_
 - `f9eb588` fix(evals): fake-runnable safety cases, hostile-plan injection test, results cap _(Aditya Jain, 2026-10-15)_
 - `29c283d` test(evals): concierge golden set and injection suite _(Aditya Jain, 2026-10-15)_
-- `d698b38` fix(agent): persist plan before executing, enqueue failure, input validation _(Aditya Jain, 2026-10-15)_
-- `bb62d70` feat(agent): super agent workflow, chat endpoints, turn events _(Aditya Jain, 2026-10-15)_
-- `27a8169` fix(pipeline): concierge sanitiser urls, chase dedupe, honest results _(Aditya Jain, 2026-10-15)_
-- `c008476` feat(pipeline): concierge plan validation and dispatch _(Aditya Jain, 2026-10-15)_
-- `7735524` feat(llm): concierge plan contract, prompt v1, fake model _(Aditya Jain, 2026-10-15)_
-- `ff2fa0d` feat(live): outbound live check, reply-send consent, go-live notes _(Aditya Jain, 2026-10-15)_
-- `d492af4` fix(sender): tenant subject from thread, stuck/exhausted send telling, replay order _(Aditya Jain, 2026-10-15)_
 
 ## Inferred recent decisions
 
+- `5538efb` feat(agent): concierge prompt v2, page-aware brief and fake
+- `b5f2d9a` feat(agent): page context contract, resolver and migration 0011
+- `a8c9e7f` feat(agent): conversation memory includes the agent's own answers
+- `8fe886b` fix(sender): settle stuck tenant sends, in-progress outcome
 - `fa4dfa6` feat(api): cors allowlist, session recheck, api import contract, settings wiring
 - `7fdcd03` feat(workflows): commit-then-crash sweeper for approved actions and turns
 - `7f88818` fix(sender): dashboard owner delivery, in-flight resume and stuck sends
@@ -47,26 +51,19 @@ Generated: 2026-10-15T17:46:10.286Z
 - `d906862` feat(api): rate limits, dashboard simulator scenario
 - `db24230` fix(evals): ignore ids in the injection walk
 - `f9eb588` fix(evals): fake-runnable safety cases, hostile-plan injection test, results cap
-- `d698b38` fix(agent): persist plan before executing, enqueue failure, input validation
-- `bb62d70` feat(agent): super agent workflow, chat endpoints, turn events
-- `27a8169` fix(pipeline): concierge sanitiser urls, chase dedupe, honest results
-- `c008476` feat(pipeline): concierge plan validation and dispatch
-- `7735524` feat(llm): concierge plan contract, prompt v1, fake model
-- `ff2fa0d` feat(live): outbound live check, reply-send consent, go-live notes
-- `d492af4` fix(sender): tenant subject from thread, stuck/exhausted send telling, replay order
 
 ## Hotspots
 
-- 34x — `docs/PROGRESS.md`
+- 36x — `docs/PROGRESS.md`
 - 19x — `pyproject.toml`
 - 17x — `app/core/settings.py`
 - 16x — `Makefile`
 - 15x — `.env.example`
 - 15x — `app/workflows/runtime.py`
-- 12x — `docs/go-live-channels.md`
+- 13x — `docs/go-live-channels.md`
+- 11x — `app/contracts/__init__.py`
 - 11x — `app/llm/fakes.py`
 - 11x — `tests/integration/conftest.py`
-- 10x — `app/main.py`
 
 ## Top-level tree
 
@@ -99,6 +96,7 @@ Generated: 2026-10-15T17:46:10.286Z
 .claude/skills/ship/
 .claude/worktrees/
 .claude/worktrees/agents-phase1/
+.claude/worktrees/fix-harness-ci/
 .coverage
 .dockerignore
 .env
@@ -166,6 +164,7 @@ Generated: 2026-10-15T17:46:10.286Z
 .hypothesis/constants/17def00619196439
 .hypothesis/constants/17eecd6d28d38311
 .hypothesis/constants/18ac05979d68b886
+.hypothesis/constants/18b75e180da594de
 .hypothesis/constants/18cbaebcf558e677
 .hypothesis/constants/18e8e4f038c394a2
 .hypothesis/constants/19a164300f00d55a
@@ -175,6 +174,7 @@ Generated: 2026-10-15T17:46:10.286Z
 .hypothesis/constants/1b2996e00f048f45
 .hypothesis/constants/1b8f41e38f01284b
 .hypothesis/constants/1bdadf4880ad507f
+.hypothesis/constants/1bdd85f9d037852f
 .hypothesis/constants/1be411ee2443de67
 .hypothesis/constants/1c196534129813c5
 .hypothesis/constants/1c72227e927f1610
@@ -230,6 +230,7 @@ Generated: 2026-10-15T17:46:10.286Z
 .hypothesis/constants/320ae8283ecddb99
 .hypothesis/constants/32125b095f515b6d
 .hypothesis/constants/329e4d001c2fced5
+.hypothesis/constants/32dc6113cbb83006
 .hypothesis/constants/335e97c308af94b4
 .hypothesis/constants/337829831d8b0e65
 .hypothesis/constants/338ab226d18368c9
@@ -267,8 +268,4 @@ Generated: 2026-10-15T17:46:10.286Z
 .hypothesis/constants/3dac131e55975f7b
 .hypothesis/constants/3dbae7bf2392a3a0
 .hypothesis/constants/3e294546b462faca
-.hypothesis/constants/3eb1d14a6b5ae636
-.hypothesis/constants/3f17d84de0526a5c
-.hypothesis/constants/3f1c2a137853b24a
-.hypothesis/constants/3f33bc585a403aad
 ```
