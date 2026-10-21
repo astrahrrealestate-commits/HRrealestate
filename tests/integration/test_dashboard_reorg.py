@@ -188,3 +188,12 @@ def test_unauthenticated_requests_are_refused(fx: Fx) -> None:
     fx.client.cookies.clear()
     assert fx.client.get("/api/v1/documents/reorg").status_code == 401
     assert fx.client.post("/api/v1/documents/reorg", headers=CSRF).status_code == 401
+
+
+def test_backfill_enqueues_once_per_day_by_name(fx: Fx) -> None:
+    assert fx.client.post("/api/v1/documents/backfill").status_code == 403
+    assert fx.client.post("/api/v1/documents/backfill", headers=CSRF).status_code == 202
+    options: dict[str, Any] = fx.workflow_client.enqueue.call_args.args[0]
+    assert options["workflow_name"] == "documents.backfill"
+    assert options["workflow_id"].startswith(f"docs:backfill:{fx.company_id}:")
+    assert options["queue_partition_key"] == str(fx.company_id)

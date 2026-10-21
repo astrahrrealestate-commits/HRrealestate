@@ -4,7 +4,7 @@ Read routes are company-scoped through the session principal. Snippets and summa
 returned as data. Writes (link, unlink) need the CSRF header; foreign ids answer the same 404 as missing ones.
 """
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -144,6 +144,12 @@ def search(
         if q and q.strip():
             return [_out(h) for h in search_documents(session, who.company_id, q.strip(), flt, limit, match)]
         return [_out(h) for h in list_documents(session, who.company_id, flt, limit)]
+
+
+@router.post("/documents/backfill", status_code=202, dependencies=[Depends(require_csrf), Depends(decision_limit)])
+def backfill(who: Owner, client: WorkflowClient_) -> None:
+    """Read, index and link documents filed before content reading existed, then propose a reorganisation plan."""
+    enqueue.enqueue_backfill(client, who.company_id, datetime.now(UTC).date())
 
 
 @router.get("/documents/reorg")

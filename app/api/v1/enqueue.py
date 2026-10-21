@@ -1,9 +1,11 @@
 """Enqueue worker workflows from the API process by name (DBOSClient: no DBOS runtime, no app.workflows import)."""
 
+from datetime import date
 from uuid import UUID
 
 from app.api.deps import WorkflowClient
 from app.core.workflow_names import (
+    BACKFILL_DOCUMENTS,
     CONCIERGE_TURN,
     DOCUMENTS_QUEUE,
     EXECUTE_ACTION,
@@ -44,6 +46,17 @@ def enqueue_reorg(client: WorkflowClient, company_id: UUID, plan_id: UUID) -> No
         "queue_partition_key": str(company_id),
     }
     client.enqueue(options, str(company_id), str(plan_id))
+
+
+def enqueue_backfill(client: WorkflowClient, company_id: UUID, day: date) -> None:
+    """Read and link documents filed before M10; one run per company per day (DBOS dedupes the id)."""
+    options = {
+        "queue_name": DOCUMENTS_QUEUE,
+        "workflow_name": BACKFILL_DOCUMENTS,
+        "workflow_id": f"docs:backfill:{company_id}:{day:%Y%m%d}",
+        "queue_partition_key": str(company_id),
+    }
+    client.enqueue(options, str(company_id))
 
 
 def enqueue_turn(client: WorkflowClient, turn_id: UUID) -> None:

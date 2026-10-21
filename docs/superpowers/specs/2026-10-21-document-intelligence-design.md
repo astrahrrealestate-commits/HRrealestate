@@ -127,3 +127,17 @@ lease). `make live-check k=drive` gains move/rename/properties.
 ## Out of scope for M10
 Dashboard UI (backend API only, per ADR 0006); e-signature; renewals/expiry reminders from `key_facts` (follow-up
 once facts exist: a cron over lease end and insurance expiry creating tasks).
+
+## Amendments made while building (2026-10-21)
+- **Classifier first.** `doc_classifier` (metadata only) still runs before reading: it decides whether a document may be
+  read at all (ID documents never are), and is the fallback when reading fails. `doc_reader` then refines the type.
+- **Link kinds** are person, unit, lease and case (a maintenance issue is a case). Owner removals are kept as
+  `method="removed"` rows so automation cannot re-add them.
+- **Unresolved names** the reader found but the directory could not place are kept in `documents.facts.unresolved`
+  (filter `needs_link=true`), not as a separate review card.
+- **Answers are assembled from verified quotes** (found word for word in the retrieved passage, links/e-mails/IBANs
+  removed); the model's own sentence is shown only when it carries none of those. Suspicious documents are never context.
+- **Search**: `match=all` for typed queries, `match=any` (stop words dropped, best overlap first) for questions.
+- **Layout v2** shipped with filing itself; the reorg plan moves v1 files. Backfill: `POST /documents/backfill`.
+- **Proposer excerpts** carry no links/e-mails/IBANs and are not added to the draft guard's source text, so a draft that
+  repeats such a value is still flagged.

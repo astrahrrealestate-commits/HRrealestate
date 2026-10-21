@@ -54,7 +54,7 @@ _REOPENABLE = (DocumentStatus.review, DocumentStatus.failed)  # an upsert may re
 
 
 @dataclass(frozen=True)
-class _Filing:
+class Filing:
     company_id: UUID
     attachment_id: UUID
     s3_key: str
@@ -81,7 +81,7 @@ def _row_query(company_id: UUID, attachment_id: UUID) -> Select[DocumentRow]:
     return select(DocumentRow).where(DocumentRow.attachment_id == attachment_id, DocumentRow.company_id == company_id)
 
 
-def _load(engine: Engine, company_id: UUID, attachment_id: UUID) -> _Filing:
+def load_filing(engine: Engine, company_id: UUID, attachment_id: UUID) -> Filing:
     query = (
         select(AttachmentRow, MessageRow, Person.display_name, Company.timezone, Case.summary)
         .join(MessageRow, (MessageRow.id == AttachmentRow.message_id) & (MessageRow.company_id == company_id))
@@ -99,10 +99,10 @@ def _load(engine: Engine, company_id: UUID, attachment_id: UUID) -> _Filing:
         existing = session.scalar(_row_query(company_id, attachment_id))
     meta = FileMeta(filename=att.filename, mime_type=att.mime_type, size_bytes=att.size_bytes, sent_at=msg.sent_at)
     party = display_name or "unknown"  # never a raw phone number or email address in Harjot's Drive
-    return _Filing(company_id, attachment_id, att.s3_key, meta, party, tz, msg.text, case_summary, existing, msg.id)
+    return Filing(company_id, attachment_id, att.s3_key, meta, party, tz, msg.text, case_summary, existing, msg.id)
 
 
-def _upsert(engine: Engine, f: _Filing, values: dict[str, object], text: str | None = None) -> DocumentRow:
+def _upsert(engine: Engine, f: Filing, values: dict[str, object], text: str | None = None) -> DocumentRow:
     """Insert, or replace a review/failed row (never a pending or final one); return the row that now stands.
     `text` is chunked into `document_chunks` in the same transaction (repeats are no-ops)."""
     stmt = insert(DocumentRow).values(company_id=f.company_id, attachment_id=f.attachment_id, **values)
@@ -121,7 +121,7 @@ def _upsert(engine: Engine, f: _Filing, values: dict[str, object], text: str | N
     return row
 
 
-def _values(f: _Filing, status: DocumentStatus, cls: DocumentClassification, **extra: object) -> dict[str, object]:
+def _values(f: Filing, status: DocumentStatus, cls: DocumentClassification, **extra: object) -> dict[str, object]:
     """The row values of a decision. `party=` (not stored) names the tenant in the file name, else the sender."""
     party = extra.pop("party", None)
     name = "" if status is DocumentStatus.skipped else file_name(cls, f.meta, str(party or f.party), f.tz)
@@ -130,7 +130,7 @@ def _values(f: _Filing, status: DocumentStatus, cls: DocumentClassification, **e
     return base | extra
 
 
-def _claim(engine: Engine, f: _Filing, d: _Decision, reserved: str) -> DocumentRow:
+def _claim(engine: Engine, f: Filing, d: _Decision, reserved: str) -> DocumentRow:
     """First writer wins: the pending plan (name, folder, reserved Drive id) is in Postgres before any upload.
     Layout v2: the folder is the unit the evidence places the document in, the name carries the tenant."""
     read_facts = d.extra.get("facts")
@@ -152,7 +152,7 @@ def _claim(engine: Engine, f: _Filing, d: _Decision, reserved: str) -> DocumentR
     return _upsert(engine, f, plan, d.text)
 
 
-def _owner_choice(f: _Filing, doc_type: DocType) -> tuple[DocumentClassification, UUID | None]:
+def _owner_choice(f: Filing, doc_type: DocType) -> tuple[DocumentClassification, UUID | None]:
     """The owner picked the type: keep the model's title and document date, confidence 1."""
     title = ((f.existing.title if f.existing else None) or f.meta.filename or "Document").strip()[:80] or "Document"
     day = name_date(f.existing.file_name) if f.existing else None
@@ -160,20 +160,20 @@ def _owner_choice(f: _Filing, doc_type: DocType) -> tuple[DocumentClassification
     return cls, (f.existing.model_call_id if f.existing else None)
 
 
-def _classify(engine: Engine, settings: Settings, f: _Filing) -> tuple[DocumentClassification, UUID]:
+def _classify(engine: Engine, settings: Settings, f: Filing) -> tuple[DocumentClassification, UUID]:
     m = f.meta
     prompt = doc_classifier_prompt(m.filename, m.mime_type, m.size_bytes, f.party, f.message_text, f.case_summary)
     result = run_agent(engine, settings, DOC_CLASSIFIER, prompt, CallContext(f.company_id, "doc_classifier"))
     return result.output, result.model_call_id
 
 
-def _placeholder(f: _Filing) -> DocumentClassification:
+def _placeholder(f: Filing) -> DocumentClassification:
     title = (f.meta.filename or "Document").strip()[:80] or "Document"
     return DocumentClassification(doc_type=DocType.other, title=title, document_date=None, confidence=0.0)
 
 
 def _with_reading(engine: Engine, settings: Settings, storage: ObjectStorage, extractor: TextExtractor,
-                  f: _Filing, decision: _Decision) -> _Decision:  # fmt: skip
+                  f: Filing, decision: _Decision) -> _Decision:  # fmt: skip
     """Let the reader refine the metadata decision; any reading failure keeps the metadata decision."""
     m = f.meta
     given = ReadInput(f.company_id, f.attachment_id, m.filename, m.mime_type, m.size_bytes, f.party, f.message_text,
@@ -184,7 +184,7 @@ def _with_reading(engine: Engine, settings: Settings, storage: ObjectStorage, ex
     return _Decision(reading.facts.as_classification(), reading.call_id, facts_columns(reading), reading.text or None)
 
 
-def _readable(settings: Settings, extractor: TextExtractor | None, f: _Filing, cls: DocumentClassification) -> bool:
+def _readable(settings: Settings, extractor: TextExtractor | None, f: Filing, cls: DocumentClassification) -> bool:
     return (
         extractor is not None
         and settings.doc_read_content
@@ -193,7 +193,7 @@ def _readable(settings: Settings, extractor: TextExtractor | None, f: _Filing, c
     )
 
 
-def _decide(engine: Engine, settings: Settings, f: _Filing, storage: ObjectStorage,
+def _decide(engine: Engine, settings: Settings, f: Filing, storage: ObjectStorage,
             extractor: TextExtractor | None) -> _Decision | DocumentStatus:  # fmt: skip
     """Model path for a new or failed row: a final status, or the decision to file."""
     if should_skip(f.meta):
@@ -217,7 +217,7 @@ def _decide(engine: Engine, settings: Settings, f: _Filing, storage: ObjectStora
     return decision
 
 
-def _plan(engine: Engine, settings: Settings, f: _Filing, drive: DriveStore, owner_doc_type: DocType | None,
+def _plan(engine: Engine, settings: Settings, f: Filing, drive: DriveStore, owner_doc_type: DocType | None,
           storage: ObjectStorage, extractor: TextExtractor | None) -> DocumentRow | DocumentStatus:  # fmt: skip
     row = f.existing
     if row is not None and row.status in (*_FINAL, DocumentStatus.pending):
@@ -244,7 +244,7 @@ def file_document(
     extractor: TextExtractor | None = None,
 ) -> DocumentStatus:
     """`extractor=None` files from metadata alone (the M9 behaviour)."""
-    f = _load(engine, company_id, attachment_id)
+    f = load_filing(engine, company_id, attachment_id)
     plan = _plan(engine, settings, f, drive, owner_doc_type, storage, extractor)
     if isinstance(plan, DocumentStatus):
         return plan

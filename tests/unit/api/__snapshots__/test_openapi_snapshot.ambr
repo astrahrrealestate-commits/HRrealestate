@@ -931,6 +931,54 @@
           ]
         }
       },
+      "/api/v1/documents/backfill": {
+        "post": {
+          "description": "Read, index and link documents filed before content reading existed, then propose a reorganisation plan.",
+          "operationId": "backfill_api_v1_documents_backfill_post",
+          "parameters": [
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "responses": {
+            "202": {
+              "content": {
+                "application/json": {
+                  "schema": {}
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Backfill",
+          "tags": [
+            "documents"
+          ]
+        }
+      },
       "/api/v1/documents/reorg": {
         "get": {
           "description": "The newest Drive reorganisation plan with its items and status, or null when there never was one.",

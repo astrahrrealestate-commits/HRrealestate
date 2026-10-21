@@ -21,6 +21,7 @@ from app.db.enums import ExtractionStatus
 from app.db.models import AttachmentRow
 from app.llm.agents.doc_reader import DOC_OCR, DOC_READER, doc_reader_prompt
 from app.llm.calls import CallContext, run_agent
+from app.pipeline.document_qa import strip_risky
 from app.pipeline.injection_scan import scan
 from app.storage.extract import Extraction, TextExtractor
 from app.storage.ports import ObjectStorage
@@ -131,7 +132,9 @@ def facts_columns(reading: Reading) -> dict[str, object]:
     if f.doc_type is DocType.id_document:
         return {"reader_version": READER_VERSION}
     detail = f.model_dump(mode="json", include={"parties", "unit_hint", "start_date", "end_date", "key_facts"})
+    for fact in detail["key_facts"]:  # model text about untrusted text: no link, address or IBAN is ever stored
+        fact["value"] = strip_risky(fact["value"])
     return {
-        "summary": f.summary, "facts": detail, "document_date": f.document_date,
+        "summary": strip_risky(f.summary), "facts": detail, "document_date": f.document_date,
         "reader_version": READER_VERSION, "suspicious": reading.suspicious,
     }  # fmt: skip

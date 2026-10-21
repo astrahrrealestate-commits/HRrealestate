@@ -14,6 +14,7 @@ PIPELINE_ENTRY = "pipeline.entry"
 EXECUTE_ACTION = "actions.execute_action"
 FILE_DOCUMENT = "documents.file_document"
 REORG_PLAN = "documents.reorg_plan"
+BACKFILL_DOCUMENTS = "documents.backfill"
 CONCIERGE_TURN = "concierge.turn"
 
 

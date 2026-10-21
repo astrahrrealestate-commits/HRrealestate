@@ -80,11 +80,22 @@ Phase 1 agents spec: [2026-10-07-estateos-phase1-agents-design.md](superpowers/s
 ## M9 Document filing
 - [x] classifier (metadata only) + Drive adapter + `file_document` (app/pipeline/documents.py, app/storage/drive.py, doc_classifier agent); workflow + review card
 
-## M10 Document intelligence — spec [2026-10-21-document-intelligence-design.md](superpowers/specs/2026-10-21-document-intelligence-design.md) · plan [2026-10-21-m10-document-intelligence.md](superpowers/plans/2026-10-21-m10-document-intelligence.md) · branch `m10-document-intelligence`
-Docker is down: no integration test or `make check` run for any task below until the stack is up.
-- [x] spec + plan written (no brainstorm: user said "just start"); spec lists 3 open decisions for the user
-- [ ] 1 migration 0011 · 2 text extractor + ADR 0007 · 3 DocumentFacts + doc_reader · 4 read/chunk pipeline · 5 linking
-- [ ] 6 search + API · 7 Super Agent intents + doc_qa · 8 proposer excerpts · 9 Drive move/layout v2 · 10 reorg plan workflow · 11 backfill + sim-demo + live-check
+## M10 Document intelligence — spec [2026-10-21-document-intelligence-design.md](superpowers/specs/2026-10-21-document-intelligence-design.md) · plan [2026-10-21-m10-document-intelligence.md](superpowers/plans/2026-10-21-m10-document-intelligence.md) · branch `m10-document-intelligence` (worktree `../EstateOS-m10`)
+Evidence: G1 `make quick` "1442 passed" · integration "509 passed" with 2 failures that also fail on the untouched `d-dashboard` base (`test_send_to_owner_dashboard_writes_feed_only`, `test_blocked_approval_tells_harjot_and_resume_runs_it`); `test_pipeline_propose::test_reply_and_escalation_await_approval_with_tasks` failed once in a full run and passed 3 of 3 alone (disk was nearly full) · migration round-trip and drift pass.
+**Not run:** `make smoke`, `make sim-demo` (disk too full to build the stack), `make live-check k=drive` (no credentials; the new relocate/annotate check is written in tests/live/test_live_drive.py), a real-model `make eval agent=doc_reader version=v1`, the estateos-reviewer G3 pass.
+- [x] spec + plan (no brainstorm: user said "just start"); spec lists 3 open decisions for the user
+- [x] 1 migration 0011 (tables: document_chunks with generated tsvector, document_links, drive_reorg_plans/items; attachment extraction and document facts columns). NOTE: `d-dashboard` has its own uncommitted 0011 (agent_turns_page_context): renumber one of them when the branches meet
+- [x] 2 text extraction (pypdf, docx, plain; scans to vision; ID documents never read), ADR 0007
+- [x] 3 `DocumentFacts` + `doc_reader`/`doc_ocr` agents, multimodal `run_agent`
+- [x] 4 read, chunk, store in `file_document` with metadata fallback; injection-like content goes to review
+- [x] 5 linking to person/unit/lease/case; ambiguous matches link nothing; owner links and removals are never overwritten
+- [x] 6 search + library API (`/documents`, `/documents/{id}`, links)
+- [x] 7 Super Agent `find_document`/`read_document` (concierge prompt v2), `doc_qa` with verified quotes
+- [x] 8 proposer v2 cites the case's own documents only, rationale names them
+- [x] 9 Drive layout v2 (`EstateOS/<unit>/<kind>/<year>`), tenant in the name, Drive description and properties; `relocate`/`annotate`
+- [x] 10 owner-approved reorg plans + `drive:reorg:{plan_id}` workflow
+- [x] 11 backfill workflow (`POST /documents/backfill`), `doc_reader` golden set (`make eval agent=doc_reader version=v1`; on the fake it only measures the fake)
+- [ ] sim-demo "lease question" scenario, live Drive check, real-model eval, G3 review
 
 ## Review rounds (whole branch, 2026-10-08)
 - [x] round 1 (estateos-reviewer + peer): owner-step retries, pipeline failure handling (no silent drops, final failure → `other` case + alert), blocked approvals told + `resume` reruns, re-fired chase timers, blank/command edits, edit replay, task #refs, outbox per-item isolation + current owner number, payload recipient check, reply channel from the message, propose lock, timers queue, briefing lists stuck items, company_id scoping
