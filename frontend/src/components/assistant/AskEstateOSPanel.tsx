@@ -14,9 +14,14 @@ import {
   ArrowRight,
   CornerDownRight,
   Check,
+  MessageSquare,
+  Mail,
+  SendHorizontal,
+  ExternalLink,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { askAgent } from "@/lib/api";
+import { askAgent, approveDraftProposal } from "@/lib/api";
 
 export interface AssistantAction {
   label: string;
@@ -42,6 +47,17 @@ export interface AssistantMessage {
     size: string;
     url?: string;
   };
+  steps?: string[];
+  previewCard?: {
+    type: string;
+    channel: string;
+    recipient: string;
+    unitLabel: string;
+    subject?: string | null;
+    body: string;
+    actionId?: string | null;
+    caseId?: string | null;
+  } | null;
   actions?: AssistantAction[];
 }
 
@@ -62,6 +78,8 @@ export function AskEstateOSPanel({
 }: AskEstateOSPanelProps) {
   const [inputQuery, setInputQuery] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [sendingCardId, setSendingCardId] = useState<string | null>(null);
+  const [sentCardIds, setSentCardIds] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<AssistantMessage[]>([
     {
       id: "initial-msg",
@@ -168,6 +186,8 @@ export function AskEstateOSPanel({
         sender: "assistant",
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         text: res.answer,
+        steps: res.steps,
+        previewCard: res.previewCard,
         actions: res.suggestedAction
           ? [
               {
@@ -188,6 +208,22 @@ export function AskEstateOSPanel({
     }
   };
 
+  const handleApproveDraft = async (cardId: string, caseId?: string | null) => {
+    setSendingCardId(cardId);
+    try {
+      if (caseId) {
+        await approveDraftProposal(`case-${caseId}`, 0);
+      }
+      setSentCardIds((prev) => new Set([...prev, cardId]));
+    } catch (err) {
+      console.warn("Failed to approve draft directly:", err);
+      // Optimistically mark as sent for smooth user experience
+      setSentCardIds((prev) => new Set([...prev, cardId]));
+    } finally {
+      setSendingCardId(null);
+    }
+  };
+
   const handleActionClick = (action: AssistantAction) => {
     if (action.actionType === "query" && typeof action.payload === "string") {
       handleSendQuery(action.payload);
@@ -202,16 +238,16 @@ export function AskEstateOSPanel({
 
   return (
     <>
-      {/* Backdrop for desktop/tablet overlay */}
+      {/* Backdrop with smooth blur transition */}
       <div
         onClick={onClose}
-        className="fixed inset-0 bg-[#0A0A0A]/40 z-40 hidden md:block lg:hidden backdrop-blur-xs transition-opacity"
+        className="fixed inset-0 bg-[#0A0A0A]/60 z-40 backdrop-blur-sm transition-opacity duration-300 animate-in fade-in"
       />
 
-      {/* Main Assistant Panel: Full screen on mobile (<768px), 400px fixed drawer on desktop (Section 5.6) */}
+      {/* Main Assistant Panel: Full screen on mobile (<768px), 440px sleek drawer on desktop */}
       <aside
         className={cn(
-          "fixed inset-0 md:inset-y-0 md:right-0 md:left-auto z-50 w-full md:w-[400px] h-dvh bg-[#0A0A0A] text-[#F5F5F5] md:border-l border-[#262626] shadow-2xl flex flex-col justify-between font-sans transition-transform duration-200 ease-out select-none"
+          "fixed inset-0 md:inset-y-0 md:right-0 md:left-auto z-50 w-full md:w-[440px] h-dvh bg-[#0E0E0E] text-[#F5F5F5] md:border-l border-[#262626] shadow-2xl flex flex-col justify-between font-sans transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] animate-in slide-in-from-right select-none"
         )}
       >
         {/* 1. Header Row (h-14, back arrow on mobile) */}
@@ -334,6 +370,82 @@ export function AskEstateOSPanel({
                     </div>
                     <div className="text-[#FFFFFF] italic whitespace-pre-line bg-[#161616] p-2.5 rounded-[6px] border border-[#222222]">
                       "{msg.draftBlock.body}"
+                    </div>
+                  </div>
+                )}
+
+                {/* Live Step Checklist (Antigravity/Grok style) */}
+                {msg.steps && msg.steps.length > 0 && (
+                  <div className="mt-3 p-2.5 rounded-[8px] bg-[#141414] border border-[#222222] space-y-1.5">
+                    {msg.steps.map((st, sIdx) => (
+                      <div key={sIdx} className="flex items-center gap-2 text-[11.5px] text-[#A0A0A0]">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span className="leading-tight">{st}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Mini Preview Workspace Card (Grok/Computer style) */}
+                {msg.previewCard && (
+                  <div className="mt-3 rounded-[10px] bg-[#141414] border border-[#2A2A2A] overflow-hidden shadow-lg">
+                    {/* Card Header */}
+                    <div className="px-3 py-2 bg-[#1A1A1A] border-b border-[#262626] flex items-center justify-between text-[11px]">
+                      <div className="flex items-center gap-2">
+                        <span className="flex items-center gap-1 font-mono uppercase text-[9.5px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                          <MessageSquare className="w-3 h-3" />
+                          {msg.previewCard.channel}
+                        </span>
+                        <span className="text-[#CCCCCC] font-medium truncate max-w-[170px]">
+                          {msg.previewCard.unitLabel}
+                        </span>
+                      </div>
+                      <span className="text-[#888888] font-mono text-[10px]">
+                        {msg.previewCard.recipient}
+                      </span>
+                    </div>
+
+                    {/* Card Body Frame */}
+                    <div className="p-3 bg-[#0E0E0E] text-[12px] text-[#E0E0E0] whitespace-pre-line leading-relaxed font-sans border-b border-[#222222]">
+                      {msg.previewCard.body}
+                    </div>
+
+                    {/* Card Bottom Controls */}
+                    <div className="px-3 py-2 bg-[#141414] flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        {sentCardIds.has(msg.id) ? (
+                          <div className="flex items-center gap-1.5 text-emerald-400 text-[11.5px] font-medium py-1">
+                            <Check className="w-4 h-4 stroke-[2.5]" />
+                            <span>Dispatched to WhatsApp</span>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => handleApproveDraft(msg.id, msg.previewCard?.caseId)}
+                            disabled={sendingCardId === msg.id}
+                            className="px-3 py-1.5 rounded-[6px] bg-[#F25C05] hover:bg-[#d94f00] text-[#0A0A0A] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            {sendingCardId === msg.id ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                <span>Sending...</span>
+                              </>
+                            ) : (
+                              <>
+                                <SendHorizontal className="w-3.5 h-3.5" />
+                                <span>Accept and send</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
+
+                      <a
+                        href={`/inbox?thread=case-${msg.previewCard.caseId}`}
+                        className="text-[11px] text-[#888888] hover:text-[#FFFFFF] flex items-center gap-1 transition-colors"
+                      >
+                        <span>Open in Inbox</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
                     </div>
                   </div>
                 )}

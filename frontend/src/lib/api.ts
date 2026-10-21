@@ -630,11 +630,24 @@ export async function getTenants(rentStatus: string = "all") {
 // AI Assistant / Ask EstateOS (OWNER_QA Agent)
 // ---------------------------------------------------------------------------
 
+export interface PreviewCardData {
+  type: string;
+  channel: string;
+  recipient: string;
+  unitLabel: string;
+  subject?: string | null;
+  body: string;
+  actionId?: string | null;
+  caseId?: string | null;
+}
+
 export interface AskAgentResponse {
   answer: string;
   caseRefs?: string[];
   suggestedAction?: string | null;
   executedAt: string;
+  steps?: string[];
+  previewCard?: PreviewCardData | null;
 }
 
 /**
