@@ -40,7 +40,7 @@ def test_prompt_puts_untrusted_text_in_blocks_and_lists_contractors() -> None:
     assert f"case_id: {CASE}" in prompt
     assert f"{ctx.contractors[0].person_id} | Loodgieter Jansen | plumber" in prompt
     assert "<mode>reply</mode>" in prompt
-    assert PROPOSER.prompt.key == "proposer/v1"
+    assert PROPOSER.prompt.key == "proposer/v2"
 
 
 def test_fake_proposes_valid_dutch_reply_and_escalation_for_emergency() -> None:

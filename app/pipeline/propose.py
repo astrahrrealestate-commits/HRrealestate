@@ -4,7 +4,8 @@ Replay-safe: actions carry `context_ref = [message_id]`, and a message that alre
 again. A failed proposer never drops the message: Harjot gets a "could not draft" notice to approve or dismiss.
 """
 
-from dataclasses import dataclass, field
+from collections.abc import Sequence
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -18,9 +19,13 @@ from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import ActionStatus, ApprovalStatus, PersonKind, WaitStatus
 from app.db.models import ActionRow, Approval, Case, Company, MessageRow, Person, UnderstandingRow, WaitRow
+from app.llm.agents.doc_qa import Passage
 from app.llm.agents.proposer import PROPOSER, Contractor, ProposerContext, proposer_prompt
 from app.llm.calls import CallContext, run_agent
 from app.pipeline import approvals, case_repo
+from app.pipeline.concierge_sanitize import sanitize
+from app.pipeline.document_qa import case_scope, strip_risky
+from app.pipeline.document_search import DocFilter, top_passages
 from app.pipeline.rules import RuleContext, Verdict, apply_rules
 
 log = get_logger(__name__)
@@ -61,6 +66,19 @@ def _existing(session: Session, company_id: UUID, message_id: UUID) -> ProposeRe
     return ProposeResult(list(live), sum(r.status is ActionStatus.exception for r in rows))
 
 
+MAX_EXCERPTS = 3
+
+
+def _case_documents(session: Session, msg: MessageRow, case: Case) -> tuple[Passage, ...]:
+    """Passages of THIS case's own documents (its case, unit, lease and main person) that resemble the message.
+    Nothing from any other tenant's documents, nothing flagged suspicious, and no link, address or IBAN."""
+    scope = case_scope(session, msg.company_id, case.id)
+    if not scope:
+        return ()
+    found = top_passages(session, msg.company_id, msg.text, DocFilter(any_link=scope, readable_only=True), MAX_EXCERPTS)
+    return tuple(replace(p, text=strip_risky(p.text)) for p in found)
+
+
 def _load(session: Session, msg: MessageRow, case: Case, und: Understanding) -> _Loaded:
     company = session.get(Company, msg.company_id)
     waiting = session.scalars(
@@ -84,6 +102,7 @@ def _load(session: Session, msg: MessageRow, case: Case, und: Understanding) -> 
         waiting=tuple(waiting),
         contractors=tuple(Contractor(c[0], c[1], c[2]) for c in contractors),
         mode="reply",
+        excerpts=_case_documents(session, msg, case),
     )
     return _Loaded(ctx, msg.company_id, bool(company and company.paused))
 
@@ -113,6 +132,14 @@ def _propose(engine: Engine, settings: Settings, loaded: _Loaded) -> list[Action
     return list(result.output.actions)
 
 
+def _with_sources(action: Action, excerpts: Sequence[Passage]) -> str:
+    """A reply drafted with documents in view says which ones, so Harjot can check the clause on the card."""
+    if action.type is not ActionType.reply_draft or not excerpts:
+        return action.rationale
+    titles = ", ".join(sanitize(p.title)[:60] for p in excerpts)
+    return f"{action.rationale} (documents in view: {titles})"
+
+
 def _persist(
     session: Session, loaded: _Loaded, message_id: UUID, actions: list[Action], contractors: frozenset[UUID]
 ) -> ProposeResult:
@@ -132,7 +159,7 @@ def _persist(
             case_id=loaded.ctx.case_id,
             type=a.type,
             payload=a.payload.model_dump(mode="json"),
-            rationale=a.rationale,
+            rationale=_with_sources(a, loaded.ctx.excerpts),
             context_ref=[message_id],
             draft_version=1,
             status=_STATUS[decision.verdict],

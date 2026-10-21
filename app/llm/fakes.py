@@ -167,6 +167,18 @@ def _action(case_id: str, kind: str, payload: dict[str, object], rationale: str)
     }
 
 
+def _cited_clause(prompt: str) -> tuple[str, str] | None:
+    """The excerpt sentence that shares the most words with the tenant's message, with its document title."""
+    asked = set(re.findall(r"[^\W_]{5,}", _block(prompt, "message").lower()))
+    best: tuple[int, str, str] = (0, "", "")
+    for _ref, title, text in _ENTRY.findall(_block(prompt, "excerpts")):
+        for sentence in re.split(r"(?<=[.!?\n])\s+", text):
+            score = len(asked & set(re.findall(r"[^\W_]{5,}", sentence.lower())))
+            if score > best[0]:
+                best = (score, title.split(" (")[0], sentence.strip()[:240])
+    return (best[1], best[2]) if best[0] else None
+
+
 def _fake_proposer(prompt: str) -> dict[str, object]:
     case_id, channel = _field(prompt, "case_id"), _field(prompt, "channel") or "whatsapp"
     subject = _field(prompt, "Subject")
@@ -193,12 +205,18 @@ def _fake_proposer(prompt: str) -> dict[str, object]:
         "Geachte heer/mevrouw,\n\nDank voor uw bericht. Kunt u een foto sturen, zodat wij de juiste "
         "vakman kunnen inschakelen?\n\nMet vriendelijke groet,\nHarjot",
     ]
+    cited = _cited_clause(prompt)
+    if cited:
+        title, sentence = cited
+        variants.append(
+            f"Geachte heer/mevrouw,\n\nVolgens {title} geldt: {sentence}\n\nMet vriendelijke groet,\nHarjot"
+        )
     actions = [
         _action(
             case_id,
             "reply_draft",
             {"channel": channel, "subject": reply_subject, "body_variants": variants},
-            "Acknowledge and ask for details",
+            f"Answer from {cited[0]}" if cited else "Acknowledge and ask for details",
         )
     ]
     if _field(prompt, "urgency") == "emergency":

@@ -10,9 +10,10 @@ from typing import Literal
 from uuid import UUID
 
 from app.contracts import Channel, PromptRef, Proposal, Understanding
+from app.llm.agents.doc_qa import MAX_EXCERPT, Passage, ref_of
 from app.llm.calls import AgentSpec
 from app.llm.prompts import LoadedPrompt
-from app.llm.render import data_block, escape
+from app.llm.render import data_block, escape, one_line
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ class ProposerContext:
     waiting: Sequence[str]
     contractors: Sequence[Contractor]
     mode: Literal["reply", "chase"]
+    excerpts: Sequence[Passage] = ()  # this tenant's own documents that match the message (v2 prompt)
 
 
 def _unchanged(output: Proposal, _loaded: LoadedPrompt) -> Proposal:
@@ -41,13 +43,21 @@ def _unchanged(output: Proposal, _loaded: LoadedPrompt) -> Proposal:
 
 
 PROPOSER = AgentSpec(
-    name="proposer", prompt=PromptRef(name="proposer", version="v1"), output_type=Proposal, finalize=_unchanged
+    name="proposer", prompt=PromptRef(name="proposer", version="v2"), output_type=Proposal, finalize=_unchanged
 )
 
 
 def _contractors(items: Sequence[Contractor]) -> str:
     lines = [escape(f"{c.person_id} | {c.name} | {c.trade or 'general'}", "contractors") for c in items]
     return "<contractors>\n" + ("\n".join(lines) or "none") + "\n</contractors>"
+
+
+def _excerpts(items: Sequence[Passage]) -> str:
+    entries = [
+        f"[ref {ref_of(p)}] {one_line(p.title)} ({p.doc_type}, {p.document_date or 'undated'})\n{p.text[:MAX_EXCERPT]}"
+        for p in items
+    ]
+    return data_block("excerpts", "\n\n---\n\n".join(entries), len(entries) * (MAX_EXCERPT + 200))
 
 
 def proposer_prompt(ctx: ProposerContext) -> str:
@@ -65,6 +75,7 @@ def proposer_prompt(ctx: ProposerContext) -> str:
             data_block("data", data),
             waiting,
             _contractors(ctx.contractors),
+            *([_excerpts(ctx.excerpts)] if ctx.excerpts else []),
             data_block("message", ctx.message_text),
         ]
     )
