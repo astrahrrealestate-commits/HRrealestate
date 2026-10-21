@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     # Document filing (#9, ADR 0005): Drive with the `drive.file` scope only.
     drive_provider: Literal["fake", "google"] = "fake"
     drive_credentials_file: Path | None = None  # authorized-user JSON created with the drive.file scope
+    doc_read_content: bool = True  # M10, ADR 0007: read attachment text to file, link and answer; off = metadata only
 
     # Dashboard (owner interface, ADR 0006). `fake` accepts test tokens; prod refuses it.
     dashboard_auth_provider: Literal["fake", "google"] = "fake"

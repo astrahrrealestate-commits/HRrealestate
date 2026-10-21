@@ -21,7 +21,7 @@ from app.owner.cards import document_review_key, document_review_payload
 from app.pipeline.documents import file_document, skip_document
 from app.storage.drive import is_transient as drive_transient
 from app.workflows import queues
-from app.workflows.deps import get_deps, get_drive, get_engine
+from app.workflows.deps import get_deps, get_drive, get_engine, get_extractor
 from app.workflows.owner_notify import send_owner_message
 from app.workflows.retry import STEP_RETRY
 
@@ -52,6 +52,7 @@ def file_step(company_id: str, attachment_id: str, owner_choice: str | None) -> 
         UUID(company_id),
         UUID(attachment_id),
         owner_doc_type=doc_type,
+        extractor=get_extractor(),
     )
     return status.value
 
