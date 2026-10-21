@@ -13,7 +13,10 @@ from dataclasses import dataclass
 
 MAX_BODY_CHARS = 8000
 MAX_ATTACHMENTS = 10
-BLOCK_TAGS = ("message", "data", "waiting", "contractors", "attachments", "file", "case", "mode", "history")
+BLOCK_TAGS = (
+    "message", "data", "waiting", "contractors", "attachments", "file", "case", "mode", "history", "page_facts",
+    "page_snapshot",
+)  # fmt: skip
 
 _LOOKALIKES = str.maketrans({"＜": "<", "＞": ">", "﹤": "<", "﹥": ">"})
 _ZERO_WIDTH = re.compile("[​‌‍⁠﻿]")

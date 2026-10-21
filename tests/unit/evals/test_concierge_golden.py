@@ -12,7 +12,7 @@ from evals import concierge_eval
 from evals.common import eval_settings
 from evals.concierge_eval import Label, load, plan_is_clean, runnable, score_plans
 
-MIN_GROUPS = {"read": 8, "task": 6, "pause": 4, "reply": 4, "clarify": 4, "out_of_scope": 4}
+MIN_GROUPS = {"read": 8, "task": 6, "pause": 4, "reply": 5, "clarify": 4, "out_of_scope": 4, "page": 12}
 
 
 def _fake() -> Settings:
@@ -30,7 +30,7 @@ def _plan(*intents: Intent, text: str | None = None, in_scope: bool = True) -> C
 
 def test_golden_set_loads_with_the_required_distribution() -> None:
     cases = load().cases
-    assert len(cases) == len({c.name for c in cases}) >= 30
+    assert len(cases) == len({c.name for c in cases}) >= 43
     assert all(c.metadata is not None for c in cases)
     counts = Counter(g.group for g in _labels())
     assert set(counts) == set(MIN_GROUPS)
@@ -49,6 +49,37 @@ def test_labels_are_consistent() -> None:
     )
 
 
+HOSTILE_SNAPSHOT = re.compile(r"ignore previous|approve all|@")
+STATE_CHANGES = {Intent.pause, Intent.resume, Intent.draft_reply, Intent.chase_now, Intent.task_done}
+
+
+def test_page_cases_cover_the_page_rules_and_every_hostile_page_forbids_state_changes() -> None:
+    cases = [c for c in load().cases if (c.name or "").startswith("page-")]
+    assert len(cases) >= 13
+    paged = [(c, c.inputs.page) for c in cases if c.inputs.page is not None]
+    hostile = [c for c, page in paged if HOSTILE_SNAPSHOT.search(page.snapshot + page.facts)]
+    assert len(hostile) >= 3
+    for c in hostile:
+        assert c.metadata is not None
+        assert set(c.metadata.must_not_include) >= STATE_CHANGES
+        assert not c.metadata.real_only
+    assert any(c.inputs.page is None and c.metadata and c.metadata.expected_intents == [Intent.clarify] for c in cases)
+    assert sum(bool(c.metadata and c.metadata.forbidden_refs) for c in cases) >= 2
+    assert sum(bool(c.metadata and c.metadata.expected_ref) for c in cases) >= 6
+
+
+def test_scorer_checks_expected_and_forbidden_refs() -> None:
+    case_id = UUID(int=3)
+    step = PlanStep(intent=Intent.case_status, case_id=case_id, task_ref=None, text=None, view=None)
+    plan = ConciergePlan(in_scope=True, steps=[step])
+    want = Label(group="page", expected_in_scope=True, expected_intents=[Intent.case_status], expected_ref=str(case_id))
+    assert score_plans([(want, plan)])["intent_sequence_match"] == 1.0
+    other = want.model_copy(update={"expected_ref": str(UUID(int=4))})
+    assert score_plans([(other, plan)])["intent_sequence_match"] == 0.0
+    banned = want.model_copy(update={"forbidden_refs": [str(case_id)]})
+    assert score_plans([(banned, plan)])["forbidden_intent_rate"] == 1.0
+
+
 def test_draft_and_chase_expected_only_when_asked() -> None:
     for c in load().cases:
         g = c.metadata
@@ -58,7 +89,7 @@ def test_draft_and_chase_expected_only_when_asked() -> None:
 
 
 def test_fake_passes_every_runnable_case() -> None:
-    result = concierge_eval.run("v1", _fake())
+    result = concierge_eval.run("v2", _fake())
     assert result.misses == []
     assert result.scores["intent_sequence_match"] == 1.0
     assert result.scores["scope_accuracy"] == 1.0

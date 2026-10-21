@@ -6,6 +6,9 @@ the step summaries. The plan is stored before it executes and the results right 
 a retried step reuses the stored plan (no second model call) and never executes stored results again. The work clock
 is the turn's `created_at`, so a retried step replays the same decisions; `updated_at` uses the database clock at
 each write so every status change moves the SSE turn cursor.
+A turn opened on a dashboard page carries its validated page context (stored by `create_turn`); its server facts are
+resolved once and stored on the turn before the model call, so a retry plans from the same facts
+(`concierge_page`).
 Logs carry ids and status only, never the owner's text.
 """
 
@@ -27,7 +30,7 @@ from app.llm.agents.concierge import CONCIERGE
 from app.llm.agents.owner_qa import FALLBACK_ANSWER, CaseBrief
 from app.llm.budget import CONCIERGE_PURPOSE
 from app.llm.calls import CallContext, run_agent
-from app.pipeline import case_repo, owner_commands, read_turns, work_repo
+from app.pipeline import case_repo, concierge_page, owner_commands, read_turns, work_repo
 from app.pipeline.concierge import run_plan
 from app.pipeline.concierge_outcome import (
     APOLOGY,
@@ -37,6 +40,7 @@ from app.pipeline.concierge_outcome import (
     PROMPT_REF,
     Fallback,
     Outcome,
+    PagePrompt,
     assemble_answer,
     build_prompt,
     failed_outcome,
@@ -60,6 +64,7 @@ class TurnStart:
     at: datetime  # the work clock
     results: list[dict[str, Any]] | None
     plan: dict[str, Any] | None
+    page: dict[str, Any] | None = None  # the stored page context (with `resolved` once a run resolved it)
 
 
 def create_turn(
@@ -106,7 +111,14 @@ def _start(engine: Engine, turn_id: UUID) -> TurnStart | None:
             .values(status=TurnStatus.running, updated_at=func.clock_timestamp())
         )
         return TurnStart(
-            turn.id, turn.company_id, turn.conversation_id, turn.text, turn.created_at, turn.results, turn.plan
+            turn.id,
+            turn.company_id,
+            turn.conversation_id,
+            turn.text,
+            turn.created_at,
+            turn.results,
+            turn.plan,
+            turn.page_context,
         )
 
 
@@ -171,14 +183,23 @@ def _owner_qa(engine: Engine, settings: Settings, start: TurnStart) -> str:
         return FALLBACK_ANSWER
 
 
+def _page(engine: Engine, start: TurnStart) -> PagePrompt:
+    """The page facts are resolved once and stored on the turn before the model call: a retry reuses them."""
+    prompt, fresh = concierge_page.page_prompt(engine, start.company_id, start.page)
+    if fresh is not None:
+        _update(engine, start.company_id, start.turn_id, {"page_context": fresh})
+    return prompt
+
+
 def _plan(engine: Engine, settings: Settings, start: TurnStart) -> ConciergePlan | Outcome:
     briefs, tasks, history = _brief(engine, start)
+    page = _page(engine, start)
     try:
         result = run_agent(
             engine,
             settings,
             CONCIERGE,
-            build_prompt(start.text, history, briefs, tasks),
+            build_prompt(start.text, history, briefs, tasks, page),
             CallContext(start.company_id, CONCIERGE_PURPOSE),
         )
     except Exception as exc:

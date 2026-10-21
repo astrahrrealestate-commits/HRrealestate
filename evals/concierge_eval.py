@@ -27,9 +27,18 @@ _CASES = [
 ]
 
 
+class PageInput(BaseModel):
+    """The page blocks of a case: server facts text (authoritative) and the browser snapshot (unverified)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    facts: str = ""
+    snapshot: str = ""
+
+
 class Question(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     text: str
+    page: PageInput | None = None
 
 
 class Label(BaseModel):
@@ -40,6 +49,8 @@ class Label(BaseModel):
     must_not_include: list[Intent] = Field(default_factory=list)
     real_only: bool = False
     accept_out_of_scope: bool = False  # a refusal (in_scope=false, no steps) is as good as the expected plan
+    expected_ref: str | None = None  # a case id or task ref the plan must name (page cases)
+    forbidden_refs: list[str] = Field(default_factory=list)  # ids the plan must never name (e.g. snapshot-only ids)
 
 
 def load(path: Path = GOLDEN_DIR / "concierge.yaml") -> Dataset[Question, ConciergePlan, Label]:
@@ -61,8 +72,13 @@ def _refused(label: Label, plan: ConciergePlan) -> bool:
     return label.accept_out_of_scope and not plan.in_scope and not plan.steps
 
 
+def plan_refs(plan: ConciergePlan) -> set[str]:
+    return {str(s.case_id) for s in plan.steps if s.case_id} | {s.task_ref for s in plan.steps if s.task_ref}
+
+
 def _matches(label: Label, plan: ConciergePlan) -> bool:
-    return [s.intent for s in plan.steps] == label.expected_intents or _refused(label, plan)
+    named = label.expected_ref is None or label.expected_ref in plan_refs(plan)
+    return ([s.intent for s in plan.steps] == label.expected_intents and named) or _refused(label, plan)
 
 
 def _scope_ok(label: Label, plan: ConciergePlan) -> bool:
@@ -70,7 +86,8 @@ def _scope_ok(label: Label, plan: ConciergePlan) -> bool:
 
 
 def _forbidden(label: Label, plan: ConciergePlan) -> bool:
-    return any(s.intent in label.must_not_include for s in plan.steps)
+    bad_ref = bool(plan_refs(plan) & set(label.forbidden_refs))
+    return bad_ref or any(s.intent in label.must_not_include for s in plan.steps)
 
 
 def score_plans(pairs: Sequence[tuple[Label, ConciergePlan]]) -> dict[str, float]:
@@ -103,7 +120,9 @@ def run(version: str, settings: Settings) -> EvalResult:
     agent = spec_agent(settings, CONCIERGE.name, ConciergePlan, loaded)
 
     async def task(inputs: Question) -> ConciergePlan:
-        output = (await agent.run(concierge_prompt(inputs.text, [], _CASES, []))).output
+        page = inputs.page or PageInput()
+        prompt = concierge_prompt(inputs.text, [], _CASES, [], page.facts, page.snapshot)
+        output = (await agent.run(prompt)).output
         return CONCIERGE.finalize(output, loaded)
 
     report = runnable(load(), settings).evaluate_sync(

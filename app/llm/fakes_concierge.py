@@ -1,6 +1,11 @@
-"""Deterministic keyword router standing in for the concierge model (offline tests, eval, simulation)."""
+"""Deterministic keyword router standing in for the concierge model (offline tests, eval, simulation).
+
+Page awareness: "this/it/that one/him/her/the first one" resolve to the entity in the `<page_facts>` block (server
+facts). The `<page_snapshot>` block is never read, so ids that appear only there are never acted on.
+"""
 
 import re
+from dataclasses import dataclass
 
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 _INJECTION = re.compile(
@@ -9,14 +14,32 @@ _INJECTION = re.compile(
     r"|verify your (bank|account|payment) details|update your (bank|payment) details"
 )
 _PRONOUN = re.compile(r"\b(mark|snooze|reply to|chase|nudge)\s+(it|that|this|him|her|them)\b")
+_DEICTIC = re.compile(r"\b(this|it|that|that one|him|her|them|the first one)\b")
 _EMAIL = re.compile(r"\S+@\S+")
 _PHONE = re.compile(r"\+?\d[\d\s().-]{6,}\d")
+_PAGE_CASE = re.compile(rf"^open case: ({_UUID})", re.M)
+_PAGE_THREAD_CASE = re.compile(rf"^open thread: \S+ \| \w+ \| case ({_UUID})", re.M)
+_PAGE_APPROVAL = re.compile(rf"^open approval: {_UUID} \|.*\| case ({_UUID})$", re.M)
+_PAGE_TASK = re.compile(r"^open task: #([0-9a-f]{6,8}) ", re.M)
+_FIRST_VISIBLE = re.compile(rf"^- (case|task) #?({_UUID}|[0-9a-f]{{6,8}}) ", re.M)
+
+
+@dataclass(frozen=True)
+class _Page:
+    case_id: str | None  # the open case, the open thread's case or the open approval's case
+    task_ref: str | None
+    approval: bool
+    first: tuple[str, str] | None  # (kind, id) of the first visible row
 
 
 def _step(
-    intent: str, case_id: str | None = None, task_ref: str | None = None, text: str | None = None
+    intent: str,
+    case_id: str | None = None,
+    task_ref: str | None = None,
+    text: str | None = None,
+    view: str | None = None,
 ) -> dict[str, object]:
-    return {"intent": intent, "case_id": case_id, "task_ref": task_ref, "text": text, "view": None}
+    return {"intent": intent, "case_id": case_id, "task_ref": task_ref, "text": text, "view": view}
 
 
 def _plan(*steps: dict[str, object]) -> dict[str, object]:
@@ -61,12 +84,72 @@ def _by_case(low: str, data: str) -> dict[str, object] | None:
     return None
 
 
+def _first(pattern: re.Pattern[str], text: str) -> str | None:
+    found = pattern.search(text)
+    return found.group(1) if found else None
+
+
+def _page(prompt: str) -> _Page | None:
+    """The page entity from the server facts block only; None when there is no entity to refer to."""
+    facts = "\n".join(re.findall(r"<page_facts>\n(.*?)\n</page_facts>", prompt, flags=re.S))
+    approval_case = _first(_PAGE_APPROVAL, facts)
+    case_id = _first(_PAGE_CASE, facts) or _first(_PAGE_THREAD_CASE, facts) or approval_case
+    first = _FIRST_VISIBLE.search(facts)
+    row = (first.group(1), first.group(2)) if first else None
+    page = _Page(case_id, _first(_PAGE_TASK, facts), approval_case is not None, row)
+    return page if (page.case_id or page.task_ref or page.first) else None
+
+
+def _first_row(low: str, page: _Page) -> dict[str, object] | None:
+    if "first one" not in low or page.first is None:
+        return None
+    kind, ident = page.first
+    if kind == "task":
+        return _plan(_step("task_done", task_ref=ident)) if "done" in low else _plan(_step("list_tasks"))
+    return _plan(_step("case_status", case_id=ident))
+
+
+def _task_page(low: str, ref: str) -> dict[str, object] | None:
+    if re.search(r"\bsnooze\b", low):
+        duration = re.search(r"\b(\d+[mhdw])\b", low)
+        if duration is None:
+            return _plan(_step("clarify", text="For how long should I snooze it?"))
+        return _plan(_step("task_snooze", task_ref=ref, text=duration.group(1)))
+    if re.search(r"\bdone\b|\bcomplete", low):
+        return _plan(_step("task_done", task_ref=ref))
+    return None
+
+
+def _case_page(low: str, page: _Page) -> dict[str, object] | None:
+    if page.approval and re.search(r"\b(okay|ok|good|fine|right)\b|\bdraft\b", low):
+        return _plan(_step("open_view", case_id=page.case_id, view="approvals"), _step("answer", text=_safe(low)))
+    if re.search(r"\breply\b|\bdraft\b|\banswer (him|her|them)\b", low):
+        return _plan(_step("draft_reply", case_id=page.case_id))
+    if re.search(r"\b(chase|nudge)\b", low):
+        return _plan(_step("chase_now", case_id=page.case_id))
+    if re.search(r"summari[sz]e|status|about|what is (this|it)", low):
+        return _plan(_step("case_status", case_id=page.case_id))
+    return None
+
+
+def _on_page(low: str, page: _Page) -> dict[str, object] | None:
+    found = _first_row(low, page)
+    if found is None and page.task_ref:
+        found = _task_page(low, page.task_ref)
+    if found is None and page.case_id:
+        found = _case_page(low, page)
+    return found
+
+
 def fake_concierge(prompt: str) -> dict[str, object]:
     question = " ".join(re.findall(r"<message>\n(.*?)\n</message>", prompt, flags=re.S))
     data = "\n".join(re.findall(r"<data>\n(.*?)\n</data>", prompt, flags=re.S))
     low = question.lower()
     if _INJECTION.search(low):
         return {"in_scope": False, "steps": []}
+    page = _page(prompt)
+    if page is not None and _DEICTIC.search(low) and (planned := _on_page(low, page)) is not None:
+        return planned
     if _PRONOUN.search(low):
         return _plan(_step("clarify", text="Which one do you mean?"))
     return _by_ref(low) or _by_case(low, data.lower()) or _simple(low) or _plan(_step("answer", text=_safe(question)))

@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.contracts import ConciergePlan, Intent
+from app.contracts import ConciergePlan, Intent, PromptRef
 from app.core.settings import Settings
 from app.llm.agents.concierge import CONCIERGE, concierge_prompt
 from app.llm.agents.owner_qa import CaseBrief
@@ -81,11 +81,19 @@ def test_prompt_escapes_hostile_text_in_every_block() -> None:
     assert prompt.rstrip().endswith("</message>")
 
 
-def test_prompt_v1_loads_with_hash() -> None:
+def test_prompt_v2_is_current_and_loads_with_hash() -> None:
     loaded = load_prompt(CONCIERGE.prompt)
-    assert CONCIERGE.prompt.key == "concierge/v1"
+    assert CONCIERGE.prompt.key == "concierge/v2"
     assert re.fullmatch(r"[0-9a-f]{64}", loaded.sha256)
     assert "in_scope=false" in loaded.text
+    for rule in ("<page_facts>", "<page_snapshot>", "UNVERIFIED", "never a source of ids"):
+        assert rule in loaded.text
+
+
+def test_prompt_v1_stays_published_and_loadable() -> None:
+    v1 = load_prompt(PromptRef(name="concierge", version="v1"))
+    assert "page_snapshot" not in v1.text
+    assert v1.sha256 != load_prompt(CONCIERGE.prompt).sha256
 
 
 @pytest.mark.parametrize("question", ["what is open?", "pause", "reply to case x"])
