@@ -10,6 +10,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from datetime import date
+from typing import Any
 from uuid import UUID
 
 from rapidfuzz import fuzz
@@ -125,8 +126,10 @@ def _message_links(session: Session, company_id: UUID, message: MessageRow) -> l
     return links
 
 
-def _content_links(session: Session, company_id: UUID, doc: DocumentRow, day: date, out: LinkOutcome) -> None:
-    facts = doc.facts or {}
+def _content_links(
+    session: Session, company_id: UUID, facts: dict[str, Any] | None, doc_day: date, out: LinkOutcome
+) -> None:
+    facts = facts or {}
     people = [(p.id, p.display_name) for p in session.scalars(
         select(Person).where(Person.company_id == company_id, Person.valid_to.is_(None)))]  # fmt: skip
     for party in facts.get("parties", []):
@@ -149,7 +152,7 @@ def _content_links(session: Session, company_id: UUID, doc: DocumentRow, day: da
     out.links.append(Link(DocLinkKind.unit, found.ref_id, "fuzzy", found.score / 100))
     leases = [(le.id, le.valid_from, le.valid_to) for le in session.scalars(
         select(Lease).where(Lease.company_id == company_id, Lease.unit_id == found.ref_id))]  # fmt: skip
-    lease_id = active_lease(leases, doc.document_date or day)
+    lease_id = active_lease(leases, doc_day)
     if lease_id is not None:
         out.links.append(Link(DocLinkKind.lease, lease_id, "fuzzy", found.score / 100))
 
@@ -181,9 +184,20 @@ def _dedupe(links: list[Link]) -> list[Link]:
     return list(best.values())
 
 
+def resolve_links(
+    session: Session, company_id: UUID, message: MessageRow, facts: dict[str, Any] | None, document_date: date | None
+) -> LinkOutcome:
+    """Every link the evidence supports (nothing is stored): message and case first, then the reader's names."""
+    day = document_date or message.sent_at.date()
+    out = LinkOutcome(links=_message_links(session, company_id, message))
+    _content_links(session, company_id, facts, day, out)
+    _tenant_unit_links(session, company_id, out, day)
+    out.links = _dedupe(out.links)
+    return out
+
+
 def link_document(engine: Engine, company_id: UUID, attachment_id: UUID) -> LinkOutcome:
     """Compute and store the links of one document. Idempotent; never touches a link the owner set."""
-    out = LinkOutcome()
     with Session(engine) as session, session.begin():
         found = session.execute(
             select(DocumentRow, MessageRow)
@@ -198,11 +212,7 @@ def link_document(engine: Engine, company_id: UUID, attachment_id: UUID) -> Link
         if found is None:
             raise NotFoundError(f"no document for attachment {attachment_id} in company {company_id}")
         doc, message = found
-        day = message.sent_at.date()
-        out.links = _message_links(session, company_id, message)
-        _content_links(session, company_id, doc, day, out)
-        _tenant_unit_links(session, company_id, out, day)
-        out.links = _dedupe(out.links)
+        out = resolve_links(session, company_id, message, doc.facts, doc.document_date)
         if doc.facts is not None:  # what the reader named but the directory could not place: Harjot resolves it
             doc.facts = {**doc.facts, "unresolved": out.unresolved}
         rows = [

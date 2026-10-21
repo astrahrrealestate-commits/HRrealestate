@@ -154,3 +154,72 @@ def test_google_transport_errors_are_retryable() -> None:
     with pytest.raises(DriveApiError) as exc:
         GoogleDrive(Service()).find_by_attachment(ATTACHMENT)
     assert is_transient(exc.value)
+
+
+def test_memory_drive_relocate_annotate_and_missing_files() -> None:
+    drive = MemoryDrive()
+    old, new = drive.ensure_folder(("EstateOS", "invoice")), drive.ensure_folder(("EstateOS", "Unit 1", "Invoices"))
+    file_id = drive.new_file_id()
+    drive.upload(file_id, old, "a.pdf", PDF, b"%PDF", ATTACHMENT, description="Invoice", properties={"unit": "Unit 1"})
+    assert drive.properties[file_id] == {APP_PROPERTY: str(ATTACHMENT), "unit": "Unit 1"}
+    drive.relocate(file_id, new, "b.pdf")
+    drive.relocate(file_id, new, "b.pdf")  # a repeat changes nothing
+    assert drive.files[file_id][:2] == (new, "b.pdf")
+    assert drive.path_of(file_id) == ("EstateOS", "Unit 1", "Invoices")
+    drive.annotate(file_id, "New summary", {"date": "2026-10-07"})
+    assert drive.description[file_id] == "New summary"
+    assert drive.properties[file_id]["unit"] == "Unit 1"
+    assert drive.properties[file_id]["date"] == "2026-10-07"
+    for call in (lambda: drive.relocate("gone", new, "x"), lambda: drive.annotate("gone", None, {})):
+        with pytest.raises(DriveApiError) as caught:
+            call()
+        assert caught.value.status == 404
+        assert not is_transient(caught.value)
+
+
+def test_google_upload_carries_description_and_properties() -> None:
+    drive, http = _google([_ok({"id": "f1"})])
+    drive.upload("f1", "folder", "a.pdf", PDF, b"%PDF", ATTACHMENT, description="Lease", properties={"unit": "U1"})
+    body = next(c[3] for c in http.calls if "metadata" in c[3] or "estateos" in c[3])
+    assert '"description": "Lease"' in body
+    assert '"unit": "U1"' in body
+    assert APP_PROPERTY in body
+
+
+def test_google_relocate_moves_and_renames_once() -> None:
+    drive, http = _google([_ok({"parents": ["old-folder"], "name": "a.pdf"}), _ok({"id": "f1"})])
+    drive.relocate("f1", "new-folder", "b.pdf")
+    (m1, p1, q1, _), (m2, p2, q2, b2) = http.calls
+    assert (m1, p1) == ("GET", "/drive/v3/files/f1")
+    assert q1["fields"] == ["parents,name"]
+    assert (m2, p2) == ("PATCH", "/drive/v3/files/f1")
+    assert (q2["addParents"], q2["removeParents"]) == (["new-folder"], ["old-folder"])
+    assert json.loads(b2) == {"name": "b.pdf"}
+
+
+def test_google_relocate_is_a_no_op_when_already_there() -> None:
+    drive, http = _google([_ok({"parents": ["new-folder"], "name": "b.pdf"})])
+    drive.relocate("f1", "new-folder", "b.pdf")
+    assert len(http.calls) == 1  # only the lookup
+
+
+def test_google_relocate_rename_only_does_not_send_remove_parents() -> None:
+    drive, http = _google([_ok({"parents": ["new-folder"], "name": "a.pdf"}), _ok({"id": "f1"})])
+    drive.relocate("f1", "new-folder", "b.pdf")
+    assert "removeParents" not in http.calls[1][2]
+
+
+def test_google_annotate_patches_description_and_properties() -> None:
+    drive, http = _google([_ok({"id": "f1"})])
+    drive.annotate("f1", "Summary", {"unit": "U1"})
+    method, path, _, body = http.calls[0]
+    assert (method, path) == ("PATCH", "/drive/v3/files/f1")
+    assert json.loads(body) == {"appProperties": {"unit": "U1"}, "description": "Summary"}
+
+
+def test_google_missing_file_is_a_permanent_404() -> None:
+    drive, _ = _google([_err(404, "notFound")])
+    with pytest.raises(DriveApiError) as caught:
+        drive.relocate("gone", "folder", "a.pdf")
+    assert caught.value.status == 404
+    assert not is_transient(caught.value)

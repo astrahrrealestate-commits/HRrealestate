@@ -16,6 +16,7 @@ sent to review.
 """
 
 from dataclasses import dataclass, field
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import Engine, Select, select, update
@@ -23,7 +24,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.contracts import DocType, DocumentClassification
-from app.core.errors import AgentFailedError, BudgetExceededError, EstateOSError, NotFoundError
+from app.core.errors import AgentFailedError, BudgetExceededError, NotFoundError
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import DocumentStatus
@@ -31,11 +32,13 @@ from app.db.models import AttachmentRow, Case, CaseLink, Company, DocumentRow, M
 from app.llm.agents.doc_classifier import DOC_CLASSIFIER, doc_classifier_prompt
 from app.llm.calls import CallContext, run_agent
 from app.pipeline.document_chunks import store_chunks
+from app.pipeline.document_drive import upload_planned
+from app.pipeline.document_layout import Placement, folder_path_v2, placement
 from app.pipeline.document_policy import (
     FileMeta,
+    document_day,
     file_name,
     filing_status,
-    folder_path,
     looks_like_id,
     name_date,
     should_skip,
@@ -61,6 +64,7 @@ class _Filing:
     message_text: str
     case_summary: str | None
     existing: DocumentRow | None
+    message_id: UUID
 
 
 @dataclass(frozen=True)
@@ -95,7 +99,7 @@ def _load(engine: Engine, company_id: UUID, attachment_id: UUID) -> _Filing:
         existing = session.scalar(_row_query(company_id, attachment_id))
     meta = FileMeta(filename=att.filename, mime_type=att.mime_type, size_bytes=att.size_bytes, sent_at=msg.sent_at)
     party = display_name or "unknown"  # never a raw phone number or email address in Harjot's Drive
-    return _Filing(company_id, attachment_id, att.s3_key, meta, party, tz, msg.text, case_summary, existing)
+    return _Filing(company_id, attachment_id, att.s3_key, meta, party, tz, msg.text, case_summary, existing, msg.id)
 
 
 def _upsert(engine: Engine, f: _Filing, values: dict[str, object], text: str | None = None) -> DocumentRow:
@@ -118,24 +122,33 @@ def _upsert(engine: Engine, f: _Filing, values: dict[str, object], text: str | N
 
 
 def _values(f: _Filing, status: DocumentStatus, cls: DocumentClassification, **extra: object) -> dict[str, object]:
-    name = "" if status is DocumentStatus.skipped else file_name(cls, f.meta, f.party, f.tz)
+    """The row values of a decision. `party=` (not stored) names the tenant in the file name, else the sender."""
+    party = extra.pop("party", None)
+    name = "" if status is DocumentStatus.skipped else file_name(cls, f.meta, str(party or f.party), f.tz)
     base: dict[str, object] = {"doc_type": cls.doc_type.value, "title": cls.title, "confidence": cls.confidence,
                                "status": status, "file_name": name, "error": None}  # fmt: skip
     return base | extra
 
 
 def _claim(engine: Engine, f: _Filing, d: _Decision, reserved: str) -> DocumentRow:
-    """First writer wins: the pending plan (name, folder, reserved Drive id) is in Postgres before any upload."""
-    folder = "/".join(folder_path(d.cls, f.meta, f.tz))
-    plan = _values(
-        f,
-        DocumentStatus.pending,
-        d.cls,
-        drive_folder=folder,
-        drive_file_id=reserved,
-        model_call_id=d.call_id,
-        **d.extra,
+    """First writer wins: the pending plan (name, folder, reserved Drive id) is in Postgres before any upload.
+    Layout v2: the folder is the unit the evidence places the document in, the name carries the tenant."""
+    read_facts = d.extra.get("facts")
+    facts: dict[str, Any] | None = (
+        read_facts if isinstance(read_facts, dict) else (f.existing.facts if f.existing else None)
     )
+    with Session(engine) as session:
+        message = session.get(MessageRow, f.message_id)
+        found = (
+            placement(session, f.company_id, message, facts, d.cls.document_date)
+            if message
+            else Placement(None, None, None)
+        )
+    folder = "/".join(folder_path_v2(d.cls.doc_type.value, found.unit_label, document_day(d.cls, f.meta, f.tz)))
+    plan = _values(
+        f, DocumentStatus.pending, d.cls, party=found.tenant,
+        drive_folder=folder, drive_file_id=reserved, model_call_id=d.call_id, **d.extra,
+    )  # fmt: skip
     return _upsert(engine, f, plan, d.text)
 
 
@@ -204,24 +217,6 @@ def _decide(engine: Engine, settings: Settings, f: _Filing, storage: ObjectStora
     return decision
 
 
-def _upload(engine: Engine, f: _Filing, plan: DocumentRow, storage: ObjectStorage, drive: DriveStore) -> None:
-    if plan.drive_file_id is None or plan.drive_folder is None:
-        raise EstateOSError(f"pending document {plan.id} has no reserved Drive id or folder")
-    file_id = drive.find_by_attachment(f.attachment_id)
-    if file_id is None:
-        folder = drive.ensure_folder(tuple(plan.drive_folder.split("/")))
-        content = storage.get(f.s3_key)
-        file_id = drive.upload(plan.drive_file_id, folder, plan.file_name, f.meta.mime_type, content, f.attachment_id)
-    with Session(engine) as session, session.begin():
-        session.execute(
-            update(DocumentRow)
-            .where(DocumentRow.id == plan.id, DocumentRow.company_id == f.company_id)
-            .where(DocumentRow.status == DocumentStatus.pending)
-            .values(status=DocumentStatus.filed, drive_file_id=file_id)
-        )
-    log.info("documents.filed", attachment_id=str(f.attachment_id), doc_type=plan.doc_type)
-
-
 def _plan(engine: Engine, settings: Settings, f: _Filing, drive: DriveStore, owner_doc_type: DocType | None,
           storage: ObjectStorage, extractor: TextExtractor | None) -> DocumentRow | DocumentStatus:  # fmt: skip
     row = f.existing
@@ -255,7 +250,7 @@ def file_document(
         return plan
     if plan.status in _FINAL:  # already done, possibly by a concurrent caller
         return plan.status
-    _upload(engine, f, plan, storage, drive)
+    upload_planned(engine, drive, storage, f.company_id, f.attachment_id, f.s3_key, f.meta.mime_type, plan)
     return DocumentStatus.filed
 
 

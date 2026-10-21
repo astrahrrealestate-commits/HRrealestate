@@ -75,6 +75,11 @@ def _day(cls: DocumentClassification, meta: FileMeta, tz: str) -> date:
     return cls.document_date or meta.sent_at.astimezone(ZoneInfo(tz)).date()
 
 
+def document_day(cls: DocumentClassification, meta: FileMeta, tz: str) -> date:
+    """The day that dates a document: its own date, else the day its message arrived in the company's timezone."""
+    return _day(cls, meta, tz)
+
+
 def file_name(cls: DocumentClassification, meta: FileMeta, party: str, tz: str) -> str:
     day = _day(cls, meta, tz).isoformat()
     return f"{day}_{cls.doc_type.value}_{slug(party)}_{slug(cls.title)}.{_extension(meta)}"
