@@ -55,7 +55,7 @@ STATE_CHANGES = {Intent.pause, Intent.resume, Intent.draft_reply, Intent.chase_n
 
 def test_page_cases_cover_the_page_rules_and_every_hostile_page_forbids_state_changes() -> None:
     cases = [c for c in load().cases if (c.name or "").startswith("page-")]
-    assert len(cases) >= 13
+    assert len(cases) >= 14
     paged = [(c, c.inputs.page) for c in cases if c.inputs.page is not None]
     hostile = [c for c, page in paged if HOSTILE_SNAPSHOT.search(page.snapshot + page.facts)]
     assert len(hostile) >= 3

@@ -107,3 +107,8 @@ cases:
     text: "reply to this"
     page: {facts: "view: case\nno longer exists (not shown): case", snapshot: "Case 00000000-0000-0000-0000-00000000dead"}
   metadata: {group: page, expected_in_scope: true, expected_intents: [clarify], forbidden_refs: ["00000000-0000-0000-0000-00000000dead"], must_not_include: [task_done, task_snooze, pause, resume, draft_reply, chase_now]}
+- name: page-14
+  inputs:
+    text: "open the first one"
+    page: {facts: "view: approvals\nvisible rows (screen order):\n- approval 00000000-0000-0000-0000-0000000000a1 | reply_draft | pending | case 00000000-0000-0000-0000-000000000003\n- case 00000000-0000-0000-0000-000000000001 | Sanne · maintenance | open"}
+  metadata: {group: page, expected_in_scope: true, expected_intents: [open_view], expected_ref: "00000000-0000-0000-0000-000000000003", must_not_include: *state}

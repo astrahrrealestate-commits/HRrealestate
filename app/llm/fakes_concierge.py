@@ -1,7 +1,8 @@
 """Deterministic keyword router standing in for the concierge model (offline tests, eval, simulation).
 
-Page awareness: "this/it/that one/him/her/the first one" resolve to the entity in the `<page_facts>` block (server
-facts). The `<page_snapshot>` block is never read, so ids that appear only there are never acted on.
+Page awareness: a message with a pronoun (it, that, this, them, him, her) resolves to the open entity in the
+`<page_facts>` block (server facts); "the first one" is the first visible row of any kind, never the open entity
+(no rows: clarify). The `<page_snapshot>` block is never read, so ids that appear only there are never acted on.
 """
 
 import re
@@ -14,14 +15,16 @@ _INJECTION = re.compile(
     r"|verify your (bank|account|payment) details|update your (bank|payment) details"
 )
 _PRONOUN = re.compile(r"\b(mark|snooze|reply to|chase|nudge)\s+(it|that|this|him|her|them)\b")
-_DEICTIC = re.compile(r"\b(this|it|that|that one|him|her|them|the first one)\b")
+_DEICTIC = re.compile(r"\b(it|that|this|them|him|her)\b")
+_FIRST_ONE = re.compile(r"\bthe first one\b")
 _EMAIL = re.compile(r"\S+@\S+")
 _PHONE = re.compile(r"\+?\d[\d\s().-]{6,}\d")
 _PAGE_CASE = re.compile(rf"^open case: ({_UUID})", re.M)
 _PAGE_THREAD_CASE = re.compile(rf"^open thread: \S+ \| \w+ \| case ({_UUID})", re.M)
 _PAGE_APPROVAL = re.compile(rf"^open approval: {_UUID} \|.*\| case ({_UUID})$", re.M)
 _PAGE_TASK = re.compile(r"^open task: #([0-9a-f]{6,8}) ", re.M)
-_FIRST_VISIBLE = re.compile(rf"^- (case|task) #?({_UUID}|[0-9a-f]{{6,8}}) ", re.M)
+_FIRST_VISIBLE = re.compile(r"^- (\w+) #?(\S+) (.*)$", re.M)  # the first row, whatever its kind
+_ROW_CASE = re.compile(rf"\| case ({_UUID})$")
 
 
 @dataclass(frozen=True)
@@ -29,7 +32,7 @@ class _Page:
     case_id: str | None  # the open case, the open thread's case or the open approval's case
     task_ref: str | None
     approval: bool
-    first: tuple[str, str] | None  # (kind, id) of the first visible row
+    first: tuple[str, str, str] | None  # (kind, id, rest of the line) of the first visible row
 
 
 def _step(
@@ -95,18 +98,24 @@ def _page(prompt: str) -> _Page | None:
     approval_case = _first(_PAGE_APPROVAL, facts)
     case_id = _first(_PAGE_CASE, facts) or _first(_PAGE_THREAD_CASE, facts) or approval_case
     first = _FIRST_VISIBLE.search(facts)
-    row = (first.group(1), first.group(2)) if first else None
+    row = (first.group(1), first.group(2), first.group(3)) if first else None
     page = _Page(case_id, _first(_PAGE_TASK, facts), approval_case is not None, row)
     return page if (page.case_id or page.task_ref or page.first) else None
 
 
-def _first_row(low: str, page: _Page) -> dict[str, object] | None:
-    if "first one" not in low or page.first is None:
-        return None
-    kind, ident = page.first
+def _first_row(low: str, page: _Page) -> dict[str, object]:
+    if page.first is None:
+        return _plan(_step("clarify", text="Which one do you mean?"))
+    kind, ident, rest = page.first
     if kind == "task":
         return _plan(_step("task_done", task_ref=ident)) if "done" in low else _plan(_step("list_tasks"))
-    return _plan(_step("case_status", case_id=ident))
+    if kind == "case" and re.fullmatch(_UUID, ident):
+        return _plan(_step("case_status", case_id=ident))
+    if kind == "approval":
+        return _plan(_step("open_view", case_id=_first(_ROW_CASE, rest), view="approvals"))
+    if kind == "document":
+        return _plan(_step("file_document", text="the first document on the page"))
+    return _plan(_step("open_view", view="inbox"))
 
 
 def _task_page(low: str, ref: str) -> dict[str, object] | None:
@@ -133,9 +142,11 @@ def _case_page(low: str, page: _Page) -> dict[str, object] | None:
 
 
 def _on_page(low: str, page: _Page) -> dict[str, object] | None:
-    found = _first_row(low, page)
-    if found is None and page.task_ref:
-        found = _task_page(low, page.task_ref)
+    if _FIRST_ONE.search(low):
+        return _first_row(low, page)
+    if not _DEICTIC.search(low):
+        return None
+    found = _task_page(low, page.task_ref) if page.task_ref else None
     if found is None and page.case_id:
         found = _case_page(low, page)
     return found
@@ -148,7 +159,7 @@ def fake_concierge(prompt: str) -> dict[str, object]:
     if _INJECTION.search(low):
         return {"in_scope": False, "steps": []}
     page = _page(prompt)
-    if page is not None and _DEICTIC.search(low) and (planned := _on_page(low, page)) is not None:
+    if page is not None and (planned := _on_page(low, page)) is not None:
         return planned
     if _PRONOUN.search(low):
         return _plan(_step("clarify", text="Which one do you mean?"))

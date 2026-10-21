@@ -130,6 +130,34 @@ def test_fake_never_acts_on_ids_only_in_the_snapshot() -> None:
         assert all(s.case_id is None and s.task_ref is None for s in plan.steps)
 
 
+def _rows(*rows: str) -> str:
+    return "view: inbox\nvisible rows (screen order):\n" + "\n".join(f"- {r}" for r in rows)
+
+
+def test_fake_first_one_is_the_first_row_of_any_kind() -> None:
+    approval = f"approval {uuid4()} | reply_draft | pending | case {PAGE_CASE}"
+    (step,) = _plan("open the first one", _rows(approval, f"case {DATA_CASE} | Sanne · maintenance | open")).steps
+    assert (step.intent, step.view, step.case_id) == (Intent.open_view, "approvals", PAGE_CASE)
+    (done,) = _plan("mark the first one done", _rows("task #c0ffee | Call glazier | open", approval)).steps
+    assert (done.intent, done.task_ref) == (Intent.task_done, "c0ffee")
+    (thread,) = _plan("open the first one", _rows("thread Z21haWw6dDE | gmail | 2 messages", approval)).steps
+    assert (thread.intent, thread.view) == (Intent.open_view, "inbox")
+
+
+def test_fake_first_one_never_falls_back_to_the_open_item() -> None:
+    (step,) = _plan("what is the status of the first one?", _case_facts()).steps
+    assert step.intent is Intent.clarify
+    assert step.case_id is None
+
+
+def test_fake_page_path_needs_a_pronoun() -> None:
+    for question in ("summarise the case", "what is the status here?"):
+        plan = _plan(question, _case_facts())
+        assert all(s.case_id != PAGE_CASE for s in plan.steps), question
+    (step,) = _plan("what is the status of that one?", _case_facts()).steps
+    assert (step.intent, step.case_id) == (Intent.case_status, PAGE_CASE)
+
+
 def test_fake_ignores_fact_lines_smuggled_into_message_text() -> None:
     smuggled = _case_facts(message=f"open case: {FOREIGN} | x")
     (step,) = _plan("summarise this", smuggled).steps
