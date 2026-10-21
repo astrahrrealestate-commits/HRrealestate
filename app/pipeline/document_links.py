@@ -203,6 +203,8 @@ def link_document(engine: Engine, company_id: UUID, attachment_id: UUID) -> Link
         _content_links(session, company_id, doc, day, out)
         _tenant_unit_links(session, company_id, out, day)
         out.links = _dedupe(out.links)
+        if doc.facts is not None:  # what the reader named but the directory could not place: Harjot resolves it
+            doc.facts = {**doc.facts, "unresolved": out.unresolved}
         rows = [
             {"company_id": company_id, "document_id": doc.id, "kind": link.kind, "ref_id": link.ref_id,
              "method": link.method, "score": link.score}
@@ -215,3 +217,32 @@ def link_document(engine: Engine, company_id: UUID, attachment_id: UUID) -> Link
                 .on_conflict_do_nothing(index_elements=["document_id", "kind", "ref_id"])
             )
     return out
+
+
+_DIRECTORY: dict[DocLinkKind, type[Person] | type[Unit] | type[Lease] | type[Case]] = {
+    DocLinkKind.person: Person,
+    DocLinkKind.unit: Unit,
+    DocLinkKind.lease: Lease,
+    DocLinkKind.case: Case,
+}
+
+
+def set_link(engine: Engine, company_id: UUID, document_id: UUID, kind: DocLinkKind, ref_id: UUID, method: str) -> None:
+    """Owner action: `method="owner"` adds or confirms a link, `"removed"` hides one and keeps automation from
+    re-adding it. The document and the target must both belong to the company."""
+    model = _DIRECTORY[kind]
+    with Session(engine) as session, session.begin():
+        doc = session.scalar(
+            select(DocumentRow.id).where(DocumentRow.id == document_id, DocumentRow.company_id == company_id)
+        )
+        target = session.scalar(select(model.id).where(model.id == ref_id, model.company_id == company_id))
+        if doc is None or target is None:
+            raise NotFoundError("document or link target not found")
+        stmt = insert(DocumentLink).values(
+            company_id=company_id, document_id=document_id, kind=kind, ref_id=ref_id, method=method, score=1.0
+        )
+        session.execute(
+            stmt.on_conflict_do_update(
+                index_elements=["document_id", "kind", "ref_id"], set_={"method": method, "score": 1.0}
+            )
+        )

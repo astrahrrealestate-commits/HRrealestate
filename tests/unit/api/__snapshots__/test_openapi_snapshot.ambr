@@ -706,6 +706,231 @@
           ]
         }
       },
+      "/api/v1/documents": {
+        "get": {
+          "operationId": "search_api_v1_documents_get",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "q",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "maxLength": 200,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Q"
+              }
+            },
+            {
+              "in": "query",
+              "name": "match",
+              "required": false,
+              "schema": {
+                "default": "all",
+                "enum": [
+                  "all",
+                  "any"
+                ],
+                "title": "Match",
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "type",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "maxLength": 32,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Type"
+              }
+            },
+            {
+              "in": "query",
+              "name": "status",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/DocumentStatus"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Status"
+              }
+            },
+            {
+              "in": "query",
+              "name": "person_id",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Person Id"
+              }
+            },
+            {
+              "in": "query",
+              "name": "unit_id",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Unit Id"
+              }
+            },
+            {
+              "in": "query",
+              "name": "lease_id",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Lease Id"
+              }
+            },
+            {
+              "in": "query",
+              "name": "case_id",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Case Id"
+              }
+            },
+            {
+              "in": "query",
+              "name": "date_from",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "format": "date",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Date From"
+              }
+            },
+            {
+              "in": "query",
+              "name": "date_to",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "format": "date",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Date To"
+              }
+            },
+            {
+              "in": "query",
+              "name": "needs_link",
+              "required": false,
+              "schema": {
+                "default": false,
+                "title": "Needs Link",
+                "type": "boolean"
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "required": false,
+              "schema": {
+                "default": 20,
+                "maximum": 50,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/DocumentOut"
+                    },
+                    "title": "Response Search Api V1 Documents Get",
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Search",
+          "tags": [
+            "documents"
+          ]
+        }
+      },
       "/api/v1/documents/review": {
         "get": {
           "operationId": "get_documents_to_review_api_v1_documents_review_get",
@@ -835,6 +1060,181 @@
           "summary": "File Document",
           "tags": [
             "decisions"
+          ]
+        }
+      },
+      "/api/v1/documents/{document_id}": {
+        "get": {
+          "operationId": "read_api_v1_documents__document_id__get",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "document_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Document Id",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/DocumentDetailOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Read",
+          "tags": [
+            "documents"
+          ]
+        }
+      },
+      "/api/v1/documents/{document_id}/links": {
+        "post": {
+          "operationId": "add_link_api_v1_documents__document_id__links_post",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "document_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Document Id",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkIn"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "204": {
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Add Link",
+          "tags": [
+            "documents"
+          ]
+        }
+      },
+      "/api/v1/documents/{document_id}/links/{kind}/{ref_id}": {
+        "delete": {
+          "operationId": "remove_link_api_v1_documents__document_id__links__kind___ref_id__delete",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "document_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Document Id",
+                "type": "string"
+              }
+            },
+            {
+              "in": "path",
+              "name": "kind",
+              "required": true,
+              "schema": {
+                "$ref": "#/components/schemas/DocLinkKind"
+              }
+            },
+            {
+              "in": "path",
+              "name": "ref_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Ref Id",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "responses": {
+            "204": {
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Remove Link",
+          "tags": [
+            "documents"
           ]
         }
       },
@@ -1943,6 +2343,264 @@
         "title": "Direction",
         "type": "string"
       },
+      "DocLinkKind": {
+        "enum": [
+          "person",
+          "unit",
+          "lease",
+          "case"
+        ],
+        "title": "DocLinkKind",
+        "type": "string"
+      },
+      "DocumentDetailOut": {
+        "properties": {
+          "attachment_id": {
+            "format": "uuid",
+            "title": "Attachment Id",
+            "type": "string"
+          },
+          "chunk_count": {
+            "title": "Chunk Count",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "doc_type": {
+            "title": "Doc Type",
+            "type": "string"
+          },
+          "document_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Date"
+          },
+          "drive_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drive Url"
+          },
+          "facts": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Facts"
+          },
+          "file_name": {
+            "title": "File Name",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/LinkOut"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "number"
+          },
+          "snippet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snippet"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DocumentStatus"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "suspicious": {
+            "title": "Suspicious",
+            "type": "boolean"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "unresolved": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unresolved",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "attachment_id",
+          "title",
+          "doc_type",
+          "status",
+          "document_date",
+          "summary",
+          "snippet",
+          "rank",
+          "drive_url",
+          "suspicious",
+          "created_at",
+          "file_name",
+          "facts",
+          "unresolved",
+          "links",
+          "chunk_count"
+        ],
+        "title": "DocumentDetailOut",
+        "type": "object"
+      },
+      "DocumentOut": {
+        "properties": {
+          "attachment_id": {
+            "format": "uuid",
+            "title": "Attachment Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "doc_type": {
+            "title": "Doc Type",
+            "type": "string"
+          },
+          "document_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Date"
+          },
+          "drive_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drive Url"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "number"
+          },
+          "snippet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snippet"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DocumentStatus"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "suspicious": {
+            "title": "Suspicious",
+            "type": "boolean"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "attachment_id",
+          "title",
+          "doc_type",
+          "status",
+          "document_date",
+          "summary",
+          "snippet",
+          "rank",
+          "drive_url",
+          "suspicious",
+          "created_at"
+        ],
+        "title": "DocumentOut",
+        "type": "object"
+      },
+      "DocumentStatus": {
+        "enum": [
+          "pending",
+          "filed",
+          "review",
+          "skipped",
+          "failed"
+        ],
+        "title": "DocumentStatus",
+        "type": "string"
+      },
       "EditIn": {
         "properties": {
           "text": {
@@ -2136,6 +2794,52 @@
           "message_count"
         ],
         "title": "InboxItem",
+        "type": "object"
+      },
+      "LinkIn": {
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/DocLinkKind"
+          },
+          "ref_id": {
+            "format": "uuid",
+            "title": "Ref Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "ref_id"
+        ],
+        "title": "LinkIn",
+        "type": "object"
+      },
+      "LinkOut": {
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/DocLinkKind"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "ref_id": {
+            "format": "uuid",
+            "title": "Ref Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "ref_id",
+          "label",
+          "method"
+        ],
+        "title": "LinkOut",
         "type": "object"
       },
       "OutboundMode": {
