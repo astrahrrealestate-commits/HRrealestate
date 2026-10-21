@@ -7,8 +7,12 @@ import { differenceInCalendarDays, format } from "date-fns";
  * - Within 7 days: Day abbreviation (e.g. "Mon")
  * - Older: Day and short month (e.g. "12 Oct")
  */
-export function formatListTime(d: Date | string | number | null | undefined, now = new Date()): string {
-  if (!d) return `Today ${format(now, "HH:mm")}`;
+const STATIC_NOW = new Date("2026-10-15T12:00:00Z");
+
+export function formatListTime(d: Date | string | number | null | undefined, now?: Date): string {
+  // If running in SSR/prerender context without window, use deterministic timestamp to prevent Next.js 16 dynamic prerender error
+  const referenceNow = now ?? (typeof window !== "undefined" ? new Date() : STATIC_NOW);
+  if (!d) return `Today ${format(referenceNow, "HH:mm")}`;
 
   if (typeof d === "string") {
     const trimmed = d.trim();
@@ -25,10 +29,10 @@ export function formatListTime(d: Date | string | number | null | undefined, now
     if (typeof d === "string" && d.trim().length > 0) {
       return d.trim();
     }
-    return `Today ${format(now, "HH:mm")}`;
+    return `Today ${format(referenceNow, "HH:mm")}`;
   }
 
-  const days = differenceInCalendarDays(now, dateObj);
+  const days = differenceInCalendarDays(referenceNow, dateObj);
   if (days === 0) return `Today ${format(dateObj, "HH:mm")}`;
   if (days === 1) return `Yesterday ${format(dateObj, "HH:mm")}`;
   if (days < 7 && days > 0) return `${format(dateObj, "EEE")} ${format(dateObj, "HH:mm")}`;

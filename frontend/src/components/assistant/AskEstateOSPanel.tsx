@@ -21,7 +21,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { askAgent, approveDraftProposal } from "@/lib/api";
+import { askAgent, approveInboxDraft } from "@/lib/api";
 
 export interface AssistantAction {
   label: string;
@@ -212,7 +212,7 @@ export function AskEstateOSPanel({
     setSendingCardId(cardId);
     try {
       if (caseId) {
-        await approveDraftProposal(`case-${caseId}`, 0);
+        await approveInboxDraft(`case-${caseId}`, "d1");
       }
       setSentCardIds((prev) => new Set([...prev, cardId]));
     } catch (err) {
