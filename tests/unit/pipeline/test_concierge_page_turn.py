@@ -11,9 +11,10 @@ from sqlalchemy.exc import OperationalError
 from structlog.testing import capture_logs
 
 from app.contracts import ConciergePlan, Intent, PageContext, PlanStep
-from app.core.errors import NotFoundError
+from app.core.errors import AgentFailedError, NotFoundError
 from app.db.models import AgentTurn
 from app.llm.calls import CallResult
+from app.llm.page_blocks import NO_PAGE, PagePrompt
 from app.pipeline import concierge_page
 from app.pipeline import concierge_turns as ct
 from app.pipeline.concierge import run_plan
@@ -153,6 +154,44 @@ def test_transient_resolver_error_propagates_and_stores_nothing(io: dict[str, Ma
         ct._outcome(MagicMock(), MagicMock(), _start(_stored()))
     io["update"].assert_not_called()
     io["agent"].assert_not_called()
+
+
+def test_the_answer_step_gets_the_page_resolved_in_this_run(io: dict[str, MagicMock]) -> None:
+    with patch(f"{M}.run_plan", return_value=[]) as rp:
+        ct._outcome(MagicMock(), MagicMock(), _start(_stored(filters={"status": "open"})))
+    assert rp.call_args.kwargs["page"] == PagePrompt(facts_text(FACTS), "Joris", "filters: status=open")
+
+
+def test_a_stored_plan_answers_from_the_stored_page_without_io(io: dict[str, MagicMock]) -> None:
+    page = {**_stored(), "resolved": {"facts": "view: case\nopen case: stored-facts", "dropped": []}}
+    with patch(f"{M}.run_plan", return_value=[]) as rp:
+        ct._outcome(MagicMock(), MagicMock(), _start(page, plan=PLAN.model_dump(mode="json")))
+    io["resolve"].assert_not_called()
+    io["update"].assert_called_once()  # the results only
+    assert rp.call_args.kwargs["page"] == PagePrompt("view: case\nopen case: stored-facts", "Joris", "")
+
+
+def test_a_turn_stored_without_resolved_facts_gets_no_page(io: dict[str, MagicMock]) -> None:
+    with patch(f"{M}.run_plan", return_value=[]) as rp:
+        ct._outcome(MagicMock(), MagicMock(), _start(_stored(), plan=PLAN.model_dump(mode="json")))
+    io["resolve"].assert_not_called()
+    assert rp.call_args.kwargs["page"] == NO_PAGE
+
+
+def test_planner_failure_falls_back_to_owner_qa_with_the_page(io: dict[str, MagicMock]) -> None:
+    io["agent"].side_effect = AgentFailedError("concierge: boom")
+    with patch(f"{M}.owner_commands.run_command", return_value="From the page.") as cmd:
+        out = ct._outcome(MagicMock(), MagicMock(), _start(_stored()))
+    assert out.answer == "From the page."
+    assert cmd.call_args.kwargs["page"] == PagePrompt(facts_text(FACTS), "Joris", "")
+    assert io["resolve"].call_count == 1
+
+
+def test_stored_prompt_is_pure_and_needs_resolved_facts() -> None:
+    assert concierge_page.stored_prompt(None) == NO_PAGE
+    assert concierge_page.stored_prompt(_stored()) == NO_PAGE
+    resolved = {**_stored(), "resolved": {"facts": "", "dropped": [], "error": "KeyError"}}
+    assert concierge_page.stored_prompt(resolved) == PagePrompt("", "Joris", "")
 
 
 def test_a_corrupt_stored_context_is_ignored() -> None:

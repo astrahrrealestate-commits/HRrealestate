@@ -23,11 +23,11 @@ MAX_SUMMARY = 400
 
 
 def answer(ctx: Ctx, step: PlanStep) -> StepResult:
-    """The owner's own question goes to `owner_qa` (scope guard, refusal and budget fallbacks included), at most once
-    per plan: a later `answer` step reuses the first result."""
+    """The owner's own question goes to `owner_qa` (scope guard, refusal and budget fallbacks included) with the
+    turn's stored page facts and snapshot, at most once per plan: a later `answer` step reuses the first result."""
     if "answer" not in ctx.memo:
         cmd = owner_commands.Command(owner_commands.CommandKind.question, text=ctx.question)
-        text = owner_commands.run_command(ctx.engine, ctx.settings, ctx.company_id, cmd, now=ctx.now)
+        text = owner_commands.run_command(ctx.engine, ctx.settings, ctx.company_id, cmd, now=ctx.now, page=ctx.page)
         ok = text not in (FALLBACK_ANSWER, owner_commands.LIMIT_ANSWER)
         ctx.memo["answer"] = StepResult(step.intent, ok, text, None, None)
     return ctx.memo["answer"]

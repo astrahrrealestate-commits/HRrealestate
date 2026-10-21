@@ -7,12 +7,12 @@ a retried step reuses the stored plan (no second model call) and never executes 
 is the turn's `created_at`, so a retried step replays the same decisions; `updated_at` uses the database clock at
 each write so every status change moves the SSE turn cursor.
 A turn opened on a dashboard page carries its validated page context (stored by `create_turn`); its server facts are
-resolved once and stored on the turn before the model call, so a retry plans from the same facts
-(`concierge_page`).
+resolved once and stored on the turn before the model call, so a retry plans and answers from the same facts
+(`concierge_page`); the `answer` step and the owner_qa fallback get the same stored page.
 Logs carry ids and status only, never the owner's text.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -30,7 +30,6 @@ from app.llm.agents.concierge import CONCIERGE
 from app.llm.agents.owner_qa import FALLBACK_ANSWER, CaseBrief
 from app.llm.budget import CONCIERGE_PURPOSE
 from app.llm.calls import CallContext, run_agent
-from app.llm.page_blocks import PagePrompt
 from app.pipeline import case_repo, concierge_page, owner_commands, read_turns, work_repo
 from app.pipeline.concierge import run_plan
 from app.pipeline.concierge_outcome import (
@@ -110,16 +109,8 @@ def _start(engine: Engine, turn_id: UUID) -> TurnStart | None:
             .where(AgentTurn.company_id == turn.company_id, AgentTurn.id == turn_id)
             .values(status=TurnStatus.running, updated_at=func.clock_timestamp())
         )
-        return TurnStart(
-            turn.id,
-            turn.company_id,
-            turn.conversation_id,
-            turn.text,
-            turn.created_at,
-            turn.results,
-            turn.plan,
-            turn.page_context,
-        )
+        row = (turn.id, turn.company_id, turn.conversation_id, turn.text, turn.created_at, turn.results, turn.plan)
+        return TurnStart(*row, turn.page_context)
 
 
 def _update(engine: Engine, company_id: UUID, turn_id: UUID, values: dict[str, Any]) -> None:
@@ -174,8 +165,9 @@ def _brief(engine: Engine, start: TurnStart) -> tuple[list[CaseBrief], list[str]
 def _owner_qa(engine: Engine, settings: Settings, start: TurnStart) -> str:
     """The planner failed: answer through the existing owner_qa path, then the fixed fallback."""
     cmd = owner_commands.Command(owner_commands.CommandKind.question, text=start.text)
+    page = concierge_page.stored_prompt(start.page)
     try:
-        return owner_commands.run_command(engine, settings, start.company_id, cmd, now=start.at)
+        return owner_commands.run_command(engine, settings, start.company_id, cmd, now=start.at, page=page)
     except Exception as exc:
         if fallback_for(exc) is Fallback.retry:
             raise
@@ -183,23 +175,22 @@ def _owner_qa(engine: Engine, settings: Settings, start: TurnStart) -> str:
         return FALLBACK_ANSWER
 
 
-def _page(engine: Engine, start: TurnStart) -> PagePrompt:
+def _page(engine: Engine, start: TurnStart) -> TurnStart:
     """The page facts are resolved once and stored on the turn before the model call: a retry reuses them."""
-    prompt, fresh = concierge_page.page_prompt(engine, start.company_id, start.page)
+    fresh = concierge_page.resolve_once(engine, start.company_id, start.page)
     if fresh is not None:
         _update(engine, start.company_id, start.turn_id, {"page_context": fresh})
-    return prompt
+    return start if fresh is None else replace(start, page=fresh)
 
 
 def _plan(engine: Engine, settings: Settings, start: TurnStart) -> ConciergePlan | Outcome:
     briefs, tasks, history = _brief(engine, start)
-    page = _page(engine, start)
     try:
         result = run_agent(
             engine,
             settings,
             CONCIERGE,
-            build_prompt(start.text, history, briefs, tasks, page),
+            build_prompt(start.text, history, briefs, tasks, concierge_page.stored_prompt(start.page)),
             CallContext(start.company_id, CONCIERGE_PURPOSE),
         )
     except Exception as exc:
@@ -234,10 +225,12 @@ def _outcome(engine: Engine, settings: Settings, start: TurnStart) -> Outcome:
         refused = owner_commands.screen_question(start.text)
         if refused is not None:
             return Outcome(refused)
+        start = _page(engine, start)
     plan = _planned(engine, settings, start)
     if isinstance(plan, Outcome):
         return plan
-    results = run_plan(engine, settings, start.company_id, plan, question=start.text, now=start.at)
+    page = concierge_page.stored_prompt(start.page)
+    results = run_plan(engine, settings, start.company_id, plan, question=start.text, now=start.at, page=page)
     stored = [result_json(r) for r in results]
     _update(engine, start.company_id, start.turn_id, {"results": stored})
     return Outcome(assemble_answer(results), plan.model_dump(mode="json"), stored, PROMPT_REF)

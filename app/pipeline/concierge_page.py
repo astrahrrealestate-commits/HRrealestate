@@ -6,6 +6,8 @@ transient error) reuses exactly the same facts instead of re-resolving against a
 resolver error leaves the turn without facts (stored the same way) rather than failing it; transient errors propagate
 so the DBOS step retries. The snapshot and filters are unverified client text: they only reach the model inside the
 escaped `<page_snapshot>` block and are never parsed for ids.
+`stored_prompt` is pure: the planner, the `answer` step and the planner-failure fallback all read the page from the
+stored context. A turn stored before the facts were resolved (v1-era rows) gets no page.
 """
 
 from typing import Any
@@ -56,15 +58,17 @@ def _resolve(engine: Engine, company_id: UUID, page: PageContext) -> dict[str, A
     return {"facts": facts_text(facts), "dropped": list(facts.dropped)}
 
 
-def page_prompt(
-    engine: Engine, company_id: UUID, stored: dict[str, Any] | None
-) -> tuple[PagePrompt, dict[str, Any] | None]:
-    """The page part of the prompt, and the new `page_context` value to store when it was resolved just now."""
+def resolve_once(engine: Engine, company_id: UUID, stored: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The new `page_context` value to store (request + `resolved`) when the page was not resolved yet; else None."""
     page, resolved = stored_page(stored)
-    if page is None:
-        return NO_PAGE, None
-    if resolved is not None:
-        return PagePrompt(str(resolved.get("facts") or ""), page.snapshot, filters_line(page)), None
-    fresh = _resolve(engine, company_id, page)
-    prompt = PagePrompt(fresh["facts"], page.snapshot, filters_line(page))
-    return prompt, {**page.model_dump(mode="json"), RESOLVED: fresh}
+    if page is None or resolved is not None:
+        return None
+    return {**page.model_dump(mode="json"), RESOLVED: _resolve(engine, company_id, page)}
+
+
+def stored_prompt(stored: dict[str, Any] | None) -> PagePrompt:
+    """The page part of a prompt from the stored context, without I/O; no page until its facts were resolved."""
+    page, resolved = stored_page(stored)
+    if page is None or resolved is None:
+        return NO_PAGE
+    return PagePrompt(str(resolved.get("facts") or ""), page.snapshot, filters_line(page))

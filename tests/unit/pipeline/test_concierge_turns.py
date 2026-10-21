@@ -15,6 +15,7 @@ from app.core.errors import AgentFailedError, BudgetExceededError
 from app.db.enums import TurnStatus
 from app.llm.agents.owner_qa import FALLBACK_ANSWER
 from app.llm.calls import CallResult
+from app.llm.page_blocks import NO_PAGE
 from app.pipeline import concierge_turns as ct
 from app.pipeline.concierge_base import StepResult
 from app.pipeline.concierge_outcome import APOLOGY, PROMPT_REF, Outcome
@@ -68,7 +69,7 @@ def test_question_plans_once_runs_the_plan_and_stores_it(io: dict[str, MagicMock
         {"intent": "list_tasks", "ok": True, "summary": "No open tasks.", "data": None, "view": "tasks"}
     ]
     assert (out.prompt_ref, out.status) == (PROMPT_REF, TurnStatus.done)
-    assert io["plan"].call_args.kwargs == {"question": "what is open with Jansen?", "now": AT}
+    assert io["plan"].call_args.kwargs == {"question": "what is open with Jansen?", "now": AT, "page": NO_PAGE}
 
 
 def test_budget_spent_answers_the_limit_text(io: dict[str, MagicMock]) -> None:
@@ -84,6 +85,7 @@ def test_planner_failure_falls_back_to_owner_qa(io: dict[str, MagicMock]) -> Non
     assert out == Outcome("cmd reply")
     cmd = io["cmd"].call_args.args[3]
     assert (cmd.kind.value, cmd.text) == ("question", "what now?")
+    assert io["cmd"].call_args.kwargs["page"] == NO_PAGE
 
 
 def test_owner_qa_failure_falls_back_to_fixed_text(io: dict[str, MagicMock]) -> None:

@@ -18,9 +18,18 @@ from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import WaitStatus
 from app.db.models import Case, Company, Person, TaskRow, WaitRow
-from app.llm.agents.owner_qa import FALLBACK_ANSWER, OWNER_QA, CaseBrief, accept_refs, answer_text, owner_qa_prompt
+from app.llm.agents.owner_qa import (
+    FALLBACK_ANSWER,
+    CaseBrief,
+    accept_refs,
+    answer_text,
+    owner_qa_prompt,
+    owner_qa_spec,
+    page_case_ids,
+)
 from app.llm.budget import OWNER_QA_PURPOSE
 from app.llm.calls import CallContext, run_agent
+from app.llm.page_blocks import NO_PAGE, PagePrompt
 from app.pipeline import case_repo, work_repo
 
 log = get_logger(__name__)
@@ -159,7 +168,10 @@ def _waiting(session: Session, company: Company) -> str:
     return "Waiting on:\n" + "\n".join(lines)
 
 
-def _question(engine: Engine, settings: Settings, company_id: UUID, question: str, now: datetime) -> str:
+def _question(
+    engine: Engine, settings: Settings, company_id: UUID, question: str, now: datetime, page: PagePrompt
+) -> str:
+    """owner_qa over the open cases and tasks; on a dashboard page also its facts and snapshot (prompt v3)."""
     with Session(engine) as session:
         cases = session.scalars(
             select(Case)
@@ -169,19 +181,16 @@ def _question(engine: Engine, settings: Settings, company_id: UUID, question: st
         ).all()
         briefs = [CaseBrief(c.id, case_label(session, c), c.state.value, c.urgency.value, c.summary) for c in cases]
         tasks = [t.title for t in work_repo.open_tasks(session, company_id, now=now)]
+    prompt = owner_qa_prompt(
+        question, briefs, tasks, page_facts_text=page.facts, snapshot=page.snapshot, filters=page.filters
+    )
     try:
-        result = run_agent(
-            engine,
-            settings,
-            OWNER_QA,
-            owner_qa_prompt(question, briefs, tasks),
-            CallContext(company_id, OWNER_QA_PURPOSE),
-        )
+        result = run_agent(engine, settings, owner_qa_spec(page), prompt, CallContext(company_id, OWNER_QA_PURPOSE))
     except BudgetExceededError:
         return LIMIT_ANSWER
     except AgentFailedError:
         return FALLBACK_ANSWER
-    answer = accept_refs(result.output, briefs)
+    answer = accept_refs(result.output, briefs, page_case_ids(page.facts))
     if not answer.in_scope:
         log.info("owner_qa.refused")
     return answer_text(answer)
@@ -210,11 +219,14 @@ def _apply(session: Session, company: Company, cmd: Command, now: datetime) -> s
     return f"Snoozed: {task.title} until {until.astimezone(ZoneInfo(company.timezone)):%a %d %b %H:%M}"
 
 
-def run_command(engine: Engine, settings: Settings, company_id: UUID, cmd: Command, *, now: datetime) -> str:
-    """Execute one owner command and return the reply text (English)."""
+def run_command(
+    engine: Engine, settings: Settings, company_id: UUID, cmd: Command, *, now: datetime, page: PagePrompt = NO_PAGE
+) -> str:
+    """Execute one owner command and return the reply text (English). `page` (dashboard turns only: the stored page
+    facts and snapshot) reaches the question prompt; screening applies to the owner's own text only."""
     if cmd.kind is CommandKind.question:
         rejected = screen_question(cmd.text or "")
-        return rejected or _question(engine, settings, company_id, cmd.text or "", now)
+        return rejected or _question(engine, settings, company_id, cmd.text or "", now, page)
     with Session(engine) as session, session.begin():
         company = session.get(Company, company_id)
         if company is None:

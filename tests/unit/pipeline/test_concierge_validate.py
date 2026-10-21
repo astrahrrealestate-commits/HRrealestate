@@ -17,6 +17,7 @@ from app.contracts import ConciergePlan, Intent, PlanStep
 from app.core.errors import NotFoundError
 from app.core.settings import Settings
 from app.llm.agents.owner_qa import REFUSAL_ANSWER
+from app.llm.page_blocks import NO_PAGE, PagePrompt
 from app.pipeline import case_repo, concierge, concierge_reads, concierge_writes, owner_commands, work_repo
 from app.pipeline.concierge_base import NEED_DETAIL, NOT_FOUND, STEP_FAILED, Ctx, StepResult, task_ref
 from app.pipeline.concierge_sanitize import GENERIC_QUESTION
@@ -234,17 +235,37 @@ def test_create_task_without_usable_title_needs_detail(engine: Engine, settings:
 def test_answer_runs_owner_qa_once_per_plan(
     monkeypatch: pytest.MonkeyPatch, engine: Engine, settings: Settings
 ) -> None:
-    calls: list[str | None] = []
+    calls: list[tuple[str | None, PagePrompt]] = []
 
-    def fake_run(_e: Engine, _s: Settings, _c: UUID, cmd: owner_commands.Command, *, now: datetime) -> str:
-        calls.append(cmd.text)
+    def fake_run(
+        _e: Engine, _s: Settings, _c: UUID, cmd: owner_commands.Command, *, now: datetime, page: PagePrompt = NO_PAGE
+    ) -> str:
+        calls.append((cmd.text, page))
         return "Two cases are open."
 
     monkeypatch.setattr(owner_commands, "run_command", fake_run)
     plan = ConciergePlan(in_scope=True, steps=[step(Intent.answer, text="model text"), step(Intent.answer)])
     results = concierge.run_plan(engine, settings, COMPANY, plan, question="what is open?", now=NOW)
-    assert calls == ["what is open?"]  # the owner's question, never the model's text
+    assert calls == [("what is open?", NO_PAGE)]  # the owner's question, never the model's text
     assert [(r.ok, r.summary) for r in results] == [(True, "Two cases are open.")] * 2
+
+
+def test_answer_passes_the_turn_page_to_owner_qa(
+    monkeypatch: pytest.MonkeyPatch, engine: Engine, settings: Settings
+) -> None:
+    seen: list[PagePrompt] = []
+
+    def fake_run(
+        _e: Engine, _s: Settings, _c: UUID, _cmd: owner_commands.Command, *, now: datetime, page: PagePrompt = NO_PAGE
+    ) -> str:
+        seen.append(page)
+        return "The draft looks fine."
+
+    monkeypatch.setattr(owner_commands, "run_command", fake_run)
+    page = PagePrompt("view: approvals", "Approvals", "filters: status=pending")
+    plan = ConciergePlan(in_scope=True, steps=[step(Intent.answer)])
+    concierge.run_plan(engine, settings, COMPANY, plan, question="is this draft okay?", now=NOW, page=page)
+    assert seen == [page]
 
 
 def test_non_transient_db_error_fails_softly(

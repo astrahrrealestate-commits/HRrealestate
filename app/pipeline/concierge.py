@@ -18,6 +18,7 @@ from app.core.errors import NotFoundError
 from app.core.settings import Settings
 from app.llm.agents.owner_qa import REFUSAL_ANSWER
 from app.llm.calls import is_transient as llm_transient
+from app.llm.page_blocks import NO_PAGE, PagePrompt
 from app.pipeline import case_repo, concierge_proposals, concierge_reads, concierge_writes, work_repo
 from app.pipeline.concierge_base import (
     NEED_DETAIL,
@@ -128,10 +129,17 @@ def _run_step(ctx: Ctx, step: PlanStep) -> StepResult:
 
 
 def run_plan(
-    engine: Engine, settings: Settings, company_id: UUID, plan: ConciergePlan, *, question: str, now: datetime
+    engine: Engine,
+    settings: Settings,
+    company_id: UUID,
+    plan: ConciergePlan,
+    *,
+    question: str,
+    now: datetime,
+    page: PagePrompt = NO_PAGE,
 ) -> list[StepResult]:
     if not plan.in_scope:
         log.info("concierge.refused", company_id=str(company_id))
         return [StepResult(Intent.answer, False, REFUSAL_ANSWER, None, None)]
-    ctx = Ctx(engine=engine, settings=settings, company_id=company_id, now=now, question=question)
+    ctx = Ctx(engine=engine, settings=settings, company_id=company_id, now=now, question=question, page=page)
     return [_run_step(ctx, step) for step in plan.steps[:MAX_STEPS]]

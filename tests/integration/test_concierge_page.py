@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.contracts import ConciergePlan, Intent, PageContext
 from app.core.settings import Settings
 from app.db.enums import TurnStatus
-from app.db.models import ActionRow, AgentTurn, Case, Company, OwnerAccount
+from app.db.models import ActionRow, AgentTurn, Case, Company, ModelCall, OwnerAccount
 from app.pipeline import concierge_turns
 from app.pipeline.concierge_base import NOT_FOUND
 from tests.integration.concierge_support import count, seed_case, step
@@ -52,11 +52,10 @@ def env(test_settings: Settings, migrated_engine: Engine, committed_company: Com
     purge_company(migrated_engine, other.id)
 
 
-def _create(env: Env, page: dict[str, Any]) -> UUID:
+def _create(env: Env, page: dict[str, Any] | None, text: str = "summarise this") -> UUID:
+    context = None if page is None else PageContext.model_validate(page)
     with Session(env.engine) as s, s.begin():
-        _, turn_id = concierge_turns.create_turn(
-            s, env.cid, env.owner_id, None, "summarise this", page=PageContext.model_validate(page)
-        )
+        _, turn_id = concierge_turns.create_turn(s, env.cid, env.owner_id, None, text, page=context)
     return turn_id
 
 
@@ -119,3 +118,38 @@ def test_planner_obeying_a_snapshot_id_drafts_nothing(env: Env) -> None:
     assert row.results is not None
     assert [(r["intent"], r["ok"], r["summary"]) for r in row.results] == [("draft_reply", False, NOT_FOUND)]
     assert (count(env.engine, ActionRow, env.cid), count(env.engine, ActionRow, env.foreign_cid)) == before
+
+
+def _owner_qa_versions(env: Env) -> list[str]:
+    with Session(env.engine) as s:
+        rows = s.scalars(
+            select(ModelCall.prompt_version).where(ModelCall.company_id == env.cid, ModelCall.prompt_name == "owner_qa")
+        )
+        return list(rows)
+
+
+def test_answer_step_on_a_page_uses_the_stored_facts_and_owner_qa_v3(env: Env) -> None:
+    """The planner (stubbed) plans an `answer`; owner_qa runs on the fake model with the page blocks (prompt v3)."""
+    snapshot = f"Case page\nJoris: Het raam is kapot\nCase {env.foreign_case} mail x@y.test"
+    turn_id = _create(env, {"view": "case", "case_id": str(env.case_id), "snapshot": snapshot}, "what is this about?")
+    with patch(AGENT, return_value=SimpleNamespace(output=make_plan(step(Intent.answer)))):
+        concierge_turns.run_turn(env.engine, env.settings, turn_id)
+    row = _row(env, turn_id)
+    assert row.status is TurnStatus.done
+    assert row.answer is not None
+    assert row.answer.startswith("On this page")
+    assert "Het raam is kapot" in row.answer
+    assert str(env.foreign_case) not in row.answer
+    assert "x@y.test" not in row.answer
+    assert _owner_qa_versions(env) == ["v3"]
+
+
+def test_answer_step_without_a_page_keeps_owner_qa_v2(env: Env) -> None:
+    turn_id = _create(env, None, "what is open?")
+    with patch(AGENT, return_value=SimpleNamespace(output=make_plan(step(Intent.answer)))):
+        concierge_turns.run_turn(env.engine, env.settings, turn_id)
+    row = _row(env, turn_id)
+    assert row.answer is not None
+    assert "open cases" in row.answer
+    assert "On this page" not in row.answer
+    assert _owner_qa_versions(env) == ["v2"]
