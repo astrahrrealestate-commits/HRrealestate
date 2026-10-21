@@ -19,6 +19,8 @@ import {
   SendHorizontal,
   ExternalLink,
   Loader2,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { askAgent, approveInboxDraft } from "@/lib/api";
@@ -78,6 +80,7 @@ export function AskEstateOSPanel({
 }: AskEstateOSPanelProps) {
   const [inputQuery, setInputQuery] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [isFullScreen, setIsFullScreen] = useState(true);
   const [sendingCardId, setSendingCardId] = useState<string | null>(null);
   const [sentCardIds, setSentCardIds] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<AssistantMessage[]>([
@@ -241,49 +244,66 @@ export function AskEstateOSPanel({
       {/* Backdrop with smooth blur transition */}
       <div
         onClick={onClose}
-        className="fixed inset-0 bg-[#0A0A0A]/60 z-40 backdrop-blur-sm transition-opacity duration-300 animate-in fade-in"
+        className="fixed inset-0 bg-black/75 z-40 backdrop-blur-md transition-opacity duration-300 animate-in fade-in"
       />
 
-      {/* Main Assistant Panel: Full screen on mobile (<768px), 440px sleek drawer on desktop */}
+      {/* Main Assistant Panel: Full screen Grok-bot inspired experience with smooth spring animation */}
       <aside
         className={cn(
-          "fixed inset-0 md:inset-y-0 md:right-0 md:left-auto z-50 w-full md:w-[440px] h-dvh bg-[#0E0E0E] text-[#F5F5F5] md:border-l border-[#262626] shadow-2xl flex flex-col justify-between font-sans transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] animate-in slide-in-from-right select-none"
+          "fixed z-50 bg-[#0B0D0E] text-[#F3F4F6] shadow-2xl flex flex-col justify-between font-sans transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] animate-in select-none",
+          isFullScreen
+            ? "inset-0 md:inset-4 md:rounded-[18px] md:border border-[#1E2327] overflow-hidden"
+            : "inset-0 md:inset-y-0 md:right-0 md:left-auto w-full md:w-[480px] h-dvh md:border-l border-[#1E2327]"
         )}
       >
-        {/* 1. Header Row (h-14, back arrow on mobile) */}
-        <div className="h-14 px-4 sm:px-5 border-b border-[#262626] flex items-center justify-between flex-shrink-0 bg-[#0A0A0A]">
-          <div className="flex items-center gap-2.5">
-            {/* Mobile Back Button (Section 5.6: "Back arrow closes it") */}
+        {/* 1. Grok-Style Header Bar */}
+        <div className="h-14 px-4 sm:px-6 border-b border-[#1A1F24] flex items-center justify-between flex-shrink-0 bg-[#0E1113]">
+          <div className="flex items-center gap-3">
+            {/* Mobile Back Button */}
             <button
               onClick={onClose}
-              className="md:hidden p-1.5 -ml-1 rounded-[var(--radius-ctl)] text-[#AAAAAA] hover:text-[#FFFFFF] hover:bg-[#181818] transition-colors cursor-pointer"
+              className="md:hidden p-1.5 -ml-1 rounded-[8px] text-[#9CA3AF] hover:text-white hover:bg-[#1A1F24] transition-colors cursor-pointer"
               title="Back"
             >
               <ArrowLeft className="w-5 h-5 stroke-[2]" />
             </button>
 
-            {/* Sparkle icon badge */}
-            <div className="w-[30px] h-[30px] rounded-[var(--radius-ctl)] bg-[var(--accent)] flex items-center justify-center text-[#0A0A0A] shadow-xs shrink-0 select-none">
-              <Sparkles className="w-4 h-4 stroke-[2.2]" />
+            {/* AI Agent Identity */}
+            <div className="w-8 h-8 rounded-[9px] bg-gradient-to-br from-[#1E293B] to-[#0F172A] border border-[#334155] flex items-center justify-center text-emerald-400 shadow-sm shrink-0">
+              <Sparkles className="w-4 h-4 stroke-[2]" />
             </div>
             <div>
-              <div className="font-heading font-bold text-[14px] sm:text-[15px] text-[#FFFFFF] tracking-[-0.01em] leading-tight flex items-center gap-1.5">
-                <span>EstateOS</span>
-                <span className="text-[9.5px] font-mono uppercase bg-[#262626] text-[var(--accent)] px-1.5 py-0.2 rounded-[4px] font-bold">
-                  AI Agent
+              <div className="font-heading font-semibold text-[14px] sm:text-[15px] text-[#F9FAFB] tracking-tight flex items-center gap-2">
+                <span>Super Agent</span>
+                <span className="text-[10px] font-mono uppercase bg-[#182026] text-emerald-400 border border-emerald-500/25 px-1.5 py-0.5 rounded-[5px] font-medium">
+                  Concierge
                 </span>
               </div>
-              <div className="text-[11px] text-[#888888]">
-                Assistant · <span className="text-[#E0E0E0] font-medium">{currentPageName}</span>
+              <div className="text-[11px] text-[#94A3B8]">
+                Context · <span className="text-[#E2E8F0] font-medium">{currentPageName}</span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            {/* Fullscreen / Split Toggle Button */}
+            <button
+              onClick={() => setIsFullScreen((prev) => !prev)}
+              className="hidden md:flex w-8 h-8 rounded-[8px] bg-[#14181B] hover:bg-[#1E2327] border border-[#22282E] text-[#94A3B8] hover:text-[#FFFFFF] items-center justify-center transition-colors cursor-pointer"
+              title={isFullScreen ? "Dock to Side Drawer" : "Expand to Full Screen"}
+            >
+              {isFullScreen ? (
+                <Minimize2 className="w-3.5 h-3.5 stroke-[2]" />
+              ) : (
+                <Maximize2 className="w-3.5 h-3.5 stroke-[2]" />
+              )}
+            </button>
+
+            {/* Close Button */}
             <button
               onClick={onClose}
-              className="hidden md:flex w-8 h-8 rounded-[8px] bg-[#181818] hover:bg-[#222222] border border-[#262626] text-[#AAAAAA] hover:text-[#FFFFFF] items-center justify-center transition-colors cursor-pointer"
-              title="Close Assistant (Esc)"
+              className="w-8 h-8 rounded-[8px] bg-[#14181B] hover:bg-[#1E2327] border border-[#22282E] text-[#94A3B8] hover:text-[#FFFFFF] flex items-center justify-center transition-colors cursor-pointer"
+              title="Close (Esc)"
             >
               <X className="w-4 h-4 stroke-[2]" />
             </button>
@@ -291,13 +311,13 @@ export function AskEstateOSPanel({
         </div>
 
         {/* 2. Context Card "LOOKING AT" */}
-        <div className="px-5 py-3 border-b border-[#262626] bg-[#141414] flex items-center justify-between flex-shrink-0">
+        <div className="px-5 py-2.5 border-b border-[#1A1F24] bg-[#0C0F11] flex items-center justify-between flex-shrink-0 text-[11px]">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-2 h-2 rounded-full bg-[#F25C05] animate-pulse flex-shrink-0" />
-            <span className="text-[10.5px] font-semibold text-[#888888] uppercase tracking-[0.06em] flex-shrink-0">
-              LOOKING AT
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
+            <span className="text-[10px] font-semibold text-[#64748B] uppercase tracking-[0.06em] flex-shrink-0">
+              Active Focus
             </span>
-            <span className="text-[12.5px] text-[#FFFFFF] font-medium truncate">
+            <span className="text-[12px] text-[#CBD5E1] font-medium truncate">
               {selectedContext}
             </span>
           </div>
@@ -316,10 +336,10 @@ export function AskEstateOSPanel({
               {/* Message Bubble */}
               <div
                 className={cn(
-                  "p-3.5 rounded-[14px] text-[13.5px]",
+                  "p-3.5 sm:p-4 rounded-[14px] text-[13.5px]",
                   msg.sender === "user"
-                    ? "bg-[#181818] border border-[#262626] text-[#FFFFFF] rounded-tr-none"
-                    : "bg-[#181818] border border-[#262626] text-[#EEEEEE] rounded-tl-none shadow-sm"
+                    ? "bg-[#1C242C] border border-[#2B3540] text-[#F3F4F6] rounded-tr-none"
+                    : "bg-[#12161A] border border-[#1E252C] text-[#E2E8F0] rounded-tl-none shadow-sm"
                 )}
               >
                 <div
@@ -511,55 +531,59 @@ export function AskEstateOSPanel({
         </div>
 
         {/* 4. Suggested Chips Container */}
-        <div className="px-5 py-2.5 border-t border-[#262626] bg-[#0A0A0A]">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#777777] mb-2 flex items-center gap-1">
-            <span>SUGGESTED FOR THIS PAGE</span>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {suggestedChips.map((chip, idx) => (
-              <button
-                key={idx}
-                onClick={() => handleSendQuery(chip)}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-[6px] bg-[#181818] hover:bg-[#222222] border border-[#262626] hover:border-[#F25C05] text-[11.5px] text-[#DDDDDD] transition-colors cursor-pointer"
-              >
-                <span>{chip}</span>
-                <ArrowUpRight className="w-3 h-3 text-[#F25C05]" />
-              </button>
-            ))}
+        <div className="px-4 sm:px-6 py-2.5 border-t border-[#1A1F24] bg-[#0E1113]">
+          <div className="max-w-[760px] mx-auto w-full">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#64748B] mb-2 flex items-center gap-1">
+              <span>SUGGESTED ACTIONS</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {suggestedChips.map((chip, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleSendQuery(chip)}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded-[7px] bg-[#14181B] hover:bg-[#1C2226] border border-[#20262B] hover:border-[#334155] text-[11.5px] text-[#CBD5E1] transition-colors cursor-pointer"
+                >
+                  <span>{chip}</span>
+                  <ArrowUpRight className="w-3 h-3 text-emerald-400" />
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
         {/* 5. Input Field Row */}
-        <div className="p-4 border-t border-[#262626] bg-[#121212] space-y-2 flex-shrink-0">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleSendQuery(inputQuery);
-            }}
-            className="relative flex items-center"
-          >
-            <input
-              ref={inputRef}
-              type="text"
-              value={inputQuery}
-              onChange={(e) => setInputQuery(e.target.value)}
-              placeholder="Ask EstateOS anything about this page..."
-              className="w-full h-10 pl-3.5 pr-11 rounded-[10px] bg-[#1A1A1A] border border-[#2A2A2A] text-[13px] text-[#FFFFFF] placeholder:text-[#666666] focus:outline-none focus:border-[#F25C05] focus:ring-2 focus:ring-[#F25C05]/20 transition-all"
-            />
-            <button
-              type="submit"
-              disabled={!inputQuery.trim() || isTyping}
-              className="absolute right-1.5 w-7 h-7 rounded-[7px] bg-[#F25C05] hover:bg-[#d94f00] disabled:opacity-40 text-[#0A0A0A] flex items-center justify-center transition-colors cursor-pointer"
-              title="Send query"
+        <div className="p-4 sm:p-5 border-t border-[#1A1F24] bg-[#0B0D0E] flex-shrink-0">
+          <div className="max-w-[760px] mx-auto w-full space-y-2">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSendQuery(inputQuery);
+              }}
+              className="relative flex items-center"
             >
-              <Send className="w-3.5 h-3.5 stroke-[2.2]" />
-            </button>
-          </form>
+              <input
+                ref={inputRef}
+                type="text"
+                value={inputQuery}
+                onChange={(e) => setInputQuery(e.target.value)}
+                placeholder="Ask Super Agent anything across your portfolio, cases, and arrears..."
+                className="w-full h-11 pl-4 pr-12 rounded-[12px] bg-[#12161A] border border-[#222A32] text-[13.5px] text-[#FFFFFF] placeholder:text-[#64748B] focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/15 transition-all shadow-inner"
+              />
+              <button
+                type="submit"
+                disabled={!inputQuery.trim() || isTyping}
+                className="absolute right-1.5 w-8 h-8 rounded-[8px] bg-emerald-500 hover:bg-emerald-600 disabled:opacity-30 text-[#090C0E] flex items-center justify-center transition-colors cursor-pointer"
+                title="Send query"
+              >
+                <Send className="w-3.5 h-3.5 stroke-[2.4]" />
+              </button>
+            </form>
 
-          {/* Footnote */}
-          <p className="text-[10.5px] text-[#666666] text-center leading-tight">
-            Prototype: scripted answers from sample data. You confirm every action.
-          </p>
+            {/* Clean Footnote */}
+            <p className="text-[10.5px] text-[#475569] text-center leading-tight">
+              Super Agent autonomously plans actions. You hold explicit approval before dispatch.
+            </p>
+          </div>
         </div>
       </aside>
     </>
