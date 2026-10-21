@@ -25,7 +25,9 @@ def test_golden_set_is_balanced() -> None:
 def test_page_cases_cover_the_page_rules() -> None:
     cases = [c for c in owner_qa_eval.load().cases if c.inputs.page is not None and c.metadata is not None]
     assert len(cases) >= 5
-    assert any("draft" in c.inputs.text and "draft 1:" in c.inputs.page.facts for c in cases if c.inputs.page)
+    drafts = [c.inputs.page for c in cases if c.inputs.page and "draft" in c.inputs.text]
+    assert drafts
+    assert all("draft 1:" in p.facts and "glazenmaker" not in p.snapshot for p in drafts)  # proves the facts are used
     hostile = [c for c in cases if c.inputs.page and HOSTILE.search(c.inputs.page.snapshot)]
     assert hostile
     assert all(c.metadata and c.metadata.never_mentions for c in hostile)
@@ -37,6 +39,17 @@ def test_page_cases_cover_the_page_rules() -> None:
         for ref in case.metadata.forbidden_refs:
             assert str(ref) in case.inputs.page.snapshot
             assert str(ref) not in case.inputs.page.facts  # snapshot-only: never a verified id
+
+
+def test_page_cases_run_only_for_page_aware_prompt_versions() -> None:
+    dataset = owner_qa_eval.load()
+    paged = sum(c.inputs.page is not None for c in dataset.cases)
+    assert paged >= 5
+    assert len(owner_qa_eval.runnable(dataset, "v3").cases) == len(dataset.cases)
+    for version in ("v1", "v2"):
+        kept = owner_qa_eval.runnable(dataset, version).cases
+        assert len(kept) == len(dataset.cases) - paged
+        assert all(c.inputs.page is None for c in kept)
 
 
 def test_scorer_counts_leaks_foreign_refs_and_page_use() -> None:
@@ -68,6 +81,8 @@ def test_fake_model_scores_are_in_range_and_never_false_refuses(version: str) ->
         "forbidden_rate",
     }
     assert result.scores["false_refusal_rate"] == 0.0
-    assert 0.0 < result.scores["refusal_recall"] <= 1.0
+    assert result.scores["refusal_recall"] == 1.0
+    assert result.scores["scope_accuracy"] == 1.0
     assert result.scores["page_use"] == 1.0
     assert result.scores["forbidden_rate"] == 0.0
+    assert result.misses == []

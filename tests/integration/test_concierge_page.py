@@ -128,6 +128,14 @@ def _owner_qa_versions(env: Env) -> list[str]:
         return list(rows)
 
 
+def _owner_qa_prompts(env: Env) -> list[str]:
+    with Session(env.engine) as s:
+        rows = s.scalars(
+            select(ModelCall.input).where(ModelCall.company_id == env.cid, ModelCall.prompt_name == "owner_qa")
+        )
+        return [str(row["prompt"]) for row in rows]
+
+
 def test_answer_step_on_a_page_uses_the_stored_facts_and_owner_qa_v3(env: Env) -> None:
     """The planner (stubbed) plans an `answer`; owner_qa runs on the fake model with the page blocks (prompt v3)."""
     snapshot = f"Case page\nJoris: Het raam is kapot\nCase {env.foreign_case} mail x@y.test"
@@ -142,6 +150,11 @@ def test_answer_step_on_a_page_uses_the_stored_facts_and_owner_qa_v3(env: Env) -
     assert str(env.foreign_case) not in row.answer
     assert "x@y.test" not in row.answer
     assert _owner_qa_versions(env) == ["v3"]
+    (prompt,) = _owner_qa_prompts(env)  # the stored facts provably reached owner_qa
+    assert "<page_facts>" in prompt
+    assert f"open case: {env.case_id} |" in prompt
+    assert "ORIGINAL summary" in prompt
+    assert "<page_snapshot>" in prompt
 
 
 def test_answer_step_without_a_page_keeps_owner_qa_v2(env: Env) -> None:

@@ -2,7 +2,8 @@
 
 Page cases (`inputs.page`, as on a dashboard turn) also check that the answer uses the page (`mentions_any`) and never
 repeats injected payloads or contact details (`never_mentions`) or states/returns a snapshot-only case id
-(`forbidden_refs`).
+(`forbidden_refs`). Production sends a page only to the page-aware prompt (`owner_qa_spec`), so page cases run only
+for that version or later (`runnable`); v1/v2 are scored on page-less questions only.
 """
 
 from collections.abc import Sequence
@@ -14,7 +15,7 @@ from pydantic_evals import Dataset
 
 from app.contracts import OwnerAnswer, PromptRef
 from app.core.settings import Settings
-from app.llm.agents.owner_qa import OWNER_QA, CaseBrief, owner_qa_prompt
+from app.llm.agents.owner_qa import OWNER_QA, OWNER_QA_PAGE, CaseBrief, owner_qa_prompt
 from app.llm.prompts import load_prompt
 from evals.common import MAX_CONCURRENCY, EvalResult, cell, crash_message, spec_agent, task_retry
 from evals.scoring import GOLDEN_DIR
@@ -50,6 +51,18 @@ class Label(BaseModel):
 
 def load(path: Path = GOLDEN_DIR / "owner_qa.yaml") -> Dataset[Question, OwnerAnswer, Label]:
     return Dataset[Question, OwnerAnswer, Label].from_file(path)
+
+
+def _number(version: str) -> int:
+    return int(version.lstrip("v"))
+
+
+def runnable(dataset: Dataset[Question, OwnerAnswer, Label], version: str) -> Dataset[Question, OwnerAnswer, Label]:
+    """Page cases only for prompt versions production sends a page to (the page-aware version and later)."""
+    if _number(version) >= _number(OWNER_QA_PAGE.prompt.version):
+        return dataset
+    kept = [c for c in dataset.cases if c.inputs.page is None]
+    return Dataset[Question, OwnerAnswer, Label](name=dataset.name, cases=kept)
 
 
 def uses_page(label: Label, answer: OwnerAnswer) -> bool:
@@ -89,7 +102,7 @@ def run(version: str, settings: Settings) -> EvalResult:
         prompt = owner_qa_prompt(inputs.text, _CASES, [], page_facts_text=page.facts, snapshot=page.snapshot)
         return (await agent.run(prompt)).output
 
-    report = load().evaluate_sync(
+    report = runnable(load(), version).evaluate_sync(
         task, name=f"owner_qa-{version}", progress=False, max_concurrency=MAX_CONCURRENCY, retry_task=task_retry()
     )
     if report.failures:

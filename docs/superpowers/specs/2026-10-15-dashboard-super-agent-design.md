@@ -222,9 +222,9 @@ sweep are included.
   applies to the owner's text only, budget and fallbacks unchanged; `case_refs` may also name case ids on the
   server-built page fact lines. Snapshot CRLF and lone CR become LF (other control characters still `422`). A visible
   thread key may be up to 400 characters (UUIDs and task refs 120). The filters line is rendered apart from the
-  snapshot, so only the snapshot is capped at 6000. Prompt escaping strips Unicode format characters (Cf), applies
-  NFKC and maps angle-quote/slash look-alikes before matching block tags (NFKC also folds compatibility characters
-  such as `½` in ordinary text).
+  snapshot, so only the snapshot is capped at 6000. Prompt escaping strips Unicode format characters (Cf) and
+  default-ignorable code points, applies NFKC and maps angle-quote/slash look-alikes before matching block tags
+  (NFKC also folds compatibility characters such as `½` in ordinary text).
   The thread key codec moved to `app/contracts/thread_key.py` (request contracts may not import the pipeline);
   `app.pipeline.read_repo` re-exports it.
 
