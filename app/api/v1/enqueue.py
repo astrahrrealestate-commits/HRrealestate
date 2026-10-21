@@ -9,8 +9,10 @@ from app.core.workflow_names import (
     EXECUTE_ACTION,
     FILE_DOCUMENT,
     PIPELINE_QUEUE,
+    REORG_PLAN,
     concierge_workflow_id,
     exec_workflow_id,
+    reorg_workflow_id,
 )
 
 
@@ -31,6 +33,17 @@ def enqueue_filing(client: WorkflowClient, company_id: UUID, attachment_id: UUID
         "queue_partition_key": str(company_id),
     }
     client.enqueue(options, str(company_id), str(attachment_id), choice)
+
+
+def enqueue_reorg(client: WorkflowClient, company_id: UUID, plan_id: UUID) -> None:
+    """Apply an approved Drive plan on the documents queue (per company, one at a time: folders never race)."""
+    options = {
+        "queue_name": DOCUMENTS_QUEUE,
+        "workflow_name": REORG_PLAN,
+        "workflow_id": reorg_workflow_id(plan_id),
+        "queue_partition_key": str(company_id),
+    }
+    client.enqueue(options, str(company_id), str(plan_id))
 
 
 def enqueue_turn(client: WorkflowClient, turn_id: UUID) -> None:

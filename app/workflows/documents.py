@@ -33,7 +33,7 @@ def _retryable(exc: BaseException) -> bool:
     return drive_transient(exc) or llm_transient(exc) or is_transient(exc)
 
 
-_RETRY: dict[str, Any] = {
+DRIVE_STEP_RETRY: dict[str, Any] = {
     "retries_allowed": True,
     "max_attempts": 6,
     "interval_seconds": 5.0,
@@ -42,7 +42,7 @@ _RETRY: dict[str, Any] = {
 }
 
 
-@DBOS.step(name="documents.file", **_RETRY)
+@DBOS.step(name="documents.file", **DRIVE_STEP_RETRY)
 def file_step(company_id: str, attachment_id: str, owner_choice: str | None) -> str:
     doc_type = DocType(owner_choice) if owner_choice else None
     status = file_document(

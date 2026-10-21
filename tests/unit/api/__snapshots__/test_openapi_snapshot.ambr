@@ -931,6 +931,154 @@
           ]
         }
       },
+      "/api/v1/documents/reorg": {
+        "get": {
+          "description": "The newest Drive reorganisation plan with its items and status, or null when there never was one.",
+          "operationId": "current_plan_api_v1_documents_reorg_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/PlanOut"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Response Current Plan Api V1 Documents Reorg Get"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Current Plan",
+          "tags": [
+            "documents"
+          ]
+        },
+        "post": {
+          "description": "Compare where filed documents sit with where layout v2 puts them and record the differences as a plan.",
+          "operationId": "propose_plan_api_v1_documents_reorg_post",
+          "parameters": [
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/PlanCreatedOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Propose Plan",
+          "tags": [
+            "documents"
+          ]
+        }
+      },
+      "/api/v1/documents/reorg/{plan_id}/decide": {
+        "post": {
+          "description": "Approve all or some items, or reject. An approved plan is applied in the background; a repeat changes nothing.",
+          "operationId": "decide_api_v1_documents_reorg__plan_id__decide_post",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "plan_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Plan Id",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanDecisionIn"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "202": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/PlanStatusOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Decide",
+          "tags": [
+            "documents"
+          ]
+        }
+      },
       "/api/v1/documents/review": {
         "get": {
           "operationId": "get_documents_to_review_api_v1_documents_review_get",
@@ -2935,6 +3083,179 @@
           "failed"
         ],
         "title": "PipelineStatus",
+        "type": "string"
+      },
+      "PlanCreatedOut": {
+        "properties": {
+          "plan_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Id"
+          }
+        },
+        "required": [
+          "plan_id"
+        ],
+        "title": "PlanCreatedOut",
+        "type": "object"
+      },
+      "PlanDecisionIn": {
+        "properties": {
+          "approve": {
+            "title": "Approve",
+            "type": "boolean"
+          },
+          "item_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Ids"
+          }
+        },
+        "required": [
+          "approve"
+        ],
+        "title": "PlanDecisionIn",
+        "type": "object"
+      },
+      "PlanItemOut": {
+        "properties": {
+          "document_id": {
+            "format": "uuid",
+            "title": "Document Id",
+            "type": "string"
+          },
+          "from_folder": {
+            "title": "From Folder",
+            "type": "string"
+          },
+          "from_name": {
+            "title": "From Name",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReorgItemStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "to_folder": {
+            "title": "To Folder",
+            "type": "string"
+          },
+          "to_name": {
+            "title": "To Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "document_id",
+          "title",
+          "from_folder",
+          "to_folder",
+          "from_name",
+          "to_name",
+          "reason",
+          "status"
+        ],
+        "title": "PlanItemOut",
+        "type": "object"
+      },
+      "PlanOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PlanItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReorgPlanStatus"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "created_by",
+          "created_at",
+          "items"
+        ],
+        "title": "PlanOut",
+        "type": "object"
+      },
+      "PlanStatusOut": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/ReorgPlanStatus"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "PlanStatusOut",
+        "type": "object"
+      },
+      "ReorgItemStatus": {
+        "enum": [
+          "proposed",
+          "approved",
+          "moved",
+          "rejected",
+          "failed"
+        ],
+        "title": "ReorgItemStatus",
+        "type": "string"
+      },
+      "ReorgPlanStatus": {
+        "enum": [
+          "proposed",
+          "approved",
+          "applied",
+          "rejected"
+        ],
+        "title": "ReorgPlanStatus",
         "type": "string"
       },
       "ReviewDocumentOut": {

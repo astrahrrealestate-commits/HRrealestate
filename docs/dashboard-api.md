@@ -87,6 +87,7 @@ Read (GET, cookie only):
 | `/documents/review?after=&limit=` | documents waiting for a filing choice: `{attachment_id, cursor, filename, mime_type, case_id, suggested_type, created_at}` |
 | `/documents?q=&match=all\|any&type=&status=&person_id=&unit_id=&lease_id=&case_id=&date_from=&date_to=&needs_link=&limit=` | document library (M10): `{id, attachment_id, title, doc_type, status, document_date, summary, snippet, rank, drive_url, suspicious, created_at}[]`. With `q`: full-text over what the documents say (Dutch stemming) plus title/summary/file name; `match=any` takes any word, for a question. `snippet` marks hits with `«…»` and is untrusted document text. Without `q`: newest first. `needs_link=true`: documents naming people or addresses that could not be placed |
 | `/documents/{id}` | `DocumentOut` + `{file_name, facts{parties, unit_hint, start_date, end_date, key_facts[{label, value}]}, unresolved[], links[{kind: person\|unit\|lease\|case, ref_id, label, method}], chunk_count}`; `404` for foreign or unknown ids |
+| `/documents/reorg` | the newest Drive reorganisation plan or `null`: `{id, status: proposed\|approved\|applied\|rejected, created_by: owner\|system, created_at, items[{id, document_id, title, from_folder, to_folder, from_name, to_name, reason, status: proposed\|approved\|moved\|rejected\|failed}]}` |
 | `/tasks`, `/waits` | open tasks `{id, ref, title, assignee, due_at, priority, status, case_id}`; open waits `{id, case_id, about, expected_by, chase_count, last_chased_at}` |
 | `/briefing` | `{kind, day_label, urgent[], approvals[], overdue_tasks[], overdue_waits[], exceptions[], stats}` |
 | `/company` | `{name, paused, outbound_mode, timezone}` |
@@ -103,6 +104,10 @@ Writes (POST, need the CSRF header; the decision writes share the 120/min limit)
 | `/documents/{attachment_id}/file` | `{choice}`, one of the document choices below | `202` (filing runs in the background) | `404`, `422 unknown document choice` |
 | `/documents/{id}/links` | `{kind: person\|unit\|lease\|case, ref_id}`: the owner confirms or adds a link (`method: owner`) | `204` | `404` (foreign document or target) |
 | `DELETE /documents/{id}/links/{kind}/{ref_id}` | none: hides a link and stops automation from re-adding it | `204` | `404` |
+
+Changing a document link may propose a one-item reorganisation plan (`created_by: system`). Nothing in Drive moves until a plan is approved.
+| `/documents/reorg` | none: compares filed documents with layout v2 and records the differences | `200 {plan_id}`; `plan_id` is null when nothing differs or everything is already planned | none |
+| `/documents/reorg/{plan_id}/decide` | `{approve, item_ids?}`: all items, only these (the rest are rejected), or none | `202 {status}`; an approved plan is applied in the background (`drive:reorg:{plan_id}`); a repeat keeps the first decision | `404` |
 | `/company/pause`, `/company/resume` | none | `200 {paused}` | none; resume also re-runs approved but unexecuted actions |
 | `/agent/messages` | `{text, conversation_id?}` | `202 {conversation_id, turn_id}`; answer arrives via SSE or by polling the conversation | `404` for a foreign conversation; `503` if the turn could not be started (it is marked failed; send the message again) |
 | `/auth/session` | `{id_token}` | see Auth | see Auth |

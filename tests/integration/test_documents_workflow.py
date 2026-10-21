@@ -75,3 +75,38 @@ def test_workflow_reads_files_and_links_a_document(
     assert len(chunks) == 1
     assert "waarborgsom" in chunks[0].lower()
     assert [k.value for k in links] == ["person"]  # the sender; no case or directory match in this fixture
+
+
+def test_reorg_workflow_applies_an_approved_plan_and_a_repeat_is_harmless(
+    storage: MemoryStorage, migrated_engine: Engine, committed_company: Any
+) -> None:
+    from datetime import date
+
+    from app.db.enums import PersonKind
+    from app.db.models import DocumentRow, Person, Unit
+    from app.pipeline.drive_reorg import build_plan, decide_plan
+    from app.workflows import drive_reorg
+    from app.workflows.deps import get_drive
+
+    company_id: UUID = committed_company.id
+    att = _attachment(migrated_engine, company_id, storage, "factuur.pdf", "application/pdf", b"%PDF" + b"x" * 5000)
+    assert documents.file_document_wf(str(company_id), str(att), None) == "filed"
+    with Session(migrated_engine) as s, s.begin():
+        unit = Unit(company_id=company_id, label="Kerkstraat 12-2", valid_from=date(2025, 1, 1))
+        s.add(unit)
+        s.flush()
+        doc = s.scalars(select(DocumentRow).where(DocumentRow.attachment_id == att)).one()
+        s.add(Person(company_id=company_id, kind=PersonKind.tenant, display_name="Anna", valid_from=date(2025, 1, 1)))
+        from app.db.enums import DocLinkKind
+        from app.db.models import DocumentLink
+
+        s.add(DocumentLink(company_id=company_id, document_id=doc.id, kind=DocLinkKind.unit, ref_id=unit.id,
+                           method="owner", score=1.0))  # fmt: skip
+    plan = build_plan(migrated_engine, company_id, "owner")
+    assert plan is not None
+    decide_plan(migrated_engine, company_id, plan, True, None)
+    assert drive_reorg.reorg_plan_wf(str(company_id), str(plan)) == {"moved": 1}
+    assert drive_reorg.reorg_plan_wf(str(company_id), str(plan)) == {}
+    drive = get_drive()
+    assert isinstance(drive, MemoryDrive)
+    assert [drive.path_of(f) for f in drive.files] == [("EstateOS", "Kerkstraat 12-2", "Invoices", "2026")]

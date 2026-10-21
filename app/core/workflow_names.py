@@ -13,12 +13,18 @@ OWNER_REPLY = "owner.reply"
 PIPELINE_ENTRY = "pipeline.entry"
 EXECUTE_ACTION = "actions.execute_action"
 FILE_DOCUMENT = "documents.file_document"
+REORG_PLAN = "documents.reorg_plan"
 CONCIERGE_TURN = "concierge.turn"
 
 
 def exec_workflow_id(action_id: object, draft_version: object) -> str:
     """`exec:<action_id>:<draft_version>`: the one execution of an approved action version (same as its send key)."""
     return f"exec:{action_id}:{draft_version}"
+
+
+def reorg_workflow_id(plan_id: object) -> str:
+    """`drive:reorg:<plan_id>`: the one application of an approved Drive reorganisation plan."""
+    return f"drive:reorg:{plan_id}"
 
 
 def concierge_workflow_id(turn_id: object) -> str:

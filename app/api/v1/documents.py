@@ -13,18 +13,21 @@ from pydantic import AwareDatetime, BaseModel
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_engine
+from app.api.deps import WorkflowClient, get_engine, get_workflow_client
+from app.api.v1 import enqueue
 from app.api.v1.auth import Principal, require_csrf, require_principal
 from app.api.v1.ratelimit import decision_limit
 from app.core.errors import NotFoundError
-from app.db.enums import DocLinkKind, DocumentStatus
+from app.db.enums import DocLinkKind, DocumentStatus, ReorgItemStatus, ReorgPlanStatus
 from app.pipeline.document_links import set_link
 from app.pipeline.document_search import DocDetail, DocFilter, DocHit, get_document, list_documents, search_documents
+from app.pipeline.drive_reorg import PlanView, build_plan, decide_plan, latest_plan
 
 router = APIRouter(tags=["documents"])
 NOT_FOUND = "not found"
 Owner = Annotated[Principal, Depends(require_principal)]
 Engine_ = Annotated[Engine, Depends(get_engine)]
+WorkflowClient_ = Annotated[WorkflowClient, Depends(get_workflow_client)]
 
 
 class DocumentOut(BaseModel):
@@ -60,6 +63,46 @@ class DocumentDetailOut(DocumentOut):
 class LinkIn(BaseModel):
     kind: DocLinkKind
     ref_id: UUID
+
+
+class PlanItemOut(BaseModel):
+    id: UUID
+    document_id: UUID
+    title: str
+    from_folder: str
+    to_folder: str
+    from_name: str
+    to_name: str
+    reason: str
+    status: ReorgItemStatus
+
+
+class PlanOut(BaseModel):
+    id: UUID
+    status: ReorgPlanStatus
+    created_by: str
+    created_at: AwareDatetime
+    items: list[PlanItemOut]
+
+
+class PlanDecisionIn(BaseModel):
+    approve: bool
+    item_ids: list[UUID] | None = None  # approve only these items (the rest are rejected); None = all
+
+
+class PlanCreatedOut(BaseModel):
+    plan_id: UUID | None  # None: every document is already where it belongs, or already planned
+
+
+class PlanStatusOut(BaseModel):
+    status: ReorgPlanStatus
+
+
+def _plan_out(p: PlanView) -> PlanOut:
+    return PlanOut(
+        id=p.id, status=p.status, created_by=p.created_by, created_at=p.created_at,
+        items=[PlanItemOut(**vars(i)) for i in p.items],
+    )  # fmt: skip
 
 
 def _out(h: DocHit) -> DocumentOut:
@@ -103,6 +146,36 @@ def search(
         return [_out(h) for h in list_documents(session, who.company_id, flt, limit)]
 
 
+@router.get("/documents/reorg")
+def current_plan(who: Owner, engine: Engine_) -> PlanOut | None:
+    """The newest Drive reorganisation plan with its items and status, or null when there never was one."""
+    with Session(engine) as session:
+        plan = latest_plan(session, who.company_id)
+    return _plan_out(plan) if plan else None
+
+
+@router.post("/documents/reorg", dependencies=[Depends(require_csrf), Depends(decision_limit)])
+def propose_plan(who: Owner, engine: Engine_) -> PlanCreatedOut:
+    """Compare where filed documents sit with where layout v2 puts them and record the differences as a plan."""
+    return PlanCreatedOut(plan_id=build_plan(engine, who.company_id, "owner"))
+
+
+@router.post(
+    "/documents/reorg/{plan_id}/decide", status_code=202, dependencies=[Depends(require_csrf), Depends(decision_limit)]
+)
+def decide(plan_id: UUID, body: PlanDecisionIn, who: Owner, engine: Engine_, client: WorkflowClient_) -> PlanStatusOut:
+    """Approve all or some items, or reject. An approved plan is applied in the background; a repeat changes nothing."""
+    try:
+        status = decide_plan(
+            engine, who.company_id, plan_id, body.approve, set(body.item_ids) if body.item_ids else None
+        )
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail=NOT_FOUND) from None
+    if status is ReorgPlanStatus.approved:
+        enqueue.enqueue_reorg(client, who.company_id, plan_id)
+    return PlanStatusOut(status=status)
+
+
 @router.get("/documents/{document_id}")
 def read(document_id: UUID, who: Owner, engine: Engine_) -> DocumentDetailOut:
     try:
@@ -117,6 +190,7 @@ def _write(engine: Engine, who: Principal, document_id: UUID, body: LinkIn, meth
         set_link(engine, who.company_id, document_id, body.kind, body.ref_id, method)
     except NotFoundError:
         raise HTTPException(status_code=404, detail=NOT_FOUND) from None
+    build_plan(engine, who.company_id, "system", [document_id])  # a changed link may move the file: propose, never move
 
 
 @router.post(
