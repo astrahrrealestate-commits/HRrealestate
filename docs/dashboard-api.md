@@ -136,7 +136,13 @@ the structured fields are what the server trusts, and only after checking that t
 unknown or stale id is dropped (reported to the planner as "no longer exists", without the id). The validated page is
 stored on the turn, and its facts are resolved once, so a retried turn answers from the same context.
 
-Example:
+Answers use the page too: when the plan has an `answer` step (or the planner fails and the agent falls back to a
+plain answer), the question is answered from your open cases and tasks plus the page facts, with the snapshot and
+filters as advisory display text (prompt `owner_qa/v3`). So "what does this page say?" is answered from the page, and
+"is this draft okay?" on an approval is answered from the server's copy of the draft (the planner is told to add an
+`open_view` step for `approvals`; the agent never approves or sends). Without `page` the answer is exactly as before.
+
+Example ("is this draft okay?" on an open approval):
 
 ```json
 {

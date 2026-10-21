@@ -71,3 +71,6 @@ Agent in front of the other agents. Tenant messages are mirrored in the dashboar
   (`<page_facts>`); the snapshot is unverified display text in an escaped `<page_snapshot>` block, never an id,
   recipient or permission source. Stored on the turn (`agent_turns.page_context`, migration 0011) with the facts
   resolved once, so a retry reuses them. Prompt `concierge/v2`.
+- **Page-aware answers (Task 4).** The `answer` step and the planner-failure fallback pass the stored page facts and
+  snapshot to `owner_qa`, which uses prompt `owner_qa/v3` only when a page is present (`owner_qa/v2` and a
+  byte-identical prompt otherwise). Still at most one `owner_qa` call per turn, under the same `owner_qa` budget.

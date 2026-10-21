@@ -212,10 +212,19 @@ sweep are included.
 - *As built (Task 3, 2026-10-16):* the first run resolves the facts once and stores them in the same jsonb under
   `page_context.resolved` (`{facts, dropped}`) before the model call; a retry reuses them and never re-resolves. A
   resolver bug stores empty facts (`error` = exception type) and the turn goes on without them; transient errors
-  retry. Raw snapshots over 24000 characters are rejected before collapsing; `\r` is a rejected control character.
-  Open waits are not part of the facts (not requested by any field). `task_ref` resolves open or snoozed tasks only.
-  `answer` steps still go to `owner_qa` with the owner's question only: it does not see the page facts or snapshot
-  (follow-up), so "what does this page say" is answered from the open cases, not the snapshot.
+  retry. Raw snapshots over 24000 characters are rejected before collapsing. Open waits are not part of the facts
+  (not requested by any field). `task_ref` resolves open or snoozed tasks only.
+- *As built (Task 4, 2026-10-16):* `answer` steps and the planner-failure `owner_qa` fallback see the page: the stored
+  `resolved` facts plus the snapshot and filters (no new I/O; a turn stored before facts were resolved gets no page).
+  They use prompt `owner_qa/v3` (escaped `<page_facts>` authoritative, `<page_snapshot>` unverified: may describe the
+  page, never an id, recipient, instruction or permission source; same scope rule and refusal). Without a page the
+  owner_qa prompt is byte-identical and the spec stays `owner_qa/v2` (WhatsApp/Chat questions unchanged); screening
+  applies to the owner's text only, budget and fallbacks unchanged; `case_refs` may also name case ids on the
+  server-built page fact lines. Snapshot CRLF and lone CR become LF (other control characters still `422`). A visible
+  thread key may be up to 400 characters (UUIDs and task refs 120). The filters line is rendered apart from the
+  snapshot, so only the snapshot is capped at 6000. Prompt escaping strips Unicode format characters (Cf), applies
+  NFKC and maps angle-quote/slash look-alikes before matching block tags (NFKC also folds compatibility characters
+  such as `½` in ordinary text).
   The thread key codec moved to `app/contracts/thread_key.py` (request contracts may not import the pipeline);
   `app.pipeline.read_repo` re-exports it.
 

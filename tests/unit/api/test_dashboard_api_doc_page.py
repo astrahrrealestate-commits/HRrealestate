@@ -46,3 +46,11 @@ def test_documented_limits_match_the_contract() -> None:
     ):
         assert phrase in section, phrase
     assert all(f"`{v.value}`" in section for v in PageView)
+
+
+def test_documented_answers_use_the_page() -> None:
+    section = _section()
+    assert "`answer` step" in section
+    assert "owner_qa/v3" in section
+    assert "advisory" in section
+    assert "follow-up" not in section.lower()
