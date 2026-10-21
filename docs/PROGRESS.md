@@ -80,6 +80,12 @@ Phase 1 agents spec: [2026-10-07-estateos-phase1-agents-design.md](superpowers/s
 ## M9 Document filing
 - [x] classifier (metadata only) + Drive adapter + `file_document` (app/pipeline/documents.py, app/storage/drive.py, doc_classifier agent); workflow + review card
 
+## M10 Document intelligence — spec [2026-10-21-document-intelligence-design.md](superpowers/specs/2026-10-21-document-intelligence-design.md) · plan [2026-10-21-m10-document-intelligence.md](superpowers/plans/2026-10-21-m10-document-intelligence.md) · branch `m10-document-intelligence`
+Docker is down: no integration test or `make check` run for any task below until the stack is up.
+- [x] spec + plan written (no brainstorm: user said "just start"); spec lists 3 open decisions for the user
+- [ ] 1 migration 0011 · 2 text extractor + ADR 0007 · 3 DocumentFacts + doc_reader · 4 read/chunk pipeline · 5 linking
+- [ ] 6 search + API · 7 Super Agent intents + doc_qa · 8 proposer excerpts · 9 Drive move/layout v2 · 10 reorg plan workflow · 11 backfill + sim-demo + live-check
+
 ## Review rounds (whole branch, 2026-10-08)
 - [x] round 1 (estateos-reviewer + peer): owner-step retries, pipeline failure handling (no silent drops, final failure → `other` case + alert), blocked approvals told + `resume` reruns, re-fired chase timers, blank/command edits, edit replay, task #refs, outbox per-item isolation + current owner number, payload recipient check, reply channel from the message, propose lock, timers queue, briefing lists stuck items, company_id scoping
 - [x] round 2 (peer): atomic send claim `pending → sending` (no double delivery, migration 0007), permanent failures tell Harjot, stranded-`pending` sweep with hour ids, lease renewal at handler start, refs-only done/snooze, thread's own Gmail mailbox for drafts, review-card retry, `<mode>` escaped; migration 0006 indexes + NULLS NOT DISTINCT waits
