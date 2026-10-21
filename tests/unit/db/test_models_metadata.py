@@ -12,6 +12,8 @@ SPEC_TABLES = {
     "tasks", "waits", "documents", "metric_snapshots", "owner_outbox",
     # dashboard (spec 2026-10-15)
     "owner_feed", "agent_conversations", "agent_turns",
+    # document intelligence (spec 2026-10-21)
+    "document_chunks", "document_links", "drive_reorg_plans", "drive_reorg_items",
 }  # fmt: skip
 
 

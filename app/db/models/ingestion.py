@@ -10,7 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.contracts import Channel, Direction
 from app.db.base import Base, CompanyScoped, str_enum
-from app.db.enums import DeliveryStatus, PipelineStatus, RawEventStatus
+from app.db.enums import DeliveryStatus, ExtractionStatus, PipelineStatus, RawEventStatus
 
 
 class RawEvent(Base, CompanyScoped):
@@ -75,3 +75,6 @@ class AttachmentRow(Base, CompanyScoped):
     size_bytes: Mapped[int] = mapped_column(BigInteger)
     sha256: Mapped[str] = mapped_column(String(64))
     extracted_text: Mapped[str | None] = mapped_column(Text)
+    extraction_status: Mapped[ExtractionStatus | None] = mapped_column(str_enum(ExtractionStatus))
+    page_count: Mapped[int | None]
+    extractor: Mapped[str | None] = mapped_column(String(32))  # which reader produced extracted_text

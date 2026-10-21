@@ -134,6 +134,36 @@ class DocumentStatus(StrEnum):
     failed = "failed"
 
 
+class ExtractionStatus(StrEnum):
+    """Attachment text extraction: `skipped` = by policy (ID documents, over the caps, not a readable type)."""
+
+    done = "done"
+    skipped = "skipped"
+    failed = "failed"
+
+
+class DocLinkKind(StrEnum):
+    person = "person"
+    unit = "unit"
+    lease = "lease"
+    case = "case"
+
+
+class ReorgPlanStatus(StrEnum):
+    proposed = "proposed"
+    approved = "approved"
+    applied = "applied"
+    rejected = "rejected"
+
+
+class ReorgItemStatus(StrEnum):
+    proposed = "proposed"
+    approved = "approved"
+    moved = "moved"
+    rejected = "rejected"
+    failed = "failed"
+
+
 class OutboxStatus(StrEnum):
     """Owner message waiting for the WhatsApp 24-hour window (sent once Harjot writes again)."""
 

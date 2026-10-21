@@ -2,6 +2,7 @@
 
 from app.db.models.dashboard import AgentConversation, AgentTurn, OwnerFeed
 from app.db.models.directory import ChannelIdentity, DirectoryImport, Lease, LeaseParty, Person, Unit
+from app.db.models.documents import DocumentChunk, DocumentLink, DriveReorgItem, DriveReorgPlan
 from app.db.models.ingestion import AttachmentRow, MessageRow, RawEvent
 from app.db.models.ops import MetricSnapshot, ModelCall, Outcome, Timer
 from app.db.models.owner import Approval, OwnerOutbox, Send
@@ -23,7 +24,11 @@ __all__ = [
     "ChannelIdentity",
     "Company",
     "DirectoryImport",
+    "DocumentChunk",
+    "DocumentLink",
     "DocumentRow",
+    "DriveReorgItem",
+    "DriveReorgPlan",
     "GmailSyncState",
     "Lease",
     "LeaseParty",

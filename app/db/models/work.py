@@ -1,9 +1,10 @@
 """Agent work items: owner tasks (#6), waiting-for items (#5) and filed documents (#9)."""
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
+from typing import Any
 
-from sqlalchemy import ForeignKey, Index, String, Text, text
+from sqlalchemy import ForeignKey, Index, String, Text, false, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, CompanyScoped, str_enum
@@ -72,7 +73,7 @@ class WaitRow(Base, CompanyScoped):
 
 
 class DocumentRow(Base, CompanyScoped):
-    """One filing decision per attachment. Phase 1 classifies from metadata only (contents are never read)."""
+    """One filing decision per attachment. `summary`/`facts` come from reading the extracted text (M10), else null."""
 
     __tablename__ = "documents"
     __table_args__ = (Index(None, "model_call_id"),)
@@ -89,3 +90,10 @@ class DocumentRow(Base, CompanyScoped):
     drive_folder: Mapped[str | None] = mapped_column(String(255))
     model_call_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("model_calls.id"))
     error: Mapped[str | None] = mapped_column(Text)
+    summary: Mapped[str | None] = mapped_column(Text)
+    facts: Mapped[dict[str, Any] | None]  # DocumentFacts.key_facts, typed per doc_type
+    document_date: Mapped[date | None]
+    reader_version: Mapped[str | None] = mapped_column(String(16))
+    suspicious: Mapped[bool] = mapped_column(
+        default=False, server_default=false()
+    )  # injection scan hit: not draft context
