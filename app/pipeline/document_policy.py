@@ -46,6 +46,14 @@ def should_skip(meta: FileMeta) -> bool:
     return meta.mime_type.startswith(_SKIP_MIME_PREFIXES) or name.endswith(_SKIP_SUFFIXES)
 
 
+_ID_NAME = re.compile(r"passport|paspoort|identiteit|id[-_ ]?(kaart|card)|rijbewijs|driver.?licen|\bbsn\b", re.I)
+
+
+def looks_like_id(meta: FileMeta) -> bool:
+    """A file name that says it is an identity document: never read its contents (ADR 0007)."""
+    return bool(meta.filename and _ID_NAME.search(meta.filename))
+
+
 def slug(text: str, limit: int = 40) -> str:
     ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
     cut = re.sub(r"[^a-z0-9]+", "-", ascii_text.lower()).strip("-")[:limit].strip("-")
