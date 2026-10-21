@@ -209,6 +209,15 @@ sweep are included.
 - Stored on the turn (`agent_turns.page_context` jsonb, migration 0011) so a retried turn reuses the same context.
 - Prompt `concierge/v2` (v1 stays published): adds the page blocks, "this/it/them resolve to the page entity" and that
   the snapshot is unverified display text.
+- *As built (Task 3, 2026-10-16):* the first run resolves the facts once and stores them in the same jsonb under
+  `page_context.resolved` (`{facts, dropped}`) before the model call; a retry reuses them and never re-resolves. A
+  resolver bug stores empty facts (`error` = exception type) and the turn goes on without them; transient errors
+  retry. Raw snapshots over 24000 characters are rejected before collapsing; `\r` is a rejected control character.
+  Open waits are not part of the facts (not requested by any field). `task_ref` resolves open or snoozed tasks only.
+  `answer` steps still go to `owner_qa` with the owner's question only: it does not see the page facts or snapshot
+  (follow-up), so "what does this page say" is answered from the open cases, not the snapshot.
+  The thread key codec moved to `app/contracts/thread_key.py` (request contracts may not import the pipeline);
+  `app.pipeline.read_repo` re-exports it.
 
 ### Conversation memory
 The brief's history carries the last 6 turns of this conversation as owner text plus the agent's own answer (answer

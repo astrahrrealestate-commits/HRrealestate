@@ -64,3 +64,10 @@ Agent in front of the other agents. Tenant messages are mirrored in the dashboar
 - **Deployment.** Serve the SPA same-origin behind the reverse proxy. `DASHBOARD_CORS_ORIGINS` is an optional exact
   allowlist for a SPA on another origin (never `*`). Each request re-reads the owner row, so removing an owner or
   changing the email ends the session at once.
+
+## Amendment (2026-10-16, page-aware Super Agent)
+- **Page context.** `POST /agent/messages` takes an optional `page` (open entity ids, visible row ids, filters and a
+  text snapshot of the page, at most 6000 characters). Ids are resolved company-scoped into server facts
+  (`<page_facts>`); the snapshot is unverified display text in an escaped `<page_snapshot>` block, never an id,
+  recipient or permission source. Stored on the turn (`agent_turns.page_context`, migration 0011) with the facts
+  resolved once, so a retry reuses them. Prompt `concierge/v2`.

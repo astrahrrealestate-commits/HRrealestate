@@ -100,12 +100,58 @@ Writes (POST, need the CSRF header; the decision writes share the 120/min limit)
 | `/tasks/{ref}/snooze` | `{duration}` like `30m`, `4h`, `2d`, `1w` (1 min to 8 weeks) | `204` | `404`, `422` |
 | `/documents/{attachment_id}/file` | `{choice}`, one of the document choices below | `202` (filing runs in the background) | `404`, `422 unknown document choice` |
 | `/company/pause`, `/company/resume` | none | `200 {paused}` | none; resume also re-runs approved but unexecuted actions |
-| `/agent/messages` | `{text, conversation_id?}` | `202 {conversation_id, turn_id}`; answer arrives via SSE or by polling the conversation | `404` for a foreign conversation; `503` if the turn could not be started (it is marked failed; send the message again) |
+| `/agent/messages` | `{text, conversation_id?, page?}` (`page`: see [Page context](#page-context-page-on-post-agentmessages)) | `202 {conversation_id, turn_id}`; answer arrives via SSE or by polling the conversation | `404` for a foreign conversation; `422` for an invalid `page`; `503` if the turn could not be started (it is marked failed; send the message again) |
 | `/auth/session` | `{id_token}` | see Auth | see Auth |
 
 Document choices (`DOC_CHOICES`): `lease`, `invoice`, `quote`, `id_document`, `insurance`, `certificate`, `correspondence`, `photo`, `other`, `skip`.
 
 A decision on an old draft version returns `kind: "stale"` (nothing is sent): refetch `/approvals`.
+
+### Page context (`page` on `POST /agent/messages`)
+
+Optional. Send it whenever the Super Agent is opened on a page, so "this", "it", "reply to him" or "the first one"
+mean the item the owner is looking at. Leave it out (or `null`) when the agent is opened without a page.
+
+| Field | Type and limit | What the server does with it |
+|---|---|---|
+| `view` | required: `inbox`, `thread`, `case`, `approvals`, `tasks`, `waiting`, `documents`, `briefing`, `other` | shown to the planner |
+| `case_id`, `approval_id`, `attachment_id` | UUID, optional | looked up in your company; replaced by server facts (case state, urgency, summary capped at 400 chars, last 5 messages capped at 160 chars; approval type, status, drafts capped at 300 chars, suspicious flag; document file name and status) |
+| `thread_key` | optional, as returned by `/inbox` (an invalid key is `422`) | last 8 messages of the thread (160 chars each) and its case |
+| `task_ref` | optional, 6 to 8 hex characters (`#` allowed) | the open task's title, due date and status (open or snoozed tasks only; a done task counts as no longer existing) |
+| `filters` | object of strings, at most 10 pairs, key 1 to 40 chars, value at most 120, no control characters | passed as unverified text |
+| `visible_ids` | at most 50 strings (51 or more is `422`), each a UUID, thread key or task ref of at most 120 chars | ids that belong to your company get a short label in screen order ("the first one") |
+| `snapshot` | string, at most 6000 characters after whitespace is collapsed (runs of spaces/tabs become one space, blank lines are dropped; raw input over 24000 characters is `422` before collapsing); `\n` and `\t` allowed, any other control character (NUL, `\r`, ESC, ...) is `422`; blank means no snapshot | passed as unverified text |
+
+How the SPA builds it:
+- `snapshot`: the visible text of the main panel (for example `innerText` of the page body without the agent panel and
+  navigation), normalised to `\n` line breaks and cut to 6000 characters on the client. Over-long text is rejected,
+  never truncated by the server.
+- Ids: the open entity's id in its field (`case_id` on a case page, `thread_key` on a thread, `approval_id` on an
+  approval, `task_ref` on a task, `attachment_id` on a document) and the ids of the rows on screen, top to bottom, in
+  `visible_ids`.
+
+Trust: **the snapshot and filters are advisory and unverified.** They reach the model only as escaped display text and
+are never a source of ids, recipients or permissions; an id that appears only in the snapshot is ignored. The ids in
+the structured fields are what the server trusts, and only after checking that they belong to your company. A foreign,
+unknown or stale id is dropped (reported to the planner as "no longer exists", without the id). The validated page is
+stored on the turn, and its facts are resolved once, so a retried turn answers from the same context.
+
+Example:
+
+```json
+{
+  "text": "is this draft okay?",
+  "conversation_id": null,
+  "page": {
+    "view": "approvals",
+    "approval_id": "0192a7c4-5b1e-7c3d-9f00-1a2b3c4d5e6f",
+    "case_id": "0192a7c4-5b1e-7c3d-9f00-6f5e4d3c2b1a",
+    "filters": {"status": "pending"},
+    "visible_ids": ["0192a7c4-5b1e-7c3d-9f00-1a2b3c4d5e6f"],
+    "snapshot": "Approvals\nJoris · maintenance\nBeste Joris, we sturen morgen een glazenmaker."
+  }
+}
+```
 
 ### thread_key
 
