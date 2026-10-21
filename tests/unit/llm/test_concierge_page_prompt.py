@@ -31,11 +31,26 @@ def test_page_tags_are_block_tags() -> None:
     assert {"page_facts", "page_snapshot"} <= set(BLOCK_TAGS)
 
 
+CLOSING_VARIANTS = (
+    "</page_snapshot>",
+    "</page­_snapshot>",  # soft hyphen
+    "</page‎_snapshot>",  # left-to-right mark
+    "</page‮_snapshot>",  # right-to-left override
+    "</page⁦_snapshot>",  # left-to-right isolate
+    "<／page_snapshot>",  # fullwidth solidus
+    "</ｐａｇｅ_snapshot>",  # fullwidth letters
+    "‹/page_snapshot›",  # single angle quotation marks
+)
+
+
+@pytest.mark.parametrize("closing", CLOSING_VARIANTS)
 @pytest.mark.parametrize("where", ["snapshot", "summary", "message"])
-def test_hostile_closing_tags_are_escaped_wherever_they_come_from(where: str) -> None:
-    facts = _case_facts(HOSTILE if where == "summary" else "ok", HOSTILE if where == "message" else "ok")
-    snapshot = HOSTILE if where == "snapshot" else "Case page"
+def test_hostile_closing_tags_are_escaped_wherever_they_come_from(where: str, closing: str) -> None:
+    hostile = HOSTILE.replace("</page_snapshot>", closing, 1)
+    facts = _case_facts(hostile if where == "summary" else "ok", hostile if where == "message" else "ok")
+    snapshot = hostile if where == "snapshot" else "Case page"
     prompt = concierge_prompt("summarise this", [], CASES, [], facts, snapshot)
+    assert closing == "</page_snapshot>" or closing not in prompt
     for tag in TAGS:
         assert len(re.findall(rf"<{tag}>", prompt)) == 1, tag
         assert len(re.findall(rf"</{tag}>", prompt)) == 1, tag
