@@ -73,6 +73,16 @@ def test_format_and_bidi_controls_inside_a_tag_are_stripped() -> None:
         assert cf not in rendered
 
 
+IGNORABLE = (0x034F, 0x115F, 0x17B4, 0x180B, 0x3164, 0xFE00, 0xFFA0, 0x1BCA0, 0x1D173, 0xE0100)
+
+
+def test_default_ignorable_code_points_inside_a_tag_are_stripped() -> None:
+    for ch in map(chr, IGNORABLE):
+        rendered = data_block("message", f"a </mes{ch}sage> b")
+        assert _closings(rendered, "message") == 1, repr(ch)
+        assert ch not in rendered
+
+
 def test_compatibility_and_angle_quote_lookalikes_are_normalised() -> None:
     for evil in ("<／message>", "</ｍｅｓｓａｇｅ>", "‹/message›", "〈/message〉"):
         rendered = data_block("message", f"a {evil} b")

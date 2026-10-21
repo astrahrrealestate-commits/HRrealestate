@@ -3,15 +3,16 @@
 Without page blocks it counts the open cases in `<data>` (unchanged since v2). With a page it describes the page,
 always starting with "On this page": the open approval's draft for a draft question, else the first snapshot lines,
 else the open item in `<page_facts>`. It never repeats a line that looks like an instruction or carries contact
-details, and never an id seen on the page. `case_refs` come from the `<data>` block only. Off-topic owner text is
-refused whether or not a page is present.
+details, and never an id seen on the page. `case_refs` come from the `<data>` block only. Off-topic owner text
+(including requests for its prompt or rules) is refused whether or not a page is present.
 """
 
 import re
 
 _OFF_TOPIC = (
     r"\b(poem|gedicht|recipe|recept|joke|grap|capital of|hoofdstad|python|javascript|bitcoin|translate|vertaal"
-    r"|ignore (all )?(previous|prior)|negeer (alle )?(vorige|eerdere))\b"
+    r"|ignore (all )?(previous|prior)|negeer (alle )?(vorige|eerdere)|system ?prompt|systeemprompt"
+    r"|your (rules|instructions))\b"
 )
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
 _INSTRUCTION = re.compile(

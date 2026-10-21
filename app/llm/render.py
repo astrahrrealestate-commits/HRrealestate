@@ -3,7 +3,8 @@
 Untrusted text (messages, subjects, file names, case summaries, contractor names) only ever reaches a model inside
 a block rendered here (CLAUDE.md invariant 6). Inside such text, every block tag, opening or closing, of ANY block
 type is neutralised, so content can neither close its own block nor fake another one. Look-alike characters are
-normalised first: format characters (Unicode category Cf: zero-width, soft hyphen, bidi controls) are removed, the
+normalised first: format characters (Unicode category Cf: zero-width, soft hyphen, bidi controls) and the other
+default-ignorable code points (combining grapheme joiner, variation selectors, Hangul fillers) are removed, the
 text is NFKC-normalised (fullwidth and small-form brackets, solidus and letters become plain ones), and angle
 quotation marks and other angle brackets or slashes become `<`, `>` and `/`. So `＜/message＞`, `‹/message›`,
 `</mes` ZWSP `sage>` or `</page` soft-hyphen `_snapshot>` are caught like `</message>`. NFKC also folds compatibility
@@ -30,6 +31,13 @@ _LOOKALIKES = str.maketrans(
         "\u2044": "/", "\u2215": "/", "\u29f8": "/",
     }
 )  # fmt: skip
+# Unicode Default_Ignorable_Code_Point (explicit table; most are also category Cf, the rest are Mn/Lo fillers such as
+# the combining grapheme joiner, variation selectors and Hangul fillers).
+_IGNORABLE = re.compile(
+    "[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u200b-\u200f\u202a-\u202e\u2060-\u206f"
+    "\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff0-\ufff8\U0001bca0-\U0001bca3\U0001d173-\U0001d17a"
+    "\U000e0000-\U000e0fff]"
+)
 _TAG = re.compile(rf"<(\s*/?\s*)({'|'.join(BLOCK_TAGS)})\b", re.IGNORECASE)
 
 
@@ -40,9 +48,14 @@ class AttachmentMeta:
     size_bytes: int
 
 
+def _strip_invisible(text: str) -> str:
+    return _IGNORABLE.sub("", "".join(ch for ch in text if unicodedata.category(ch) != "Cf"))
+
+
 def _normalise(content: str) -> str:
-    visible = "".join(ch for ch in content if unicodedata.category(ch) != "Cf")
-    return unicodedata.normalize("NFKC", visible).translate(_LOOKALIKES)
+    """Invisible characters out (again after NFKC: U+3164/U+FFA0 become U+1160), compatibility forms folded,
+    angle look-alikes mapped."""
+    return _strip_invisible(unicodedata.normalize("NFKC", _strip_invisible(content))).translate(_LOOKALIKES)
 
 
 def escape(content: str, tag: str | None = None) -> str:

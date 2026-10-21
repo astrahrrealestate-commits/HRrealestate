@@ -10,7 +10,10 @@ from app.contracts.common import Channel
 from app.core.errors import EstateOSError
 
 MAX_REF_LEN = 255  # messages.thread_ref / provider_msg_id are String(255)
-MAX_THREAD_KEY = 400  # base64 of `{channel}:{ref}` with a MAX_REF_LEN ref is at most 348 characters
+# Base64 of `{channel}:{ref}` for an ASCII ref of MAX_REF_LEN characters is at most 348 characters. The limit assumes
+# ASCII refs (Message-IDs, WhatsApp ids): a long non-ASCII ref (up to 4 UTF-8 bytes per character) encodes longer and
+# its key is refused (422) as `thread_key` or visible id.
+MAX_THREAD_KEY = 400
 
 
 class BadThreadKeyError(EstateOSError):
