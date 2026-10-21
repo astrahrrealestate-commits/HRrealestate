@@ -92,6 +92,16 @@ def test_compatibility_forms_are_folded_by_nfkc() -> None:
     assert data_block("data", "½ m² ﬁle x") == "<data>\n1/2 m2 file x\n</data>"
 
 
+def test_nfkc_expansion_cannot_grow_a_block_past_the_cap() -> None:
+    rendered = data_block("message", "\ufdfa" * 8000)  # each expands to 18 characters under NFKC
+    assert len(rendered) < 8500
+    assert rendered.endswith("\n[…truncated]\n</message>")
+
+
+def test_format_characters_do_not_count_towards_the_cap() -> None:
+    assert "truncated" not in data_block("message", "\u200b" * 9000 + "kort bericht")
+
+
 def test_truncation_marker_survives_normalisation() -> None:
     assert data_block("data", "a" * 9000).endswith("\n[…truncated]\n</data>")
 

@@ -16,6 +16,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 MAX_BODY_CHARS = 8000
+MAX_RAW_CHARS = 4 * MAX_BODY_CHARS  # read before normalising (format characters are dropped there)
 MAX_ATTACHMENTS = 10
 BLOCK_TAGS = (
     "message", "data", "waiting", "contractors", "attachments", "file", "case", "mode", "history", "page_facts",
@@ -53,9 +54,12 @@ def escape(content: str, tag: str | None = None) -> str:
 
 
 def data_block(tag: str, content: str) -> str:
-    """Renders content inside <tag>...</tag>, truncating and escaping every block tag inside it."""
-    marker = "\n[…truncated]" if len(content) > MAX_BODY_CHARS else ""
-    return f"<{tag}>\n{escape(content[:MAX_BODY_CHARS], tag)}{marker}\n</{tag}>"
+    """Renders content inside <tag>...</tag>, truncating and escaping every block tag inside it. The cap applies
+    after normalisation (NFKC can expand a character up to 18-fold); raw input is bounded first."""
+    text = _normalise(content[:MAX_RAW_CHARS])
+    truncated = len(content) > MAX_RAW_CHARS or len(text) > MAX_BODY_CHARS
+    marker = "\n[…truncated]" if truncated else ""
+    return f"<{tag}>\n{escape(text[:MAX_BODY_CHARS], tag)}{marker}\n</{tag}>"
 
 
 def one_line(value: str) -> str:
