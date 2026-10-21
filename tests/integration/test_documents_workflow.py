@@ -5,14 +5,17 @@ from typing import Any, cast
 from uuid import UUID
 
 import pytest
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
+from sqlalchemy.orm import Session
 
 from app.core.errors import EstateOSError
+from app.db.models import DocumentChunk, DocumentLink
 from app.ingestion.process import IngestDeps
 from app.storage.drive import MemoryDrive
+from app.storage.extract import FakeExtractor
 from app.storage.memory import MemoryStorage
 from app.workflows import documents
-from app.workflows.deps import set_deps, set_drive
+from app.workflows.deps import set_deps, set_drive, set_extractor
 from tests.integration.test_documents import _attachment
 
 pytestmark = pytest.mark.integration
@@ -53,3 +56,22 @@ def test_review_card_survives_a_transient_send_failure(
     monkeypatch.setattr(documents, "send_owner_message", send)
     assert documents.file_document_wf(str(company_id), str(att), None) == "review"
     assert calls == [f"docreview:{att}", f"docreview:{att}"]  # retried once, same idempotency key
+
+
+def test_workflow_reads_files_and_links_a_document(
+    storage: MemoryStorage, migrated_engine: Engine, committed_company: Any
+) -> None:
+    company_id: UUID = committed_company.id
+    text = b"Huurovereenkomst\nHuurder: Anna de Vries\nWaarborgsom: twee maanden huur"
+    att = _attachment(migrated_engine, company_id, storage, "scan.pdf", "application/pdf", text)
+    set_extractor(FakeExtractor())
+    try:
+        assert documents.file_document_wf(str(company_id), str(att), None) == "filed"
+    finally:
+        set_extractor(None)
+    with Session(migrated_engine) as session:
+        chunks = session.scalars(select(DocumentChunk.text).where(DocumentChunk.company_id == company_id)).all()
+        links = session.scalars(select(DocumentLink.kind).where(DocumentLink.company_id == company_id)).all()
+    assert len(chunks) == 1
+    assert "waarborgsom" in chunks[0].lower()
+    assert [k.value for k in links] == ["person"]  # the sender; no case or directory match in this fixture

@@ -18,6 +18,7 @@ from app.db.models import AttachmentRow, DocumentRow
 from app.ingestion.process import is_transient
 from app.llm.calls import is_transient as llm_transient
 from app.owner.cards import document_review_key, document_review_payload
+from app.pipeline.document_links import link_document
 from app.pipeline.documents import file_document, skip_document
 from app.storage.drive import is_transient as drive_transient
 from app.workflows import queues
@@ -57,6 +58,12 @@ def file_step(company_id: str, attachment_id: str, owner_choice: str | None) -> 
     return status.value
 
 
+@DBOS.step(name="documents.link")
+def link_step(company_id: str, attachment_id: str) -> int:
+    """Link the document to its people, unit, lease and case. Idempotent; runs for every outcome except `skipped`."""
+    return len(link_document(get_engine(), UUID(company_id), UUID(attachment_id)).links)
+
+
 @DBOS.step(name="documents.skip")
 def skip_step(company_id: str, attachment_id: str) -> str:
     return skip_document(get_engine(), UUID(company_id), UUID(attachment_id)).value
@@ -82,6 +89,8 @@ def file_document_wf(company_id: str, attachment_id: str, owner_choice: str | No
     if owner_choice == SKIP:
         return skip_step(company_id, attachment_id)
     status = file_step(company_id, attachment_id, owner_choice)
+    if status != "skipped":
+        link_step(company_id, attachment_id)
     if status == "review" and owner_choice is None:
         review_card_step(company_id, attachment_id)
     return status
