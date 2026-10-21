@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -144,11 +145,17 @@ class BashGuard(unittest.TestCase):
         self.assertIsNone(bash("echo '# never bypass with --no-verify' > .pre-commit-config.yaml"))
         self.assertIsNone(bash("git commit -m 'note'"))
 
-    def test_blocks_git_write_in_home_repo(self) -> None:
-        self.assertEqual(bash("git add -A", cwd=HOME), "deny")
-        self.assertEqual(bash(f"cd {HOME} && git commit -m x"), "deny")
-        self.assertIsNone(bash("git status", cwd=HOME))
+    def test_blocks_git_write_in_foreign_repo(self) -> None:
+        """A git repo that is not EstateOS (on a dev machine: the home-dir repo). Built here, so the test does not
+        depend on the machine having one (CI runners have no repo above HOME)."""
+        with tempfile.TemporaryDirectory() as raw:
+            foreign = Path(raw).resolve()
+            subprocess.run(["git", "init", "-q", str(foreign)], env=GIT_FREE_ENV, check=True)
+            self.assertEqual(bash("git add -A", cwd=foreign), "deny")
+            self.assertEqual(bash(f"cd {foreign} && git commit -m x"), "deny")
+            self.assertIsNone(bash("git status", cwd=foreign))
 
+    @unittest.skipIf((PROJECT / ".git").is_file(), "needs a primary checkout; nested worktrees are not created from a linked one")
     def test_allows_git_write_in_own_linked_worktree(self) -> None:
         tmp = PROJECT / ".claude" / "worktrees" / "harness-selftest"
 
