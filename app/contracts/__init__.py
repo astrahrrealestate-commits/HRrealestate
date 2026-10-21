@@ -24,7 +24,15 @@ from app.contracts.common import (
     OutboundMode,
 )
 from app.contracts.concierge import ConciergePlan, Intent, PlanStep
-from app.contracts.document import DocType, DocumentClassification
+from app.contracts.document import (
+    DocParty,
+    DocType,
+    DocumentClassification,
+    DocumentFacts,
+    ExtractedText,
+    KeyFact,
+    PartyRole,
+)
 from app.contracts.linking import LinkDecision
 from app.contracts.message import Attachment, Message, normalise_identity
 from app.contracts.owner import OwnerChoice, OwnerMessage
@@ -53,14 +61,18 @@ __all__ = [
     "Contract",
     "CreateReminderPayload",
     "Direction",
+    "DocParty",
     "DocType",
     "DocumentClassification",
+    "DocumentFacts",
     "DraftRequest",
     "EmailRequest",
     "Entities",
     "EscalatePayload",
+    "ExtractedText",
     "Intent",
     "InteractiveChannel",
+    "KeyFact",
     "LinkDecision",
     "Message",
     "Money",
@@ -69,6 +81,7 @@ __all__ = [
     "OwnerAnswer",
     "OwnerChoice",
     "OwnerMessage",
+    "PartyRole",
     "PlanStep",
     "PromptRef",
     "Proposal",

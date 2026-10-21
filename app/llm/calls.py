@@ -6,7 +6,7 @@ propagate unchanged so the calling DBOS step retries them.
 """
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
@@ -16,6 +16,7 @@ import httpx
 from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.messages import UserContent
 from pydantic_ai.settings import ModelSettings
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
@@ -71,16 +72,34 @@ def _record(engine: Engine, row: ModelCall) -> None:
         session.add(row)
 
 
-def _row(spec: AgentSpec[Any], loaded: LoadedPrompt, settings: Settings, ctx: CallContext, prompt: str) -> ModelCall:
+def describe_prompt(prompt: str | Sequence[UserContent]) -> str:
+    """What `model_calls.input` records: the text, with each binary part (an image) as a size placeholder."""
+    if isinstance(prompt, str):
+        return prompt
+    return "\n".join(
+        part
+        if isinstance(part, str)
+        else f"[{getattr(part, 'media_type', 'binary')}: {len(getattr(part, 'data', b''))} bytes]"
+        for part in prompt
+    )
+
+
+def _row(
+    spec: AgentSpec[Any],
+    loaded: LoadedPrompt,
+    settings: Settings,
+    ctx: CallContext,
+    prompt: str | Sequence[UserContent],
+) -> ModelCall:
     return ModelCall(
         id=new_id(), company_id=ctx.company_id, purpose=ctx.purpose, prompt_name=spec.prompt.name,
         prompt_version=spec.prompt.version, prompt_sha256=loaded.sha256, model=settings.llm_model,
-        input={"prompt": prompt},
+        input={"prompt": describe_prompt(prompt)},
     )  # fmt: skip
 
 
 def run_agent[T: BaseModel](
-    engine: Engine, settings: Settings, spec: AgentSpec[T], user_prompt: str, ctx: CallContext
+    engine: Engine, settings: Settings, spec: AgentSpec[T], user_prompt: str | Sequence[UserContent], ctx: CallContext
 ) -> CallResult[T]:
     loaded = load_prompt(spec.prompt)
     check_budget(engine, settings, ctx.company_id, ctx.purpose)

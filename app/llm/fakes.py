@@ -2,7 +2,7 @@
 
 import re
 
-from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart, UserPromptPart
+from pydantic_ai.messages import BinaryContent, ModelMessage, ModelResponse, ToolCallPart, UserPromptPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from app.contracts import Category, Urgency
@@ -12,9 +12,21 @@ from app.llm.fakes_concierge import fake_concierge
 def _extract_user_text(messages: list[ModelMessage]) -> str:
     for m in reversed(messages):
         for part in getattr(m, "parts", []):
-            if isinstance(part, UserPromptPart) and isinstance(part.content, str):
-                return part.content
+            if isinstance(part, UserPromptPart):
+                if isinstance(part.content, str):
+                    return part.content
+                return "\n".join(c for c in part.content if isinstance(c, str))
     return ""
+
+
+def _extract_binary(messages: list[ModelMessage]) -> bytes:
+    for m in reversed(messages):
+        for part in getattr(m, "parts", []):
+            if isinstance(part, UserPromptPart) and not isinstance(part.content, str):
+                for c in part.content:
+                    if isinstance(c, BinaryContent):
+                        return c.data
+    return b""
 
 
 _SUSPICIOUS = (
@@ -250,6 +262,39 @@ def _fake_doc_classifier(prompt: str) -> dict[str, object]:
     return {"doc_type": "other", "title": "Document", "document_date": None, "confidence": 0.4}
 
 
+def _block(prompt: str, tag: str) -> str:
+    found = re.search(rf"<{tag}>\n(.*?)\n</{tag}>", prompt, re.S)
+    return found.group(1) if found else ""
+
+
+def _party(text: str, label: str, role: str) -> list[dict[str, str]]:
+    found = re.search(rf"^{label}:\s*(.+)$", text, re.M | re.I)
+    return [{"name": found.group(1).strip()[:120], "role": role}] if found else []
+
+
+_FACT_LINE = re.compile(r"^(waarborgsom|huur|opzegtermijn|totaal|vervaldatum):\s*(.+)$", re.M | re.I)
+_TERM = re.compile(r"^looptijd:\s*(\d{4}-\d{2}-\d{2})\s*(?:tot|-)\s*(\d{4}-\d{2}-\d{2})", re.M | re.I)
+
+
+def _fake_doc_reader(prompt: str) -> dict[str, object]:
+    """Offline reader: type from the document text (else the file name); `Huurder:`, `Verhuurder:`, `Leverancier:`
+    and `Adres:` lines give parties and unit, `Looptijd: yyyy-mm-dd tot yyyy-mm-dd` the term, `Label: value` facts."""
+    doc, meta = _block(prompt, "document"), _block(prompt, "file")
+    cls = _fake_doc_classifier(doc + "\n" + meta if doc != "none" else meta)
+    term, address = _TERM.search(doc), re.search(r"^adres:\s*(.+)$", doc, re.M | re.I)
+    facts = [{"label": m.group(1).lower(), "value": m.group(2).strip()[:160]} for m in _FACT_LINE.finditer(doc)]
+    parties = _party(doc, "huurder", "tenant") + _party(doc, "verhuurder", "landlord")
+    parties += _party(doc, "leverancier", "contractor")
+    return {
+        "doc_type": cls["doc_type"], "title": cls["title"], "document_date": None,
+        "summary": " ".join(doc.split())[:300] or "No readable text.",
+        "parties": parties, "unit_hint": address.group(1).strip()[:200] if address else None,
+        "start_date": term.group(1) if term else None, "end_date": term.group(2) if term else None,
+        "key_facts": facts[:10],
+        "confidence": 0.9 if doc != "none" and cls["doc_type"] != "other" else 0.4,
+    }  # fmt: skip
+
+
 def model_for(agent_name: str) -> FunctionModel:
     def fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         user_text = _extract_user_text(messages)
@@ -271,6 +316,10 @@ def model_for(agent_name: str) -> FunctionModel:
             args = _fake_briefing(user_text)
         elif agent_name == "doc_classifier":
             args = _fake_doc_classifier(user_text)
+        elif agent_name == "doc_reader":
+            args = _fake_doc_reader(user_text)
+        elif agent_name == "doc_ocr":
+            args = {"text": _extract_binary(messages).removeprefix(b"SCAN").decode("utf-8", errors="replace").strip()}
         else:
             args = {}
 

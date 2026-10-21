@@ -13,7 +13,10 @@ from dataclasses import dataclass
 
 MAX_BODY_CHARS = 8000
 MAX_ATTACHMENTS = 10
-BLOCK_TAGS = ("message", "data", "waiting", "contractors", "attachments", "file", "case", "mode", "history")
+BLOCK_TAGS = (
+    "message", "data", "waiting", "contractors", "attachments", "file", "case", "mode", "history",
+    "document", "excerpts",
+)  # fmt: skip
 
 _LOOKALIKES = str.maketrans({"＜": "<", "＞": ">", "﹤": "<", "﹥": ">"})
 _ZERO_WIDTH = re.compile("[​‌‍⁠﻿]")
@@ -39,10 +42,10 @@ def escape(content: str, tag: str | None = None) -> str:
     return _TAG.sub(lambda m: "<\\" + m.group(1) + m.group(2), _normalise(content))
 
 
-def data_block(tag: str, content: str) -> str:
+def data_block(tag: str, content: str, limit: int = MAX_BODY_CHARS) -> str:
     """Renders content inside <tag>...</tag>, truncating and escaping every block tag inside it."""
-    if len(content) > MAX_BODY_CHARS:
-        content = content[:MAX_BODY_CHARS] + "\n[…truncated]"
+    if len(content) > limit:
+        content = content[:limit] + "\n[…truncated]"
     return f"<{tag}>\n{escape(content, tag)}\n</{tag}>"
 
 
