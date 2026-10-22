@@ -427,8 +427,41 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
                     if isinstance(m.meta, dict)
                     else "Tenant Inquiry"
                 ),
-            })
-
+        # Also fetch any outgoing messages recorded in sends table for this case's actions
+        action_ids = [a.id for a in actions]
+        if action_ids:
+            sends = (
+                session.query(Send)
+                .filter(Send.action_id.in_(action_ids))
+                .order_by(Send.attempted_at.asc())
+                .all()
+            )
+            for s in sends:
+                s_dt = s.attempted_at if s.attempted_at else now_dt
+                if s_dt.tzinfo is None:
+                    s_dt = s_dt.replace(tzinfo=UTC)
+                s_days = (now_dt.date() - s_dt.date()).days
+                s_time_fmt = f"Today {s_dt.strftime('%H:%M')}" if s_days == 0 else (f"Yesterday {s_dt.strftime('%H:%M')}" if s_days == 1 else s_dt.strftime("%d %b %H:%M"))
+                # Retrieve draft text from action payload
+                act_row = next((a for a in actions if a.id == s.action_id), None)
+                act_payload = act_row.payload if act_row and isinstance(act_row.payload, dict) else {}
+                variants = act_payload.get("body_variants") or []
+                body_txt = variants[0] if variants else "Replied to tenant."
+                msgs_data.append({
+                    "id": str(s.id),
+                    "sender": "owner",
+                    "senderName": "Harjot Singh",
+                    "senderContact": "+31 20 000 0001",
+                    "sentAt": s_dt.isoformat(),
+                    "timeFormatted": s_time_fmt,
+                    "content": body_txt,
+                    "body": body_txt,
+                    "isIncoming": False,
+                    "channel": s.channel.value if s.channel else "whatsapp",
+                    "subject": "Reply to Tenant",
+                })
+        # Sort all messages chronologically
+        msgs_data.sort(key=lambda x: x.get("sentAt", ""))
         status_str = "needs_approval"
         if approval and approval.status == ApprovalStatus.approved:
             status_str = "approved"
