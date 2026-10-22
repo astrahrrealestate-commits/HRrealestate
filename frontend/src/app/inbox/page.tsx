@@ -403,7 +403,7 @@ function InboxContent() {
         </div>
 
         {/* 3. Omnichannel Inbox Workspace (Section 5.2: 2-column layout inside shell) */}
-        <div className="lg:grid lg:grid-cols-[380px_1fr] flex-1 min-h-0 h-[calc(100dvh-3.5rem)]">
+        <div className="lg:grid lg:grid-cols-[340px_1fr] xl:grid-cols-[380px_1fr] flex-1 min-h-0 h-[calc(100dvh-3.5rem)]">
           {/* Left Column: 6 Controls FilterBar + Grouped Thread List */}
           <div
             className={cn(

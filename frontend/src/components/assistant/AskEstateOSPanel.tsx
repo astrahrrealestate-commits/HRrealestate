@@ -80,7 +80,7 @@ export function AskEstateOSPanel({
 }: AskEstateOSPanelProps) {
   const [inputQuery, setInputQuery] = useState("");
   const [isTyping, setIsTyping] = useState(false);
-  const [isFullScreen, setIsFullScreen] = useState(true);
+  const [isFullScreen, setIsFullScreen] = useState(false);
   const [sendingCardId, setSendingCardId] = useState<string | null>(null);
   const [sentCardIds, setSentCardIds] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<AssistantMessage[]>([
@@ -241,22 +241,21 @@ export function AskEstateOSPanel({
 
   return (
     <>
-      {/* Backdrop: Dark blur for fullscreen, softer subtle veil when docked at 70% width */}
-      <div
-        onClick={onClose}
-        className={cn(
-          "fixed inset-0 z-40 transition-opacity duration-300 animate-in fade-in",
-          isFullScreen ? "bg-black/75 backdrop-blur-md" : "bg-black/25 backdrop-blur-[2px]"
-        )}
-      />
+      {/* Backdrop: ONLY shown if user explicitly maximizes to full screen */}
+      {isFullScreen && (
+        <div
+          onClick={() => setIsFullScreen(false)}
+          className="fixed inset-0 z-40 bg-black/60 transition-opacity duration-200 animate-in fade-in"
+        />
+      )}
 
-      {/* Main Assistant Panel: Full screen Grok-bot mode or responsive 70% right-side pane */}
+      {/* Main Assistant Panel: East window sidecar 30% docked mode (no blur, side-by-side with 70% page) or Full Screen */}
       <aside
         className={cn(
-          "fixed z-50 bg-[#0B0D0E] text-[#F3F4F6] shadow-2xl flex flex-col justify-between font-sans transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] animate-in select-none",
+          "bg-[#0B0D0E] text-[#F3F4F6] shadow-2xl flex flex-col justify-between font-sans select-none",
           isFullScreen
-            ? "inset-0 md:inset-4 md:rounded-[18px] md:border border-[#1E2327] overflow-hidden"
-            : "inset-0 md:inset-y-0 md:right-0 md:left-auto w-full md:w-[70vw] h-dvh md:border-l border-[#1E2327]"
+            ? "fixed inset-0 md:inset-6 md:rounded-[18px] md:border border-[#1E2327] z-50 overflow-hidden transition-all duration-200 animate-in zoom-in-95"
+            : "fixed inset-0 z-50 md:static md:z-auto w-full md:w-[30vw] md:min-w-[340px] md:max-w-[480px] h-dvh md:border-l border-[#1E2327] flex-shrink-0 transition-all duration-200 animate-in slide-in-from-right-4"
         )}
       >
         {/* 1. Grok-Style Header Bar */}
@@ -293,7 +292,7 @@ export function AskEstateOSPanel({
             <button
               onClick={() => setIsFullScreen((prev) => !prev)}
               className="hidden md:flex w-8 h-8 rounded-[8px] bg-[#14181B] hover:bg-[#1E2327] border border-[#22282E] text-[#94A3B8] hover:text-[#FFFFFF] items-center justify-center transition-colors cursor-pointer"
-              title={isFullScreen ? "Dock to Side Drawer" : "Expand to Full Screen"}
+              title={isFullScreen ? "Dock to East Window (30%)" : "Expand to Full Screen"}
             >
               {isFullScreen ? (
                 <Minimize2 className="w-3.5 h-3.5 stroke-[2]" />
