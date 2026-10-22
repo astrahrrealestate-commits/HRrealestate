@@ -169,10 +169,10 @@ export function InboxConversationView({
   };
 
   const urgentThread = isUrgent(thread);
-  // Show only the latest incoming message directly; collapse earlier/past messages behind a simple line
+  // Show all messages if user clicked showEarlier, or show latest incoming message PLUS any outgoing replies
   const earlierMessages = localMessages.slice(0, -1);
   const latestMessage = localMessages[localMessages.length - 1];
-  const visibleMessages = showEarlier
+  const visibleMessages = showEarlier || isSent || localMessages.length <= 2
     ? localMessages
     : latestMessage
     ? [latestMessage]

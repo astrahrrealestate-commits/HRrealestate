@@ -118,12 +118,27 @@ function InboxContent() {
     const targetThread = threads.find((t) => t.id === threadId);
     const approvalId = targetThread?.approvalId || targetThread?.id || threadId;
 
+    const nowIso = new Date().toISOString();
+    const newMsg = {
+      id: `out-${Date.now()}`,
+      sender: "owner" as const,
+      senderName: "Harjot Singh",
+      senderContact: "+31 20 000 0001",
+      sentAt: nowIso,
+      timeFormatted: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      body: draftText,
+      channel: outboundChannel,
+    };
+
     setThreads((prev) =>
       prev.map((t) => {
         if (t.id === threadId) {
+          const currentMsgs = t.messages || [];
           return {
             ...t,
             status: "approved" as const,
+            latestSnippet: draftText,
+            messages: [...currentMsgs, newMsg],
           };
         }
         return t;
