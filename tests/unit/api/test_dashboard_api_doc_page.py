@@ -16,6 +16,10 @@ from app.contracts.page_context import (
     PageView,
 )
 from app.contracts.thread_key import MAX_THREAD_KEY
+from app.pipeline import page_memory as pm
+from app.pipeline.page_facts import MAX_SUMMARY
+from app.pipeline.page_memory_lines import KEEP_NEWEST
+from app.pipeline.page_text import FACTS_BUDGET
 
 DOC = Path(__file__).resolve().parents[3] / "docs" / "dashboard-api.md"
 
@@ -54,3 +58,24 @@ def test_documented_answers_use_the_page() -> None:
     assert "owner_qa/v3" in section
     assert "advisory" in section
     assert "follow-up" not in section.lower()
+
+
+def test_documented_memory_pack_limits_match_the_code() -> None:
+    section = _section()
+    for phrase in (
+        f"Up to {pm.MAX_MESSAGES}: all of them when there are {pm.MAX_MESSAGES} or",
+        f"else the first {pm.FIRST} and the newest {pm.NEWEST}",
+        f"the text's first {pm.MAX_MESSAGE} characters",
+        f"summary ({MAX_SUMMARY} chars)",
+        f"at most {pm.MAX_LEASES})",
+        f"what in {pm.MAX_ABOUT} chars, expected",
+        f"by; at most {pm.MAX_WAITS})",
+        f"the last {pm.MAX_EVENTS} timeline events",
+        f"note in {pm.MAX_NOTE} chars",
+        f"the case's latest {pm.MAX_DRAFTS}",
+        f"first draft variant in {pm.MAX_EARLIER_DRAFT} chars",
+        f"at most {FACTS_BUDGET} characters",
+        f"older messages (down to the newest {KEEP_NEWEST})",
+        "that thread's messages only",
+    ):
+        assert phrase in section, phrase

@@ -250,6 +250,19 @@ streaming** in this round.
   newest-biased, direction and time), the case summary and timeline, lease/unit/person facts from the directory, open
   waits, earlier drafts and the owner's edits and decisions. Authoritative server facts, company-scoped, tenant text
   escaped like all untrusted text, bounded token budget; stored resolved on the turn like other facts.
+  - *As built (Task 1, 2026-10-22):* a thread page reads that thread's messages only; a case page (no thread) reads
+    the case's linked messages on every channel. One window query numbers the conversation and keeps all messages up
+    to 30, else the first 6 and newest 24; each is one line `msg NN | direction | channel | time UTC | text` (600
+    characters, normalised and collapsed before capping, so tenant text never starts a line or forges a fact line).
+    The case memory (the open case, else the open thread's case) is four queries: the person and that person's lease
+    parties (Phase 1 cases carry no unit/lease ids, so leases come from the lease parties; at most 3), open waits (at
+    most 5, `about` 200), the last 15 events (note 120) and the latest 5 actions (status, `draft_version`, latest
+    approval status, edit revisions count, first variant 300). Summary cap is now 800. The facts text is at most
+    12000 characters after normalisation; over it, whole lines go in a fixed order (older messages down to the newest
+    6, visible rows bottom first, oldest events, oldest earlier drafts, remaining messages), never the headers,
+    summary, directory facts or waits, with gap markers and a "left out" line. Only `<page_facts>` gets the larger
+    12000 cap (`page_blocks.MAX_PAGE_FACTS`; other blocks keep 8000), escaping still runs after truncation. Statement
+    count per page does not grow with the number of messages.
 - **Steerable drafts:** `draft_reply` takes the owner's wording as sanitised guidance for the proposer (new proposer
   prompt version; v1 stays published); with a pending draft it supersedes it with a new `draft_version` instead of
   failing; the drafts are echoed in the turn answer and exist as approvals (the approval gates sending).

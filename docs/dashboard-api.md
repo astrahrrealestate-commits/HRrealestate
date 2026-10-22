@@ -115,8 +115,8 @@ mean the item the owner is looking at. Leave it out (or `null`) when the agent i
 | Field | Type and limit | What the server does with it |
 |---|---|---|
 | `view` | required: `inbox`, `thread`, `case`, `approvals`, `tasks`, `waiting`, `documents`, `briefing`, `other` | shown to the planner |
-| `case_id`, `approval_id`, `attachment_id` | UUID, optional | looked up in your company; replaced by server facts (case state, urgency, summary capped at 400 chars, last 5 messages capped at 160 chars; approval type, status, drafts capped at 300 chars, suspicious flag; document file name and status) |
-| `thread_key` | optional, as returned by `/inbox` (an invalid key is `422`) | last 8 messages of the thread (160 chars each) and its case |
+| `case_id`, `approval_id`, `attachment_id` | UUID, optional | looked up in your company; replaced by server facts (case state, urgency, summary capped at 800 chars, plus the memory pack below with the case's messages; approval type, status, drafts capped at 300 chars, suspicious flag; document file name and status) |
+| `thread_key` | optional, as returned by `/inbox` (an invalid key is `422`) | the memory pack below with this thread's messages only, and the thread's case |
 | `task_ref` | optional, 6 to 8 hex characters (`#` allowed) | the open task's title, due date and status (open or snoozed tasks only; a done task counts as no longer existing) |
 | `filters` | object of strings, at most 10 pairs, key 1 to 40 chars, value at most 120, no control characters | passed as unverified text |
 | `visible_ids` | at most 50 strings (51 or more is `422`), each a UUID or task ref of at most 120 chars, or a thread key of at most 400 chars (long Gmail Message-IDs) | ids that belong to your company get a short label in screen order ("the first one") |
@@ -135,6 +135,22 @@ are never a source of ids, recipients or permissions; an id that appears only in
 the structured fields are what the server trusts, and only after checking that they belong to your company. A foreign,
 unknown or stale id is dropped (reported to the planner as "no longer exists", without the id). The validated page is
 stored on the turn, and its facts are resolved once, so a retried turn answers from the same context.
+
+What the agent reads for an open thread or case (the memory pack, server facts in the same `<page_facts>` block):
+- **Messages:** with `thread_key`, that thread's messages only (never another thread's, even of the same case);
+  with only `case_id`, the messages linked to the case on any channel. Up to 30: all of them when there are 30 or
+  fewer, else the first 6 and the newest 24. Each is one line `msg NN | direction | channel | time (UTC) | text`
+  with the text's first 600 characters, whitespace collapsed (tenant text can never start a line of its own).
+- **Case memory** (the open case, else the open thread's case): summary (800 chars), the person's name and kind, the
+  person's lease parties (role, unit, lease start and end; at most 3), open waits (who, what in 200 chars, expected
+  by; at most 5), the last 15 timeline events (kind, state change, actor, note in 120 chars) and the case's latest 5
+  actions (type, status, `draft_version`, the owner's latest decision, edit count, first draft variant in 300 chars).
+- **Budget:** the whole facts text is at most 12000 characters. When it would be longer, whole lines are left out in
+  this order: older messages (down to the newest 6), visible rows from the bottom, the oldest events, the oldest
+  earlier drafts, then the remaining messages oldest first. The page item headers, the summary, directory facts and
+  open waits are never left out; a `(N messages not shown)` marker sits where messages are missing and a last line
+  says what was left out. Like all page facts, the pack is resolved once and stored on the turn, so a retried turn
+  reads the same text.
 
 Answers use the page too: when the plan has an `answer` step (or the planner fails and the agent falls back to a
 plain answer), the question is answered from your open cases and tasks plus the page facts, with the snapshot and
