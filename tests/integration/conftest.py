@@ -38,7 +38,7 @@ def pg_url() -> Iterator[str]:
     never a developer `.env`."""
     from app.core.settings import get_settings
 
-    with PostgresContainer("postgres:16-alpine", driver="psycopg") as pg:
+    with PostgresContainer("pgvector/pgvector:pg16", driver="psycopg") as pg:
         url = pg.get_connection_url()
         previous = os.environ.get("DATABASE_URL")
         os.environ["DATABASE_URL"] = url

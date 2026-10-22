@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import Computed, Float, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
@@ -11,11 +12,14 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base, CompanyScoped, str_enum
 from app.db.enums import DocLinkKind, ReorgItemStatus, ReorgPlanStatus
 
-_TSV = "to_tsvector('dutch'::regconfig, text) || to_tsvector('simple'::regconfig, text)"
+EMBEDDING_DIMENSIONS = 1024  # text-embedding-3-small at 1024 dimensions; one size for every embedder (ADR 0008)
+_INDEXED = "coalesce(context, '') || ' ' || text"
+_TSV = f"to_tsvector('dutch'::regconfig, {_INDEXED}) || to_tsvector('simple'::regconfig, {_INDEXED})"
 
 
 class DocumentChunk(Base, CompanyScoped):
-    """~800-token slice of a document's extracted text. `tsv` is generated: Dutch stems plus unstemmed tokens."""
+    """A slice of a document's text (~400 tokens, page and heading known). `context` is the document header prefixed
+    for indexing only (ADR 0008); `tsv` is generated from context + text, `embedding` is filled by the embed step."""
 
     __tablename__ = "document_chunks"
     __company_id_leading_index__ = True
@@ -23,11 +27,19 @@ class DocumentChunk(Base, CompanyScoped):
         UniqueConstraint("document_id", "ord"),
         Index(None, "company_id", "document_id"),
         Index("ix_document_chunks_tsv", "tsv", postgresql_using="gin"),
-    )
+        Index(
+            "ix_document_chunks_embedding", "embedding", postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )  # fmt: skip
 
     document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"))
     ord: Mapped[int]
     text: Mapped[str] = mapped_column(Text)
+    context: Mapped[str | None] = mapped_column(Text)
+    page: Mapped[int | None]
+    heading: Mapped[str | None] = mapped_column(String(200))
+    embedding: Mapped[Any | None] = mapped_column(Vector(EMBEDDING_DIMENSIONS))
     tsv: Mapped[Any] = mapped_column(TSVECTOR, Computed(_TSV, persisted=True))
 
 

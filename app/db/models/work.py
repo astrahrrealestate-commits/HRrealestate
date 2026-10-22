@@ -4,6 +4,7 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import ForeignKey, Index, String, Text, false, text
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -76,7 +77,11 @@ class DocumentRow(Base, CompanyScoped):
     """One filing decision per attachment. `summary`/`facts` come from reading the extracted text (M10), else null."""
 
     __tablename__ = "documents"
-    __table_args__ = (Index(None, "model_call_id"),)
+    __table_args__ = (
+        Index(None, "model_call_id"),
+        Index("ix_documents_doc_embedding", "doc_embedding", postgresql_using="hnsw",
+              postgresql_ops={"doc_embedding": "vector_cosine_ops"}),
+    )  # fmt: skip
 
     attachment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("attachments.id"), unique=True)
     doc_type: Mapped[str] = mapped_column(String(32))  # app.contracts DocType value
@@ -97,3 +102,5 @@ class DocumentRow(Base, CompanyScoped):
     suspicious: Mapped[bool] = mapped_column(
         default=False, server_default=false()
     )  # injection scan hit: not draft context
+    index_version: Mapped[str | None] = mapped_column(String(8))  # chunking/embedding recipe of this document's chunks
+    doc_embedding: Mapped[Any | None] = mapped_column(Vector(1024))  # title + summary + parties + unit (ADR 0008)
