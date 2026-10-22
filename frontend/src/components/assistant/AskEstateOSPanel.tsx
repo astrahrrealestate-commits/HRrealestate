@@ -241,19 +241,22 @@ export function AskEstateOSPanel({
 
   return (
     <>
-      {/* Backdrop with smooth blur transition */}
+      {/* Backdrop: Dark blur for fullscreen, softer subtle veil when docked at 70% width */}
       <div
         onClick={onClose}
-        className="fixed inset-0 bg-black/75 z-40 backdrop-blur-md transition-opacity duration-300 animate-in fade-in"
+        className={cn(
+          "fixed inset-0 z-40 transition-opacity duration-300 animate-in fade-in",
+          isFullScreen ? "bg-black/75 backdrop-blur-md" : "bg-black/25 backdrop-blur-[2px]"
+        )}
       />
 
-      {/* Main Assistant Panel: Full screen Grok-bot inspired experience with smooth spring animation */}
+      {/* Main Assistant Panel: Full screen Grok-bot mode or responsive 70% right-side pane */}
       <aside
         className={cn(
           "fixed z-50 bg-[#0B0D0E] text-[#F3F4F6] shadow-2xl flex flex-col justify-between font-sans transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] animate-in select-none",
           isFullScreen
             ? "inset-0 md:inset-4 md:rounded-[18px] md:border border-[#1E2327] overflow-hidden"
-            : "inset-0 md:inset-y-0 md:right-0 md:left-auto w-full md:w-[480px] h-dvh md:border-l border-[#1E2327]"
+            : "inset-0 md:inset-y-0 md:right-0 md:left-auto w-full md:w-[70vw] h-dvh md:border-l border-[#1E2327]"
         )}
       >
         {/* 1. Grok-Style Header Bar */}

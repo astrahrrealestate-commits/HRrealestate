@@ -146,7 +146,34 @@ def ask_agent(
             "Queried rent roll ledger for current month",
             "Identified 3 overdue tenant accounts",
             "Calculated total exposure of € 3.840",
+            "Prepared formal payment reminder notice",
         ]
+        preview_card = PreviewCardData(
+            type="draft_message",
+            channel="gmail",
+            recipient="b.degraaf@uva.nl",
+            unitLabel="Keizersgracht 42-A",
+            subject="Aanmaning huurachterstand Keizersgracht 42-A",
+            body="Geachte heer De Graaf,\n\nUit onze administratie blijkt dat de huur over de afgelopen maand ten bedrage van € 2.150,- nog niet is voldaan.\n\nWij verzoeken u vriendelijk doch dringend dit bedrag binnen 5 werkdagen over te maken.\n\nMet vriendelijke groet,\nHarjot Singh\nHR Real Estate",
+            actionId="act-arrears-42a",
+            caseId="arrears-42a",
+        )
+    elif "priority" in q_lower or "first" in q_lower or "emergency" in q_lower:
+        steps = [
+            "Analyzed 11 open cases across active portfolio",
+            "Sorted tickets by SLA urgency (Emergency > Urgent > Normal)",
+            "Located high-impact electrical outage ticket #005",
+        ]
+        preview_card = PreviewCardData(
+            type="draft_message",
+            channel="whatsapp",
+            recipient="+31681294410",
+            unitLabel="Pieter Floriszstraat 1 C",
+            subject=None,
+            body="Beste Pieter,\n\nElektricien Kevin van Chahal Bouw is zojuist ingepland voor de storing in de keuken. Verwachte aankomst vandaag om 11:30.\n\nMet vriendelijke groet,\nHarjot",
+            actionId="act-ticket-005",
+            caseId="ticket-005",
+        )
     else:
         steps = [
             "Parsed portfolio knowledge base",
