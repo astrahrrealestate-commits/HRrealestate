@@ -49,6 +49,7 @@ from app.pipeline.concierge_outcome import (
     stored_answer,
     task_brief,
 )
+from app.pipeline.concierge_reply import prepare_plan, stored_plan
 
 log = get_logger(__name__)
 FINAL = (TurnStatus.done, TurnStatus.failed)  # terminal: never re-run, never overwritten
@@ -222,10 +223,11 @@ def _planned(engine: Engine, settings: Settings, start: TurnStart) -> tuple[Conc
     the same plan and never asks the model twice), with the brief's case ids: with the page's, the only case ids
     the plan may name. A retry re-reads only those ids, so a case closed in between is no longer actionable."""
     if start.plan is not None:
-        return ConciergePlan.model_validate(start.plan), _brief_case_ids(engine, start.company_id)
+        return stored_plan(start.plan), _brief_case_ids(engine, start.company_id)
     brief = _brief(engine, start)
     plan = _plan(engine, settings, start, brief)
     if isinstance(plan, ConciergePlan):
+        plan = prepare_plan(plan)  # the reply screened before it is stored (GET /agent/conversations shows plans)
         _update(engine, start.company_id, start.turn_id, {"plan": plan.model_dump(mode="json")})
     return plan, [b.case_id for b in brief[0]]
 

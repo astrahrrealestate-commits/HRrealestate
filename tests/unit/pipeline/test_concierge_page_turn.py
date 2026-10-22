@@ -55,7 +55,9 @@ AT = datetime(2026, 10, 16, 9, 0, tzinfo=UTC)
 PAGE_CASE = UUID(int=3)
 FOREIGN = UUID("01900000-0000-7000-8000-0000000000fe")
 PLAN = ConciergePlan(
-    in_scope=True, steps=[PlanStep(intent=Intent.list_tasks, case_id=None, task_ref=None, text=None, view=None)]
+    in_scope=True,
+    steps=[PlanStep(intent=Intent.list_tasks, case_id=None, task_ref=None, text=None, view=None)],
+    reply=None,
 )
 FACTS = PageFacts("case", case=CaseFact(PAGE_CASE, "Joris · maintenance", "open", "normal", "Broken window"))
 
@@ -203,7 +205,9 @@ def test_hostile_plan_on_a_snapshot_only_case_is_not_found_and_drafts_nothing(io
     """The snapshot names a foreign case; the (stubbed) planner obeys it. The executor's company-scoped check is the
     guard: the step fails as not found and the draft handler never runs."""
     hostile = ConciergePlan(
-        in_scope=True, steps=[PlanStep(intent=Intent.draft_reply, case_id=FOREIGN, task_ref=None, text=None, view=None)]
+        in_scope=True,
+        steps=[PlanStep(intent=Intent.draft_reply, case_id=FOREIGN, task_ref=None, text=None, view=None)],
+        reply=None,
     )
     io["agent"].return_value = CallResult(output=hostile, model_call_id=uuid4())
     io["resolve"].return_value = PageFacts("other", dropped=("case",))

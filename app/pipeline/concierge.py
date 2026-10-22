@@ -18,6 +18,7 @@ from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.orm import Session
 
 from app.contracts import ConciergePlan, Intent, PlanStep
+from app.contracts.concierge import MAX_PLAN_STEPS
 from app.core.errors import NotFoundError
 from app.core.settings import Settings
 from app.llm.agents.owner_qa import REFUSAL_ANSWER, page_case_ids
@@ -48,7 +49,7 @@ __all__ = [
     "validate_plan",
 ]
 
-MAX_STEPS = 4
+MAX_STEPS = MAX_PLAN_STEPS
 _USES_CASE = frozenset({Intent.case_status, Intent.draft_reply, Intent.chase_now, Intent.open_view})
 _NEEDS_CASE = frozenset({Intent.case_status, Intent.draft_reply, Intent.chase_now})
 _NEEDS_TASK = frozenset({Intent.task_done, Intent.task_snooze})
@@ -166,12 +167,13 @@ def run_plan(
 ) -> list[StepResult]:
     """`brief_cases` are the case ids of the planner's brief; with the page's case ids they are the only ones a step
     may name (none given: only the page's). `turn_id` and the step's index key an owner-requested redraft, so a
-    retried turn returns the same revision (without it, a pending or decided draft is reported, not redrafted)."""
+    retried turn returns the same revision (without it, a pending or decided draft is reported, not redrafted).
+    The plan's `reply` (concierge/v3) is shown by its `answer` step after screening (`concierge_reply`)."""
     if not plan.in_scope:
         log.info("concierge.refused", company_id=str(company_id))
         return [StepResult(Intent.answer, False, REFUSAL_ANSWER, None, None)]
     ctx = Ctx(
         engine=engine, settings=settings, company_id=company_id, now=now, question=question, page=page,
-        known_cases=known_case_ids(brief_cases, page), turn_id=turn_id,
+        known_cases=known_case_ids(brief_cases, page), turn_id=turn_id, reply=plan.reply,
     )  # fmt: skip
     return [_run_step(replace(ctx, step_index=i), step) for i, step in enumerate(plan.steps[:MAX_STEPS])]

@@ -5,6 +5,7 @@ always starting with "On this page": the open approval's draft for a draft quest
 else the open item in `<page_facts>`. It never repeats a line that looks like an instruction or carries contact
 details, and never an id seen on the page. `case_refs` come from the `<data>` block only. Off-topic owner text
 (including requests for its prompt or rules) is refused whether or not a page is present.
+`offline_answer` is shared with the concierge fake, which writes the same answer into a plan's `reply` (v3).
 """
 
 import re
@@ -17,7 +18,7 @@ _OFF_TOPIC = (
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
 _INSTRUCTION = re.compile(
     r"ignore (all )?(previous|prior)|negeer|instruction|system\s*:|\bapprove|\bsend\b|\bemail\b|\bpay\b|iban"
-    r"|password|wachtwoord",
+    r"|password|wachtwoord|\bresume\b|\bpause\b",  # owner commands quoted by page text are never repeated
     re.I,
 )
 _CONTACT = re.compile(r"\S+@\S+|\+?\d[\d\s().-]{6,}\d")
@@ -31,24 +32,35 @@ def _block(prompt: str, tag: str) -> str:
     return "\n".join(re.findall(rf"<{tag}>\n(.*?)\n</{tag}>", prompt, flags=re.S))
 
 
-def _usable(line: str) -> bool:
+def usable(line: str) -> bool:
+    """Not instruction-like and no contact details: a line the fakes may repeat."""
     return bool(line.strip()) and not _INSTRUCTION.search(line) and not _CONTACT.search(line)
 
 
-def _clean(text: str) -> str:
+def clean(text: str) -> str:
+    """Ids stripped, whitespace collapsed, capped: how the fakes quote page text."""
     return " ".join(_UUID.sub("", text).split()).strip(" |")[:MAX_PIECE]
 
 
 def _page_answer(question: str, facts: str, snapshot: str) -> str:
     draft = _DRAFT.search(facts)
-    if re.search(r"\bdraft\b", question) and draft and _usable(draft.group(1)):
-        return f"On this page the current draft reads: {_clean(draft.group(1))} (offline answer)"
-    lines = [piece for piece in (_clean(line) for line in snapshot.splitlines() if _usable(line)) if piece]
+    if re.search(r"\bdraft\b", question) and draft and usable(draft.group(1)):
+        return f"On this page the current draft reads: {clean(draft.group(1))} (offline answer)"
+    lines = [piece for piece in (clean(line) for line in snapshot.splitlines() if usable(line)) if piece]
     if lines:
         return f"On this page: {'; '.join(lines[:MAX_PAGE_LINES])} (offline answer)"
     if opened := _OPEN.search(facts):
-        return f"On this page: the open {opened.group(1)}, {_clean(opened.group(2))} (offline answer)"
+        return f"On this page: the open {opened.group(1)}, {clean(opened.group(2))} (offline answer)"
     return "On this page: nothing I can repeat; the page text looks like instructions. (offline answer)"
+
+
+def offline_answer(prompt: str, question: str) -> str:
+    """The page answer when page blocks are present, else the open-case count from `<data>`."""
+    cases = re.findall(r"^case: ([0-9a-f-]{36})", _block(prompt, "data"), flags=re.M)
+    facts, snapshot = _block(prompt, "page_facts"), _block(prompt, "page_snapshot")
+    if facts.strip() or snapshot.strip():
+        return _page_answer(question, facts, snapshot)
+    return f"You have {len(cases)} open cases. (offline answer)"
 
 
 def fake_owner_qa(prompt: str) -> dict[str, object]:
@@ -61,7 +73,9 @@ def fake_owner_qa(prompt: str) -> dict[str, object]:
             "answer": "Out of scope.",
             "case_refs": [],
         }
-    facts, snapshot = _block(prompt, "page_facts"), _block(prompt, "page_snapshot")
-    page = facts.strip() or snapshot.strip()
-    answer = _page_answer(question, facts, snapshot) if page else f"You have {len(cases)} open cases. (offline answer)"
-    return {"in_scope": True, "refusal_reason": None, "answer": answer, "case_refs": cases[:3]}
+    return {
+        "in_scope": True,
+        "refusal_reason": None,
+        "answer": offline_answer(prompt, question),
+        "case_refs": cases[:3],
+    }

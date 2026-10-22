@@ -5,10 +5,16 @@ Page awareness: a message with a pronoun (it, that, this, them, him, her) resolv
 (no rows: clarify). The `<page_snapshot>` block is never read, so ids that appear only there are never acted on.
 A `draft_reply` step carries the owner's wording (emails and phones redacted) as `text`; the executor never uses
 it as guidance.
+Single-call answers (v3): a plan with an `answer` step carries a deterministic `reply`. A conversation question
+("what did he say", "the latest message") quotes the newest repeatable `msg` line of the facts; anything else gets the
+owner_qa fake's answer ("On this page: ..." from the facts and snapshot, else the open-case count). Lines that look
+like instructions or carry contact details are never repeated, and ids are stripped.
 """
 
 import re
 from dataclasses import dataclass
+
+from app.llm.fakes_owner_qa import clean, offline_answer, usable
 
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 _INJECTION = re.compile(
@@ -27,6 +33,8 @@ _PAGE_APPROVAL = re.compile(rf"^open approval: {_UUID} \|.*\| case ({_UUID})$", 
 _PAGE_TASK = re.compile(r"^open task: #([0-9a-f]{6,8}) ", re.M)
 _FIRST_VISIBLE = re.compile(r"^- (\w+) #?(\S+) (.*)$", re.M)  # the first row, whatever its kind
 _ROW_CASE = re.compile(rf"\| case ({_UUID})$")
+_CONVERSATION = re.compile(r"\b(say|said|says|wrote|asks?|asked|message|messages|conversation|thread|latest|last)\b")
+_MSG = re.compile(r"^  msg \d+ \| (\w+) \| (\w+) \| [^|]+\| (.+)$", re.M)
 
 
 @dataclass(frozen=True)
@@ -48,7 +56,7 @@ def _step(
 
 
 def _plan(*steps: dict[str, object]) -> dict[str, object]:
-    return {"in_scope": True, "steps": list(steps)}
+    return {"in_scope": True, "steps": list(steps), "reply": None}
 
 
 def _safe(text: str) -> str:
@@ -94,9 +102,13 @@ def _first(pattern: re.Pattern[str], text: str) -> str | None:
     return found.group(1) if found else None
 
 
+def _facts(prompt: str) -> str:
+    return "\n".join(re.findall(r"<page_facts>\n(.*?)\n</page_facts>", prompt, flags=re.S))
+
+
 def _page(prompt: str) -> _Page | None:
     """The page entity from the server facts block only; None when there is no entity to refer to."""
-    facts = "\n".join(re.findall(r"<page_facts>\n(.*?)\n</page_facts>", prompt, flags=re.S))
+    facts = _facts(prompt)
     approval_case = _first(_PAGE_APPROVAL, facts)
     case_id = _first(_PAGE_CASE, facts) or _first(_PAGE_THREAD_CASE, facts) or approval_case
     first = _FIRST_VISIBLE.search(facts)
@@ -154,15 +166,34 @@ def _on_page(low: str, page: _Page) -> dict[str, object] | None:
     return found
 
 
-def fake_concierge(prompt: str) -> dict[str, object]:
-    question = " ".join(re.findall(r"<message>\n(.*?)\n</message>", prompt, flags=re.S))
+def _reply(prompt: str, low: str) -> str:
+    if _CONVERSATION.search(low):
+        said = [m for m in _MSG.finditer(_facts(prompt)) if usable(m.group(3))]
+        if said:
+            direction, channel, text = said[-1].groups()
+            return f"On this page the latest message ({direction}, {channel}) reads: {clean(text)} (offline answer)"
+    return offline_answer(prompt, low)
+
+
+def _route(prompt: str, question: str) -> dict[str, object]:
     data = "\n".join(re.findall(r"<data>\n(.*?)\n</data>", prompt, flags=re.S))
     low = question.lower()
-    if _INJECTION.search(low):
-        return {"in_scope": False, "steps": []}
     page = _page(prompt)
     if page is not None and (planned := _on_page(low, page)) is not None:
         return planned
     if _PRONOUN.search(low):
         return _plan(_step("clarify", text="Which one do you mean?"))
     return _by_ref(low) or _by_case(low, data.lower()) or _simple(low) or _plan(_step("answer", text=_safe(question)))
+
+
+def _answers(plan: dict[str, object]) -> bool:
+    steps = plan["steps"]
+    return isinstance(steps, list) and any(isinstance(s, dict) and s.get("intent") == "answer" for s in steps)
+
+
+def fake_concierge(prompt: str) -> dict[str, object]:
+    question = " ".join(re.findall(r"<message>\n(.*?)\n</message>", prompt, flags=re.S))
+    if _INJECTION.search(question.lower()):
+        return {"in_scope": False, "steps": [], "reply": None}
+    planned = _route(prompt, question)
+    return {**planned, "reply": _reply(prompt, question.lower())} if _answers(planned) else planned

@@ -43,6 +43,7 @@ class Ctx:
     known_cases: frozenset[UUID] = frozenset()  # the only case ids a plan may name: the brief's and the page's
     turn_id: UUID | None = None  # with step_index, the key of an owner-requested redraft (None: no redraft)
     step_index: int = 0
+    reply: str | None = None  # the plan's own answer (concierge/v3): the `answer` step screens and shows it
 
 
 Handler = Callable[[Ctx, PlanStep], StepResult]

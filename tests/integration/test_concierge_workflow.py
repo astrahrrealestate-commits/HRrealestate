@@ -100,12 +100,14 @@ def test_question_plans_once_and_stores_plan_and_results(env: Env) -> None:
     row = _row(env, turn_id)
     assert row.status is TurnStatus.done
     assert _calls(env, "concierge") == 1
+    assert _calls(env) == 1  # single call (concierge/v3): the plan's own reply answers, no owner_qa call
     assert row.plan is not None
     assert row.plan["in_scope"] is True
+    assert row.plan["reply"] == row.answer
     assert row.results is not None
     assert [r["intent"] for r in row.results] == [s["intent"] for s in row.plan["steps"]]
     assert row.answer
-    assert row.prompt_ref == "concierge/v2"
+    assert row.prompt_ref == "concierge/v3"
     assert row.error is None
 
 
@@ -161,7 +163,7 @@ def test_injection_text_is_refused_and_changes_nothing(env: Env) -> None:
     assert _run_wf(turn_id) == "done"
     row = _row(env, turn_id)
     assert row.answer == REFUSAL_ANSWER
-    assert row.plan == {"in_scope": False, "steps": []}
+    assert row.plan == {"in_scope": False, "steps": [], "reply": None}
     assert [count(env.engine, m, env.cid) for m in (ActionRow, Approval, TaskRow, Send)] == before
     with Session(env.engine) as s:
         assert s.scalar(select(Company.paused).where(Company.id == env.cid)) is False

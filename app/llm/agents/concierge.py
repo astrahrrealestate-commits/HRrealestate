@@ -9,7 +9,9 @@ from app.llm.page_blocks import page_blocks
 from app.llm.prompts import LoadedPrompt
 from app.llm.render import data_block
 
-PROMPT_VERSION = "v2"  # v2 adds the page blocks; v1 stays published and loadable (evals: version=v1)
+# v3 adds the plan's own `reply` (single-call answers); v2 (page blocks) and v1 stay published and loadable (evals:
+# version=v2 / version=v1).
+PROMPT_VERSION = "v3"
 MAX_HISTORY = 12  # lines: `owner:` and `assistant:` for each of 6 turns
 MAX_HISTORY_LINE = 420  # an `owner: ` prefix plus 400 characters
 

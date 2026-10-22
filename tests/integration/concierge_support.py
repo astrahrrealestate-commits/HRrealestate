@@ -60,7 +60,7 @@ def step(intent: Intent, **kw: Any) -> PlanStep:
 
 
 def plan(*steps: PlanStep) -> ConciergePlan:
-    return ConciergePlan(in_scope=True, steps=list(steps))
+    return ConciergePlan(in_scope=True, steps=list(steps), reply=None)
 
 
 def understanding(requires_reply: bool = True, suspicious: bool = False) -> Understanding:

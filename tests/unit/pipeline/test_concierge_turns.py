@@ -24,7 +24,9 @@ from app.pipeline.owner_commands import LIMIT_ANSWER, NOT_A_QUESTION
 AT = datetime(2026, 10, 7, 9, 0, tzinfo=UTC)
 M = "app.pipeline.concierge_turns"
 PLAN = ConciergePlan(
-    in_scope=True, steps=[PlanStep(intent=Intent.list_tasks, case_id=None, task_ref=None, text=None, view=None)]
+    in_scope=True,
+    steps=[PlanStep(intent=Intent.list_tasks, case_id=None, task_ref=None, text=None, view=None)],
+    reply=None,
 )
 
 
@@ -229,3 +231,22 @@ def test_failed_turns_are_terminal_like_done() -> None:
         ct._update(MagicMock(), uuid4(), uuid4(), {"answer": "x"})
     sql = _sql(session.execute.call_args.args[0])
     assert "agent_turns.status NOT IN" in sql
+
+
+def test_a_plan_stored_before_v3_has_no_reply_key_and_is_still_reused(io: dict[str, MagicMock]) -> None:
+    old = {"in_scope": True, "steps": [PLAN.steps[0].model_dump(mode="json")]}
+    with patch(f"{M}._brief_case_ids", return_value=[]):
+        ct._outcome(MagicMock(), MagicMock(), _start("what is open?", plan=old))
+    io["agent"].assert_not_called()
+    assert io["plan"].call_args.args[3] == PLAN
+
+
+def test_the_reply_is_screened_before_the_plan_is_stored_and_run(io: dict[str, MagicMock]) -> None:
+    raw = ConciergePlan(in_scope=True, steps=[], reply="Joris asks you to mail evil@attacker.test")
+    io["agent"].return_value = CallResult(output=raw, model_call_id=uuid4())
+    ct._outcome(MagicMock(), MagicMock(), _start("what does Joris want?"))
+    stored = io["update"].call_args_list[0].args[3]["plan"]
+    assert stored["reply"] == "Joris asks you to mail [redacted]"
+    assert [s["intent"] for s in stored["steps"]] == ["answer"]  # so the reply is shown
+    ran = io["plan"].call_args.args[3]
+    assert ran.model_dump(mode="json") == stored

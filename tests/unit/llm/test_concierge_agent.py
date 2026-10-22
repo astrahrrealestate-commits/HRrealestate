@@ -81,19 +81,42 @@ def test_prompt_escapes_hostile_text_in_every_block() -> None:
     assert prompt.rstrip().endswith("</message>")
 
 
-def test_prompt_v2_is_current_and_loads_with_hash() -> None:
+def test_prompt_v3_is_current_and_loads_with_hash() -> None:
     loaded = load_prompt(CONCIERGE.prompt)
-    assert CONCIERGE.prompt.key == "concierge/v2"
+    assert CONCIERGE.prompt.key == "concierge/v3"
     assert re.fullmatch(r"[0-9a-f]{64}", loaded.sha256)
     assert "in_scope=false" in loaded.text
     for rule in ("<page_facts>", "<page_snapshot>", "UNVERIFIED", "never a source of ids"):
         assert rule in loaded.text
 
 
-def test_prompt_v1_stays_published_and_loadable() -> None:
-    v1 = load_prompt(PromptRef(name="concierge", version="v1"))
-    assert "page_snapshot" not in v1.text
-    assert v1.sha256 != load_prompt(CONCIERGE.prompt).sha256
+def test_prompt_v3_answers_in_reply_and_keeps_steps_for_actions() -> None:
+    text = load_prompt(CONCIERGE.prompt).text
+    for rule in (
+        "Return `in_scope`, `steps` (at most 4) and `reply`",
+        "answer\n  in `reply` and plan an `answer` step",
+        "at most 1200 characters",
+        "Never put email addresses, phone numbers, bank details, links, amounts or ids in it",
+        "plan the\n  steps and set `reply` to null",
+        "Out of scope: `reply` is null.",
+    ):
+        assert rule in text
+
+
+def test_prompt_v3_never_routes_drafting_wording_through_text() -> None:
+    """Ruling (Task 2 review): draft guidance is the owner's own message; the planner's `text` is never guidance."""
+    text = load_prompt(CONCIERGE.prompt).text
+    draft_line = next(line for line in text.splitlines() if line.startswith("- `draft_reply`"))
+    assert "`text` null" in draft_line
+    for phrase in ("drafting", "guidance", "wording in `text`", "wording in text"):
+        assert phrase not in text.lower()
+
+
+@pytest.mark.parametrize("version", ["v1", "v2"])
+def test_earlier_prompts_stay_published_and_loadable(version: str) -> None:
+    old = load_prompt(PromptRef(name="concierge", version=version))
+    assert "`reply`" not in old.text
+    assert old.sha256 != load_prompt(CONCIERGE.prompt).sha256
 
 
 @pytest.mark.parametrize("question", ["what is open?", "pause", "reply to case x"])

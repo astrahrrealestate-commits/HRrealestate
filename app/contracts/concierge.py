@@ -36,6 +36,13 @@ class PlanStep(Contract):
     view: Literal["inbox", "cases", "tasks", "approvals", "waiting"] | None
 
 
+MAX_PLAN_STEPS = 4
+MAX_REPLY = 1200
+
+
 class ConciergePlan(Contract):
     in_scope: bool  # False: out of scope or instruction-like; steps must then be empty
-    steps: Annotated[list[PlanStep], Field(max_length=4)]
+    steps: Annotated[list[PlanStep], Field(max_length=MAX_PLAN_STEPS)]
+    # concierge/v3: the planner's own answer to a page/chat question (one model call). Untrusted model text: the
+    # executor screens it (scope, redaction, cap) before Harjot sees it and never reads ids from it. Null for actions.
+    reply: Annotated[str, max_len(MAX_REPLY)] | None
