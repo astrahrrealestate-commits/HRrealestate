@@ -155,7 +155,8 @@ export function Composer({
           "shrink-0 border-t border-[var(--line)] bg-[var(--pane)] p-3 sm:p-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex flex-col gap-2.5 select-none",
           className
         )}
-            {/* Composer Header: Channel badge + AI Draft Switcher tabs (ALWAYS visible when drafts exist!) */}
+      >
+        {/* Composer Header: Channel badge + AI Draft Switcher tabs (ALWAYS visible when drafts exist!) */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-[var(--ink-3)]">
           <div className="flex items-center gap-2 flex-wrap">
             {/* Locked Channel Badge */}
