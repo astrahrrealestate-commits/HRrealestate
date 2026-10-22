@@ -40,6 +40,8 @@ class Ctx:
     page: PagePrompt = NO_PAGE  # the turn's stored page facts and snapshot (for the `answer` step); no I/O here
     memo: dict[str, StepResult] = field(default_factory=dict)  # per-plan results reused by later steps (answer)
     known_cases: frozenset[UUID] = frozenset()  # the only case ids a plan may name: the brief's and the page's
+    turn_id: UUID | None = None  # with step_index, the key of an owner-requested redraft (None: no redraft)
+    step_index: int = 0
 
 
 Handler = Callable[[Ctx, PlanStep], StepResult]

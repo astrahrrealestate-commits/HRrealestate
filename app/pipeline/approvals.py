@@ -1,4 +1,5 @@
-"""Owner approvals: one live approval per draft version, button decisions, owner edit → new revision.
+"""Owner approvals: one live approval per draft version, button decisions, owner edit or owner-requested redraft → new
+revision.
 
 Decisions lock the approval row (`FOR UPDATE`), so a duplicate or late tap returns the first decision unchanged and
 can never approve a second variant. Execution itself is the sender's job (`exec:{action_id}:{draft_version}`).
@@ -178,7 +179,22 @@ def apply_owner_edit(
     if pending_edit is None:
         return None
     _, action = pending_edit
-    payload: dict[str, Any] = {**action.payload, "body_variants": [text]}
+    return _revise(session, company_id, action, [text], editor=editor, urgency=Urgency.normal, now=now)
+
+
+def _revise(
+    session: Session,
+    company_id: UUID,
+    action: ActionRow,
+    variants: list[str],
+    *,
+    editor: str,
+    urgency: Urgency,
+    now: datetime,
+) -> NewRevision:
+    """The revision path (owner edit, owner-requested redraft): `draft_version + 1` with new variants (channel and
+    subject stay the action's own), an ActionRevision row keyed by `editor`, and a new pending approval."""
+    payload: dict[str, Any] = {**action.payload, "body_variants": variants}
     action.draft_version += 1
     action.payload = payload
     session.add(
@@ -191,8 +207,43 @@ def apply_owner_edit(
         )
     )
     session.flush()
-    approval_id = open_approval(session, company_id, action.id, action.draft_version, urgency=Urgency.normal, now=now)
+    approval_id = open_approval(session, company_id, action.id, action.draft_version, urgency=urgency, now=now)
     return NewRevision(action.id, action.draft_version, approval_id)
+
+
+def supersede_draft(
+    session: Session,
+    company_id: UUID,
+    approval_id: UUID,
+    variants: list[str],
+    *,
+    editor: str,
+    urgency: Urgency,
+    now: datetime,
+) -> NewRevision | None:
+    """An owner-requested redraft replaces the live pending draft exactly once: that approval expires and the action
+    gets a new version and approval (`_revise`). `editor` is the caller's deterministic key: a retry returns the
+    revision it wrote. None when the approval is no longer the live pending draft (decided, edited or replaced)."""
+    if (done := _replayed_edit(session, company_id, editor)) is not None:
+        return done
+    live = session.execute(
+        select(Approval, ActionRow)
+        .join(ActionRow, ActionRow.id == Approval.action_id)
+        .where(
+            Approval.company_id == company_id,
+            Approval.id == approval_id,
+            Approval.status == ApprovalStatus.pending,
+            ActionRow.company_id == company_id,
+            ActionRow.draft_version == Approval.draft_version,
+            ActionRow.status == ActionStatus.pending_approval,
+        )
+        .with_for_update(of=ActionRow)
+    ).first()
+    if live is None:  # a concurrent run of the same key may have just committed it
+        return _replayed_edit(session, company_id, editor)
+    approval, action = live
+    approval.status = ApprovalStatus.expired
+    return _revise(session, company_id, action, variants, editor=editor, urgency=urgency, now=now)
 
 
 def exec_send(company_id: UUID) -> Any:

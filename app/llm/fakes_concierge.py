@@ -3,6 +3,7 @@
 Page awareness: a message with a pronoun (it, that, this, them, him, her) resolves to the open entity in the
 `<page_facts>` block (server facts); "the first one" is the first visible row of any kind, never the open entity
 (no rows: clarify). The `<page_snapshot>` block is never read, so ids that appear only there are never acted on.
+A `draft_reply` step carries the owner's wording (emails and phone numbers redacted) as `text`: the draft guidance.
 """
 
 import re
@@ -81,7 +82,7 @@ def _by_case(low: str, data: str) -> dict[str, object] | None:
         return None
     case_id = found.group(1) if found.groups() else found.group(0)
     if re.search(r"reply to|draft", low):
-        return _plan(_step("draft_reply", case_id=case_id))
+        return _plan(_step("draft_reply", case_id=case_id, text=_safe(low)))  # the owner's wording as guidance
     if "status of" in low:
         return _plan(_step("case_status", case_id=case_id))
     return None
@@ -133,7 +134,7 @@ def _case_page(low: str, page: _Page) -> dict[str, object] | None:
     if page.approval and re.search(r"\b(okay|ok|good|fine|right)\b|\bdraft\b", low):
         return _plan(_step("open_view", case_id=page.case_id, view="approvals"), _step("answer", text=_safe(low)))
     if re.search(r"\breply\b|\bdraft\b|\banswer (him|her|them)\b", low):
-        return _plan(_step("draft_reply", case_id=page.case_id))
+        return _plan(_step("draft_reply", case_id=page.case_id, text=_safe(low)))
     if re.search(r"\b(chase|nudge)\b", low):
         return _plan(_step("chase_now", case_id=page.case_id))
     if re.search(r"summari[sz]e|status|about|what is (this|it)", low):

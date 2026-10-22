@@ -33,7 +33,9 @@ NOW = datetime(2026, 10, 7, 9, 0, tzinfo=UTC)  # a Wednesday
 EVIL = "evil@attacker.test"
 
 
-ID_KEYS = frozenset({"task_id", "case_id", "approval_id", "approval_ids", "thread_key", "ref", "until"})
+ID_KEYS = frozenset(
+    {"task_id", "case_id", "approval_id", "approval_ids", "thread_key", "ref", "until", "superseded_approval_id"}
+)
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
 
 
@@ -61,24 +63,31 @@ def plan(*steps: PlanStep) -> ConciergePlan:
     return ConciergePlan(in_scope=True, steps=list(steps))
 
 
-def understanding(requires_reply: bool = True) -> Understanding:
+def understanding(requires_reply: bool = True, suspicious: bool = False) -> Understanding:
     return Understanding(
         category=Category.maintenance,
         intent="Leak",
         urgency=Urgency.normal,
         requires_reply=requires_reply,
         entities=Entities.none(),
-        suspicious=Suspicious(flag=False, reason=None),
+        suspicious=Suspicious(flag=True, reason="Payment details")
+        if suspicious
+        else Suspicious(flag=False, reason=None),
         confidence=0.9,
         prompt_version="understanding/v2",
     )
 
 
 def seed_case(
-    engine: Engine, cid: UUID, text: str = "Er lekt water in de badkamer", *, requires_reply: bool = True
+    engine: Engine,
+    cid: UUID,
+    text: str = "Er lekt water in de badkamer",
+    *,
+    requires_reply: bool = True,
+    suspicious: bool = False,
 ) -> tuple[UUID, UUID]:
     """A tenant case with one inbound Gmail message and its understanding; returns (case_id, tenant_id)."""
-    und = understanding(requires_reply)
+    und = understanding(requires_reply, suspicious)
     with Session(engine) as s, s.begin():
         tenant = Person(company_id=cid, kind=PersonKind.tenant, display_name="Sanne", valid_from=date(2026, 1, 1))
         raw = RawEvent(company_id=cid, provider=Channel.gmail, provider_msg_id=str(new_id()), payload={})
@@ -134,8 +143,9 @@ def run(
     question: str = "q",
     now: datetime = NOW,
     brief_cases: Collection[UUID] | None = None,
+    turn_id: UUID | None = None,
 ) -> list[StepResult]:
     """Runs the plan as a turn would. By default the plan's own case ids count as the brief's (these tests exercise
     the handlers and the company-scoped lookup); pass `brief_cases` to test the brief restriction itself."""
     shown = [s.case_id for s in p.steps if s.case_id] if brief_cases is None else brief_cases
-    return run_plan(engine, settings, cid, p, question=question, now=now, brief_cases=shown)
+    return run_plan(engine, settings, cid, p, question=question, now=now, brief_cases=shown, turn_id=turn_id)

@@ -100,6 +100,8 @@ def _work(s: Session, cid: UUID, case_id: UUID, secret: str) -> None:
     s.flush()
     s.add(Approval(company_id=cid, action_id=action.id, draft_version=1, status=ApprovalStatus.edited))
     s.add(ActionRevision(company_id=cid, action_id=action.id, draft_version=2, payload={}, edited_by="owner"))
+    agent = f"agent:{new_id()}:0"  # an owner-requested redraft is not counted as an owner edit
+    s.add(ActionRevision(company_id=cid, action_id=action.id, draft_version=3, payload={}, edited_by=agent))
 
 
 def _seed(engine: Engine, cid: UUID, secret: str, count: int) -> World:

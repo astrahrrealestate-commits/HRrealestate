@@ -239,7 +239,11 @@ def _drafts(session: Session, company_id: UUID, case_id: UUID) -> tuple[DraftFac
     )
     edits = (
         select(func.count(ActionRevision.id))
-        .where(ActionRevision.company_id == company_id, ActionRevision.action_id == ActionRow.id)
+        .where(
+            ActionRevision.company_id == company_id,
+            ActionRevision.action_id == ActionRow.id,
+            ActionRevision.edited_by.startswith("owner"),  # owner edits; agent redrafts (`agent:...`) are not edits
+        )
         .scalar_subquery()
     )
     variant = func.jsonb_extract_path_text(ActionRow.payload, "body_variants", "0")  # the first variant, or NULL

@@ -8,6 +8,7 @@ infrastructure errors, which propagate so the calling DBOS step retries.
 """
 
 from collections.abc import Collection
+from dataclasses import replace
 from datetime import datetime
 from uuid import UUID
 
@@ -22,7 +23,7 @@ from app.core.settings import Settings
 from app.llm.agents.owner_qa import REFUSAL_ANSWER, page_case_ids
 from app.llm.calls import is_transient as llm_transient
 from app.llm.page_blocks import NO_PAGE, PagePrompt
-from app.pipeline import case_repo, concierge_proposals, concierge_reads, concierge_writes, work_repo
+from app.pipeline import case_repo, concierge_chase, concierge_proposals, concierge_reads, concierge_writes, work_repo
 from app.pipeline.concierge_base import (
     NEED_DETAIL,
     NOT_FOUND,
@@ -68,7 +69,7 @@ _HANDLERS: dict[Intent, Handler] = {
     Intent.pause: concierge_writes.pause,
     Intent.resume: concierge_writes.resume,
     Intent.draft_reply: concierge_proposals.draft_reply,
-    Intent.chase_now: concierge_proposals.chase_now,
+    Intent.chase_now: concierge_chase.chase_now,
 }
 
 
@@ -160,14 +161,16 @@ def run_plan(
     now: datetime,
     page: PagePrompt = NO_PAGE,
     brief_cases: Collection[UUID] = (),
+    turn_id: UUID | None = None,
 ) -> list[StepResult]:
     """`brief_cases` are the case ids of the planner's brief; with the page's case ids they are the only ones a step
-    may name (none given: only the page's)."""
+    may name (none given: only the page's). `turn_id` and the step's index key an owner-requested redraft, so a
+    retried turn returns the same revision (without it, a pending or decided draft is reported, not redrafted)."""
     if not plan.in_scope:
         log.info("concierge.refused", company_id=str(company_id))
         return [StepResult(Intent.answer, False, REFUSAL_ANSWER, None, None)]
     ctx = Ctx(
         engine=engine, settings=settings, company_id=company_id, now=now, question=question, page=page,
-        known_cases=known_case_ids(brief_cases, page),
+        known_cases=known_case_ids(brief_cases, page), turn_id=turn_id,
     )  # fmt: skip
-    return [_run_step(ctx, step) for step in plan.steps[:MAX_STEPS]]
+    return [_run_step(replace(ctx, step_index=i), step) for i, step in enumerate(plan.steps[:MAX_STEPS])]

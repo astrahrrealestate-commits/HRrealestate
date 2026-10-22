@@ -59,7 +59,8 @@ def test_screened_text_never_reaches_the_model(io: dict[str, MagicMock]) -> None
 
 
 def test_question_plans_once_runs_the_plan_and_stores_it(io: dict[str, MagicMock]) -> None:
-    out = ct._outcome(MagicMock(), MagicMock(), _start("what is open with Jansen?"))
+    start = _start("what is open with Jansen?")
+    out = ct._outcome(MagicMock(), MagicMock(), start)
     assert io["agent"].call_count == 1
     ctx = io["agent"].call_args.args[4]
     assert ctx.purpose == "concierge"
@@ -74,6 +75,7 @@ def test_question_plans_once_runs_the_plan_and_stores_it(io: dict[str, MagicMock
         "now": AT,
         "page": NO_PAGE,
         "brief_cases": [],
+        "turn_id": start.turn_id,  # keys an owner-requested redraft
     }
 
 

@@ -247,7 +247,7 @@ def _outcome(engine: Engine, settings: Settings, start: TurnStart) -> Outcome:
     page = concierge_page.stored_prompt(start.page)
     results = run_plan(
         engine, settings, start.company_id, plan, question=start.text, now=start.at, page=page,
-        brief_cases=brief_cases,
+        brief_cases=brief_cases, turn_id=start.turn_id,
     )  # fmt: skip
     stored = [result_json(r) for r in results]
     _update(engine, start.company_id, start.turn_id, {"results": stored})

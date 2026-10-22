@@ -13,17 +13,17 @@ from app.core.settings import Settings
 from app.db.enums import ActionStatus, ApprovalStatus, TimerStatus
 from app.db.models import ActionRow, Approval, CaseLink, Company, Send, Timer, UnderstandingRow, WaitRow
 from app.pipeline import case_repo, propose, work_repo
+from app.pipeline.concierge_chase import CHASED, CHASER_WAITING
 from app.pipeline.concierge_proposals import (
     ALREADY_DECIDED,
     ALREADY_WAITING,
-    CHASED,
-    CHASER_WAITING,
     DRAFTED,
     NO_REPLY_NEEDED,
     NOT_UNDERSTOOD,
     NOTHING_TO_REPLY,
     PROPOSER_FAILED,
 )
+from app.pipeline.draft_guidance import DETAILS_REMOVED, draft_views
 from tests.integration.concierge_support import EVIL, NOW, count, plan, run, seed_case, step
 
 pytestmark = pytest.mark.integration
@@ -40,19 +40,30 @@ def test_draft_reply_creates_one_proposal_and_never_sends(
     cid = committed_company.id
     case_id, _ = seed_case(migrated_engine, cid)
     ok, summary, data, view = _draft(migrated_engine, test_settings, cid, case_id)
-    assert (ok, summary, view) == (True, DRAFTED, "approvals")
+    assert (ok, summary.splitlines()[:2], view) == (True, [DRAFTED, DETAILS_REMOVED], "approvals")
+    assert "Draft 1:" in summary  # the drafts are quoted in the answer (steerable drafts, amendment 2026-10-22)
+    assert EVIL not in summary
     assert count(migrated_engine, ActionRow, cid) == 1
     assert count(migrated_engine, Send, cid) == 0
     with Session(migrated_engine) as s:
         approval = s.scalars(select(Approval).where(Approval.company_id == cid)).one()
         action = s.get(ActionRow, approval.action_id)
     assert approval.status is ApprovalStatus.pending
-    assert data == {"approval_ids": [str(approval.id)], "case_id": str(case_id)}
+    assert isinstance(data, dict)
+    assert action is not None
+    assert data == {
+        "approval_ids": [str(approval.id)],
+        "case_id": str(case_id),
+        "draft_version": 1,
+        "drafts": draft_views(action.payload["body_variants"], "Er lekt water in de badkamer"),
+        "details_removed": True,
+        "superseded_approval_id": None,
+    }
     assert action is not None
     assert action.case_id == case_id
     assert EVIL not in str(action.payload)
-    again = _draft(migrated_engine, test_settings, cid, case_id)  # a retried plan reuses the proposal
-    assert again == (True, ALREADY_WAITING, data, "approvals")
+    again = _draft(migrated_engine, test_settings, cid, case_id)  # without a turn: the proposal is reused
+    assert (again[0], again[1].splitlines()[0], again[2], again[3]) == (True, ALREADY_WAITING, data, "approvals")
     assert count(migrated_engine, ActionRow, cid) == 1
 
 
