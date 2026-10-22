@@ -500,11 +500,11 @@ export function InboxConversationView({
       <Composer
         draftText={isSent ? "" : stagedDraftText}
         drafts={
-          thread.draftProposal?.drafts?.length
-            ? thread.draftProposal.drafts
-            : thread.channel === "whatsapp"
+          (thread.channel === "whatsapp"
             ? thread.draftProposal?.whatsappDrafts
-            : thread.draftProposal?.gmailDrafts
+            : thread.draftProposal?.gmailDrafts) ||
+          thread.draftProposal?.drafts ||
+          []
         }
         detectedLanguage={thread.detectedLanguage || "Dutch (detected)"}
         channel={thread.channel}

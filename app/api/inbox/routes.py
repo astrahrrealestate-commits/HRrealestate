@@ -820,10 +820,10 @@ def decide_approval(
                         if not quote_id and latest_msg and latest_msg.provider_msg_id and not latest_msg.provider_msg_id.startswith("wamid.FAKE"):
                             quote_id = latest_msg.provider_msg_id
 
-                        # Prepend WhatsApp native blockquote '> ' so it renders inside a reply quote box on the handset
+                        # Prepend WhatsApp native blockquote '> ' so it renders cleanly inside a reply quote box
                         final_wa_body = draft_text
                         if quoted_snippet:
-                            final_wa_body = f"> *Replying to:* \"{quoted_snippet}\"\n\n{draft_text}"
+                            final_wa_body = f"> {quoted_snippet}\n\n{draft_text}"
 
                         if is_within_24h:
                             sz_payload: dict[str, Any] = {

@@ -119,8 +119,8 @@ export function Composer({
     }
   };
 
-  // State 1: AI draft available
-  const hasDraft = Boolean(draftText);
+  // State 1: AI draft available or matching draft text
+  const hasDraft = Boolean(draftText) || Boolean(content.trim() && drafts.length > 0);
 
   return (
     <>
@@ -155,93 +155,82 @@ export function Composer({
           "shrink-0 border-t border-[var(--line)] bg-[var(--pane)] p-3 sm:p-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex flex-col gap-2.5 select-none",
           className
         )}
-      >
-        {/* Draft Header Line with Alternative Draft Tabs */}
-        {hasDraft ? (
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-[var(--ink-3)]">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="inline-flex items-center gap-1.5 font-medium text-[var(--ink-2)]">
-                <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
-                <span>AI draft · {detectedLanguage}</span>
-              </span>
-              <span className="text-[var(--line)]">|</span>
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--ink-2)] bg-[var(--selected)] border border-[var(--line)] px-2 py-0.5 rounded-sm">
-                {activeChannel === "gmail" ? (
-                  <>
-                    <Mail className="w-3 h-3 text-[var(--ink-3)]" />
-                    <span>Gmail</span>
-                  </>
-                ) : (
-                  <>
-                    <MessageSquare className="w-3 h-3 text-emerald-600" />
-                    <span>WhatsApp</span>
-                  </>
-                )}
-              </span>
-
-              {/* Draft Switcher Tabs if multiple drafts available */}
-              {drafts && drafts.length > 1 && (
-                <div className="flex items-center gap-1 ml-2 bg-[var(--bg)] p-0.5 rounded-[var(--radius-ctl)] border border-[var(--line)]">
-                  {drafts.map((d, idx) => (
-                    <button
-                      key={d.id || `draft-${idx}`}
-                      type="button"
-                      onClick={() => {
-                        setSelectedDraftId(d.id || `d${idx + 1}`);
-                        setContent(d.text);
-                      }}
-                      className={cn(
-                        "px-2 py-0.5 rounded text-[11px] transition-colors cursor-pointer",
-                        selectedDraftId === (d.id || `d${idx + 1}`)
-                          ? "bg-[var(--pane)] text-[var(--ink)] font-semibold shadow-2xs border border-[var(--line)]"
-                          : "text-[var(--ink-3)] hover:text-[var(--ink)]"
-                      )}
-                    >
-                      {d.label ? (d.label.includes("Draft 1") ? "Draft 1" : d.label.includes("Draft 2") ? "Draft 2" : `Draft ${idx + 1}`) : `Draft ${idx + 1}`}
-                    </button>
-                  ))}
-                </div>
+            {/* Composer Header: Channel badge + AI Draft Switcher tabs (ALWAYS visible when drafts exist!) */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-[var(--ink-3)]">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Locked Channel Badge */}
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[var(--ink)] bg-[var(--selected)] border border-[var(--line)] px-2.5 py-1 rounded">
+              {activeChannel === "gmail" ? (
+                <>
+                  <Mail className="w-3.5 h-3.5 text-[var(--ink-3)]" />
+                  <span>Gmail</span>
+                </>
+              ) : (
+                <>
+                  <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>WhatsApp</span>
+                </>
               )}
-            </div>
+            </span>
 
+            {/* AI Draft Switcher Tabs: ALWAYS available whenever drafts are present */}
+            {drafts && drafts.length > 0 && (
+              <>
+                <span className="text-[var(--line)]">|</span>
+                <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-[var(--ink-2)]">
+                  <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
+                  <span>AI drafts:</span>
+                </span>
+                <div className="flex items-center gap-1 bg-[var(--bg)] p-0.5 rounded-[var(--radius-ctl)] border border-[var(--line)]">
+                  {drafts.map((d, idx) => {
+                    const isSelected = selectedDraftId === (d.id || `d${idx + 1}`) || content.trim() === d.text.trim();
+                    const label = d.label
+                      ? d.label.includes("1")
+                        ? "Draft 1"
+                        : d.label.includes("2")
+                        ? "Draft 2"
+                        : `Draft ${idx + 1}`
+                      : `Draft ${idx + 1}`;
+                    return (
+                      <button
+                        key={d.id || `draft-${idx}`}
+                        type="button"
+                        onClick={() => {
+                          setSelectedDraftId(d.id || `d${idx + 1}`);
+                          setContent(d.text);
+                          setIsSent(false);
+                        }}
+                        className={cn(
+                          "px-2.5 py-1 rounded text-[11.5px] font-medium transition-colors cursor-pointer",
+                          isSelected
+                            ? "bg-[var(--pane)] text-[var(--ink)] font-bold shadow-2xs border border-[var(--line)] text-[var(--accent-ink)]"
+                            : "text-[var(--ink-3)] hover:text-[var(--ink)] hover:bg-[var(--pane)]"
+                        )}
+                        title={d.text}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            <span className="text-[11px] text-[var(--ink-3)] hidden sm:inline">{detectedLanguage}</span>
             {/* Mobile Expand Button */}
             <button
               type="button"
               onClick={handleOpenFullEdit}
-              className="md:hidden inline-flex items-center gap-1 text-[var(--ink-3)] hover:text-[var(--ink)] self-end sm:self-auto"
+              className="md:hidden inline-flex items-center gap-1 text-[var(--ink-3)] hover:text-[var(--ink)]"
               title="Expand full screen editor"
             >
               <Maximize2 className="w-3 h-3" />
               <span>Expand</span>
             </button>
           </div>
-        ) : (
-          /* Normal Reply Header: Channel Indicator */
-          <div className="flex items-center justify-between text-xs">
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[var(--bg)] border border-[var(--line)] text-xs">
-              {activeChannel === "gmail" ? (
-                <>
-                  <Mail className="w-3.5 h-3.5 text-[var(--ink-3)]" />
-                  <span className="font-semibold text-[var(--ink)]">Gmail</span>
-                </>
-              ) : (
-                <>
-                  <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
-                  <span className="font-semibold text-[var(--ink)]">WhatsApp</span>
-                </>
-              )}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setContent(draftText || "Hi, we received your message and will arrange an inspection today.")}
-              className="text-xs text-[var(--ink-2)] hover:text-[var(--accent-ink)] inline-flex items-center gap-1 cursor-pointer"
-            >
-              <Sparkles className="w-3 h-3 text-[var(--accent)]" />
-              <span>Draft with AI</span>
-            </button>
-          </div>
-        )}
+        </div>
 
         {/* Quoted Message Preview if user selected a message to reply to */}
         {replyingTo && (
