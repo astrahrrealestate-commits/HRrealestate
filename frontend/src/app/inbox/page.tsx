@@ -52,23 +52,29 @@ function InboxContent() {
     }
   }, [threadParam, isMobile, threads]);
 
-  // Load live threads on mount
+  // Load live threads on mount and poll periodically for new incoming messages
   useEffect(() => {
     let isMounted = true;
-    getInboxThreads()
-      .then(({ threads: live }) => {
-        if (isMounted && live && live.length > 0) {
-          setThreads(live);
-          if (!selectedThreadId) {
-            setSelectedThreadId(live[0].id);
+
+    const fetchThreads = () => {
+      getInboxThreads()
+        .then(({ threads: live }) => {
+          if (isMounted && live && live.length > 0) {
+            setThreads(live);
+            setSelectedThreadId((prev) => prev || live[0].id);
           }
-        }
-      })
-      .catch((err) => {
-        console.warn("Failed to load live inbox threads on mount:", err);
-      });
+        })
+        .catch((err) => {
+          console.warn("Failed to load live inbox threads:", err);
+        });
+    };
+
+    fetchThreads();
+    const pollInterval = setInterval(fetchThreads, 8000);
+
     return () => {
       isMounted = false;
+      clearInterval(pollInterval);
     };
   }, []);
 
