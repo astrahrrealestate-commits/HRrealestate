@@ -737,9 +737,51 @@ def decide_approval(
                         import requests
                         clean_to = recipient.replace("+", "").replace(" ", "").strip()
                         clean_from = str(sender.whatsapp_phone_number_id or "916364840587").replace("+", "").strip()
-                        # If phone_number_id is standard 15-digit Meta ID, use registered phone number 916364840587
                         if len(clean_from) > 13:
                             clean_from = "916364840587"
+
+                        # Determine 24-hour customer care window state
+                        now_utc = datetime.now(UTC)
+                        msg_sent_at = latest_msg.sent_at if latest_msg and latest_msg.sent_at else now_utc
+                        if msg_sent_at.tzinfo is None:
+                            msg_sent_at = msg_sent_at.replace(tzinfo=UTC)
+                        is_within_24h = (now_utc - msg_sent_at).total_seconds() < 86400
+
+                        # Build contextual reply if incoming message id exists
+                        quote_id = latest_msg.provider_msg_id if latest_msg and latest_msg.provider_msg_id and not latest_msg.provider_msg_id.startswith("wamid.FAKE") else None
+
+                        if is_within_24h:
+                            sz_payload: dict[str, Any] = {
+                                "from": clean_from,
+                                "to": clean_to,
+                                "type": "text",
+                                "text": {"body": draft_text},
+                            }
+                            if quote_id:
+                                sz_payload["context"] = {"message_id": quote_id}
+                        else:
+                            # 24-hour window closed or new user -> Auto fallback to pre-approved template
+                            template_name = str(getattr(settings, "owner_template_name", "estateos_pending") or "estateos_pending")
+                            template_lang = str(getattr(settings, "owner_template_language", "en") or "en")
+                            log.info("approval.sendzen_24h_window_closed", fallback_template=template_name, recipient=clean_to)
+                            sz_payload = {
+                                "from": clean_from,
+                                "to": clean_to,
+                                "type": "template",
+                                "template": {
+                                    "name": template_name,
+                                    "language": {"code": template_lang},
+                                    "components": [
+                                        {
+                                            "type": "body",
+                                            "parameters": [
+                                                {"type": "text", "text": clean_to},
+                                                {"type": "text", "text": draft_text[:120]},
+                                            ]
+                                        }
+                                    ]
+                                }
+                            }
 
                         sz_resp = requests.post(
                             "https://api.sendzen.io/v1/messages",
@@ -747,12 +789,7 @@ def decide_approval(
                                 "Authorization": f"Bearer {token_val}",
                                 "Content-Type": "application/json",
                             },
-                            json={
-                                "from": clean_from,
-                                "to": clean_to,
-                                "type": "text",
-                                "text": {"body": draft_text},
-                            },
+                            json=sz_payload,
                             timeout=10,
                         )
                         if sz_resp.status_code in (200, 201, 202):
@@ -760,7 +797,7 @@ def decide_approval(
                             items = resp_json.get("data") or []
                             first_item = items[0] if items and isinstance(items, list) else {}
                             whatsapp_message_id = first_item.get("message_id") or f"sz_{datetime.now(UTC).timestamp()}"
-                            log.info("approval.sendzen_message_sent", message_id=whatsapp_message_id, to=clean_to)
+                            log.info("approval.sendzen_message_sent", message_id=whatsapp_message_id, to=clean_to, mode=sz_payload.get("type"))
                         else:
                             log.warning("approval.sendzen_send_failed", status=sz_resp.status_code, body=sz_resp.text)
                     else:
