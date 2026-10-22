@@ -376,27 +376,38 @@ def _fake_rag_plan(prompt: str) -> dict[str, object]:
     }
 
 
-def _fake_relevance(wanted: set[str], body: str) -> int:
+def _fake_rerank_scores(question: str, passages: list[tuple[int, str, str]]) -> list[dict[str, int]]:
+    """Offline reranker. Relevance 3 when a passage covers two of the question's ideas or words, 2 for one idea or a
+    long shared word, 1 for a short shared word. A name or address the question mentions that appears in some other
+    passage's header but not in this one caps it at 1: it is about someone else."""
     from app.core.property_terms import GROUPS, canonical_tokens
 
-    shared = wanted & set(canonical_tokens(body))
-    ideas = shared & set(GROUPS)
-    if len(ideas) >= 2 or len(shared) >= 3:
-        return 3
-    return 2 if ideas else (1 if shared else 0)
+    wanted = set(canonical_tokens(question))
+    plain = {t for t in wanted if t not in GROUPS and len(t) >= 4}
+    heads = {n: set(canonical_tokens(head)) for n, head, _ in passages}
+    named = {t for t in plain if any(t in h for h in heads.values())}
+    out: list[dict[str, int]] = []
+    for number, head, body in passages:
+        have = set(canonical_tokens(f"{head} {body}"))
+        shared = wanted & have
+        ideas = shared & set(GROUPS)
+        rel = (
+            3
+            if len(ideas) >= 2 or len(shared) >= 3
+            else 2
+            if ideas or any(len(t) >= 5 for t in shared)
+            else int(bool(shared))
+        )
+        if named and not (named & heads[number]):
+            rel = min(rel, 1)
+        out.append({"ref": number, "relevance": rel})
+    return out
 
 
 def _fake_rag_rerank(prompt: str) -> dict[str, object]:
-    """Offline reranker: 3 when a passage covers two of the question's ideas, 2 for one, 1 for a shared plain word."""
-    from app.core.property_terms import canonical_tokens
-
-    wanted = set(canonical_tokens(_block(prompt, "message")))
     pattern = r"\[(\d+)\] ([^\n]*)\n(.*?)(?=\n\n\[\d+\] |\Z)"
-    scores = [
-        {"ref": int(number), "relevance": _fake_relevance(wanted, body)}
-        for number, _title, body in re.findall(pattern, _block(prompt, "excerpts"), re.S)
-    ]
-    return {"scores": scores}
+    passages = [(int(n), head, body) for n, head, body in re.findall(pattern, _block(prompt, "excerpts"), re.S)]
+    return {"scores": _fake_rerank_scores(_block(prompt, "message"), passages)}
 
 
 def model_for(agent_name: str) -> FunctionModel:

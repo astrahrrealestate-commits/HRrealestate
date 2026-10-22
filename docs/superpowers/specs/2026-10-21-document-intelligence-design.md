@@ -141,3 +141,9 @@ once facts exist: a cron over lease end and insurance expiry creating tasks).
 - **Layout v2** shipped with filing itself; the reorg plan moves v1 files. Backfill: `POST /documents/backfill`.
 - **Proposer excerpts** carry no links/e-mails/IBANs and are not added to the draft guard's source text, so a draft that
   repeats such a value is still flagged.
+
+## Superseded by ADR 0008 (2026-10-22)
+Retrieval is no longer full-text only. The spec's "pgvector is not added now" decision is reversed by
+[ADR 0008](../../adr/0008-advanced-rag.md): hybrid search with multilingual embeddings, structure-aware chunks with a
+contextual header, query planning (HyDE), a fact-first route, a listwise reranker with a relevance floor, neighbour
+widening, and an evaluation gate. The Super Agent, reply drafts and the library search all use it.

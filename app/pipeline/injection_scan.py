@@ -9,8 +9,8 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "tries to override instructions",
         re.compile(
-            r"\b(ignore|disregard|forget|negeer|vergeet)\b.{0,30}\b(previous|prior|above|earlier|vorige|eerdere)\b"
-            r".{0,30}\b(instructions?|prompts?|rules?|instructies|regels)\b",
+            r"\b(ignore|disregard|forget|negeer|vergeet)\b.{0,30}\b(previous|prior|above|earlier|vorige|eerdere|voorgaande|bovenstaande)\b"
+            r".{0,30}\b(instructions?|prompts?|rules?|instructies|regels|aanwijzingen)\b",
             _FLAGS,
         ),
     ),

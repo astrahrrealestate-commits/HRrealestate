@@ -10,7 +10,7 @@ NEXT_REV = $(shell printf '%04d' $$(( $$(ls app/db/alembic/versions/[0-9]*.py 2>
 
 .PHONY: help setup gmail-consent up up-db down logs ps migrate migration migrate-roundtrip alembic-check \
         fmt lint type boundaries test-unit test-int test cov quick check smoke audit eval \
-        workflows harness-test clean sim-demo live-check gmail-pull pending approve
+        workflows harness-test clean sim-demo rag-eval live-check gmail-pull pending approve
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -108,6 +108,10 @@ audit: ## dependency vulnerability audit
 	mkdir -p .claude/.cache
 	uv export --frozen --no-hashes --format requirements-txt > .claude/.cache/req.txt
 	$(UV) pip-audit -r .claude/.cache/req.txt --strict
+
+rag-eval: up-db ## ADR 0008: document RAG quality on the synthetic corpus, M10 baseline vs hybrid (scratch company in the dev DB; real models via EMBEDDING_MODEL/LLM_MODEL)
+	$(UV) alembic upgrade head
+	$(UV) python -m evals.rag_eval
 
 eval: ## (M4) golden-set eval: make eval agent=understanding|linking|owner_qa|concierge version=v2
 	$(UV) python -m evals.run --agent $(agent) --version $(version)

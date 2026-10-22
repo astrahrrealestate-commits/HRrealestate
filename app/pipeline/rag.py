@@ -90,7 +90,7 @@ def rerank(
     """Relevance 0-3 per candidate chunk, or None when reranking is off or failed (the fused order then stands)."""
     if not settings.rag_rerank or len(cands) < 2:
         return None
-    items = [RerankItem(c.title, c.doc_type, c.document_date, c.page, c.text) for c in cands]
+    items = [RerankItem(c.title, c.doc_type, c.document_date, c.page, c.text, c.context) for c in cands]
     try:
         out = run_agent(
             engine, settings, RAG_RERANK, rerank_prompt(question, items), CallContext(company_id, "rag_rerank")

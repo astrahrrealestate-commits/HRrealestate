@@ -40,18 +40,23 @@ class RerankItem:
     document_date: date | None
     page: int | None
     text: str
+    context: str | None = None  # the chunk's header: title, type, date, unit, parties, heading, page
 
 
 def plan_prompt(question: str) -> str:
     return data_block("message", question[:MAX_QUESTION_CHARS])
 
 
+def _heading(it: RerankItem) -> str:
+    """The passage's header as the reranker sees it: who and where it is about, not only what it says."""
+    if it.context:
+        return one_line(it.context)
+    page = f", p.{it.page}" if it.page else ""
+    return f"{one_line(it.title)} ({it.doc_type}, {it.document_date or 'undated'}{page})"
+
+
 def rerank_prompt(question: str, items: Sequence[RerankItem]) -> str:
-    entries = [
-        f"[{i}] {one_line(it.title)} ({it.doc_type}, {it.document_date or 'undated'}"
-        f"{f', p.{it.page}' if it.page else ''})\n{it.text[:MAX_PASSAGE_CHARS]}"
-        for i, it in enumerate(items, start=1)
-    ]
+    entries = [f"[{i}] {_heading(it)}\n{it.text[:MAX_PASSAGE_CHARS]}" for i, it in enumerate(items, start=1)]
     body = "\n\n".join(entries) or "none"
     excerpts = data_block("excerpts", body, len(items) * (MAX_PASSAGE_CHARS + 200))
     return f"{excerpts}\n{data_block('message', question[:MAX_QUESTION_CHARS])}"

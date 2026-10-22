@@ -39,6 +39,7 @@ class Candidate:
     doc_type: str
     document_date: date | None
     score: float
+    context: str | None = None
     words_rank: int | None = None
     vector_rank: int | None = None
 
@@ -118,7 +119,7 @@ def _load(
     ).all()
     out = [
         Candidate(c.id, d.id, c.ord, c.page, c.heading, c.text, d.title, d.doc_type, d.document_date, scores[c.id],
-                  ranks["words"].get(c.id), ranks["vector"].get(c.id))
+                  c.context, ranks["words"].get(c.id), ranks["vector"].get(c.id))
         for c, d in rows
     ]  # fmt: skip
     return sorted(out, key=lambda c: (-c.score, c.document_id, c.ord))
