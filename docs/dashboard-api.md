@@ -142,8 +142,10 @@ What the agent reads for an open thread or case (the memory pack, server facts i
   fewer, else the first 6 and the newest 24. Each is one line `msg NN | direction | channel | time (UTC) | text`
   with the text's first 600 characters, whitespace collapsed (tenant text can never start a line of its own).
 - **Case memory** (the open case, else the open thread's case): summary (800 chars), the person's name and kind, the
-  person's lease parties (role, unit, lease start and end; at most 3), open waits (who, what in 200 chars, expected
-  by; at most 5), the last 15 timeline events (kind, state change, actor, note in 120 chars) and the case's latest 5
+  person's lease parties (role, unit, the directory version's validity, `current` or `not current since <date>`,
+  current versions first; at most 3), open waits (who, what in 200 chars, expected
+  by; at most 5), the last 15 timeline events (kind, state change such as `open -> waiting` or `(none) -> open`,
+  actor, note in 120 chars) and the case's latest 5
   actions (type, status, `draft_version`, the owner's latest decision, edit count, first draft variant in 300 chars).
 - **Budget:** the whole facts text is at most 12000 characters. When it would be longer, whole lines are left out in
   this order: older messages (down to the newest 6), visible rows from the bottom, the oldest events, the oldest

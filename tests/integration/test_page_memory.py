@@ -70,14 +70,22 @@ def _directory(s: Session, cid: UUID, secret: str) -> Person:
     s.add_all([person, unit])
     s.flush()
     lease = Lease(company_id=cid, unit_id=unit.id, valid_from=date(2024, 2, 1))
-    s.add(lease)
+    old = Lease(company_id=cid, unit_id=unit.id, valid_from=date(2025, 1, 1), valid_to=date(2025, 6, 30))  # superseded
+    s.add_all([lease, old])
     s.flush()
     s.add(LeaseParty(company_id=cid, lease_id=lease.id, person_id=person.id, role="tenant"))
+    s.add(LeaseParty(company_id=cid, lease_id=old.id, person_id=person.id, role="tenant"))
     return person
 
 
 def _work(s: Session, cid: UUID, case_id: UUID, secret: str) -> None:
     s.add(WaitRow(company_id=cid, case_id=case_id, about=f"offerte {secret}", expected_by=T0 + timedelta(days=3)))
+    s.add(
+        CaseEvent(
+            company_id=cid, case_id=case_id, kind=CaseEventKind.state_change, from_state=None,
+            to_state=CaseState.open, note=None, actor="system", created_at=T0 - timedelta(minutes=1),
+        )
+    )  # fmt: skip
     s.add(
         CaseEvent(
             company_id=cid, case_id=case_id, kind=CaseEventKind.state_change, from_state=CaseState.open,
@@ -114,10 +122,12 @@ def worlds(migrated_engine: Engine, committed_company: Company) -> Iterator[tupl
         other = Company(name="Foreign BV")
         s.add(other)
         s.commit()
-    mine = _seed(migrated_engine, committed_company.id, "MINEONLY", 40)
-    theirs = _seed(migrated_engine, other.id, "THEIRSONLY", 3)
-    yield mine, theirs
-    purge_company(migrated_engine, other.id)
+    try:  # a failed seed still removes the foreign company (committed_company purges its own)
+        mine = _seed(migrated_engine, committed_company.id, "MINEONLY", 40)
+        theirs = _seed(migrated_engine, other.id, "THEIRSONLY", 3)
+        yield mine, theirs
+    finally:
+        purge_company(migrated_engine, other.id)
 
 
 def _page(**kw: Any) -> PageContext:
@@ -140,9 +150,11 @@ def test_thread_page_reads_a_window_of_that_thread_and_its_case_memory(
     assert facts.memory.case_id == mine.case_id
     text = facts_text(facts)
     for expected in ("main 40 MINEONLY", "main 01 MINEONLY", "  person: Sanne MINEONLY | tenant", "unit A-12 MINEONLY",
-                     "| from 2024-02-01 | until open", "offerte MINEONLY", "open -> waiting_on_third_party | owner",
+                     "| valid from 2024-02-01 | current", "| valid from 2025-01-01 | not current since 2025-06-30",
+                     "(none) -> open | system", "offerte MINEONLY", "open -> waiting_on_third_party | owner",
                      "draft_version 2 | owner decision edited | edits 1 | draft MINEONLY"):  # fmt: skip
         assert expected in text, expected
+    assert text.index("| current") < text.index("| not current since")  # the current version first
     assert "main 10 MINEONLY" not in text  # outside the window
     assert "SIDETHREAD" not in text  # never another thread's text, even of the same case
     assert "THEIRSONLY" not in text

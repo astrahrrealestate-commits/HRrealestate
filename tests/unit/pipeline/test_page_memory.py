@@ -3,8 +3,11 @@ truncation order, and that tenant text can never forge a fact line."""
 
 import re
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
+
+from sqlalchemy.dialects import postgresql
 
 from app.contracts import Channel, PageContext
 from app.contracts.thread_key import encode_thread_key
@@ -66,11 +69,9 @@ def test_case_page_renders_memory_then_the_conversation() -> None:
         f"open case: {CASE} | Sanne · maintenance | waiting | urgency high",
         "  summary: Lekkage onder de gootsteen",
         "  person: Sanne | tenant",
-        "  lease: tenant | unit A-12 | from 2024-01-01 | until open",
+        "  lease: tenant | unit A-12 | valid from 2024-01-01 | current",
         "  open wait: Loodgieter Jan | offerte lekkage | expected by 2026-10-25 09:00Z | chased 1",
-        "  event: 2019-10-19 08:00Z | state_change | open -> waiting | owner | wacht op offerte".replace(
-            "2019", "2026"
-        ),
+        "  event: 2026-10-19 08:00Z | state_change | open -> waiting | owner | wacht op offerte",
         "  earlier draft: reply_draft | pending_approval | draft_version 2 | owner decision edited | edits 1"
         " | Beste Sanne, we komen dinsdag.",
         "conversation (case, 2 messages, oldest first, times UTC):",
@@ -99,7 +100,7 @@ def test_thread_page_shows_its_case_memory_under_the_thread() -> None:
         "  case: Sanne · maintenance | open | urgency normal",
         "  summary: Lekkage",
         "  person: Sanne | tenant",
-        "  lease: tenant | unit A-12 | from 2024-01-01 | until open",
+        "  lease: tenant | unit A-12 | valid from 2024-01-01 | current",
         "  open wait: Loodgieter Jan | offerte lekkage | expected by 2026-10-25 09:00Z | chased 1",
         "conversation (thread, 1 message, oldest first, times UTC):",
         "  msg 01 | inbound | whatsapp | 2026-10-20 09:01Z | Er lekt water",
@@ -295,3 +296,33 @@ def test_rows_become_facts_with_server_values_and_caps() -> None:
     assert ids == [row.id]
     session.execute.return_value.all.return_value = []
     assert pm.case_conversation(session, uuid4(), CASE) is None
+
+
+def test_lease_versions_are_labelled_with_their_validity() -> None:
+    leases = (LeaseFact("tenant", "A-12", "2024-01-01", None), LeaseFact("tenant", "A-12", "2023-01-01", "2023-12-31"))
+    lines = facts_text(PageFacts("case", case=_case(), memory=_memory(leases=leases))).splitlines()
+    assert [x for x in lines if x.startswith("  lease:")] == [
+        "  lease: tenant | unit A-12 | valid from 2024-01-01 | current",
+        "  lease: tenant | unit A-12 | valid from 2023-01-01 | not current since 2023-12-31",
+    ]
+
+
+def _directory_sql() -> str:
+    dialect: Any = postgresql.dialect()  # type: ignore[no-untyped-call]
+    stmt = pm.directory_query(UUID(int=1), CASE)
+    return " ".join(str(stmt.compile(dialect=dialect, compile_kwargs={"literal_binds": True})).split())
+
+
+def test_directory_order_puts_current_versions_first_and_breaks_ties_by_id() -> None:
+    order = _directory_sql().split("ORDER BY", 1)[1]
+    assert order.index("leases.valid_to DESC NULLS FIRST") < order.index("leases.valid_from DESC NULLS LAST")
+    assert "leases.id" in order
+    assert order.rstrip().endswith("lease_parties.id LIMIT 3")
+    assert _directory_sql().count("company_id = '") >= 5  # case, person, lease party, lease and unit are scoped
+
+
+def test_event_without_a_from_state_shows_none() -> None:
+    assert pm.state_change(None, "open") == "(none) -> open"
+    assert pm.state_change("open", "waiting") == "open -> waiting"
+    assert pm.state_change("open", None) == "-"
+    assert pm.state_change(None, None) == "-"

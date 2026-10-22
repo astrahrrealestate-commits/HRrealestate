@@ -33,10 +33,9 @@ def _directory_lines(memory: CaseMemory) -> list[Line]:
     if p := memory.person:
         lines.append(Line(f"  person: {p.name[:MAX_NAME]} | {p.kind[:MAX_CODE]}"))
     for x in memory.leases[:MAX_LEASES]:
-        end = (x.end or "open")[:MAX_CODE]
-        lines.append(
-            Line(f"  lease: {x.role[:MAX_CODE]} | unit {x.unit[:MAX_NAME]} | from {x.start[:MAX_CODE]} | until {end}")
-        )
+        validity = "current" if x.end is None else f"not current since {x.end[:MAX_CODE]}"
+        head = f"  lease: {x.role[:MAX_CODE]} | unit {x.unit[:MAX_NAME]}"
+        lines.append(Line(f"{head} | valid from {x.start[:MAX_CODE]} | {validity}"))
     return lines
 
 

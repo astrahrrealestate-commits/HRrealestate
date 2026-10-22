@@ -9,6 +9,7 @@ times, kinds and statuses are server values. A thread page shows only that threa
 """
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 from uuid import UUID
 
@@ -16,7 +17,7 @@ from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.contracts import Channel
-from app.db.enums import WaitStatus
+from app.db.enums import PersonKind, WaitStatus
 from app.db.models import (
     ActionRevision,
     ActionRow,
@@ -31,6 +32,7 @@ from app.db.models import (
     Unit,
     WaitRow,
 )
+from app.llm.render import RAW_FACTOR
 from app.pipeline.page_text import one_line, stamp
 
 MAX_MESSAGES, FIRST, NEWEST = 30, 6, 24  # first 6 + newest 24 when a conversation is longer than 30
@@ -39,7 +41,7 @@ MAX_EVENTS, MAX_NOTE = 15, 120
 MAX_WAITS, MAX_ABOUT = 5, 200
 MAX_DRAFTS, MAX_EARLIER_DRAFT = 5, 300
 MAX_LEASES, MAX_NAME, MAX_CODE = 3, 120, 40
-RAW_FACTOR = 4  # characters read from the DB per capped character (format characters are dropped by normalising)
+NO_STATE = "(none)"  # an event without a from-state (the case was just opened)
 
 
 @dataclass(frozen=True)
@@ -68,8 +70,8 @@ class PersonFact:
 class LeaseFact:
     role: str
     unit: str
-    start: str
-    end: str | None
+    start: str  # the directory row's validity window (`valid_from`/`valid_to`), not contract dates
+    end: str | None  # None: the current version
 
 
 @dataclass(frozen=True)
@@ -84,7 +86,7 @@ class WaitFact:
 class EventFact:
     at: str
     kind: str
-    change: str  # "open -> waiting" or "-"
+    change: str  # "open -> waiting", "(none) -> open" or "-"
     actor: str
     note: str
 
@@ -151,10 +153,10 @@ def case_conversation(session: Session, company_id: UUID, case_id: UUID) -> Conv
     return _conversation(session, "case", numbered)[0]
 
 
-def _directory(session: Session, company_id: UUID, case_id: UUID) -> tuple[PersonFact | None, tuple[LeaseFact, ...]]:
-    """The case's person and that person's lease parties (role, unit, lease dates). Cases carry no lease/unit ids in
-    Phase 1, so leases come from the directory's lease parties of the person."""
-    rows = session.execute(
+def directory_query(company_id: UUID, case_id: UUID) -> Select[str, PersonKind, str, str, date, date | None]:
+    """The case's person and that person's lease parties. Current lease versions (`valid_to IS NULL`) come first, then
+    the newest; unique ids break every tie, so the MAX_LEASES kept are the same on every run."""
+    return (
         select(Person.display_name, Person.kind, LeaseParty.role, Unit.label, Lease.valid_from, Lease.valid_to)
         .select_from(Case)
         .join(Person, (Person.id == Case.primary_person_id) & (Person.company_id == company_id))
@@ -162,9 +164,18 @@ def _directory(session: Session, company_id: UUID, case_id: UUID) -> tuple[Perso
         .outerjoin(Lease, (Lease.id == LeaseParty.lease_id) & (Lease.company_id == company_id))
         .outerjoin(Unit, (Unit.id == Lease.unit_id) & (Unit.company_id == company_id))
         .where(Case.company_id == company_id, Case.id == case_id)
-        .order_by(Lease.valid_from.desc().nulls_last(), LeaseParty.role)
+        .order_by(
+            Lease.valid_to.desc().nulls_first(), Lease.valid_from.desc().nulls_last(), Lease.id, LeaseParty.role,
+            LeaseParty.id,
+        )
         .limit(MAX_LEASES)
-    ).all()
+    )  # fmt: skip
+
+
+def _directory(session: Session, company_id: UUID, case_id: UUID) -> tuple[PersonFact | None, tuple[LeaseFact, ...]]:
+    """Cases carry no lease/unit ids in Phase 1, so leases come from the directory's lease parties of the person; a
+    superseded or ended version is labelled with its validity, never shown as current."""
+    rows = session.execute(directory_query(company_id, case_id)).all()
     if not rows:
         return None, ()
     person = PersonFact(one_line(rows[0][0], MAX_NAME), _val(rows[0][1]))
@@ -175,6 +186,13 @@ def _directory(session: Session, company_id: UUID, case_id: UUID) -> tuple[Perso
         if role is not None and start is not None
     )  # fmt: skip
     return person, leases
+
+
+def state_change(from_state: object, to_state: object) -> str:
+    """`a -> b`; an event without a from-state (a new case) is `(none) -> b`; no to-state is `-`."""
+    if not to_state:
+        return "-"
+    return f"{_val(from_state) if from_state else NO_STATE} -> {_val(to_state)}"
 
 
 def _waits(session: Session, company_id: UUID, case_id: UUID) -> tuple[WaitFact, ...]:
@@ -204,7 +222,7 @@ def _events(session: Session, company_id: UUID, case_id: UUID) -> tuple[EventFac
         .limit(MAX_EVENTS)
     ).all()  # fmt: skip
     return tuple(
-        EventFact(stamp(at), _val(kind), f"{_val(a)} -> {_val(b)}" if a and b else "-", one_line(actor, MAX_CODE),
+        EventFact(stamp(at), _val(kind), state_change(a, b), one_line(actor, MAX_CODE),
                   one_line(note or "-", MAX_NOTE) or "-")
         for at, kind, a, b, actor, note in reversed(rows)
     )  # fmt: skip
