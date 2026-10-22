@@ -266,8 +266,8 @@ streaming** in this round.
 - **Steerable drafts:** `draft_reply` takes the owner's wording as sanitised guidance for the proposer (new proposer
   prompt version; v1 stays published); with a pending draft it supersedes it with a new `draft_version` instead of
   failing; the drafts are echoed in the turn answer and exist as approvals (the approval gates sending).
-  - *As built (Task 2, 2026-10-22):* the guidance is the planner's `text` for the step, else the owner's own message,
-    sanitised (links, emails, phones, IBANs, amounts redacted; the answer then says details were removed) and given
+  - *As built (Task 2, 2026-10-22):* the guidance is the owner's own message (the planner's `text` only when all its
+    content words occur in his message, since the planner reads tenant text), sanitised (links, emails, phones, IBANs, amounts redacted; the answer then says details were removed) and given
     to the proposer as an `<owner_guidance>` data block with the replaced draft as `<current_draft>`; prompt
     `proposer/v2` only for these owner-requested drafts (inbound and chase proposals keep `proposer/v1`). Message with
     no proposal: the propose stage. Pending reply draft: superseded once (old approval expired, `draft_version + 1`,
@@ -276,7 +276,9 @@ streaming** in this round.
     The redraft passes the propose-stage rules: a suspicious or paused message, or a draft with an unverified link,
     account or phone number, changes nothing. The answer quotes up to 3 variants (600 characters each, output-guard
     flags, flagged variants redacted); `data` has the approval id for approve/edit. Plan `case_id`s are limited to the
-    brief's open cases and the case ids on resolved page-facts lines (never tenant text or the snapshot).
+    brief's open cases and the case ids on resolved page-facts lines (never tenant text or the snapshot); others get
+    "Open that case's page first". A reply awaiting approval without a live pending approval (an edit tap) is never
+    redrafted; the redraft locks approval then action, like `decide`.
 - **Speed:** one model call for page/chat questions (the planner returns the answer; no second owner_qa call), a
   dedicated chat queue with a short poll interval, turn SSE poll about 0.5 s, `PUT /agent/page` pre-warms resolved
   page facts when the owner navigates, per-turn timings stored on the turn so latency is measurable.

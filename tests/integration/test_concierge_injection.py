@@ -15,6 +15,7 @@ from app.contracts import ConciergePlan, Intent
 from app.core.settings import Settings
 from app.db.models import ActionRow, AgentTurn, Approval, Case, Company, ModelCall, OwnerAccount, Send, TaskRow, Timer
 from app.pipeline import concierge_turns
+from app.pipeline.concierge_base import NOT_SHOWN
 from app.pipeline.concierge_sanitize import has_contact_details
 from tests.integration.concierge_support import count, readable_strings, seed_case, step
 from tests.integration.concierge_support import plan as make_plan
@@ -154,7 +155,7 @@ def test_hostile_plan_is_neutralised_by_the_executor(env: Env, foreign_case: UUI
     results = out["results"]
     assert [r["intent"] for r in results] == ["resume", "draft_reply", "create_task", "task_snooze"]
     assert results[1]["ok"] is False
-    assert results[1]["summary"] == "I could not find that case/task"  # a foreign case id is just not found
+    assert results[1]["summary"] == NOT_SHOWN  # a foreign case id is not in the brief or the page: refused
     assert [count(env.engine, m, env.cid) for m in (ActionRow, Approval, Send, Timer)] == before
     assert _paused(env) is True
     with Session(env.engine) as s:

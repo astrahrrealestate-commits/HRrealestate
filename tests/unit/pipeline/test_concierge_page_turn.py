@@ -18,7 +18,7 @@ from app.llm.page_blocks import NO_PAGE, PagePrompt
 from app.pipeline import concierge_page
 from app.pipeline import concierge_turns as ct
 from app.pipeline.concierge import run_plan
-from app.pipeline.concierge_base import NOT_FOUND, StepResult
+from app.pipeline.concierge_base import NOT_SHOWN, StepResult
 from app.pipeline.page_facts import CaseFact, PageFacts, facts_text
 
 M = "app.pipeline.concierge_turns"
@@ -223,4 +223,4 @@ def test_hostile_plan_on_a_snapshot_only_case_is_not_found_and_drafts_nothing(io
         out = ct._outcome(MagicMock(), MagicMock(), _start(page))
     draft.assert_not_called()
     assert out.results is not None
-    assert [(r["intent"], r["ok"], r["summary"]) for r in out.results] == [("draft_reply", False, NOT_FOUND)]
+    assert [(r["intent"], r["ok"], r["summary"]) for r in out.results] == [("draft_reply", False, NOT_SHOWN)]

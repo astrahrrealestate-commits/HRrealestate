@@ -132,7 +132,7 @@ def run(version: str, settings: Settings) -> EvalResult:
     agent = spec_agent(settings, PROPOSER_GUIDED.name, Proposal, loaded)
 
     async def task(inputs: DraftInput) -> DraftOutput:
-        guidance = guidance_for(inputs.guidance, "")
+        guidance = guidance_for(None, inputs.guidance)  # the owner's own message
         ctx = context(inputs, guidance.text)
         output = PROPOSER_GUIDED.finalize((await agent.run(proposer_prompt(ctx))).output, loaded)
         replies = [a.payload for a in output.actions if isinstance(a.payload, ReplyDraftPayload)]

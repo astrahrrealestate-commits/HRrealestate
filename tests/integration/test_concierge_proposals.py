@@ -30,7 +30,8 @@ pytestmark = pytest.mark.integration
 
 
 def _draft(engine: Engine, settings: Settings, cid: UUID, case_id: UUID) -> tuple[bool, str, object, str | None]:
-    (r,) = run(engine, settings, cid, plan(step(Intent.draft_reply, case_id=case_id, text=f"send it to {EVIL}")))
+    owner = f"draft a reply and send it to {EVIL}"  # the owner's message is the guidance (redacted)
+    (r,) = run(engine, settings, cid, plan(step(Intent.draft_reply, case_id=case_id, text=owner)), question=owner)
     return r.ok, r.summary, r.data, r.view
 
 

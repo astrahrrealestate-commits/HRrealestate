@@ -2,15 +2,18 @@
 
 - A live pending reply approval is superseded exactly once (`approvals.supersede_draft`): new `draft_version`, new
   pending approval, the old one expired and its feed card resolved.
-- A message whose proposal was decided gets a fresh reply action (`context_ref = [message_id]`, so the decide gate's
-  suspicious check covers it) with a pending approval.
-- Held messages (paused, exception: suspicious or an unverified link) are never redrafted.
+- A message whose reply was decided (or that has only other actions) gets a fresh reply action
+  (`context_ref = [message_id]`, so the decide gate's suspicious check covers it) with a pending approval; under the
+  message lock the state is read again, so a reply another turn just proposed is superseded, never doubled.
+- A reply awaiting approval without a live pending approval (an edit tap's window) and held messages (paused,
+  exception: suspicious or an unverified link) are never redrafted. Locks follow `decide`: approval, then action.
 Every write carries an ActionRevision keyed `agent:{turn_id}:{step}`; `turn_replay` finds any of the turn's revisions
 on the message first, so a retried step (or a second draft_reply step of the same turn) returns the same revision and
 never calls the model again. The proposer output passes the same rules as the propose stage; recipients are never
 part of a payload (the sender derives them from the DB). Nothing here sends or approves.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
@@ -34,9 +37,14 @@ NOTHING = "the message does not need a reply"
 _HELD = (ActionStatus.paused, ActionStatus.exception)
 
 
+Kind = Literal["new", "pending", "busy", "held", "decided", "no_reply"]
+BUSY = "the reply draft is being edited or is not ready for approval yet; finish it in Approvals first"
+HELD = "the message is held for your review (paused or flagged)"
+
+
 @dataclass(frozen=True)
 class MessageState:
-    kind: Literal["new", "pending", "held", "decided"]
+    kind: Kind
     pending: UUID | None  # the live pending reply approval
     current: tuple[str, ...]  # the variants of the message's latest reply draft
 
@@ -57,6 +65,7 @@ class Redraft:
     variants: tuple[str, ...]
     source: str  # the conversation the drafts are checked against
     problem: str | None = None  # why nothing was written (a rules reason or a fixed text)
+    superseded: UUID | None = None  # the pending approval this draft replaced
 
 
 def _variants(payload: dict[str, Any] | None) -> tuple[str, ...]:
@@ -82,6 +91,23 @@ def _live_reply(session: Session, company_id: UUID, replies: list[ActionRow]) ->
     )
 
 
+def classify(actions: Sequence[tuple[ActionType, ActionStatus]], live_pending: bool) -> Kind:
+    """Pure. `new`: no proposal. `pending`: a reply draft has a live pending approval (it is superseded). `busy`: a
+    reply draft awaits approval without one (an edit tap's 24 h window, or not opened yet): never redrafted. `held`:
+    something was paused or flagged. `decided`: every reply draft was decided (a fresh one is drafted). `no_reply`:
+    only other actions (an escalation, the could-not-draft notice; pending or not): a first reply is drafted."""
+    if not actions:
+        return "new"
+    if live_pending:
+        return "pending"
+    replies = [status for kind, status in actions if kind is ActionType.reply_draft]
+    if ActionStatus.pending_approval in replies:
+        return "busy"
+    if any(status in _HELD for _, status in actions):
+        return "held"
+    return "decided" if replies else "no_reply"
+
+
 def message_state(session: Session, company_id: UUID, message_id: UUID) -> MessageState:
     actions = list(
         session.scalars(
@@ -90,13 +116,11 @@ def message_state(session: Session, company_id: UUID, message_id: UUID) -> Messa
             .order_by(ActionRow.created_at.desc(), ActionRow.id.desc())
         )
     )
-    if not actions:
-        return MessageState("new", None, ())
     replies = [a for a in actions if a.type is ActionType.reply_draft]
     current = _variants(replies[0].payload) if replies else ()
-    if (pending := _live_reply(session, company_id, replies)) is not None:
-        return MessageState("pending", pending, current)
-    return MessageState("held" if any(a.status in _HELD for a in actions) else "decided", None, current)
+    pending = _live_reply(session, company_id, replies)
+    kind = classify([(a.type, a.status) for a in actions], pending is not None)
+    return MessageState(kind, pending, current)
 
 
 def turn_replay(
@@ -147,14 +171,8 @@ def supersede(engine: Engine, settings: Settings, req: Request, approval_id: UUI
         return decided
     loaded, decision = decided
     variants = _variants(decision.action.payload.model_dump(mode="json"))
-    urgency = loaded.ctx.understanding.urgency
     with Session(engine) as session, session.begin():
-        revision = approvals.supersede_draft(
-            session, req.company_id, approval_id, list(variants), editor=req.key, urgency=urgency, now=req.now
-        )
-        if revision is not None:
-            dashboard_decisions.resolve_feed(session, req.company_id, approval_id, at=req.now)
-    return Redraft(revision, variants if revision else (), loaded.source, None if revision else NOT_LIVE)
+        return _supersede_in(session, req, loaded, approval_id, variants)
 
 
 def _insert_reply(session: Session, req: Request, loaded: propose.Loaded, decision: RuleDecision) -> NewRevision:
@@ -173,14 +191,34 @@ def _insert_reply(session: Session, req: Request, loaded: propose.Loaded, decisi
 
 
 def fresh(engine: Engine, settings: Settings, req: Request, current: tuple[str, ...]) -> Redraft:
-    """A new reply proposal for a message whose earlier proposal was decided (once per turn, under the message lock)."""
+    """A new reply for a message whose earlier reply was decided (or that has none), once per turn. Under the message
+    lock the state is read again: a reply another turn just proposed is superseded by this draft, never doubled."""
     decided = _decide(engine, settings, req, current)
     if isinstance(decided, Redraft):
         return decided
     loaded, decision = decided
+    variants = _variants(decision.action.payload.model_dump(mode="json"))
     with Session(engine) as session, session.begin():
         propose.lock_message(session, req.message_id)
         if (done := turn_replay(session, req.company_id, req.prefix, req.message_id)) is not None:
             return Redraft(done[0], done[1], loaded.source)
+        state = message_state(session, req.company_id, req.message_id)
+        if state.kind == "pending" and state.pending is not None:
+            return _supersede_in(session, req, loaded, state.pending, variants)
+        if state.kind in ("busy", "held"):
+            return Redraft(None, (), loaded.source, BUSY if state.kind == "busy" else HELD)
         revision = _insert_reply(session, req, loaded, decision)
-    return Redraft(revision, _variants(decision.action.payload.model_dump(mode="json")), loaded.source)
+    return Redraft(revision, variants, loaded.source)
+
+
+def _supersede_in(
+    session: Session, req: Request, loaded: propose.Loaded, approval_id: UUID, variants: tuple[str, ...]
+) -> Redraft:
+    urgency = loaded.ctx.understanding.urgency
+    revision = approvals.supersede_draft(
+        session, req.company_id, approval_id, list(variants), editor=req.key, urgency=urgency, now=req.now
+    )
+    if revision is None:
+        return Redraft(None, (), loaded.source, NOT_LIVE)
+    dashboard_decisions.resolve_feed(session, req.company_id, approval_id, at=req.now)
+    return Redraft(revision, variants, loaded.source, superseded=approval_id)

@@ -226,24 +226,40 @@ def supersede_draft(
     revision it wrote. None when the approval is no longer the live pending draft (decided, edited or replaced)."""
     if (done := _replayed_edit(session, company_id, editor)) is not None:
         return done
-    live = session.execute(
-        select(Approval, ActionRow)
-        .join(ActionRow, ActionRow.id == Approval.action_id)
-        .where(
-            Approval.company_id == company_id,
-            Approval.id == approval_id,
-            Approval.status == ApprovalStatus.pending,
-            ActionRow.company_id == company_id,
-            ActionRow.draft_version == Approval.draft_version,
-            ActionRow.status == ActionStatus.pending_approval,
-        )
-        .with_for_update(of=ActionRow)
-    ).first()
-    if live is None:  # a concurrent run of the same key may have just committed it
+    live = lock_live(session, company_id, approval_id)
+    if live is None:  # decided/edited meanwhile, or a concurrent run of the same key just committed it
         return _replayed_edit(session, company_id, editor)
     approval, action = live
     approval.status = ApprovalStatus.expired
     return _revise(session, company_id, action, variants, editor=editor, urgency=urgency, now=now)
+
+
+def lock_live(session: Session, company_id: UUID, approval_id: UUID) -> tuple[Approval, ActionRow] | None:
+    """The pending approval and its action, locked in the order `decide`/`edit_approval` use (approval, then action),
+    so a redraft and a decision never deadlock. The approval's status is read again once both are held: a decision
+    that committed while we waited (an edit tap, an approve) is never overwritten."""
+    approval = session.scalar(
+        select(Approval)
+        .where(Approval.id == approval_id, Approval.company_id == company_id, Approval.status == ApprovalStatus.pending)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if approval is None:
+        return None
+    action = session.scalar(
+        select(ActionRow)
+        .where(ActionRow.id == approval.action_id, ActionRow.company_id == company_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    status = session.scalar(
+        select(Approval.status).where(Approval.id == approval_id, Approval.company_id == company_id)
+    )
+    if action is None or action.status is not ActionStatus.pending_approval:
+        return None
+    if status is not ApprovalStatus.pending or action.draft_version != approval.draft_version:
+        return None
+    return approval, action
 
 
 def exec_send(company_id: UUID) -> Any:

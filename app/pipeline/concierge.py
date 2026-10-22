@@ -2,9 +2,9 @@
 
 A plan is untrusted model output. Out-of-scope plans run nothing. A `case_id` must be one the planner was shown as
 company data (the brief's open cases or a case id on a resolved page-facts line); any other id, including one copied
-from tenant text, gets the generic not-found result. Each `case_id`/`task_ref` is then resolved company-scoped before
-use; a bad step fails on its own and the plan goes on. A handler error fails only its step, except transient
-infrastructure errors, which propagate so the calling DBOS step retries.
+from tenant text, gets "open that case's page first" (whether or not it exists). Each `case_id`/`task_ref` is then
+resolved company-scoped before use; a bad step fails on its own and the plan goes on. A handler error fails only its
+step, except transient infrastructure errors, which propagate so the calling DBOS step retries.
 """
 
 from collections.abc import Collection
@@ -27,6 +27,7 @@ from app.pipeline import case_repo, concierge_chase, concierge_proposals, concie
 from app.pipeline.concierge_base import (
     NEED_DETAIL,
     NOT_FOUND,
+    NOT_SHOWN,
     STEP_FAILED,
     Ctx,
     Handler,
@@ -96,12 +97,12 @@ def _task_known(session: Session, company_id: UUID, raw: str | None) -> bool:
 
 def check_step(session: Session, company_id: UUID, step: PlanStep, known_cases: Collection[UUID]) -> str | None:
     """None when the step may run; otherwise the owner-facing reason (missing argument or unknown/foreign ref).
-    `known_cases` are the case ids the planner was shown as company data; any other case id is not found."""
+    `known_cases` are the case ids the planner was shown as company data; any other case id gets NOT_SHOWN."""
     if needs_detail(step):
         return NEED_DETAIL
     if step.intent in _USES_CASE and step.case_id is not None:
-        if step.case_id not in known_cases:
-            return NOT_FOUND
+        if step.case_id not in known_cases:  # same text whether or not the id exists: no existence oracle
+            return NOT_SHOWN
         try:
             case_repo.get_case(session, company_id, step.case_id)
         except NotFoundError:

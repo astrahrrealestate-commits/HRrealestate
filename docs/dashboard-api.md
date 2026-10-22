@@ -162,8 +162,8 @@ filters as advisory display text (prompt `owner_qa/v3`). So "what does this page
 
 Case ids in a plan: a step may only name a case the planner was shown as company data, that is one of the brief's
 open cases or a case id on a server fact line of the page (`open case:`, `open thread: ... | case`, approval and
-visible rows). An id that appears only in a tenant message, the snapshot or the history gets the generic "I could not
-find that case/task" result.
+visible rows). Any other id (one that appears only in a tenant message, the snapshot or the history, or a foreign one)
+gets "Open that case's page first, then ask again.", whether or not it exists.
 
 Example ("is this draft okay?" on an open approval):
 
@@ -186,16 +186,18 @@ Example ("is this draft okay?" on an open approval):
 
 "Reply to this, keep it short", "tell him the plumber comes Tuesday" or "make it shorter" on a thread or case page
 produce a reply draft for the case's latest inbound message:
-- **Guidance.** The owner's wording (the plan step's `text`, else the whole message) is the guidance for the drafting
-  model. Links, email addresses, phone numbers, IBANs and amounts are removed first (`[redacted]`); the answer then
+- **Guidance.** The owner's own message is the guidance for the drafting model (the planner's wording is used only
+  when it repeats the owner's words, never text the planner took from a tenant message). Links, email addresses, phone numbers, IBANs and amounts are removed first (`[redacted]`); the answer then
   says so and `details_removed` is `true`. Tenant replies are Dutch unless the guidance asks otherwise; the draft never
   adds contact or bank details or links that are not already in the conversation.
 - **No draft yet:** a new proposal, as for an incoming message, with the guidance.
 - **A reply draft is waiting for approval:** it is replaced by a new `draft_version` with a new pending approval; the
   old approval becomes `expired` (deciding it returns `stale`) and its feed card is resolved. Re-run safe: a retried
   turn returns the same new draft, never a third one.
-- **The earlier draft was approved or rejected:** one new reply draft for the same message per turn, as a new pending
-  approval.
+- **The earlier draft was approved or rejected** (or the message has only other proposals, such as an escalation):
+  one new reply draft for the same message per turn, as a new pending approval.
+- **A reply draft is being edited** (the WhatsApp edit window) or waits without a pending approval: nothing changes;
+  the answer asks the owner to finish it in Approvals first.
 - **Held messages** (flagged suspicious, company paused) and a new draft that would add an unverified link, account
   or phone number change nothing: the answer says why. Approving a draft on a suspicious message still needs
   `confirm_suspicious: true`.

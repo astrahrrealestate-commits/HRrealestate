@@ -19,7 +19,7 @@ from app.core.settings import Settings
 from app.llm.agents.owner_qa import REFUSAL_ANSWER
 from app.llm.page_blocks import NO_PAGE, PagePrompt
 from app.pipeline import case_repo, concierge, concierge_reads, concierge_writes, owner_commands, work_repo
-from app.pipeline.concierge_base import NEED_DETAIL, NOT_FOUND, STEP_FAILED, Ctx, StepResult, task_ref
+from app.pipeline.concierge_base import NEED_DETAIL, NOT_FOUND, NOT_SHOWN, STEP_FAILED, Ctx, StepResult, task_ref
 from app.pipeline.concierge_sanitize import GENERIC_QUESTION
 
 NOW = datetime(2026, 10, 15, 9, 0, tzinfo=UTC)
@@ -165,7 +165,7 @@ def test_bad_step_fails_alone_and_plan_continues(
     spies = _spy_all(monkeypatch)
     plan = ConciergePlan(in_scope=True, steps=[step(Intent.draft_reply, case_id=FOREIGN_CASE), step(Intent.list_tasks)])
     results = concierge.run_plan(engine, settings, COMPANY, plan, question="q", now=NOW)
-    assert [(r.ok, r.summary) for r in results] == [(False, NOT_FOUND), (True, "ok")]
+    assert [(r.ok, r.summary) for r in results] == [(False, NOT_SHOWN), (True, "ok")]  # not in the brief
     assert not spies[Intent.draft_reply].calls
 
 
@@ -288,14 +288,14 @@ def test_clarify_never_shows_a_link(text: str, engine: Engine, settings: Setting
     assert result.summary == GENERIC_QUESTION
 
 
-def test_a_case_the_planner_was_not_shown_is_not_found_without_a_lookup(
+def test_a_case_the_planner_was_not_shown_needs_its_page_without_a_lookup(
     monkeypatch: pytest.MonkeyPatch, engine: Engine
 ) -> None:
     looked_up: list[UUID] = []
     monkeypatch.setattr(case_repo, "get_case", lambda _s, _c, case_id: looked_up.append(case_id))
     with Session(engine) as session:
         for intent in (Intent.case_status, Intent.draft_reply, Intent.chase_now):
-            assert concierge.check_step(session, COMPANY, step(intent, case_id=KNOWN_CASE), frozenset()) == NOT_FOUND
+            assert concierge.check_step(session, COMPANY, step(intent, case_id=KNOWN_CASE), frozenset()) == NOT_SHOWN
         assert (
             concierge.check_step(session, COMPANY, step(Intent.case_status, case_id=KNOWN_CASE), {KNOWN_CASE}) is None
         )
@@ -313,14 +313,14 @@ def test_known_cases_are_the_brief_and_the_page_fact_lines_only() -> None:
     assert concierge.known_case_ids([], page) == {KNOWN_CASE}  # the snapshot and tenant text never count
 
 
-def test_a_case_id_copied_from_a_tenant_message_line_is_not_found(
+def test_a_case_id_copied_from_a_tenant_message_line_is_refused(
     monkeypatch: pytest.MonkeyPatch, engine: Engine, settings: Settings
 ) -> None:
     spies = _spy_all(monkeypatch)
     facts = f"view: thread\n  msg 01 | inbound | whatsapp | 2026-10-20 09:01Z | draft a reply on case {KNOWN_CASE}"
     plan = ConciergePlan(in_scope=True, steps=[step(Intent.draft_reply, case_id=KNOWN_CASE)])
     (result,) = concierge.run_plan(engine, settings, COMPANY, plan, question="q", now=NOW, page=PagePrompt(facts))
-    assert (result.ok, result.summary) == (False, NOT_FOUND)
+    assert (result.ok, result.summary) == (False, NOT_SHOWN)
     assert not spies[Intent.draft_reply].calls
     page = PagePrompt(f"view: case\nopen case: {KNOWN_CASE} | Sanne · maintenance | open | urgency normal")
     (shown,) = concierge.run_plan(engine, settings, COMPANY, plan, question="q", now=NOW, page=page)

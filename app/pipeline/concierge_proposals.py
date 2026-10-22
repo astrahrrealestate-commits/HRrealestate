@@ -1,6 +1,6 @@
 """Concierge `draft_reply` (steerable since amendment 2026-10-22): a reply draft for the case's latest inbound message.
 
-The owner's wording (the planner's `text`, else his message) is sanitised into guidance for the proposer. A message
+The owner's own message (or the planner's `text` when it only repeats his words) is sanitised into guidance. A message
 without a proposal goes through the propose stage; on a turn, a pending reply draft is superseded and a decided one
 gets a fresh draft (`redraft`), keyed by turn and step so a retry returns the same revision. The result quotes the
 drafts (capped, output-guard flags) and points at the approval: only the owner's approve click can lead to a send.
@@ -18,7 +18,7 @@ from app.contracts import ActionType, Direction, PlanStep
 from app.db.enums import ActionStatus, ApprovalStatus
 from app.db.models import ActionRow, Approval, CaseLink, MessageRow, UnderstandingRow
 from app.pipeline import propose, redraft
-from app.pipeline.concierge_base import NEED_DETAIL, Ctx, StepResult, failed, log_change
+from app.pipeline.concierge_base import NEED_DETAIL, Ctx, StepResult, failed, log, log_change
 from app.pipeline.draft_guidance import (
     READY,
     Guidance,
@@ -40,6 +40,9 @@ DRAFTED = f"Reply drafted. {READY}"
 REDRAFTED = f"New draft ready: it replaces the one that was waiting for your approval. {READY}"
 FRESH_DRAFT = f"The earlier reply on that case was already decided, so I drafted a new one. {READY}"
 NOT_REDRAFTED = "I did not create a new draft ({reason}). Nothing was changed."
+OTHER_WAITING = (
+    "No reply draft is waiting for that case; another proposal for it (such as an escalation) is in Approvals."
+)
 
 
 def _latest_inbound(session: Session, ctx: Ctx, case_id: UUID) -> UUID | None:
@@ -88,10 +91,10 @@ def _pending_ids(session: Session, ctx: Ctx, actions: Sequence[ActionRow]) -> li
     return list(session.scalars(q))
 
 
-def _reply_of(session: Session, ctx: Ctx, approval_ids: Sequence[UUID]) -> tuple[int | None, tuple[str, ...]]:
-    """The draft version and variants of the reply draft among the approvals (none: no reply among them)."""
+def _reply_of(session: Session, ctx: Ctx, approval_ids: Sequence[UUID]) -> tuple[UUID, int, tuple[str, ...]] | None:
+    """The approval, draft version and variants of the reply draft among the approvals (None: no reply among them)."""
     row = session.execute(
-        select(ActionRow.draft_version, ActionRow.payload)
+        select(Approval.id, ActionRow.draft_version, ActionRow.payload)
         .join(Approval, Approval.action_id == ActionRow.id)
         .where(
             Approval.company_id == ctx.company_id,
@@ -102,8 +105,8 @@ def _reply_of(session: Session, ctx: Ctx, approval_ids: Sequence[UUID]) -> tuple
         .limit(1)
     ).first()
     if row is None:
-        return None, ()
-    return row[0], tuple(str(v) for v in (row[1] or {}).get("body_variants") or ())
+        return None
+    return row[0], row[1], tuple(str(v) for v in (row[2] or {}).get("body_variants") or ())
 
 
 def _source(ctx: Ctx, message_id: UUID) -> str:
@@ -133,6 +136,8 @@ def draft_reply(ctx: Ctx, step: PlanStep) -> StepResult:
     if message_id is None:
         return failed(step, NOTHING_TO_REPLY)
     guidance = guidance_for(step.text, ctx.question)
+    if guidance.planner_ignored:  # the plan's text was not the owner's words: never trusted as guidance
+        log.info("concierge.planner_guidance_ignored", company_id=str(ctx.company_id))
     if ctx.turn_id is not None and (redrafted := _redraft(ctx, step, message_id, guidance)) is not None:
         return redrafted
     return _first_draft(ctx, step, message_id, guidance)
@@ -141,7 +146,7 @@ def draft_reply(ctx: Ctx, step: PlanStep) -> StepResult:
 def _first_draft(ctx: Ctx, step: PlanStep, message_id: UUID, guidance: Guidance) -> StepResult:
     """The propose stage (replay-safe per message) with the guidance; on a turn the reply is keyed by turn and step."""
     with Session(ctx.engine) as session:
-        already = bool(_pending_ids(session, ctx, _message_actions(session, ctx, message_id)))
+        before = set(_pending_ids(session, ctx, _message_actions(session, ctx, message_id)))
     key = redraft_key(ctx.turn_id, ctx.step_index) if ctx.turn_id is not None else None
     result = propose.propose_for_message(ctx.engine, ctx.settings, message_id, guidance=guidance.text, key=key)
     log_change(ctx, step)
@@ -149,19 +154,21 @@ def _first_draft(ctx: Ctx, step: PlanStep, message_id: UUID, guidance: Guidance)
         actions = _message_actions(session, ctx, message_id)
         if not result.approval_ids:
             return failed(step, _no_approval_text(session, ctx, message_id, actions))
-        version, variants = _reply_of(session, ctx, result.approval_ids)
-    views = draft_views(variants, _source(ctx, message_id)) if variants else []
-    data = _data(step, result.approval_ids, version, views, guidance)
+        reply = _reply_of(session, ctx, result.approval_ids)
+    views = draft_views(reply[2], _source(ctx, message_id)) if reply else []
+    data = _data(step, result.approval_ids, reply[1] if reply else None, views, guidance)
     if any(a.type is ActionType.notify_owner and a.rationale == propose.FALLBACK_RATIONALE for a in actions):
         return StepResult(step.intent, False, PROPOSER_FAILED, data, "approvals")
-    headline = ALREADY_WAITING if already else DRAFTED
-    return StepResult(
-        step.intent, True, drafted_summary(headline, views, details_removed=guidance.redacted), data, "approvals"
-    )
+    if reply is None:  # only other proposals are live (an escalation; a held reply has no approval)
+        held = any(a.status in (ActionStatus.paused, ActionStatus.exception) for a in actions)
+        return StepResult(step.intent, False, HELD if held else OTHER_WAITING, data, "approvals")
+    headline = ALREADY_WAITING if reply[0] in before else DRAFTED
+    summary = drafted_summary(headline, views, details_removed=guidance.redacted)
+    return StepResult(step.intent, True, summary, data, "approvals")
 
 
 def _redraft(ctx: Ctx, step: PlanStep, message_id: UUID, guidance: Guidance) -> StepResult | None:
-    """A message that already had a proposal; None when it had none (or it is held): the first-draft path reports."""
+    """A message that already had a proposal; None when it had none or it is held: the first-draft path reports."""
     turn = ctx.turn_id
     if turn is None:
         return None
@@ -173,27 +180,27 @@ def _redraft(ctx: Ctx, step: PlanStep, message_id: UUID, guidance: Guidance) -> 
         state = redraft.message_state(session, ctx.company_id, message_id)
     if done is not None:  # this turn already drafted for the message: the same revision, no model call
         result = redraft.Redraft(done[0], done[1], _source(ctx, message_id))
-        return _redrafted(step, result, guidance, REDRAFTED if done[0].draft_version > 1 else DRAFTED, None)
+        return _redrafted(step, result, guidance, REDRAFTED if done[0].draft_version > 1 else DRAFTED)
+    if state.kind == "busy":
+        return failed(step, NOT_REDRAFTED.format(reason=redraft.BUSY))
     if state.kind == "pending" and state.pending is not None:
         result = redraft.supersede(ctx.engine, ctx.settings, req, state.pending, state.current)
-        log_change(ctx, step)
-        return _redrafted(step, result, guidance, REDRAFTED, state.pending)
-    if state.kind == "decided":
+    elif state.kind in ("decided", "no_reply"):
         result = redraft.fresh(ctx.engine, ctx.settings, req, state.current)
-        log_change(ctx, step)
-        return _redrafted(step, result, guidance, FRESH_DRAFT, None)
-    return None
+    else:
+        return None
+    log_change(ctx, step)
+    headline = REDRAFTED if result.superseded else FRESH_DRAFT if state.kind == "decided" else DRAFTED
+    return _redrafted(step, result, guidance, headline)
 
 
-def _redrafted(
-    step: PlanStep, result: redraft.Redraft, guidance: Guidance, headline: str, superseded: UUID | None
-) -> StepResult:
+def _redrafted(step: PlanStep, result: redraft.Redraft, guidance: Guidance, headline: str) -> StepResult:
     views = draft_views(result.variants, result.source)
     if result.revision is None:
         text = NOT_REDRAFTED.format(reason=result.problem or "held for review")
         summary = drafted_summary(text, views, details_removed=guidance.redacted)
         return StepResult(step.intent, False, summary, _data(step, [], None, views, guidance), None)
     rev = result.revision
-    data = _data(step, [rev.approval_id], rev.draft_version, views, guidance, superseded)
+    data = _data(step, [rev.approval_id], rev.draft_version, views, guidance, result.superseded)
     summary = drafted_summary(headline, views, details_removed=guidance.redacted)
     return StepResult(step.intent, True, summary, data, "approvals")

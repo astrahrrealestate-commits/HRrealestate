@@ -13,10 +13,10 @@ from app.core.ids import new_id
 from app.core.settings import Settings
 from app.db.enums import ActionStatus, ApprovalStatus
 from app.db.models import ActionRevision, ActionRow, Approval, CaseLink, Company, ModelCall, Send
-from app.pipeline import approvals, dashboard_decisions
+from app.pipeline import approvals, dashboard_decisions, redraft
 from app.pipeline.concierge_base import StepResult
 from app.pipeline.concierge_proposals import DRAFTED, FRESH_DRAFT, NOT_REDRAFTED, REDRAFTED
-from app.pipeline.draft_guidance import DETAILS_REMOVED
+from app.pipeline.draft_guidance import DETAILS_REMOVED, redraft_key, turn_prefix
 from tests.integration.concierge_support import EVIL, NOW, count, plan, readable_strings, run, seed_case, step
 
 pytestmark = pytest.mark.integration
@@ -166,3 +166,67 @@ def test_redraft_on_a_suspicious_message_stays_gated(
     with Session(migrated_engine) as s, s.begin(), pytest.raises(dashboard_decisions.SuspiciousNeedsConfirmError):
         dashboard_decisions.decide_approval(s, cid, approval_id, ButtonChoice.ok, at=NOW, confirm_suspicious=False)
     assert count(migrated_engine, Send, cid) == 0
+
+
+def test_an_edit_tap_before_the_redraft_wins_and_the_redraft_changes_nothing(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    """WhatsApp path: `edit` tapped (approval edited, 24 h window), then the owner asks the agent for a new draft."""
+    cid = committed_company.id
+    case_id, _ = seed_case(migrated_engine, cid)
+    _turn(migrated_engine, test_settings, cid, case_id, new_id(), "draft a reply")
+    (approval,) = _approvals(migrated_engine, cid)
+    with Session(migrated_engine) as s, s.begin():
+        assert approvals.decide(s, cid, approval.id, ButtonChoice.edit, at=NOW).kind == "edit"
+    (result,) = _turn(migrated_engine, test_settings, cid, case_id, new_id(), "make it shorter")
+    assert (result.ok, result.summary) == (False, NOT_REDRAFTED.format(reason=redraft.BUSY))
+    with Session(migrated_engine) as s, s.begin():  # a direct supersede is refused too: the edit is not overwritten
+        assert approvals.supersede_draft(s, cid, approval.id, ["x", "y"], editor="agent:t:0", urgency=Urgency.normal,
+                                         now=NOW) is None  # fmt: skip
+    assert [(a.id, a.status) for a in _approvals(migrated_engine, cid)] == [(approval.id, ApprovalStatus.edited)]
+    with Session(migrated_engine) as s, s.begin():  # the owner's edit still lands
+        revision = approvals.apply_owner_edit(s, cid, "Mijn eigen tekst", now=NOW, approval_id=approval.id)
+    assert revision is not None
+    assert revision.draft_version == 2
+
+
+def test_a_decision_on_the_superseded_approval_is_stale(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    cid = committed_company.id
+    case_id, _ = seed_case(migrated_engine, cid)
+    _turn(migrated_engine, test_settings, cid, case_id, new_id(), "draft a reply")
+    (old,) = _approvals(migrated_engine, cid)
+    _turn(migrated_engine, test_settings, cid, case_id, new_id(), "make it shorter")
+    with Session(migrated_engine) as s, s.begin():
+        decision = dashboard_decisions.decide_approval(
+            s, cid, old.id, ButtonChoice.ok, at=NOW, confirm_suspicious=False
+        )
+    assert decision.kind == "stale"
+    (action,) = _actions(migrated_engine, cid)
+    assert (action.status, action.draft_version) == (ActionStatus.pending_approval, 2)
+    assert count(migrated_engine, Send, cid) == 0
+
+
+def test_two_turns_racing_on_a_decided_message_leave_one_pending_reply(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    """Both turns saw the message as decided; the second one finds the first one's fresh reply under the message
+    lock and supersedes it instead of inserting a third reply."""
+    cid = committed_company.id
+    case_id, _ = seed_case(migrated_engine, cid)
+    _turn(migrated_engine, test_settings, cid, case_id, new_id(), "draft a reply")
+    with Session(migrated_engine) as s, s.begin():
+        s.execute(update(Approval).where(Approval.company_id == cid).values(status=ApprovalStatus.rejected))
+        s.execute(update(ActionRow).where(ActionRow.company_id == cid).values(status=ActionStatus.rejected))
+    message_id = _message(migrated_engine, cid, case_id)
+    (first,) = _turn(migrated_engine, test_settings, cid, case_id, new_id(), "reply that the plumber comes Tuesday")
+    late = new_id()
+    req = redraft.Request(cid, message_id, "kort graag", turn_prefix(late), redraft_key(late, 0), NOW)
+    result = redraft.fresh(migrated_engine, test_settings, req, ())  # the late turn's stale "decided" view
+    assert first.data is not None
+    assert result.revision is not None
+    assert str(result.superseded) == first.data["approval_ids"][0]
+    assert len(_actions(migrated_engine, cid)) == 2  # the rejected reply and one live reply, never a third
+    pending = [a for a in _approvals(migrated_engine, cid) if a.status is ApprovalStatus.pending]
+    assert [a.id for a in pending] == [result.revision.approval_id]

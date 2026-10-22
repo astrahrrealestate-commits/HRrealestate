@@ -17,6 +17,7 @@ from app.llm.page_blocks import NO_PAGE, PagePrompt
 log = get_logger("app.pipeline.concierge")
 
 NOT_FOUND = "I could not find that case/task"
+NOT_SHOWN = "Open that case's page first, then ask again."  # a case id outside the brief and the page facts
 NEED_DETAIL = "I need more detail"
 STEP_FAILED = "Something went wrong with that step."
 

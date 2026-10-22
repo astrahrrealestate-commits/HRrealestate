@@ -1,13 +1,16 @@
 """Pure parts of an owner-requested draft (`draft_reply`, amendment 2026-10-22): the owner's guidance, the retry key,
 and what the chat shows of the drafts. No I/O.
 
-The guidance is the planner's `text` for the step, else the owner's own message; either way it goes through the
-concierge sanitiser (links, emails, phone numbers, IBANs and amounts become `[redacted]`) before the proposer sees it
-in its `<owner_guidance>` data block. The drafts shown in the chat are capped, quoted, and checked by the draft output
-guard against the source conversation: a variant with an unverified link, account or phone number is flagged and
-shown redacted.
+The guidance comes from the OWNER's own message, never from model output: the planner may have read tenant text (the
+memory pack), so its `text` could carry a tenant's instruction. The owner's message, sanitised (links, emails, phone
+numbers, IBANs and amounts become `[redacted]`) and capped, is the guidance. The planner's `text` is used instead only
+as a more focused version of it: when every content word in it (alphabetic, 4+ letters, after the same sanitising)
+occurs in the owner's message; otherwise it is ignored. The proposer sees the result in its `<owner_guidance>` block.
+The drafts shown in the chat are capped, quoted, and checked by the draft output guard against the source
+conversation: a variant with an unverified link, account or phone number is flagged and shown redacted.
 """
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -26,15 +29,29 @@ KEY_PREFIX = "agent:"  # ActionRevision.edited_by of a draft the agent wrote on 
 @dataclass(frozen=True)
 class Guidance:
     text: str | None  # sanitised; None when there is nothing to pass on
-    redacted: bool  # the sanitiser changed something: the result says "details removed"
+    redacted: bool  # the sanitiser changed the owner's message: the result says "details removed"
+    planner_ignored: bool = False  # the planner's text was not a subset of the owner's words (the caller logs it)
+
+
+_WORD = re.compile(r"[^\W\d_]{4,}")
+
+
+def content_words(text: str) -> set[str]:
+    return set(_WORD.findall(text.casefold()))
 
 
 def guidance_for(step_text: str | None, question: str) -> Guidance:
-    raw = step_text if step_text and step_text.strip() else question
-    plain = normalise_query(raw)
+    plain = normalise_query(question)
     if not plain:
         return Guidance(None, False)
-    return Guidance(sanitize(raw) or None, redact(plain) != plain)
+    owner, redacted = sanitize(question), redact(plain) != plain
+    if not (step_text and step_text.strip()):
+        return Guidance(owner or None, redacted)
+    focused = sanitize(step_text)
+    words = content_words(focused)
+    if words and words <= content_words(owner):
+        return Guidance(focused, redacted)
+    return Guidance(owner or None, redacted, planner_ignored=True)
 
 
 def turn_prefix(turn_id: UUID) -> str:
