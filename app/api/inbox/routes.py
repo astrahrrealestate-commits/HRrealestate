@@ -802,26 +802,35 @@ def decide_approval(
 
                         # Build contextual reply if incoming message id exists
                         quote_id = None
+                        quoted_snippet = None
                         if req.reply_to_message_id:
                             if req.reply_to_message_id.startswith("wamid.") or req.reply_to_message_id.startswith("msg_") or req.reply_to_message_id.startswith("sz_"):
                                 quote_id = req.reply_to_message_id
                             else:
                                 try:
                                     target_msg = session.get(MessageRow, UUID(req.reply_to_message_id))
-                                    if target_msg and target_msg.provider_msg_id and not target_msg.provider_msg_id.startswith("wamid.FAKE"):
-                                        quote_id = target_msg.provider_msg_id
+                                    if target_msg:
+                                        if target_msg.provider_msg_id and not target_msg.provider_msg_id.startswith("wamid.FAKE"):
+                                            quote_id = target_msg.provider_msg_id
+                                        if target_msg.text:
+                                            quoted_snippet = target_msg.text.strip().splitlines()[0][:90]
                                 except Exception:
                                     pass
 
                         if not quote_id and latest_msg and latest_msg.provider_msg_id and not latest_msg.provider_msg_id.startswith("wamid.FAKE"):
                             quote_id = latest_msg.provider_msg_id
 
+                        # Prepend WhatsApp native blockquote '> ' so it renders inside a reply quote box on the handset
+                        final_wa_body = draft_text
+                        if quoted_snippet:
+                            final_wa_body = f"> *Replying to:* \"{quoted_snippet}\"\n\n{draft_text}"
+
                         if is_within_24h:
                             sz_payload: dict[str, Any] = {
                                 "from": clean_from,
                                 "to": clean_to,
                                 "type": "text",
-                                "text": {"body": draft_text},
+                                "text": {"body": final_wa_body},
                             }
                             if quote_id:
                                 sz_payload["context"] = {"message_id": quote_id}
@@ -880,7 +889,7 @@ def decide_approval(
                             phone_number_id=sender.whatsapp_phone_number_id,
                             token=token_val,
                         )
-                        wa_payload = wa_payloads.text(recipient, draft_text)
+                        wa_payload = wa_payloads.text(recipient, final_wa_body)
                         whatsapp_message_id = wa_outbound.send(wa_payload)
                         log.info("approval.whatsapp_message_sent", wamid=whatsapp_message_id, to=recipient)
 
