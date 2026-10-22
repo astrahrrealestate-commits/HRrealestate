@@ -57,7 +57,7 @@ FOREIGN = UUID("01900000-0000-7000-8000-0000000000fe")
 PLAN = ConciergePlan(
     in_scope=True, steps=[PlanStep(intent=Intent.list_tasks, case_id=None, task_ref=None, text=None, view=None)]
 )
-FACTS = PageFacts("case", case=CaseFact(PAGE_CASE, "Joris · maintenance", "open", "normal", "Broken window", ()))
+FACTS = PageFacts("case", case=CaseFact(PAGE_CASE, "Joris · maintenance", "open", "normal", "Broken window"))
 
 
 def _stored(**kw: object) -> dict[str, Any]:

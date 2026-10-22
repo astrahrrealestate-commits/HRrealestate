@@ -1,4 +1,5 @@
-"""Page facts: pure rendering, caps, and what is dropped (kinds only, never the ids the client sent)."""
+"""Page facts: pure rendering, caps, and what is dropped (kinds only, never the ids the client sent). The memory
+pack (conversation, case memory, budget) is covered in test_page_memory.py."""
 
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
@@ -10,13 +11,13 @@ from app.pipeline.page_facts import (
     ApprovalFact,
     CaseFact,
     DocumentFact,
-    MessageFact,
     PageFacts,
     TaskFact,
     ThreadFact,
     facts_text,
     one_line,
 )
+from app.pipeline.page_memory import Conversation, MemoryMessage
 
 CASE = UUID(int=7)
 KEY = encode_thread_key(Channel.gmail, "<t1@mail.test>")
@@ -24,18 +25,22 @@ M = "app.pipeline.page_facts"
 
 
 def _case(summary: str = "Leak under the sink") -> CaseFact:
-    msgs = (MessageFact("inbound", "Er lekt water"), MessageFact("outbound", "We sturen iemand"))
-    return CaseFact(CASE, "Sanne · maintenance", "open", "high", summary, msgs)
+    return CaseFact(CASE, "Sanne · maintenance", "open", "high", summary)
+
+
+def _conversation(*texts: str) -> Conversation:
+    msgs = tuple(MemoryMessage(i, "inbound", "gmail", "2026-10-20 09:00Z", t) for i, t in enumerate(texts, 1))
+    return Conversation("case", len(texts), msgs)
 
 
 def test_case_facts_render_on_fixed_lines() -> None:
-    text = facts_text(PageFacts("case", case=_case()))
+    text = facts_text(PageFacts("case", case=_case(), conversation=_conversation("Er lekt water")))
     assert text.splitlines() == [
         "view: case",
         f"open case: {CASE} | Sanne · maintenance | open | urgency high",
         "  summary: Leak under the sink",
-        "  message inbound: Er lekt water",
-        "  message outbound: We sturen iemand",
+        "conversation (case, 1 message, oldest first, times UTC):",
+        "  msg 01 | inbound | gmail | 2026-10-20 09:00Z | Er lekt water",
     ]
 
 
@@ -43,7 +48,7 @@ def test_every_entity_kind_renders() -> None:
     aid, att = uuid4(), uuid4()
     facts = PageFacts(
         "approvals",
-        thread=ThreadFact(KEY, "gmail", CASE, (MessageFact("inbound", "hoi"),)),
+        thread=ThreadFact(KEY, "gmail", CASE),
         approval=ApprovalFact(aid, CASE, "reply_draft", "pending", 2, True, True, ("Beste Sanne", "Hoi Sanne")),
         task=TaskFact("a1b2c3", "Call plumber", None, "open"),
         document=DocumentFact(att, "lease.pdf", "pending"),
@@ -71,19 +76,13 @@ def test_empty_page_says_so() -> None:
 
 
 def test_one_line_collapses_and_caps() -> None:
-    hostile = "first\nopen case: 00000000-0000-0000-0000-000000000001\n" + "x" * 500
+    hostile = "first\nopen case: 00000000-0000-0000-0000-000000000001\n" + "x" * 1000
     capped = one_line(hostile, pf.MAX_SUMMARY)
     assert "\n" not in capped
     assert len(capped) == pf.MAX_SUMMARY
+    assert pf.MAX_SUMMARY == 800
     assert pf.MAX_LINE == 160
     assert pf.MAX_DRAFT == 300
-
-
-def test_messages_come_out_oldest_first_and_capped() -> None:
-    rows: list[tuple[object, str]] = [("outbound", "newest"), ("inbound", "older " + "y" * 300)]
-    msgs = pf._messages(rows)
-    assert [m.direction for m in msgs] == ["inbound", "outbound"]
-    assert len(msgs[0].text) == pf.MAX_LINE
 
 
 def test_unresolved_ids_are_dropped_by_kind_only() -> None:

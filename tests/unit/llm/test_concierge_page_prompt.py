@@ -11,9 +11,10 @@ from app.core.settings import Settings
 from app.llm.agents.concierge import CONCIERGE, concierge_prompt
 from app.llm.agents.owner_qa import CaseBrief
 from app.llm.calls import CallContext, run_agent
-from app.llm.page_blocks import MAX_SNAPSHOT
-from app.llm.render import BLOCK_TAGS, MAX_BODY_CHARS
-from app.pipeline.page_facts import ApprovalFact, CaseFact, MessageFact, PageFacts, TaskFact, ThreadFact, facts_text
+from app.llm.page_blocks import MAX_PAGE_FACTS, MAX_SNAPSHOT
+from app.llm.render import BLOCK_TAGS
+from app.pipeline.page_facts import ApprovalFact, CaseFact, PageFacts, TaskFact, ThreadFact, facts_text
+from app.pipeline.page_memory import Conversation, MemoryMessage
 
 DATA_CASE = UUID(int=1)
 PAGE_CASE = UUID(int=3)
@@ -24,8 +25,12 @@ TAGS = ("data", "history", "page_facts", "page_snapshot", "message")
 
 
 def _case_facts(summary: str = "Broken window", message: str = "Het raam is kapot") -> str:
-    case = CaseFact(PAGE_CASE, "Joris · maintenance", "open", "normal", summary, (MessageFact("inbound", message),))
-    return facts_text(PageFacts("case", case=case))
+    case = CaseFact(PAGE_CASE, "Joris · maintenance", "open", "normal", summary)
+    return facts_text(PageFacts("case", case=case, conversation=_conversation("case", message)))
+
+
+def _conversation(source: str, text: str) -> Conversation:
+    return Conversation(source, 1, (MemoryMessage(1, "inbound", "gmail", "2026-10-20 09:00Z", text),))
 
 
 def test_page_tags_are_block_tags() -> None:
@@ -75,8 +80,8 @@ def test_without_a_page_the_prompt_is_unchanged() -> None:
     assert "page_" not in concierge_prompt("hi", [], CASES, [])
 
 
-def test_snapshot_block_is_capped_and_facts_obey_the_body_limit() -> None:
-    prompt = concierge_prompt("hi", [], CASES, [], "f" * (MAX_BODY_CHARS + 50), "s" * (MAX_SNAPSHOT + 500))
+def test_snapshot_block_is_capped_and_facts_obey_their_block_limit() -> None:
+    prompt = concierge_prompt("hi", [], CASES, [], "f" * (MAX_PAGE_FACTS + 50), "s" * (MAX_SNAPSHOT + 500))
     snapshot = re.search(r"<page_snapshot>\n(.*?)\n</page_snapshot>", prompt, flags=re.S)
     assert snapshot is not None
     assert len(snapshot.group(1)) == MAX_SNAPSHOT
@@ -125,8 +130,9 @@ def test_fake_answers_a_draft_question_on_an_approval_without_approving() -> Non
 
 
 def test_fake_uses_the_thread_case_for_reply_to_him() -> None:
-    thread = ThreadFact("Z21haWw6dDE", "gmail", PAGE_CASE, (MessageFact("inbound", "hoi"),))
-    (step,) = _plan("reply to him", facts_text(PageFacts("thread", thread=thread))).steps
+    thread = ThreadFact("Z21haWw6dDE", "gmail", PAGE_CASE)
+    facts = facts_text(PageFacts("thread", thread=thread, conversation=_conversation("thread", "hoi")))
+    (step,) = _plan("reply to him", facts).steps
     assert (step.intent, step.case_id) == (Intent.draft_reply, PAGE_CASE)
 
 

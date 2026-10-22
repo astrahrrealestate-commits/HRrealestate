@@ -17,7 +17,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 MAX_BODY_CHARS = 8000
-MAX_RAW_CHARS = 4 * MAX_BODY_CHARS  # read before normalising (format characters are dropped there)
+RAW_FACTOR = 4  # raw input read per capped character, before normalising (format characters are dropped there)
 MAX_ATTACHMENTS = 10
 BLOCK_TAGS = (
     "message", "data", "waiting", "contractors", "attachments", "file", "case", "mode", "history", "page_facts",
@@ -58,6 +58,12 @@ def _normalise(content: str) -> str:
     return _strip_invisible(unicodedata.normalize("NFKC", _strip_invisible(content))).translate(_LOOKALIKES)
 
 
+def normalise(content: str) -> str:
+    """The normalisation `data_block` applies before capping, for callers that budget text before rendering it
+    (re-applying it never makes text longer)."""
+    return _normalise(content)
+
+
 def escape(content: str, tag: str | None = None) -> str:
     """Neutralise every block tag (any type, opening or closing, any case or spacing) inside untrusted text.
 
@@ -66,13 +72,16 @@ def escape(content: str, tag: str | None = None) -> str:
     return _TAG.sub(lambda m: "<\\" + m.group(1) + m.group(2), _normalise(content))
 
 
-def data_block(tag: str, content: str) -> str:
+def data_block(tag: str, content: str, limit: int = MAX_BODY_CHARS) -> str:
     """Renders content inside <tag>...</tag>, truncating and escaping every block tag inside it. The cap applies
-    after normalisation (NFKC can expand a character up to 18-fold); raw input is bounded first."""
-    text = _normalise(content[:MAX_RAW_CHARS])
-    truncated = len(content) > MAX_RAW_CHARS or len(text) > MAX_BODY_CHARS
+    after normalisation (NFKC can expand a character up to 18-fold); raw input is bounded first. Escaping runs after
+    truncation, so a cut tag is never left half-escaped. `limit` is `MAX_BODY_CHARS` for every block except
+    `<page_facts>` (`page_blocks.MAX_PAGE_FACTS`)."""
+    raw_cap = RAW_FACTOR * limit
+    text = _normalise(content[:raw_cap])
+    truncated = len(content) > raw_cap or len(text) > limit
     marker = "\n[…truncated]" if truncated else ""
-    return f"<{tag}>\n{escape(text[:MAX_BODY_CHARS], tag)}{marker}\n</{tag}>"
+    return f"<{tag}>\n{escape(text[:limit], tag)}{marker}\n</{tag}>"
 
 
 def one_line(value: str) -> str:

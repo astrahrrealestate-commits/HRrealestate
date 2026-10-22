@@ -3,6 +3,9 @@
 `<page_facts>` is authoritative server text (resolved company-scoped); `<page_snapshot>` holds the browser's filters
 line and page text, both UNVERIFIED. Both are escaped data blocks, never instructions (CLAUDE.md invariant 6). Only the
 snapshot is capped at `MAX_SNAPSHOT`; the filters line has its own cap, so it can never cut the snapshot's end.
+`<page_facts>` alone has the larger cap `MAX_PAGE_FACTS` (amendment 2026-10-22): the memory pack of an open thread or
+case is kept at most that long after normalisation (`app.pipeline.page_text.FACTS_BUDGET`), so the block never cuts it;
+every other block keeps `MAX_BODY_CHARS`, and escaping still runs after truncation.
 """
 
 from dataclasses import dataclass
@@ -11,6 +14,7 @@ from app.llm.render import data_block
 
 MAX_SNAPSHOT = 6000  # the page snapshot (the request contract enforces the same limit)
 MAX_FILTERS_LINE = 1700  # `filters: ` plus 10 pairs of 40 + 120 characters; with the snapshot under MAX_BODY_CHARS
+MAX_PAGE_FACTS = 12000  # the `<page_facts>` block only: the memory pack budget (render.MAX_BODY_CHARS is 8000)
 
 
 @dataclass(frozen=True)
@@ -32,7 +36,7 @@ NO_PAGE = PagePrompt()
 def page_blocks(page_facts_text: str, snapshot: str, filters: str = "") -> list[str]:
     """Server facts (authoritative) and the browser's filters + snapshot (unverified). An absent page adds nothing,
     so a page-less prompt is unchanged."""
-    blocks = [data_block("page_facts", page_facts_text)] if page_facts_text.strip() else []
+    blocks = [data_block("page_facts", page_facts_text, MAX_PAGE_FACTS)] if page_facts_text.strip() else []
     unverified = [part for part in (filters.strip()[:MAX_FILTERS_LINE], snapshot[:MAX_SNAPSHOT]) if part.strip()]
     if unverified:
         blocks.append(data_block("page_snapshot", "\n".join(unverified)))
