@@ -18,11 +18,13 @@ from app.contracts import DocAnswer
 from app.core.settings import Settings
 from app.db.enums import DocLinkKind
 from app.db.models import Case
-from app.llm.agents.doc_qa import DOC_QA, Passage, doc_qa_prompt, ref_of
+from app.llm.agents.doc_qa import DOC_QA, Passage, doc_qa_prompt, pages_label, ref_of
 from app.llm.calls import CallContext, run_agent
+from app.llm.embeddings import TextEmbedder, build_embedder
 from app.pipeline.concierge_sanitize import REDACTED, sanitize
-from app.pipeline.document_search import DocFilter, top_passages
+from app.pipeline.document_search import DocFilter
 from app.pipeline.output_guard import URL
+from app.pipeline.rag import FactAnswer, retrieve_context
 
 NOT_FOUND_TEXT = "I could not find that in your documents."
 NO_DOCUMENTS_TEXT = "I have no documents that match that yet."
@@ -36,6 +38,9 @@ class Quote:
     document_id: UUID
     title: str
     text: str
+    doc_type: str = "other"
+    document_date: date | None = None
+    pages: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -44,6 +49,8 @@ class DocQaResult:
     text: str  # owner-facing, assembled here
     quotes: list[Quote] = field(default_factory=list)
     call_made: bool = False
+    route: str = "none"  # "fact" (stored fact, no generation) | "hybrid" (retrieved passages) | "none"
+    data: dict[str, object] = field(default_factory=dict)  # structured extras for the dashboard (fact, pages, counts)
 
 
 def _plain(text: str) -> str:
@@ -69,7 +76,16 @@ def verify_quotes(answer: DocAnswer, passages: list[Passage]) -> list[Quote]:
             continue
         if (passage.document_id, needle) not in seen:
             seen.add((passage.document_id, needle))
-            verified.append(Quote(passage.document_id, passage.title, q.text.strip()))
+            verified.append(
+                Quote(
+                    passage.document_id,
+                    passage.title,
+                    q.text.strip(),
+                    passage.doc_type,
+                    passage.document_date,
+                    passage.pages,
+                )
+            )
     return verified
 
 
@@ -93,10 +109,9 @@ def render(answer: DocAnswer, quotes: list[Quote], passages: list[Passage]) -> s
     plain = _SPACE.sub(" ", answer.answer).strip()
     if plain and strip_risky(plain) == plain and _grounded(plain, quotes):  # else only the quotes are shown
         lines.append(plain[:600])
-    meta = {p.document_id: p for p in passages}
     for q in quotes:
-        p = meta[q.document_id]
-        lines.append(f"From {sanitize(q.title)[:80]} ({p.doc_type}, {_day(p.document_date)}): «{strip_risky(q.text)}»")
+        where = f"{q.doc_type}, {_day(q.document_date)}{pages_label(q.pages)}"
+        lines.append(f"From {sanitize(q.title)[:80]} ({where}): «{strip_risky(q.text)}»")
     return "\n".join(line for line in lines if line.strip())
 
 
@@ -114,19 +129,38 @@ def case_scope(session: Session, company_id: UUID, case_id: UUID) -> tuple[tuple
     return tuple((kind, ref) for kind, ref in refs if ref is not None)
 
 
-def answer_from_documents(engine: Engine, settings: Settings, company_id: UUID, question: str,
-                          case_id: UUID | None = None) -> DocQaResult:  # fmt: skip
-    """Retrieve, ask, verify. Budget stops propagate to the caller (a fixed limit answer); invalid model output too."""
+def fact_text(fact: FactAnswer) -> str:
+    """A stored fact, shown with its source and without generation. Labels and values are stripped like quotes."""
+    label = strip_risky(fact.label.replace("_", " "))
+    day = _day(fact.document_date if isinstance(fact.document_date, date) else None)
+    return f"From {sanitize(fact.title)[:80]} ({fact.doc_type}, {day}): {label}: {strip_risky(fact.value)}"
+
+
+def answer_from_documents(
+    engine: Engine, settings: Settings, company_id: UUID, question: str, case_id: UUID | None = None,
+    embedder: TextEmbedder | None = None,
+) -> DocQaResult:  # fmt: skip
+    """Retrieve (fact route or hybrid), ask, verify. Budget stops propagate to the caller (a fixed limit answer)."""
     with Session(engine) as session:
         scope = case_scope(session, company_id, case_id) if case_id else ()
-        if case_id and not scope:
-            return DocQaResult(False, NO_DOCUMENTS_TEXT)
-        passages = top_passages(session, company_id, question, DocFilter(any_link=scope, readable_only=True))
-    if not passages:
-        return DocQaResult(False, NO_DOCUMENTS_TEXT if case_id else NOT_FOUND_TEXT)
-    ctx = CallContext(company_id, "doc_qa")
-    result = run_agent(engine, settings, DOC_QA, doc_qa_prompt(question, passages), ctx)
-    quotes = verify_quotes(result.output, passages) if result.output.found else []
+    if case_id and not scope:
+        return DocQaResult(False, NO_DOCUMENTS_TEXT)
+    flt = DocFilter(any_link=scope, readable_only=True)
+    found = retrieve_context(engine, settings, company_id, question, flt, embedder or build_embedder(settings))
+    if found.fact is not None:
+        fact_data: dict[str, object] = {"fact": {"label": found.fact.label, "value": strip_risky(found.fact.value)}}
+        return DocQaResult(True, fact_text(found.fact), route="fact", data=fact_data)
+    if not found.passages:
+        return DocQaResult(False, NO_DOCUMENTS_TEXT if case_id else NOT_FOUND_TEXT, route="none")
+    result = run_agent(
+        engine, settings, DOC_QA, doc_qa_prompt(question, found.passages), CallContext(company_id, "doc_qa")
+    )
+    quotes = verify_quotes(result.output, found.passages) if result.output.found else []
+    data: dict[str, object] = {
+        "candidates": found.candidates,
+        "reranked": found.reranked,
+        "passages": len(found.passages),
+    }
     if not quotes:
-        return DocQaResult(False, NOT_FOUND_TEXT, call_made=True)
-    return DocQaResult(True, render(result.output, quotes, passages), quotes, call_made=True)
+        return DocQaResult(False, NOT_FOUND_TEXT, call_made=True, route="hybrid", data=data)
+    return DocQaResult(True, render(result.output, quotes, found.passages), quotes, True, "hybrid", data)

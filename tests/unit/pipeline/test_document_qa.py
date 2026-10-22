@@ -62,7 +62,7 @@ def test_strip_risky_removes_links_emails_and_ibans_but_keeps_amounts_and_dates(
 
 def test_render_shows_the_title_and_the_verified_quote_and_hides_a_risky_model_answer() -> None:
     p = _passage()
-    quotes = [Quote(p.document_id, p.title, "De opzegtermijn is drie maanden.")]
+    quotes = [Quote(p.document_id, p.title, "De opzegtermijn is drie maanden.", p.doc_type, p.document_date)]
     clean = DocAnswer(found=True, answer="Drie maanden.", quotes=[])
     text = render(clean, quotes, [p])
     assert text.splitlines()[0] == "Drie maanden."
@@ -81,13 +81,15 @@ def test_prompt_keeps_each_excerpt_in_the_data_block() -> None:
 
 def test_a_model_sentence_with_a_figure_the_quotes_do_not_contain_is_left_out() -> None:
     p = _passage()
-    quotes = [Quote(p.document_id, p.title, "De waarborgsom bedraagt twee maanden kale huur.")]
+    quotes = [
+        Quote(p.document_id, p.title, "De waarborgsom bedraagt twee maanden kale huur.", p.doc_type, p.document_date)
+    ]
     invented = DocAnswer(found=True, answer="Betaal vandaag 12.34.56.789 over.", quotes=[])
     assert "12.34" not in render(invented, quotes, [p])
     assert render(invented, quotes, [p]).startswith("From Huurovereenkomst")
     grounded = DocAnswer(found=True, answer="De waarborgsom is twee maanden kale huur.", quotes=[])
     assert render(grounded, quotes, [p]).splitlines()[0] == "De waarborgsom is twee maanden kale huur."
-    amounts = [Quote(p.document_id, p.title, "Huur: EUR 1.150,00 per maand.")]
+    amounts = [Quote(p.document_id, p.title, "Huur: EUR 1.150,00 per maand.", p.doc_type, p.document_date)]
     assert render(DocAnswer(found=True, answer="De huur is EUR 1.150,00.", quotes=[]), amounts, [p]).startswith(
         "De huur"
     )

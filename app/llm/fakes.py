@@ -317,18 +317,86 @@ _ENTRY = re.compile(r"\[ref ([0-9a-f]{8})\] ([^\n]*)\n(.*?)(?=\n\n---\n\n|\Z)", 
 
 
 def _fake_doc_qa(prompt: str) -> dict[str, object]:
-    """Offline answer: the excerpt sentence sharing the most words with the question, quoted verbatim."""
-    excerpts, question = _block(prompt, "excerpts"), _block(prompt, "message").lower()
-    wanted = {w for w in re.findall(r"[^\W_]{4,}", question) if w not in {"what", "does", "wat", "staat", "hoe"}}
-    best: tuple[int, str, str] = (0, "", "")
-    for ref, _title, text in _ENTRY.findall(excerpts):
-        for sentence in re.split(r"(?<=[.!?\n])\s+", text):
-            score = len(wanted & set(re.findall(r"[^\W_]{4,}", sentence.lower())))
-            if score > best[0] and len(sentence.strip()) >= 8:
-                best = (score, ref, sentence.strip()[:300])
+    """Offline answer: the excerpt sentence sharing the most ideas with the question (glossary words of both languages
+    count as one idea; an idea every sentence has counts for little), quoted verbatim."""
+    from app.core.property_terms import canonical_tokens
+
+    excerpts, question = _block(prompt, "excerpts"), _block(prompt, "message")
+    wanted = {t for t in canonical_tokens(question) if len(t) >= 4}
+    wanted = (wanted - {"lease"}) or wanted  # asking "in the lease" names the document, not the clause
+    sentences = [
+        (ref, s.strip(), {t for t in canonical_tokens(s) if len(t) >= 4})
+        for ref, _title, text in _ENTRY.findall(excerpts)
+        for s in re.split(r"(?<=[.!?\n])\s+", text)
+        if len(s.strip()) >= 8
+    ]
+    weight = {t: 1 / (1 + sum(t in tokens for _, _, tokens in sentences)) for t in wanted}
+    best: tuple[float, str, str] = (0.0, "", "")
+    for ref, sentence, tokens in sentences:
+        score = sum(weight[t] for t in wanted & tokens)
+        if score > best[0]:
+            best = (score, ref, sentence[:300])
     if best[0] == 0:
         return {"found": False, "answer": "The excerpts do not answer that.", "quotes": []}
     return {"found": True, "answer": best[2], "quotes": [{"doc_ref": best[1], "text": best[2]}]}
+
+
+_FACT_BY_GROUP = (("rent", "monthly_rent"), ("deposit", "deposit"), ("notice", "notice_period"))
+
+
+def _fake_fact(question: str, groups: list[str]) -> str | None:
+    low = question.lower()
+    if len(question.split()) > 8:
+        return None
+    if len(groups) == 1:
+        for key, kind in _FACT_BY_GROUP:
+            if key == groups[0]:
+                return kind
+    if "lease" in groups or "term" in groups:
+        if re.search(r"\b(end|ends|einde|einddatum|expir\w*|verloopt)\b", low):
+            return "lease_end"
+        if re.search(r"\b(start|starts|begin|begint|ingangsdatum)\b", low):
+            return "lease_start"
+    return None
+
+
+def _fake_rag_plan(prompt: str) -> dict[str, object]:
+    """Offline planner: glossary words in both languages as keywords, the question's own wording as the hypothetical
+    answer, and a fact only for a short question about exactly one of them."""
+    from app.core.property_terms import expand, groups_in
+
+    question = _block(prompt, "message")
+    groups = groups_in(question)
+    fact = _fake_fact(question, groups)
+    return {
+        "keywords": expand(question)[:8],
+        "hypothetical_answer": question if groups else "",
+        "fact": fact,
+        "doc_types": ["lease"] if "lease" in groups or fact else [],
+    }
+
+
+def _fake_relevance(wanted: set[str], body: str) -> int:
+    from app.core.property_terms import GROUPS, canonical_tokens
+
+    shared = wanted & set(canonical_tokens(body))
+    ideas = shared & set(GROUPS)
+    if len(ideas) >= 2 or len(shared) >= 3:
+        return 3
+    return 2 if ideas else (1 if shared else 0)
+
+
+def _fake_rag_rerank(prompt: str) -> dict[str, object]:
+    """Offline reranker: 3 when a passage covers two of the question's ideas, 2 for one, 1 for a shared plain word."""
+    from app.core.property_terms import canonical_tokens
+
+    wanted = set(canonical_tokens(_block(prompt, "message")))
+    pattern = r"\[(\d+)\] ([^\n]*)\n(.*?)(?=\n\n\[\d+\] |\Z)"
+    scores = [
+        {"ref": int(number), "relevance": _fake_relevance(wanted, body)}
+        for number, _title, body in re.findall(pattern, _block(prompt, "excerpts"), re.S)
+    ]
+    return {"scores": scores}
 
 
 def model_for(agent_name: str) -> FunctionModel:
@@ -356,6 +424,10 @@ def model_for(agent_name: str) -> FunctionModel:
             args = _fake_doc_reader(user_text)
         elif agent_name == "doc_qa":
             args = _fake_doc_qa(user_text)
+        elif agent_name == "rag_plan":
+            args = _fake_rag_plan(user_text)
+        elif agent_name == "rag_rerank":
+            args = _fake_rag_rerank(user_text)
         elif agent_name == "doc_ocr":
             args = {"text": _extract_binary(messages).removeprefix(b"SCAN").decode("utf-8", errors="replace").strip()}
         else:

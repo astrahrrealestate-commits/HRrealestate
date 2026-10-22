@@ -41,6 +41,7 @@ from app.contracts.owner import OwnerChoice, OwnerMessage
 from app.contracts.owner_outputs import Briefing, BriefingSection, OwnerAnswer
 from app.contracts.prompt_ref import PromptRef
 from app.contracts.proposal import Proposal
+from app.contracts.rag import FactKind, PassageScore, QueryPlan, RerankResult
 from app.contracts.summary import CaseSummary
 from app.contracts.understanding import Category, Entities, Suspicious, Understanding, Urgency
 
@@ -74,6 +75,7 @@ __all__ = [
     "Entities",
     "EscalatePayload",
     "ExtractedText",
+    "FactKind",
     "Intent",
     "InteractiveChannel",
     "KeyFact",
@@ -86,11 +88,14 @@ __all__ = [
     "OwnerChoice",
     "OwnerMessage",
     "PartyRole",
+    "PassageScore",
     "PlanStep",
     "PromptRef",
     "Proposal",
+    "QueryPlan",
     "ReplyDraftPayload",
     "RequestContractorPayload",
+    "RerankResult",
     "Suspicious",
     "Understanding",
     "UpdateCaseStatePayload",

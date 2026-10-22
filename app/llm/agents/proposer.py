@@ -10,10 +10,10 @@ from typing import Literal
 from uuid import UUID
 
 from app.contracts import Channel, PromptRef, Proposal, Understanding
-from app.llm.agents.doc_qa import MAX_EXCERPT, Passage, ref_of
+from app.llm.agents.doc_qa import MAX_EXCERPT, Passage, entry_text
 from app.llm.calls import AgentSpec
 from app.llm.prompts import LoadedPrompt
-from app.llm.render import data_block, escape, one_line
+from app.llm.render import data_block, escape
 
 
 @dataclass(frozen=True)
@@ -53,10 +53,7 @@ def _contractors(items: Sequence[Contractor]) -> str:
 
 
 def _excerpts(items: Sequence[Passage]) -> str:
-    entries = [
-        f"[ref {ref_of(p)}] {one_line(p.title)} ({p.doc_type}, {p.document_date or 'undated'})\n{p.text[:MAX_EXCERPT]}"
-        for p in items
-    ]
+    entries = [entry_text(p) for p in items]
     return data_block("excerpts", "\n\n---\n\n".join(entries), len(entries) * (MAX_EXCERPT + 200))
 
 

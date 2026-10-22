@@ -97,12 +97,12 @@ def test_another_tenants_document_never_reaches_the_prompt(
 ) -> None:
     cid = committed_company.id
     case_id, message_id = _case(migrated_engine, cid)
-    _doc_for(migrated_engine, cid, "Huur van Eve", "Geheime waarborgsom van Eve is 9999 euro.", None)  # unlinked
+    _doc_for(migrated_engine, cid, "Huur van Eve", "Geheime waarborgsom van Eve is QZXEVE euro.", None)  # unlinked
     other_case, _ = seed_case(migrated_engine, cid, "andere zaak")
-    _doc_for(migrated_engine, cid, "Huur van Piet", "Piet betaalt waarborgsom 7777.", other_case)  # another case
+    _doc_for(migrated_engine, cid, "Huur van Piet", "Piet betaalt waarborgsom QZXPIET.", other_case)  # another case
     _doc_for(migrated_engine, cid, "Huurovereenkomst", LEASE, case_id)
     propose_for_message(migrated_engine, settings, message_id)
-    for secret in ("Eve", "9999", "Piet", "7777"):
+    for secret in ("Eve", "QZXEVE", "Piet", "QZXPIET"):
         assert secret not in seen[0]
     assert "Huurovereenkomst" in seen[0]
 
@@ -147,13 +147,13 @@ def test_a_previous_tenants_documents_in_the_same_unit_never_reach_the_prompt(
         case = s.get(Case, case_id)
         assert case is not None
         case.unit_id = unit_id = unit.id  # this tenant's case is in the unit
-    _doc_for(migrated_engine, cid, "Huur vorige huurder", "Waarborgsom van de vorige huurder was 5555.", None)
+    _doc_for(migrated_engine, cid, "Huur vorige huurder", "Waarborgsom van de vorige huurder was QZXOLD.", None)
     with Session(migrated_engine) as s, s.begin():
         previous = s.scalars(select(DocumentRow.id).where(DocumentRow.title == "Huur vorige huurder")).one()
         s.add(DocumentLink(company_id=cid, document_id=previous, kind=DocLinkKind.unit, ref_id=unit_id, method="fuzzy",
                            score=0.9))  # fmt: skip
     _doc_for(migrated_engine, cid, "Huurovereenkomst", LEASE, case_id)
     propose_for_message(migrated_engine, settings, message_id)
-    assert "5555" not in seen[0]
+    assert "QZXOLD" not in seen[0]
     assert "vorige huurder" not in seen[0]
     assert "Huurovereenkomst" in seen[0]

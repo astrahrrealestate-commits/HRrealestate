@@ -39,8 +39,8 @@ GROUPS: dict[str, tuple[str, ...]] = {
 }
 _FUNCTION_WORDS = (
     "the a an and or of to in on at for is are was were be been it its this that with by from as what does do did how "
-    "de het een en of van in op te voor met door uit als wat hoe is zijn was waren wordt worden dat dit die er ook "
-    "bij naar om aan dan maar niet geen kan kunnen moet moeten heeft hebben"
+    "say says said tell about de het een en of van in op te voor met door uit als wat hoe is zijn was waren wordt "
+    "worden dat dit die er ook bij naar om aan dan maar niet geen kan kunnen moet moeten heeft hebben"
 )
 _STOPWORDS = frozenset(_FUNCTION_WORDS.split())
 _WORD = re.compile(r"[^\W_]{2,}(?:-[^\W_]+)*")

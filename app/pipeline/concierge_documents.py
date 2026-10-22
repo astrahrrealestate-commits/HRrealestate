@@ -52,6 +52,12 @@ def read_document(ctx: Ctx, step: PlanStep) -> StepResult:
         result = answer_from_documents(ctx.engine, ctx.settings, ctx.company_id, ctx.question, step.case_id)
     except BudgetExceededError:
         return StepResult(step.intent, False, LIMIT_ANSWER, None, None)
-    data = {"found": result.found, "quotes": [{"document_id": str(q.document_id), "title": sanitize(q.title),
-                                               "text": strip_risky(q.text)} for q in result.quotes]}  # fmt: skip
+    data = {
+        "found": result.found, "route": result.route, **result.data,
+        "quotes": [
+            {"document_id": str(q.document_id), "title": sanitize(q.title), "text": strip_risky(q.text),
+             "pages": list(q.pages)}
+            for q in result.quotes
+        ],
+    }  # fmt: skip
     return StepResult(step.intent, result.found, result.text, data, None)
