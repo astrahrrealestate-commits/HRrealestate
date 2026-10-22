@@ -4,7 +4,10 @@ import json
 import re
 from pathlib import Path
 
+from app.api.v1.events import POLL_INTERVAL_S
 from app.api.v1.schemas import AgentMessageIn
+from app.api.v1.turn_events import TURN_POLL_SECONDS
+from app.contracts.concierge import MAX_REPLY
 from app.contracts.page_context import (
     MAX_FILTER_KEY,
     MAX_FILTER_VALUE,
@@ -16,11 +19,16 @@ from app.contracts.page_context import (
     PageView,
 )
 from app.contracts.thread_key import MAX_THREAD_KEY
+from app.llm.page_blocks import MAX_SNAPSHOT as MODEL_SNAPSHOT
+from app.llm.page_blocks import MAX_SNAPSHOT_WITH_MEMORY
 from app.pipeline import page_memory as pm
+from app.pipeline.concierge_reply import MAX_REPLY_LINES
 from app.pipeline.draft_guidance import MAX_SHOWN, MAX_VARIANTS
 from app.pipeline.page_facts import MAX_SUMMARY
 from app.pipeline.page_memory_lines import KEEP_NEWEST
 from app.pipeline.page_text import FACTS_BUDGET
+from app.pipeline.turn_timings import KEYS
+from app.workflows.queues import CONCIERGE_POLL_SECONDS
 
 DOC = Path(__file__).resolve().parents[3] / "docs" / "dashboard-api.md"
 
@@ -89,3 +97,21 @@ def test_documented_draft_reply_result_matches_the_code() -> None:
     keys = {"approval_ids", "case_id", "draft_version", "drafts", "details_removed", "superseded_approval_id"}
     assert set(example) == keys
     assert set(example["drafts"][0]) == {"text", "flags"}
+
+
+def test_documented_fast_turns_match_the_code() -> None:
+    text = DOC.read_text(encoding="utf-8")
+    section = _section()
+    for phrase in (
+        f"only the first {MAX_SNAPSHOT_WITH_MEMORY} characters of the\nsnapshot",
+        f"otherwise up to {MODEL_SNAPSHOT}.",
+        "concierge/v3",
+        f"at most {MAX_REPLY_LINES} lines and {MAX_REPLY} characters",
+        "ids are never taken from it",
+        "never the raw one",
+    ):
+        assert phrase in section, phrase
+    assert f"Turns are checked every {TURN_POLL_SECONDS} s (the\n    feed every {POLL_INTERVAL_S} s)" in text
+    timings = text[text.index("### Turn timings") : text.index("### thread_key")]
+    assert all(f"`{key}`" in timings for key in KEYS)
+    assert f"within about {CONCIERGE_POLL_SECONDS} s" in timings

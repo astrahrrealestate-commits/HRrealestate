@@ -88,7 +88,7 @@ Read (GET, cookie only):
 | `/tasks`, `/waits` | open tasks `{id, ref, title, assignee, due_at, priority, status, case_id}`; open waits `{id, case_id, about, expected_by, chase_count, last_chased_at}` |
 | `/briefing` | `{kind, day_label, urgent[], approvals[], overdue_tasks[], overdue_waits[], exceptions[], stats}` |
 | `/company` | `{name, paused, outbound_mode, timezone}` |
-| `/agent/conversations/{id}` | `{id, turns[{id, text, status, plan, results, answer, created_at, updated_at}]}`; `404` if not yours |
+| `/agent/conversations/{id}` | `{id, turns[{id, text, status, plan, results, answer, created_at, updated_at, timings}]}`; `404` if not yours. `timings`: see [Turn timings](#turn-timings) |
 
 Writes (POST, need the CSRF header; the decision writes share the 120/min limit):
 
@@ -131,7 +131,9 @@ How the SPA builds it:
   `visible_ids`.
 
 Trust: **the snapshot and filters are advisory and unverified.** They reach the model only as escaped display text and
-are never a source of ids, recipients or permissions; an id that appears only in the snapshot is ignored. The ids in
+are never a source of ids, recipients or permissions; an id that appears only in the snapshot is ignored. When the page
+facts carry the memory pack below (an open thread or case), the model sees only the first 3000 characters of the
+snapshot (the facts already hold the conversation); otherwise up to 6000. The ids in
 the structured fields are what the server trusts, and only after checking that they belong to your company. A foreign,
 unknown or stale id is dropped (reported to the planner as "no longer exists", without the id). The validated page is
 stored on the turn, and its facts are resolved once, so a retried turn answers from the same context.
@@ -154,11 +156,18 @@ What the agent reads for an open thread or case (the memory pack, server facts i
   says what was left out. Like all page facts, the pack is resolved once and stored on the turn, so a retried turn
   reads the same text.
 
-Answers use the page too: when the plan has an `answer` step (or the planner fails and the agent falls back to a
-plain answer), the question is answered from your open cases and tasks plus the page facts, with the snapshot and
-filters as advisory display text (prompt `owner_qa/v3`). So "what does this page say?" is answered from the page, and
-"is this draft okay?" on an approval is answered from the server's copy of the draft (the planner is told to add an
-`open_view` step for `approvals`; the agent never approves or sends). Without `page` the answer is exactly as before.
+Answers use the page too, in one model call: for a question about the page, the conversation, a case, a draft or
+the tasks, the planner (prompt `concierge/v3`) writes the answer itself in the plan's `reply` and plans an
+`answer` step, which shows it. Before the owner sees it, `reply` is screened: only for an in-scope plan (an out-of-scope plan
+gets the fixed refusal and its `reply` is dropped), control characters removed, at most 20 lines and 1200 characters,
+links, email addresses, phone numbers, IBANs and amounts replaced by `[redacted]`; ids are never taken from it. The
+stored `plan` (in `GET /agent/conversations`) carries the screened `reply`, never the raw one. Only when `reply` is
+empty (or the planner fails and the agent falls back to a plain answer) is the question asked again of the answering
+model: from your open cases and tasks plus the page facts, with the snapshot and filters as advisory display text
+(prompt `owner_qa/v3`). So "what does this page say?" or "what did he ask last?" is answered from the page, and "is
+this draft okay?" on an approval is answered from the server's copy of the draft (with an `open_view` step for
+`approvals`; the agent never approves or sends). Actions (drafts, chases, task changes, pause/resume) keep their own
+step summaries; their `reply` is normally empty.
 
 Case ids in a plan: a step may only name a case the planner was shown as company data, that is one of the brief's
 open cases or a case id on a server fact line of the page (`open case:`, `open thread: ... | case`, approval and
@@ -217,6 +226,16 @@ unverified link, account or phone number is shown redacted with a "held back" no
 `/approvals` when `superseded_approval_id` is set. Nothing is sent until the owner approves; the recipient is always
 the case's own contact from the database, never anything in the guidance or the drafts.
 
+### Turn timings
+
+Each turn records how long its stages took, in whole milliseconds, as `timings` on the turn (read-only, for latency
+diagnostics; `null` for turns from before it was recorded): `queue_wait_ms` (message stored to the run starting, both
+on the database clock), `page_resolve_ms`, `planner_ms`, `executor_ms` (includes `answer_ms`), `answer_ms` (the extra
+answering call, only when the plan had no usable `reply` or the planner failed), `total_ms` (the run) and `attempts`
+(runs started; a retried run keeps the first run's `queue_wait_ms` and any stage it did not repeat). A key is missing
+when its stage did not run (the `tasks` command, for example, has no planner). Turns run on their own `concierge`
+queue, so they never wait behind message processing; the worker picks a waiting turn up within about 0.25 s.
+
 ### thread_key
 
 Opaque. It is the URL-safe base64 (no padding) of `{channel}:{ref}`. Always take it from `/inbox`; never build it.
@@ -227,7 +246,9 @@ Pass it unchanged in the path.
 - Use `EventSource` with credentials (or `fetch` streaming). Frames:
   - `event: feed`, `id: <cursor>`, `data: <FeedItem JSON>`.
   - `event: turn`, `data: {id, conversation_id, status, answer, updated_at}`: the current state of one of your agent
-    turns. Turn frames carry no `id:` line, so they do not move `Last-Event-ID`.
+    turns. Turn frames carry no `id:` line, so they do not move `Last-Event-ID`. Turns are checked every 0.5 s (the
+    feed every 1.5 s), so an answer appears about half a second after it is stored. That is about 2 small indexed
+    queries per second per open stream (`agent_turns (company_id, updated_at, id)`); open one stream per tab.
   - `event: ping` every 15 s of silence (keep-alive, ignore).
   - `event: error` once, then the stream ends: reconnect.
 - The stream ends by itself after 15 minutes: reconnect (the cookie is checked again; a `401` means log in).
@@ -282,7 +303,8 @@ Writes commit first and enqueue the background work second. If the API dies in b
 `sweep.stranded` cron (every 5 minutes) picks the work up: approved actions decided 5 minutes to 24 hours ago that are
 still `approved` with no send recorded (company not paused; a paused company's actions wait for Resume), and agent
 turns still `pending` after 5 minutes (up to 24 hours). They are enqueued under the same ids the API uses
-(`exec:{action_id}:{draft_version}`, `concierge:{turn_id}`), so nothing runs twice; at most 200 per round (up to 1000
+(`exec:{action_id}:{draft_version}`, `concierge:{turn_id}`, turns on the `concierge` queue like the API), so nothing
+runs twice; at most 200 per round (up to 1000
 candidates are read and checked against DBOS first, so actions whose run already exists, such as blocked ones, cannot
 crowd out newer stranded work). For the SPA this means a decision or an agent message can take up to about 5 minutes
 longer after a crash, never that it is lost.

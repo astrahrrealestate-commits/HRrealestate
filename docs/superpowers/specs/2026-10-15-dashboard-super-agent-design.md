@@ -282,3 +282,19 @@ streaming** in this round.
 - **Speed:** one model call for page/chat questions (the planner returns the answer; no second owner_qa call), a
   dedicated chat queue with a short poll interval, turn SSE poll about 0.5 s, `PUT /agent/page` pre-warms resolved
   page facts when the owner navigates, per-turn timings stored on the turn so latency is measurable.
+  - *As built (Task 3, 2026-10-22):* `ConciergePlan.reply` (required, nullable, at most 1200 characters) with prompt
+    `concierge/v3` (v2 and v1 stay published; evals run either). The planner answers page/chat questions in `reply`
+    and plans an `answer` step; actions keep their steps with `reply` null, and `draft_reply` takes `text` null (the
+    guidance is the owner's own message). The reply is screened before anyone sees it (`concierge_reply`): kept only
+    for an in-scope plan, control/format characters removed, at most 20 lines and 1200 characters, links, emails,
+    phones, IBANs and amounts redacted (`concierge_sanitize.redact`), ids never read from it; the plan is stored with
+    the screened reply, and an `answer` step is appended when a usable reply has none. The `answer` step shows it and
+    calls owner_qa only when it is blank (the planner-failure fallback is unchanged). The snapshot cap is 3000 instead
+    of 6000 characters when `<page_facts>` carries a memory pack. Turns run on the `concierge` DBOS queue
+    (`worker_concurrency` from `concierge_worker_concurrency`, default 4; `polling_interval_sec` 0.25, the DBOS
+    default is 1), from the API and the stranded-turn sweep, with the same `concierge:{turn_id}` id. The SSE stream
+    polls turns every 0.5 s and the feed every 1.5 s (about 2 indexed turn queries/s per stream). `agent_turns.timings`
+    (migration 0012) holds `queue_wait_ms` (database clock), `page_resolve_ms`, `planner_ms`, `executor_ms`,
+    `answer_ms`, `total_ms` and `attempts`, merged at every write so a retry keeps earlier values; read-only in
+    `GET /agent/conversations`. Migration 0012 also adds the expression index `messages (company_id, channel,
+    coalesce(thread_ref, provider_msg_id))` for the thread scan. No latency has been measured yet (fake model only).
