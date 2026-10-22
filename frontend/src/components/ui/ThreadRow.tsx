@@ -111,6 +111,7 @@ export function ThreadRow({
       {/* Time & urgency / waiting indicator */}
       <span className="flex flex-col items-end gap-1 whitespace-nowrap text-xs flex-shrink-0 pt-0.5">
         <time
+          suppressHydrationWarning
           className={cn(
             "font-mono text-[12px]",
             isUnread ? "font-bold text-[var(--ink)]" : "font-medium text-[var(--ink-3)]"
