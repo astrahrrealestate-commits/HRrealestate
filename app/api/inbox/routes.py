@@ -427,6 +427,8 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
                     if isinstance(m.meta, dict)
                     else "Tenant Inquiry"
                 ),
+            })
+
         # Also fetch any outgoing messages recorded in sends table for this case's actions
         action_ids = [a.id for a in actions]
         if action_ids:
