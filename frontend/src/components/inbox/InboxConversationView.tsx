@@ -138,25 +138,36 @@ export function InboxConversationView({
 
   const handleAcceptAndSend = (text: string, channel: string, replyToMessageId?: string) => {
     const outboundChannel = (channel === "gmail" ? "gmail" : "whatsapp") as "whatsapp" | "gmail";
+
+    // Default to the latest incoming message from tenant if not explicitly chosen
+    const latestIncoming = [...localMessages].reverse().find((m) => m.sender !== "owner");
+    const targetReply = replyingTo || (latestIncoming ? {
+      id: latestIncoming.id,
+      sender: latestIncoming.senderName || thread.senderName || "Tenant",
+      text: latestIncoming.body?.replace(/^["']|["']$/g, "").slice(0, 80) || "",
+    } : null);
+
+    const effectiveReplyId = replyToMessageId || targetReply?.id;
     if (onApproveDraft) {
-      onApproveDraft(thread.id, text, outboundChannel, replyToMessageId);
+      onApproveDraft(thread.id, text, outboundChannel, effectiveReplyId);
     }
 
+    const now = new Date();
     // Add outgoing bubble to timeline immediately (Section 5.2)
     const newOutgoingMsg: ThreadMessage = {
       id: `reply-${Date.now()}`,
       sender: "owner",
       senderName: "Harjot Singh",
       senderContact: "+31 20 000 0001",
-      sentAt: new Date().toISOString(),
-      timeFormatted: format(new Date(), "HH:mm"),
+      sentAt: now.toISOString(),
+      timeFormatted: format(now, "HH:mm"),
       body: text,
       channel: outboundChannel,
-      replyTo: replyingTo
+      replyTo: targetReply
         ? {
-            id: replyingTo.id,
-            sender: replyingTo.sender,
-            text: replyingTo.text,
+            id: targetReply.id,
+            sender: targetReply.sender,
+            text: targetReply.text,
           }
         : undefined,
     };
@@ -335,10 +346,19 @@ export function InboxConversationView({
           const prevDayLabel = prevMsg ? getDayLabel(prevMsg) : null;
           const showDateDivider = index === 0 || currentDayLabel !== prevDayLabel;
 
-          // Time without "Today" or "Yesterday" prefix for the bubble footer
-          const displayTime = (msg.timeFormatted || "08:15")
-            .replace(/^(today|yesterday)\s*/i, "")
-            .trim();
+          // Time formatted in user's local timezone (e.g. 15:05, 15:09)
+          const getDisplayTime = (m: ThreadMessage) => {
+            if (m.sentAt) {
+              const d = new Date(m.sentAt);
+              if (!isNaN(d.getTime())) {
+                return format(d, "HH:mm");
+              }
+            }
+            return (m.timeFormatted || "08:15")
+              .replace(/^(today|yesterday)\s*/i, "")
+              .trim();
+          };
+          const displayTime = getDisplayTime(msg);
 
           const englishTranslation =
             msg.bodyEnglish ||
@@ -409,7 +429,7 @@ export function InboxConversationView({
                 <div className="flex flex-col items-start space-y-1 group">
                   <div className="relative bg-[var(--selected)] text-[var(--ink)] rounded-2xl rounded-tl-xs px-4 py-2.5 max-w-[85%] sm:max-w-[75%]">
                     <p className="text-[13.5px] leading-relaxed whitespace-pre-line select-text">
-                      {msg.body}
+                      {msg.body?.replace(/^["']|["']$/g, "")}
                     </p>
                     <div className="flex items-center justify-between gap-3 text-[11px] font-mono text-[var(--ink-3)] mt-1">
                       <button
@@ -417,7 +437,7 @@ export function InboxConversationView({
                         onClick={() => {
                           setReplyingTo({
                             id: msg.id,
-                            text: msg.body?.slice(0, 80) || "",
+                            text: msg.body?.replace(/^["']|["']$/g, "").slice(0, 80) || "",
                             sender: msg.senderName || thread.senderName || "Tenant",
                           });
                         }}

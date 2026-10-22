@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { format } from "date-fns";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
@@ -125,26 +126,29 @@ function InboxContent() {
     const targetThread = threads.find((t) => t.id === threadId);
     const approvalId = targetThread?.approvalId || targetThread?.id || threadId;
 
-    const nowIso = new Date().toISOString();
+    const incomingMsgs = (targetThread?.messages || []).filter((m) => m.sender !== "owner");
+    const latestIncoming = incomingMsgs[incomingMsgs.length - 1];
+    const effectiveMsg = replyToMessageId
+      ? targetThread?.messages?.find((m) => m.id === replyToMessageId)
+      : latestIncoming;
+
     let replyToObj: { id?: string; sender?: string; text?: string } | undefined = undefined;
-    if (replyToMessageId && targetThread?.messages) {
-      const qMsg = targetThread.messages.find((m) => m.id === replyToMessageId);
-      if (qMsg) {
-        replyToObj = {
-          id: qMsg.id,
-          sender: qMsg.senderName || "Tenant",
-          text: qMsg.body?.slice(0, 80) || "",
-        };
-      }
+    if (effectiveMsg) {
+      replyToObj = {
+        id: effectiveMsg.id,
+        sender: effectiveMsg.senderName || targetThread?.senderName || "Tenant",
+        text: effectiveMsg.body?.replace(/^["']|["']$/g, "").slice(0, 80) || "",
+      };
     }
 
+    const now = new Date();
     const newMsg = {
       id: `out-${Date.now()}`,
       sender: "owner" as const,
       senderName: "Harjot Singh",
       senderContact: "+31 20 000 0001",
-      sentAt: nowIso,
-      timeFormatted: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      sentAt: now.toISOString(),
+      timeFormatted: format(now, "HH:mm"),
       body: draftText,
       channel: outboundChannel,
       replyTo: replyToObj,
@@ -166,7 +170,7 @@ function InboxContent() {
     );
 
     try {
-      await approveInboxDraft(approvalId, "d1", draftText, replyToMessageId);
+      await approveInboxDraft(approvalId, "d1", draftText, effectiveMsg?.id);
       showToast("Draft approved and sent via " + outboundChannel);
     } catch {
       showToast("Dispatched and logged to autonomous ledger.");
@@ -447,7 +451,8 @@ function InboxContent() {
               onApproveDraft={handleApproveDraft}
               onRejectDraft={handleRejectDraft}
               onSendManualReply={(threadId, text, replyToId) => {
-                handleApproveDraft(threadId, text, activeThread?.channel || "whatsapp", replyToId);
+                const chan = activeThread?.channel === "gmail" ? "gmail" : "whatsapp";
+                handleApproveDraft(threadId, text, chan, replyToId);
               }}
               onMarkDone={handleMarkDone}
             />

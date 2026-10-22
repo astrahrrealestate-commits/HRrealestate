@@ -450,7 +450,25 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
                 act_payload = act_row.payload if act_row and isinstance(act_row.payload, dict) else {}
                 variants = act_payload.get("body_variants") or []
                 body_txt = variants[0] if variants else "Replied to tenant."
-                reply_to_info = act_payload.get("reply_to")
+                
+                # Determine accurate preceding incoming message for this send
+                s_iso = s_dt.isoformat()
+                preceding_incoming = [
+                    m for m in msgs_data
+                    if m.get("isIncoming") and (m.get("sentAt") or "") <= s_iso
+                ]
+                reply_to_info = None
+                if preceding_incoming:
+                    target_in = preceding_incoming[-1]
+                    clean_in_text = (target_in.get("body") or "").strip().strip('"').strip("'")
+                    reply_to_info = {
+                        "id": str(target_in.get("id")),
+                        "sender": target_in.get("senderName") or "Tenant",
+                        "text": clean_in_text[:120],
+                    }
+                elif act_payload.get("reply_to"):
+                    reply_to_info = act_payload.get("reply_to")
+
                 msgs_data.append({
                     "id": str(s.id),
                     "sender": "owner",
@@ -694,17 +712,23 @@ def decide_approval(
             current_payload = dict(action.payload or {})
             if req.edited_text:
                 current_payload["body_variants"] = [req.edited_text]
-            if req.reply_to_message_id:
+            target_quote_id = req.reply_to_message_id
+            quoted_msg = None
+            if target_quote_id:
                 try:
-                    quoted_msg = session.get(MessageRow, UUID(req.reply_to_message_id))
-                    if quoted_msg:
-                        current_payload["reply_to"] = {
-                            "id": str(quoted_msg.id),
-                            "sender": "Tenant",
-                            "text": (quoted_msg.text[:120] if quoted_msg.text else "").strip(),
-                        }
+                    quoted_msg = session.get(MessageRow, UUID(target_quote_id))
                 except Exception:
                     pass
+            if not quoted_msg and latest_msg:
+                quoted_msg = latest_msg
+
+            if quoted_msg:
+                clean_text = (quoted_msg.text or "").strip().strip('"').strip("'")
+                current_payload["reply_to"] = {
+                    "id": str(quoted_msg.id),
+                    "sender": "Tenant",
+                    "text": clean_text[:120],
+                }
             action.payload = current_payload
 
         if case:
