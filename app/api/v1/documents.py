@@ -13,21 +13,25 @@ from pydantic import AwareDatetime, BaseModel
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
-from app.api.deps import WorkflowClient, get_engine, get_workflow_client
+from app.api.deps import WorkflowClient, get_engine, get_settings_dep, get_workflow_client
 from app.api.v1 import enqueue
 from app.api.v1.auth import Principal, require_csrf, require_principal
 from app.api.v1.ratelimit import decision_limit
 from app.core.errors import NotFoundError
+from app.core.settings import Settings
 from app.db.enums import DocLinkKind, DocumentStatus, ReorgItemStatus, ReorgPlanStatus
+from app.llm.embeddings import build_embedder
 from app.pipeline.document_links import set_link
 from app.pipeline.document_qa import strip_risky
 from app.pipeline.document_search import DocDetail, DocFilter, DocHit, get_document, list_documents, search_documents
 from app.pipeline.drive_reorg import PlanView, build_plan, decide_plan, latest_plan
+from app.pipeline.rag import search_hybrid
 
 router = APIRouter(tags=["documents"])
 NOT_FOUND = "not found"
 Owner = Annotated[Principal, Depends(require_principal)]
 Engine_ = Annotated[Engine, Depends(get_engine)]
+Settings_ = Annotated[Settings, Depends(get_settings_dep)]
 WorkflowClient_ = Annotated[WorkflowClient, Depends(get_workflow_client)]
 
 
@@ -128,8 +132,10 @@ def _detail(d: DocDetail) -> DocumentDetailOut:
 def search(
     who: Owner,
     engine: Engine_,
+    settings: Settings_,
     q: Annotated[str | None, Query(max_length=200)] = None,
     match: Literal["all", "any"] = "all",
+    mode: Literal["words", "hybrid"] = "hybrid",
     type: Annotated[str | None, Query(max_length=32)] = None,
     status: DocumentStatus | None = None,
     person_id: UUID | None = None,
@@ -143,6 +149,9 @@ def search(
 ) -> list[DocumentOut]:
     flt = DocFilter(type, status, person_id, unit_id, lease_id, case_id, date_from, date_to, needs_link)
     with Session(engine) as session:
+        if q and q.strip() and mode == "hybrid":
+            hits = search_hybrid(session, who.company_id, q.strip(), flt, build_embedder(settings), limit)
+            return [_out(h) for h in hits]
         if q and q.strip():
             return [_out(h) for h in search_documents(session, who.company_id, q.strip(), flt, limit, match)]
         return [_out(h) for h in list_documents(session, who.company_id, flt, limit)]

@@ -743,6 +743,20 @@
             },
             {
               "in": "query",
+              "name": "mode",
+              "required": false,
+              "schema": {
+                "default": "hybrid",
+                "enum": [
+                  "words",
+                  "hybrid"
+                ],
+                "title": "Mode",
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
               "name": "type",
               "required": false,
               "schema": {

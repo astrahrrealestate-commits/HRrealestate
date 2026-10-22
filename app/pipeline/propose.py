@@ -22,10 +22,12 @@ from app.db.models import ActionRow, Approval, Case, Company, MessageRow, Person
 from app.llm.agents.doc_qa import Passage
 from app.llm.agents.proposer import PROPOSER, Contractor, ProposerContext, proposer_prompt
 from app.llm.calls import CallContext, run_agent
+from app.llm.embeddings import TextEmbedder, build_embedder
 from app.pipeline import approvals, case_repo
 from app.pipeline.concierge_sanitize import sanitize
 from app.pipeline.document_qa import case_scope, strip_risky
-from app.pipeline.document_search import DocFilter, top_passages
+from app.pipeline.document_search import DocFilter
+from app.pipeline.rag import retrieve_cheap
 from app.pipeline.rules import RuleContext, Verdict, apply_rules
 
 log = get_logger(__name__)
@@ -69,17 +71,21 @@ def _existing(session: Session, company_id: UUID, message_id: UUID) -> ProposeRe
 MAX_EXCERPTS = 3
 
 
-def _case_documents(session: Session, msg: MessageRow, case: Case) -> tuple[Passage, ...]:
+def _case_documents(
+    session: Session, msg: MessageRow, case: Case, embedder: TextEmbedder | None
+) -> tuple[Passage, ...]:
     """Passages of THIS case's own documents (its case, unit, lease and main person) that resemble the message.
     Nothing from any other tenant's documents, nothing flagged suspicious, and no link, address or IBAN."""
     scope = case_scope(session, msg.company_id, case.id)
     if not scope:
         return ()
-    found = top_passages(session, msg.company_id, msg.text, DocFilter(any_link=scope, readable_only=True), MAX_EXCERPTS)
+    found = retrieve_cheap(
+        session, msg.company_id, msg.text, DocFilter(any_link=scope, readable_only=True), embedder, MAX_EXCERPTS
+    )
     return tuple(replace(p, text=strip_risky(p.text)) for p in found)
 
 
-def _load(session: Session, msg: MessageRow, case: Case, und: Understanding) -> _Loaded:
+def _load(session: Session, msg: MessageRow, case: Case, und: Understanding, embedder: TextEmbedder | None) -> _Loaded:
     company = session.get(Company, msg.company_id)
     waiting = session.scalars(
         select(WaitRow.about).where(
@@ -102,7 +108,7 @@ def _load(session: Session, msg: MessageRow, case: Case, und: Understanding) -> 
         waiting=tuple(waiting),
         contractors=tuple(Contractor(c[0], c[1], c[2]) for c in contractors),
         mode="reply",
-        excerpts=_case_documents(session, msg, case),
+        excerpts=_case_documents(session, msg, case, embedder),
     )
     return _Loaded(ctx, msg.company_id, bool(company and company.paused))
 
@@ -192,7 +198,7 @@ def _with_reply_flag(body: dict[str, Any]) -> dict[str, Any]:
     return {**body, "requires_reply": body.get("category") != Category.spam.value}
 
 
-def _prepare(engine: Engine, message_id: UUID) -> _Loaded | ProposeResult:
+def _prepare(engine: Engine, message_id: UUID, embedder: TextEmbedder | None) -> _Loaded | ProposeResult:
     with Session(engine) as session:
         msg = session.get(MessageRow, message_id)
         und = (
@@ -216,11 +222,11 @@ def _prepare(engine: Engine, message_id: UUID) -> _Loaded | ProposeResult:
         understanding = Understanding.model_validate(_with_reply_flag(und.body))
         if not understanding.requires_reply and not understanding.suspicious.flag:
             return ProposeResult()  # nothing to answer: no proposal, no draft, no model call (suspicious mail stays)
-        return _load(session, msg, case, understanding)
+        return _load(session, msg, case, understanding, embedder)
 
 
 def propose_for_message(engine: Engine, settings: Settings, message_id: UUID) -> ProposeResult:
-    loaded = _prepare(engine, message_id)
+    loaded = _prepare(engine, message_id, build_embedder(settings))
     if isinstance(loaded, ProposeResult):
         return loaded
     proposed = _propose(engine, settings, loaded)

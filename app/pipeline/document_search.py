@@ -27,7 +27,6 @@ from app.db.models import (
     Person,
     Unit,
 )
-from app.llm.agents.doc_qa import Passage
 
 MAX_HITS = 50
 SNIPPET_OPTIONS = "StartSel=«, StopSel=», MaxFragments=1, MaxWords=35, MinWords=12"
@@ -117,7 +116,7 @@ def doc_filters(company_id: UUID, flt: DocFilter) -> list[ColumnElement[bool]]:
     return conds
 
 
-def _hit(row: Any, snippet: str | None, rank: float) -> DocHit:
+def make_hit(row: Any, snippet: str | None, rank: float) -> DocHit:
     d: DocumentRow = row
     return DocHit(
         document_id=d.id, attachment_id=d.attachment_id, title=d.title, doc_type=d.doc_type, status=d.status,
@@ -168,29 +167,15 @@ def _content_hits(session: Session, company_id: UUID, query: str, flt: DocFilter
         .order_by(best.c.rank.desc(), DocumentRow.created_at.desc())
         .limit(limit)
     )
-    return [_hit(d, snip, float(r)) for d, snip, r in session.execute(stmt)]
+    return [make_hit(d, snip, float(r)) for d, snip, r in session.execute(stmt)]
 
 
-def top_passages(session: Session, company_id: UUID, question: str, flt: DocFilter = DocFilter(),  # noqa: B008
-                 limit: int = 4) -> list[Passage]:  # fmt: skip
-    """Best chunk of the best `limit` documents for a question (any word may match; most overlap ranks first)."""
-    best = _best_chunks(company_id, to_tsquery(any_of(question)))
-    stmt = (
-        select(DocumentRow, best.c.text, best.c.rank)
-        .join(best, best.c.document_id == DocumentRow.id)
-        .where(*doc_filters(company_id, flt))
-        .order_by(best.c.rank.desc(), DocumentRow.created_at.desc())
-        .limit(max(1, min(limit, MAX_HITS)))
-    )
-    return [Passage(d.id, d.title, d.doc_type, d.document_date, text, float(r)) for d, text, r in session.execute(stmt)]
-
-
-def _metadata_hits(session: Session, company_id: UUID, query: str, flt: DocFilter, skip: set[UUID],
+def metadata_hits(session: Session, company_id: UUID, query: str, flt: DocFilter, skip: set[UUID],
                    limit: int) -> list[DocHit]:  # fmt: skip
     pattern = or_(*(col.icontains(query, autoescape=True) for col in (DocumentRow.title, DocumentRow.summary,
                                                                        DocumentRow.file_name)))  # fmt: skip
     stmt = select(DocumentRow).where(*doc_filters(company_id, flt), pattern).order_by(DocumentRow.created_at.desc())
-    return [_hit(d, None, 0.0) for d in session.scalars(stmt.limit(limit + len(skip))) if d.id not in skip][:limit]
+    return [make_hit(d, None, 0.0) for d in session.scalars(stmt.limit(limit + len(skip))) if d.id not in skip][:limit]
 
 
 def search_documents(session: Session, company_id: UUID, query: str, flt: DocFilter = DocFilter(),  # noqa: B008
@@ -200,7 +185,7 @@ def search_documents(session: Session, company_id: UUID, query: str, flt: DocFil
     cap = max(1, min(limit, MAX_HITS))
     hits = _content_hits(session, company_id, any_of(query) if match == "any" else query, flt, cap)
     if len(hits) < cap:
-        hits += _metadata_hits(session, company_id, query, flt, {h.document_id for h in hits}, cap - len(hits))
+        hits += metadata_hits(session, company_id, query, flt, {h.document_id for h in hits}, cap - len(hits))
     return hits
 
 
@@ -209,7 +194,7 @@ def list_documents(session: Session, company_id: UUID, flt: DocFilter = DocFilte
     stmt = (
         select(DocumentRow).where(*doc_filters(company_id, flt)).order_by(DocumentRow.created_at.desc(), DocumentRow.id)
     )
-    return [_hit(d, None, 0.0) for d in session.scalars(stmt.limit(max(1, min(limit, MAX_HITS))))]
+    return [make_hit(d, None, 0.0) for d in session.scalars(stmt.limit(max(1, min(limit, MAX_HITS))))]
 
 
 def _labels(session: Session, company_id: UUID, links: list[DocumentLink]) -> dict[tuple[DocLinkKind, UUID], str]:
@@ -248,4 +233,4 @@ def get_document(session: Session, company_id: UUID, document_id: UUID) -> DocDe
         DocumentChunk.document_id == document_id, DocumentChunk.company_id == company_id))  # fmt: skip
     facts = {k: v for k, v in (doc.facts or {}).items() if k != "unresolved"} if doc.facts else None
     unresolved = list((doc.facts or {}).get("unresolved", []))
-    return DocDetail(_hit(doc, None, 0.0), doc.file_name, facts, unresolved, refs, int(count or 0))
+    return DocDetail(make_hit(doc, None, 0.0), doc.file_name, facts, unresolved, refs, int(count or 0))

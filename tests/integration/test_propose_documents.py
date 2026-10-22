@@ -157,3 +157,37 @@ def test_a_previous_tenants_documents_in_the_same_unit_never_reach_the_prompt(
     assert "QZXOLD" not in seen[0]
     assert "vorige huurder" not in seen[0]
     assert "Huurovereenkomst" in seen[0]
+
+
+def test_a_down_embedding_provider_does_not_stop_the_draft_and_words_still_find_the_clause(
+    migrated_engine: Engine, settings: Settings, committed_company: Company, seen: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    from app.llm.embeddings import HashingEmbedder
+    from app.pipeline import propose
+
+    class Down(HashingEmbedder):
+        def embed_documents(self, texts):  # type: ignore[no-untyped-def]
+            raise ConnectionError("provider down")
+
+    cid = committed_company.id
+    case_id, message_id = _case(migrated_engine, cid)
+    _doc_for(migrated_engine, cid, "Huurovereenkomst", LEASE, case_id)
+    monkeypatch.setattr(propose, "build_embedder", lambda _settings: Down())
+    propose_for_message(migrated_engine, settings, message_id)
+    assert "<excerpts>" in seen[0]
+    assert "waarborgsom" in seen[0]
+
+
+def test_the_cases_embedded_documents_are_found_with_vectors_too(
+    migrated_engine: Engine, settings: Settings, committed_company: Company, seen: list[str]
+) -> None:
+    from app.llm.embeddings import HashingEmbedder
+    from app.pipeline.document_embed import embed_chunks
+
+    cid = committed_company.id
+    case_id, message_id = _case(migrated_engine, cid)
+    _doc_for(migrated_engine, cid, "Huurovereenkomst", LEASE, case_id)
+    assert embed_chunks(migrated_engine, HashingEmbedder(), cid) >= 1
+    propose_for_message(migrated_engine, settings, message_id)
+    assert "waarborgsom" in seen[0]

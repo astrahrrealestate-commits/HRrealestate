@@ -176,3 +176,25 @@ def test_titles_summaries_and_snippets_never_carry_links_or_bank_accounts(fx: Fi
         shown = str(body)
         assert "evil.example" not in shown
         assert "NL91" not in shown
+
+
+def test_hybrid_search_finds_across_languages_where_word_search_does_not(fx: Fixture) -> None:
+    from app.llm.embeddings import HashingEmbedder
+    from app.pipeline.document_embed import embed_chunks, embed_documents_summary
+
+    with Session(fx.engine) as s:
+        cid = s.scalars(select(DocumentRow.company_id).where(DocumentRow.id == fx.mine)).one()
+        s.execute(DocumentRow.__table__.update().where(DocumentRow.company_id == cid).values(index_version="r2"))
+        s.commit()
+    embed_chunks(fx.engine, HashingEmbedder(), cid)
+    embed_documents_summary(fx.engine, HashingEmbedder(), cid)
+    hybrid = fx.client.get("/api/v1/documents", params={"q": "deposit", "mode": "hybrid"}).json()
+    words = fx.client.get("/api/v1/documents", params={"q": "deposit", "mode": "words"}).json()
+    assert str(fx.mine) in {d["id"] for d in hybrid}
+    assert words == []  # the English word is nowhere in the Dutch text
+    assert str(fx.theirs) not in {d["id"] for d in hybrid}  # another company's document is never ranked
+
+
+def test_hybrid_is_the_default_mode_and_keeps_highlights_for_matching_words(fx: Fixture) -> None:
+    body = fx.client.get("/api/v1/documents", params={"q": "waarborgsom"}).json()
+    assert "«waarborgsom»" in (body[0]["snippet"] or "")

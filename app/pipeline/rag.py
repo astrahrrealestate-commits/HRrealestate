@@ -14,7 +14,7 @@ Planner and reranker failures degrade to the cheaper path and are never an error
 from dataclasses import dataclass, replace
 from uuid import UUID
 
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
 from app.contracts import FactKind, QueryPlan
@@ -28,8 +28,8 @@ from app.llm.agents.doc_qa import Passage
 from app.llm.agents.rag import RAG_PLAN, RAG_RERANK, RerankItem, plan_prompt, rerank_prompt
 from app.llm.calls import CallContext, is_transient, run_agent
 from app.llm.embeddings import TextEmbedder
-from app.pipeline.document_search import DocFilter, doc_filters
-from app.pipeline.rag_retrieval import Candidate, hybrid_candidates
+from app.pipeline.document_search import SNIPPET_OPTIONS, DocFilter, DocHit, doc_filters, make_hit, metadata_hits
+from app.pipeline.rag_retrieval import Candidate, hybrid_candidates, words_query
 
 log = get_logger(__name__)
 RERANK_TOP = 20
@@ -197,3 +197,53 @@ def retrieve_context(engine: Engine, settings: Settings, company_id: UUID, quest
         picks = choose(top, relevance)
         passages = passages_from(session, company_id, picks) if picks else []
     return RagContext("hybrid" if passages else "none", passages, None, plan, len(cands), relevance is not None)
+
+
+def safe_hybrid(session: Session, company_id: UUID, question: str, flt: DocFilter,
+                embedder: TextEmbedder | None) -> list[Candidate]:  # fmt: skip
+    """Hybrid candidates with no language-model call. A failing embedding provider is not an error: the words list
+    answers alone (the same call without vectors)."""
+    try:
+        return hybrid_candidates(session, company_id, question, flt, embedder)
+    except Exception as exc:
+        if embedder is None or not is_transient(exc):
+            raise
+        log.warning("rag.embedder_degraded", company_id=str(company_id), reason=type(exc).__name__)
+        return hybrid_candidates(session, company_id, question, flt, None)
+
+
+def retrieve_cheap(session: Session, company_id: UUID, question: str, flt: DocFilter, embedder: TextEmbedder | None,
+                   limit: int = 3) -> list[Passage]:  # fmt: skip
+    """Hybrid passages with no language-model call: for every inbound message, where cost per message matters."""
+    cands = safe_hybrid(session, company_id, question, flt, embedder)
+    picks = choose(cands[:RERANK_TOP], None)[:limit]
+    return passages_from(session, company_id, picks) if picks else []
+
+
+def _highlights(session: Session, chunk_ids: list[UUID], query: str) -> dict[UUID, str]:
+    """`«matched»` words in a short fragment of each chunk, for the chunks the words side recognises."""
+    if not chunk_ids:
+        return {}
+    fragment = func.ts_headline("dutch", DocumentChunk.text, func.websearch_to_tsquery("dutch", query), SNIPPET_OPTIONS)
+    rows = session.execute(select(DocumentChunk.id, fragment).where(DocumentChunk.id.in_(chunk_ids)))
+    return {cid: " ".join(text.split()) for cid, text in rows if "«" in text}
+
+
+def search_hybrid(session: Session, company_id: UUID, query: str, flt: DocFilter, embedder: TextEmbedder | None,
+                  limit: int = 20) -> list[DocHit]:  # fmt: skip
+    """The library's typed search: documents ranked by their best chunk across words and vectors, then by what they are
+    called. No language-model call. The snippet is the opening of the best chunk (untrusted text)."""
+    best: dict[UUID, Candidate] = {}
+    for c in safe_hybrid(session, company_id, query, flt, embedder):
+        best.setdefault(c.document_id, c)
+    docs = {d.id: d for d in session.scalars(select(DocumentRow).where(DocumentRow.id.in_(list(best))))}
+    top = sorted(best.values(), key=lambda c: -c.score)[:limit]
+    marked = _highlights(session, [c.chunk_id for c in top], words_query(query))
+    hits = [
+        make_hit(docs[c.document_id], marked.get(c.chunk_id) or " ".join(c.text.split())[:240], c.score)
+        for c in top
+        if c.document_id in docs
+    ]
+    if len(hits) < limit:
+        hits += metadata_hits(session, company_id, query, flt, {h.document_id for h in hits}, limit - len(hits))
+    return hits
