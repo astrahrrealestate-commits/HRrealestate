@@ -236,3 +236,23 @@ capped at 300 characters), all inside the escaped history block.
 A cron step finds tenant `sends` rows in `sending` longer than the stuck threshold and settles them once (send and
 action failed, one alert), so a worker crash mid-send is no longer silent. A lost claim reports "in progress" as a
 distinct outcome that does not open the follow-up wait early.
+
+
+## Amendment 2026-10-22: live chat awareness, steerable drafts, seconds-level turns
+
+Decisions (user, 2026-10-22): when the owner opens a chat/thread/case page and types a prompt, the agent reads that
+conversation (WhatsApp and Gmail) and its stored context from the database, understands it, answers, and can
+draft replies; all within seconds. A requested draft is returned **in the chat reply and also created as a pending
+approval** (one click to approve or edit; nothing is sent until approval). Speed work is the core set, **no token
+streaming** in this round.
+
+- **Memory pack** (extends `<page_facts>`): for an open thread/case, up to 30 messages (about 600 characters each,
+  newest-biased, direction and time), the case summary and timeline, lease/unit/person facts from the directory, open
+  waits, earlier drafts and the owner's edits and decisions. Authoritative server facts, company-scoped, tenant text
+  escaped like all untrusted text, bounded token budget; stored resolved on the turn like other facts.
+- **Steerable drafts:** `draft_reply` takes the owner's wording as sanitised guidance for the proposer (new proposer
+  prompt version; v1 stays published); with a pending draft it supersedes it with a new `draft_version` instead of
+  failing; the drafts are echoed in the turn answer and exist as approvals (the approval gates sending).
+- **Speed:** one model call for page/chat questions (the planner returns the answer; no second owner_qa call), a
+  dedicated chat queue with a short poll interval, turn SSE poll about 0.5 s, `PUT /agent/page` pre-warms resolved
+  page facts when the owner navigates, per-turn timings stored on the turn so latency is measurable.

@@ -1,6 +1,6 @@
 # Project context (auto)
 
-Generated: 2026-10-21T06:07:21.890Z
+Generated: 2026-10-21T10:46:06.901Z
 
 ## Detected stack
 
@@ -10,10 +10,20 @@ Generated: 2026-10-21T06:07:21.890Z
 ## Git
 
 - Branch: `d-dashboard`
-- HEAD: `43ba8a9`
+- HEAD: `65aff1f`
 
 ## Recent commits
 
+- `65aff1f` test(evals): owner_qa page cases for v3 only, facts-only draft case _(Aditya Jain, 2026-10-21)_
+- `d2cb3f4` fix(llm): strip default-ignorable code points, fake refuses prompt requests _(Aditya Jain, 2026-10-21)_
+- `89babd9` docs: progress test count after the data block cap _(Aditya Jain, 2026-10-21)_
+- `b66da23` fix(llm): cap data blocks after unicode normalisation _(Aditya Jain, 2026-10-21)_
+- `8ad1a85` docs: page-aware answers _(Aditya Jain, 2026-10-21)_
+- `f1413b2` fix(llm): fake concierge needs a pronoun, first one is the first row _(Aditya Jain, 2026-10-21)_
+- `894aa63` feat(agent): page-aware owner_qa v3 and answer step _(Aditya Jain, 2026-10-21)_
+- `909af5a` fix(api): snapshot CRLF, thread key visible ids, filters cap _(Aditya Jain, 2026-10-21)_
+- `e56538f` fix(llm): unicode-robust tag escaping _(Aditya Jain, 2026-10-21)_
+- `92d1f26` docs: plan task 4 page-aware answers _(Aditya Jain, 2026-10-21)_
 - `43ba8a9` docs(dashboard): page context _(Aditya Jain, 2026-10-21)_
 - `5538efb` feat(agent): concierge prompt v2, page-aware brief and fake _(Aditya Jain, 2026-10-21)_
 - `b5f2d9a` feat(agent): page context contract, resolver and migration 0011 _(Aditya Jain, 2026-10-21)_
@@ -24,45 +34,32 @@ Generated: 2026-10-21T06:07:21.890Z
 - `769a32e` docs(dashboard): record the stuck-send gap that blocks send mode _(Aditya Jain, 2026-10-15)_
 - `9fdb959` docs(dashboard): final review wave: same-origin/CORS, sweep, sends, owner switch _(Aditya Jain, 2026-10-15)_
 - `fa4dfa6` feat(api): cors allowlist, session recheck, api import contract, settings wiring _(Aditya Jain, 2026-10-15)_
-- `7fdcd03` feat(workflows): commit-then-crash sweeper for approved actions and turns _(Aditya Jain, 2026-10-15)_
-- `7f88818` fix(sender): dashboard owner delivery, in-flight resume and stuck sends _(Aditya Jain, 2026-10-15)_
-- `f7a561e` fix(dashboard): document review feed kind and task refs in the planner brief _(Aditya Jain, 2026-10-15)_
-- `76e4003` fix(dev): reject the public dev session secret in prod, demo guards _(Aditya Jain, 2026-10-15)_
-- `8d90981` fix(dev): dashboard demo env, provider guard, state restore; limiter and docs follow-ups _(Aditya Jain, 2026-10-15)_
-- `51296b3` docs(dashboard): API guide, ADR accepted, progress and deviations _(Aditya Jain, 2026-10-15)_
-- `d906862` feat(api): rate limits, dashboard simulator scenario _(Aditya Jain, 2026-10-15)_
-- `db24230` fix(evals): ignore ids in the injection walk _(Aditya Jain, 2026-10-15)_
-- `f9eb588` fix(evals): fake-runnable safety cases, hostile-plan injection test, results cap _(Aditya Jain, 2026-10-15)_
-- `29c283d` test(evals): concierge golden set and injection suite _(Aditya Jain, 2026-10-15)_
 
 ## Inferred recent decisions
 
+- `d2cb3f4` fix(llm): strip default-ignorable code points, fake refuses prompt requests
+- `b66da23` fix(llm): cap data blocks after unicode normalisation
+- `f1413b2` fix(llm): fake concierge needs a pronoun, first one is the first row
+- `894aa63` feat(agent): page-aware owner_qa v3 and answer step
+- `909af5a` fix(api): snapshot CRLF, thread key visible ids, filters cap
+- `e56538f` fix(llm): unicode-robust tag escaping
 - `5538efb` feat(agent): concierge prompt v2, page-aware brief and fake
 - `b5f2d9a` feat(agent): page context contract, resolver and migration 0011
 - `a8c9e7f` feat(agent): conversation memory includes the agent's own answers
 - `8fe886b` fix(sender): settle stuck tenant sends, in-progress outcome
 - `fa4dfa6` feat(api): cors allowlist, session recheck, api import contract, settings wiring
-- `7fdcd03` feat(workflows): commit-then-crash sweeper for approved actions and turns
-- `7f88818` fix(sender): dashboard owner delivery, in-flight resume and stuck sends
-- `f7a561e` fix(dashboard): document review feed kind and task refs in the planner brief
-- `76e4003` fix(dev): reject the public dev session secret in prod, demo guards
-- `8d90981` fix(dev): dashboard demo env, provider guard, state restore; limiter and docs follow-ups
-- `51296b3` docs(dashboard): API guide, ADR accepted, progress and deviations
-- `d906862` feat(api): rate limits, dashboard simulator scenario
-- `db24230` fix(evals): ignore ids in the injection walk
-- `f9eb588` fix(evals): fake-runnable safety cases, hostile-plan injection test, results cap
 
 ## Hotspots
 
-- 36x — `docs/PROGRESS.md`
+- 39x — `docs/PROGRESS.md`
 - 19x — `pyproject.toml`
 - 17x — `app/core/settings.py`
 - 16x — `Makefile`
 - 15x — `.env.example`
 - 15x — `app/workflows/runtime.py`
 - 13x — `docs/go-live-channels.md`
+- 12x — `app/llm/fakes.py`
 - 11x — `app/contracts/__init__.py`
-- 11x — `app/llm/fakes.py`
 - 11x — `tests/integration/conftest.py`
 
 ## Top-level tree
@@ -104,6 +101,7 @@ Generated: 2026-10-21T06:07:21.890Z
 .env.example.bak
 .hypothesis/
 .hypothesis/constants/
+.hypothesis/constants/00157836c030c52b
 .hypothesis/constants/0018aac87bd74f1f
 .hypothesis/constants/00c306c2503e3401
 .hypothesis/constants/020b42d5c9ec5bd3
@@ -128,6 +126,7 @@ Generated: 2026-10-21T06:07:21.890Z
 .hypothesis/constants/08dd16c58dfc12eb
 .hypothesis/constants/098e7a69d0ca8370
 .hypothesis/constants/09c642a734fa75e8
+.hypothesis/constants/0a402ed48b0ecc79
 .hypothesis/constants/0a6570335408273a
 .hypothesis/constants/0b6a7a1a0067f347
 .hypothesis/constants/0b6f853c4e8f892a
@@ -135,6 +134,7 @@ Generated: 2026-10-21T06:07:21.890Z
 .hypothesis/constants/0c3d979d908ea376
 .hypothesis/constants/0c4de379d7ee3d14
 .hypothesis/constants/0d9c54784e959eed
+.hypothesis/constants/0e47127688c846e4
 .hypothesis/constants/0e7e7a4a326b1a27
 .hypothesis/constants/0f39e532d13c7352
 .hypothesis/constants/0f653f19c429ef93
@@ -144,6 +144,7 @@ Generated: 2026-10-21T06:07:21.890Z
 .hypothesis/constants/101fbfc29d2d4be9
 .hypothesis/constants/1127bbba5fd1bc74
 .hypothesis/constants/118f6336530076ef
+.hypothesis/constants/11b9c5c92cd45506
 .hypothesis/constants/11ce61e7d98bef38
 .hypothesis/constants/12af14c4068abbfb
 .hypothesis/constants/12ca5a8a7e159b1d
@@ -177,6 +178,7 @@ Generated: 2026-10-21T06:07:21.890Z
 .hypothesis/constants/1bdd85f9d037852f
 .hypothesis/constants/1be411ee2443de67
 .hypothesis/constants/1c196534129813c5
+.hypothesis/constants/1c1ae9dd04497256
 .hypothesis/constants/1c72227e927f1610
 .hypothesis/constants/1ca62d6cef2fe2d1
 .hypothesis/constants/1dc1ab6c5c65cc09
@@ -207,6 +209,8 @@ Generated: 2026-10-21T06:07:21.890Z
 .hypothesis/constants/286cac3bd81b2e4b
 .hypothesis/constants/2914df98f5205757
 .hypothesis/constants/2931cb21b8d99daa
+.hypothesis/constants/293686c39a98a53a
+.hypothesis/constants/2a032a30f9d8c16c
 .hypothesis/constants/2a0499fe63fb96e2
 .hypothesis/constants/2a3271688d9dd912
 .hypothesis/constants/2aa0c7182029e0cd
@@ -229,6 +233,7 @@ Generated: 2026-10-21T06:07:21.890Z
 .hypothesis/constants/31d86fe1ccb0bf54
 .hypothesis/constants/320ae8283ecddb99
 .hypothesis/constants/32125b095f515b6d
+.hypothesis/constants/3292f4dd24cef8cf
 .hypothesis/constants/329e4d001c2fced5
 .hypothesis/constants/32dc6113cbb83006
 .hypothesis/constants/335e97c308af94b4
@@ -239,10 +244,12 @@ Generated: 2026-10-21T06:07:21.890Z
 .hypothesis/constants/346fa2abedd0898e
 .hypothesis/constants/34af8208fdfe2c92
 .hypothesis/constants/353b8d87598fb3ca
+.hypothesis/constants/3591c28565f71b48
 .hypothesis/constants/35b815d7b2761471
 .hypothesis/constants/35beee241fbcc05f
 .hypothesis/constants/368d6942fda097cd
 .hypothesis/constants/369e69e84b56d853
+.hypothesis/constants/36d5ce7cb7dd1d3c
 .hypothesis/constants/371ba148863ae86c
 .hypothesis/constants/374e4426df8244d8
 .hypothesis/constants/3760c1493ed2ad17
@@ -258,14 +265,4 @@ Generated: 2026-10-21T06:07:21.890Z
 .hypothesis/constants/3a89b708b9e9eca9
 .hypothesis/constants/3afd2908bf8e528c
 .hypothesis/constants/3b03fc9925e00a3b
-.hypothesis/constants/3b459f5069ce7e07
-.hypothesis/constants/3b45b580f92c2113
-.hypothesis/constants/3c65ec9dbb23823e
-.hypothesis/constants/3c73be4d58c149b0
-.hypothesis/constants/3cbff9b7334d2c2f
-.hypothesis/constants/3d4ed9194708572b
-.hypothesis/constants/3d5a941ad5e31542
-.hypothesis/constants/3dac131e55975f7b
-.hypothesis/constants/3dbae7bf2392a3a0
-.hypothesis/constants/3e294546b462faca
 ```
