@@ -289,13 +289,23 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
         unit = session.get(Unit, case.unit_id) if case.unit_id else None
         unit_label = unit.address if unit else "Unassigned Unit"
 
-        actions = session.query(ActionRow).filter(ActionRow.case_id == case.id).all()
-        reply_action = next((a for a in actions if a.type == ActionType.reply_draft), None)
-        approval = (
-            session.query(Approval).filter(Approval.action_id == reply_action.id).first()
-            if reply_action
-            else None
+        actions = (
+            session.query(ActionRow)
+            .filter(ActionRow.case_id == case.id)
+            .order_by(ActionRow.created_at.desc())
+            .all()
         )
+        reply_action = next((a for a in actions if a.type == ActionType.reply_draft), None)
+        approval = None
+        if reply_action:
+            # Look for pending approval first, or latest approval
+            approvals = (
+                session.query(Approval)
+                .filter(Approval.action_id == reply_action.id)
+                .order_by(Approval.created_at.desc())
+                .all()
+            )
+            approval = next((ap for ap in approvals if ap.status == ApprovalStatus.pending), approvals[0] if approvals else None)
 
         # Retrieve AI Understanding for this message/case
         und_row = session.query(UnderstandingRow).filter(UnderstandingRow.message_id == latest_msg.id).first()
