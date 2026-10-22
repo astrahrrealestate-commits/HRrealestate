@@ -3,7 +3,8 @@
 Page awareness: a message with a pronoun (it, that, this, them, him, her) resolves to the open entity in the
 `<page_facts>` block (server facts); "the first one" is the first visible row of any kind, never the open entity
 (no rows: clarify). The `<page_snapshot>` block is never read, so ids that appear only there are never acted on.
-A `draft_reply` step carries the owner's wording (emails and phone numbers redacted) as `text`: the draft guidance.
+A `draft_reply` step carries the owner's wording (emails and phones redacted) as `text`; the executor never uses
+it as guidance.
 """
 
 import re

@@ -1,16 +1,14 @@
 """Pure parts of an owner-requested draft (`draft_reply`, amendment 2026-10-22): the owner's guidance, the retry key,
 and what the chat shows of the drafts. No I/O.
 
-The guidance comes from the OWNER's own message, never from model output: the planner may have read tenant text (the
-memory pack), so its `text` could carry a tenant's instruction. The owner's message, sanitised (links, emails, phone
-numbers, IBANs and amounts become `[redacted]`) and capped, is the guidance. The planner's `text` is used instead only
-as a more focused version of it: when every content word in it (alphabetic, 4+ letters, after the same sanitising)
-occurs in the owner's message; otherwise it is ignored. The proposer sees the result in its `<owner_guidance>` block.
+The guidance is the OWNER's own message, never model output: the planner reads tenant text (the memory pack), so its
+`text` could carry a tenant's instruction, and no word-overlap check on it is safe (negations, spelled-out or
+look-alike words). The owner's message, sanitised (links, emails, phone numbers, IBANs and amounts become
+`[redacted]`) and capped, is what the proposer sees in its `<owner_guidance>` block; the planner's `text` is ignored.
 The drafts shown in the chat are capped, quoted, and checked by the draft output guard against the source
 conversation: a variant with an unverified link, account or phone number is flagged and shown redacted.
 """
 
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -30,28 +28,13 @@ KEY_PREFIX = "agent:"  # ActionRevision.edited_by of a draft the agent wrote on 
 class Guidance:
     text: str | None  # sanitised; None when there is nothing to pass on
     redacted: bool  # the sanitiser changed the owner's message: the result says "details removed"
-    planner_ignored: bool = False  # the planner's text was not a subset of the owner's words (the caller logs it)
 
 
-_WORD = re.compile(r"[^\W\d_]{4,}")
-
-
-def content_words(text: str) -> set[str]:
-    return set(_WORD.findall(text.casefold()))
-
-
-def guidance_for(step_text: str | None, question: str) -> Guidance:
-    plain = normalise_query(question)
+def guidance_for(owner_message: str) -> Guidance:
+    plain = normalise_query(owner_message)
     if not plain:
         return Guidance(None, False)
-    owner, redacted = sanitize(question), redact(plain) != plain
-    if not (step_text and step_text.strip()):
-        return Guidance(owner or None, redacted)
-    focused = sanitize(step_text)
-    words = content_words(focused)
-    if words and words <= content_words(owner):
-        return Guidance(focused, redacted)
-    return Guidance(owner or None, redacted, planner_ignored=True)
+    return Guidance(sanitize(owner_message) or None, redact(plain) != plain)
 
 
 def turn_prefix(turn_id: UUID) -> str:

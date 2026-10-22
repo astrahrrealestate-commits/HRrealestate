@@ -186,8 +186,8 @@ Example ("is this draft okay?" on an open approval):
 
 "Reply to this, keep it short", "tell him the plumber comes Tuesday" or "make it shorter" on a thread or case page
 produce a reply draft for the case's latest inbound message:
-- **Guidance.** The owner's own message is the guidance for the drafting model (the planner's wording is used only
-  when it repeats the owner's words, never text the planner took from a tenant message). Links, email addresses, phone numbers, IBANs and amounts are removed first (`[redacted]`); the answer then
+- **Guidance.** The owner's own message is the guidance for the drafting model (never the planner's wording, which
+  may echo a tenant message). Links, email addresses, phone numbers, IBANs and amounts are removed first (`[redacted]`); the answer then
   says so and `details_removed` is `true`. Tenant replies are Dutch unless the guidance asks otherwise; the draft never
   adds contact or bank details or links that are not already in the conversation.
 - **No draft yet:** a new proposal, as for an incoming message, with the guidance.
@@ -196,8 +196,9 @@ produce a reply draft for the case's latest inbound message:
   turn returns the same new draft, never a third one.
 - **The earlier draft was approved or rejected** (or the message has only other proposals, such as an escalation):
   one new reply draft for the same message per turn, as a new pending approval.
-- **A reply draft is being edited** (the WhatsApp edit window) or waits without a pending approval: nothing changes;
-  the answer asks the owner to finish it in Approvals first.
+- **A reply draft is being edited** (edit tapped less than 24 hours ago) or waits without a pending approval: nothing
+  changes; the answer asks the owner to finish it in Approvals first. An edit tapped more than 24 hours ago can no
+  longer be applied: the new draft replaces that one like a pending draft.
 - **Held messages** (flagged suspicious, company paused) and a new draft that would add an unverified link, account
   or phone number change nothing: the answer says why. Approving a draft on a suspicious message still needs
   `confirm_suspicious: true`.

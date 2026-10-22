@@ -1,7 +1,8 @@
 """Owner-requested redrafts (Super Agent `draft_reply`, amendment 2026-10-22) for a message that already had a proposal.
 
-- A live pending reply approval is superseded exactly once (`approvals.supersede_draft`): new `draft_version`, new
-  pending approval, the old one expired and its feed card resolved.
+- A live pending reply approval (or an edit tap older than the 24 h edit window) is superseded exactly once
+  (`supersede.supersede_draft`): new `draft_version`, new pending approval, the old one expired and its feed card
+  resolved.
 - A message whose reply was decided (or that has only other actions) gets a fresh reply action
   (`context_ref = [message_id]`, so the decide gate's suspicious check covers it) with a pending approval; under the
   message lock the state is read again, so a reply another turn just proposed is superseded, never doubled.
@@ -25,11 +26,12 @@ from sqlalchemy.orm import Session
 from app.contracts import ActionType
 from app.core.errors import AgentFailedError
 from app.core.settings import Settings
-from app.db.enums import ActionStatus, ApprovalStatus
+from app.db.enums import ActionStatus
 from app.db.models import ActionRevision, ActionRow, Approval
 from app.pipeline import approvals, dashboard_decisions, propose
 from app.pipeline.approvals import NewRevision
 from app.pipeline.rules import RuleDecision, Verdict
+from app.pipeline.supersede import supersedable, supersede_draft
 
 NO_DRAFT = "the drafting model did not return a reply"
 NOT_LIVE = "the draft waiting for approval changed meanwhile"
@@ -72,7 +74,8 @@ def _variants(payload: dict[str, Any] | None) -> tuple[str, ...]:
     return tuple(str(v) for v in (payload or {}).get("body_variants") or ())
 
 
-def _live_reply(session: Session, company_id: UUID, replies: list[ActionRow]) -> UUID | None:
+def _live_reply(session: Session, company_id: UUID, replies: list[ActionRow], now: datetime) -> UUID | None:
+    """A reply approval that may be superseded: pending, or an edit tap older than the edit window (stale)."""
     if not replies:
         return None
     return session.scalar(
@@ -82,7 +85,7 @@ def _live_reply(session: Session, company_id: UUID, replies: list[ActionRow]) ->
             Approval.company_id == company_id,
             ActionRow.company_id == company_id,
             Approval.action_id.in_([a.id for a in replies]),
-            Approval.status == ApprovalStatus.pending,
+            supersedable(now),
             Approval.draft_version == ActionRow.draft_version,
             ActionRow.status == ActionStatus.pending_approval,
         )
@@ -92,8 +95,8 @@ def _live_reply(session: Session, company_id: UUID, replies: list[ActionRow]) ->
 
 
 def classify(actions: Sequence[tuple[ActionType, ActionStatus]], live_pending: bool) -> Kind:
-    """Pure. `new`: no proposal. `pending`: a reply draft has a live pending approval (it is superseded). `busy`: a
-    reply draft awaits approval without one (an edit tap's 24 h window, or not opened yet): never redrafted. `held`:
+    """Pure. `new`: no proposal. `pending`: a reply draft has a supersedable approval (pending, or a stale edit tap).
+    `busy`: a reply draft awaits approval without one (an edit tap inside its 24 h window, or not opened yet). `held`:
     something was paused or flagged. `decided`: every reply draft was decided (a fresh one is drafted). `no_reply`:
     only other actions (an escalation, the could-not-draft notice; pending or not): a first reply is drafted."""
     if not actions:
@@ -108,7 +111,7 @@ def classify(actions: Sequence[tuple[ActionType, ActionStatus]], live_pending: b
     return "decided" if replies else "no_reply"
 
 
-def message_state(session: Session, company_id: UUID, message_id: UUID) -> MessageState:
+def message_state(session: Session, company_id: UUID, message_id: UUID, now: datetime) -> MessageState:
     actions = list(
         session.scalars(
             select(ActionRow)
@@ -118,7 +121,7 @@ def message_state(session: Session, company_id: UUID, message_id: UUID) -> Messa
     )
     replies = [a for a in actions if a.type is ActionType.reply_draft]
     current = _variants(replies[0].payload) if replies else ()
-    pending = _live_reply(session, company_id, replies)
+    pending = _live_reply(session, company_id, replies, now)
     kind = classify([(a.type, a.status) for a in actions], pending is not None)
     return MessageState(kind, pending, current)
 
@@ -202,7 +205,7 @@ def fresh(engine: Engine, settings: Settings, req: Request, current: tuple[str, 
         propose.lock_message(session, req.message_id)
         if (done := turn_replay(session, req.company_id, req.prefix, req.message_id)) is not None:
             return Redraft(done[0], done[1], loaded.source)
-        state = message_state(session, req.company_id, req.message_id)
+        state = message_state(session, req.company_id, req.message_id, req.now)
         if state.kind == "pending" and state.pending is not None:
             return _supersede_in(session, req, loaded, state.pending, variants)
         if state.kind in ("busy", "held"):
@@ -215,7 +218,7 @@ def _supersede_in(
     session: Session, req: Request, loaded: propose.Loaded, approval_id: UUID, variants: tuple[str, ...]
 ) -> Redraft:
     urgency = loaded.ctx.understanding.urgency
-    revision = approvals.supersede_draft(
+    revision = supersede_draft(
         session, req.company_id, approval_id, list(variants), editor=req.key, urgency=urgency, now=req.now
     )
     if revision is None:

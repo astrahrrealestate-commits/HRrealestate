@@ -2,6 +2,7 @@
 a decided one gets one fresh draft per turn, guidance never picks a recipient or reaches a payload unredacted, nothing
 is sent, and a redraft never weakens the suspicious gate."""
 
+from datetime import timedelta
 from uuid import UUID
 
 import pytest
@@ -13,7 +14,7 @@ from app.core.ids import new_id
 from app.core.settings import Settings
 from app.db.enums import ActionStatus, ApprovalStatus
 from app.db.models import ActionRevision, ActionRow, Approval, CaseLink, Company, ModelCall, Send
-from app.pipeline import approvals, dashboard_decisions, redraft
+from app.pipeline import approvals, dashboard_decisions, redraft, supersede
 from app.pipeline.concierge_base import StepResult
 from app.pipeline.concierge_proposals import DRAFTED, FRESH_DRAFT, NOT_REDRAFTED, REDRAFTED
 from app.pipeline.draft_guidance import DETAILS_REMOVED, redraft_key, turn_prefix
@@ -181,7 +182,7 @@ def test_an_edit_tap_before_the_redraft_wins_and_the_redraft_changes_nothing(
     (result,) = _turn(migrated_engine, test_settings, cid, case_id, new_id(), "make it shorter")
     assert (result.ok, result.summary) == (False, NOT_REDRAFTED.format(reason=redraft.BUSY))
     with Session(migrated_engine) as s, s.begin():  # a direct supersede is refused too: the edit is not overwritten
-        assert approvals.supersede_draft(s, cid, approval.id, ["x", "y"], editor="agent:t:0", urgency=Urgency.normal,
+        assert supersede.supersede_draft(s, cid, approval.id, ["x", "y"], editor="agent:t:0", urgency=Urgency.normal,
                                          now=NOW) is None  # fmt: skip
     assert [(a.id, a.status) for a in _approvals(migrated_engine, cid)] == [(approval.id, ApprovalStatus.edited)]
     with Session(migrated_engine) as s, s.begin():  # the owner's edit still lands
@@ -203,8 +204,12 @@ def test_a_decision_on_the_superseded_approval_is_stale(
             s, cid, old.id, ButtonChoice.ok, at=NOW, confirm_suspicious=False
         )
     assert decision.kind == "stale"
+    with Session(migrated_engine) as s, s.begin():  # the WhatsApp path too: never approves the v2 action
+        assert approvals.decide(s, cid, old.id, ButtonChoice.d2, at=NOW).kind == "stale"
     (action,) = _actions(migrated_engine, cid)
     assert (action.status, action.draft_version) == (ActionStatus.pending_approval, 2)
+    statuses = [(a.draft_version, a.status) for a in _approvals(migrated_engine, cid)]
+    assert statuses == [(1, ApprovalStatus.expired), (2, ApprovalStatus.pending)]
     assert count(migrated_engine, Send, cid) == 0
 
 
@@ -230,3 +235,25 @@ def test_two_turns_racing_on_a_decided_message_leave_one_pending_reply(
     assert len(_actions(migrated_engine, cid)) == 2  # the rejected reply and one live reply, never a third
     pending = [a for a in _approvals(migrated_engine, cid) if a.status is ApprovalStatus.pending]
     assert [a.id for a in pending] == [result.revision.approval_id]
+
+
+def test_an_edit_tap_older_than_the_edit_window_is_expired_by_the_redraft(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    """An edit tapped 25 h before the turn's clock can no longer be applied: the redraft supersedes it instead of
+    leaving the case stuck as busy (the < 24 h case is the edit-tap test above)."""
+    cid = committed_company.id
+    case_id, _ = seed_case(migrated_engine, cid)
+    _turn(migrated_engine, test_settings, cid, case_id, new_id(), "draft a reply")
+    (approval,) = _approvals(migrated_engine, cid)
+    with Session(migrated_engine) as s, s.begin():
+        approvals.decide(s, cid, approval.id, ButtonChoice.edit, at=NOW - approvals.EDIT_WINDOW - timedelta(hours=1))
+    (result,) = _turn(migrated_engine, test_settings, cid, case_id, new_id(), "make it shorter")  # clock: NOW
+    assert result.ok
+    assert result.summary.splitlines()[0] == REDRAFTED
+    assert result.data is not None
+    assert result.data["superseded_approval_id"] == str(approval.id)
+    statuses = [(a.draft_version, a.status) for a in _approvals(migrated_engine, cid)]
+    assert statuses == [(1, ApprovalStatus.expired), (2, ApprovalStatus.pending)]
+    with Session(migrated_engine) as s, s.begin():  # the stale edit cannot land afterwards either
+        assert approvals.apply_owner_edit(s, cid, "te laat", now=NOW, approval_id=approval.id) is None

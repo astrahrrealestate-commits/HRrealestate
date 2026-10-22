@@ -1,6 +1,6 @@
 """Concierge `draft_reply` (steerable since amendment 2026-10-22): a reply draft for the case's latest inbound message.
 
-The owner's own message (or the planner's `text` when it only repeats his words) is sanitised into guidance. A message
+The owner's own message (never the planner's `text`) is sanitised into guidance for the proposer. A message
 without a proposal goes through the propose stage; on a turn, a pending reply draft is superseded and a decided one
 gets a fresh draft (`redraft`), keyed by turn and step so a retry returns the same revision. The result quotes the
 drafts (capped, output-guard flags) and points at the approval: only the owner's approve click can lead to a send.
@@ -18,7 +18,7 @@ from app.contracts import ActionType, Direction, PlanStep
 from app.db.enums import ActionStatus, ApprovalStatus
 from app.db.models import ActionRow, Approval, CaseLink, MessageRow, UnderstandingRow
 from app.pipeline import propose, redraft
-from app.pipeline.concierge_base import NEED_DETAIL, Ctx, StepResult, failed, log, log_change
+from app.pipeline.concierge_base import NEED_DETAIL, Ctx, StepResult, failed, log_change
 from app.pipeline.draft_guidance import (
     READY,
     Guidance,
@@ -135,9 +135,7 @@ def draft_reply(ctx: Ctx, step: PlanStep) -> StepResult:
         message_id = _latest_inbound(session, ctx, step.case_id)
     if message_id is None:
         return failed(step, NOTHING_TO_REPLY)
-    guidance = guidance_for(step.text, ctx.question)
-    if guidance.planner_ignored:  # the plan's text was not the owner's words: never trusted as guidance
-        log.info("concierge.planner_guidance_ignored", company_id=str(ctx.company_id))
+    guidance = guidance_for(ctx.question)  # the owner's own message; the plan's text is model output and ignored
     if ctx.turn_id is not None and (redrafted := _redraft(ctx, step, message_id, guidance)) is not None:
         return redrafted
     return _first_draft(ctx, step, message_id, guidance)
@@ -177,7 +175,7 @@ def _redraft(ctx: Ctx, step: PlanStep, message_id: UUID, guidance: Guidance) -> 
     )
     with Session(ctx.engine) as session:
         done = redraft.turn_replay(session, ctx.company_id, req.prefix, message_id)
-        state = redraft.message_state(session, ctx.company_id, message_id)
+        state = redraft.message_state(session, ctx.company_id, message_id, ctx.now)
     if done is not None:  # this turn already drafted for the message: the same revision, no model call
         result = redraft.Redraft(done[0], done[1], _source(ctx, message_id))
         return _redrafted(step, result, guidance, REDRAFTED if done[0].draft_version > 1 else DRAFTED)

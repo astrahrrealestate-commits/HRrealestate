@@ -1,5 +1,5 @@
-"""Owner approvals: one live approval per draft version, button decisions, owner edit or owner-requested redraft → new
-revision.
+"""Owner approvals: one live approval per draft version, button decisions, owner edit → new revision (`revise`, also
+used by the owner-requested redraft in `supersede`).
 
 Decisions lock the approval row (`FOR UPDATE`), so a duplicate or late tap returns the first decision unchanged and
 can never approve a second variant. Execution itself is the sender's job (`exec:{action_id}:{draft_version}`).
@@ -93,6 +93,18 @@ def _action(session: Session, company_id: UUID, action_id: UUID) -> ActionRow:
     return action
 
 
+def locked_action(session: Session, company_id: UUID, action_id: UUID) -> ActionRow:
+    action = session.scalar(
+        select(ActionRow)
+        .where(ActionRow.id == action_id, ActionRow.company_id == company_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if action is None:
+        raise NotFoundError(f"action {action_id} not found")
+    return action
+
+
 def _previous(approval: Approval) -> Decision:
     if approval.status is ApprovalStatus.approved:
         return Decision(
@@ -106,14 +118,17 @@ def _previous(approval: Approval) -> Decision:
 
 def decide(session: Session, company_id: UUID, approval_id: UUID, choice: ButtonChoice, *, at: datetime) -> Decision:
     approval = session.scalar(
-        select(Approval).where(Approval.id == approval_id, Approval.company_id == company_id).with_for_update()
+        select(Approval)
+        .where(Approval.id == approval_id, Approval.company_id == company_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)  # the committed row, never a copy loaded before the lock
     )
     if approval is None:
         raise NotFoundError(f"approval {approval_id} not found")
-    if approval.status is not ApprovalStatus.pending:
+    if approval.status is not ApprovalStatus.pending:  # decided, or expired by a redraft that committed first
         return _previous(approval)
-    action = _action(session, company_id, approval.action_id)
-    if action.draft_version != approval.draft_version:  # superseded by an edit
+    action = locked_action(session, company_id, approval.action_id)  # approval, then action (redraft's order)
+    if action.draft_version != approval.draft_version:  # superseded by an edit or a redraft
         approval.status = ApprovalStatus.expired
         session.flush()
         return Decision("stale", action.id, approval.draft_version)
@@ -130,7 +145,7 @@ def decide(session: Session, company_id: UUID, approval_id: UUID, choice: Button
     return _previous(approval)
 
 
-def _replayed_edit(session: Session, company_id: UUID, editor: str) -> NewRevision | None:
+def replayed_edit(session: Session, company_id: UUID, editor: str) -> NewRevision | None:
     """The same owner message already produced a revision (a step re-run after commit): return it unchanged."""
     row = session.execute(
         select(ActionRevision.action_id, ActionRevision.draft_version, Approval.id)
@@ -156,7 +171,7 @@ def apply_owner_edit(
     Blank text never replaces a draft. `message_id` makes a re-run of the same message return its revision.
     `approval_id` (dashboard) targets exactly that approval instead of the latest edited one."""
     editor = f"owner:{message_id}" if message_id else "owner"
-    if message_id is not None and (done := _replayed_edit(session, company_id, editor)) is not None:
+    if message_id is not None and (done := replayed_edit(session, company_id, editor)) is not None:
         return done
     if not text.strip():
         return None
@@ -179,10 +194,10 @@ def apply_owner_edit(
     if pending_edit is None:
         return None
     _, action = pending_edit
-    return _revise(session, company_id, action, [text], editor=editor, urgency=Urgency.normal, now=now)
+    return revise(session, company_id, action, [text], editor=editor, urgency=Urgency.normal, now=now)
 
 
-def _revise(
+def revise(
     session: Session,
     company_id: UUID,
     action: ActionRow,
@@ -209,57 +224,6 @@ def _revise(
     session.flush()
     approval_id = open_approval(session, company_id, action.id, action.draft_version, urgency=urgency, now=now)
     return NewRevision(action.id, action.draft_version, approval_id)
-
-
-def supersede_draft(
-    session: Session,
-    company_id: UUID,
-    approval_id: UUID,
-    variants: list[str],
-    *,
-    editor: str,
-    urgency: Urgency,
-    now: datetime,
-) -> NewRevision | None:
-    """An owner-requested redraft replaces the live pending draft exactly once: that approval expires and the action
-    gets a new version and approval (`_revise`). `editor` is the caller's deterministic key: a retry returns the
-    revision it wrote. None when the approval is no longer the live pending draft (decided, edited or replaced)."""
-    if (done := _replayed_edit(session, company_id, editor)) is not None:
-        return done
-    live = lock_live(session, company_id, approval_id)
-    if live is None:  # decided/edited meanwhile, or a concurrent run of the same key just committed it
-        return _replayed_edit(session, company_id, editor)
-    approval, action = live
-    approval.status = ApprovalStatus.expired
-    return _revise(session, company_id, action, variants, editor=editor, urgency=urgency, now=now)
-
-
-def lock_live(session: Session, company_id: UUID, approval_id: UUID) -> tuple[Approval, ActionRow] | None:
-    """The pending approval and its action, locked in the order `decide`/`edit_approval` use (approval, then action),
-    so a redraft and a decision never deadlock. The approval's status is read again once both are held: a decision
-    that committed while we waited (an edit tap, an approve) is never overwritten."""
-    approval = session.scalar(
-        select(Approval)
-        .where(Approval.id == approval_id, Approval.company_id == company_id, Approval.status == ApprovalStatus.pending)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if approval is None:
-        return None
-    action = session.scalar(
-        select(ActionRow)
-        .where(ActionRow.id == approval.action_id, ActionRow.company_id == company_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    status = session.scalar(
-        select(Approval.status).where(Approval.id == approval_id, Approval.company_id == company_id)
-    )
-    if action is None or action.status is not ActionStatus.pending_approval:
-        return None
-    if status is not ApprovalStatus.pending or action.draft_version != approval.draft_version:
-        return None
-    return approval, action
 
 
 def exec_send(company_id: UUID) -> Any:
