@@ -153,6 +153,8 @@ export function InboxConversationView({
     }
 
     const now = new Date();
+    const utcHours = String(now.getUTCHours()).padStart(2, "0");
+    const utcMins = String(now.getUTCMinutes()).padStart(2, "0");
     // Add outgoing bubble to timeline immediately (Section 5.2)
     const newOutgoingMsg: ThreadMessage = {
       id: `reply-${Date.now()}`,
@@ -160,7 +162,7 @@ export function InboxConversationView({
       senderName: "Harjot Singh",
       senderContact: "+31 20 000 0001",
       sentAt: now.toISOString(),
-      timeFormatted: format(now, "HH:mm"),
+      timeFormatted: `${utcHours}:${utcMins}`,
       body: text,
       channel: outboundChannel,
       replyTo: targetReply
@@ -346,12 +348,14 @@ export function InboxConversationView({
           const prevDayLabel = prevMsg ? getDayLabel(prevMsg) : null;
           const showDateDivider = index === 0 || currentDayLabel !== prevDayLabel;
 
-          // Time formatted in user's local timezone (e.g. 15:05, 15:09)
+          // Time formatted in UTC (e.g. 09:35, 09:39)
           const getDisplayTime = (m: ThreadMessage) => {
             if (m.sentAt) {
               const d = new Date(m.sentAt);
               if (!isNaN(d.getTime())) {
-                return format(d, "HH:mm");
+                const hh = String(d.getUTCHours()).padStart(2, "0");
+                const mm = String(d.getUTCMinutes()).padStart(2, "0");
+                return `${hh}:${mm}`;
               }
             }
             return (m.timeFormatted || "08:15")

@@ -142,13 +142,15 @@ function InboxContent() {
     }
 
     const now = new Date();
+    const utcHours = String(now.getUTCHours()).padStart(2, "0");
+    const utcMins = String(now.getUTCMinutes()).padStart(2, "0");
     const newMsg = {
       id: `out-${Date.now()}`,
       sender: "owner" as const,
       senderName: "Harjot Singh",
       senderContact: "+31 20 000 0001",
       sentAt: now.toISOString(),
-      timeFormatted: format(now, "HH:mm"),
+      timeFormatted: `${utcHours}:${utcMins}`,
       body: draftText,
       channel: outboundChannel,
       replyTo: replyToObj,
