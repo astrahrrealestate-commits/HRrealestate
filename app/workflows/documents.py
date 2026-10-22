@@ -18,11 +18,12 @@ from app.db.models import AttachmentRow, DocumentRow
 from app.ingestion.process import is_transient
 from app.llm.calls import is_transient as llm_transient
 from app.owner.cards import document_review_key, document_review_payload
+from app.pipeline.document_embed import embed_document
 from app.pipeline.document_links import link_document
 from app.pipeline.documents import file_document, skip_document
 from app.storage.drive import is_transient as drive_transient
 from app.workflows import queues
-from app.workflows.deps import get_deps, get_drive, get_engine, get_extractor
+from app.workflows.deps import get_deps, get_drive, get_embedder, get_engine, get_extractor
 from app.workflows.owner_notify import send_owner_message
 from app.workflows.retry import STEP_RETRY
 
@@ -64,6 +65,18 @@ def link_step(company_id: str, attachment_id: str) -> int:
     return len(link_document(get_engine(), UUID(company_id), UUID(attachment_id)).links)
 
 
+@DBOS.step(name="documents.embed", **DRIVE_STEP_RETRY)
+def embed_step(company_id: str, attachment_id: str) -> int:
+    """Vectors for the document's chunks and summary; safe to repeat (only rows without a vector are filled)."""
+    with Session(get_engine()) as session:
+        doc_id = session.scalar(
+            select(DocumentRow.id).where(
+                DocumentRow.attachment_id == UUID(attachment_id), DocumentRow.company_id == UUID(company_id)
+            )
+        )
+    return embed_document(get_engine(), get_embedder(), UUID(company_id), doc_id) if doc_id else 0
+
+
 @DBOS.step(name="documents.skip")
 def skip_step(company_id: str, attachment_id: str) -> str:
     return skip_document(get_engine(), UUID(company_id), UUID(attachment_id)).value
@@ -93,6 +106,8 @@ def file_document_wf(company_id: str, attachment_id: str, owner_choice: str | No
         link_step(company_id, attachment_id)
     if status == "review" and owner_choice is None:
         review_card_step(company_id, attachment_id)
+    if status != "skipped":
+        embed_step(company_id, attachment_id)  # last: a provider outage never delays the owner's review card
     return status
 
 

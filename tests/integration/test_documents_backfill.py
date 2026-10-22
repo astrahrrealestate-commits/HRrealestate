@@ -107,3 +107,30 @@ def test_a_poison_document_is_marked_and_skipped(migrated_engine: Engine, settin
     mark_unreadable(migrated_engine, cid, att, "error")
     assert _doc(migrated_engine, att).reader_version == "error"
     assert unread_ids(migrated_engine, cid) == []
+
+
+def test_stale_chunks_are_rebuilt_with_the_current_recipe_and_vectors_are_refilled(
+    migrated_engine: Engine, settings: Settings, committed_company: Company
+) -> None:
+    from sqlalchemy import update
+
+    from app.llm.embeddings import HashingEmbedder
+    from app.pipeline.document_backfill import reindex_document, stale_ids
+    from app.pipeline.document_embed import embed_document
+
+    cid, storage = committed_company.id, MemoryStorage()
+    att = _filed_the_old_way(migrated_engine, settings, storage, cid, LEASE)
+    backfill_document(migrated_engine, settings, storage, FakeExtractor(), cid, att)
+    doc_id = _doc(migrated_engine, att).id
+    embed_document(migrated_engine, HashingEmbedder(), cid, doc_id)
+    assert stale_ids(migrated_engine, cid) == []
+    with Session(migrated_engine) as s, s.begin():  # pretend an older recipe made these chunks
+        s.execute(update(DocumentRow).where(DocumentRow.id == doc_id).values(index_version="r1"))
+    assert stale_ids(migrated_engine, cid) == [doc_id]
+    assert reindex_document(migrated_engine, cid, doc_id) >= 1
+    assert stale_ids(migrated_engine, cid) == []
+    row = _doc(migrated_engine, att)
+    assert (row.index_version, row.doc_embedding) == ("r2", None)  # vectors cleared for the embed step
+    with Session(migrated_engine) as s:
+        assert s.scalars(select(DocumentChunk.embedding).where(DocumentChunk.document_id == doc_id)).first() is None
+    assert embed_document(migrated_engine, HashingEmbedder(), cid, doc_id) >= 2

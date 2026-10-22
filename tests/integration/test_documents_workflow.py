@@ -74,6 +74,11 @@ def test_workflow_reads_files_and_links_a_document(
         links = session.scalars(select(DocumentLink.kind).where(DocumentLink.company_id == company_id)).all()
     assert len(chunks) == 1
     assert "waarborgsom" in chunks[0].lower()
+    with Session(migrated_engine) as session:  # the workflow's last step embedded them
+        assert (
+            session.scalars(select(DocumentChunk.embedding).where(DocumentChunk.company_id == company_id)).first()
+            is not None
+        )
     assert [k.value for k in links] == ["person"]  # the sender; no case or directory match in this fixture
 
 
