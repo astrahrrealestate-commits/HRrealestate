@@ -719,38 +719,71 @@ def decide_approval(
             # Check if this thread is a WhatsApp message
             if latest_msg and (getattr(latest_msg, "channel", None) == Channel.whatsapp or latest_msg.sender_identity.startswith("+") or latest_msg.sender_identity.replace(" ", "").isdigit()):
                 try:
-                    from app.channels.whatsapp.outbound import HttpWhatsAppOutbound
-                    from app.channels.whatsapp import payloads as wa_payloads
-
-                    recipient = latest_msg.sender_identity
-                    if not recipient.startswith("+") and recipient.replace(" ", "").isdigit():
-                        recipient = f"+{recipient.replace(' ', '')}"
-
-                    base_url = str(settings.whatsapp_api_base_url or "https://graph.facebook.com/v21.0")
                     token_val = sender.whatsapp_access_token.get_secret_value() if hasattr(sender.whatsapp_access_token, "get_secret_value") else str(sender.whatsapp_access_token)
+                    recipient = latest_msg.sender_identity
                     
-                    wa_outbound = HttpWhatsAppOutbound.cloud_api(
-                        base_url=base_url,
-                        phone_number_id=sender.whatsapp_phone_number_id,
-                        token=token_val,
-                    )
-                    
-                    wa_payload = wa_payloads.text(recipient, draft_text)
-                    whatsapp_message_id = wa_outbound.send(wa_payload)
-                    log.info("approval.whatsapp_message_sent", wamid=whatsapp_message_id, to=recipient)
+                    # 1. SendZen Dispatch (sz_live_ token or SendZen API)
+                    if token_val.startswith("sz_live_"):
+                        import requests
+                        clean_to = recipient.replace("+", "").replace(" ", "").strip()
+                        clean_from = str(sender.whatsapp_phone_number_id or "916364840587").replace("+", "").strip()
+                        # If phone_number_id is standard 15-digit Meta ID, use registered phone number 916364840587
+                        if len(clean_from) > 13:
+                            clean_from = "916364840587"
 
-                    session.add(
-                        Send(
-                            company_id=action.company_id,
-                            action_id=action.id,
-                            idempotency_key=f"wa-{action.id}-{datetime.now(UTC).timestamp()}",
-                            channel=Channel.whatsapp,
-                            target=recipient,
-                            provider_ref=whatsapp_message_id,
-                            status=SendStatus.sent,
-                            attempted_at=datetime.now(UTC),
+                        sz_resp = requests.post(
+                            "https://api.sendzen.io/v1/messages",
+                            headers={
+                                "Authorization": f"Bearer {token_val}",
+                                "Content-Type": "application/json",
+                            },
+                            json={
+                                "from": clean_from,
+                                "to": clean_to,
+                                "type": "text",
+                                "text": {"body": draft_text},
+                            },
+                            timeout=10,
                         )
-                    )
+                        if sz_resp.status_code in (200, 201, 202):
+                            resp_json = sz_resp.json()
+                            items = resp_json.get("data") or []
+                            first_item = items[0] if items and isinstance(items, list) else {}
+                            whatsapp_message_id = first_item.get("message_id") or f"sz_{datetime.now(UTC).timestamp()}"
+                            log.info("approval.sendzen_message_sent", message_id=whatsapp_message_id, to=clean_to)
+                        else:
+                            log.warning("approval.sendzen_send_failed", status=sz_resp.status_code, body=sz_resp.text)
+                    else:
+                        # Standard Meta Cloud API
+                        from app.channels.whatsapp.outbound import HttpWhatsAppOutbound
+                        from app.channels.whatsapp import payloads as wa_payloads
+
+                        if not recipient.startswith("+") and recipient.replace(" ", "").isdigit():
+                            recipient = f"+{recipient.replace(' ', '')}"
+
+                        base_url = str(settings.whatsapp_api_base_url or "https://graph.facebook.com/v21.0")
+                        wa_outbound = HttpWhatsAppOutbound.cloud_api(
+                            base_url=base_url,
+                            phone_number_id=sender.whatsapp_phone_number_id,
+                            token=token_val,
+                        )
+                        wa_payload = wa_payloads.text(recipient, draft_text)
+                        whatsapp_message_id = wa_outbound.send(wa_payload)
+                        log.info("approval.whatsapp_message_sent", wamid=whatsapp_message_id, to=recipient)
+
+                    if whatsapp_message_id:
+                        session.add(
+                            Send(
+                                company_id=action.company_id,
+                                action_id=action.id,
+                                idempotency_key=f"wa-{action.id}-{datetime.now(UTC).timestamp()}",
+                                channel=Channel.whatsapp,
+                                target=recipient,
+                                provider_ref=whatsapp_message_id,
+                                status=SendStatus.sent,
+                                attempted_at=datetime.now(UTC),
+                            )
+                        )
                 except Exception as exc:
                     log.warning("approval.whatsapp_send_failed", error=str(exc))
 
