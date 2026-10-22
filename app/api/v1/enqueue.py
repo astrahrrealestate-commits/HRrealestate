@@ -4,6 +4,7 @@ from uuid import UUID
 
 from app.api.deps import WorkflowClient
 from app.core.workflow_names import (
+    CONCIERGE_QUEUE,
     CONCIERGE_TURN,
     DOCUMENTS_QUEUE,
     EXECUTE_ACTION,
@@ -34,9 +35,9 @@ def enqueue_filing(client: WorkflowClient, company_id: UUID, attachment_id: UUID
 
 
 def enqueue_turn(client: WorkflowClient, turn_id: UUID) -> None:
-    """`concierge:{turn_id}` on the pipeline queue, after the turn row committed."""
+    """`concierge:{turn_id}` on the chat queue (never behind pipeline work), after the turn row committed."""
     options = {
-        "queue_name": PIPELINE_QUEUE,
+        "queue_name": CONCIERGE_QUEUE,
         "workflow_name": CONCIERGE_TURN,
         "workflow_id": concierge_workflow_id(turn_id),
     }

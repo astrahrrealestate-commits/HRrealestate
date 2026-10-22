@@ -57,20 +57,19 @@ def test_each_item_is_enqueued_under_its_own_deterministic_id() -> None:
         {"kind": "turn", "workflow_id": f"concierge:{T}", "args": (str(T),)},
     ]
     ids: list[str] = []
-    queue = MagicMock()
+    pipeline, chat = MagicMock(), MagicMock()
     with (
         patch.object(wf, "candidates_step", return_value=items) as step,
         patch.object(wf, "stuck_sends_step", return_value=[]),
-        patch.object(wf.queues, "pipeline_queue", return_value=queue),
+        patch.object(wf.queues, "pipeline_queue", return_value=pipeline),
+        patch.object(wf.queues, "concierge_queue", return_value=chat),
         patch.object(wf, "SetWorkflowID", side_effect=lambda wid: ids.append(wid) or MagicMock()),
     ):
         BODY(NOW, None)
     assert step.call_args.args == (NOW.isoformat(),)
     assert ids == [f"exec:{A}:3", f"concierge:{T}"]
-    assert [c.args for c in queue.enqueue.call_args_list] == [
-        (wf.execute_action_wf, str(A), 3, False),
-        (wf.concierge_turn, str(T)),
-    ]
+    assert [c.args for c in pipeline.enqueue.call_args_list] == [(wf.execute_action_wf, str(A), 3, False)]
+    assert [c.args for c in chat.enqueue.call_args_list] == [(wf.concierge_turn, str(T))]  # same queue as the API
 
 
 def test_known_actions_cannot_starve_newer_stranded_ones() -> None:

@@ -7,6 +7,7 @@ PIPELINE_QUEUE = "pipeline"
 GMAIL_SYNC_QUEUE = "gmail_sync"  # concurrency 1: syncs never overlap, no DB locks held across Gmail calls
 TIMERS_QUEUE = "timers"  # due timers never wait behind LLM pipeline work (their lease starts at claim)
 DOCUMENTS_QUEUE = "documents"  # partitioned per company, concurrency 1: Drive folder creation never races
+CONCIERGE_QUEUE = "concierge"  # Super Agent turns: never wait behind pipeline work; short poll interval
 PROCESS_EVENT = "ingest.process_event"
 GMAIL_SYNC = "ingest.gmail_sync"
 OWNER_REPLY = "owner.reply"

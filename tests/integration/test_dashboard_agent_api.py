@@ -100,7 +100,7 @@ def test_post_commits_a_pending_turn_then_enqueues_it(world: World) -> None:
     assert owner == world.owner
     assert world.wf.calls == [
         (
-            {"queue_name": "pipeline", "workflow_name": "concierge.turn", "workflow_id": f"concierge:{turn}"},
+            {"queue_name": "concierge", "workflow_name": "concierge.turn", "workflow_id": f"concierge:{turn}"},
             (str(turn),),
         )
     ]

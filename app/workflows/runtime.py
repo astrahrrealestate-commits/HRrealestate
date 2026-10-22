@@ -79,6 +79,6 @@ def launch(settings: Settings, *, reset_for_tests: bool = False, schedules: bool
     if reset_for_tests:
         DBOS.reset_system_database(truncate=True)
     DBOS.launch()
-    queues.register_queues()
+    queues.register_queues(settings)
     if schedules:
         DBOS.apply_schedules(SCHEDULES)

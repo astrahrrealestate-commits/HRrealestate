@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.auth import Principal, require_principal
 from app.api.v1.schemas import FeedItem
-from app.api.v1.turn_events import TurnPoller
+from app.api.v1.turn_events import TURN_POLL_SECONDS, TurnPoller
 from app.pipeline.read_repo import MAX_PAGE, BadCursorError, Cursor, feed_page, parse_cursor
 
 POLL_INTERVAL_S = 1.5
@@ -68,6 +68,16 @@ def start_cursor(last_event_id: str | None, now: datetime | None = None) -> Curs
     return (now or datetime.now(UTC)) - SSE_START_LAG, UUID(int=0)
 
 
+def tick_seconds(feed_poll: float, turn_poll: float, turns: bool) -> float:
+    """The loop's sleep: the turn interval when turns are polled (it is the shorter), else the feed interval."""
+    return min(feed_poll, turn_poll) if turns else feed_poll
+
+
+def feed_due(now: float, next_feed: float, tick: float) -> bool:
+    """Half a tick of slack: a sleep that wakes a hair early still polls the feed on its 1.5 s beat."""
+    return now >= next_feed - tick / 2
+
+
 async def event_stream(
     request: Request,
     engine: Engine,
@@ -78,18 +88,25 @@ async def event_stream(
     max_lifetime: float | None = None,
     clock: Callable[[], float] = time.monotonic,
     turns: TurnPoller | None = None,
+    turn_poll_interval: float | None = None,
 ) -> AsyncIterator[str]:
-    """Poll loop. Ends on disconnect, on error (final `error` frame) or after `max_lifetime` so the client
-    reconnects and re-authenticates."""
+    """Poll loop: turns every `TURN_POLL_SECONDS`, the feed every `POLL_INTERVAL_S`. Ends on disconnect, on error
+    (final `error` frame) or after `max_lifetime` so the client reconnects and re-authenticates."""
     poll = POLL_INTERVAL_S if poll_interval is None else poll_interval
     ping = PING_INTERVAL_S if ping_interval is None else ping_interval
     lifetime = MAX_LIFETIME_S if max_lifetime is None else max_lifetime
-    started = last_sent = clock()
+    turn_poll = TURN_POLL_SECONDS if turn_poll_interval is None else turn_poll_interval
+    tick = tick_seconds(poll, turn_poll, turns is not None)
+    started = last_sent = next_feed = clock()
     while not await request.is_disconnected():
-        if clock() - started >= lifetime:
+        now = clock()
+        if now - started >= lifetime:
             return
         try:
-            frames, after = await run_in_threadpool(poll_frames, engine, company_id, after)
+            frames: list[str] = []
+            if feed_due(now, next_feed, tick):
+                frames, after = await run_in_threadpool(poll_frames, engine, company_id, after)
+                next_feed = now + poll
             if turns is not None:
                 frames += await run_in_threadpool(turns.poll)
         except Exception as exc:
@@ -104,7 +121,7 @@ async def event_stream(
         elif now - last_sent >= ping:
             last_sent = now
             yield "event: ping\ndata: {}\n\n"
-        await asyncio.sleep(poll)
+        await asyncio.sleep(tick)
 
 
 @router.get("/feed")

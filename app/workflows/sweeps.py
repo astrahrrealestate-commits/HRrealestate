@@ -70,8 +70,8 @@ def sweep_stranded(scheduled_time: datetime, context: Any) -> None:
         with SetWorkflowID(item["workflow_id"]):
             if item["kind"] == "exec":
                 queues.pipeline_queue().enqueue(execute_action_wf, *item["args"])
-            else:
-                queues.pipeline_queue().enqueue(concierge_turn, *item["args"])
+            else:  # the chat queue, as the API enqueues turns
+                queues.concierge_queue().enqueue(concierge_turn, *item["args"])
     for send in stuck_sends_step(now_iso):
         if settle_stuck_step(send, now_iso):  # the alert row is already written with the settle
             tell_blocked_step(send["action_id"], send["draft_version"], STUCK)

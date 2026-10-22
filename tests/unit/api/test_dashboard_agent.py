@@ -61,7 +61,7 @@ def test_post_creates_turn_then_enqueues_once(client: TestClient, wf: FakeClient
     assert create.call_args.args[1:] == (PRINCIPAL.company_id, PRINCIPAL.owner_id, None, "tasks")
     assert wf.calls == [
         (
-            {"queue_name": "pipeline", "workflow_name": "concierge.turn", "workflow_id": f"concierge:{turn}"},
+            {"queue_name": "concierge", "workflow_name": "concierge.turn", "workflow_id": f"concierge:{turn}"},
             (str(turn),),
         )
     ]

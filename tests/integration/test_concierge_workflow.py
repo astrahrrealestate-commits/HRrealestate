@@ -7,14 +7,15 @@ from unittest.mock import patch
 from uuid import UUID
 
 import pytest
-from dbos import DBOS, SetWorkflowID
+from dbos import DBOS, DBOSClient, SetWorkflowID, WorkflowHandle
 from sqlalchemy import Engine, func, select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from app.api.v1.enqueue import enqueue_turn
 from app.core.errors import AgentFailedError
 from app.core.settings import Settings
-from app.core.workflow_names import concierge_workflow_id
+from app.core.workflow_names import CONCIERGE_QUEUE, concierge_workflow_id
 from app.db.enums import TurnStatus
 from app.db.models import ActionRow, AgentTurn, Approval, Company, ModelCall, OwnerAccount, Send, TaskRow
 from app.llm.agents.owner_qa import FALLBACK_ANSWER, REFUSAL_ANSWER
@@ -263,3 +264,17 @@ def test_each_status_change_moves_updated_at(env: Env, test_settings: Settings) 
     assert running_status is TurnStatus.running
     assert created < running_at < row.updated_at
     assert row.answer == owner_commands.HELP_TEXT
+
+
+def test_api_enqueue_runs_the_turn_on_the_chat_queue(env: Env, test_settings: Settings) -> None:
+    """The API's enqueue options (by name, no app.workflows import) reach the worker's `concierge` queue."""
+    turn_id = _turn(env, "tasks")
+    client = DBOSClient(system_database_url=test_settings.dbos_database_url)
+    try:
+        enqueue_turn(client, turn_id)
+        handle: WorkflowHandle[str] = client.retrieve_workflow(concierge_workflow_id(turn_id))
+        assert handle.get_result(polling_interval_sec=0.1) == "done"
+        assert handle.get_status().queue_name == CONCIERGE_QUEUE
+    finally:
+        client.destroy()
+    assert _row(env, turn_id).status is TurnStatus.done
