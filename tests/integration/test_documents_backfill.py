@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.settings import Settings
 from app.db.models import Company, DocumentChunk, DocumentRow
-from app.pipeline.document_backfill import backfill_document, unread_ids
+from app.pipeline.document_backfill import Outcome, backfill_document, unread_ids
 from app.pipeline.documents import file_document
 from app.storage.drive import MemoryDrive
 from app.storage.extract import FakeExtractor
@@ -45,7 +45,7 @@ def test_backfill_reads_an_old_document_once(
     att = _filed_the_old_way(migrated_engine, settings, storage, cid, LEASE)
     assert _doc(migrated_engine, att).facts is None
     assert unread_ids(migrated_engine, cid) == [att]
-    assert backfill_document(migrated_engine, settings, storage, FakeExtractor(), cid, att) is True
+    assert backfill_document(migrated_engine, settings, storage, FakeExtractor(), cid, att) is Outcome.read
     row = _doc(migrated_engine, att)
     assert (row.reader_version, row.doc_type) == ("v1", "lease")  # filing decision untouched
     assert row.facts is not None
@@ -62,7 +62,7 @@ def test_an_unreadable_document_is_marked_so_it_is_not_retried_forever(
     cid, storage = committed_company.id, MemoryStorage()
     att = _filed_the_old_way(migrated_engine, settings, storage, cid, LEASE)
     off = settings.model_copy(update={"doc_read_content": False})
-    assert backfill_document(migrated_engine, off, storage, FakeExtractor(), cid, att) is False
+    assert backfill_document(migrated_engine, off, storage, FakeExtractor(), cid, att) is Outcome.unreadable
     assert _doc(migrated_engine, att).reader_version == "none"
     assert unread_ids(migrated_engine, cid) == []
 
@@ -84,3 +84,26 @@ def test_company_scoping(migrated_engine: Engine, settings: Settings, committed_
     cid, storage = committed_company.id, MemoryStorage()
     _filed_the_old_way(migrated_engine, settings, storage, cid, LEASE)
     assert unread_ids(migrated_engine, new_id()) == []
+
+
+def test_a_budget_stop_leaves_the_document_unread_for_a_later_run(
+    migrated_engine: Engine, settings: Settings, committed_company: Company
+) -> None:
+    cid, storage = committed_company.id, MemoryStorage()
+    att = _filed_the_old_way(migrated_engine, settings, storage, cid, LEASE)
+    capped = settings.model_copy(update={"llm_daily_calls_cap": 0})
+    assert backfill_document(migrated_engine, capped, storage, FakeExtractor(), cid, att) is Outcome.budget
+    assert _doc(migrated_engine, att).reader_version is None
+    assert unread_ids(migrated_engine, cid) == [att]  # picked up again once there is budget
+    assert backfill_document(migrated_engine, settings, storage, FakeExtractor(), cid, att) is Outcome.read
+
+
+def test_a_poison_document_is_marked_and_skipped(migrated_engine: Engine, settings: Settings,
+                                                 committed_company: Company) -> None:  # fmt: skip
+    from app.pipeline.document_backfill import mark_unreadable
+
+    cid, storage = committed_company.id, MemoryStorage()
+    att = _filed_the_old_way(migrated_engine, settings, storage, cid, LEASE)
+    mark_unreadable(migrated_engine, cid, att, "error")
+    assert _doc(migrated_engine, att).reader_version == "error"
+    assert unread_ids(migrated_engine, cid) == []

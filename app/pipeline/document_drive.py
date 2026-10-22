@@ -4,7 +4,6 @@ The plan (name, folder, reserved Drive id) is already in Postgres. Retries reuse
 attachment's app property, so a second attempt never uploads a second copy.
 """
 
-import re
 from datetime import date
 from uuid import UUID
 
@@ -16,12 +15,11 @@ from app.core.logging import get_logger
 from app.db.enums import DocumentStatus
 from app.db.models import DocumentRow
 from app.pipeline.document_layout import UNSORTED, description, drive_properties
-from app.pipeline.document_policy import name_date
+from app.pipeline.document_policy import name_date, parse_name
 from app.storage.drive import DriveStore
 from app.storage.ports import ObjectStorage
 
 log = get_logger(__name__)
-_NAME = re.compile(r"^\d{4}-\d{2}-\d{2}_[^_]+_([^_]+)_")
 
 
 def _unit_and_day(plan: DocumentRow) -> tuple[str | None, date]:
@@ -33,8 +31,8 @@ def _unit_and_day(plan: DocumentRow) -> tuple[str | None, date]:
 
 def _party_of(name: str) -> str | None:
     """`YYYY-MM-DD_<kind>_<party>_<title>.<ext>`: the party slug, for Drive's own search."""
-    found = _NAME.match(name)
-    return found.group(1) if found and found.group(1) != "unknown" else None
+    parsed = parse_name(name)
+    return parsed[2] if parsed and parsed[2] != "unknown" else None
 
 
 def upload_planned(engine: Engine, drive: DriveStore, storage: ObjectStorage, company_id: UUID, attachment_id: UUID,

@@ -7,7 +7,6 @@ to repeat: a relocation that already happened changes nothing, an item is marked
 moved since the plan was made is skipped as stale.
 """
 
-import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from uuid import UUID
@@ -20,12 +19,11 @@ from app.core.logging import get_logger
 from app.db.enums import DocLinkKind, DocumentStatus, PersonKind, ReorgItemStatus, ReorgPlanStatus
 from app.db.models import DocumentLink, DocumentRow, DriveReorgItem, DriveReorgPlan, Person, Unit
 from app.pipeline.document_layout import LAYOUT_VERSION, UNSORTED, description, drive_properties, folder_path_v2
-from app.pipeline.document_policy import name_date, slug
+from app.pipeline.document_policy import name_date, parse_name, slug
 from app.storage.drive import DriveApiError, DriveStore
 
 log = get_logger(__name__)
 _OPEN_ITEMS = (ReorgItemStatus.proposed, ReorgItemStatus.approved)
-_NAME = re.compile(r"^(\d{4}-\d{2}-\d{2})_([^_]+)_([^_]+)_(.+)\.([a-z0-9]+)$")
 
 
 @dataclass(frozen=True)
@@ -51,10 +49,10 @@ def _best(session: Session, company_id: UUID, document_id: UUID, kind: DocLinkKi
 
 def target_for(session: Session, company_id: UUID, doc: DocumentRow) -> Target | None:
     """Where layout v2 puts this document now; None when its name does not follow the naming rule."""
-    parsed = _NAME.match(doc.file_name)
+    parsed = parse_name(doc.file_name)
     if parsed is None:
         return None
-    day_text, kind, party, title, ext = parsed.groups()
+    day_text, kind, party, title, ext = parsed
     unit_ids = _best(session, company_id, doc.id, DocLinkKind.unit)
     unit_label = (
         session.scalar(select(Unit.label).where(Unit.id == unit_ids[0], Unit.company_id == company_id))
@@ -85,6 +83,9 @@ def build_plan(
     """A new plan with one item per filed document that is not where it belongs; None when nothing differs.
     Documents that already have an open item are left out, so two builds never double-plan a move."""
     with Session(engine) as session, session.begin():
+        session.execute(
+            select(func.pg_advisory_xact_lock(func.hashtext(f"drive-reorg:{company_id}")))
+        )  # one builder at a time
         busy = select(DriveReorgItem.document_id).where(
             DriveReorgItem.company_id == company_id, DriveReorgItem.status.in_(_OPEN_ITEMS)
         )
@@ -160,8 +161,8 @@ def _apply_item(engine: Engine, drive: DriveStore, company_id: UUID, item: Drive
         drive.relocate(doc.drive_file_id, folder_id, item.to_name)
         parts = item.to_folder.split("/")
         unit = parts[1] if len(parts) > 1 and parts[1] != UNSORTED else None
-        named = _NAME.match(item.to_name)
-        party = named.group(3) if named and named.group(3) != "unknown" else None
+        named = parse_name(item.to_name)
+        party = named[2] if named and named[2] != "unknown" else None
         day = name_date(item.to_name) or doc.created_at.date()
         drive.annotate(
             doc.drive_file_id, description(doc.title, doc.summary), drive_properties(doc.doc_type, unit, party, day)

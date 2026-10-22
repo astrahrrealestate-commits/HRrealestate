@@ -83,3 +83,16 @@ def test_name_date() -> None:
     assert name_date("2026-09-01_invoice_jan_x.pdf") == date(2026, 9, 1)
     assert name_date("") is None
     assert name_date("garbage") is None
+
+
+def test_parse_name_knows_kinds_with_an_underscore() -> None:
+    from app.pipeline.document_policy import parse_name
+
+    assert parse_name("2026-10-21_id_document_jan-jansen_paspoort.pdf") == (
+        "2026-10-21", "id_document", "jan-jansen", "paspoort", "pdf"
+    )  # fmt: skip
+    assert parse_name("2026-10-07_lease_anna-de-vries_huur-kerkstraat.pdf") == (
+        "2026-10-07", "lease", "anna-de-vries", "huur-kerkstraat", "pdf"
+    )  # fmt: skip
+    assert parse_name("2026-10-07_hologram_x_y.pdf") is None
+    assert parse_name("factuur.pdf") is None

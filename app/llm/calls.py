@@ -51,6 +51,7 @@ class AgentSpec[T]:
     prompt: PromptRef
     output_type: type[T]
     finalize: Callable[[T, LoadedPrompt], T]
+    redact_output: bool = False  # the output is document text stored elsewhere: `model_calls` keeps only its size
 
 
 def is_transient(exc: BaseException) -> bool:
@@ -122,7 +123,9 @@ def run_agent[T: BaseModel](
         raise AgentFailedError(f"{spec.name}: {type(exc).__name__}") from exc
     usage = result.usage
     row.latency_ms = int((time.perf_counter() - started) * 1000)
-    row.output, row.cost_usd = output.model_dump(mode="json"), _cost(result)
+    dumped = output.model_dump(mode="json")
+    row.output = {"redacted": True, "chars": len(str(dumped))} if spec.redact_output else dumped
+    row.cost_usd = _cost(result)
     row.tokens_in, row.tokens_out = usage.input_tokens, usage.output_tokens
     if settings.llm_model != "fake":  # the provider's resolved name (e.g. a dated snapshot), for audit and drift
         row.model = getattr(result.response, "model_name", None) or settings.llm_model

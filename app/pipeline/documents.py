@@ -43,7 +43,7 @@ from app.pipeline.document_policy import (
     name_date,
     should_skip,
 )
-from app.pipeline.document_reading import ReadInput, facts_columns, read_document
+from app.pipeline.document_reading import ReadInput, Unread, facts_columns, read_document
 from app.storage.drive import DriveStore
 from app.storage.extract import TextExtractor
 from app.storage.ports import ObjectStorage
@@ -179,7 +179,7 @@ def _with_reading(engine: Engine, settings: Settings, storage: ObjectStorage, ex
     given = ReadInput(f.company_id, f.attachment_id, m.filename, m.mime_type, m.size_bytes, f.party, f.message_text,
                       f.case_summary)  # fmt: skip
     reading = read_document(engine, settings, storage, extractor, given)
-    if reading is None:
+    if isinstance(reading, Unread):
         return decision
     return _Decision(reading.facts.as_classification(), reading.call_id, facts_columns(reading), reading.text or None)
 

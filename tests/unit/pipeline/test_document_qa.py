@@ -77,3 +77,18 @@ def test_prompt_keeps_each_excerpt_in_the_data_block() -> None:
     assert prompt.count("</excerpts>") == 1
     assert f"[ref {ref_of(p)}] Huurovereenkomst (lease, 2026-01-01)" in prompt
     assert prompt.count("<message>") == 1
+
+
+def test_a_model_sentence_with_a_figure_the_quotes_do_not_contain_is_left_out() -> None:
+    p = _passage()
+    quotes = [Quote(p.document_id, p.title, "De waarborgsom bedraagt twee maanden kale huur.")]
+    invented = DocAnswer(found=True, answer="Betaal vandaag 12.34.56.789 over.", quotes=[])
+    assert "12.34" not in render(invented, quotes, [p])
+    assert render(invented, quotes, [p]).startswith("From Huurovereenkomst")
+    grounded = DocAnswer(found=True, answer="De waarborgsom is twee maanden kale huur.", quotes=[])
+    assert render(grounded, quotes, [p]).splitlines()[0] == "De waarborgsom is twee maanden kale huur."
+    amounts = [Quote(p.document_id, p.title, "Huur: EUR 1.150,00 per maand.")]
+    assert render(DocAnswer(found=True, answer="De huur is EUR 1.150,00.", quotes=[]), amounts, [p]).startswith(
+        "De huur"
+    )
+    assert "1.250" not in render(DocAnswer(found=True, answer="De huur is EUR 1.250,00.", quotes=[]), amounts, [p])

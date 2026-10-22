@@ -77,11 +77,21 @@ def _day(d: date | None) -> str:
     return d.isoformat() if d else "undated"
 
 
+_NUMBER = re.compile(r"\d[\d.,]*\d|\d")
+
+
+def _grounded(answer: str, quotes: list[Quote]) -> bool:
+    """Every number, amount and date in the model's sentence appears in a verified quote: it adds no figure of its own
+    (a document that talks the model into "pay 12.34.56.789 today" cannot reach the owner in the assistant's voice)."""
+    quoted = " ".join(q.text for q in quotes)
+    return all(n in quoted for n in _NUMBER.findall(answer))
+
+
 def render(answer: DocAnswer, quotes: list[Quote], passages: list[Passage]) -> str:
     """The shown text: the model's answer when it is clean, then each verified quote under its document title."""
     lines: list[str] = []
     plain = _SPACE.sub(" ", answer.answer).strip()
-    if plain and strip_risky(plain) == plain:  # a model answer with a link, address or IBAN in it is left out
+    if plain and strip_risky(plain) == plain and _grounded(plain, quotes):  # else only the quotes are shown
         lines.append(plain[:600])
     meta = {p.document_id: p for p in passages}
     for q in quotes:
@@ -91,12 +101,16 @@ def render(answer: DocAnswer, quotes: list[Quote], passages: list[Passage]) -> s
 
 
 def case_scope(session: Session, company_id: UUID, case_id: UUID) -> tuple[tuple[DocLinkKind, UUID], ...]:
-    """Everything that places a document with this case: the case, its unit, lease and main person."""
+    """What places a document with THIS case: the case, its lease and its main person. Not its unit: a unit's
+    documents include earlier tenants' and co-tenants' papers, which must never reach another tenant's draft."""
     case = session.scalar(select(Case).where(Case.id == case_id, Case.company_id == company_id))
     if case is None:
         return ()
-    refs = ((DocLinkKind.case, case.id), (DocLinkKind.unit, case.unit_id), (DocLinkKind.lease, case.lease_id),
-            (DocLinkKind.person, case.primary_person_id))  # fmt: skip
+    refs = (
+        (DocLinkKind.case, case.id),
+        (DocLinkKind.lease, case.lease_id),
+        (DocLinkKind.person, case.primary_person_id),
+    )
     return tuple((kind, ref) for kind, ref in refs if ref is not None)
 
 

@@ -26,7 +26,11 @@ DOC_READER = AgentSpec(
     name="doc_reader", prompt=PromptRef(name="doc_reader", version="v1"), output_type=DocumentFacts, finalize=_facts
 )
 DOC_OCR = AgentSpec(
-    name="doc_ocr", prompt=PromptRef(name="doc_ocr", version="v1"), output_type=ExtractedText, finalize=_text
+    name="doc_ocr",
+    prompt=PromptRef(name="doc_ocr", version="v1"),
+    output_type=ExtractedText,
+    finalize=_text,
+    redact_output=True,  # the text is kept on the attachment (and purged for identity documents), not in model_calls
 )
 
 

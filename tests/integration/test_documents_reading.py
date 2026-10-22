@@ -207,3 +207,45 @@ def test_documents_table_row_count_is_one_per_attachment(migrated_engine: Engine
     with Session(migrated_engine) as session:
         assert session.scalar(select(func.count()).select_from(DocumentRow).where(
             DocumentRow.company_id == company_id)) == 1  # fmt: skip
+
+
+def _recorded(engine: Engine, company_id: UUID) -> str:
+    with Session(engine) as session:
+        rows = session.execute(
+            select(ModelCall.input, ModelCall.output).where(ModelCall.company_id == company_id)
+        ).all()
+    return " ".join(f"{i} {o}" for i, o in rows)
+
+
+def test_identity_text_is_not_left_in_model_calls(migrated_engine: Engine, fake_settings: Settings,
+                                                  storage: MemoryStorage, company_id: UUID) -> None:  # fmt: skip
+    att = _attachment(
+        migrated_engine, company_id, storage, "scan001.pdf", "application/pdf", b"Paspoort nr 123456 Anna"
+    )
+    _file(migrated_engine, fake_settings, storage, MemoryDrive(), company_id, att)
+    assert "123456" not in _recorded(migrated_engine, company_id)
+
+
+def test_scanned_identity_text_is_not_left_in_model_calls(
+    migrated_engine: Engine, fake_settings: Settings, storage: MemoryStorage, company_id: UUID
+) -> None:
+    att = _attachment(
+        migrated_engine, company_id, storage, "scan002.pdf", "application/pdf", b"SCAN Paspoort nr 987654"
+    )
+    _file(migrated_engine, fake_settings, storage, MemoryDrive(), company_id, att)
+    recorded = _recorded(migrated_engine, company_id)
+    assert "987654" not in recorded
+    assert "doc_ocr" in _purposes(migrated_engine, company_id)  # the vision call ran; only its text is not kept
+
+
+def test_ocr_output_of_an_ordinary_document_is_not_kept_either(
+    migrated_engine: Engine, fake_settings: Settings, storage: MemoryStorage, company_id: UUID
+) -> None:
+    att = _attachment(migrated_engine, company_id, storage, "scan.pdf", "application/pdf", b"SCAN " + LEASE)
+    _file(migrated_engine, fake_settings, storage, MemoryDrive(), company_id, att)
+    with Session(migrated_engine) as session:
+        out = session.scalars(select(ModelCall.output).where(ModelCall.purpose == "doc_ocr")).one()
+    assert out is not None
+    assert out["redacted"] is True
+    assert "Kerkstraat" not in str(out)
+    assert _attachment_row(migrated_engine, att).extracted_text is not None  # it lives on the attachment

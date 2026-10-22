@@ -129,3 +129,31 @@ def test_links_and_bank_accounts_in_a_document_never_reach_the_model_or_the_draf
     for needle in ("NL91", "evil.example"):
         assert needle not in seen[0]
         assert not any(needle in d for d in _drafts(migrated_engine, cid))
+
+
+def test_a_previous_tenants_documents_in_the_same_unit_never_reach_the_prompt(
+    migrated_engine: Engine, settings: Settings, committed_company: Company, seen: list[str]
+) -> None:
+    from datetime import date
+
+    from app.db.models import Case, Unit
+
+    cid = committed_company.id
+    case_id, message_id = _case(migrated_engine, cid)
+    with Session(migrated_engine) as s, s.begin():
+        unit = Unit(company_id=cid, label="Kerkstraat 12-2", valid_from=date(2025, 1, 1))
+        s.add(unit)
+        s.flush()
+        case = s.get(Case, case_id)
+        assert case is not None
+        case.unit_id = unit_id = unit.id  # this tenant's case is in the unit
+    _doc_for(migrated_engine, cid, "Huur vorige huurder", "Waarborgsom van de vorige huurder was 5555.", None)
+    with Session(migrated_engine) as s, s.begin():
+        previous = s.scalars(select(DocumentRow.id).where(DocumentRow.title == "Huur vorige huurder")).one()
+        s.add(DocumentLink(company_id=cid, document_id=previous, kind=DocLinkKind.unit, ref_id=unit_id, method="fuzzy",
+                           score=0.9))  # fmt: skip
+    _doc_for(migrated_engine, cid, "Huurovereenkomst", LEASE, case_id)
+    propose_for_message(migrated_engine, settings, message_id)
+    assert "5555" not in seen[0]
+    assert "vorige huurder" not in seen[0]
+    assert "Huurovereenkomst" in seen[0]

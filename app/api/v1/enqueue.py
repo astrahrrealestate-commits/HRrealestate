@@ -1,6 +1,6 @@
 """Enqueue worker workflows from the API process by name (DBOSClient: no DBOS runtime, no app.workflows import)."""
 
-from datetime import date
+from datetime import datetime
 from uuid import UUID
 
 from app.api.deps import WorkflowClient
@@ -48,12 +48,13 @@ def enqueue_reorg(client: WorkflowClient, company_id: UUID, plan_id: UUID) -> No
     client.enqueue(options, str(company_id), str(plan_id))
 
 
-def enqueue_backfill(client: WorkflowClient, company_id: UUID, day: date) -> None:
-    """Read and link documents filed before M10; one run per company per day (DBOS dedupes the id)."""
+def enqueue_backfill(client: WorkflowClient, company_id: UUID, hour: datetime) -> None:
+    """Read and link documents filed before M10; one run per company per hour (DBOS dedupes the id), so a second
+    click after a run that hit its batch cap, or a budget stop, continues within the hour."""
     options = {
         "queue_name": DOCUMENTS_QUEUE,
         "workflow_name": BACKFILL_DOCUMENTS,
-        "workflow_id": f"docs:backfill:{company_id}:{day:%Y%m%d}",
+        "workflow_id": f"docs:backfill:{company_id}:{hour:%Y%m%d%H}",
         "queue_partition_key": str(company_id),
     }
     client.enqueue(options, str(company_id))

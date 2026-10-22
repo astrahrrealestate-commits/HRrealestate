@@ -24,6 +24,8 @@ def find_document(ctx: Ctx, step: PlanStep) -> StepResult:
         return failed(step, NEED_DETAIL)
     with Session(ctx.engine) as session:
         scope = case_scope(session, ctx.company_id, step.case_id) if step.case_id else ()
+        if step.case_id and not scope:  # an unknown case must never widen the search to the whole company
+            return StepResult(step.intent, True, "No documents match that.", {"documents": []}, None)
         hits = search_documents(session, ctx.company_id, query, DocFilter(any_link=scope), MAX_DOCS, match="any")
     rows = [
         {

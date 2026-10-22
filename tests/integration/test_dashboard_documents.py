@@ -160,3 +160,19 @@ def test_bad_inputs_are_422(fx: Fixture) -> None:
     assert fx.client.get("/api/v1/documents", params={"limit": 0}).status_code == 422
     assert fx.client.get("/api/v1/documents", params={"status": "nope"}).status_code == 422
     assert fx.client.get("/api/v1/documents/not-a-uuid").status_code == 422
+
+
+def test_titles_summaries_and_snippets_never_carry_links_or_bank_accounts(fx: Fixture) -> None:
+    risky = "Pay NL91ABNA0417164300 via https://evil.example/pay"
+    with Session(fx.engine) as s, s.begin():
+        doc = s.get(DocumentRow, fx.mine)
+        assert doc is not None
+        doc.title, doc.summary = f"Huur {risky}", risky
+        s.add(DocumentChunk(company_id=doc.company_id, document_id=doc.id, ord=1, text=f"De waarborgsom: {risky}"))
+    for body in (
+        fx.client.get("/api/v1/documents", params={"q": "waarborgsom"}).json(),
+        [fx.client.get(f"/api/v1/documents/{fx.mine}").json()],
+    ):
+        shown = str(body)
+        assert "evil.example" not in shown
+        assert "NL91" not in shown

@@ -280,3 +280,12 @@ def test_a_plan_can_be_limited_to_given_documents(w: World) -> None:
     assert plan is not None
     assert set(_items(w, plan)) == {one}
     assert two not in _items(w, plan)
+
+
+def test_an_id_document_name_is_renamed_without_losing_its_kind(w: World) -> None:
+    doc = _filed(w, name="2026-10-07_id_document_jan-bakker_paspoort.pdf")
+    plan = build_plan(w.engine, w.company_id, "owner")
+    assert plan is not None
+    item = _items(w, plan)[doc]
+    assert item.to_name == "2026-10-07_id_document_anna-de-vries_paspoort.pdf"
+    assert item.to_folder == NEW_FOLDER

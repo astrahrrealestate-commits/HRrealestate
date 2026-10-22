@@ -20,6 +20,7 @@ from app.api.v1.ratelimit import decision_limit
 from app.core.errors import NotFoundError
 from app.db.enums import DocLinkKind, DocumentStatus, ReorgItemStatus, ReorgPlanStatus
 from app.pipeline.document_links import set_link
+from app.pipeline.document_qa import strip_risky
 from app.pipeline.document_search import DocDetail, DocFilter, DocHit, get_document, list_documents, search_documents
 from app.pipeline.drive_reorg import PlanView, build_plan, decide_plan, latest_plan
 
@@ -108,8 +109,9 @@ def _plan_out(p: PlanView) -> PlanOut:
 def _out(h: DocHit) -> DocumentOut:
     created: datetime = h.created_at
     return DocumentOut(
-        id=h.document_id, attachment_id=h.attachment_id, title=h.title, doc_type=h.doc_type, status=h.status,
-        document_date=h.document_date, summary=h.summary, snippet=h.snippet, rank=h.rank, drive_url=h.drive_url,
+        id=h.document_id, attachment_id=h.attachment_id, title=strip_risky(h.title), doc_type=h.doc_type,
+        status=h.status, document_date=h.document_date, summary=strip_risky(h.summary) if h.summary else None,
+        snippet=strip_risky(h.snippet) if h.snippet else None, rank=h.rank, drive_url=h.drive_url,
         suspicious=h.suspicious, created_at=created,
     )  # fmt: skip
 
@@ -149,7 +151,7 @@ def search(
 @router.post("/documents/backfill", status_code=202, dependencies=[Depends(require_csrf), Depends(decision_limit)])
 def backfill(who: Owner, client: WorkflowClient_) -> None:
     """Read, index and link documents filed before content reading existed, then propose a reorganisation plan."""
-    enqueue.enqueue_backfill(client, who.company_id, datetime.now(UTC).date())
+    enqueue.enqueue_backfill(client, who.company_id, datetime.now(UTC))
 
 
 @router.get("/documents/reorg")

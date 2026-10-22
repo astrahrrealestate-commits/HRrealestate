@@ -178,3 +178,11 @@ def test_from_the_owners_words_through_the_fake_planner_to_a_quoted_answer(
     [res] = run(migrated_engine, settings, cid, planned, question=question)
     assert res.ok
     assert "twee maanden kale huur" in res.summary
+
+
+def test_find_document_with_an_unknown_case_does_not_search_the_whole_company(
+    migrated_engine: Engine, settings: Settings, cid: UUID
+) -> None:
+    _add(migrated_engine, cid, "Huurovereenkomst", LEASE_TEXT)
+    [res] = run(migrated_engine, settings, cid, make_plan(step(Intent.find_document, text="huur", case_id=uuid4())))
+    assert (res.ok, res.summary) == (False, NOT_FOUND)  # rejected before any search

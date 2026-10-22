@@ -5,6 +5,7 @@ the attachment, chunks are insert-or-ignore. Nothing is re-filed or moved here; 
 A document that cannot be read keeps its metadata decision untouched.
 """
 
+from enum import StrEnum
 from uuid import UUID
 
 from sqlalchemy import Engine, select, update
@@ -16,7 +17,7 @@ from app.db.models import DocumentRow
 from app.pipeline.document_chunks import store_chunks
 from app.pipeline.document_links import link_document
 from app.pipeline.document_policy import looks_like_id
-from app.pipeline.document_reading import ReadInput, facts_columns, read_document
+from app.pipeline.document_reading import Reading, ReadInput, Unread, facts_columns, read_document
 from app.pipeline.documents import load_filing
 from app.storage.extract import TextExtractor
 from app.storage.ports import ObjectStorage
@@ -35,23 +36,42 @@ def unread_ids(engine: Engine, company_id: UUID, limit: int = BATCH) -> list[UUI
         ))  # fmt: skip
 
 
+class Outcome(StrEnum):
+    read = "read"
+    unreadable = "unreadable"  # marked `none`: nothing readable, or the reader refused; not retried
+    budget = "budget"  # left untouched: the LLM budget is spent, a later run reads it
+
+
+def mark_unreadable(engine: Engine, company_id: UUID, attachment_id: UUID, marker: str) -> None:
+    """`none` (nothing to read) or `error` (a permanent problem with this one document): it is skipped from now on."""
+    with Session(engine) as session, session.begin():
+        session.execute(
+            update(DocumentRow)
+            .where(DocumentRow.attachment_id == attachment_id, DocumentRow.company_id == company_id)
+            .values(reader_version=marker)
+        )
+
+
 def backfill_document(engine: Engine, settings: Settings, storage: ObjectStorage, extractor: TextExtractor,
-                      company_id: UUID, attachment_id: UUID) -> bool:  # fmt: skip
-    """True when the document now has facts. False: nothing readable (it is marked so it is not retried forever)."""
+                      company_id: UUID, attachment_id: UUID) -> Outcome:  # fmt: skip
     f = load_filing(engine, company_id, attachment_id)
     m = f.meta
-    reading = None
+    reading: Reading | Unread = Unread.no_text
     if settings.doc_read_content and not looks_like_id(m):
         given = ReadInput(company_id, attachment_id, m.filename, m.mime_type, m.size_bytes, f.party, f.message_text,
                           f.case_summary)  # fmt: skip
         reading = read_document(engine, settings, storage, extractor, given)
+    if reading is Unread.budget:
+        return Outcome.budget
+    if isinstance(reading, Unread):
+        mark_unreadable(engine, company_id, attachment_id, "none")
+        link_document(engine, company_id, attachment_id)
+        return Outcome.unreadable
+    mine = (DocumentRow.attachment_id == attachment_id) & (DocumentRow.company_id == company_id)
     with Session(engine) as session, session.begin():
-        values = facts_columns(reading) if reading else {"reader_version": "none"}
-        session.execute(update(DocumentRow).where(DocumentRow.attachment_id == attachment_id,
-                                                  DocumentRow.company_id == company_id).values(**values))  # fmt: skip
-        row = session.scalar(select(DocumentRow).where(DocumentRow.attachment_id == attachment_id,
-                                                      DocumentRow.company_id == company_id))  # fmt: skip
-        if row is not None and reading and reading.text:
+        session.execute(update(DocumentRow).where(mine).values(**facts_columns(reading)))
+        row = session.scalar(select(DocumentRow).where(mine))
+        if row is not None and reading.text:
             store_chunks(session, company_id, row.id, reading.text)
     link_document(engine, company_id, attachment_id)
-    return reading is not None
+    return Outcome.read

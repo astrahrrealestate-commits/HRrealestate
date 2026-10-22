@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from app.contracts import DocumentClassification
+from app.contracts import DocType, DocumentClassification
 from app.db.enums import DocumentStatus
 
 FILE_THRESHOLD = 0.80
@@ -91,6 +91,22 @@ def folder_path(cls: DocumentClassification, meta: FileMeta, tz: str) -> tuple[s
 
 def filing_status(cls: DocumentClassification) -> DocumentStatus:
     return DocumentStatus.filed if cls.confidence >= FILE_THRESHOLD else DocumentStatus.review
+
+
+def _kinds() -> str:
+    return "|".join(sorted((t.value for t in DocType), key=len, reverse=True))  # id_document has an underscore
+
+
+_NAME = re.compile(rf"^(\d{{4}}-\d{{2}}-\d{{2}})_({_kinds()})_([^_]+)_(.+)\.([a-z0-9]+)$")
+
+
+def parse_name(name: str) -> tuple[str, str, str, str, str] | None:
+    """`(date, kind, party, title, ext)` of a rule-v1/v2 file name, or None when it does not follow the rule."""
+    found = _NAME.match(name)
+    if found is None:
+        return None
+    day, kind, party, title, ext = found.groups()
+    return day, kind, party, title, ext
 
 
 def name_date(name: str) -> date | None:
