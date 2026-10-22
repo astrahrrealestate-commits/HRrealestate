@@ -266,6 +266,17 @@ streaming** in this round.
 - **Steerable drafts:** `draft_reply` takes the owner's wording as sanitised guidance for the proposer (new proposer
   prompt version; v1 stays published); with a pending draft it supersedes it with a new `draft_version` instead of
   failing; the drafts are echoed in the turn answer and exist as approvals (the approval gates sending).
+  - *As built (Task 2, 2026-10-22):* the guidance is the planner's `text` for the step, else the owner's own message,
+    sanitised (links, emails, phones, IBANs, amounts redacted; the answer then says details were removed) and given
+    to the proposer as an `<owner_guidance>` data block with the replaced draft as `<current_draft>`; prompt
+    `proposer/v2` only for these owner-requested drafts (inbound and chase proposals keep `proposer/v1`). Message with
+    no proposal: the propose stage. Pending reply draft: superseded once (old approval expired, `draft_version + 1`,
+    new approval, feed card resolved). Decided proposal: one fresh reply action for that message per turn. Both carry
+    an ActionRevision keyed `agent:{turn_id}:{step}`; a retried step returns the same revision without a model call.
+    The redraft passes the propose-stage rules: a suspicious or paused message, or a draft with an unverified link,
+    account or phone number, changes nothing. The answer quotes up to 3 variants (600 characters each, output-guard
+    flags, flagged variants redacted); `data` has the approval id for approve/edit. Plan `case_id`s are limited to the
+    brief's open cases and the case ids on resolved page-facts lines (never tenant text or the snapshot).
 - **Speed:** one model call for page/chat questions (the planner returns the answer; no second owner_qa call), a
   dedicated chat queue with a short poll interval, turn SSE poll about 0.5 s, `PUT /agent/page` pre-warms resolved
   page facts when the owner navigates, per-turn timings stored on the turn so latency is measurable.

@@ -17,6 +17,7 @@ from app.contracts.page_context import (
 )
 from app.contracts.thread_key import MAX_THREAD_KEY
 from app.pipeline import page_memory as pm
+from app.pipeline.draft_guidance import MAX_SHOWN, MAX_VARIANTS
 from app.pipeline.page_facts import MAX_SUMMARY
 from app.pipeline.page_memory_lines import KEEP_NEWEST
 from app.pipeline.page_text import FACTS_BUDGET
@@ -79,3 +80,12 @@ def test_documented_memory_pack_limits_match_the_code() -> None:
         "that thread's messages only",
     ):
         assert phrase in section, phrase
+
+
+def test_documented_draft_reply_result_matches_the_code() -> None:
+    section = _section().split("### Drafts from the Super Agent", 1)[1]
+    assert f"up to {MAX_VARIANTS} variants (each at most {MAX_SHOWN} characters" in section
+    example = json.loads(section.split("```json\n", 1)[1].split("```", 1)[0].replace("\n", " "))
+    keys = {"approval_ids", "case_id", "draft_version", "drafts", "details_removed", "superseded_approval_id"}
+    assert set(example) == keys
+    assert set(example["drafts"][0]) == {"text", "flags"}

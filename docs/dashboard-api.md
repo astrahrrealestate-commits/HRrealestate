@@ -160,6 +160,11 @@ filters as advisory display text (prompt `owner_qa/v3`). So "what does this page
 "is this draft okay?" on an approval is answered from the server's copy of the draft (the planner is told to add an
 `open_view` step for `approvals`; the agent never approves or sends). Without `page` the answer is exactly as before.
 
+Case ids in a plan: a step may only name a case the planner was shown as company data, that is one of the brief's
+open cases or a case id on a server fact line of the page (`open case:`, `open thread: ... | case`, approval and
+visible rows). An id that appears only in a tenant message, the snapshot or the history gets the generic "I could not
+find that case/task" result.
+
 Example ("is this draft okay?" on an open approval):
 
 ```json
@@ -176,6 +181,38 @@ Example ("is this draft okay?" on an open approval):
   }
 }
 ```
+
+### Drafts from the Super Agent (`draft_reply`)
+
+"Reply to this, keep it short", "tell him the plumber comes Tuesday" or "make it shorter" on a thread or case page
+produce a reply draft for the case's latest inbound message:
+- **Guidance.** The owner's wording (the plan step's `text`, else the whole message) is the guidance for the drafting
+  model. Links, email addresses, phone numbers, IBANs and amounts are removed first (`[redacted]`); the answer then
+  says so and `details_removed` is `true`. Tenant replies are Dutch unless the guidance asks otherwise; the draft never
+  adds contact or bank details or links that are not already in the conversation.
+- **No draft yet:** a new proposal, as for an incoming message, with the guidance.
+- **A reply draft is waiting for approval:** it is replaced by a new `draft_version` with a new pending approval; the
+  old approval becomes `expired` (deciding it returns `stale`) and its feed card is resolved. Re-run safe: a retried
+  turn returns the same new draft, never a third one.
+- **The earlier draft was approved or rejected:** one new reply draft for the same message per turn, as a new pending
+  approval.
+- **Held messages** (flagged suspicious, company paused) and a new draft that would add an unverified link, account
+  or phone number change nothing: the answer says why. Approving a draft on a suspicious message still needs
+  `confirm_suspicious: true`.
+
+The turn's `answer` quotes up to 3 variants (each at most 600 characters, lines prefixed `> `; a variant with an
+unverified link, account or phone number is shown redacted with a "held back" note). The `draft_reply` entry in
+`results` has `data`:
+
+```json
+{"approval_ids": ["<approval id>"], "case_id": "<case id>", "draft_version": 2,
+ "drafts": [{"text": "Beste,\nDe loodgieter komt dinsdag bij u langs.\nMet vriendelijke groet,\nHarjot", "flags": []}],
+ "details_removed": false, "superseded_approval_id": "<the replaced approval id or null>"}
+```
+
+`flags` lists `account`, `link` or `phone`. Show approve/edit for `approval_ids[0]` (it is also in `/approvals`); refetch
+`/approvals` when `superseded_approval_id` is set. Nothing is sent until the owner approves; the recipient is always
+the case's own contact from the database, never anything in the guidance or the drafts.
 
 ### thread_key
 
