@@ -17,7 +17,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Engine, func, select, update
+from sqlalchemy import Engine, Select, func, select, update
 from sqlalchemy.orm import Session
 
 from app.contracts import ConciergePlan, PageContext
@@ -141,15 +141,25 @@ def _finish(engine: Engine, company_id: UUID, turn_id: UUID, outcome: Outcome) -
     log.info("concierge.turn_finished", company_id=str(company_id), turn_id=str(turn_id), status=outcome.status.value)
 
 
+def _brief_cases(company_id: UUID) -> Select[Case]:
+    return (
+        select(Case)
+        .where(Case.company_id == company_id, Case.state.in_(case_repo.OPEN_STATES))
+        .order_by(Case.opened_at.desc(), Case.id.desc())
+        .limit(MAX_BRIEF_CASES)
+    )
+
+
+def _brief_case_ids(engine: Engine, company_id: UUID) -> list[UUID]:
+    """The brief's case ids alone (same query): what a retried turn's stored plan is checked against."""
+    with Session(engine) as session:
+        return list(session.scalars(_brief_cases(company_id).with_only_columns(Case.id)))
+
+
 def _brief(engine: Engine, start: TurnStart) -> tuple[list[CaseBrief], list[str], list[str]]:
     cid = start.company_id
     with Session(engine) as session:
-        cases = session.scalars(
-            select(Case)
-            .where(Case.company_id == cid, Case.state.in_(case_repo.OPEN_STATES))
-            .order_by(Case.opened_at.desc(), Case.id.desc())
-            .limit(MAX_BRIEF_CASES)
-        ).all()
+        cases = session.scalars(_brief_cases(cid)).all()
         briefs = [
             CaseBrief(c.id, owner_commands.case_label(session, c), c.state.value, c.urgency.value, c.summary)
             for c in cases
@@ -183,8 +193,11 @@ def _page(engine: Engine, start: TurnStart) -> TurnStart:
     return start if fresh is None else replace(start, page=fresh)
 
 
-def _plan(engine: Engine, settings: Settings, start: TurnStart) -> ConciergePlan | Outcome:
-    briefs, tasks, history = _brief(engine, start)
+Brief = tuple[list[CaseBrief], list[str], list[str]]
+
+
+def _plan(engine: Engine, settings: Settings, start: TurnStart, brief: Brief) -> ConciergePlan | Outcome:
+    briefs, tasks, history = brief
     try:
         result = run_agent(
             engine,
@@ -204,15 +217,17 @@ def _plan(engine: Engine, settings: Settings, start: TurnStart) -> ConciergePlan
     return result.output
 
 
-def _planned(engine: Engine, settings: Settings, start: TurnStart) -> ConciergePlan | Outcome:
+def _planned(engine: Engine, settings: Settings, start: TurnStart) -> tuple[ConciergePlan | Outcome, list[UUID]]:
     """The stored plan of an earlier attempt, else a fresh one (stored before anything executes, so a retry runs
-    the same plan and never asks the model twice)."""
+    the same plan and never asks the model twice), with the brief's case ids: with the page's, the only case ids
+    the plan may name. A retry re-reads only those ids, so a case closed in between is no longer actionable."""
     if start.plan is not None:
-        return ConciergePlan.model_validate(start.plan)
-    plan = _plan(engine, settings, start)
+        return ConciergePlan.model_validate(start.plan), _brief_case_ids(engine, start.company_id)
+    brief = _brief(engine, start)
+    plan = _plan(engine, settings, start, brief)
     if isinstance(plan, ConciergePlan):
         _update(engine, start.company_id, start.turn_id, {"plan": plan.model_dump(mode="json")})
-    return plan
+    return plan, [b.case_id for b in brief[0]]
 
 
 def _outcome(engine: Engine, settings: Settings, start: TurnStart) -> Outcome:
@@ -226,11 +241,14 @@ def _outcome(engine: Engine, settings: Settings, start: TurnStart) -> Outcome:
         if refused is not None:
             return Outcome(refused)
         start = _page(engine, start)
-    plan = _planned(engine, settings, start)
+    plan, brief_cases = _planned(engine, settings, start)
     if isinstance(plan, Outcome):
         return plan
     page = concierge_page.stored_prompt(start.page)
-    results = run_plan(engine, settings, start.company_id, plan, question=start.text, now=start.at, page=page)
+    results = run_plan(
+        engine, settings, start.company_id, plan, question=start.text, now=start.at, page=page,
+        brief_cases=brief_cases,
+    )  # fmt: skip
     stored = [result_json(r) for r in results]
     _update(engine, start.company_id, start.turn_id, {"results": stored})
     return Outcome(assemble_answer(results), plan.model_dump(mode="json"), stored, PROMPT_REF)

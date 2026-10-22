@@ -39,6 +39,7 @@ class Ctx:
     question: str  # the owner's own message (for the `answer` step), never the model's text
     page: PagePrompt = NO_PAGE  # the turn's stored page facts and snapshot (for the `answer` step); no I/O here
     memo: dict[str, StepResult] = field(default_factory=dict)  # per-plan results reused by later steps (answer)
+    known_cases: frozenset[UUID] = frozenset()  # the only case ids a plan may name: the brief's and the page's
 
 
 Handler = Callable[[Ctx, PlanStep], StepResult]

@@ -1,10 +1,13 @@
 """Concierge executor (spec §4): validate every step of a ConciergePlan against the DB, then dispatch it.
 
-A plan is untrusted model output. Out-of-scope plans run nothing. Each `case_id`/`task_ref` is resolved company-scoped
-before use; a bad step fails on its own and the plan goes on. A handler error fails only its step, except transient
+A plan is untrusted model output. Out-of-scope plans run nothing. A `case_id` must be one the planner was shown as
+company data (the brief's open cases or a case id on a resolved page-facts line); any other id, including one copied
+from tenant text, gets the generic not-found result. Each `case_id`/`task_ref` is then resolved company-scoped before
+use; a bad step fails on its own and the plan goes on. A handler error fails only its step, except transient
 infrastructure errors, which propagate so the calling DBOS step retries.
 """
 
+from collections.abc import Collection
 from datetime import datetime
 from uuid import UUID
 
@@ -16,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.contracts import ConciergePlan, Intent, PlanStep
 from app.core.errors import NotFoundError
 from app.core.settings import Settings
-from app.llm.agents.owner_qa import REFUSAL_ANSWER
+from app.llm.agents.owner_qa import REFUSAL_ANSWER, page_case_ids
 from app.llm.calls import is_transient as llm_transient
 from app.llm.page_blocks import NO_PAGE, PagePrompt
 from app.pipeline import case_repo, concierge_proposals, concierge_reads, concierge_writes, work_repo
@@ -32,7 +35,16 @@ from app.pipeline.concierge_base import (
     task_ref,
 )
 
-__all__ = ["MAX_STEPS", "StepResult", "check_step", "is_transient", "needs_detail", "run_plan", "validate_plan"]
+__all__ = [
+    "MAX_STEPS",
+    "StepResult",
+    "check_step",
+    "is_transient",
+    "known_case_ids",
+    "needs_detail",
+    "run_plan",
+    "validate_plan",
+]
 
 MAX_STEPS = 4
 _USES_CASE = frozenset({Intent.case_status, Intent.draft_reply, Intent.chase_now, Intent.open_view})
@@ -81,11 +93,14 @@ def _task_known(session: Session, company_id: UUID, raw: str | None) -> bool:
     return True
 
 
-def check_step(session: Session, company_id: UUID, step: PlanStep) -> str | None:
-    """None when the step may run; otherwise the owner-facing reason (missing argument or unknown/foreign ref)."""
+def check_step(session: Session, company_id: UUID, step: PlanStep, known_cases: Collection[UUID]) -> str | None:
+    """None when the step may run; otherwise the owner-facing reason (missing argument or unknown/foreign ref).
+    `known_cases` are the case ids the planner was shown as company data; any other case id is not found."""
     if needs_detail(step):
         return NEED_DETAIL
     if step.intent in _USES_CASE and step.case_id is not None:
+        if step.case_id not in known_cases:
+            return NOT_FOUND
         try:
             case_repo.get_case(session, company_id, step.case_id)
         except NotFoundError:
@@ -95,11 +110,18 @@ def check_step(session: Session, company_id: UUID, step: PlanStep) -> str | None
     return None
 
 
-def validate_plan(session: Session, company_id: UUID, plan: ConciergePlan) -> list[PlanStep]:
+def known_case_ids(brief_cases: Collection[UUID], page: PagePrompt) -> frozenset[UUID]:
+    """The brief's case ids plus the case ids on the resolved page-facts lines (never the snapshot or tenant text)."""
+    return frozenset(brief_cases) | frozenset(page_case_ids(page.facts))
+
+
+def validate_plan(
+    session: Session, company_id: UUID, plan: ConciergePlan, known_cases: Collection[UUID]
+) -> list[PlanStep]:
     """The steps that may run, in order: nothing for an out-of-scope plan, at most MAX_STEPS."""
     if not plan.in_scope:
         return []
-    return [s for s in plan.steps[:MAX_STEPS] if check_step(session, company_id, s) is None]
+    return [s for s in plan.steps[:MAX_STEPS] if check_step(session, company_id, s, known_cases) is None]
 
 
 def is_transient(exc: BaseException) -> bool:
@@ -114,7 +136,7 @@ def is_transient(exc: BaseException) -> bool:
 def _run_step(ctx: Ctx, step: PlanStep) -> StepResult:
     try:
         with Session(ctx.engine) as session:
-            problem = check_step(session, ctx.company_id, step)
+            problem = check_step(session, ctx.company_id, step, ctx.known_cases)
         if problem is not None:
             log.info("concierge.step_rejected", company_id=str(ctx.company_id), intent=step.intent.value)
             return failed(step, problem)
@@ -137,9 +159,15 @@ def run_plan(
     question: str,
     now: datetime,
     page: PagePrompt = NO_PAGE,
+    brief_cases: Collection[UUID] = (),
 ) -> list[StepResult]:
+    """`brief_cases` are the case ids of the planner's brief; with the page's case ids they are the only ones a step
+    may name (none given: only the page's)."""
     if not plan.in_scope:
         log.info("concierge.refused", company_id=str(company_id))
         return [StepResult(Intent.answer, False, REFUSAL_ANSWER, None, None)]
-    ctx = Ctx(engine=engine, settings=settings, company_id=company_id, now=now, question=question, page=page)
+    ctx = Ctx(
+        engine=engine, settings=settings, company_id=company_id, now=now, question=question, page=page,
+        known_cases=known_case_ids(brief_cases, page),
+    )  # fmt: skip
     return [_run_step(ctx, step) for step in plan.steps[:MAX_STEPS]]

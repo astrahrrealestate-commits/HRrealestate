@@ -27,6 +27,7 @@ COMPANY = UUID("01900000-0000-7000-8000-000000000001")
 KNOWN_CASE = UUID("01900000-0000-7000-8000-0000000000ca")
 FOREIGN_CASE = UUID("01900000-0000-7000-8000-0000000000fe")
 KNOWN_TASK = "a1b2c3"
+SHOWN = frozenset({KNOWN_CASE, FOREIGN_CASE})  # as if both were in the brief: the company-scoped lookup decides
 
 
 def step(intent: Intent, **kw: Any) -> PlanStep:
@@ -104,7 +105,7 @@ def test_out_of_scope_runs_nothing_even_with_steps(
     assert [(r.ok, r.summary) for r in results] == [(False, REFUSAL_ANSWER)]
     assert all(not s.calls for s in spies.values())
     with Session(engine) as session:
-        assert concierge.validate_plan(session, COMPANY, plan) == []
+        assert concierge.validate_plan(session, COMPANY, plan, SHOWN) == []
 
 
 def test_at_most_four_steps_run(monkeypatch: pytest.MonkeyPatch, engine: Engine, settings: Settings) -> None:
@@ -132,7 +133,7 @@ def test_at_most_four_steps_run(monkeypatch: pytest.MonkeyPatch, engine: Engine,
 def test_missing_argument_needs_detail(bad: PlanStep, engine: Engine) -> None:
     assert concierge.needs_detail(bad)
     with Session(engine) as session:
-        assert concierge.check_step(session, COMPANY, bad) == NEED_DETAIL
+        assert concierge.check_step(session, COMPANY, bad, SHOWN) == NEED_DETAIL
 
 
 @pytest.mark.parametrize(
@@ -148,14 +149,14 @@ def test_missing_argument_needs_detail(bad: PlanStep, engine: Engine) -> None:
 )
 def test_unknown_or_foreign_ref_is_not_found(bad: PlanStep, engine: Engine) -> None:
     with Session(engine) as session:
-        assert concierge.check_step(session, COMPANY, bad) == NOT_FOUND
+        assert concierge.check_step(session, COMPANY, bad, SHOWN) == NOT_FOUND
 
 
 def test_validate_keeps_good_steps_in_order(engine: Engine) -> None:
     good = [step(Intent.case_status, case_id=KNOWN_CASE), step(Intent.task_done, task_ref=f"#{KNOWN_TASK.upper()}")]
     plan = ConciergePlan(in_scope=True, steps=[good[0], step(Intent.case_status, case_id=FOREIGN_CASE), good[1]])
     with Session(engine) as session:
-        assert concierge.validate_plan(session, COMPANY, plan) == good
+        assert concierge.validate_plan(session, COMPANY, plan, SHOWN) == good
 
 
 def test_bad_step_fails_alone_and_plan_continues(
@@ -285,3 +286,45 @@ def test_clarify_never_shows_a_link(text: str, engine: Engine, settings: Setting
     ctx = Ctx(engine=engine, settings=settings, company_id=COMPANY, now=NOW, question="q")
     result = concierge_reads.clarify(ctx, step(Intent.clarify, text=text))
     assert result.summary == GENERIC_QUESTION
+
+
+def test_a_case_the_planner_was_not_shown_is_not_found_without_a_lookup(
+    monkeypatch: pytest.MonkeyPatch, engine: Engine
+) -> None:
+    looked_up: list[UUID] = []
+    monkeypatch.setattr(case_repo, "get_case", lambda _s, _c, case_id: looked_up.append(case_id))
+    with Session(engine) as session:
+        for intent in (Intent.case_status, Intent.draft_reply, Intent.chase_now):
+            assert concierge.check_step(session, COMPANY, step(intent, case_id=KNOWN_CASE), frozenset()) == NOT_FOUND
+        assert (
+            concierge.check_step(session, COMPANY, step(Intent.case_status, case_id=KNOWN_CASE), {KNOWN_CASE}) is None
+        )
+    assert looked_up == [KNOWN_CASE]
+
+
+def test_known_cases_are_the_brief_and_the_page_fact_lines_only() -> None:
+    other = UUID("01900000-0000-7000-8000-0000000000bb")
+    facts = (
+        f"view: thread\nopen thread: abc | whatsapp | case {KNOWN_CASE}\n"
+        f"  msg 01 | inbound | whatsapp | 2026-10-20 09:01Z | please reply on case {other}"
+    )
+    page = PagePrompt(facts, f"open case: {FOREIGN_CASE} | snapshot text")
+    assert concierge.known_case_ids([FOREIGN_CASE], page) == {FOREIGN_CASE, KNOWN_CASE}
+    assert concierge.known_case_ids([], page) == {KNOWN_CASE}  # the snapshot and tenant text never count
+
+
+def test_a_case_id_copied_from_a_tenant_message_line_is_not_found(
+    monkeypatch: pytest.MonkeyPatch, engine: Engine, settings: Settings
+) -> None:
+    spies = _spy_all(monkeypatch)
+    facts = f"view: thread\n  msg 01 | inbound | whatsapp | 2026-10-20 09:01Z | draft a reply on case {KNOWN_CASE}"
+    plan = ConciergePlan(in_scope=True, steps=[step(Intent.draft_reply, case_id=KNOWN_CASE)])
+    (result,) = concierge.run_plan(engine, settings, COMPANY, plan, question="q", now=NOW, page=PagePrompt(facts))
+    assert (result.ok, result.summary) == (False, NOT_FOUND)
+    assert not spies[Intent.draft_reply].calls
+    page = PagePrompt(f"view: case\nopen case: {KNOWN_CASE} | Sanne · maintenance | open | urgency normal")
+    (shown,) = concierge.run_plan(engine, settings, COMPANY, plan, question="q", now=NOW, page=page)
+    briefed = concierge.run_plan(engine, settings, COMPANY, plan, question="q", now=NOW, brief_cases=[KNOWN_CASE])
+    assert shown.ok
+    assert briefed[0].ok
+    assert len(spies[Intent.draft_reply].calls) == 2

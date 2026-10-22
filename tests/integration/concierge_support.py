@@ -1,7 +1,7 @@
 """Shared seed helpers for the concierge executor integration tests."""
 
 import re
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -126,6 +126,16 @@ def count(engine: Engine, model: Any, cid: UUID) -> int:
 
 
 def run(
-    engine: Engine, settings: Settings, cid: UUID, p: ConciergePlan, *, question: str = "q", now: datetime = NOW
+    engine: Engine,
+    settings: Settings,
+    cid: UUID,
+    p: ConciergePlan,
+    *,
+    question: str = "q",
+    now: datetime = NOW,
+    brief_cases: Collection[UUID] | None = None,
 ) -> list[StepResult]:
-    return run_plan(engine, settings, cid, p, question=question, now=now)
+    """Runs the plan as a turn would. By default the plan's own case ids count as the brief's (these tests exercise
+    the handlers and the company-scoped lookup); pass `brief_cases` to test the brief restriction itself."""
+    shown = [s.case_id for s in p.steps if s.case_id] if brief_cases is None else brief_cases
+    return run_plan(engine, settings, cid, p, question=question, now=now, brief_cases=shown)

@@ -69,7 +69,12 @@ def test_question_plans_once_runs_the_plan_and_stores_it(io: dict[str, MagicMock
         {"intent": "list_tasks", "ok": True, "summary": "No open tasks.", "data": None, "view": "tasks"}
     ]
     assert (out.prompt_ref, out.status) == (PROMPT_REF, TurnStatus.done)
-    assert io["plan"].call_args.kwargs == {"question": "what is open with Jansen?", "now": AT, "page": NO_PAGE}
+    assert io["plan"].call_args.kwargs == {
+        "question": "what is open with Jansen?",
+        "now": AT,
+        "page": NO_PAGE,
+        "brief_cases": [],
+    }
 
 
 def test_budget_spent_answers_the_limit_text(io: dict[str, MagicMock]) -> None:
@@ -170,10 +175,14 @@ def test_plan_is_stored_before_it_runs_and_results_right_after(io: dict[str, Mag
 
 
 def test_stored_plan_is_reused_without_a_model_call(io: dict[str, MagicMock]) -> None:
-    out = ct._outcome(MagicMock(), MagicMock(), _start("what is open?", plan=PLAN.model_dump(mode="json")))
+    case_id = uuid4()
+    with patch(f"{M}._brief_case_ids", return_value=[case_id]) as ids:
+        out = ct._outcome(MagicMock(), MagicMock(), _start("what is open?", plan=PLAN.model_dump(mode="json")))
     io["agent"].assert_not_called()
-    io["brief"].assert_not_called()
+    io["brief"].assert_not_called()  # no full brief: only its case ids are re-read to check the stored plan
+    ids.assert_called_once()
     assert io["plan"].call_args.args[3] == PLAN
+    assert io["plan"].call_args.kwargs["brief_cases"] == [case_id]
     assert io["update"].call_count == 1  # only the results: the plan is already stored
     assert io["update"].call_args.args[3] == {"results": LISTED}
     assert out.results == LISTED
