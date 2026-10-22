@@ -94,7 +94,7 @@ def _link_exists(company_id: UUID, kind: DocLinkKind, ref_id: UUID) -> ColumnEle
     )
 
 
-def _filters(company_id: UUID, flt: DocFilter) -> list[ColumnElement[bool]]:
+def doc_filters(company_id: UUID, flt: DocFilter) -> list[ColumnElement[bool]]:
     conds: list[ColumnElement[bool]] = [DocumentRow.company_id == company_id]
     conds.append(DocumentRow.status == flt.status if flt.status else DocumentRow.status.in_(SEARCHABLE))
     if flt.doc_type:
@@ -141,7 +141,7 @@ def any_of(query: str) -> str:
     return " or ".join(dict.fromkeys(words)) or query
 
 
-def _tsquery(query: str) -> Any:
+def to_tsquery(query: str) -> Any:
     return func.websearch_to_tsquery("dutch", query).op("||")(func.websearch_to_tsquery("simple", query))
 
 
@@ -159,12 +159,12 @@ def _best_chunks(company_id: UUID, tsq: Any) -> Any:
 
 def _content_hits(session: Session, company_id: UUID, query: str, flt: DocFilter, limit: int) -> list[DocHit]:
     """Best chunk per document, ranked by `ts_rank_cd`, with a highlighted snippet from that chunk."""
-    best = _best_chunks(company_id, _tsquery(query))
+    best = _best_chunks(company_id, to_tsquery(query))
     snippet = func.ts_headline("dutch", best.c.text, func.websearch_to_tsquery("dutch", query), SNIPPET_OPTIONS)
     stmt = (
         select(DocumentRow, snippet, best.c.rank)
         .join(best, best.c.document_id == DocumentRow.id)
-        .where(*_filters(company_id, flt))
+        .where(*doc_filters(company_id, flt))
         .order_by(best.c.rank.desc(), DocumentRow.created_at.desc())
         .limit(limit)
     )
@@ -174,11 +174,11 @@ def _content_hits(session: Session, company_id: UUID, query: str, flt: DocFilter
 def top_passages(session: Session, company_id: UUID, question: str, flt: DocFilter = DocFilter(),  # noqa: B008
                  limit: int = 4) -> list[Passage]:  # fmt: skip
     """Best chunk of the best `limit` documents for a question (any word may match; most overlap ranks first)."""
-    best = _best_chunks(company_id, _tsquery(any_of(question)))
+    best = _best_chunks(company_id, to_tsquery(any_of(question)))
     stmt = (
         select(DocumentRow, best.c.text, best.c.rank)
         .join(best, best.c.document_id == DocumentRow.id)
-        .where(*_filters(company_id, flt))
+        .where(*doc_filters(company_id, flt))
         .order_by(best.c.rank.desc(), DocumentRow.created_at.desc())
         .limit(max(1, min(limit, MAX_HITS)))
     )
@@ -189,7 +189,7 @@ def _metadata_hits(session: Session, company_id: UUID, query: str, flt: DocFilte
                    limit: int) -> list[DocHit]:  # fmt: skip
     pattern = or_(*(col.icontains(query, autoescape=True) for col in (DocumentRow.title, DocumentRow.summary,
                                                                        DocumentRow.file_name)))  # fmt: skip
-    stmt = select(DocumentRow).where(*_filters(company_id, flt), pattern).order_by(DocumentRow.created_at.desc())
+    stmt = select(DocumentRow).where(*doc_filters(company_id, flt), pattern).order_by(DocumentRow.created_at.desc())
     return [_hit(d, None, 0.0) for d in session.scalars(stmt.limit(limit + len(skip))) if d.id not in skip][:limit]
 
 
@@ -206,7 +206,9 @@ def search_documents(session: Session, company_id: UUID, query: str, flt: DocFil
 
 def list_documents(session: Session, company_id: UUID, flt: DocFilter = DocFilter(),  # noqa: B008
                    limit: int = 20) -> list[DocHit]:  # fmt: skip
-    stmt = select(DocumentRow).where(*_filters(company_id, flt)).order_by(DocumentRow.created_at.desc(), DocumentRow.id)
+    stmt = (
+        select(DocumentRow).where(*doc_filters(company_id, flt)).order_by(DocumentRow.created_at.desc(), DocumentRow.id)
+    )
     return [_hit(d, None, 0.0) for d in session.scalars(stmt.limit(max(1, min(limit, MAX_HITS))))]
 
 
