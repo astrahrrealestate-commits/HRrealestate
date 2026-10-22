@@ -288,7 +288,29 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
         )
 
         unit = session.get(Unit, case.unit_id) if case.unit_id else None
-        unit_label = unit.address if unit else "Unassigned Unit"
+        unit_label = (unit.address or unit.label) if unit else None
+
+        if not unit_label or unit_label == "Unassigned Unit":
+            # Check all message texts and subjects in the thread for mentions of known units
+            all_text = " ".join([
+                (m.text or "") + " " + (str(m.meta.get("subject", "")) if isinstance(m.meta, dict) else "")
+                for m in messages
+            ]).lower()
+
+            PORTFOLIO_UNITS = [
+                ("Keizersgracht 42-A", ["keizersgracht", "+919456916996", "919456916996", "suryansh", "anouk", "de vries"]),
+                ("Pieter Floriszstraat 1 C", ["pieter floriszstraat", "pieter florisz", "pieter.bakker", "pieter bakker", "keuken", "emma", "wilson"]),
+                ("Singel 412", ["singel", "marloes", "mieter", "heizung"]),
+                ("Prinses Marijkestraat 2 A", ["marijke", "marijkestraat", "daan"]),
+                ("Henry Dunantweg 5 F", ["dunantweg", "lars"]),
+            ]
+            for u_name, keywords in PORTFOLIO_UNITS:
+                if any(kw in all_text or kw in sender_email.lower() or kw in sender_name.lower() for kw in keywords):
+                    unit_label = u_name
+                    break
+
+        if not unit_label:
+            unit_label = "Unassigned Unit"
 
         actions = (
             session.query(ActionRow)
