@@ -8,6 +8,7 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import ForeignKey, Index, String, Text, false, text
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.settings import EMBEDDING_DIMENSIONS
 from app.db.base import Base, CompanyScoped, str_enum
 from app.db.enums import DocumentStatus, TaskPriority, TaskStatus, WaitStatus
 
@@ -103,4 +104,6 @@ class DocumentRow(Base, CompanyScoped):
         default=False, server_default=false()
     )  # injection scan hit: not draft context
     index_version: Mapped[str | None] = mapped_column(String(8))  # chunking/embedding recipe of this document's chunks
-    doc_embedding: Mapped[Any | None] = mapped_column(Vector(1024))  # title + summary + parties + unit (ADR 0008)
+    doc_embedding: Mapped[Any | None] = mapped_column(
+        Vector(EMBEDDING_DIMENSIONS)
+    )  # title + summary + parties + unit (ADR 0008)

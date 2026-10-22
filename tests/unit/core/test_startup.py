@@ -19,6 +19,7 @@ REAL: dict[str, Any] = {
     "gmail_pubsub_topic": "projects/p/topics/gmail",
     "s3_bucket": "estateos-prod",
     "llm_model": "openai:gpt-4.1-mini",
+    "embedding_model": "openai:text-embedding-3-small",
     "openai_api_key": "sk-test",
     "drive_provider": "google",
     "dashboard_auth_provider": "google",
@@ -59,6 +60,7 @@ def test_defaults_are_fakes_and_fine_outside_prod() -> None:
         ({"whatsapp_api_base_url": None}, "whatsapp_api_base_url"),
         ({"s3_bucket": None}, "s3_bucket"),
         ({"llm_model": "fake"}, "llm_model"),
+        ({"embedding_model": "fake"}, "embedding_model"),
         ({"drive_provider": "fake"}, "drive_provider"),
         ({"dashboard_auth_provider": "fake"}, "dashboard_auth_provider"),
         ({"dashboard_session_secret": None}, "dashboard_session_secret"),
@@ -94,12 +96,31 @@ def test_llm_defaults_to_fake() -> None:
 
 def test_non_openai_model_needs_no_openai_key() -> None:
     assert_production_safe(
-        _s(env="prod", **{**REAL, "llm_model": "mistral:mistral-large-latest", "openai_api_key": None})
+        _s(
+            env="prod",
+            **{
+                **REAL,
+                "llm_model": "mistral:mistral-large-latest",
+                "embedding_model": "cohere:embed-multilingual-v3.0",
+                "openai_api_key": None,
+            },
+        )
     )
 
 
 def test_gemini_model_needs_its_key() -> None:
-    gemini = {**REAL, "llm_model": "google-gla:gemini-2.5-flash", "openai_api_key": None}
+    gemini = {
+        **REAL,
+        "llm_model": "google-gla:gemini-2.5-flash",
+        "embedding_model": "google-gla:gemini-embedding-001",
+        "openai_api_key": None,
+    }
     with pytest.raises(UnsafeConfigurationError, match="gemini_api_key"):
         assert_production_safe(_s(env="prod", **gemini))
     assert_production_safe(_s(env="prod", **{**gemini, "gemini_api_key": "g-test"}))
+
+
+def test_an_openai_embedding_model_needs_the_openai_key() -> None:
+    with pytest.raises(UnsafeConfigurationError, match="embedding_model is an openai model"):
+        assert_production_safe(_s(env="prod", **{**REAL, "llm_model": "google-gla:gemini-2.5-flash",
+                                                 "gemini_api_key": "g", "openai_api_key": None}))  # fmt: skip

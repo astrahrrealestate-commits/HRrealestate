@@ -9,10 +9,10 @@ from sqlalchemy import Computed, Float, ForeignKey, Index, String, Text, UniqueC
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.settings import EMBEDDING_DIMENSIONS
 from app.db.base import Base, CompanyScoped, str_enum
 from app.db.enums import DocLinkKind, ReorgItemStatus, ReorgPlanStatus
 
-EMBEDDING_DIMENSIONS = 1024  # text-embedding-3-small at 1024 dimensions; one size for every embedder (ADR 0008)
 _INDEXED = "coalesce(context, '') || ' ' || text"
 _TSV = f"to_tsvector('dutch'::regconfig, {_INDEXED}) || to_tsvector('simple'::regconfig, {_INDEXED})"
 

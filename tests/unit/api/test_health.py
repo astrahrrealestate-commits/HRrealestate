@@ -88,6 +88,7 @@ def test_prod_hides_docs_and_openapi(monkeypatch: pytest.MonkeyPatch, tmp_path: 
         gmail_pubsub_topic="projects/p/topics/gmail",
         s3_bucket="estateos-prod",
         llm_model="openai:gpt-4.1-mini",
+        embedding_model="openai:text-embedding-3-small",
         openai_api_key="sk-test",
         drive_provider="google",
         drive_credentials_file=creds,

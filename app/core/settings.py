@@ -10,6 +10,8 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 import app
 
+EMBEDDING_DIMENSIONS = 1024  # text-embedding-3-small at 1024 dimensions; the `vector` column size (ADR 0008)
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -34,6 +36,10 @@ class Settings(BaseSettings):
     # LLM agents (spec phase-1 agents). `fake` = deterministic offline models (app.llm.fakes); prod refuses it.
     llm_model: str = "fake"  # Pydantic AI model string, e.g. "openai:gpt-4.1-mini" or "google-gla:gemini-2.5-flash"
     llm_timeout_sec: float = 60.0
+    # Advanced retrieval (ADR 0008). `fake` = deterministic hashing embedder (tests, simulator); prod refuses it.
+    embedding_model: str = "fake"  # e.g. "openai:text-embedding-3-small" or "google-gla:gemini-embedding-001"
+    rag_query_rewrite: bool = True  # one small LLM call per question: keyword variants, HyDE passage, fact label
+    rag_rerank: bool = True  # listwise LLM rerank of the fused candidates
     llm_max_output_tokens: int = 4000  # structural cap per call, always on
     # Usage limits: None = unlimited (shipped disabled; set the env var to enable). Per company, UTC day/month.
     llm_daily_budget_usd: Decimal | None = None
