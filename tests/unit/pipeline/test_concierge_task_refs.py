@@ -15,7 +15,7 @@ from app.pipeline.work_repo import short_ref
 
 AT = datetime(2026, 10, 7, 9, 0, tzinfo=UTC)
 TASK_ID = UUID("0192f0a0-0000-7000-8000-00000000abc1")
-M = "app.pipeline.concierge_turns"
+M = "app.pipeline.concierge_brief"  # the brief's queries (concierge_turns._brief delegates to it)
 
 
 def _brief_tasks() -> list[str]:

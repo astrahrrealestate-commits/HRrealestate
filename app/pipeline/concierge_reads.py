@@ -15,6 +15,7 @@ from app.pipeline.concierge_base import NEED_DETAIL, Ctx, StepResult, failed, lo
 from app.pipeline.concierge_reply import screen_reply
 from app.pipeline.concierge_sanitize import normalise_query, safe_question
 from app.pipeline.read_repo import encode_thread_key
+from app.pipeline.turn_timings import ANSWER
 
 MAX_LISTED = 10
 MAX_HITS = 10
@@ -34,7 +35,8 @@ def answer(ctx: Ctx, step: PlanStep) -> StepResult:
             log.info("concierge.direct_reply", company_id=str(ctx.company_id))
             ctx.memo["answer"] = StepResult(step.intent, True, reply, None, None)
         else:
-            ctx.memo["answer"] = _owner_qa_answer(ctx, step)
+            with ctx.timer.measure(ANSWER):
+                ctx.memo["answer"] = _owner_qa_answer(ctx, step)
     return ctx.memo["answer"]
 
 

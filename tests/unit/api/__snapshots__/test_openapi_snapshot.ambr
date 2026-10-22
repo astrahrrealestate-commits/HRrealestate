@@ -2678,6 +2678,20 @@
             "title": "Text",
             "type": "string"
           },
+          "timings": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timings"
+          },
           "updated_at": {
             "format": "date-time",
             "title": "Updated At",

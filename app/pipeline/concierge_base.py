@@ -13,6 +13,7 @@ from app.contracts import Intent, PlanStep
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.llm.page_blocks import NO_PAGE, PagePrompt
+from app.pipeline.turn_timings import TurnTimer
 
 log = get_logger("app.pipeline.concierge")
 
@@ -44,6 +45,7 @@ class Ctx:
     turn_id: UUID | None = None  # with step_index, the key of an owner-requested redraft (None: no redraft)
     step_index: int = 0
     reply: str | None = None  # the plan's own answer (concierge/v3): the `answer` step screens and shows it
+    timer: TurnTimer = field(default_factory=TurnTimer)  # the turn's stage clock (answer_ms of an owner_qa call)
 
 
 Handler = Callable[[Ctx, PlanStep], StepResult]

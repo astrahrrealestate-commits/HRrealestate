@@ -175,3 +175,13 @@ def test_crlf_text_is_allowed(client: TestClient, wf: FakeClient) -> None:
         r = client.post(URL, json={"text": "one\r\ntwo?"}, headers=H)
     assert r.status_code == 202
     assert create.call_args.args[4] == "one\r\ntwo?"
+
+
+def test_conversation_turns_expose_their_timings_read_only(client: TestClient) -> None:
+    timed = _turn("timed")
+    timed.timings = {"queue_wait_ms": 40, "planner_ms": 900, "executor_ms": 12, "total_ms": 960, "attempts": 1}
+    untimed = _turn("before 0012")  # turns from before the column: null
+    with patch("app.api.v1.agent.read_turns.conversation_turns", return_value=[timed, untimed]):
+        body = client.get(f"/api/v1/agent/conversations/{uuid4()}").json()
+    assert body["turns"][0]["timings"] == timed.timings
+    assert body["turns"][1]["timings"] is None

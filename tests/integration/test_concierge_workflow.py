@@ -110,6 +110,11 @@ def test_question_plans_once_and_stores_plan_and_results(env: Env) -> None:
     assert row.answer
     assert row.prompt_ref == "concierge/v3"
     assert row.error is None
+    timings = row.timings or {}
+    assert {"queue_wait_ms", "planner_ms", "executor_ms", "total_ms", "attempts"} <= set(timings)
+    assert all(isinstance(v, int) and v >= 0 for v in timings.values())
+    assert timings["attempts"] == 1
+    assert "answer_ms" not in timings  # the plan's reply answered: no owner_qa call to time
 
 
 def test_budget_spent_turn_is_done_with_the_limit_answer(env: Env, test_settings: Settings) -> None:
@@ -222,11 +227,21 @@ def test_transient_executor_error_retry_reuses_the_stored_plan(env: Env, test_se
     assert mid.status is TurnStatus.running
     assert mid.plan is not None
     assert mid.results is None
+    assert mid.timings is not None
+    first_wait, first_planner = mid.timings["queue_wait_ms"], mid.timings["planner_ms"]
+    assert mid.timings["attempts"] == 1
     concierge_turns.run_turn(env.engine, test_settings, turn_id)  # the DBOS step retry
     row = _row(env, turn_id)
     assert (row.status, row.plan) == (TurnStatus.done, mid.plan)
     assert "Call plumber" in (row.answer or "")
     assert _calls(env, "concierge") == 1
+    assert row.timings is not None  # merged, never replaced: the first attempt's numbers survive the retry
+    assert (row.timings["attempts"], row.timings["queue_wait_ms"], row.timings["planner_ms"]) == (
+        2,
+        first_wait,
+        first_planner,
+    )
+    assert {"executor_ms", "total_ms"} <= set(row.timings)
 
 
 def test_symbols_only_are_answered_without_a_model(env: Env) -> None:
@@ -278,3 +293,13 @@ def test_api_enqueue_runs_the_turn_on_the_chat_queue(env: Env, test_settings: Se
     finally:
         client.destroy()
     assert _row(env, turn_id).status is TurnStatus.done
+
+
+def test_a_finished_turn_is_never_re_timed(env: Env, test_settings: Settings) -> None:
+    turn_id = _turn(env, "tasks")
+    concierge_turns.run_turn(env.engine, test_settings, turn_id)
+    done = _row(env, turn_id)
+    assert done.timings is not None
+    assert done.timings["attempts"] == 1
+    concierge_turns.run_turn(env.engine, test_settings, turn_id)  # a replayed step skips a done turn
+    assert _row(env, turn_id).timings == done.timings

@@ -3,7 +3,7 @@
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -78,6 +78,7 @@ def test_question_plans_once_runs_the_plan_and_stores_it(io: dict[str, MagicMock
         "page": NO_PAGE,
         "brief_cases": [],
         "turn_id": start.turn_id,  # keys an owner-requested redraft
+        "timer": ANY,  # the turn's stage clock (answer_ms of an owner_qa call)
     }
 
 

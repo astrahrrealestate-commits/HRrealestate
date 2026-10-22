@@ -143,6 +143,7 @@ def test_turn_poll_is_half_a_second_and_the_feed_keeps_its_rate() -> None:
     assert timedelta(seconds=2) == turn_events.OVERLAP
     assert events.tick_seconds(1.5, 0.5, turns=True) == 0.5
     assert events.tick_seconds(1.5, 0.5, turns=False) == 1.5  # no turn poller: the feed's own beat
+    assert events.tick_seconds(1.5, None, turns=True) == turn_events.TURN_POLL_SECONDS
 
 
 def test_feed_due_tolerates_a_sleep_that_wakes_slightly_early() -> None:

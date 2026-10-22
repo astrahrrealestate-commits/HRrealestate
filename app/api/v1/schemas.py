@@ -262,6 +262,9 @@ class TurnOut(BaseModel):
     answer: str | None
     created_at: AwareDatetime
     updated_at: AwareDatetime
+    # Stage milliseconds of the run (queue_wait_ms, page_resolve_ms, planner_ms, executor_ms, answer_ms, total_ms,
+    # attempts; any may be missing); null for turns from before they were recorded. Read-only diagnostics.
+    timings: dict[str, int] | None = None
 
 
 class ConversationOut(BaseModel):

@@ -54,4 +54,6 @@ class AgentTurn(Base, CompanyScoped):
     )
     prompt_ref: Mapped[str | None] = mapped_column(String(64))
     error: Mapped[str | None] = mapped_column(Text)
+    # Stage milliseconds of the run (migration 0012, `app.pipeline.turn_timings`): numbers only, merged on retries.
+    timings: Mapped[dict[str, Any] | None]
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())  # SSE turn cursor
