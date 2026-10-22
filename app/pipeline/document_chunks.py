@@ -1,52 +1,135 @@
-"""Split a document's extracted text into searchable chunks (M10). Pure, plus one idempotent insert."""
+"""Split a document's text into searchable chunks (ADR 0008). Pure.
 
-from uuid import UUID
+Pages come from the extractor (a form feed starts each page; a text with none is unpaged). A chunk is about 1,500
+characters, starts at a heading when there is one, overlaps its predecessor by about 200 characters so a clause cut
+at the boundary is whole in one of them, and remembers its page and the heading it sits under.
+"""
 
-from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.orm import Session
+import re
+from dataclasses import dataclass
 
-from app.db.models import DocumentChunk
+TARGET = 1500
+OVERLAP = 200
+MIN_CHUNK = 300
+PAGE_BREAK = "\f"
+_NUMBERED = re.compile(
+    r"^(?:(?:artikel|article|hoofdstuk|chapter|bijlage|appendix)\s+\d+\S*.*|\d+(?:\.\d+)*[.)]?\s+\S.*)$", re.I
+)
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 
-CHUNK_CHARS = 3200  # about 800 tokens
-MIN_TAIL = 400  # a shorter last piece is merged into the previous chunk
+
+@dataclass(frozen=True)
+class Chunk:
+    text: str
+    page: int | None
+    heading: str | None
 
 
-def chunk_text(text: str, size: int = CHUNK_CHARS) -> list[str]:
-    """Paragraph-aware split: chunks are at most `size` characters, never empty, in reading order."""
-    pieces: list[str] = []
+@dataclass(frozen=True)
+class _Unit:
+    text: str
+    page: int | None
+    heading: str | None
+    is_heading: bool = False
+
+
+def is_heading(line: str) -> bool:
+    """A short line that names a section: ALL CAPS, or numbered/`Artikel 4` style without sentence punctuation."""
+    s = line.strip()
+    if not 3 <= len(s) <= 80 or s.endswith((".", ",", ";", ":")):
+        return False
+    letters = [c for c in s if c.isalpha()]
+    if len(letters) >= 4 and sum(c.isupper() for c in letters) / len(letters) > 0.8:
+        return True
+    return bool(_NUMBERED.match(s))
+
+
+def _split_long(text: str) -> list[str]:
+    """A paragraph over the target is cut at sentence ends, then at spaces."""
+    if len(text) <= TARGET:
+        return [text]
+    parts: list[str] = []
     current = ""
-    for paragraph in (p.strip() for p in text.split("\n\n")):
-        while len(paragraph) > size:  # one huge paragraph: cut on whitespace near the limit
-            cut = paragraph.rfind(" ", 0, size)
-            if cut <= 0:
-                cut = size
-            if current:
-                pieces.append(current)
-                current = ""
-            pieces.append(paragraph[:cut].strip())
-            paragraph = paragraph[cut:].strip()
-        if not paragraph:
-            continue
-        if current and len(current) + len(paragraph) + 2 > size:
-            pieces.append(current)
-            current = paragraph
+    for sentence in _SENTENCE_END.split(text):
+        while len(sentence) > TARGET:
+            cut = sentence.rfind(" ", 0, TARGET)
+            cut = cut if cut > 0 else TARGET
+            parts.append(sentence[:cut].strip())
+            sentence = sentence[cut:].strip()
+        if current and len(current) + len(sentence) + 1 > TARGET:
+            parts.append(current)
+            current = sentence
         else:
-            current = f"{current}\n\n{paragraph}" if current else paragraph
+            current = f"{current} {sentence}".strip()
     if current:
-        pieces.append(current)
-    if len(pieces) > 1 and len(pieces[-1]) < MIN_TAIL and len(pieces[-2]) + len(pieces[-1]) + 2 <= size:
-        pieces[-2:] = [f"{pieces[-2]}\n\n{pieces[-1]}"]
-    return [p for p in pieces if p]
+        parts.append(current)
+    return [p for p in parts if p]
 
 
-def store_chunks(session: Session, company_id: UUID, document_id: UUID, text: str) -> int:
-    """Insert the chunks inside the caller's transaction; a repeat is a no-op (unique document_id + ord)."""
-    rows = [
-        {"company_id": company_id, "document_id": document_id, "ord": i, "text": piece}
-        for i, piece in enumerate(chunk_text(text))
-    ]
-    if rows:
-        session.execute(
-            insert(DocumentChunk).values(rows).on_conflict_do_nothing(index_elements=["document_id", "ord"])
-        )
-    return len(rows)
+def _flush(units: list[_Unit], block: list[str], page: int | None, heading: str | None) -> None:
+    body = "\n".join(block).strip()
+    block.clear()
+    units.extend(_Unit(part, page, heading) for part in _split_long(body) if part)
+
+
+def _units(text: str) -> list[_Unit]:
+    paged = PAGE_BREAK in text
+    pages = text.split(PAGE_BREAK)
+    if text.startswith(PAGE_BREAK):
+        pages = pages[1:]  # a leading break marks a paged text: the part before it is empty
+    units: list[_Unit] = []
+    heading: str | None = None
+    for number, page in enumerate(pages, start=1):
+        shown = number if paged else None
+        block: list[str] = []
+        for line in page.split("\n"):
+            if not line.strip():
+                _flush(units, block, shown, heading)
+            elif is_heading(line):
+                _flush(units, block, shown, heading)
+                heading = line.strip()[:200]
+                units.append(_Unit(heading, shown, heading, is_heading=True))
+            else:
+                block.append(line.strip())
+        _flush(units, block, shown, heading)
+    return units
+
+
+def _tail(text: str) -> str:
+    """The last ~OVERLAP characters of a chunk, from a word boundary."""
+    if len(text) <= OVERLAP:
+        return ""
+    cut = text.find(" ", len(text) - OVERLAP)
+    return text[cut + 1 :] if cut != -1 else ""
+
+
+def chunk_document(text: str) -> list[Chunk]:
+    """Heading- and page-aware chunks with overlap, in reading order. Empty text gives no chunks."""
+    chunks: list[Chunk] = []
+    current: list[str] = []
+    first: _Unit | None = None
+
+    def emit() -> None:
+        nonlocal current, first
+        body = "\n".join(current).strip()
+        if body and first is not None:
+            chunks.append(Chunk(body, first.page, first.heading))
+        current, first = ([_tail(body)] if _tail(body) else []), None
+
+    for unit in _units(text):
+        size = sum(len(t) + 1 for t in current)
+        if current and first is not None and size >= MIN_CHUNK and (unit.is_heading or size + len(unit.text) > TARGET):
+            emit()
+        if first is None:
+            first = unit
+        current.append(unit.text)
+    if first is not None and "\n".join(current).strip():
+        emit()
+    if (
+        len(chunks) > 1
+        and len(chunks[-1].text) < MIN_CHUNK
+        and len(chunks[-2].text) + len(chunks[-1].text) <= TARGET * 1.3
+    ):
+        last = chunks.pop()
+        chunks[-1] = Chunk(f"{chunks[-1].text}\n{last.text}", chunks[-1].page, chunks[-1].heading)
+    return chunks

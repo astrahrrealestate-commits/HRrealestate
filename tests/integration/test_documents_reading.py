@@ -249,3 +249,25 @@ def test_ocr_output_of_an_ordinary_document_is_not_kept_either(
     assert out["redacted"] is True
     assert "Kerkstraat" not in str(out)
     assert _attachment_row(migrated_engine, att).extracted_text is not None  # it lives on the attachment
+
+
+def test_chunks_carry_page_heading_and_the_contextual_header(
+    migrated_engine: Engine, fake_settings: Settings, storage: MemoryStorage, company_id: UUID
+) -> None:
+    body = (b"\fHUUROVEREENKOMST\nHuurder: Anna de Vries\nAdres: Kerkstraat 12-2\n\n"
+            b"Artikel 4 Waarborgsom\nDe waarborgsom is twee maanden.")  # fmt: skip
+    att = _attachment(migrated_engine, company_id, storage, "scan.pdf", "application/pdf", body)
+    _file(migrated_engine, fake_settings, storage, MemoryDrive(), company_id, att)
+    row = _doc(migrated_engine, att)
+    assert row.index_version == "r2"
+    with Session(migrated_engine) as session:
+        chunks = list(session.scalars(select(DocumentChunk).where(DocumentChunk.document_id == row.id)))
+    assert [c.page for c in chunks] == [1]
+    [chunk] = chunks
+    assert chunk.heading == "HUUROVEREENKOMST"  # a short document is one chunk: it opens under the first heading
+    assert chunk.context is not None
+    assert chunk.context.startswith("Lease agreement (lease,")
+    assert "Anna de Vries" in chunk.context
+    assert chunk.context.endswith("HUUROVEREENKOMST · p.1")
+    assert not chunk.text.startswith("Lease agreement")
+    assert chunk.embedding is None  # the embed step fills it

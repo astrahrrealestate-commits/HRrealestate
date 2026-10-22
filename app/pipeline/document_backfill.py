@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.settings import Settings
 from app.db.enums import DocumentStatus
 from app.db.models import DocumentRow
-from app.pipeline.document_chunks import store_chunks
+from app.pipeline.document_index import write_chunks
 from app.pipeline.document_links import link_document
 from app.pipeline.document_policy import looks_like_id
 from app.pipeline.document_reading import Reading, ReadInput, Unread, facts_columns, read_document
@@ -72,6 +72,6 @@ def backfill_document(engine: Engine, settings: Settings, storage: ObjectStorage
         session.execute(update(DocumentRow).where(mine).values(**facts_columns(reading)))
         row = session.scalar(select(DocumentRow).where(mine))
         if row is not None and reading.text:
-            store_chunks(session, company_id, row.id, reading.text)
+            write_chunks(session, row, reading.text, None)
     link_document(engine, company_id, attachment_id)
     return Outcome.read

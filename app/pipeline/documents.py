@@ -31,8 +31,8 @@ from app.db.enums import DocumentStatus
 from app.db.models import AttachmentRow, Case, CaseLink, Company, DocumentRow, MessageRow, Person
 from app.llm.agents.doc_classifier import DOC_CLASSIFIER, doc_classifier_prompt
 from app.llm.calls import CallContext, run_agent
-from app.pipeline.document_chunks import store_chunks
 from app.pipeline.document_drive import upload_planned
+from app.pipeline.document_index import new_chunks_needed, write_chunks
 from app.pipeline.document_layout import Placement, folder_path_v2, placement
 from app.pipeline.document_policy import (
     FileMeta,
@@ -102,7 +102,8 @@ def load_filing(engine: Engine, company_id: UUID, attachment_id: UUID) -> Filing
     return Filing(company_id, attachment_id, att.s3_key, meta, party, tz, msg.text, case_summary, existing, msg.id)
 
 
-def _upsert(engine: Engine, f: Filing, values: dict[str, object], text: str | None = None) -> DocumentRow:
+def _upsert(engine: Engine, f: Filing, values: dict[str, object], text: str | None = None,
+            unit_label: str | None = None) -> DocumentRow:  # fmt: skip
     """Insert, or replace a review/failed row (never a pending or final one); return the row that now stands.
     `text` is chunked into `document_chunks` in the same transaction (repeats are no-ops)."""
     stmt = insert(DocumentRow).values(company_id=f.company_id, attachment_id=f.attachment_id, **values)
@@ -114,8 +115,8 @@ def _upsert(engine: Engine, f: Filing, values: dict[str, object], text: str | No
     with Session(engine, expire_on_commit=False) as session, session.begin():
         session.execute(stmt)
         row = session.scalar(_row_query(f.company_id, f.attachment_id))
-        if row is not None and text:
-            store_chunks(session, f.company_id, row.id, text)
+        if row is not None and text and new_chunks_needed(row):  # a settled row keeps its chunks
+            write_chunks(session, row, text, unit_label)
     if row is None:  # the attachment id belongs to another company's row: unreachable after _load's scoping
         raise NotFoundError(f"document row for attachment {f.attachment_id} not in company {f.company_id}")
     return row
@@ -149,7 +150,7 @@ def _claim(engine: Engine, f: Filing, d: _Decision, reserved: str) -> DocumentRo
         f, DocumentStatus.pending, d.cls, party=found.tenant,
         drive_folder=folder, drive_file_id=reserved, model_call_id=d.call_id, **d.extra,
     )  # fmt: skip
-    return _upsert(engine, f, plan, d.text)
+    return _upsert(engine, f, plan, d.text, found.unit_label)
 
 
 def _owner_choice(f: Filing, doc_type: DocType) -> tuple[DocumentClassification, UUID | None]:

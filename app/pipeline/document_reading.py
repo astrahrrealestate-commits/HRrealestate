@@ -22,6 +22,7 @@ from app.db.enums import ExtractionStatus
 from app.db.models import AttachmentRow, ModelCall
 from app.llm.agents.doc_reader import DOC_OCR, DOC_READER, doc_reader_prompt
 from app.llm.calls import CallContext, run_agent
+from app.pipeline.document_index import document_text_for_prompt
 from app.pipeline.document_qa import strip_risky
 from app.pipeline.injection_scan import scan
 from app.storage.extract import Extraction, TextExtractor
@@ -128,7 +129,9 @@ def read_document(engine: Engine, settings: Settings, storage: ObjectStorage, ex
     text = attachment_text(engine, settings, storage, extractor, f.company_id, f.attachment_id)
     if isinstance(text, Unread):
         return text
-    prompt = doc_reader_prompt(f.filename, f.mime_type, f.size_bytes, f.sender, f.message_text, f.case_summary, text)
+    prompt = doc_reader_prompt(
+        f.filename, f.mime_type, f.size_bytes, f.sender, f.message_text, f.case_summary, document_text_for_prompt(text)
+    )
     try:
         result = run_agent(engine, settings, DOC_READER, prompt, CallContext(f.company_id, "doc_reader"))
     except (BudgetExceededError, AgentFailedError) as exc:

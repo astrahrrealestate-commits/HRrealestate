@@ -19,6 +19,7 @@ from app.db.enums import ExtractionStatus
 
 log = get_logger(__name__)
 
+PAGE_BREAK = "\f"  # a PDF text starts with one and has one before each page: chunks know their page
 MAX_BYTES = 15 * 1024 * 1024
 MAX_PAGES = 40
 MAX_CHARS = 200_000
@@ -59,10 +60,10 @@ def _pdf(data: bytes) -> Extraction:
         pages = len(reader.pages)
         if pages > MAX_PAGES:
             return _skipped("pypdf", f"over {MAX_PAGES} pages", pages=pages)
-        text = _clean("\n\n".join(page.extract_text() or "" for page in reader.pages))
+        text = PAGE_BREAK + PAGE_BREAK.join(_clean(page.extract_text() or "") for page in reader.pages)
     except (PyPdfError, ValueError, KeyError, OSError, RecursionError) as exc:
         return Extraction(ExtractionStatus.failed, None, None, "pypdf", note=f"{type(exc).__name__}"[:200])
-    if len(text) < MIN_CHARS_PER_PAGE * max(pages, 1):
+    if len(text.replace(PAGE_BREAK, "").strip()) < MIN_CHARS_PER_PAGE * max(pages, 1):
         return _skipped("pypdf", "scanned pdf, needs vision", needs_ocr=True, pages=pages)
     return Extraction(ExtractionStatus.done, text[:MAX_CHARS], pages, "pypdf")
 
@@ -109,7 +110,9 @@ class FakeExtractor:
     def extract(self, data: bytes, mime_type: str, filename: str | None) -> Extraction:
         if data.startswith(b"SCAN"):
             return _skipped("fake", "scan", needs_ocr=True)
-        text = _clean(data.decode("utf-8", errors="replace"))
+        raw = data.decode("utf-8", errors="replace")
+        text = _clean(raw)
         if not text:
             return _skipped("fake", "empty")
+        text = PAGE_BREAK + text if raw.startswith(PAGE_BREAK) else text  # a paged fake text keeps its page marks
         return Extraction(ExtractionStatus.done, text[:MAX_CHARS], 1, "fake")
