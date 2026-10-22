@@ -105,42 +105,37 @@ export function Composer({
     }
   };
 
-  // State 2: Sent state note with Undo for 30 seconds
-  if (isSent && undoSeconds > 0) {
-    const channelName = activeChannel === "gmail" ? "Gmail" : "WhatsApp";
-    const timeFormatted =
-      sentTimestamp ||
-      new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
-    return (
-      <div
-        className={cn(
-          "shrink-0 border-t border-[var(--line)] bg-[var(--pane)] px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center justify-between text-[13px] animate-in fade-in duration-150 select-none",
-          className
-        )}
-      >
-        <div className="flex items-center gap-2 text-[var(--ink-2)]">
-          <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" strokeWidth={2.5} />
-          <span>
-            Sent via {channelName} · <span className="font-mono">{timeFormatted}</span>
-          </span>
-          <span className="text-xs text-[var(--ink-3)] font-mono">({undoSeconds}s)</span>
-        </div>
-
-        <button
-          type="button"
-          onClick={handleUndo}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--accent-ink)] hover:underline cursor-pointer py-1 px-2 rounded hover:bg-[var(--selected)]"
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-          <span>Undo</span>
-        </button>
-      </div>
-    );
-  }
-
   // State 1: AI draft available
   const hasDraft = Boolean(draftText);
+
+  return (
+    <>
+      {/* Sent Status Banner (displays for 30s with Undo option) */}
+      {isSent && undoSeconds > 0 && (
+        <div
+          className={cn(
+            "shrink-0 border-t border-[var(--line)] bg-[var(--pane)] px-4 py-2.5 flex items-center justify-between text-[12.5px] animate-in fade-in duration-150 select-none",
+            className
+          )}
+        >
+          <div className="flex items-center gap-2 text-[var(--ink-2)]">
+            <Check className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" strokeWidth={2.5} />
+            <span>
+              Sent via {activeChannel === "gmail" ? "Gmail" : "WhatsApp"} · <span className="font-mono">{sentTimestamp || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+            </span>
+            <span className="text-[11px] text-[var(--ink-3)] font-mono">({undoSeconds}s)</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleUndo}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--accent-ink)] hover:underline cursor-pointer py-1 px-2 rounded hover:bg-[var(--selected)]"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Undo</span>
+          </button>
+        </div>
+      )}
 
   return (
     <>

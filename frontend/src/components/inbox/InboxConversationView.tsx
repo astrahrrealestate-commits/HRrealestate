@@ -77,7 +77,7 @@ export function InboxConversationView({
       setStagedDraftText(draft);
       setShowEarlier(false);
     }
-  }, [thread?.id, thread?.status, thread?.messages]);
+  }, [thread?.id, thread?.status, thread?.messages?.length]);
 
   // Scroll to bottom when messages update
   useEffect(() => {
