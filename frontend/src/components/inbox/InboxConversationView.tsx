@@ -11,6 +11,7 @@ import {
   ChevronDown,
   ChevronRight,
   Ticket,
+  Reply,
 } from "lucide-react";
 import { InboxThread, ThreadMessage } from "@/types/inbox";
 import { Avatar } from "@/components/ui/Avatar";
@@ -25,9 +26,9 @@ import { cn } from "@/lib/utils";
 interface InboxConversationViewProps {
   thread: InboxThread | null;
   onBack?: () => void;
-  onApproveDraft?: (threadId: string, draftText: string, channel: "whatsapp" | "gmail") => void;
+  onApproveDraft?: (threadId: string, draftText: string, channel: "whatsapp" | "gmail", replyToMessageId?: string) => void;
   onRejectDraft?: (threadId: string) => void;
-  onSendManualReply?: (threadId: string, replyText: string) => void;
+  onSendManualReply?: (threadId: string, replyText: string, replyToMessageId?: string) => void;
   onMarkDone?: (threadId: string) => void;
   className?: string;
 }
@@ -46,6 +47,7 @@ export function InboxConversationView({
   const [isSent, setIsSent] = useState(false);
   const [localMessages, setLocalMessages] = useState<ThreadMessage[]>([]);
   const [stagedDraftText, setStagedDraftText] = useState("");
+  const [replyingTo, setReplyingTo] = useState<{ id: string; text: string; sender: string } | null>(null);
   const timelineEndRef = useRef<HTMLDivElement>(null);
 
   // Sync thread messages to local state
@@ -134,10 +136,10 @@ export function InboxConversationView({
     }));
   };
 
-  const handleAcceptAndSend = (text: string, channel: string) => {
+  const handleAcceptAndSend = (text: string, channel: string, replyToMessageId?: string) => {
     const outboundChannel = (channel === "gmail" ? "gmail" : "whatsapp") as "whatsapp" | "gmail";
     if (onApproveDraft) {
-      onApproveDraft(thread.id, text, outboundChannel);
+      onApproveDraft(thread.id, text, outboundChannel, replyToMessageId);
     }
 
     // Add outgoing bubble to timeline immediately (Section 5.2)
@@ -150,9 +152,17 @@ export function InboxConversationView({
       timeFormatted: format(new Date(), "HH:mm"),
       body: text,
       channel: outboundChannel,
+      replyTo: replyingTo
+        ? {
+            id: replyingTo.id,
+            sender: replyingTo.sender,
+            text: replyingTo.text,
+          }
+        : undefined,
     };
     setLocalMessages((prev) => [...prev, newOutgoingMsg]);
     setIsSent(true);
+    setReplyingTo(null);
   };
 
   const handleReject = () => {
@@ -352,6 +362,16 @@ export function InboxConversationView({
                 // Outgoing bubble (right, white with 1px line border)
                 <div className="flex flex-col items-end space-y-1">
                   <div className="bg-[var(--pane)] border border-[var(--line)] text-[var(--ink)] rounded-2xl rounded-tr-xs px-4 py-2.5 max-w-[85%] sm:max-w-[75%] shadow-2xs">
+                    {msg.replyTo && (
+                      <div className="mb-2 pl-2.5 py-1 border-l-2 border-[var(--accent)] bg-[var(--selected)]/70 rounded-r text-xs text-left">
+                        <span className="font-semibold text-[11px] text-[var(--accent-ink)] block truncate">
+                          Replying to {msg.replyTo.sender}
+                        </span>
+                        <p className="text-[11.5px] text-[var(--ink-2)] line-clamp-2 italic truncate">
+                          "{msg.replyTo.text}"
+                        </p>
+                      </div>
+                    )}
                     <p className="text-[13.5px] leading-relaxed whitespace-pre-line select-text">
                       {msg.body}
                     </p>
@@ -386,13 +406,28 @@ export function InboxConversationView({
                 </div>
               ) : (
                 // Incoming bubble (left, --selected fill, no border)
-                <div className="flex flex-col items-start space-y-1">
-                  <div className="bg-[var(--selected)] text-[var(--ink)] rounded-2xl rounded-tl-xs px-4 py-2.5 max-w-[85%] sm:max-w-[75%]">
+                <div className="flex flex-col items-start space-y-1 group">
+                  <div className="relative bg-[var(--selected)] text-[var(--ink)] rounded-2xl rounded-tl-xs px-4 py-2.5 max-w-[85%] sm:max-w-[75%]">
                     <p className="text-[13.5px] leading-relaxed whitespace-pre-line select-text">
                       {msg.body}
                     </p>
-                    <div className="text-[11px] font-mono text-[var(--ink-3)] text-right mt-1">
-                      {displayTime}
+                    <div className="flex items-center justify-between gap-3 text-[11px] font-mono text-[var(--ink-3)] mt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReplyingTo({
+                            id: msg.id,
+                            text: msg.body?.slice(0, 80) || "",
+                            sender: msg.senderName || thread.senderName || "Tenant",
+                          });
+                        }}
+                        className="inline-flex items-center gap-1 text-[var(--ink-3)] hover:text-[var(--accent-ink)] transition-colors cursor-pointer"
+                        title="Quote and reply to this message"
+                      >
+                        <Reply className="w-3 h-3" />
+                        <span>Reply</span>
+                      </button>
+                      <span>{displayTime}</span>
                     </div>
                   </div>
 
@@ -473,9 +508,17 @@ export function InboxConversationView({
         }
         detectedLanguage={thread.detectedLanguage || "Dutch (detected)"}
         channel={thread.channel}
-        onAcceptAndSend={handleAcceptAndSend}
+        replyingTo={replyingTo}
+        onClearReplyingTo={() => setReplyingTo(null)}
+        onAcceptAndSend={(text, channel, replyId) => {
+          handleAcceptAndSend(text, channel, replyId);
+          setReplyingTo(null);
+        }}
         onReject={handleReject}
-        onSendManualReply={(text, channel) => handleAcceptAndSend(text, channel)}
+        onSendManualReply={(text, channel, replyId) => {
+          handleAcceptAndSend(text, channel, replyId);
+          setReplyingTo(null);
+        }}
         onUndo={handleUndo}
         isSent={isSent}
       />

@@ -11,9 +11,11 @@ export interface ComposerProps {
   drafts?: DraftOption[];
   detectedLanguage?: string;
   channel?: "whatsapp" | "gmail" | string;
-  onAcceptAndSend?: (text: string, channel: string) => void;
+  replyingTo?: { id: string; text: string; sender: string } | null;
+  onClearReplyingTo?: () => void;
+  onAcceptAndSend?: (text: string, channel: string, replyToMessageId?: string) => void;
   onReject?: () => void;
-  onSendManualReply?: (text: string, channel: string) => void;
+  onSendManualReply?: (text: string, channel: string, replyToMessageId?: string) => void;
   onUndo?: () => void;
   isSent?: boolean;
   sentTimestamp?: string;
@@ -25,7 +27,7 @@ export interface ComposerProps {
  * - Sticky at the bottom of the conversation, never scrolls away.
  * - State 1: AI draft ready with editable textarea, draft switcher tabs, Reject, Edit, Accept and send.
  * - State 2: Sent state ("✓ Sent via WhatsApp · 08:21 · Undo" for 30s).
- * - State 3: Normal reply input with channel switch and "Draft with AI".
+ * - State 3: Normal reply input with channel indicator and "Draft with AI".
  * - Mobile responsive: 16px font (no iOS zoom), full-height edit sheet, mobile button stack.
  */
 export function Composer({
@@ -33,6 +35,8 @@ export function Composer({
   drafts = [],
   detectedLanguage = "Dutch (detected)",
   channel = "whatsapp",
+  replyingTo = null,
+  onClearReplyingTo,
   onAcceptAndSend,
   onReject,
   onSendManualReply,
@@ -59,6 +63,13 @@ export function Composer({
     }
   }, [draftText, channel, drafts]);
 
+  // Focus textarea when user quotes a message
+  useEffect(() => {
+    if (replyingTo) {
+      textareaRef.current?.focus();
+    }
+  }, [replyingTo]);
+
   // Handle sent state countdown
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -72,7 +83,7 @@ export function Composer({
 
   const handleAccept = () => {
     if (onAcceptAndSend) {
-      onAcceptAndSend(content, activeChannel);
+      onAcceptAndSend(content, activeChannel, replyingTo?.id);
       setIsSent(true);
       setUndoSeconds(30);
     }
@@ -98,8 +109,11 @@ export function Composer({
   const handleSendNormal = () => {
     if (!content.trim()) return;
     if (onSendManualReply) {
-      onSendManualReply(content, activeChannel);
+      onSendManualReply(content, activeChannel, replyingTo?.id);
       setContent("");
+      if (onClearReplyingTo) {
+        onClearReplyingTo();
+      }
       setIsSent(true);
       setUndoSeconds(30);
     }
@@ -202,45 +216,54 @@ export function Composer({
             </button>
           </div>
         ) : (
-          /* Normal Reply Header: Channel switch */
+          /* Normal Reply Header: Channel Indicator */
           <div className="flex items-center justify-between text-xs">
-            <div className="flex items-center gap-1 bg-[var(--bg)] p-0.5 rounded-[var(--radius-ctl)] border border-[var(--line)]">
-              <button
-                type="button"
-                onClick={() => setActiveChannel("whatsapp")}
-                className={cn(
-                  "inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors",
-                  activeChannel === "whatsapp"
-                    ? "bg-[var(--pane)] text-[var(--ink)] font-semibold shadow-2xs"
-                    : "text-[var(--ink-3)] hover:text-[var(--ink)]"
-                )}
-              >
-                <MessageSquare className="w-3 h-3 text-emerald-600" />
-                <span>WhatsApp</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveChannel("gmail")}
-                className={cn(
-                  "inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors",
-                  activeChannel === "gmail"
-                    ? "bg-[var(--pane)] text-[var(--ink)] font-semibold shadow-2xs"
-                    : "text-[var(--ink-3)] hover:text-[var(--ink)]"
-                )}
-              >
-                <Mail className="w-3 h-3 text-[var(--ink-3)]" />
-                <span>Gmail</span>
-              </button>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[var(--bg)] border border-[var(--line)] text-xs">
+              {activeChannel === "gmail" ? (
+                <>
+                  <Mail className="w-3.5 h-3.5 text-[var(--ink-3)]" />
+                  <span className="font-semibold text-[var(--ink)]">Gmail</span>
+                </>
+              ) : (
+                <>
+                  <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="font-semibold text-[var(--ink)]">WhatsApp</span>
+                </>
+              )}
             </div>
 
             <button
               type="button"
               onClick={() => setContent(draftText || "Hi, we received your message and will arrange an inspection today.")}
-              className="text-xs text-[var(--ink-2)] hover:text-[var(--accent-ink)] inline-flex items-center gap-1"
+              className="text-xs text-[var(--ink-2)] hover:text-[var(--accent-ink)] inline-flex items-center gap-1 cursor-pointer"
             >
               <Sparkles className="w-3 h-3 text-[var(--accent)]" />
               <span>Draft with AI</span>
             </button>
+          </div>
+        )}
+
+        {/* Quoted Message Preview if user selected a message to reply to */}
+        {replyingTo && (
+          <div className="flex items-start justify-between gap-2 p-2 px-3 rounded-[var(--radius-ctl)] bg-[var(--selected)] border-l-2 border-l-[var(--accent)] border border-[var(--line)] text-xs">
+            <div className="min-w-0">
+              <span className="font-semibold text-[var(--ink)] block truncate">
+                Replying to {replyingTo.sender}:
+              </span>
+              <p className="text-[var(--ink-2)] truncate line-clamp-1 italic text-[11.5px]">
+                "{replyingTo.text}"
+              </p>
+            </div>
+            {onClearReplyingTo && (
+              <button
+                type="button"
+                onClick={onClearReplyingTo}
+                className="p-1 rounded text-[var(--ink-3)] hover:text-[var(--ink)] hover:bg-[var(--pane)] shrink-0 cursor-pointer"
+                title="Cancel quote"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         )}
 

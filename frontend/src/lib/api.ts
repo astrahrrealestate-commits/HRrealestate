@@ -145,6 +145,7 @@ export async function getInboxThreads(
                   timeFormatted: m.timeFormatted || (m.timestamp || "Today"),
                   body: m.body || m.content || "",
                   channel: m.channel || channel,
+                  replyTo: m.replyTo,
                 }))
               : [
                   {
@@ -221,7 +222,8 @@ export async function syncGmailInbox(): Promise<{ synced: boolean; newMessages: 
 export async function approveInboxDraft(
   approvalId: string,
   choice: "d1" | "d2" | "d3" | "ok" = "d1",
-  editedText?: string
+  editedText?: string,
+  replyToMessageId?: string
 ): Promise<ApprovalDecideResponse> {
   try {
     const res = await fetch(`${BACKEND_BASE_URL}/api/inbox/approvals/${approvalId}/decide`, {
@@ -230,7 +232,11 @@ export async function approveInboxDraft(
         "Content-Type": "application/json",
         Accept: "application/json",
       },
-      body: JSON.stringify({ choice, edited_text: editedText || null }),
+      body: JSON.stringify({
+        choice,
+        edited_text: editedText || null,
+        reply_to_message_id: replyToMessageId || null,
+      }),
       signal: AbortSignal.timeout(25000), // Real Gmail API dispatch takes 5-8s
     });
 

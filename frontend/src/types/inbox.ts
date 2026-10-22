@@ -29,6 +29,11 @@ export interface ThreadMessage {
   body: string;
   bodyEnglish?: string;
   channel: ChannelType;
+  replyTo?: {
+    id?: string;
+    sender?: string;
+    text?: string;
+  };
   attachments?: Array<{
     name: string;
     size: string;

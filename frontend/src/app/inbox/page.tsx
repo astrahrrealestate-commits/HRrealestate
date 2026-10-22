@@ -113,12 +113,25 @@ function InboxContent() {
   const handleApproveDraft = async (
     threadId: string,
     draftText: string,
-    outboundChannel: "whatsapp" | "gmail"
+    outboundChannel: "whatsapp" | "gmail",
+    replyToMessageId?: string
   ) => {
     const targetThread = threads.find((t) => t.id === threadId);
     const approvalId = targetThread?.approvalId || targetThread?.id || threadId;
 
     const nowIso = new Date().toISOString();
+    let replyToObj: { id?: string; sender?: string; text?: string } | undefined = undefined;
+    if (replyToMessageId && targetThread?.messages) {
+      const qMsg = targetThread.messages.find((m) => m.id === replyToMessageId);
+      if (qMsg) {
+        replyToObj = {
+          id: qMsg.id,
+          sender: qMsg.senderName || "Tenant",
+          text: qMsg.body?.slice(0, 80) || "",
+        };
+      }
+    }
+
     const newMsg = {
       id: `out-${Date.now()}`,
       sender: "owner" as const,
@@ -128,6 +141,7 @@ function InboxContent() {
       timeFormatted: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       body: draftText,
       channel: outboundChannel,
+      replyTo: replyToObj,
     };
 
     setThreads((prev) =>
@@ -146,7 +160,7 @@ function InboxContent() {
     );
 
     try {
-      await approveInboxDraft(approvalId, "d1", draftText);
+      await approveInboxDraft(approvalId, "d1", draftText, replyToMessageId);
       showToast("Draft approved and sent via " + outboundChannel);
     } catch {
       showToast("Dispatched and logged to autonomous ledger.");
@@ -426,6 +440,9 @@ function InboxContent() {
               onBack={() => handleSelectThread("")}
               onApproveDraft={handleApproveDraft}
               onRejectDraft={handleRejectDraft}
+              onSendManualReply={(threadId, text, replyToId) => {
+                handleApproveDraft(threadId, text, activeThread?.channel || "whatsapp", replyToId);
+              }}
               onMarkDone={handleMarkDone}
             />
           </div>

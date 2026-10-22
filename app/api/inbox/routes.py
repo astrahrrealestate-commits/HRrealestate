@@ -34,6 +34,7 @@ class ApprovalDecideRequest(BaseModel):
     """Payload for Harjot's 1-click approval button decision."""
     choice: str = Field(default="d1", description="Choice button: d1, d2, d3, ok, edit, or reject")
     edited_text: str | None = Field(default=None, description="Optional edited text for the draft")
+    reply_to_message_id: str | None = Field(default=None, description="Optional message ID to quote in contextual reply")
 
 
 # Rich default seeds so the frontend displays complete live data even before first email webhook arrives
@@ -449,6 +450,7 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
                 act_payload = act_row.payload if act_row and isinstance(act_row.payload, dict) else {}
                 variants = act_payload.get("body_variants") or []
                 body_txt = variants[0] if variants else "Replied to tenant."
+                reply_to_info = act_payload.get("reply_to")
                 msgs_data.append({
                     "id": str(s.id),
                     "sender": "owner",
@@ -461,6 +463,7 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
                     "isIncoming": False,
                     "channel": s.channel.value if s.channel else "whatsapp",
                     "subject": "Reply to Tenant",
+                    "replyTo": reply_to_info,
                 })
         # Sort all messages chronologically
         msgs_data.sort(key=lambda x: x.get("sentAt", ""))
@@ -688,6 +691,21 @@ def decide_approval(
 
         if action:
             action.status = ActionStatus.executed
+            current_payload = dict(action.payload or {})
+            if req.edited_text:
+                current_payload["body_variants"] = [req.edited_text]
+            if req.reply_to_message_id:
+                try:
+                    quoted_msg = session.get(MessageRow, UUID(req.reply_to_message_id))
+                    if quoted_msg:
+                        current_payload["reply_to"] = {
+                            "id": str(quoted_msg.id),
+                            "sender": "Tenant",
+                            "text": (quoted_msg.text[:120] if quoted_msg.text else "").strip(),
+                        }
+                except Exception:
+                    pass
+            action.payload = current_payload
 
         if case:
             case.state = CaseState.waiting_on_third_party
@@ -783,7 +801,20 @@ def decide_approval(
                         is_within_24h = (now_utc - msg_sent_at).total_seconds() < 86400
 
                         # Build contextual reply if incoming message id exists
-                        quote_id = latest_msg.provider_msg_id if latest_msg and latest_msg.provider_msg_id and not latest_msg.provider_msg_id.startswith("wamid.FAKE") else None
+                        quote_id = None
+                        if req.reply_to_message_id:
+                            if req.reply_to_message_id.startswith("wamid.") or req.reply_to_message_id.startswith("msg_") or req.reply_to_message_id.startswith("sz_"):
+                                quote_id = req.reply_to_message_id
+                            else:
+                                try:
+                                    target_msg = session.get(MessageRow, UUID(req.reply_to_message_id))
+                                    if target_msg and target_msg.provider_msg_id and not target_msg.provider_msg_id.startswith("wamid.FAKE"):
+                                        quote_id = target_msg.provider_msg_id
+                                except Exception:
+                                    pass
+
+                        if not quote_id and latest_msg and latest_msg.provider_msg_id and not latest_msg.provider_msg_id.startswith("wamid.FAKE"):
+                            quote_id = latest_msg.provider_msg_id
 
                         if is_within_24h:
                             sz_payload: dict[str, Any] = {
