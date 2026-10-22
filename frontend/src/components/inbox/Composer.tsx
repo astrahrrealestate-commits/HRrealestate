@@ -136,9 +136,6 @@ export function Composer({
           </button>
         </div>
       )}
-
-  return (
-    <>
       <div
         className={cn(
           "shrink-0 border-t border-[var(--line)] bg-[var(--pane)] p-3 sm:p-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex flex-col gap-2.5 select-none",
