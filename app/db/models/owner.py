@@ -16,7 +16,11 @@ class Approval(Base, CompanyScoped):
     """One request to the owner for one draft version. The sender acts only on an approved, version-matching row."""
 
     __tablename__ = "approvals"
+    __company_id_leading_index__ = True
     __table_args__ = (
+        # Newest approval created / decided per company: page pre-warm freshness (migration 0016)
+        Index(None, "company_id", "created_at"),
+        Index(None, "company_id", "decided_at"),
         # At most one live approval per draft version: a retried "ask owner" step cannot double-prompt Harjot.
         # Expired/rejected/edited rows may repeat so the owner can be re-asked.
         Index(

@@ -3,8 +3,10 @@
 `PUT /agent/page` resolves the validated page company-scoped with the turn's own resolver and stored shape
 (`concierge_page.resolved_value`) and upserts ONE `agent_page_state` row per owner. `create_turn` reuses those facts
 only when the message's page has the same `page_key`, the row is the same company's and owner's (from the session,
-never from client ids), and it was resolved at most `PAGE_TTL` before the turn's creation time (both on the
-database clock: `now()` of the turn's own transaction is its `created_at`). Otherwise the turn resolves as before.
+never from client ids), it was resolved at most `PAGE_TTL` before the turn's creation time (both on the database
+clock: `now()` of the turn's own transaction is its `created_at`), and nothing the facts are built from changed in
+the company since: no newer message, approval (created or decided) or case event (`latest_change`, with a small
+margin for writes racing the resolve). Otherwise the turn resolves as before; a failed read never fails the message.
 The snapshot and filters are never stored here: a turn always takes them from its message. The TTL applies at read
 time only; the single row per owner is overwritten by the next PUT, so the table does not grow. Reads are plain
 scoped SELECTs (no locks): a row overwritten in between is either still the same page (same facts) or a miss.
@@ -17,14 +19,14 @@ from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Engine, Insert, func, select
+from sqlalchemy import DateTime, Engine, Insert, Select, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.contracts import PageContext
 from app.core.ids import new_id
 from app.core.logging import get_logger
-from app.db.models import AgentPageState
+from app.db.models import AgentPageState, Approval, CaseEvent, MessageRow
 from app.pipeline import concierge_page
 from app.pipeline.concierge import is_transient
 
@@ -32,6 +34,7 @@ log = get_logger(__name__)
 PAGE_TTL = timedelta(seconds=120)
 CLOCK_SLACK = timedelta(seconds=5)  # a PUT whose transaction began just after the turn's: still the same page
 KEY_VERSION = "v1"
+FRESHNESS_MARGIN = timedelta(seconds=2)  # a write whose transaction began just before the resolve may be missing
 
 
 def page_key(page: PageContext) -> str:
@@ -57,6 +60,27 @@ def reusable(stored_key: str, resolved_at: datetime, key: str, now: datetime, tt
     return stored_key == key and -CLOCK_SLACK <= age <= ttl
 
 
+def unchanged_since(latest_change: datetime | None, resolved_at: datetime) -> bool:
+    """Nothing the facts are built from changed since they were resolved: no change at all, or the newest one
+    strictly older than `resolved_at - FRESHNESS_MARGIN`. Equal or inside the margin counts as changed (cold)."""
+    return latest_change is None or latest_change < resolved_at - FRESHNESS_MARGIN
+
+
+def latest_change(company_id: UUID) -> Select[datetime | None]:
+    """One statement: the company's newest message, approval created or decided, or case event (each a max() over
+    a (company_id, column) index, migration 0016). `greatest` ignores NULLs; NULL only when there are no rows."""
+    newest = [
+        select(func.max(column)).where(table_company == company_id).scalar_subquery()
+        for column, table_company in (
+            (MessageRow.created_at, MessageRow.company_id),
+            (Approval.created_at, Approval.company_id),
+            (Approval.decided_at, Approval.company_id),
+            (CaseEvent.created_at, CaseEvent.company_id),
+        )
+    ]
+    return select(func.greatest(*newest, type_=DateTime(timezone=True)))
+
+
 def _shape(value: Any) -> dict[str, Any] | None:
     """The stored value when it has the exact `resolved` shape of a successful resolution, else None."""
     if not isinstance(value, dict) or set(value) != {"facts", "dropped"} or not isinstance(value["facts"], str):
@@ -68,7 +92,7 @@ def _shape(value: Any) -> dict[str, Any] | None:
 
 
 def warm_resolved(session: Session, company_id: UUID, owner_id: UUID, page: PageContext) -> dict[str, Any] | None:
-    """This owner's warmed facts for exactly this page, when still fresh; None otherwise."""
+    """This owner's warmed facts for exactly this page, when still fresh and nothing changed since; else None."""
     row = session.execute(
         select(AgentPageState.page_key, AgentPageState.resolved_at, AgentPageState.resolved, func.now()).where(
             AgentPageState.company_id == company_id, AgentPageState.owner_id == owner_id
@@ -79,14 +103,25 @@ def warm_resolved(session: Session, company_id: UUID, owner_id: UUID, page: Page
     stored_key, resolved_at, resolved, now = row
     if not reusable(stored_key, resolved_at, page_key(page), now):
         return None
+    if not unchanged_since(session.scalar(latest_change(company_id)), resolved_at):
+        return None
     return _shape(resolved)
 
 
 def turn_page_context(session: Session, company_id: UUID, owner_id: UUID, page: PageContext) -> dict[str, Any]:
     """The `page_context` a new turn stores: the message's validated page (its own snapshot and filters), plus the
-    warmed facts under `resolved` when they match, so the run skips resolving exactly as a retry does."""
+    warmed facts under `resolved` when they match, so the run skips resolving exactly as a retry does. The read runs
+    in a savepoint: a non-transient failure (say, the table not migrated yet) logs its type and gives the cold value,
+    and the turn insert still works; transient errors propagate."""
     value = page.model_dump(mode="json")
-    resolved = warm_resolved(session, company_id, owner_id, page)
+    try:
+        with session.begin_nested():
+            resolved = warm_resolved(session, company_id, owner_id, page)
+    except Exception as exc:
+        if is_transient(exc):
+            raise
+        log.warning("dashboard.page_state_read_failed", company_id=str(company_id), error=type(exc).__name__)
+        return value
     return value if resolved is None else {**value, concierge_page.RESOLVED: resolved}
 
 
@@ -101,20 +136,21 @@ def _upsert(company_id: UUID, owner_id: UUID, key: str, resolved: dict[str, Any]
               "resolved_at": stmt.excluded.resolved_at},
         where=(AgentPageState.company_id == stmt.excluded.company_id)
         & (AgentPageState.resolved_at <= stmt.excluded.resolved_at),
-    )  # fmt: skip
+    ).returning(AgentPageState.id)  # fmt: skip
 
 
 def warm(engine: Engine, company_id: UUID, owner_id: UUID, page: PageContext) -> bool:
     """Resolve and store the owner's page facts in one transaction (`resolved_at` = its start, so the facts are never
-    older than it says). Transient errors propagate (the route answers 503); any other error stores nothing and
-    returns False (the turn then resolves as usual)."""
+    older than it says). True when the row was written; False when the upsert guard kept the stored row (another
+    company's, or a newer resolution). Transient errors propagate (the route answers 503); any other error stores
+    nothing and returns False (the turn then resolves as usual)."""
     try:
         with Session(engine) as session, session.begin():
             resolved = concierge_page.resolved_value(session, company_id, page)
-            session.execute(_upsert(company_id, owner_id, page_key(page), resolved))
+            written = session.execute(_upsert(company_id, owner_id, page_key(page), resolved)).scalar_one_or_none()
     except Exception as exc:
         if is_transient(exc):
             raise
         log.error("dashboard.page_warm_failed", company_id=str(company_id), error=type(exc).__name__)
         return False
-    return True
+    return written is not None

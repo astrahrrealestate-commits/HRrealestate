@@ -46,6 +46,7 @@ class MessageRow(Base, CompanyScoped):
         Index(None, "pipeline_status", "pipeline_attempts"),  # hourly pipeline requeue sweep
         # Thread page scan (page_memory/page_facts: channel + thread key); expression index, migration 0012
         Index("ix_messages_company_channel_thread", "company_id", "channel", sql_text(THREAD_KEY_SQL)),
+        Index(None, "company_id", "created_at"),  # newest message per company: page pre-warm freshness (0016)
     )
 
     raw_event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("raw_events.id"), index=True)

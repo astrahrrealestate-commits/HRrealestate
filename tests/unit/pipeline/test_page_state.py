@@ -102,6 +102,7 @@ def test_the_ttl_is_120_seconds() -> None:
 def _session(row: tuple[Any, ...] | None) -> MagicMock:
     session = MagicMock()
     session.execute.return_value.one_or_none.return_value = row
+    session.scalar.return_value = None  # no company change since (freshness: test_page_state_freshness.py)
     return session
 
 

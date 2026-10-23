@@ -56,6 +56,8 @@ class CaseEvent(Base, CompanyScoped):
     """Append-only audit trail of a case."""
 
     __tablename__ = "case_events"
+    __company_id_leading_index__ = True
+    __table_args__ = (Index(None, "company_id", "created_at"),)  # newest event per company: pre-warm freshness (0016)
 
     case_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("cases.id"), index=True)
     kind: Mapped[CaseEventKind] = mapped_column(str_enum(CaseEventKind))
