@@ -18,10 +18,20 @@ import {
   X,
   History,
   CheckCheck,
+  Pencil,
+  Send,
+  Wrench,
+  MessageSquare,
+  Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TicketHistoryModal } from "@/components/maintenance/TicketHistoryModal";
-import { getMaintenanceTickets, approveMaintenanceTicket } from "@/lib/api";
+import { EditTicketModal } from "@/components/maintenance/EditTicketModal";
+import {
+  getMaintenanceTickets,
+  approveMaintenanceTicket,
+  updateMaintenanceTicket,
+} from "@/lib/api";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 
@@ -35,6 +45,7 @@ export interface MaintenanceTicket {
   category: "electrical" | "plumbing" | "heating" | "appliance" | "structural";
   contractorName: string;
   contractorTrade: string;
+  contractorPhone?: string;
   urgency: "emergency" | "high" | "normal" | "low";
   status: "pending_approval" | "dispatched" | "scheduled" | "completed";
   slaRemaining: string;
@@ -42,6 +53,9 @@ export interface MaintenanceTicket {
   poBudgetCap: string;
   reportedAt: string;
   notes: string;
+  originalMessage?: string;
+  tenantDraft?: string;
+  contractorDraft?: string;
 }
 
 const MOCK_MAINTENANCE_TICKETS: MaintenanceTicket[] = [
@@ -201,6 +215,7 @@ function MaintenanceContent() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState<boolean>(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isAskAgentOpen, setIsAskAgentOpen] = useState<boolean>(false);
   const [isMobile, setIsMobile] = useState<boolean>(false);
@@ -257,7 +272,7 @@ function MaintenanceContent() {
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
+    setTimeout(() => setToastMessage(null), 3500);
   };
 
   const handleSelectTicket = useCallback(
@@ -272,16 +287,62 @@ function MaintenanceContent() {
     [router]
   );
 
-  const handleApproveWorkOrder = async (id: string) => {
+  const handleSaveTicket = async (updated: MaintenanceTicket) => {
+    setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+    try {
+      await updateMaintenanceTicket(updated.ticketNumber || updated.id, {
+        issueTitle: updated.issueTitle,
+        unitLabel: updated.unitLabel,
+        urgency: updated.urgency,
+        contractorName: updated.contractorName,
+        contractorTrade: updated.contractorTrade,
+        contractorPhone: updated.contractorPhone,
+        poBudgetCap: updated.poBudgetCap,
+        notes: updated.notes,
+        contractorDraft: updated.contractorDraft,
+        tenantDraft: updated.tenantDraft,
+      });
+    } catch (err) {
+      console.warn("Failed to update ticket in backend:", err);
+    }
+  };
+
+  const handleApproveWorkOrder = async (
+    id: string,
+    options: { dispatchContractor?: boolean; notifyTenant?: boolean } = {
+      dispatchContractor: true,
+      notifyTenant: true,
+    }
+  ) => {
     const target = tickets.find((t) => t.id === id);
     if (!target) return;
 
     setTickets((prev) =>
       prev.map((t) => (t.id === id ? { ...t, status: "dispatched" } : t))
     );
-    showToast(`Work order for ${target.ticketNumber} approved and dispatched to ${target.contractorName}.`);
+
+    const parts: string[] = [];
+    if (options.dispatchContractor) {
+      parts.push(`Dispatched work order to ${target.contractorName}`);
+    }
+    if (options.notifyTenant) {
+      parts.push(`Confirmation sent to ${target.tenantName}`);
+    }
+    showToast(
+      parts.length > 0
+        ? `Ticket ${target.ticketNumber}: ${parts.join(" & ")}.`
+        : `Ticket ${target.ticketNumber} marked as dispatched.`
+    );
+
     try {
-      await approveMaintenanceTicket(target.ticketNumber || id);
+      await approveMaintenanceTicket(target.ticketNumber || id, {
+        approvalNote: "Authorized by Harjot Singh",
+        dispatchContractor: options.dispatchContractor ?? true,
+        notifyTenant: options.notifyTenant ?? true,
+        contractorMessage: target.contractorDraft,
+        tenantMessage: target.tenantDraft,
+        poBudgetCap: target.poBudgetCap,
+      });
     } catch {
       // Handled gracefully
     }
@@ -692,6 +753,16 @@ function MaintenanceContent() {
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditModalOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-[var(--ink)] bg-[var(--bg)] hover:bg-[var(--selected)] border border-[var(--line)] rounded-lg transition-colors cursor-pointer"
+                      title="Edit Ticket, Budget Cap, and Drafts"
+                    >
+                      <Pencil className="w-3.5 h-3.5 text-[var(--accent-ink)]" />
+                      <span>Edit Ticket</span>
+                    </button>
+
                     {(selectedTicket.urgency === "emergency" || selectedTicket.urgency === "high" || selectedTicket.isOverdue) && (
                       <UrgentLabel />
                     )}
@@ -699,32 +770,57 @@ function MaintenanceContent() {
                   </div>
                 </div>
 
-                {/* 2. Scrolling Body: Title, Reported line, plain italic tenant quote, compact 2-col grid */}
-                <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-5 space-y-5">
-                  {/* Title & Reporter */}
+                {/* 2. Scrolling Body: Clean, less boxy, full context */}
+                <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-5 space-y-5 text-xs">
+                  {/* Title & Reporter Header */}
                   <div>
                     <h2 className="font-heading font-bold text-[18px] sm:text-[20px] text-[var(--ink)] leading-snug tracking-tight">
                       {selectedTicket.issueTitle}
                     </h2>
-                    <p className="text-[12.5px] text-[var(--ink-3)] mt-1">
-                      Reported {selectedTicket.reportedAt} by {selectedTicket.tenantName} ({selectedTicket.tenantPhone})
+                    <p className="text-[12px] text-[var(--ink-3)] mt-1 flex items-center gap-2">
+                      <span>Reported {selectedTicket.reportedAt}</span>
+                      <span>·</span>
+                      <span className="font-medium text-[var(--ink-2)]">{selectedTicket.tenantName}</span>
+                      <span>·</span>
+                      <span className="font-mono">{selectedTicket.tenantPhone}</span>
                     </p>
                   </div>
 
-                  {/* Tenant message as plain italic text with NO enclosing box (Section 5.4 & 2.4 M5) */}
-                  <p className="text-[14px] text-[var(--ink-2)] italic leading-relaxed border-l-2 border-[var(--line)] pl-3.5 py-0.5 select-text">
-                    "{selectedTicket.notes}"
-                  </p>
+                  {/* Original Inbound Tenant Message (Clean, warm, non-boxy) */}
+                  <div className="rounded-2xl bg-[var(--bg)]/80 border border-[var(--line)]/70 p-4 space-y-2 select-text shadow-2xs">
+                    <div className="flex items-center justify-between text-[11px] font-semibold text-[var(--ink-3)]">
+                      <div className="flex items-center gap-1.5 text-[var(--ink-2)]">
+                        <MessageSquare className="w-3.5 h-3.5 text-blue-500" />
+                        <span>Inbound Tenant Distress Message</span>
+                      </div>
+                      <span className="text-[10px] font-mono uppercase bg-[var(--pane)] px-2 py-0.5 rounded border border-[var(--line)]">
+                        Original Message
+                      </span>
+                    </div>
+                    <p className="text-[13.5px] text-[var(--ink)] leading-relaxed italic">
+                      "{selectedTicket.originalMessage || selectedTicket.notes}"
+                    </p>
+                  </div>
 
-                  {/* Compact Two-Column Grid: Contractor, Budget cap, SLA, Unit (Section 5.4 & 2.4 M5) */}
-                  <div className="pt-2">
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)] block mb-2">
-                      Dispatch Details
-                    </span>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-3 p-3.5 bg-[var(--bg)] border border-[var(--line)] rounded-[var(--radius-ctl)] text-xs">
+                  {/* Compact Two-Column Grid: Contractor, Budget cap, SLA, Unit */}
+                  <div className="rounded-2xl bg-[var(--bg)]/50 border border-[var(--line)]/70 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--ink-3)]">
+                        Dispatch & PO Authorization
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditModalOpen(true)}
+                        className="text-[11px] font-semibold text-[var(--accent-ink)] hover:underline cursor-pointer"
+                      >
+                        Adjust Cap / Contractor
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3.5">
                       {/* Contractor */}
                       <div>
-                        <span className="text-[var(--ink-3)] block">Contractor</span>
+                        <span className="text-[var(--ink-3)] block text-[11px]">Assigned Contractor</span>
                         <div className="flex items-center justify-between gap-1 mt-0.5">
                           <span className="font-semibold text-[var(--ink)] text-[13px] truncate">
                             {selectedTicket.contractorName}
@@ -734,31 +830,34 @@ function MaintenanceContent() {
                             className="text-[11px] text-[var(--ink-2)] hover:text-[var(--accent-ink)] inline-flex items-center gap-0.5 font-medium shrink-0"
                             title="Open contractor thread in Inbox"
                           >
-                            <span>Message</span>
+                            <span>Chat</span>
                             <ArrowUpRight className="w-3 h-3" />
                           </Link>
                         </div>
-                        <span className="text-[var(--ink-3)] text-[11px]">{selectedTicket.contractorTrade}</span>
+                        <span className="text-[var(--ink-3)] text-[11px]">{selectedTicket.contractorTrade} · {selectedTicket.contractorPhone || "+31 6 55 43 21 00"}</span>
                       </div>
 
                       {/* Budget Cap */}
                       <div>
-                        <span className="text-[var(--ink-3)] block">Budget cap</span>
-                        <span className="font-semibold text-[var(--ink)] font-mono text-[13px] block mt-0.5">
-                          {selectedTicket.poBudgetCap}
-                        </span>
-                        <span className="text-[var(--ink-3)] text-[11px]">excl. BTW</span>
+                        <span className="text-[var(--ink-3)] block text-[11px]">Authorized PO Budget Cap</span>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="font-semibold text-[var(--ink)] font-mono text-[14px]">
+                            {selectedTicket.poBudgetCap}
+                          </span>
+                          <Shield className="w-3.5 h-3.5 text-emerald-600" />
+                        </div>
+                        <span className="text-[var(--ink-3)] text-[11px]">excl. BTW · Locked ceiling</span>
                       </div>
 
                       {/* SLA */}
                       <div>
-                        <span className="text-[var(--ink-3)] block">SLA</span>
+                        <span className="text-[var(--ink-3)] block text-[11px]">SLA Response Window</span>
                         <span
                           className={cn(
                             "font-mono text-[13px] block mt-0.5",
                             isSlaCritical(selectedTicket)
                               ? "font-semibold text-[var(--accent-ink)]"
-                              : "text-[var(--ink)]"
+                              : "text-[var(--ink)] font-medium"
                           )}
                         >
                           {selectedTicket.slaRemaining}
@@ -767,7 +866,7 @@ function MaintenanceContent() {
 
                       {/* Unit */}
                       <div>
-                        <span className="text-[var(--ink-3)] block">Unit</span>
+                        <span className="text-[var(--ink-3)] block text-[11px]">Property Unit</span>
                         <span className="font-medium text-[var(--ink)] text-[13px] block mt-0.5 truncate">
                           {selectedTicket.unitLabel}
                         </span>
@@ -775,43 +874,108 @@ function MaintenanceContent() {
                     </div>
                   </div>
 
-                  {/* Category & Contact meta */}
-                  <div className="text-xs text-[var(--ink-3)] space-y-1 pt-1">
-                    <p>
-                      Trade Category: <span className="text-[var(--ink)] capitalize font-medium">{selectedTicket.category}</span>
-                    </p>
-                    <p>
-                      Direct line: <span className="font-mono text-[var(--ink)]">{selectedTicket.tenantPhone}</span>
-                    </p>
+                  {/* Dual Outbound Drafts (Contractor Dispatch + Tenant Update) */}
+                  <div className="space-y-3 pt-1">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--ink-3)] block">
+                      Staged Outbound Communications
+                    </span>
+
+                    {/* 1. Contractor Work Order Dispatch Draft */}
+                    <div className="rounded-2xl border border-[var(--line)] bg-[var(--bg)]/80 p-4 space-y-2 select-text shadow-2xs">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <div className="flex items-center gap-1.5 font-semibold text-[var(--ink)]">
+                          <Wrench className="w-3.5 h-3.5 text-[var(--accent-ink)]" />
+                          <span>1. Work Order to Contractor ({selectedTicket.contractorName})</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsEditModalOpen(true)}
+                          className="text-[11px] font-semibold text-[var(--accent-ink)] hover:underline cursor-pointer"
+                        >
+                          Edit Draft
+                        </button>
+                      </div>
+                      <p className="text-[12.5px] text-[var(--ink-2)] leading-relaxed bg-[var(--pane)] p-3 rounded-xl border border-[var(--line)] font-sans">
+                        {selectedTicket.contractorDraft ||
+                          `Beste ${selectedTicket.contractorName}, spoedmelding voor ${selectedTicket.unitLabel}: ${selectedTicket.issueTitle}. Huurder ${selectedTicket.tenantName} (${selectedTicket.tenantPhone}). Geautoriseerd budgetplafond: ${selectedTicket.poBudgetCap}. Gelieve ETA te bevestigen.`}
+                      </p>
+                    </div>
+
+                    {/* 2. Tenant Status Update Reply Draft */}
+                    <div className="rounded-2xl border border-[var(--line)] bg-[var(--bg)]/80 p-4 space-y-2 select-text shadow-2xs">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <div className="flex items-center gap-1.5 font-semibold text-[var(--ink)]">
+                          <MessageSquare className="w-3.5 h-3.5 text-blue-500" />
+                          <span>2. Confirmation Reply to Tenant ({selectedTicket.tenantName})</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsEditModalOpen(true)}
+                          className="text-[11px] font-semibold text-[var(--accent-ink)] hover:underline cursor-pointer"
+                        >
+                          Edit Draft
+                        </button>
+                      </div>
+                      <p className="text-[12.5px] text-[var(--ink-2)] leading-relaxed bg-[var(--pane)] p-3 rounded-xl border border-[var(--line)] font-sans">
+                        {selectedTicket.tenantDraft ||
+                          `Beste ${selectedTicket.tenantName?.split(" ")[0] || "huurder"}, we hebben je melding over de ${selectedTicket.issueTitle.toLowerCase()} ontvangen. Onze ${selectedTicket.contractorTrade.toLowerCase()} ${selectedTicket.contractorName} is geautoriseerd en neemt z.s.m. contact op. Met vriendelijke groet, Harjot`}
+                      </p>
+                    </div>
                   </div>
                 </div>
 
-                {/* 3. Sticky Footer in Detail: Ghost "View full history" + Orange primary "Approve work order" (Section 5.4 & 2.4 M5) */}
-                <div className="shrink-0 p-4 border-t border-[var(--line)] bg-[var(--pane)] flex items-center justify-between gap-3 select-none pb-[calc(1rem+env(safe-area-inset-bottom))] lg:pb-4">
+                {/* 3. Sticky Footer in Detail: Full History + Dual or All-in-One Dispatch */}
+                <div className="shrink-0 p-4 border-t border-[var(--line)] bg-[var(--pane)] flex flex-wrap items-center justify-between gap-2.5 select-none pb-[calc(1rem+env(safe-area-inset-bottom))] lg:pb-4">
                   <Button
                     variant="ghost"
-                    size="default"
+                    size="sm"
                     onClick={() => setIsHistoryModalOpen(true)}
                     icon={<History className="w-4 h-4 text-[var(--ink-3)]" />}
                     className="text-xs border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)]"
                   >
-                    View full history
+                    History
                   </Button>
 
                   {selectedTicket.status === "pending_approval" ? (
-                    <Button
-                      variant="primary"
-                      size="default"
-                      onClick={() => handleApproveWorkOrder(selectedTicket.id)}
-                      icon={<CheckCheck className="w-4 h-4 text-[#0A0A0A]" />}
-                      className="text-xs"
-                    >
-                      Approve work order
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleApproveWorkOrder(selectedTicket.id, { dispatchContractor: false, notifyTenant: true })}
+                        className="text-xs border border-[var(--line)] hover:bg-[var(--selected)]"
+                        title="Send confirmation update to tenant only"
+                      >
+                        Notify Tenant
+                      </Button>
+
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleApproveWorkOrder(selectedTicket.id, { dispatchContractor: true, notifyTenant: false })}
+                        className="text-xs border border-[var(--line)] hover:bg-[var(--selected)] text-[var(--accent-ink)]"
+                        title="Send work order to contractor only"
+                      >
+                        Dispatch Contractor
+                      </Button>
+
+                      <Button
+                        variant="primary"
+                        size="default"
+                        onClick={() => handleApproveWorkOrder(selectedTicket.id, { dispatchContractor: true, notifyTenant: true })}
+                        icon={<CheckCheck className="w-4 h-4 text-[#0A0A0A]" />}
+                        className="text-xs font-bold"
+                        title="Authorize budget cap, dispatch contractor via WhatsApp, and confirm to tenant"
+                      >
+                        Approve & Dispatch Both
+                      </Button>
+                    </div>
                   ) : (
-                    <span className="text-xs text-[var(--ink-3)] font-medium pr-2">
-                      Order {selectedTicket.status.replace("_", " ")}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Order Dispatched & Tenant Notified</span>
+                      </span>
+                    </div>
                   )}
                 </div>
               </section>
@@ -830,6 +994,17 @@ function MaintenanceContent() {
           ticket={selectedTicket}
           isOpen={isHistoryModalOpen}
           onClose={() => setIsHistoryModalOpen(false)}
+          onShowToast={showToast}
+        />
+      )}
+
+      {/* Edit Ticket & Custom Outbound Messages Modal */}
+      {selectedTicket && (
+        <EditTicketModal
+          ticket={selectedTicket}
+          isOpen={isEditModalOpen}
+          onClose={() => setIsEditModalOpen(false)}
+          onSave={handleSaveTicket}
           onShowToast={showToast}
         />
       )}

@@ -22,6 +22,7 @@ import {
   getAutonomousLogs,
   getDashboardBriefing,
   syncGmailInbox,
+  approveMaintenanceTicket,
   ProspectiveInquiry,
 } from "@/lib/api";
 import { StalledItem, INITIAL_STALLED_ITEMS } from "@/components/today/UnresponsiveRadarCard";
@@ -53,6 +54,7 @@ export default function TodayPage() {
   const [isAskAgentOpen, setIsAskAgentOpen] = useState(false);
   const [isEmergencyExpanded, setIsEmergencyExpanded] = useState<boolean>(false);
   const [nudgedItemIds, setNudgedItemIds] = useState<Record<string, boolean>>({});
+  const [dispatchedEmergency005, setDispatchedEmergency005] = useState<boolean>(false);
 
   // Fetch live threads and dashboard data
   useEffect(() => {
@@ -424,8 +426,17 @@ export default function TodayPage() {
 
                     <button
                       type="button"
-                      onClick={() => router.push(`/inbox?thread=${topUrgentThread.id}`)}
+                      onClick={() => router.push("/maintenance?ticket=005")}
                       className="text-xs font-semibold text-[var(--ink)] hover:underline underline-offset-4 cursor-pointer"
+                      title="Open Maintenance Ticket in Hub"
+                    >
+                      Ticket #005 →
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/inbox?thread=${topUrgentThread.id}`)}
+                      className="text-xs font-semibold text-[var(--ink-2)] hover:text-[var(--ink)] hover:underline underline-offset-4 cursor-pointer"
                     >
                       Reply {tenantFirstName}
                     </button>
@@ -442,41 +453,99 @@ export default function TodayPage() {
                   </div>
                 </div>
 
-                {/* Collapsible Details Drawer (Plain minimalist 2-column key/value, zero cards in cards) */}
+                {/* Collapsible Details Drawer (Clean, less boxy, full context) */}
                 {isEmergencyExpanded && (
-                  <div className="border-t border-[var(--line)] bg-[var(--bg)]/60 px-5 py-4 space-y-3.5 text-xs animate-in fade-in duration-150">
+                  <div className="border-t border-[var(--line)] bg-[var(--bg)]/60 px-5 py-4 space-y-4 text-xs animate-in fade-in duration-150">
                     <div>
                       <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)] block mb-1">
-                        Reported Issue by {topUrgentThread.senderName}
+                        Reported Issue by {topUrgentThread.senderName} ({topUrgentThread.unitLabel})
                       </span>
-                      <p className="text-[13px] text-[var(--ink)] italic leading-relaxed font-serif pl-3 border-l-2 border-[var(--ink-3)]">
+                      <p className="text-[13.5px] text-[var(--ink)] italic leading-relaxed pl-3.5 border-l-2 border-[var(--accent)] select-text">
                         "{topUrgentThread.latestSnippet}"
                       </p>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-                      <div>
-                        <span className="text-[var(--ink-3)] block">Assigned Contractor</span>
-                        <span className="font-semibold text-[var(--ink)] text-[13px]">
-                          {contractorThread?.senderName || "Chahal Bouw Electricians"}
+                      <div className="bg-[var(--pane)] p-3 rounded-xl border border-[var(--line)]">
+                        <span className="text-[var(--ink-3)] block text-[11px]">Assigned Contractor</span>
+                        <span className="font-semibold text-[var(--ink)] text-[13px] block mt-0.5">
+                          {contractorThread?.senderName || "Chahal Bouw (Electrician)"}
                         </span>
-                        <span className="text-[11px] text-[var(--ink-3)] block">Arrival 11:30 CET</span>
+                        <span className="text-[11px] text-[var(--ink-3)] block mt-0.5">+31 6 88 12 34 56 · 11:30 CET</span>
                       </div>
 
-                      <div>
-                        <span className="text-[var(--ink-3)] block">Authorized Work Order</span>
-                        <span className="font-semibold text-[var(--ink)] text-[13px]">
-                          PO-005 (€ 650 cap)
+                      <div className="bg-[var(--pane)] p-3 rounded-xl border border-[var(--line)]">
+                        <span className="text-[var(--ink-3)] block text-[11px]">Authorized Work Order</span>
+                        <span className="font-semibold text-[var(--ink)] text-[13px] block mt-0.5">
+                          Ticket #005 (€ 650 cap)
                         </span>
-                        <span className="text-[11px] text-[var(--ink-3)] block">Lockbox PIN: 4182</span>
+                        <span className="text-[11px] text-[var(--ink-3)] block mt-0.5">Lockbox PIN: 4182</span>
                       </div>
 
-                      <div>
-                        <span className="text-[var(--ink-3)] block">Recommended Protocol</span>
-                        <span className="font-medium text-[var(--accent-ink)] text-[13px]">
-                          Dispatch Kevin & notify tenant
-                        </span>
-                        <span className="text-[11px] text-[var(--ink-3)] block">Both AI drafts waiting in Inbox</span>
+                      <div className="bg-[var(--pane)] p-3 rounded-xl border border-[var(--line)] flex flex-col justify-between">
+                        <div>
+                          <span className="text-[var(--ink-3)] block text-[11px]">Recommended Protocol</span>
+                          <span className="font-medium text-[var(--accent-ink)] text-[12.5px] block mt-0.5">
+                            Dispatch Kevin & notify tenant
+                          </span>
+                        </div>
+                        <Link
+                          href="/maintenance?ticket=005"
+                          className="text-[11px] font-bold text-[var(--ink)] hover:underline inline-flex items-center gap-1 mt-2"
+                        >
+                          <span>Review & Edit Work Order</span>
+                          <span>→</span>
+                        </Link>
+                      </div>
+                    </div>
+
+                    {/* Dual Staged Message Actions */}
+                    <div className="pt-2 border-t border-[var(--line)]/60 flex flex-wrap items-center justify-between gap-3">
+                      <div className="text-[12px] text-[var(--ink-2)]">
+                        {dispatchedEmergency005 ? (
+                          <span className="inline-flex items-center gap-1.5 font-semibold text-emerald-600">
+                            <Check className="w-4 h-4" />
+                            <span>Work order dispatched to Chahal Bouw & tenant Pieter notified</span>
+                          </span>
+                        ) : (
+                          <span>Both contractor work order and tenant confirmation are staged and ready.</span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => router.push("/maintenance?ticket=005")}
+                          className="px-3 py-1.5 rounded-lg border border-[var(--line)] text-xs font-medium text-[var(--ink)] hover:bg-[var(--selected)] transition-colors cursor-pointer"
+                        >
+                          Edit Ticket Details
+                        </button>
+
+                        {!dispatchedEmergency005 ? (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setDispatchedEmergency005(true);
+                              setToastMessage("Ticket #005: Work order dispatched to Chahal Bouw & tenant notified.");
+                              try {
+                                await approveMaintenanceTicket("005", {
+                                  dispatchContractor: true,
+                                  notifyTenant: true,
+                                });
+                              } catch {
+                                // Handled gracefully
+                              }
+                            }}
+                            className="px-3.5 py-1.5 rounded-lg bg-[var(--ink)] text-white text-xs font-bold hover:bg-[var(--ink)]/90 transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                          >
+                            <Check className="w-3.5 h-3.5 text-[var(--accent)]" />
+                            <span>Approve & Dispatch Both</span>
+                          </button>
+                        ) : (
+                          <span className="text-xs font-semibold text-emerald-600 px-3 py-1 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
+                            Dispatched
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>

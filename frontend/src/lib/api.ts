@@ -471,6 +471,7 @@ export interface MaintenanceTicket {
   category: "electrical" | "plumbing" | "heating" | "appliance" | "structural";
   contractorName: string;
   contractorTrade: string;
+  contractorPhone?: string;
   urgency: "emergency" | "high" | "normal" | "low";
   status: "pending_approval" | "dispatched" | "scheduled" | "completed";
   slaRemaining: string;
@@ -478,6 +479,9 @@ export interface MaintenanceTicket {
   poBudgetCap: string;
   reportedAt: string;
   notes: string;
+  originalMessage?: string;
+  tenantDraft?: string;
+  contractorDraft?: string;
 }
 
 export interface MaintenanceStats {
@@ -521,6 +525,36 @@ export async function getMaintenanceTickets(params: {
 }
 
 /**
+ * Updates a maintenance ticket's details, contractor, PO budget cap, or drafts.
+ * PATCH /api/maintenance/tickets/{ticket_id}
+ */
+export async function updateMaintenanceTicket(
+  ticketId: string,
+  updates: Partial<MaintenanceTicket>
+): Promise<{ ticket: MaintenanceTicket | null; success: boolean }> {
+  try {
+    const cleanId = ticketId.replace("#", "");
+    const res = await fetch(`${BACKEND_BASE_URL}/api/maintenance/tickets/${cleanId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(updates),
+      signal: AbortSignal.timeout(3500),
+    });
+
+    if (res.ok) {
+      const updated = await res.json();
+      return { ticket: updated, success: true };
+    }
+  } catch (err) {
+    console.warn("Failed to patch ticket in backend:", err);
+  }
+  return { ticket: null, success: false };
+}
+
+/**
  * Fetches ticket lifecycle audit history.
  * GET /api/maintenance/tickets/{ticket_id}/history
  */
@@ -552,14 +586,26 @@ export async function getTicketHistory(ticketId: string): Promise<{
   return { ticketNumber: ticketId, events: [], isLive: false };
 }
 
+export interface ApproveMaintenanceOptions {
+  approvalNote?: string;
+  dispatchContractor?: boolean;
+  notifyTenant?: boolean;
+  contractorMessage?: string;
+  tenantMessage?: string;
+  poBudgetCap?: string;
+}
+
 /**
- * Approves a maintenance work order dispatch.
+ * Approves a maintenance work order dispatch and/or notifies the tenant.
  * POST /api/maintenance/tickets/{ticket_id}/approve
  */
 export async function approveMaintenanceTicket(
   ticketId: string,
-  approvalNote?: string
-): Promise<{ status: string; ticketId: string; message: string }> {
+  options: ApproveMaintenanceOptions | string = {}
+): Promise<{ status: string; ticketId: string; message: string; contractorDispatched?: boolean; tenantNotified?: boolean }> {
+  const opts: ApproveMaintenanceOptions =
+    typeof options === "string" ? { approvalNote: options } : options;
+
   try {
     const cleanId = ticketId.replace("#", "");
     const res = await fetch(`${BACKEND_BASE_URL}/api/maintenance/tickets/${cleanId}/approve`, {
@@ -568,12 +614,26 @@ export async function approveMaintenanceTicket(
         "Content-Type": "application/json",
         Accept: "application/json",
       },
-      body: JSON.stringify({ approval_note: approvalNote || "Approved by Property Manager" }),
-      signal: AbortSignal.timeout(3000),
+      body: JSON.stringify({
+        approvalNote: opts.approvalNote || "Approved by Property Manager",
+        dispatchContractor: opts.dispatchContractor ?? true,
+        notifyTenant: opts.notifyTenant ?? true,
+        contractorMessage: opts.contractorMessage || null,
+        tenantMessage: opts.tenantMessage || null,
+        poBudgetCap: opts.poBudgetCap || null,
+      }),
+      signal: AbortSignal.timeout(4000),
     });
 
     if (res.ok) {
-      return await res.json();
+      const data = await res.json();
+      return {
+        status: data.status || "dispatched",
+        ticketId,
+        message: `Ticket ${ticketId} approved. Contractor dispatched and tenant confirmed.`,
+        contractorDispatched: data.contractorDispatched,
+        tenantNotified: data.tenantNotified,
+      };
     }
   } catch {
     // Offline fallback
@@ -583,6 +643,8 @@ export async function approveMaintenanceTicket(
     status: "dispatched",
     ticketId,
     message: `Ticket ${ticketId} approved. Contractor work order dispatched.`,
+    contractorDispatched: opts.dispatchContractor ?? true,
+    tenantNotified: opts.notifyTenant ?? true,
   };
 }
 

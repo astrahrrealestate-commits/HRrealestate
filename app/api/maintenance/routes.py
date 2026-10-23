@@ -34,6 +34,7 @@ class MaintenanceTicketItem(BaseModel):
     category: str = Field(description="electrical, plumbing, heating, appliance, structural")
     contractorName: str
     contractorTrade: str
+    contractorPhone: str | None = "+31 6 55 43 21 00"
     urgency: str = Field(description="emergency, high, normal, low")
     status: str = Field(description="pending_approval, dispatched, scheduled, completed")
     slaRemaining: str = Field(description="Remaining SLA time or overdue status")
@@ -41,6 +42,35 @@ class MaintenanceTicketItem(BaseModel):
     poBudgetCap: str = Field(description="Authorized PO budget cap in EUR")
     reportedAt: str
     notes: str
+    originalMessage: str | None = None
+    tenantDraft: str | None = None
+    contractorDraft: str | None = None
+
+
+class TicketUpdateRequest(BaseModel):
+    """Payload to edit ticket details, budget cap, assigned contractor, or draft messages."""
+    issueTitle: str | None = None
+    unitLabel: str | None = None
+    category: str | None = None
+    urgency: str | None = None
+    contractorName: str | None = None
+    contractorTrade: str | None = None
+    contractorPhone: str | None = None
+    poBudgetCap: str | None = None
+    notes: str | None = None
+    originalMessage: str | None = None
+    tenantDraft: str | None = None
+    contractorDraft: str | None = None
+
+
+class ApproveDispatchRequest(BaseModel):
+    """Owner decision payload authorizing dispatch to contractor and/or confirmation to tenant."""
+    approvalNote: str | None = None
+    dispatchContractor: bool = True
+    notifyTenant: bool = True
+    contractorMessage: str | None = None
+    tenantMessage: str | None = None
+    poBudgetCap: str | None = None
 
 
 class MaintenanceStats(BaseModel):
@@ -88,6 +118,8 @@ class ApproveDispatchResponse(BaseModel):
     ticketNumber: str
     authorizedPoBudget: str
     dispatchedTo: str
+    contractorDispatched: bool = True
+    tenantNotified: bool = True
     executedAt: str
 
 
@@ -106,6 +138,7 @@ DEFAULT_TICKETS = [
         "category": "electrical",
         "contractorName": "Chahal Bouw",
         "contractorTrade": "Electrician",
+        "contractorPhone": "+31 6 88 12 34 56",
         "urgency": "emergency",
         "status": "pending_approval",
         "slaRemaining": "38m SLA",
@@ -113,6 +146,9 @@ DEFAULT_TICKETS = [
         "poBudgetCap": "€ 650",
         "reportedAt": "Yesterday 22:10",
         "notes": "Fridge warming up after power tripped. Monteur Kevin assigned with 11:30 arrival window.",
+        "originalMessage": "Nog steeds geen stroom op de stopcontacten in de keuken sinds de kortsluiting. De koelkast begint warm te worden. Kan er vandaag iemand komen? Groet, Pieter",
+        "contractorDraft": "Beste Kevin (Chahal Bouw), spoedmelding voor Pieter Floriszstraat 1 C: Storing in keukengroep / aardlek. Huurder Pieter Bakker (+31 6 12 34 41 87) is aanwezig. Geautoriseerd budgetplafond: € 650. Sleutelkast pincode: 4182. Gelieve ETA te bevestigen.",
+        "tenantDraft": "Beste Pieter, we hebben je melding over de stroomstoring in de keuken ontvangen. Monteur Kevin van Chahal Bouw is zojuist geautoriseerd met een aankomsttijdstip rond 11:30. Houd de koelkast zo veel mogelijk gesloten om bederf te voorkomen. Met vriendelijke groet, Harjot",
     },
     {
         "id": "m-2",
@@ -124,6 +160,7 @@ DEFAULT_TICKETS = [
         "category": "plumbing",
         "contractorName": "Vermeer Loodgieters",
         "contractorTrade": "Plumber",
+        "contractorPhone": "+31 6 77 99 88 11",
         "urgency": "high",
         "status": "pending_approval",
         "slaRemaining": "1h 14m SLA",
@@ -131,6 +168,9 @@ DEFAULT_TICKETS = [
         "poBudgetCap": "€ 450",
         "reportedAt": "Today 07:45",
         "notes": "Water turned off at main valve. Tenant present after 17:00 for repair.",
+        "originalMessage": "De afvoerpijp van de wasmachine is gescheurd en lekt water over de vloer. Ik heb de hoofdkraan dichtgedraaid. Ik ben na 17:00 thuis voor herstel.",
+        "contractorDraft": "Beste Vermeer Loodgieters, reparatieverzoek voor Dorpsstraat 54 E: Gescheurde sifon / afvoerpijp wasmachine. Huurder Rick de Boer (+31 6 22 41 89 00) is na 17:00 aanwezig. Geautoriseerd budgetplafond: € 450. Gelieve beschikbaarheid te bevestigen.",
+        "tenantDraft": "Beste Rick, dank voor het direct dichtdraaien van de hoofdkraan. We hebben loodgieter Vermeer gecontacteerd voor reparatie na 17:00 vandaag. Met vriendelijke groet, Harjot",
     },
     {
         "id": "m-3",
@@ -142,6 +182,7 @@ DEFAULT_TICKETS = [
         "category": "heating",
         "contractorName": "Van Dijk CV & Verwarming",
         "contractorTrade": "Heating engineer",
+        "contractorPhone": "+31 6 33 44 55 66",
         "urgency": "emergency",
         "status": "scheduled",
         "slaRemaining": "Overdue 12m",
@@ -149,6 +190,9 @@ DEFAULT_TICKETS = [
         "poBudgetCap": "€ 550",
         "reportedAt": "Yesterday 18:30",
         "notes": "Water pressure dropped to 0.4 bar. Radiator bleed and pump repressurization scheduled.",
+        "originalMessage": "CV-ketel geeft foutcode F.22 en er is geen warm water meer. Druk staat op 0.4 bar.",
+        "contractorDraft": "Beste Van Dijk CV, ketelstoring Singel 412: Foutcode F.22, drukverlies. Huurder Marloes Jansen (+31 6 44 22 88 19). Budget: € 550. Spoed.",
+        "tenantDraft": "Beste Marloes, monteur van Van Dijk CV is onderweg voor hervullen en ontluchten van de ketel. Met vriendelijke groet, Harjot",
     },
     {
         "id": "m-4",
@@ -160,6 +204,7 @@ DEFAULT_TICKETS = [
         "category": "appliance",
         "contractorName": "KeukenExpert Amsterdam",
         "contractorTrade": "Appliance specialist",
+        "contractorPhone": "+31 6 11 22 33 44",
         "urgency": "normal",
         "status": "completed",
         "slaRemaining": "Resolved",
@@ -167,6 +212,9 @@ DEFAULT_TICKETS = [
         "poBudgetCap": "€ 480",
         "reportedAt": "12 Oct 14:15",
         "notes": "Ceramic element replaced. Tenant tested hob and signed digital completion slip.",
+        "originalMessage": "De keramische kookplaat linksvoor wordt niet meer heet.",
+        "contractorDraft": "KeukenExpert: vervanging keramisch verwarmingselement Prinses Marijkestraat 2 A afgerond.",
+        "tenantDraft": "Beste Daan, fijn dat de kookplaat weer naar behoren functioneert! Met vriendelijke groet, Harjot",
     },
 ]
 
@@ -285,23 +333,107 @@ def get_ticket_history(
     )
 
 
+@router.patch(
+    "/tickets/{ticket_id}",
+    response_model=MaintenanceTicketItem,
+    summary="Edit Maintenance Ticket Details & Drafts",
+    description="Allows Harjot to edit assigned contractor, PO cap, access notes, or modify the tenant/contractor drafted messages.",
+)
+def update_maintenance_ticket(
+    ticket_id: str,
+    payload: TicketUpdateRequest,
+    engine: Annotated[Engine, Depends(get_engine)],
+) -> MaintenanceTicketItem:
+    """Updates ticket in place and records an audit trail event."""
+    ticket = next((t for t in DEFAULT_TICKETS if t["id"] == ticket_id or t["ticketNumber"] == ticket_id or ticket_id in ["005", "5"]), None)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Maintenance ticket not found")
+
+    # Apply updates
+    updates = payload.model_dump(exclude_unset=True)
+    for field_name, value in updates.items():
+        if value is not None:
+            ticket[field_name] = value
+
+    # Append audit log event
+    now_str = datetime.now(UTC).strftime("%H:%M")
+    DEFAULT_HISTORY_EVENTS_005.append({
+        "id": f"ev-{len(DEFAULT_HISTORY_EVENTS_005) + 1}",
+        "timestamp": f"Today {now_str}",
+        "category": "audit",
+        "actor": "Harjot Singh (Owner)",
+        "actorType": "owner",
+        "title": "Maintenance ticket details edited by owner",
+        "description": f"Updated ticket #{ticket['ticketNumber']}: Contractor set to {ticket['contractorName']} ({ticket['contractorTrade']}), PO Cap: {ticket['poBudgetCap']}.",
+        "badge": "Edited by Owner",
+    })
+
+    log.info("maintenance.ticket_updated", ticket_id=ticket_id, ticketNumber=ticket["ticketNumber"])
+    return MaintenanceTicketItem(**ticket)
+
+
 @router.post(
     "/tickets/{ticket_id}/approve",
     response_model=ApproveDispatchResponse,
     summary="Approve Maintenance Dispatch & PO Cap",
-    description="Authorizes contractor dispatch and locks in the PO budget ceiling for emergency repairs.",
+    description="Authorizes contractor dispatch and/or tenant notification, updating ticket status to dispatched.",
 )
 def approve_ticket_dispatch(
     ticket_id: str,
-    engine: Annotated[Engine, Depends(get_engine)],
+    body: ApproveDispatchRequest = ApproveDispatchRequest(),
+    engine: Annotated[Engine, Depends(get_engine)] = None,
 ) -> ApproveDispatchResponse:
     """Executes owner authorization on a maintenance work order."""
     ticket = next((t for t in DEFAULT_TICKETS if t["id"] == ticket_id or t["ticketNumber"] == ticket_id), DEFAULT_TICKETS[0])
+
+    # Mark ticket as dispatched in backend
+    ticket["status"] = "dispatched"
+    if body.poBudgetCap:
+        ticket["poBudgetCap"] = body.poBudgetCap
+    if body.contractorMessage:
+        ticket["contractorDraft"] = body.contractorMessage
+    if body.tenantMessage:
+        ticket["tenantDraft"] = body.tenantMessage
+
+    now_str = datetime.now(UTC).strftime("%H:%M")
+
+    # Add contractor dispatch event to audit log
+    if body.dispatchContractor:
+        DEFAULT_HISTORY_EVENTS_005.append({
+            "id": f"ev-{len(DEFAULT_HISTORY_EVENTS_005) + 1}",
+            "timestamp": f"Today {now_str}",
+            "category": "contractor_po",
+            "actor": "Harjot Singh (Owner)",
+            "actorType": "owner",
+            "channel": "WhatsApp",
+            "title": f"Work order dispatched to {ticket['contractorName']}",
+            "description": body.contractorMessage or ticket.get("contractorDraft") or f"Work order sent to {ticket['contractorName']} ({ticket['contractorPhone']}). Budget cap: {ticket['poBudgetCap']}.",
+            "badge": f"{ticket['poBudgetCap']} Cap",
+            "stateChange": "pending_approval → dispatched",
+        })
+
+    # Add tenant notification event to audit log
+    if body.notifyTenant:
+        DEFAULT_HISTORY_EVENTS_005.append({
+            "id": f"ev-{len(DEFAULT_HISTORY_EVENTS_005) + 1}",
+            "timestamp": f"Today {now_str}",
+            "category": "message",
+            "actor": "EstateOS (Owner Approved)",
+            "actorType": "owner",
+            "channel": "WhatsApp / Email",
+            "title": f"Confirmation update dispatched to tenant {ticket['tenantName']}",
+            "description": body.tenantMessage or ticket.get("tenantDraft") or f"Tenant informed that {ticket['contractorName']} has been scheduled.",
+            "badge": "Tenant Notified",
+        })
+
+    log.info("maintenance.work_order_approved", ticket_id=ticket_id, contractor=ticket['contractorName'])
 
     return ApproveDispatchResponse(
         status="authorized",
         ticketNumber=ticket["ticketNumber"],
         authorizedPoBudget=ticket["poBudgetCap"],
         dispatchedTo=ticket["contractorName"],
+        contractorDispatched=body.dispatchContractor,
+        tenantNotified=body.notifyTenant,
         executedAt=datetime.now(UTC).isoformat(),
     )
