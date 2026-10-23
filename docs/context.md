@@ -1,6 +1,6 @@
 # Project context (auto)
 
-Generated: 2026-10-23T10:32:14.134Z
+Generated: 2026-10-23T11:10:27.651Z
 
 ## Detected stack
 
@@ -9,11 +9,12 @@ Generated: 2026-10-23T10:32:14.134Z
 
 ## Git
 
-- Branch: `d-dashboard`
-- HEAD: `ea9d3c9`
+- Branch: `main`
+- HEAD: `af426a5`
 
 ## Recent commits
 
+- `af426a5` feat(agent): memory and context layers, turn measurement, steerable-draft and page pre-warm follow-ups _(Aditya Jain, 2026-10-23)_
 - `ea9d3c9` chore(merge): origin/main (PR #8) into the development line _(Aditya Jain, 2026-10-23)_
 - `5cd860e` fix(tests): settle the five long-standing integration failures _(Aditya Jain, 2026-10-23)_
 - `2019cb6` docs: server-side freshness for page pre-warm, deferred ledger minors _(Aditya Jain, 2026-10-23)_
@@ -33,10 +34,10 @@ Generated: 2026-10-23T10:32:14.134Z
 - `50389fa` feat(rag): query planning with HyDE, fact-first route, listwise rerank with relevance floor and neighbour widening _(Aditya Jain, 2026-10-22)_
 - `881e8d7` feat(agent): single-call page answers with concierge v3 _(Aditya Jain, 2026-10-22)_
 - `f5637e7` feat(rag): hybrid retrieval with reciprocal rank fusion over words, chunk vectors and document vectors _(Aditya Jain, 2026-10-22)_
-- `e7750f1` feat(documents): embed step, reindex and vector refill in the backfill workflow _(Aditya Jain, 2026-10-22)_
 
 ## Inferred recent decisions
 
+- `af426a5` feat(agent): memory and context layers, turn measurement, steerable-draft and page pre-warm follow-ups
 - `5cd860e` fix(tests): settle the five long-standing integration failures
 - `8a70dde` fix(agent): server-side freshness for warmed page facts (migration 0016)
 - `6116fba` feat(agent): page pre-warm endpoint and agent_page_state (migration 0015)
@@ -51,20 +52,19 @@ Generated: 2026-10-23T10:32:14.134Z
 - `50389fa` feat(rag): query planning with HyDE, fact-first route, listwise rerank with relevance floor and neighbour widening
 - `881e8d7` feat(agent): single-call page answers with concierge v3
 - `f5637e7` feat(rag): hybrid retrieval with reciprocal rank fusion over words, chunk vectors and document vectors
-- `e7750f1` feat(documents): embed step, reindex and vector refill in the backfill workflow
 
 ## Hotspots
 
-- 52x — `docs/PROGRESS.md`
-- 21x — `pyproject.toml`
-- 20x — `docs/dashboard-api.md`
+- 53x — `docs/PROGRESS.md`
+- 22x — `pyproject.toml`
+- 21x — `docs/dashboard-api.md`
 - 20x — `app/core/settings.py`
-- 18x — `Makefile`
+- 19x — `Makefile`
 - 18x — `app/llm/fakes.py`
 - 18x — `.env.example`
 - 18x — `app/workflows/runtime.py`
+- 17x — `tests/unit/api/__snapshots__/test_openapi_snapshot.ambr`
 - 17x — `docs/superpowers/specs/2026-10-15-dashboard-super-agent-design.md`
-- 16x — `tests/unit/api/__snapshots__/test_openapi_snapshot.ambr`
 
 ## Top-level tree
 
@@ -110,6 +110,7 @@ Generated: 2026-10-23T10:32:14.134Z
 .hypothesis/constants/001a01a891e65c6f
 .hypothesis/constants/00c306c2503e3401
 .hypothesis/constants/00ec57e8486eaf7c
+.hypothesis/constants/018e5e84e3516ec0
 .hypothesis/constants/020b42d5c9ec5bd3
 .hypothesis/constants/025364ce523ac2e3
 .hypothesis/constants/0299ab0ecd7b9af7
@@ -132,12 +133,14 @@ Generated: 2026-10-23T10:32:14.134Z
 .hypothesis/constants/07a463fdfd5276cc
 .hypothesis/constants/07bc5cdea903258b
 .hypothesis/constants/08678ced6d7ac7a0
+.hypothesis/constants/0874b1af030e7f6e
 .hypothesis/constants/08dd16c58dfc12eb
 .hypothesis/constants/098e7a69d0ca8370
 .hypothesis/constants/09c642a734fa75e8
 .hypothesis/constants/0a0d80a90f43c58e
 .hypothesis/constants/0a402ed48b0ecc79
 .hypothesis/constants/0a6570335408273a
+.hypothesis/constants/0af5e4afddd2e894
 .hypothesis/constants/0b5ba5353bbc9d66
 .hypothesis/constants/0b6a7a1a0067f347
 .hypothesis/constants/0b6e81c36228c663
@@ -153,6 +156,7 @@ Generated: 2026-10-23T10:32:14.134Z
 .hypothesis/constants/0f39e532d13c7352
 .hypothesis/constants/0f653f19c429ef93
 .hypothesis/constants/0fc1c72bcd463bdf
+.hypothesis/constants/0fd3f300291e5a79
 .hypothesis/constants/10071e043e03df79
 .hypothesis/constants/10123237489c0b01
 .hypothesis/constants/101fbfc29d2d4be9
@@ -177,6 +181,7 @@ Generated: 2026-10-23T10:32:14.134Z
 .hypothesis/constants/1698903551872c03
 .hypothesis/constants/169bc0d237350095
 .hypothesis/constants/169e9c7b4e354eb3
+.hypothesis/constants/16aced8b0b6b7be8
 .hypothesis/constants/16d1427514f4f582
 .hypothesis/constants/17def00619196439
 .hypothesis/constants/17eecd6d28d38311
@@ -186,6 +191,7 @@ Generated: 2026-10-23T10:32:14.134Z
 .hypothesis/constants/18e8e4f038c394a2
 .hypothesis/constants/196704790a8481a7
 .hypothesis/constants/1984e5dce037d7af
+.hypothesis/constants/199f724890b76d48
 .hypothesis/constants/19a164300f00d55a
 .hypothesis/constants/1a44f4f101c24bed
 .hypothesis/constants/1a67cf06e4a6c2cf
@@ -263,10 +269,4 @@ Generated: 2026-10-23T10:32:14.134Z
 .hypothesis/constants/2f471a174830e478
 .hypothesis/constants/2f4c226a014c91ec
 .hypothesis/constants/3014283d9233d99f
-.hypothesis/constants/306f1403e79ae2e7
-.hypothesis/constants/30828794d1b5b326
-.hypothesis/constants/30a2c2f0b812185b
-.hypothesis/constants/30f0df4c8e4ac9b7
-.hypothesis/constants/316f8965a07ce7a7
-.hypothesis/constants/31d86fe1ccb0bf54
 ```
