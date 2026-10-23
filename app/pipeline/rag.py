@@ -11,6 +11,7 @@
 Planner and reranker failures degrade to the cheaper path and are never an error for the owner.
 """
 
+import re
 from dataclasses import dataclass, replace
 from uuid import UUID
 
@@ -37,12 +38,12 @@ KEEP_RELEVANCE = 2  # "helps" or better
 PER_DOC = 3
 MAX_PASSAGES = 6
 TYPE_BOOST = 1.15  # candidates of a kind the planner expects
-FACT_WORDS: dict[FactKind, tuple[str, ...]] = {
-    FactKind.monthly_rent: ("monthly_rent", "rent", "huur", "maandhuur", "kale_huur", "huurprijs"),
-    FactKind.deposit: ("deposit", "waarborgsom", "borg"),
-    FactKind.notice_period: ("notice", "opzeg"),
-    FactKind.lease_start: (),
-    FactKind.lease_end: (),
+FACT_WORDS: dict[FactKind, frozenset[str]] = {
+    FactKind.monthly_rent: frozenset({"rent", "huur", "maandhuur", "huurprijs", "huurbedrag"}),
+    FactKind.deposit: frozenset({"deposit", "waarborgsom", "borg", "borgsom"}),
+    FactKind.notice_period: frozenset({"notice", "opzegtermijn", "opzegging"}),
+    FactKind.lease_start: frozenset(),
+    FactKind.lease_end: frozenset(),
 }
 _FACT_DATES = {FactKind.lease_start: "start_date", FactKind.lease_end: "end_date"}
 
@@ -102,20 +103,27 @@ def rerank(
     return {c.chunk_id: scored.get(i, 0) for i, c in enumerate(cands, start=1)}
 
 
+def _label_words(label: str) -> set[str]:
+    """Whole words of a fact label (`monthly_rent` -> monthly, rent): "rent" never matches "current balance"."""
+    return set(re.findall(r"[a-z]+", fold(label)))
+
+
 def lookup_fact(session: Session, company_id: UUID, flt: DocFilter, kind: FactKind) -> FactAnswer | None:
     """The fact from the stored facts of the scoped, filed documents; None when absent or the documents disagree."""
     scope = replace(flt, status=DocumentStatus.filed, readable_only=True)
-    stmt = select(DocumentRow).where(*doc_filters(company_id, scope), DocumentRow.facts.is_not(None))
+    stmt = select(DocumentRow).where(
+        *doc_filters(company_id, scope), DocumentRow.facts.is_not(None), DocumentRow.doc_type == "lease"
+    )  # a fact answer is shown without quotes: only leases are trusted to hold these facts
     found: list[tuple[DocumentRow, str, str]] = []
     for doc in session.scalars(
         stmt.order_by(DocumentRow.document_date.desc().nulls_last(), DocumentRow.created_at.desc())
     ):
         facts = doc.facts or {}
-        if kind in _FACT_DATES and doc.doc_type == "lease" and facts.get(_FACT_DATES[kind]):
+        if kind in _FACT_DATES and facts.get(_FACT_DATES[kind]):
             found.append((doc, kind.value, str(facts[_FACT_DATES[kind]])))
             continue
         for fact in facts.get("key_facts", []):
-            if any(w in fold(fact["label"]) for w in FACT_WORDS[kind]):
+            if _label_words(fact["label"]) & FACT_WORDS[kind]:
                 found.append((doc, fact["label"], fact["value"]))
                 break
     if not found or len({value.lower() for _, _, value in found}) != 1:
@@ -199,33 +207,24 @@ def retrieve_context(engine: Engine, settings: Settings, company_id: UUID, quest
     return RagContext("hybrid" if passages else "none", passages, None, plan, len(cands), relevance is not None)
 
 
-def safe_hybrid(session: Session, company_id: UUID, question: str, flt: DocFilter,
-                embedder: TextEmbedder | None) -> list[Candidate]:  # fmt: skip
-    """Hybrid candidates with no language-model call. A failing embedding provider is not an error: the words list
-    answers alone (the same call without vectors)."""
-    try:
-        return hybrid_candidates(session, company_id, question, flt, embedder)
-    except Exception as exc:
-        if embedder is None or not is_transient(exc):
-            raise
-        log.warning("rag.embedder_degraded", company_id=str(company_id), reason=type(exc).__name__)
-        return hybrid_candidates(session, company_id, question, flt, None)
-
-
 def retrieve_cheap(session: Session, company_id: UUID, question: str, flt: DocFilter, embedder: TextEmbedder | None,
                    limit: int = 3) -> list[Passage]:  # fmt: skip
     """Hybrid passages with no language-model call: for every inbound message, where cost per message matters."""
-    cands = safe_hybrid(session, company_id, question, flt, embedder)
+    cands = hybrid_candidates(session, company_id, question, flt, embedder)
     picks = choose(cands[:RERANK_TOP], None)[:limit]
     return passages_from(session, company_id, picks) if picks else []
 
 
-def _highlights(session: Session, chunk_ids: list[UUID], query: str) -> dict[UUID, str]:
+def _highlights(session: Session, company_id: UUID, chunk_ids: list[UUID], query: str) -> dict[UUID, str]:
     """`«matched»` words in a short fragment of each chunk, for the chunks the words side recognises."""
     if not chunk_ids:
         return {}
     fragment = func.ts_headline("dutch", DocumentChunk.text, func.websearch_to_tsquery("dutch", query), SNIPPET_OPTIONS)
-    rows = session.execute(select(DocumentChunk.id, fragment).where(DocumentChunk.id.in_(chunk_ids)))
+    rows = session.execute(
+        select(DocumentChunk.id, fragment).where(
+            DocumentChunk.company_id == company_id, DocumentChunk.id.in_(chunk_ids)
+        )
+    )
     return {cid: " ".join(text.split()) for cid, text in rows if "«" in text}
 
 
@@ -234,11 +233,16 @@ def search_hybrid(session: Session, company_id: UUID, query: str, flt: DocFilter
     """The library's typed search: documents ranked by their best chunk across words and vectors, then by what they are
     called. No language-model call. The snippet is the opening of the best chunk (untrusted text)."""
     best: dict[UUID, Candidate] = {}
-    for c in safe_hybrid(session, company_id, query, flt, embedder):
+    for c in hybrid_candidates(session, company_id, query, flt, embedder):
         best.setdefault(c.document_id, c)
-    docs = {d.id: d for d in session.scalars(select(DocumentRow).where(DocumentRow.id.in_(list(best))))}
+    docs = {
+        d.id: d
+        for d in session.scalars(
+            select(DocumentRow).where(DocumentRow.company_id == company_id, DocumentRow.id.in_(list(best)))
+        )
+    }
     top = sorted(best.values(), key=lambda c: -c.score)[:limit]
-    marked = _highlights(session, [c.chunk_id for c in top], words_query(query))
+    marked = _highlights(session, company_id, [c.chunk_id for c in top], words_query(query))
     hits = [
         make_hit(docs[c.document_id], marked.get(c.chunk_id) or " ".join(c.text.split())[:240], c.score)
         for c in top

@@ -134,3 +134,31 @@ def test_stale_chunks_are_rebuilt_with_the_current_recipe_and_vectors_are_refill
     with Session(migrated_engine) as s:
         assert s.scalars(select(DocumentChunk.embedding).where(DocumentChunk.document_id == doc_id)).first() is None
     assert embed_document(migrated_engine, HashingEmbedder(), cid, doc_id) >= 2
+
+
+def test_identity_documents_are_never_reindexed_even_if_text_survived(
+    migrated_engine: Engine, settings: Settings, committed_company: Company
+) -> None:
+    from sqlalchemy import update
+
+    from app.db.models import AttachmentRow
+    from app.pipeline.document_backfill import reindex_document, stale_ids
+
+    cid, storage = committed_company.id, MemoryStorage()
+    att = _filed_the_old_way(migrated_engine, settings, storage, cid, LEASE)
+    with Session(migrated_engine) as s, s.begin():
+        s.execute(update(DocumentRow).where(DocumentRow.attachment_id == att).values(doc_type="id_document"))
+        s.execute(update(AttachmentRow).where(AttachmentRow.id == att).values(extracted_text="Paspoort nr 123456"))
+    doc_id = _doc(migrated_engine, att).id
+    assert stale_ids(migrated_engine, cid) == []
+    assert reindex_document(migrated_engine, cid, doc_id) == 0
+    assert _chunk_count(migrated_engine, doc_id) == 0
+    assert _doc(migrated_engine, att).index_version == "r2"  # settled, not stale forever
+
+
+def _chunk_count(engine: Engine, document_id: UUID) -> int:
+    with Session(engine) as s:
+        return int(
+            s.scalar(select(func.count()).select_from(DocumentChunk).where(DocumentChunk.document_id == document_id))
+            or 0
+        )

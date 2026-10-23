@@ -86,7 +86,7 @@ def stale_ids(engine: Engine, company_id: UUID, limit: int = BATCH) -> list[UUID
             select(DocumentRow.id)
             .join(AttachmentRow, AttachmentRow.id == DocumentRow.attachment_id)
             .where(DocumentRow.company_id == company_id, DocumentRow.status.in_(_TARGETS),
-                   AttachmentRow.extracted_text.is_not(None),
+                   DocumentRow.doc_type != "id_document", AttachmentRow.extracted_text.is_not(None),
                    (DocumentRow.index_version.is_(None)) | (DocumentRow.index_version != INDEX_VERSION))
             .order_by(DocumentRow.created_at).limit(limit)
         ))  # fmt: skip
@@ -108,6 +108,9 @@ def reindex_document(engine: Engine, company_id: UUID, document_id: UUID) -> int
             if doc
             else None
         )
-        if doc is None or not text:
+        if doc is None:
+            return 0
+        if not text or doc.doc_type == "id_document":  # nothing to index: settle it so it is not "stale" forever
+            doc.index_version = INDEX_VERSION
             return 0
         return write_chunks(session, doc, text, unit_label_of(session, company_id, document_id))

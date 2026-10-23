@@ -114,3 +114,24 @@ def test_a_provider_outage_propagates_and_a_rerun_finishes(
     assert _missing(migrated_engine, cid) >= 1
     embed_document(migrated_engine, HashingEmbedder(), cid, doc_id)
     assert _missing(migrated_engine, cid) == 0
+
+
+def test_a_reindex_during_embedding_is_not_overwritten_by_a_stale_document_vector(
+    migrated_engine: Engine, settings: Settings, committed_company: Company
+) -> None:
+    from sqlalchemy import update
+
+    cid = committed_company.id
+    doc_id = _filed(migrated_engine, settings, cid)
+
+    class Racy(HashingEmbedder):
+        def embed_documents(self, texts):  # type: ignore[no-untyped-def]
+            with Session(migrated_engine) as s, s.begin():  # the document is re-indexed while we embed
+                s.execute(update(DocumentRow).where(DocumentRow.id == doc_id).values(index_version="r1"))
+            return super().embed_documents(texts)
+
+    assert embed_documents_summary(migrated_engine, Racy(), cid, doc_id) == 0
+    with Session(migrated_engine) as s:
+        doc = s.get(DocumentRow, doc_id)
+        assert doc is not None
+        assert doc.doc_embedding is None

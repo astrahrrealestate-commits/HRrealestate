@@ -94,3 +94,26 @@ def test_a_model_sentence_with_a_figure_the_quotes_do_not_contain_is_left_out() 
         "De huur"
     )
     assert "1.250" not in render(DocAnswer(found=True, answer="De huur is EUR 1.250,00.", quotes=[]), amounts, [p])
+
+
+def test_refs_stay_distinct_for_documents_created_in_the_same_moment() -> None:
+    from uuid import UUID
+
+    a = Passage(UUID("01a2b300-0000-7000-8000-000000000001"), "Lease A", "lease", date(2026, 1, 1),
+                "De waarborgsom is twee maanden kale huur.", 0.5)  # fmt: skip
+    b = Passage(UUID("01a2b300-0000-7000-8000-000000000002"), "Lease B", "lease", date(2026, 1, 1),
+                "De waarborgsom is drie maanden kale huur.", 0.5)  # fmt: skip
+    assert ref_of(a) != ref_of(b)  # UUIDv7 ids share their first bytes: the ref must hash the whole id
+    answer = DocAnswer(found=True, answer="", quotes=[
+        DocQuote(doc_ref=ref_of(a), text="De waarborgsom is twee maanden kale huur."),
+        DocQuote(doc_ref=ref_of(b), text="De waarborgsom is drie maanden kale huur."),
+    ])  # fmt: skip
+    assert {q.document_id for q in verify_quotes(answer, [a, b])} == {a.document_id, b.document_id}
+
+
+def test_the_ref_also_tells_apart_passages_of_one_document() -> None:
+    p0, p1 = _passage(), _passage()
+    same = Passage(p0.document_id, p0.title, p0.doc_type, p0.document_date, p0.text, 0.5, (), 0)
+    other = Passage(p0.document_id, p0.title, p0.doc_type, p0.document_date, p0.text, 0.5, (), 3)
+    assert ref_of(same) != ref_of(other)
+    assert p1.document_id != p0.document_id

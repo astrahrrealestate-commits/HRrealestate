@@ -14,7 +14,7 @@ from typing import Any
 from uuid import UUID
 
 from rapidfuzz import fuzz
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -256,3 +256,8 @@ def set_link(engine: Engine, company_id: UUID, document_id: UUID, kind: DocLinkK
                 index_elements=["document_id", "kind", "ref_id"], set_={"method": method, "score": 1.0}
             )
         )
+        # the chunk headers and the document vector name the unit and people: let the reindex step rebuild them
+        session.execute(
+            update(DocumentRow).where(DocumentRow.id == document_id, DocumentRow.company_id == company_id)
+            .values(index_version=None)
+        )  # fmt: skip

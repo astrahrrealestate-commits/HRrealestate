@@ -115,3 +115,30 @@ def test_reorg_workflow_applies_an_approved_plan_and_a_repeat_is_harmless(
     drive = get_drive()
     assert isinstance(drive, MemoryDrive)
     assert [drive.path_of(f) for f in drive.files] == [("EstateOS", "Kerkstraat 12-2", "Invoices", "2026")]
+
+
+def test_an_embedding_outage_does_not_fail_the_filing_workflow(
+    storage: MemoryStorage, migrated_engine: Engine, committed_company: Any
+) -> None:
+    from app.llm.embeddings import HashingEmbedder
+    from app.workflows.deps import set_embedder
+
+    class Down(HashingEmbedder):
+        def embed_documents(self, texts):  # type: ignore[no-untyped-def]
+            raise ValueError("401 invalid api key")
+
+    company_id: UUID = committed_company.id
+    text = b"Huurovereenkomst\nHuurder: Anna de Vries\nWaarborgsom: twee maanden huur"
+    att = _attachment(migrated_engine, company_id, storage, "scan.pdf", "application/pdf", text)
+    set_extractor(FakeExtractor())
+    set_embedder(Down())
+    try:
+        assert documents.file_document_wf(str(company_id), str(att), None) == "filed"
+    finally:
+        set_embedder(None)
+        set_extractor(None)
+    with Session(migrated_engine) as session:  # filed and indexed by words; the vectors wait for the backfill
+        assert (
+            session.scalars(select(DocumentChunk.embedding).where(DocumentChunk.company_id == company_id)).first()
+            is None
+        )

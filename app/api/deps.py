@@ -6,6 +6,7 @@ from fastapi import Request
 from sqlalchemy import Engine
 
 from app.core.settings import Settings
+from app.llm.embeddings import TextEmbedder, build_embedder
 from app.storage.factory import build_storage
 from app.storage.ports import ObjectStorage
 
@@ -37,3 +38,11 @@ def get_storage(request: Request) -> ObjectStorage:
     if state.storage is None:
         state.storage = build_storage(state.settings)
     return cast(ObjectStorage, state.storage)
+
+
+def get_embedder_dep(request: Request) -> TextEmbedder:
+    """Built on first use and kept: building a provider client per request is wasted work."""
+    state = request.app.state
+    if getattr(state, "embedder", None) is None:
+        state.embedder = build_embedder(state.settings)
+    return cast(TextEmbedder, state.embedder)

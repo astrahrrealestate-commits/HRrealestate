@@ -15,11 +15,13 @@ from uuid import UUID
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from app.core.logging import get_logger
 from app.core.property_terms import expand
 from app.db.models import DocumentChunk, DocumentRow
 from app.llm.embeddings import TextEmbedder
 from app.pipeline.document_search import DocFilter, any_of, doc_filters, to_tsquery
 
+log = get_logger(__name__)
 RRF_K = 60
 CANDIDATES = 40  # per list
 WEIGHT_WORDS = 1.0
@@ -125,18 +127,29 @@ def _load(
     return sorted(out, key=lambda c: (-c.score, c.document_id, c.ord))
 
 
+def _embed(embedder: TextEmbedder | None, texts: list[str], company_id: UUID) -> list[list[float]] | None:
+    """Query vectors, or None when there is no embedder or the provider fails for any reason (a bad key, a quota, a
+    timeout): the words list then answers alone. Logged at error level with the class only."""
+    if embedder is None:
+        return None
+    try:
+        return embedder.embed_documents(texts)
+    except Exception as exc:
+        log.error("rag.embedder_failed", company_id=str(company_id), reason=type(exc).__name__)
+        return None
+
+
 def hybrid_candidates(
     session: Session, company_id: UUID, question: str, flt: DocFilter, embedder: TextEmbedder | None = None,
     variants: Sequence[str] = (), dense_texts: Sequence[str] = (), k: int = CANDIDATES,
 ) -> list[Candidate]:  # fmt: skip
     """The fused candidate chunks for a question, best first. `variants` extend the words side, `dense_texts` (the
     question itself is always one) the vector side: a hypothetical answer passage (HyDE) goes there."""
+    vectors = _embed(embedder, [question, *[t for t in dense_texts if t.strip()]], company_id)  # before any query
     words = words_ranking(session, company_id, words_query(question, variants), flt, k)
     lists: list[tuple[float, Sequence[UUID]]] = [(WEIGHT_WORDS, words)]
     ranks: dict[str, dict[UUID, int]] = {"words": {c: i for i, c in enumerate(words, 1)}, "vector": {}}
-    if embedder is not None:
-        texts = [question, *[t for t in dense_texts if t.strip()]]
-        vectors = embedder.embed_documents(texts)
+    if vectors:
         for vector in vectors:
             ranking = vector_ranking(session, company_id, vector, flt, k)
             lists.append((WEIGHT_VECTOR, ranking))
@@ -151,7 +164,9 @@ def hybrid_candidates(
         return []
     if doc_boost:
         rows = session.execute(
-            select(DocumentChunk.id, DocumentChunk.document_id).where(DocumentChunk.id.in_(list(scores)))
+            select(DocumentChunk.id, DocumentChunk.document_id).where(
+                DocumentChunk.company_id == company_id, DocumentChunk.id.in_(list(scores))
+            )
         )
         owner = {row[0]: row[1] for row in rows}
         scores = {c: s + doc_boost.get(owner.get(c, c), 0.0) for c, s in scores.items()}

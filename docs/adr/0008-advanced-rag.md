@@ -47,3 +47,18 @@ cases).
 - Cost per question: one embedding, one small rewrite call, one rerank call, one answer call; the fact route costs one
   embedding at most. Each LLM step has its own switch and falls back to the cheaper path on budget or error.
 - Chunks written by M10 (v1) are re-chunked by the reindex workflow (`documents.index_version`).
+
+## Operational requirements (from the review of 2026-10-23)
+- **pgvector 0.8 or later.** Compose and the test containers pin `pgvector/pgvector:0.8.2-pg16`. Filtered vector search
+  (company, case scope) relies on `hnsw.iterative_scan`, which older versions do not have; without it an HNSW scan
+  post-filters a fixed number of candidates across every tenant and recall drops silently as the table grows.
+  Production must run 0.8+ (check the managed Postgres offering before choosing).
+- **`CREATE EXTENSION vector`** in migration 0012 needs a role that may create extensions; on a managed Postgres, enable
+  the extension once as the admin role before the migration runs.
+- **Failure policy.** Any embedding-provider failure (bad key, quota, timeout, outage) is logged at error level with its
+  class and retrieval continues on words alone; embeddings have a deadline (`llm_timeout_sec`). The embed step in the
+  filing workflow never fails the workflow: the backfill refills missing vectors.
+- **Freshness.** Changing a document's link clears its `index_version`, so the next backfill rebuilds the chunk headers
+  (unit, parties) and the document vector; a document vector is written only if the document was not re-indexed while it
+  was being embedded.
+- **Fact answers** are read only from leases, matched on whole words of the label, and shown with their source.

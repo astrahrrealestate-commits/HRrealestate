@@ -77,17 +77,22 @@ def embed_documents_summary(engine: Engine, embedder: TextEmbedder, company_id: 
             query = query.where(DocumentRow.id == document_id)
         docs = list(session.scalars(query.limit(limit)))
         inputs = [doc_input(d, unit_label_of(session, company_id, d.id)) for d in docs]
-        ids = [d.id for d in docs]
-    if not ids:
+        read = [(d.id, d.index_version) for d in docs]
+    if not read:
         return 0
     vectors = embedder.embed_documents(inputs)
+    done = 0
     with Session(engine) as session, session.begin():
-        for doc_id, vector in zip(ids, vectors, strict=True):
-            session.execute(
-                update(DocumentRow).where(DocumentRow.id == doc_id, DocumentRow.company_id == company_id)
+        for (doc_id, version), vector in zip(read, vectors, strict=True):
+            # only if nobody re-indexed the document meanwhile: a stale vector must not be written back
+            result = session.execute(
+                update(DocumentRow)
+                .where(DocumentRow.id == doc_id, DocumentRow.company_id == company_id,
+                       DocumentRow.doc_embedding.is_(None), DocumentRow.index_version == version)
                 .values(doc_embedding=vector)
             )  # fmt: skip
-    return len(ids)
+            done += int(result.rowcount)  # type: ignore[attr-defined]  # CursorResult from a DML statement
+    return done
 
 
 def embed_document(engine: Engine, embedder: TextEmbedder, company_id: UUID, document_id: UUID) -> int:

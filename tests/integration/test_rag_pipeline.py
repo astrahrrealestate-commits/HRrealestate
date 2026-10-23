@@ -210,3 +210,22 @@ def test_an_injected_instruction_in_a_chunk_does_not_become_an_answer(
     _index(migrated_engine, cid)
     got = answer_from_documents(migrated_engine, settings, cid, "Wat staat er over betaling?", embedder=EMBED)
     assert "NL91" not in got.text
+
+
+def test_a_fact_is_only_read_from_leases_and_by_whole_words(
+    migrated_engine: Engine, settings: Settings, committed_company: Company
+) -> None:
+    cid = committed_company.id
+    odd = {**LEASE_FACTS, "key_facts": [{"label": "current_balance", "value": "EUR 5000.00"}]}
+    with Session(migrated_engine) as s, s.begin():
+        _lease(s, cid, "Factuur met saldo", odd)  # a lease whose only fact is a "current balance"
+        invoice = _doc(s, cid, title="Factuur", doc_type="invoice", chunks=["Totaal EUR 10."])
+        s.get(DocumentRow, invoice).facts = {
+            **LEASE_FACTS,
+            "key_facts": [{"label": "monthly_rent", "value": "EUR 1.00"}],
+        }  # type: ignore[union-attr]
+    _index(migrated_engine, cid)
+    got = answer_from_documents(migrated_engine, settings, cid, "How much is the rent?", embedder=EMBED)
+    assert got.route != "fact"  # "rent" is not a word of "current balance"; an invoice is not a lease
+    assert "EUR 5000.00" not in got.text
+    assert "EUR 1.00" not in got.text

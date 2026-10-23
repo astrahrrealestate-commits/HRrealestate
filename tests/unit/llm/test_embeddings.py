@@ -75,3 +75,16 @@ def test_to_sql_is_a_vector_literal() -> None:
 @pytest.mark.parametrize("text", ["x" * 10_000])
 def test_very_long_text_is_cut_not_rejected(text: str) -> None:
     assert len(HashingEmbedder().embed_documents([text])[0]) == EMBEDDING_DIMENSIONS
+
+
+def test_a_hung_provider_times_out_instead_of_holding_the_caller() -> None:
+    import asyncio
+
+    class Slow(TestEmbeddingModel):
+        async def embed(self, inputs, *, input_type, settings=None):  # type: ignore[no-untyped-def]
+            await asyncio.sleep(1.0)
+            return await super().embed(inputs, input_type=input_type, settings=settings)
+
+    embedder = ModelEmbedder(Embedder(Slow(dimensions=EMBEDDING_DIMENSIONS)), timeout_sec=0.05)
+    with pytest.raises(TimeoutError):
+        embedder.embed_query("hello")

@@ -4,6 +4,7 @@ Excerpts are untrusted document text: they reach the model only inside the `exce
 checks every quote against them before anything is shown.
 """
 
+import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -42,8 +43,10 @@ DOC_QA = AgentSpec(
 
 
 def ref_of(passage: Passage) -> str:
-    """8 hex characters: 6 of the document, 2 of the passage's first chunk. Distinct for passages of one document."""
-    return passage.document_id.hex[:6] + format(passage.first_ord % 256, "02x")
+    """8 hex characters of a hash of the whole document id and the passage's first chunk. Document ids are UUIDv7
+    (their first bytes are a timestamp), so a prefix would collide for documents created together."""
+    digest = hashlib.sha1(f"{passage.document_id}:{passage.first_ord}".encode(), usedforsecurity=False)
+    return digest.hexdigest()[:8]
 
 
 def pages_label(pages: Sequence[int]) -> str:

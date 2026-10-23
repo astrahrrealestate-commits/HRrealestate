@@ -9,9 +9,11 @@ from uuid import UUID
 
 from dbos import DBOS, SetEnqueueOptions, SetWorkflowID
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.contracts import DocType
+from app.core.logging import get_logger
 from app.core.settings import get_settings
 from app.core.workflow_names import DOC_SKIP, FILE_DOCUMENT
 from app.db.models import AttachmentRow, DocumentRow
@@ -28,6 +30,9 @@ from app.workflows.owner_notify import send_owner_message
 from app.workflows.retry import STEP_RETRY
 
 SKIP = DOC_SKIP
+
+
+log = get_logger(__name__)
 
 
 def _retryable(exc: BaseException) -> bool:
@@ -65,16 +70,25 @@ def link_step(company_id: str, attachment_id: str) -> int:
     return len(link_document(get_engine(), UUID(company_id), UUID(attachment_id)).links)
 
 
-@DBOS.step(name="documents.embed", **DRIVE_STEP_RETRY)
+@DBOS.step(name="documents.embed")
 def embed_step(company_id: str, attachment_id: str) -> int:
-    """Vectors for the document's chunks and summary; safe to repeat (only rows without a vector are filled)."""
+    """Vectors for the document's chunks and summary; safe to repeat. A provider problem is logged, not raised: the
+    document is filed and retrievable by words, and the backfill refills the vectors later."""
     with Session(get_engine()) as session:
         doc_id = session.scalar(
             select(DocumentRow.id).where(
                 DocumentRow.attachment_id == UUID(attachment_id), DocumentRow.company_id == UUID(company_id)
             )
         )
-    return embed_document(get_engine(), get_embedder(), UUID(company_id), doc_id) if doc_id else 0
+    if doc_id is None:
+        return 0
+    try:
+        return embed_document(get_engine(), get_embedder(), UUID(company_id), doc_id)
+    except SQLAlchemyError:
+        raise  # a database problem is a real failure
+    except Exception as exc:
+        log.error("documents.embed_failed", attachment_id=attachment_id, reason=type(exc).__name__)
+        return 0
 
 
 @DBOS.step(name="documents.skip")

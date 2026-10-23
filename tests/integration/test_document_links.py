@@ -194,3 +194,19 @@ def test_other_company_cannot_link_it(migrated_engine: Engine, w: World) -> None
     att = _document(migrated_engine, w, None)
     with pytest.raises(NotFoundError):
         link_document(migrated_engine, new_id(), att)
+
+
+def test_changing_a_link_marks_the_document_for_reindexing(migrated_engine: Engine, w: World) -> None:
+    from sqlalchemy import update
+
+    from app.pipeline.document_links import set_link
+
+    att = _document(migrated_engine, w, None)
+    with Session(migrated_engine) as s, s.begin():
+        doc = s.scalar(select(DocumentRow).where(DocumentRow.attachment_id == att))
+        assert doc is not None
+        s.execute(update(DocumentRow).where(DocumentRow.id == doc.id).values(index_version="r2"))
+        doc_id = doc.id
+    set_link(migrated_engine, w.company_id, doc_id, DocLinkKind.unit, w.unit_2, "owner")
+    with Session(migrated_engine) as s:
+        assert s.scalars(select(DocumentRow.index_version).where(DocumentRow.id == doc_id)).one() is None

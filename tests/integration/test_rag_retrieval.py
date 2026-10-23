@@ -162,3 +162,24 @@ def test_hyde_text_and_variants_reach_their_sides(migrated_engine: Engine, corpu
             variants=["opzegtermijn"], dense_texts=["De opzegtermijn is drie maanden."],
         )  # fmt: skip
     assert "opzegtermijn" in got[0].text
+
+
+class Broken(HashingEmbedder):
+    def embed_documents(self, texts):  # type: ignore[no-untyped-def]
+        raise ValueError("401 invalid api key")  # not a transient error: a bad or expired key
+
+
+def test_any_embedder_failure_degrades_to_words_and_is_not_raised(migrated_engine: Engine, corpus: Corpus) -> None:
+    with Session(migrated_engine) as s:
+        got = hybrid_candidates(s, corpus.company_id, "waarborgsom", DocFilter(), Broken())
+    assert got
+    assert all(c.vector_rank is None for c in got)
+
+
+def test_another_companys_document_vectors_never_rank(migrated_engine: Engine, corpus: Corpus) -> None:
+    from app.core.ids import new_id
+
+    q = EMBED.embed_query("waarborgsom")
+    with Session(migrated_engine) as s:
+        assert document_ranking(s, new_id(), q, DocFilter()) == []
+        assert vector_ranking(s, new_id(), q, DocFilter()) == []
