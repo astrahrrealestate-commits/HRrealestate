@@ -60,6 +60,7 @@ token `test-owner-token` for `owner@example.test`; prod refuses the fake provide
 | Routes | Limit | Key |
 |---|---|---|
 | `POST /agent/messages` | 30 / min | owner |
+| `PUT /agent/page` | 60 / min | owner (its own bucket: pre-warms never use up the message limit) |
 | `POST /auth/session` | 10 / min | client IP (`X-Forwarded-For` ignored unless `DASHBOARD_TRUST_FORWARDED_FOR=true`; a request without a client address shares one `unknown` bucket) |
 | approvals decide/edit, tasks done/snooze, documents file, company pause/resume | 120 / min | owner |
 
@@ -93,7 +94,7 @@ Read (GET, cookie only):
 | `/company` | `{name, paused, outbound_mode, timezone}` |
 | `/agent/conversations/{id}` | `{id, turns[{id, text, status, plan, results, answer, created_at, updated_at, timings}]}`; `404` if not yours. `timings`: see [Turn timings](#turn-timings) |
 
-Writes (POST, need the CSRF header; the decision writes share the 120/min limit):
+Writes (POST unless another method is shown, need the CSRF header; the decision writes share the 120/min limit):
 
 | Route | Body | Success | Errors |
 |---|---|---|---|
@@ -110,6 +111,7 @@ Changing a document link may propose a one-item reorganisation plan (`created_by
 | `/documents/reorg/{plan_id}/decide` | `{approve, item_ids?}`: all items, only these (the rest are rejected), or none | `202 {status}`; an approved plan is applied in the background (`drive:reorg:{plan_id}`); a repeat keeps the first decision | `404` |
 | `/company/pause`, `/company/resume` | none | `200 {paused}` | none; resume also re-runs approved but unexecuted actions |
 | `/agent/messages` | `{text, conversation_id?, page?}` (`page`: see [Page context](#page-context-page-on-post-agentmessages)) | `202 {conversation_id, turn_id}`; answer arrives via SSE or by polling the conversation | `404` for a foreign conversation; `422` for an invalid `page`; `503` if the turn could not be started (it is marked failed; send the message again) |
+| `PUT /agent/page` | a page context, the same object as `page` above (not wrapped) | `204`, no body: the page facts are resolved for your next message (see [Page pre-warm](#page-pre-warm-put-agentpage)) | `422` for an invalid page (same rules as `page`); `503` when the facts could not be resolved right now (safe to ignore: the next message resolves them itself) |
 | `/auth/session` | `{id_token}` | see Auth | see Auth |
 
 Document choices (`DOC_CHOICES`): `lease`, `invoice`, `quote`, `id_document`, `insurance`, `certificate`, `correspondence`, `photo`, `other`, `skip`.
@@ -248,6 +250,42 @@ answering call, only when the plan had no usable `reply` or the planner failed),
 (runs started; a retried run keeps the first run's `queue_wait_ms` and any stage it did not repeat). A key is missing
 when its stage did not run (the `tasks` command, for example, has no planner). Turns run on their own `concierge`
 queue, so they never wait behind message processing; the worker picks a waiting turn up within about 0.25 s.
+
+### Page pre-warm (`PUT /agent/page`)
+
+Optional speed-up. The server resolves the page facts (the server facts and memory pack above) as soon as the owner
+opens a page, so the next message on that page does not wait for them. Nothing else happens: no turn, no model call,
+no answer.
+
+When the SPA calls it:
+- on navigation to a page, debounced about 300 ms (only the last page of a quick click-through is sent);
+- again when the open entity changes (another thread, case, approval, task or document on the same view) or the rows
+  on screen change (new `visible_ids` or a new order);
+- again when the open thread or case gets a new message (an SSE event for it), so the warmed facts include it.
+
+The body is the same object as `page` on `POST /agent/messages`, with the same limits and `422` rules. Answer `204`
+with no body; `503` means try later or just ignore it. Foreign or unknown ids are dropped exactly as for a message.
+
+When a message reuses the warmed facts: only for the same owner (the session's, never ids in the body), when the
+message's `page` has the same `view`, the same open ids in the same fields and the same `visible_ids` in the same order,
+and the facts were resolved at most 120 seconds before the message. `filters` and `snapshot` do not matter for
+the match. Otherwise the message resolves its facts as before. Facts can therefore be up to 120 seconds old; call the
+pre-warm again when the page changes (above).
+
+Why the snapshot is not stored: the server keeps only the latest resolved facts per owner (one row, overwritten by
+each call), never the client's `snapshot` or `filters`. A message always sends its own `page`, and its snapshot is the
+one the agent reads, so a warmed page can never put an older screen in front of the model.
+
+Example (owner opens a case; on a thread page send `view: "thread"` and the `thread_key` from `/inbox` the same way):
+
+```json
+{
+  "view": "case",
+  "case_id": "0192a7c4-5b1e-7c3d-9f00-6f5e4d3c2b1a",
+  "visible_ids": [],
+  "snapshot": "Sanne de Vries\nDe kraan in de keuken lekt nog steeds."
+}
+```
 
 ### thread_key
 

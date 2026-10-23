@@ -304,3 +304,14 @@ streaming** in this round.
     IBANs, phones) instead of `redact` (titles, clarify questions and guidance keep losing amounts), and prompt
     `concierge/v5` (v4 plus one rule) allows only amounts found in `<data>`/`<page_facts>`, never from the snapshot or
     one a message asks to be paid. An 8+ digit run still reads as a phone number.
+  - *As built (Task 4, 2026-10-23):* `PUT /api/v1/agent/page` (session owner, CSRF, its own 60/min bucket) takes the
+    same validated `PageContext` as `page`, resolves its facts company-scoped with the turn's resolver and stored shape
+    (`concierge_page.resolved_value`) in one transaction, and upserts ONE `agent_page_state` row per owner (migration
+    0015: `page_key`, `resolved` = facts text + dropped kinds, `resolved_at` = that transaction's database time; no
+    snapshot, filters or ids stored). `204` with no body, never a turn or a model call; a non-transient resolver error
+    stores nothing (still 204), a transient one is 503. `create_turn` reads the owner's row (plain company + owner
+    SELECT, no lock) and stores its facts under `page_context.resolved` only when the message's `page_key` matches
+    (a hash of the view, each open id in its field and the visible ids in screen order; filters and snapshot excluded)
+    and `resolved_at` is at most 120 s before the turn's own `now()` (its `created_at`); the run then skips resolving
+    exactly like a retry. The snapshot and filters always come from the message. The TTL is applied at read time; the
+    row is overwritten by the next PUT (never by an older resolution, never across companies), so nothing grows.

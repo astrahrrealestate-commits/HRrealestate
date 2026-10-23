@@ -75,7 +75,7 @@ Agent in front of the other agents. Tenant messages are mirrored in the dashboar
   snapshot to `owner_qa`, which uses prompt `owner_qa/v3` only when a page is present (`owner_qa/v2` and a
   byte-identical prompt otherwise). Still at most one `owner_qa` call per turn, under the same `owner_qa` budget.
 
-## Amendment (2026-10-22, steerable drafts, fast turns)
+## Amendment (2026-10-22, steerable drafts, fast turns, page pre-warm)
 - The Super Agent's `draft_reply` steers the proposer with the owner's sanitised wording (prompt `proposer/v2`) and,
   on a turn, supersedes a pending reply draft (new `draft_version`, old approval expired) or redrafts a decided one,
   once per turn. The draft is quoted in the chat answer and exists as a pending approval; only the approve click can
@@ -86,3 +86,7 @@ Agent in front of the other agents. Tenant messages are mirrored in the dashboar
   stream checks turns every 0.5 s, and each turn stores stage timings (`agent_turns.timings`, migration 0012).
   A reply is shown only beside read steps (`answer`/`open_view`), never next to an action's summary; replies may state
   amounts from the server facts (prompt `concierge/v5`), contact and bank details are always redacted.
+- **Page pre-warm (Task 4).** `PUT /agent/page` resolves the open page's facts for the session owner ahead of the next
+  message and keeps only the latest per owner (`agent_page_state`, migration 0015, no snapshot); a turn reuses them
+  only for the same owner and page key within 120 s, else resolves as before. It never creates a turn, calls a model
+  or changes what the agent may do.
