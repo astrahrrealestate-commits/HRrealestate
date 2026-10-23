@@ -9,6 +9,7 @@ x-app: &app
   volumes:
     - appdata:/app/.data  # local storage, fake mailboxes/media, dev keys: simulator, api and worker share it
     - ../app:/app/app:ro  # live code mount for hot development
+    - ../.env:/app/.env:ro
     - ${ESTATEOS_SECRETS_DIR:-${HOME}/.estateos}:/secrets:ro  # Google token files
   env_file:
     - ../.env
@@ -21,6 +22,7 @@ x-app: &app
     LLM_TIMEOUT_SEC: ${LLM_TIMEOUT_SEC:-60}
     OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    GROQ_API_KEY: ${GROQ_API_KEY:-}
     LANGFUSE_HOST: ${LANGFUSE_HOST:-}
     LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
     LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}

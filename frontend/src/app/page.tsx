@@ -37,9 +37,11 @@ import {
   isNeedsYou,
   isUrgent,
 } from "@/lib/selectors";
+import { useSuperAgent } from "@/context/SuperAgentContext";
 
 export default function TodayPage() {
   const router = useRouter();
+  const superAgent = useSuperAgent();
 
   // State
   const [threads, setThreads] = useState<InboxThread[]>(MOCK_INBOX_THREADS);
@@ -104,6 +106,13 @@ export default function TodayPage() {
 
   // Top urgent thread for slim emergency bar
   const topUrgentThread = urgentThreads[0] || null;
+
+  useEffect(() => {
+    superAgent.setCurrentPageName("Today");
+    superAgent.setSelectedContext(
+      `Today Briefing [${currentNeedsYouCount} need you, ${currentUrgentCount} urgent, Top item: ${topUrgentThread?.subject || "All clear"}]`
+    );
+  }, [currentNeedsYouCount, currentUrgentCount, topUrgentThread, superAgent.setCurrentPageName, superAgent.setSelectedContext]);
 
   // StatLine items (Section 2.3 T6 & 5.3)
   const statLineItems: StatItem[] = useMemo(() => [
@@ -207,19 +216,18 @@ export default function TodayPage() {
   }, [briefingKind]);
 
   return (
-    <div className="min-h-dvh bg-[var(--bg)] flex font-sans antialiased text-[var(--ink)]">
+    <div className="h-dvh bg-[var(--bg)] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
       {/* 1. Left Nav (Desktop Sidebar) */}
       <Sidebar pendingCount={currentNeedsYouCount} />
 
       {/* 2. Main Canvas */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         <TopCommandBar
           pageTitle="Today"
-          onAskAgent={() => setIsAskAgentOpen(true)}
         />
 
         {/* Scrollable Single-Column Briefing (Section 5.3) */}
-        <main className="flex-1 w-full max-w-[960px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-12 space-y-7">
+        <main className="flex-1 w-full max-w-[960px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-12 space-y-7 overflow-y-auto">
           
           {/* Top Briefing Header with Daily / Weekly Switcher */}
           <div className="space-y-3 select-none">
@@ -782,8 +790,6 @@ export default function TodayPage() {
 
       {/* Ask EstateOS Panel */}
       <AskEstateOSPanel
-        isOpen={isAskAgentOpen}
-        onClose={() => setIsAskAgentOpen(false)}
         currentPageName="Today"
         selectedContext={`Today Briefing · ${currentNeedsYouCount} need you · ${currentUrgentCount} urgent`}
         onActionTriggered={(actionType) => {

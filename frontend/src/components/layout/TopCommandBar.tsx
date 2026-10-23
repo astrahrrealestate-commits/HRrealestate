@@ -3,6 +3,7 @@
 import React, { useRef, useEffect } from "react";
 import { Sparkles, Search, X, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useSuperAgent } from "@/context/SuperAgentContext";
 
 interface TopCommandBarProps {
   onAskAgent?: () => void;
@@ -33,6 +34,7 @@ export function TopCommandBar({
   pageTitle,
   hideSearch = false,
 }: TopCommandBarProps) {
+  const superAgent = useSuperAgent();
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -142,9 +144,10 @@ export function TopCommandBar({
             - Mobile: Icon-only orange sparkle button */}
         <button
           type="button"
-          onClick={onAskAgent}
+          onClick={onAskAgent || superAgent.toggleOpen}
           className={cn(
-            "inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] text-[var(--ink)] text-[13px] font-medium transition-all cursor-pointer shadow-xs active:scale-[0.98] select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+            "inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] text-[var(--ink)] text-[13px] font-medium transition-all cursor-pointer shadow-xs active:scale-[0.98] select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+            superAgent.isOpen && "border-[var(--accent)] text-[var(--accent-ink)] bg-[var(--accent)]/10"
           )}
           title="Ask EstateOS Assistant (Ctrl+J)"
         >

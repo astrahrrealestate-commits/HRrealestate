@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, Suspense } from "react";
+import React, { useState, useMemo, useEffect, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
@@ -29,11 +29,13 @@ import { cn } from "@/lib/utils";
 import { MOCK_TRANSACTIONS, MoneyTransaction } from "@/data/moneyMockData";
 import { TransactionDetailSheet } from "@/components/money/TransactionDetailSheet";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
+import { useSuperAgent } from "@/context/SuperAgentContext";
 
 type MoneyTab = "all" | "receivables" | "payables" | "overdue";
 
 function MoneyContent() {
   const router = useRouter();
+  const superAgent = useSuperAgent();
 
   const [activeTab, setActiveTab] = useState<MoneyTab>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -69,6 +71,19 @@ function MoneyContent() {
       totalOutflow,
     };
   }, []);
+
+  useEffect(() => {
+    superAgent.setCurrentPageName("Money");
+    if (selectedTx) {
+      superAgent.setSelectedContext(
+        `Ledger Item: ${selectedTx.reference} · ${selectedTx.counterparty} (€ ${selectedTx.amountEur}) [Status: ${selectedTx.status}, Due: ${selectedTx.dueDate}]`
+      );
+    } else {
+      superAgent.setSelectedContext(
+        `Portfolio Ledger & Arrears (${aggregates.overdueCount} overdue tenants totaling € ${aggregates.overdueTotal.toLocaleString()})`
+      );
+    }
+  }, [selectedTx, aggregates, superAgent.setCurrentPageName, superAgent.setSelectedContext]);
 
   // Filtered transactions
   const filteredTransactions = useMemo(() => {
@@ -108,16 +123,15 @@ function MoneyContent() {
   ];
 
   return (
-    <div className="min-h-dvh bg-[var(--bg)] flex font-sans antialiased text-[var(--ink)]">
+    <div className="h-dvh bg-[var(--bg)] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
       {/* 1. Left Nav (Desktop Sidebar) */}
       <Sidebar />
 
       {/* 2. Main Content Canvas */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         <TopCommandBar
           pageTitle="Money"
           hideSearch={true}
-          onAskAgent={() => setIsAskAgentOpen(true)}
         />
 
         {/* Scrollable Container */}
@@ -435,8 +449,6 @@ function MoneyContent() {
 
       {/* 5. Ask EstateOS Side Panel */}
       <AskEstateOSPanel
-        isOpen={isAskAgentOpen}
-        onClose={() => setIsAskAgentOpen(false)}
         currentPageName="Money"
         selectedContext={
           selectedTx

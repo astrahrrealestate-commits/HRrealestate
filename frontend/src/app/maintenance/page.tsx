@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { TicketHistoryModal } from "@/components/maintenance/TicketHistoryModal";
 import { getMaintenanceTickets, approveMaintenanceTicket } from "@/lib/api";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
+import { useSuperAgent } from "@/context/SuperAgentContext";
 
 export interface MaintenanceTicket {
   id: string;
@@ -218,10 +219,18 @@ function MaintenanceContent() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Sync ticket param
+  // Sync ticket param (supports either id or ticketNumber e.g. "005" or "#005")
   useEffect(() => {
     if (ticketParam) {
-      setSelectedTicketId(ticketParam);
+      const cleanParam = ticketParam.replace(/^#/, "");
+      const matched = tickets.find(
+        (t) => t.id === ticketParam || t.ticketNumber === ticketParam || t.ticketNumber.replace(/^#/, "") === cleanParam
+      );
+      if (matched) {
+        setSelectedTicketId(matched.id);
+      } else {
+        setSelectedTicketId(ticketParam);
+      }
     } else if (!isMobile && tickets.length > 0 && !selectedTicketId) {
       setSelectedTicketId(tickets[0].id);
     }
@@ -334,6 +343,18 @@ function MaintenanceContent() {
 
   const isMobileDetailOpen = Boolean(selectedTicketId && isMobile);
 
+  const superAgent = useSuperAgent();
+  useEffect(() => {
+    superAgent.setCurrentPageName("Maintenance");
+    if (selectedTicket) {
+      superAgent.setSelectedContext(
+        `Ticket ${selectedTicket.ticketNumber} · ${selectedTicket.issueTitle} (${selectedTicket.unitLabel}) [Status: ${selectedTicket.status}, Contractor: ${selectedTicket.contractorName}]`
+      );
+    } else {
+      superAgent.setSelectedContext("Active Maintenance Work Orders (11 open tickets)");
+    }
+  }, [selectedTicket, superAgent.setCurrentPageName, superAgent.setSelectedContext]);
+
   const getStatusLabel = (t: MaintenanceTicket): string => {
     if (t.status === "completed") return "Done";
     if (t.status === "pending_approval") return "Needs approval";
@@ -347,7 +368,7 @@ function MaintenanceContent() {
   };
 
   return (
-    <div className="min-h-dvh bg-[var(--bg)] flex font-sans antialiased text-[var(--ink)]">
+    <div className="h-dvh bg-[var(--bg)] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
       {/* 1. Left Fixed Sidebar */}
       <Sidebar />
 
@@ -358,12 +379,11 @@ function MaintenanceContent() {
           <TopCommandBar
             pageTitle="Maintenance"
             hideSearch
-            onAskAgent={() => setIsAskAgentOpen(true)}
           />
         </div>
 
-        {/* 3. Maintenance Workspace: 2-column layout (Section 5.4 & 3.1) */}
-        <div className="lg:grid lg:grid-cols-[1fr_420px] xl:grid-cols-[1fr_460px] flex-1 min-h-0 h-[calc(100dvh-3.5rem)]">
+        {/* 3. Maintenance Workspace: 2-column layout */}
+        <div className="lg:grid lg:grid-cols-[1fr_340px] xl:grid-cols-[1fr_380px] flex-1 min-h-0 h-[calc(100dvh-3.5rem)]">
           
           {/* Left Column: Header + Controls + Table / Ticket Rows List */}
           <div
@@ -526,10 +546,9 @@ function MaintenanceContent() {
                 <table className="w-full text-left border-collapse table-fixed">
                   <thead>
                     <tr className="border-b border-[var(--line)] text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)] bg-[var(--bg)]/90 sticky top-0 z-10">
-                      <th className="py-2.5 px-4 font-medium w-[42%]">Ticket / Issue</th>
-                      <th className="py-2.5 px-4 font-medium w-[24%]">Unit</th>
-                      <th className="py-2.5 px-4 font-medium hidden 2xl:table-cell w-[18%]">Contractor</th>
-                      <th className="py-2.5 px-4 font-medium text-right w-[16%]">Status</th>
+                      <th className="py-2.5 px-3.5 font-medium w-[45%]">Ticket / Issue</th>
+                      <th className="py-2.5 px-3 font-medium w-[30%]">Unit</th>
+                      <th className="py-2.5 px-3.5 font-medium text-right w-[25%]">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--line)] text-[13.5px]">
@@ -549,7 +568,7 @@ function MaintenanceContent() {
                           )}
                         >
                           {/* Ticket / Issue */}
-                          <td className="px-4 py-2 truncate">
+                          <td className="px-3.5 py-2 truncate">
                             <div className="flex items-center gap-2 truncate">
                               <span className="font-semibold text-[var(--ink)] shrink-0 font-mono text-[13px]">
                                 {ticket.ticketNumber}
@@ -561,17 +580,12 @@ function MaintenanceContent() {
                           </td>
 
                           {/* Unit */}
-                          <td className="px-4 py-2 text-[var(--ink-2)] truncate">
+                          <td className="px-3 py-2 text-[var(--ink-2)] truncate text-[13px]">
                             {ticket.unitLabel}
                           </td>
 
-                          {/* Contractor (Only above 1500px, Section 5.4) */}
-                          <td className="px-4 py-2 text-[var(--ink-3)] truncate hidden 2xl:table-cell text-xs">
-                            {ticket.contractorName}
-                          </td>
-
-                          {/* Status / SLA: ALWAYS visible (Section 2.4 M3), plain grey text status */}
-                          <td className="px-4 py-2 text-right whitespace-nowrap">
+                          {/* Status / SLA: ALWAYS visible, aligned right cleanly without collision */}
+                          <td className="px-3.5 py-2 text-right whitespace-nowrap">
                             <div className="flex flex-col items-end leading-tight">
                               <StatusText status={getStatusLabel(ticket)} />
                               <span
@@ -830,8 +844,6 @@ function MaintenanceContent() {
 
       {/* Ask EstateOS Panel */}
       <AskEstateOSPanel
-        isOpen={isAskAgentOpen}
-        onClose={() => setIsAskAgentOpen(false)}
         currentPageName="Maintenance"
         selectedContext={
           selectedTicket

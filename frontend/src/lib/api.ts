@@ -637,34 +637,64 @@ export async function getTenants(rentStatus: string = "all") {
 // ---------------------------------------------------------------------------
 
 export interface PreviewCardData {
-  type: string;
-  channel: string;
-  recipient: string;
-  unitLabel: string;
+  type: "draft_message" | "case_summary" | "task_card" | "financial_item" | string;
+  channel?: string;
+  recipient?: string;
+  unitLabel?: string;
   subject?: string | null;
-  body: string;
+  body?: string;
   actionId?: string | null;
   caseId?: string | null;
+  // Specific micro-card extensions:
+  title?: string;
+  subtitle?: string;
+  badgeLabel?: string;
+  badgeColor?: "orange" | "emerald" | "amber" | "blue" | "red";
+  amount?: string;
+  status?: string;
+  dueDate?: string;
+  contractor?: string;
+  targetUrl?: string;
+}
+
+export interface AskAgentAction {
+  label: string;
+  actionType: string;
+  payload?: any;
+  isPrimary?: boolean;
 }
 
 export interface AskAgentResponse {
   answer: string;
   caseRefs?: string[];
   suggestedAction?: string | null;
+  actions?: AskAgentAction[];
   executedAt: string;
   steps?: string[];
   previewCard?: PreviewCardData | null;
 }
 
 /**
- * Sends a natural language query to the OWNER_QA copilot agent.
+ * Sends a natural language query to the Super Agent (CONCIERGE) copilot.
  * POST /api/agent/ask
  */
-export async function askAgent(query: string, context?: string): Promise<AskAgentResponse> {
-  const fallbackAns = {
+export async function askAgent(
+  query: string,
+  context?: string,
+  history?: string[]
+): Promise<AskAgentResponse> {
+  const fallbackAns: AskAgentResponse = {
     answer: "Based on active records: 0 blocking SLA breaches detected. Pieter Bakker's emergency ticket #005 is awaiting electrician dispatch.",
     caseRefs: ["#005"],
     suggestedAction: "View ticket #005 in Maintenance",
+    actions: [
+      {
+        label: "View ticket #005 in Maintenance",
+        actionType: "navigate",
+        payload: "/maintenance",
+        isPrimary: true,
+      },
+    ],
     executedAt: new Date().toISOString(),
   };
 
@@ -675,7 +705,7 @@ export async function askAgent(query: string, context?: string): Promise<AskAgen
         "Content-Type": "application/json",
         Accept: "application/json",
       },
-      body: JSON.stringify({ query, context }),
+      body: JSON.stringify({ query, context, history }),
       signal: AbortSignal.timeout(10000),
     });
 
@@ -688,3 +718,4 @@ export async function askAgent(query: string, context?: string): Promise<AskAgen
 
   return fallbackAns;
 }
+

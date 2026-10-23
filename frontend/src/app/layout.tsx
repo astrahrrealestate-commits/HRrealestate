@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Hanken_Grotesk, Bricolage_Grotesque, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
+import { SuperAgentProvider } from "@/context/SuperAgentContext";
 
 const hankenGrotesk = Hanken_Grotesk({
   variable: "--font-hanken",
@@ -44,7 +45,9 @@ export default function RootLayout({
       lang="en"
       className={`${hankenGrotesk.variable} ${bricolageGrotesque.variable} ${ibmPlexMono.variable} h-full antialiased`}
     >
-      <body className="min-h-dvh flex flex-col font-sans bg-[var(--bg)] text-[var(--ink)]">{children}</body>
+      <body className="min-h-dvh flex flex-col font-sans bg-[var(--bg)] text-[var(--ink)]">
+        <SuperAgentProvider>{children}</SuperAgentProvider>
+      </body>
     </html>
   );
 }

@@ -21,7 +21,10 @@ import {
   Loader2,
   Maximize2,
   Minimize2,
+  PanelRight,
+  Layout,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { askAgent, approveInboxDraft } from "@/lib/api";
 
@@ -52,53 +55,59 @@ export interface AssistantMessage {
   steps?: string[];
   previewCard?: {
     type: string;
-    channel: string;
-    recipient: string;
-    unitLabel: string;
+    channel?: string;
+    recipient?: string;
+    unitLabel?: string;
     subject?: string | null;
-    body: string;
+    body?: string;
     actionId?: string | null;
     caseId?: string | null;
+    title?: string;
+    subtitle?: string;
+    badgeLabel?: string;
+    badgeColor?: "orange" | "emerald" | "amber" | "blue" | "red";
+    amount?: string;
+    status?: string;
+    dueDate?: string;
+    contractor?: string;
+    targetUrl?: string;
   } | null;
   actions?: AssistantAction[];
 }
 
+import { useSuperAgent } from "@/context/SuperAgentContext";
+
 interface AskEstateOSPanelProps {
-  isOpen: boolean;
-  onClose: () => void;
+  isOpen?: boolean;
+  onClose?: () => void;
   currentPageName?: string;
   selectedContext?: string;
   onActionTriggered?: (actionType: string, payload?: any) => void;
 }
 
 export function AskEstateOSPanel({
-  isOpen,
-  onClose,
-  currentPageName = "Today",
-  selectedContext = "The whole page",
+  isOpen: propIsOpen,
+  onClose: propOnClose,
+  currentPageName: propPageName,
+  selectedContext: propContext,
   onActionTriggered,
 }: AskEstateOSPanelProps) {
+  const router = useRouter();
+  const superAgent = useSuperAgent();
+  const isOpen = propIsOpen !== undefined ? propIsOpen : superAgent.isOpen;
+  const onClose = propOnClose || (() => superAgent.setIsOpen(false));
+  const currentPageName = propPageName || superAgent.currentPageName || "Today";
+  const selectedContext = propContext || superAgent.selectedContext || "The whole page";
+
   const [inputQuery, setInputQuery] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [sendingCardId, setSendingCardId] = useState<string | null>(null);
   const [sentCardIds, setSentCardIds] = useState<Set<string>>(new Set());
-  const [messages, setMessages] = useState<AssistantMessage[]>([
-    {
-      id: "initial-msg",
-      sender: "assistant",
-      timestamp: "Just now",
-      text: `**On ${currentPageName}.** I know your queue, portfolio, and financial logs. Ask me to explain an item, find a document, check tenant arrears, or pick what to do first.`,
-      actions: [
-        {
-          label: "What should I do first?",
-          actionType: "query",
-          payload: "What should I do first?",
-          isPrimary: true,
-        },
-      ],
-    },
-  ]);
+
+  // Use persistent shared messages from SuperAgentContext
+  const messages = superAgent.messages;
+  const setMessages = superAgent.setMessages;
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -178,12 +187,35 @@ export function AskEstateOSPanel({
       text: trimmed,
     };
 
-    setMessages((prev) => [...prev, userMsg]);
+    const updatedMessages = [...messages, userMsg];
+    setMessages(updatedMessages);
     setInputQuery("");
     setIsTyping(true);
 
+    // Extract recent conversation history strings for Super Agent context
+    const recentHistory = updatedMessages
+      .slice(-6)
+      .map((m) => `${m.sender === "user" ? "Owner" : "Agent"}: ${m.text}`);
+
     try {
-      const res = await askAgent(trimmed, `${currentPageName}: ${selectedContext}`);
+      const res = await askAgent(
+        trimmed,
+        `${currentPageName}: ${selectedContext}`,
+        recentHistory
+      );
+
+      const parsedActions: AssistantAction[] = [];
+      if (res.actions && res.actions.length > 0) {
+        parsedActions.push(...res.actions);
+      } else if (res.suggestedAction) {
+        parsedActions.push({
+          label: res.suggestedAction,
+          actionType: "navigate",
+          payload: "/maintenance",
+          isPrimary: true,
+        });
+      }
+
       const botMsg: AssistantMessage = {
         id: `agent-${Date.now()}`,
         sender: "assistant",
@@ -191,16 +223,7 @@ export function AskEstateOSPanel({
         text: res.answer,
         steps: res.steps,
         previewCard: res.previewCard,
-        actions: res.suggestedAction
-          ? [
-              {
-                label: res.suggestedAction,
-                actionType: "navigate",
-                payload: "/maintenance",
-                isPrimary: true,
-              },
-            ]
-          : undefined,
+        actions: parsedActions.length > 0 ? parsedActions : undefined,
       };
       setMessages((prev) => [...prev, botMsg]);
     } catch {
@@ -227,9 +250,21 @@ export function AskEstateOSPanel({
     }
   };
 
+  const handleNavigate = (url: string) => {
+    // If in center modal or fullscreen or on mobile, close the modal so the user actually sees the target page
+    if (panelMode === "center" || isFullScreen || (typeof window !== "undefined" && window.innerWidth < 768)) {
+      onClose();
+    }
+    router.push(url);
+  };
+
   const handleActionClick = (action: AssistantAction) => {
     if (action.actionType === "query" && typeof action.payload === "string") {
       handleSendQuery(action.payload);
+      return;
+    }
+    if (action.actionType === "navigate" && typeof action.payload === "string") {
+      handleNavigate(action.payload);
       return;
     }
     if (onActionTriggered) {
@@ -237,30 +272,40 @@ export function AskEstateOSPanel({
     }
   };
 
+
+  const panelMode = superAgent.panelMode || "center";
+  const togglePanelMode = superAgent.togglePanelMode;
+
   if (!isOpen) return null;
 
   return (
     <>
-      {/* Backdrop: ONLY shown if user explicitly maximizes to full screen */}
-      {isFullScreen && (
+      {/* Backdrop: Shown in Center mode (40%) and Fullscreen mode */}
+      {(panelMode === "center" || isFullScreen) && (
         <div
-          onClick={() => setIsFullScreen(false)}
-          className="fixed inset-0 z-40 bg-black/60 transition-opacity duration-200 animate-in fade-in"
+          onClick={onClose}
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px] transition-opacity duration-200 animate-in fade-in"
         />
       )}
 
-      {/* Main Assistant Panel: East window sidecar 30% docked mode (no blur, side-by-side with 70% page) or Full Screen */}
+      {/* Main Assistant Panel:
+          1. Center Mode (40% default): floating centered modal spotlight
+          2. Docked Mode (30%): right sidecar docked flush against the screen
+          3. Fullscreen Mode: expanded modal
+      */}
       <aside
         className={cn(
-          "bg-[#0B0D0E] text-[#F3F4F6] shadow-2xl flex flex-col justify-between font-sans select-none",
+          "bg-[#0E1113] text-[#F3F4F6] shadow-2xl flex flex-col justify-between font-sans select-none border-[#22282E]",
           isFullScreen
-            ? "fixed inset-0 md:inset-6 md:rounded-[18px] md:border border-[#1E2327] z-50 overflow-hidden transition-all duration-200 animate-in zoom-in-95"
-            : "fixed inset-0 z-50 md:static md:z-auto w-full md:w-[30vw] md:min-w-[340px] md:max-w-[480px] h-dvh md:border-l border-[#1E2327] flex-shrink-0 transition-all duration-200 animate-in slide-in-from-right-4"
+            ? "fixed inset-2 md:inset-6 z-50 rounded-[18px] border overflow-hidden transition-all duration-200 animate-in zoom-in-95"
+            : panelMode === "center"
+            ? "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[95vw] sm:w-[85vw] md:w-[40vw] md:min-w-[500px] md:max-w-[720px] h-[82vh] max-h-[850px] rounded-[18px] border overflow-hidden transition-all duration-200 animate-in zoom-in-95"
+            : "fixed inset-0 z-50 md:sticky md:top-0 md:right-0 md:z-30 w-full md:w-[30vw] md:min-w-[340px] md:max-w-[480px] h-dvh md:h-screen md:border-l flex-shrink-0 transition-all duration-200 animate-in slide-in-from-right-4"
         )}
       >
-        {/* 1. Grok-Style Header Bar */}
-        <div className="h-14 px-4 sm:px-6 border-b border-[#1A1F24] flex items-center justify-between flex-shrink-0 bg-[#0E1113]">
-          <div className="flex items-center gap-3">
+        {/* 1. Header Bar with Integrated Context Tag (No extra box bar needed) */}
+        <div className="h-14 px-4 sm:px-5 border-b border-[#1A1F24] flex items-center justify-between flex-shrink-0 bg-[#0E1113]">
+          <div className="flex items-center gap-2.5 min-w-0">
             {/* Mobile Back Button */}
             <button
               onClick={onClose}
@@ -270,41 +315,64 @@ export function AskEstateOSPanel({
               <ArrowLeft className="w-5 h-5 stroke-[2]" />
             </button>
 
-            {/* AI Agent Identity */}
-            <div className="w-8 h-8 rounded-[9px] bg-gradient-to-br from-[#1E293B] to-[#0F172A] border border-[#334155] flex items-center justify-center text-emerald-400 shadow-sm shrink-0">
-              <Sparkles className="w-4 h-4 stroke-[2]" />
+            {/* AI Agent Icon */}
+            <div className="w-7 h-7 rounded-[8px] bg-[#161A1D] border border-[#252B32] flex items-center justify-center text-emerald-400 shadow-xs shrink-0">
+              <Sparkles className="w-3.5 h-3.5" />
             </div>
-            <div>
-              <div className="font-heading font-semibold text-[14px] sm:text-[15px] text-[#F9FAFB] tracking-tight flex items-center gap-2">
-                <span>Super Agent</span>
-                <span className="text-[10px] font-mono uppercase bg-[#182026] text-emerald-400 border border-emerald-500/25 px-1.5 py-0.5 rounded-[5px] font-medium">
-                  Concierge
-                </span>
-              </div>
-              <div className="text-[11px] text-[#94A3B8]">
-                Context · <span className="text-[#E2E8F0] font-medium">{currentPageName}</span>
+
+            {/* Title & Page Context */}
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="font-heading font-semibold text-[14px] text-[#F9FAFB] tracking-tight shrink-0">
+                Super Agent
+              </span>
+              <span className="text-[10px] font-mono uppercase bg-[#161A1D] text-[#94A3B8] border border-[#252B32] px-1.5 py-0.5 rounded-[5px] shrink-0">
+                Concierge
+              </span>
+              {/* Context Tag integrated into header (removes separate box) */}
+              <div className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded-[5px] bg-[#14181B] border border-[#1E2328] text-[11px] text-[#94A3B8] min-w-0 truncate">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                <span className="truncate">{currentPageName} · {selectedContext}</span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            {/* Fullscreen / Split Toggle Button */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Mode Switcher: Center (40%) <-> Dock (30%) */}
+            <button
+              onClick={togglePanelMode}
+              className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-[7px] bg-[#14181B] hover:bg-[#1C2227] border border-[#20262B] text-[11px] text-[#94A3B8] hover:text-[#FFFFFF] transition-colors cursor-pointer"
+              title={panelMode === "center" ? "Dock to right side (30%)" : "Float in center (40%)"}
+            >
+              {panelMode === "center" ? (
+                <>
+                  <PanelRight className="w-3.5 h-3.5" />
+                  <span>Dock 30%</span>
+                </>
+              ) : (
+                <>
+                  <Layout className="w-3.5 h-3.5" />
+                  <span>Center 40%</span>
+                </>
+              )}
+            </button>
+
+            {/* Fullscreen / Restore Toggle Button */}
             <button
               onClick={() => setIsFullScreen((prev) => !prev)}
-              className="hidden md:flex w-8 h-8 rounded-[8px] bg-[#14181B] hover:bg-[#1E2327] border border-[#22282E] text-[#94A3B8] hover:text-[#FFFFFF] items-center justify-center transition-colors cursor-pointer"
-              title={isFullScreen ? "Dock to East Window (30%)" : "Expand to Full Screen"}
+              className="hidden md:flex w-8 h-8 rounded-[7px] bg-[#14181B] hover:bg-[#1C2227] border border-[#20262B] text-[#94A3B8] hover:text-[#FFFFFF] items-center justify-center transition-colors cursor-pointer"
+              title={isFullScreen ? "Restore Window" : "Expand to Full Screen"}
             >
               {isFullScreen ? (
-                <Minimize2 className="w-3.5 h-3.5 stroke-[2]" />
+                <Minimize2 className="w-3.5 h-3.5" />
               ) : (
-                <Maximize2 className="w-3.5 h-3.5 stroke-[2]" />
+                <Maximize2 className="w-3.5 h-3.5" />
               )}
             </button>
 
             {/* Close Button */}
             <button
               onClick={onClose}
-              className="w-8 h-8 rounded-[8px] bg-[#14181B] hover:bg-[#1E2327] border border-[#22282E] text-[#94A3B8] hover:text-[#FFFFFF] flex items-center justify-center transition-colors cursor-pointer"
+              className="w-8 h-8 rounded-[7px] bg-[#14181B] hover:bg-[#1C2227] border border-[#20262B] text-[#94A3B8] hover:text-[#FFFFFF] flex items-center justify-center transition-colors cursor-pointer"
               title="Close (Esc)"
             >
               <X className="w-4 h-4 stroke-[2]" />
@@ -312,20 +380,7 @@ export function AskEstateOSPanel({
           </div>
         </div>
 
-        {/* 2. Context Card "LOOKING AT" */}
-        <div className="px-5 py-2.5 border-b border-[#1A1F24] bg-[#0C0F11] flex items-center justify-between flex-shrink-0 text-[11px]">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
-            <span className="text-[10px] font-semibold text-[#64748B] uppercase tracking-[0.06em] flex-shrink-0">
-              Active Focus
-            </span>
-            <span className="text-[12px] text-[#CBD5E1] font-medium truncate">
-              {selectedContext}
-            </span>
-          </div>
-        </div>
-
-        {/* 3. Scrollable Message Thread */}
+        {/* 2. Scrollable Message Thread */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 text-[13.5px] leading-relaxed">
           {messages.map((msg) => (
             <div
@@ -335,13 +390,13 @@ export function AskEstateOSPanel({
                 msg.sender === "user" ? "ml-auto items-end" : "mr-auto items-start"
               )}
             >
-              {/* Message Bubble */}
+              {/* Message Bubble: Clean border, no bulky shadow */}
               <div
                 className={cn(
                   "p-3.5 sm:p-4 rounded-[14px] text-[13.5px]",
                   msg.sender === "user"
-                    ? "bg-[#1C242C] border border-[#2B3540] text-[#F3F4F6] rounded-tr-none"
-                    : "bg-[#12161A] border border-[#1E252C] text-[#E2E8F0] rounded-tl-none shadow-sm"
+                    ? "bg-[#1C2329] border border-[#28323B] text-[#F3F4F6] rounded-tr-none"
+                    : "bg-[#121518] border border-[#1E2328] text-[#E2E8F0] rounded-tl-none shadow-sm"
                 )}
               >
                 <div
@@ -351,137 +406,184 @@ export function AskEstateOSPanel({
                   }}
                 />
 
-                {/* Read: source citation */}
+                {/* Read citation: subtle inline text */}
                 {msg.readSource && (
-                  <div className="mt-2.5 pt-2 border-t border-[#262626] text-[11.5px] text-[#888888] flex items-center gap-1.5 font-mono">
-                    <span className="text-[#F25C05]">Read:</span>
+                  <div className="mt-2.5 pt-2 border-t border-[#1E2328] text-[11px] text-[#64748B] flex items-center gap-1.5 font-mono">
+                    <span className="text-[#94A3B8]">Read:</span>
                     <span className="truncate">{msg.readSource}</span>
                   </div>
                 )}
 
-                {/* Fact Tiles (if present) */}
+                {/* Facts: Minimal 2-column key/value list without heavy nested boxes */}
                 {msg.facts && msg.facts.length > 0 && (
-                  <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="mt-3 pt-2.5 border-t border-[#1E2328] grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11.5px]">
                     {msg.facts.map((fact, idx) => (
-                      <div
-                        key={idx}
-                        className={cn(
-                          "p-2.5 rounded-[8px] text-[12px] border",
-                          fact.isAlert
-                            ? "bg-[#F25C05]/10 border-[#F25C05]/30 text-[#FFA066]"
-                            : "bg-[#222222] border-[#2E2E2E] text-[#DDDDDD]"
-                        )}
-                      >
-                        <div className="text-[10px] uppercase font-semibold text-[#888888] tracking-wider mb-0.5">
+                      <div key={idx} className="flex flex-col">
+                        <span className="text-[10px] uppercase font-mono text-[#64748B] tracking-wider mb-0.5">
                           {fact.label}
-                        </div>
-                        <div className="font-semibold truncate">{fact.value}</div>
+                        </span>
+                        <span className={cn("font-medium truncate", fact.isAlert ? "text-[#F25C05]" : "text-[#E2E8F0]")}>
+                          {fact.value}
+                        </span>
                       </div>
                     ))}
                   </div>
                 )}
 
-                {/* Draft Proposal Block (if present) */}
-                {msg.draftBlock && (
-                  <div className="mt-3 p-3 rounded-[10px] bg-[#111111] border border-[#2A2A2A] text-[12.5px] space-y-1.5">
-                    <div className="flex items-center justify-between text-[11px] text-[#888888]">
-                      <span className="uppercase tracking-wider font-semibold text-[#F25C05]">
-                        Draft Reply ({msg.draftBlock.channel})
-                      </span>
-                      <span>To: {msg.draftBlock.to}</span>
-                    </div>
-                    <div className="text-[#FFFFFF] italic whitespace-pre-line bg-[#161616] p-2.5 rounded-[6px] border border-[#222222]">
-                      "{msg.draftBlock.body}"
-                    </div>
-                  </div>
-                )}
-
-                {/* Live Step Checklist (Antigravity/Grok style) */}
+                {/* Live Step Checklist: Minimal list with subtle check icon */}
                 {msg.steps && msg.steps.length > 0 && (
-                  <div className="mt-3 p-2.5 rounded-[8px] bg-[#141414] border border-[#222222] space-y-1.5">
+                  <div className="mt-2.5 space-y-1.5 text-[12px] text-[#94A3B8]">
                     {msg.steps.map((st, sIdx) => (
-                      <div key={sIdx} className="flex items-center gap-2 text-[11.5px] text-[#A0A0A0]">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <div key={sIdx} className="flex items-center gap-2">
+                        <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                         <span className="leading-tight">{st}</span>
                       </div>
                     ))}
                   </div>
                 )}
 
-                {/* Mini Preview Workspace Card (Grok/Computer style) */}
+                {/* Mini Preview Workspace Card (Single clean container, color reserved for important items) */}
                 {msg.previewCard && (
-                  <div className="mt-3 rounded-[10px] bg-[#141414] border border-[#2A2A2A] overflow-hidden shadow-lg">
-                    {/* Card Header */}
-                    <div className="px-3 py-2 bg-[#1A1A1A] border-b border-[#262626] flex items-center justify-between text-[11px]">
-                      <div className="flex items-center gap-2">
-                        <span className="flex items-center gap-1 font-mono uppercase text-[9.5px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                          <MessageSquare className="w-3 h-3" />
-                          {msg.previewCard.channel}
-                        </span>
-                        <span className="text-[#CCCCCC] font-medium truncate max-w-[170px]">
-                          {msg.previewCard.unitLabel}
-                        </span>
-                      </div>
-                      <span className="text-[#888888] font-mono text-[10px]">
-                        {msg.previewCard.recipient}
-                      </span>
-                    </div>
-
-                    {/* Card Body Frame */}
-                    <div className="p-3 bg-[#0E0E0E] text-[12px] text-[#E0E0E0] whitespace-pre-line leading-relaxed font-sans border-b border-[#222222]">
-                      {msg.previewCard.body}
-                    </div>
-
-                    {/* Card Bottom Controls */}
-                    <div className="px-3 py-2 bg-[#141414] flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5">
-                        {sentCardIds.has(msg.id) ? (
-                          <div className="flex items-center gap-1.5 text-emerald-400 text-[11.5px] font-medium py-1">
-                            <Check className="w-4 h-4 stroke-[2.5]" />
-                            <span>Dispatched to WhatsApp</span>
+                  <div className="mt-3 rounded-[10px] bg-[#15181C] border border-[#222830] p-3.5 space-y-2.5 shadow-sm animate-in fade-in-50 duration-150">
+                    {/* 1. Case Snapshot Card */}
+                    {msg.previewCard.type === "case_summary" ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-[#1F252C] text-[#CBD5E1] border border-[#29323B]">
+                              {msg.previewCard.badgeLabel || "TICKET"}
+                            </span>
+                            <span className="text-[#F3F4F6] font-medium truncate max-w-[200px]">
+                              {msg.previewCard.unitLabel || "Portfolio"}
+                            </span>
                           </div>
-                        ) : (
-                          <button
-                            onClick={() => handleApproveDraft(msg.id, msg.previewCard?.caseId)}
-                            disabled={sendingCardId === msg.id}
-                            className="px-3 py-1.5 rounded-[6px] bg-[#F25C05] hover:bg-[#d94f00] text-[#0A0A0A] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-                          >
-                            {sendingCardId === msg.id ? (
-                              <>
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                <span>Sending...</span>
-                              </>
-                            ) : (
-                              <>
-                                <SendHorizontal className="w-3.5 h-3.5" />
-                                <span>Accept and send</span>
-                              </>
-                            )}
-                          </button>
+                          {msg.previewCard.status && (
+                            <span className="text-[10.5px] font-mono text-[#94A3B8] capitalize">
+                              {msg.previewCard.status}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[12.5px] text-[#E2E8F0] leading-relaxed font-sans">
+                          {msg.previewCard.body || msg.previewCard.title}
+                        </div>
+                        {msg.previewCard.contractor && (
+                          <div className="text-[11px] text-[#64748B] flex items-center justify-between pt-1 border-t border-[#1E2328]">
+                            <span>Contractor: <strong className="text-[#CBD5E1]">{msg.previewCard.contractor}</strong></span>
+                            {msg.previewCard.dueDate && <span className="font-mono text-[10.5px] text-[#94A3B8]">{msg.previewCard.dueDate}</span>}
+                          </div>
                         )}
+                        <div className="pt-1.5 flex items-center justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleNavigate(msg.previewCard?.targetUrl || `/maintenance?ticket=${msg.previewCard?.caseId || "005"}`)}
+                            className="text-[11px] font-medium text-[#F25C05] hover:text-[#d94f00] flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            <span>Open in Maintenance</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </button>
+                        </div>
                       </div>
+                    ) : msg.previewCard.type === "financial_item" ? (
+                      /* 2. Financial Arrears / Ledger Card (Amount is the important highlight) */
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-[#1F252C] text-[#CBD5E1] border border-[#29323B]">
+                            {msg.previewCard.badgeLabel || "ARREARS"}
+                          </span>
+                          {/* Amount is highlighted in red because it's an overdue financial figure */}
+                          <span className="font-mono text-[14px] font-bold text-rose-400">
+                            {msg.previewCard.amount}
+                          </span>
+                        </div>
+                        <div className="text-[13px] font-semibold text-[#F9FAFB]">
+                          {msg.previewCard.title}
+                        </div>
+                        <div className="text-[12px] text-[#94A3B8] leading-relaxed">
+                          {msg.previewCard.subtitle || msg.previewCard.body}
+                        </div>
+                        <div className="pt-2 flex items-center justify-between border-t border-[#1E2328] text-[11px]">
+                          <span className="text-[#64748B] font-mono text-[10.5px]">
+                            {msg.previewCard.dueDate ? `Due: ${msg.previewCard.dueDate}` : msg.previewCard.unitLabel}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleNavigate(msg.previewCard?.targetUrl || "/money")}
+                            className="font-medium text-[#F25C05] hover:text-[#d94f00] flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            <span>Open in Money</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      /* 3. Default: Message Draft Card (WhatsApp / Gmail) */
+                      <div className="space-y-2.5">
+                        <div className="flex items-center justify-between text-[11px] text-[#94A3B8]">
+                          <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-[#1F252C] text-[#CBD5E1] border border-[#29323B]">
+                            Draft · {msg.previewCard.channel || "whatsapp"}
+                          </span>
+                          <span className="font-mono text-[10.5px] text-[#64748B]">
+                            {msg.previewCard.recipient}
+                          </span>
+                        </div>
 
-                      <a
-                        href={`/inbox?thread=case-${msg.previewCard.caseId}`}
-                        className="text-[11px] text-[#888888] hover:text-[#FFFFFF] flex items-center gap-1 transition-colors"
-                      >
-                        <span>Open in Inbox</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    </div>
+                        <div className="p-2.5 rounded-[8px] bg-[#0E1113] border border-[#1E2328] text-[12px] text-[#E2E8F0] italic whitespace-pre-line leading-relaxed font-sans">
+                          "{msg.previewCard.body && msg.previewCard.body !== "--" ? msg.previewCard.body : "Beste bewoner,\n\nDank voor uw melding. We hebben uw bericht ontvangen en zijn direct bezig met de opvolging.\n\nMet vriendelijke groet,\nHarjot — EstateOS"}"
+                        </div>
+
+                        <div className="pt-1 flex items-center justify-between gap-2">
+                          <div>
+                            {sentCardIds.has(msg.id) ? (
+                              <div className="flex items-center gap-1.5 text-emerald-400 text-[11.5px] font-medium py-1">
+                                <Check className="w-4 h-4 stroke-[2.5]" />
+                                <span>Dispatched to {msg.previewCard.channel || "WhatsApp"}</span>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleApproveDraft(msg.id, msg.previewCard?.caseId)}
+                                disabled={sendingCardId === msg.id}
+                                className="px-3 py-1.5 rounded-[7px] bg-[#F25C05] hover:bg-[#d94f00] text-[#0A0A0A] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                {sendingCardId === msg.id ? (
+                                  <>
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Sending...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <SendHorizontal className="w-3.5 h-3.5" />
+                                    <span>Accept and send</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleNavigate(msg.previewCard?.targetUrl || `/inbox?thread=case-${msg.previewCard?.caseId || ""}`)}
+                            className="text-[11px] text-[#888888] hover:text-[#FFFFFF] flex items-center gap-1 transition-colors cursor-pointer"
+                          >
+                            <span>Open in Inbox</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
                 {/* Document Card (if present) */}
                 {msg.documentCard && (
-                  <div className="mt-3 p-2.5 rounded-[8px] bg-[#222222] border border-[#2E2E2E] flex items-center justify-between">
+                  <div className="mt-3 p-2.5 rounded-[8px] bg-[#15181C] border border-[#222830] flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <FileText className="w-4 h-4 text-[#F25C05]" />
                       <div>
                         <div className="text-[12px] font-semibold text-[#FFFFFF]">
                           {msg.documentCard.title}
                         </div>
-                        <div className="text-[10px] text-[#888888] font-mono">
+                        <div className="text-[10px] text-[#64748B] font-mono">
                           {msg.documentCard.size}
                         </div>
                       </div>
@@ -493,24 +595,34 @@ export function AskEstateOSPanel({
                 )}
               </div>
 
-              {/* Action Buttons for Assistant Proposals */}
+              {/* Action Buttons for Assistant Proposals (Filtered to prevent duplicate with preview card) */}
               {msg.actions && msg.actions.length > 0 && (
                 <div className="flex flex-wrap gap-2 mt-1">
-                  {msg.actions.map((act, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => handleActionClick(act)}
-                      className={cn(
-                        "px-3 py-1.5 rounded-[8px] text-[12px] font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs",
-                        act.isPrimary
-                          ? "bg-[#F25C05] hover:bg-[#d94f00] text-[#0A0A0A]"
-                          : "bg-[#181818] hover:bg-[#222222] border border-[#262626] text-[#FFFFFF]"
-                      )}
-                    >
-                      <span>{act.label}</span>
-                      <CornerDownRight className="w-3 h-3" />
-                    </button>
-                  ))}
+                  {msg.actions
+                    .filter((act) => {
+                      if (msg.previewCard && act.actionType === "navigate") {
+                        if (act.label.toLowerCase().includes("money") && msg.previewCard.type === "financial_item") return false;
+                        if (act.label.toLowerCase().includes("maintenance") && msg.previewCard.type === "case_summary") return false;
+                        if (act.label.toLowerCase().includes("inbox") && msg.previewCard.type === "draft_message") return false;
+                        if (act.label.toLowerCase().includes("approvals") && msg.previewCard.type === "draft_message") return false;
+                      }
+                      return true;
+                    })
+                    .map((act, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => handleActionClick(act)}
+                        className={cn(
+                          "px-3 py-1.5 rounded-[8px] text-[12px] font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs",
+                          act.isPrimary
+                            ? "bg-[#F25C05] hover:bg-[#d94f00] text-[#0A0A0A]"
+                            : "bg-[#181818] hover:bg-[#222222] border border-[#262626] text-[#FFFFFF]"
+                        )}
+                      >
+                        <span>{act.label}</span>
+                        <CornerDownRight className="w-3 h-3" />
+                      </button>
+                    ))}
                 </div>
               )}
 
@@ -522,7 +634,7 @@ export function AskEstateOSPanel({
 
           {/* Animated 3-dot Typing Indicator */}
           {isTyping && (
-            <div className="flex items-center gap-1.5 p-3 rounded-[12px] bg-[#181818] border border-[#262626] w-fit text-[#888888]">
+            <div className="flex items-center gap-1.5 p-3 rounded-[12px] bg-[#14181B] border border-[#20262B] w-fit text-[#888888]">
               <div className="w-1.5 h-1.5 rounded-full bg-[#F25C05] animate-bounce" />
               <div className="w-1.5 h-1.5 rounded-full bg-[#F25C05] animate-bounce [animation-delay:0.15s]" />
               <div className="w-1.5 h-1.5 rounded-full bg-[#F25C05] animate-bounce [animation-delay:0.3s]" />
@@ -532,30 +644,25 @@ export function AskEstateOSPanel({
           <div ref={messagesEndRef} />
         </div>
 
-        {/* 4. Suggested Chips Container */}
-        <div className="px-4 sm:px-6 py-2.5 border-t border-[#1A1F24] bg-[#0E1113]">
-          <div className="max-w-[760px] mx-auto w-full">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#64748B] mb-2 flex items-center gap-1">
-              <span>SUGGESTED ACTIONS</span>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {suggestedChips.map((chip, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleSendQuery(chip)}
-                  className="flex items-center gap-1.5 px-3 py-1 rounded-[7px] bg-[#14181B] hover:bg-[#1C2226] border border-[#20262B] hover:border-[#334155] text-[11.5px] text-[#CBD5E1] transition-colors cursor-pointer"
-                >
-                  <span>{chip}</span>
-                  <ArrowUpRight className="w-3 h-3 text-emerald-400" />
-                </button>
-              ))}
-            </div>
+        {/* 3. Suggested Chips: Streamlined minimal pills, no heavy container */}
+        <div className="px-4 sm:px-5 py-2 border-t border-[#1A1F24] bg-[#0E1113] flex-shrink-0">
+          <div className="flex flex-wrap gap-1.5">
+            {suggestedChips.slice(0, 3).map((chip, idx) => (
+              <button
+                key={idx}
+                onClick={() => handleSendQuery(chip)}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#14181B] hover:bg-[#1C2227] border border-[#20262B] hover:border-[#334155] text-[11px] text-[#94A3B8] hover:text-[#FFFFFF] transition-colors cursor-pointer"
+              >
+                <span>{chip}</span>
+                <ArrowUpRight className="w-3 h-3 text-[#64748B]" />
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* 5. Input Field Row */}
-        <div className="p-4 sm:p-5 border-t border-[#1A1F24] bg-[#0B0D0E] flex-shrink-0">
-          <div className="max-w-[760px] mx-auto w-full space-y-2">
+        {/* 4. Input Field Row: Sleek and flat */}
+        <div className="p-3.5 sm:p-4 border-t border-[#1A1F24] bg-[#0B0D0E] flex-shrink-0">
+          <div className="max-w-[760px] mx-auto w-full space-y-1.5">
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -568,22 +675,21 @@ export function AskEstateOSPanel({
                 type="text"
                 value={inputQuery}
                 onChange={(e) => setInputQuery(e.target.value)}
-                placeholder="Ask Super Agent anything across your portfolio, cases, and arrears..."
-                className="w-full h-11 pl-4 pr-12 rounded-[12px] bg-[#12161A] border border-[#222A32] text-[13.5px] text-[#FFFFFF] placeholder:text-[#64748B] focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/15 transition-all shadow-inner"
+                placeholder="Ask Super Agent across portfolio, maintenance, arrears..."
+                className="w-full h-10 pl-3.5 pr-11 rounded-[10px] bg-[#14181C] border border-[#222830] text-[13px] text-[#FFFFFF] placeholder:text-[#64748B] focus:outline-none focus:border-[#4B5563] transition-colors"
               />
               <button
                 type="submit"
                 disabled={!inputQuery.trim() || isTyping}
-                className="absolute right-1.5 w-8 h-8 rounded-[8px] bg-emerald-500 hover:bg-emerald-600 disabled:opacity-30 text-[#090C0E] flex items-center justify-center transition-colors cursor-pointer"
+                className="absolute right-1.5 w-7 h-7 rounded-[7px] bg-[#F25C05] hover:bg-[#d94f00] disabled:opacity-30 text-[#0A0A0A] flex items-center justify-center transition-colors cursor-pointer"
                 title="Send query"
               >
                 <Send className="w-3.5 h-3.5 stroke-[2.4]" />
               </button>
             </form>
 
-            {/* Clean Footnote */}
-            <p className="text-[10.5px] text-[#475569] text-center leading-tight">
-              Super Agent autonomously plans actions. You hold explicit approval before dispatch.
+            <p className="text-[10px] text-[#475569] text-center leading-tight">
+              Autonomous planning with explicit confirmation before dispatch.
             </p>
           </div>
         </div>

@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     langfuse_secret_key: SecretStr | None = None
     openai_api_key: SecretStr | None = None
     gemini_api_key: SecretStr | None = None  # Google AI Studio key for `google-gla:*` models (testing)
+    groq_api_key: SecretStr | None = None  # Groq Cloud key (https://console.groq.com) for `groq:*` models
 
     # LLM agents (spec phase-1 agents). `fake` = deterministic offline models (app.llm.fakes); prod refuses it.
     llm_model: str = "fake"  # Pydantic AI model string, e.g. "openai:gpt-4.1-mini" or "google-gla:gemini-2.5-flash"

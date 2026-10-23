@@ -204,7 +204,7 @@ export function InboxConversationView({
   return (
     <section
       className={cn(
-        "flex h-[calc(100dvh-3.5rem)] flex-col bg-[var(--pane)] overflow-hidden select-none",
+        "flex h-full flex-1 min-h-0 flex-col bg-[var(--pane)] overflow-hidden select-none",
         className
       )}
     >
@@ -231,20 +231,16 @@ export function InboxConversationView({
               {urgentThread && <UrgentLabel />}
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap text-xs text-[var(--ink-3)] leading-normal mt-0.5">
-              <span>{thread.senderName}</span>
+            <div className="flex items-center gap-1.5 flex-wrap text-xs text-[var(--ink-3)] leading-normal mt-0.5">
+              <span className="font-semibold text-[var(--ink)]">{thread.unitLabel}</span>
               <span>·</span>
-              <span className="font-medium text-[var(--ink)]">{thread.unitLabel}</span>
+              <span className="text-[var(--ink-2)] truncate max-w-[140px]">{thread.senderName}</span>
               {thread.senderContact && (
                 <>
                   <span>·</span>
-                  <span className="font-mono text-[11.5px] text-[var(--ink-2)] bg-[var(--selected)] px-1.5 py-0.5 rounded border border-[var(--line)] inline-flex items-center gap-1.5">
-                    <span className={cn("inline-block w-1.5 h-1.5 rounded-full", thread.channel === "gmail" ? "bg-[#EA4335]" : "bg-[#25D366]")} />
-                    {thread.channel === "gmail" ? (
-                      `Gmail: ${thread.senderContact}`
-                    ) : (
-                      `WhatsApp: ${thread.senderContact}`
-                    )}
+                  <span className="font-mono text-[11px] text-[var(--ink-2)] bg-[var(--selected)] px-1.5 py-0.5 rounded border border-[var(--line)] inline-flex items-center gap-1.5 truncate max-w-[200px]" title={thread.senderContact}>
+                    <span className={cn("inline-block w-1.5 h-1.5 rounded-full shrink-0", thread.channel === "gmail" ? "bg-[#EA4335]" : "bg-[#25D366]")} />
+                    <span className="truncate">{thread.senderContact}</span>
                   </span>
                 </>
               )}

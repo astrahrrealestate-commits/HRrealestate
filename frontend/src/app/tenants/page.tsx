@@ -27,10 +27,12 @@ import { cn } from "@/lib/utils";
 import { MOCK_TENANTS, TenantProfile } from "@/data/tenantsMockData";
 import { DocumentViewerModal, DocumentItem } from "@/components/ui/DocumentViewerModal";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
+import { useSuperAgent } from "@/context/SuperAgentContext";
 
 function TenantsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const superAgent = useSuperAgent();
 
   // URL state synchronization: ?tenant=id
   const tenantParam = searchParams.get("tenant");
@@ -57,6 +59,17 @@ function TenantsContent() {
       MOCK_TENANTS[0]
     );
   }, [selectedTenantId]);
+
+  useEffect(() => {
+    superAgent.setCurrentPageName("Tenants");
+    if (activeTenant) {
+      superAgent.setSelectedContext(
+        `Tenant: ${activeTenant.name} (${activeTenant.unitLabel}) [Status: ${activeTenant.rentStatus}, Rent: € ${activeTenant.monthlyRentEur}/mo, Phone: ${activeTenant.phone}]`
+      );
+    } else {
+      superAgent.setSelectedContext("Tenant Directory (110 active tenants)");
+    }
+  }, [activeTenant, superAgent.setCurrentPageName, superAgent.setSelectedContext]);
 
   // Filtered tenants list
   const filteredTenants = useMemo(() => {
@@ -101,16 +114,15 @@ function TenantsContent() {
   const isMobileDetailScreen = Boolean(tenantParam && isMobile);
 
   return (
-    <div className="min-h-dvh bg-[var(--bg)] flex font-sans antialiased text-[var(--ink)]">
+    <div className="h-dvh bg-[var(--bg)] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
       {/* 1. Left Nav (Desktop Sidebar) */}
       <Sidebar />
 
       {/* 2. Main Content Canvas */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         <TopCommandBar
           pageTitle="Tenants"
           hideSearch={true}
-          onAskAgent={() => setIsAskAgentOpen(true)}
         />
 
         {/* ------------------------------------------------------------- */}
@@ -735,8 +747,6 @@ function TenantsContent() {
 
       {/* 5. Ask EstateOS Side Panel */}
       <AskEstateOSPanel
-        isOpen={isAskAgentOpen}
-        onClose={() => setIsAskAgentOpen(false)}
         currentPageName="Tenants"
         selectedContext={
           activeTenant

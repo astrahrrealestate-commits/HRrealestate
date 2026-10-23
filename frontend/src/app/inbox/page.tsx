@@ -16,6 +16,7 @@ import { approveInboxDraft, getInboxThreads, syncGmailInbox } from "@/lib/api";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import { needsYouCount, isNeedsYou, isUrgent } from "@/lib/selectors";
 import { cn } from "@/lib/utils";
+import { useSuperAgent } from "@/context/SuperAgentContext";
 
 function InboxContent() {
   const router = useRouter();
@@ -381,29 +382,40 @@ function InboxContent() {
     filteredAndSortedThreads[0] ||
     null;
 
+  const superAgent = useSuperAgent();
+  useEffect(() => {
+    superAgent.setCurrentPageName("Inbox");
+    if (activeThread) {
+      superAgent.setSelectedContext(
+        `Thread: ${activeThread.senderName} (${activeThread.unitLabel}) [Channel: ${activeThread.channel}, Subject: ${activeThread.subject || activeThread.latestSnippet}]`
+      );
+    } else {
+      superAgent.setSelectedContext("Omnichannel Inbox (All Communications)");
+    }
+  }, [activeThread, superAgent.setCurrentPageName, superAgent.setSelectedContext]);
+
   // On mobile (<1024px), is conversation pane active?
   const isMobileConversationOpen = Boolean(selectedThreadId && isMobile);
 
   return (
-    <div className="min-h-dvh bg-[var(--bg)] flex font-sans antialiased text-[var(--ink)]">
+    <div className="h-dvh bg-[var(--bg)] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
       {/* 1. Left Fixed Sidebar (Hidden on mobile, icon nav on md, full on xl) */}
       <Sidebar pendingCount={needsYouCount(threads)} />
 
       {/* 2. Main Content Canvas */}
-      <div className="flex-1 flex flex-col min-w-0 h-dvh overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         {/* Top bar hidden on mobile when conversation is open so conversation header controls the screen */}
         <div className={cn(isMobileConversationOpen ? "hidden md:block" : "block")}>
           <TopCommandBar
             pageTitle="Inbox"
             hideSearch
-            onAskAgent={() => setIsAskAgentOpen(true)}
             onSyncMailbox={handleSyncMailbox}
             isSyncing={isSyncing}
           />
         </div>
 
         {/* 3. Omnichannel Inbox Workspace (Section 5.2: 2-column layout inside shell) */}
-        <div className="lg:grid lg:grid-cols-[340px_1fr] xl:grid-cols-[380px_1fr] flex-1 min-h-0 h-[calc(100dvh-3.5rem)]">
+        <div className="lg:grid lg:grid-cols-[300px_1fr] xl:grid-cols-[340px_1fr] flex-1 min-h-0 overflow-hidden">
           {/* Left Column: 6 Controls FilterBar + Grouped Thread List */}
           <div
             className={cn(
@@ -472,8 +484,6 @@ function InboxContent() {
 
       {/* Ask EstateOS Assistant */}
       <AskEstateOSPanel
-        isOpen={isAskAgentOpen}
-        onClose={() => setIsAskAgentOpen(false)}
         currentPageName="Inbox"
         selectedContext={
           activeThread

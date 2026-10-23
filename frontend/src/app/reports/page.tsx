@@ -70,16 +70,15 @@ function ReportsContent() {
   };
 
   return (
-    <div className="min-h-dvh bg-[var(--bg)] flex font-sans antialiased text-[var(--ink)]">
+    <div className="h-dvh bg-[var(--bg)] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
       {/* 1. Left Nav (Desktop Sidebar) */}
       <Sidebar />
 
       {/* 2. Main Content Canvas */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         <TopCommandBar
           pageTitle="Reports"
           hideSearch={true}
-          onAskAgent={() => setIsAskAgentOpen(true)}
         />
 
         {/* Scrollable Container */}
@@ -278,8 +277,6 @@ function ReportsContent() {
 
       {/* 5. Ask EstateOS Side Panel */}
       <AskEstateOSPanel
-        isOpen={isAskAgentOpen}
-        onClose={() => setIsAskAgentOpen(false)}
         currentPageName="Reports"
         selectedContext={`Report: ${activeReport.name} (${activeReport.period})`}
       />

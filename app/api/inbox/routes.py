@@ -700,8 +700,9 @@ def decide_approval(
         approval: Approval | None = None
         case: Case | None = None
         action: ActionRow | None = None
+        latest_msg: MessageRow | None = None
 
-        clean_id = approval_id.replace("case-", "")
+        clean_id = approval_id.replace("case-", "").replace("act-", "")
         try:
             target_uuid = UUID(clean_id)
             # Try finding Approval directly
@@ -721,8 +722,41 @@ def decide_approval(
                     )
                     if action:
                         approval = session.query(Approval).filter(Approval.action_id == action.id).first()
+                else:
+                    # Try finding ActionRow directly
+                    action = session.get(ActionRow, target_uuid)
+                    if action:
+                        case = session.get(Case, action.case_id)
+                        approval = session.query(Approval).filter(Approval.action_id == action.id).first()
         except ValueError:
-            pass
+            # Fallback to the latest active case if a short ticket or alias was passed (e.g. '005' or 'pieter')
+            case = (
+                session.query(Case)
+                .filter(Case.state != CaseState.resolved)
+                .order_by(Case.opened_at.desc())
+                .first()
+            )
+            if case:
+                action = (
+                    session.query(ActionRow)
+                    .filter(ActionRow.case_id == case.id, ActionRow.type == ActionType.reply_draft)
+                    .first()
+                )
+                if action:
+                    approval = session.query(Approval).filter(Approval.action_id == action.id).first()
+
+        # Find latest message for thread reference early
+        target_case_id = (action.case_id if action else None) or (case.id if case else None)
+        if target_case_id:
+            links = session.query(CaseLink).filter(CaseLink.case_id == target_case_id).all()
+            msg_ids = [l.message_id for l in links]
+            if msg_ids:
+                latest_msg = (
+                    session.query(MessageRow)
+                    .filter(MessageRow.id.in_(msg_ids))
+                    .order_by(MessageRow.sent_at.desc())
+                    .first()
+                )
 
         if approval:
             approval.status = ApprovalStatus.approved
@@ -761,18 +795,6 @@ def decide_approval(
             payload = action.payload or {}
             variants = payload.get("body_variants") or []
             draft_text = req.edited_text or (variants[0] if variants else "")
-
-            # Find latest message for thread reference
-            links = session.query(CaseLink).filter(CaseLink.case_id == action.case_id).all() if action.case_id else []
-            msg_ids = [l.message_id for l in links]
-            latest_msg = (
-                session.query(MessageRow)
-                .filter(MessageRow.id.in_(msg_ids))
-                .order_by(MessageRow.sent_at.desc())
-                .first()
-                if msg_ids
-                else None
-            )
 
             if latest_msg and latest_msg.thread_ref:
                 try:

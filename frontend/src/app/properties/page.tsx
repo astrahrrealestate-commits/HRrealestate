@@ -33,10 +33,12 @@ import {
   UnitDetail,
 } from "@/data/propertiesMockData";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
+import { useSuperAgent } from "@/context/SuperAgentContext";
 
 function PropertiesContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const superAgent = useSuperAgent();
 
   // URL state synchronization: ?complex=comp-id&unit=unit-id
   const complexParam = searchParams.get("complex");
@@ -82,6 +84,17 @@ function PropertiesContent() {
     }
     return activeComplex.units[0] || null;
   }, [selectedUnitId, activeComplex]);
+
+  useEffect(() => {
+    superAgent.setCurrentPageName("Properties");
+    if (activeUnit) {
+      superAgent.setSelectedContext(
+        `Property Unit: ${activeUnit.unitNumber} (${activeComplex.name}, ${activeUnit.fullAddress}) [Status: ${activeUnit.status}, Tenant: ${activeUnit.currentTenant?.name || "Vacant"}, Rent: € ${activeUnit.monthlyRentEur}/mo]`
+      );
+    } else {
+      superAgent.setSelectedContext(`Complex: ${activeComplex.name} (${activeComplex.address})`);
+    }
+  }, [activeUnit, activeComplex, superAgent.setCurrentPageName, superAgent.setSelectedContext]);
 
   // Filtered units within active complex according to Tab and Search
   const filteredUnits = useMemo(() => {
@@ -163,16 +176,15 @@ function PropertiesContent() {
   const isMobileComplexList = !isMobileComplexScreen && !isMobileUnitScreen;
 
   return (
-    <div className="min-h-dvh bg-[var(--bg)] flex font-sans antialiased text-[var(--ink)]">
+    <div className="h-dvh bg-[var(--bg)] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
       {/* 1. Left Nav (Desktop Sidebar) */}
       <Sidebar />
 
       {/* 2. Main Content Canvas */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         <TopCommandBar
           pageTitle="Properties"
           hideSearch={true}
-          onAskAgent={() => setIsAskAgentOpen(true)}
         />
 
         {/* ------------------------------------------------------------- */}
@@ -181,15 +193,15 @@ function PropertiesContent() {
         {/* Col 2: Unit grid (5 per row)                                  */}
         {/* Col 3: Unit detail pane (380px)                               */}
         {/* ------------------------------------------------------------- */}
-        <div className="hidden md:flex flex-1 overflow-hidden">
+        <div className="hidden md:flex flex-1 overflow-hidden min-w-0">
           
-          {/* COLUMN 1: Complex List (Left pane, 250px) */}
-          <div className="w-[250px] shrink-0 border-r border-[var(--line)] bg-[var(--pane)] flex flex-col">
-            <div className="p-4 border-b border-[var(--line)]">
-              <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ink-3)] block mb-1">
+          {/* COLUMN 1: Complex List (Left pane, 200px-240px) */}
+          <div className="w-[200px] xl:w-[240px] shrink-0 border-r border-[var(--line)] bg-[var(--pane)] flex flex-col">
+            <div className="p-3 xl:p-4 border-b border-[var(--line)]">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)] block mb-1">
                 Portfolio Complexes
               </span>
-              <div className="text-[13px] text-[var(--ink-2)] font-mono">
+              <div className="text-[12px] xl:text-[13px] text-[var(--ink-2)] font-mono">
                 {portfolioStats.total} units · {portfolioStats.rate} occupied
               </div>
             </div>
@@ -321,9 +333,9 @@ function PropertiesContent() {
               </div>
             </div>
 
-            {/* UNIT GRID (Strictly 5 per row per Section 5.5 / 5.6.1) */}
-            <div className="flex-1 p-5 overflow-y-auto">
-              <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+            {/* UNIT GRID (Flexible auto-fit grid so cards never get squished or overlap) */}
+            <div className="flex-1 p-3.5 xl:p-4 overflow-y-auto">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] gap-2.5">
                 {filteredUnits.map((unit) => {
                   const isUnitSelected = activeUnit?.id === unit.id;
                   const isVacant = unit.status === "vacant";
@@ -334,7 +346,7 @@ function PropertiesContent() {
                       key={unit.id}
                       onClick={() => handleSelectUnit(unit)}
                       className={cn(
-                        "relative p-3.5 rounded-[var(--radius-pane)] border transition-all text-left flex flex-col justify-between h-[116px] cursor-pointer select-none",
+                        "relative p-2.5 rounded-[var(--radius-pane)] border transition-all text-left flex flex-col justify-between h-[112px] min-w-0 cursor-pointer select-none",
                         isUnitSelected
                           ? "border-[var(--ink)] bg-[var(--selected)] shadow-2xs"
                           : "border-[var(--line)] bg-[var(--pane)] hover:border-[var(--ink-3)] hover:bg-[var(--selected)]/30"
@@ -405,12 +417,12 @@ function PropertiesContent() {
             </div>
           </div>
 
-          {/* COLUMN 3: Unit Detail Pane (Right pane, 380px) with Sticky Footer */}
+          {/* COLUMN 3: Unit Detail Pane (Right pane, 300px-350px) with Sticky Footer */}
           {activeUnit && (
-            <div className="w-[380px] shrink-0 bg-[var(--pane)] flex flex-col justify-between">
+            <div className="w-[300px] xl:w-[350px] shrink-0 bg-[var(--pane)] flex flex-col justify-between border-l border-[var(--line)]">
               
               {/* Detail Content (Scrollable) */}
-              <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              <div className="flex-1 overflow-y-auto p-4 xl:p-5 space-y-4">
                 {/* Header */}
                 <div className="border-b border-[var(--line)] pb-4">
                   <div className="flex items-center justify-between">
@@ -905,10 +917,8 @@ function PropertiesContent() {
       {/* 3. Mobile Bottom Tab Bar (Section 5.1 & 5.6) - Hidden on full Unit Screen detail so actions sit at the bottom */}
       {!isMobileUnitScreen && <MobileTabBar />}
 
-      {/* 4. Ask EstateOS Side Panel (Desktop 400px side panel / Mobile full-screen) */}
+      {/* 4. Ask EstateOS Side Panel (Desktop 30vw side panel / Mobile full-screen) */}
       <AskEstateOSPanel
-        isOpen={isAskAgentOpen}
-        onClose={() => setIsAskAgentOpen(false)}
         currentPageName="Properties"
         selectedContext={
           activeUnit

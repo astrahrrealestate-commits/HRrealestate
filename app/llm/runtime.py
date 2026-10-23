@@ -28,6 +28,12 @@ def build_model(settings: Settings, agent_name: str) -> Model | str:
 
         key = settings.openai_api_key.get_secret_value() if settings.openai_api_key else None
         return OpenAIChatModel(name, provider=OpenAIProvider(api_key=key))
+    if provider == "groq":
+        from pydantic_ai.models.openai import OpenAIChatModel
+        from pydantic_ai.providers.openai import OpenAIProvider
+
+        key = settings.groq_api_key.get_secret_value() if settings.groq_api_key else None
+        return OpenAIChatModel(name, provider=OpenAIProvider(base_url="https://api.groq.com/openai/v1", api_key=key))
     return settings.llm_model
 
 

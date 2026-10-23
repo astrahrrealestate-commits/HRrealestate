@@ -271,18 +271,18 @@ export function Composer({
 
         {/* Bottom Bar: Action proposal & Buttons */}
         {hasDraft ? (
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-0.5">
-            <span className="text-[11.5px] text-[var(--ink-3)] truncate hidden sm:inline">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-0.5 min-w-0">
+            <span className="text-[11.5px] text-[var(--ink-3)] truncate hidden sm:inline min-w-0 flex-1">
               On accept: escalate · dispatch approved contractor · reply · log
             </span>
 
             {/* Desktop: Reject | Edit | Accept and send */}
-            <div className="hidden sm:flex items-center gap-2 justify-end">
+            <div className="hidden sm:flex items-center gap-2 justify-end shrink-0">
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={onReject}
-                className="text-[var(--ink-3)] hover:text-[var(--ink)]"
+                className="text-[var(--ink-3)] hover:text-[var(--ink)] whitespace-nowrap shrink-0"
               >
                 Reject
               </Button>
@@ -290,16 +290,18 @@ export function Composer({
                 variant="ghost"
                 size="sm"
                 onClick={() => textareaRef.current?.focus()}
+                className="whitespace-nowrap shrink-0"
               >
                 Edit
               </Button>
               <Button
                 variant="primary"
-                size="default"
+                size="sm"
                 onClick={handleAccept}
-                icon={<Sparkles className="w-4 h-4 fill-[#0A0A0A]" />}
+                className="whitespace-nowrap shrink-0 px-3.5 h-8.5 font-bold"
+                icon={<Sparkles className="w-3.5 h-3.5 fill-[#0A0A0A]" />}
               >
-                Accept and send
+                Accept & send
               </Button>
             </div>
 
