@@ -57,3 +57,17 @@ class AgentTurn(Base, CompanyScoped):
     # Stage milliseconds of the run (migration 0012, `app.pipeline.turn_timings`): numbers only, merged on retries.
     timings: Mapped[dict[str, Any] | None]
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())  # SSE turn cursor
+
+
+class AgentPageState(Base, CompanyScoped):
+    """The owner's latest pre-warmed page facts (migration 0015, `app.pipeline.page_state`): ONE row per owner,
+    overwritten by each `PUT /agent/page`, reused by a turn only for the same page key within the TTL (read time).
+    `resolved` holds tenant text (untrusted data, like `agent_turns.page_context`); the client snapshot is never
+    stored here."""
+
+    __tablename__ = "agent_page_state"
+
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("owner_accounts.id"), unique=True)
+    page_key: Mapped[str] = mapped_column(Text)  # `page_state.page_key`: a hash of the view and the open ids
+    resolved: Mapped[dict[str, Any]]  # the stored `resolved` shape of a turn: {"facts": str, "dropped": [kind]}
+    resolved_at: Mapped[datetime]  # database clock at the start of the resolving transaction

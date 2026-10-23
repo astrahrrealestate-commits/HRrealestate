@@ -46,16 +46,22 @@ def filters_line(page: PageContext) -> str:
     return f"filters: {' '.join(filters.split())}" if filters else ""
 
 
+def resolved_value(session: Session, company_id: UUID, page: PageContext) -> dict[str, Any]:
+    """The stored `resolved` shape (facts text and the dropped kinds), shared by a turn's first run and the page
+    pre-warm (`page_state`), so warmed facts are exactly what the turn would have stored."""
+    facts = resolve_page_facts(session, company_id, page)
+    return {"facts": facts_text(facts), "dropped": list(facts.dropped)}
+
+
 def _resolve(engine: Engine, company_id: UUID, page: PageContext) -> dict[str, Any]:
     try:
         with Session(engine) as session:
-            facts = resolve_page_facts(session, company_id, page)
+            return resolved_value(session, company_id, page)
     except Exception as exc:
         if is_transient(exc):
             raise
         log.error("concierge.page_facts_failed", company_id=str(company_id), error=type(exc).__name__)
         return {"facts": "", "dropped": [], "error": type(exc).__name__}
-    return {"facts": facts_text(facts), "dropped": list(facts.dropped)}
 
 
 def resolve_once(engine: Engine, company_id: UUID, stored: dict[str, Any] | None) -> dict[str, Any] | None:

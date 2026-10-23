@@ -1,0 +1,205 @@
+"""Page pre-warm against real Postgres: PUT /agent/page upserts one row per owner, a turn on the same page reuses the
+stored facts without resolving, and another owner's/company's, stale or other-page state is never used."""
+
+from collections.abc import Iterator
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from typing import Any
+from unittest.mock import patch
+from uuid import UUID, uuid4
+
+import pytest
+from fastapi.testclient import TestClient
+from pydantic import SecretStr
+from sqlalchemy import Engine, func, inspect, select, update
+from sqlalchemy.orm import Session
+
+from app.api.v1.auth import COOKIE, CSRF_HEADER, CSRF_VALUE, Principal, issue_session
+from app.contracts import PageContext
+from app.core.settings import Settings
+from app.db.models import AgentPageState, AgentTurn, Company, OwnerAccount
+from app.main import create_app
+from app.pipeline import concierge_page, page_facts, page_state
+from tests.integration.conftest import purge_company
+
+pytestmark = pytest.mark.integration
+H = {CSRF_HEADER: CSRF_VALUE}
+PAGE_URL = "/api/v1/agent/page"
+MSG_URL = "/api/v1/agent/messages"
+RESOLVER = "app.pipeline.concierge_page.resolve_page_facts"
+
+
+class FakeClient:
+    def enqueue(self, options: Any, *args: Any) -> Any:
+        return None
+
+    def enqueue_in_transaction(self, conn_or_session: Any, options: Any, *args: Any) -> Any:
+        raise AssertionError("not used")
+
+
+@dataclass
+class World:
+    client: TestClient
+    engine: Engine
+    settings: Settings
+    company: UUID
+    owner: Principal  # company A
+    sibling: Principal  # company A, another owner
+    foreign: Principal  # company B
+
+    def as_(self, who: Principal) -> None:
+        self.client.cookies.set(COOKIE, issue_session(self.settings, who, datetime.now(UTC)))
+
+
+@pytest.fixture
+def world(migrated_engine: Engine, pg_url: str) -> Iterator[World]:
+    with Session(migrated_engine, expire_on_commit=False) as s:
+        ca, cb = Company(name="Warm A"), Company(name="Warm B")
+        s.add_all([ca, cb])
+        s.flush()
+        rows = [
+            OwnerAccount(company_id=ca.id, display_name="H", whatsapp_e164="+31699999971", email="h@warm-a.test"),
+            OwnerAccount(company_id=ca.id, display_name="P", whatsapp_e164="+31699999972", email="p@warm-a.test"),
+            OwnerAccount(company_id=cb.id, display_name="B", whatsapp_e164="+31699999973", email="b@warm-b.test"),
+        ]
+        s.add_all(rows)
+        s.commit()
+    owner, sibling, foreign = (Principal(company_id=r.company_id, owner_id=r.id, email=str(r.email)) for r in rows)
+    settings = Settings(
+        database_url=pg_url,  # type: ignore[arg-type]
+        env="test",
+        dashboard_session_secret=SecretStr("x" * 32),
+        _env_file=None,
+    )
+    try:
+        with TestClient(create_app(settings, engine=migrated_engine, workflow_client=FakeClient())) as client:
+            w = World(client, migrated_engine, settings, ca.id, owner, sibling, foreign)
+            w.as_(owner)
+            yield w
+    finally:
+        purge_company(migrated_engine, ca.id)
+        purge_company(migrated_engine, cb.id)
+
+
+def _page(**kw: Any) -> dict[str, Any]:
+    return {"view": "inbox", "visible_ids": [str(UUID(int=7))], "snapshot": "warm snapshot", **kw}
+
+
+def _put(w: World, page: dict[str, Any]) -> None:
+    assert w.client.put(PAGE_URL, json=page, headers=H).status_code == 204
+
+
+def _post(w: World, page: dict[str, Any]) -> dict[str, Any] | None:
+    r = w.client.post(MSG_URL, json={"text": "what is on this page?", "page": page}, headers=H)
+    assert r.status_code == 202
+    with Session(w.engine) as s:
+        turn = s.get(AgentTurn, UUID(r.json()["turn_id"]))
+        assert turn is not None
+        return turn.page_context
+
+
+def _states(w: World, who: Principal) -> list[AgentPageState]:
+    with Session(w.engine) as s:
+        stmt = select(AgentPageState).where(
+            AgentPageState.company_id == who.company_id, AgentPageState.owner_id == who.owner_id
+        )
+        return list(s.scalars(stmt))
+
+
+def test_two_puts_keep_one_row_with_the_latest_page_and_create_no_turn(world: World) -> None:
+    _put(world, _page())
+    (first,) = _states(world, world.owner)
+    _put(world, _page(view="tasks"))
+    (second,) = _states(world, world.owner)
+    assert second.id == first.id
+    assert second.page_key == page_state.page_key(PageContext.model_validate(_page(view="tasks")))
+    assert second.resolved_at >= first.resolved_at
+    assert second.resolved["facts"].startswith("view: tasks")
+    assert "warm snapshot" not in str(second.resolved)
+    with Session(world.engine) as s:
+        assert s.scalar(select(func.count()).select_from(AgentTurn).where(AgentTurn.company_id == world.company)) == 0
+
+
+def test_a_turn_on_the_warmed_page_stores_the_facts_and_never_resolves(world: World) -> None:
+    _put(world, _page())
+    (state,) = _states(world, world.owner)
+    message_page = _page(snapshot="the message's snapshot", filters={"status": "open"})
+    with patch(RESOLVER, wraps=page_facts.resolve_page_facts) as spy:
+        stored = _post(world, message_page)
+        assert stored is not None
+        assert concierge_page.resolve_once(world.engine, world.company, stored) is None  # the run skips resolving
+    spy.assert_not_called()
+    assert stored["resolved"] == state.resolved
+    assert stored["snapshot"] == "the message's snapshot"  # always from the message, never from the state row
+    assert stored["filters"] == {"status": "open"}
+
+
+def test_another_owners_or_companys_warm_state_is_never_used(world: World) -> None:
+    _put(world, _page())
+    for other in (world.sibling, world.foreign):
+        world.as_(other)
+        stored = _post(world, _page())
+        assert stored is not None
+        assert "resolved" not in stored, other
+        assert _states(world, other) == []
+    world.as_(world.owner)
+    stored = _post(world, _page())
+    assert stored is not None
+    assert "resolved" in stored
+
+
+def test_a_put_from_another_company_never_moves_or_overwrites_the_row(world: World) -> None:
+    _put(world, _page())
+    (before,) = _states(world, world.owner)
+    other_page = PageContext.model_validate(_page(view="tasks"))
+    assert page_state.warm(world.engine, world.foreign.company_id, world.owner.owner_id, other_page) is True
+    (after,) = _states(world, world.owner)
+    assert (after.company_id, after.page_key, after.resolved) == (world.company, before.page_key, before.resolved)
+
+
+def test_stale_state_is_ignored_and_the_next_put_refreshes_it(world: World) -> None:
+    _put(world, _page())
+    with Session(world.engine) as s, s.begin():
+        s.execute(
+            update(AgentPageState)
+            .where(AgentPageState.company_id == world.company, AgentPageState.owner_id == world.owner.owner_id)
+            .values(resolved_at=func.now() - timedelta(seconds=121))
+        )
+    stored = _post(world, _page())
+    assert stored is not None
+    assert "resolved" not in stored
+    _put(world, _page())
+    stored = _post(world, _page())
+    assert stored is not None
+    assert "resolved" in stored
+
+
+def test_a_different_page_is_not_reused(world: World) -> None:
+    _put(world, _page())
+    for changed in (_page(view="tasks"), _page(case_id=str(uuid4())), _page(visible_ids=[])):
+        stored = _post(world, changed)
+        assert stored is not None
+        assert "resolved" not in stored
+
+
+def test_foreign_ids_are_stored_as_dropped_kinds_only(world: World) -> None:
+    world.as_(world.foreign)
+    foreign_case = uuid4()
+    _put(world, _page(case_id=str(foreign_case)))
+    (state,) = _states(world, world.foreign)
+    assert "case" in state.resolved["dropped"]
+    assert str(foreign_case) not in state.resolved["facts"]
+
+
+def test_0015_table_columns_and_one_row_per_owner(migrated_engine: Engine) -> None:
+    insp = inspect(migrated_engine)
+    columns = {c["name"]: c for c in insp.get_columns("agent_page_state")}
+    assert set(columns) == {"id", "company_id", "owner_id", "page_key", "resolved", "resolved_at", "created_at"}
+    assert all(c["nullable"] is False for c in columns.values())
+    assert columns["resolved"]["type"].__class__.__name__ == "JSONB"
+    uniques = {u["name"]: u["column_names"] for u in insp.get_unique_constraints("agent_page_state")}
+    assert uniques == {"uq_agent_page_state_owner_id": ["owner_id"]}
+    indexes = {i["name"]: i["column_names"] for i in insp.get_indexes("agent_page_state")}
+    assert indexes["ix_agent_page_state_company_id"] == ["company_id"]
+    targets = {fk["referred_table"] for fk in insp.get_foreign_keys("agent_page_state")}
+    assert targets == {"companies", "owner_accounts"}

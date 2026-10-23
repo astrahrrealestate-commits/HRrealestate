@@ -1,6 +1,6 @@
 """Importing this package registers every table on `Base.metadata`."""
 
-from app.db.models.dashboard import AgentConversation, AgentTurn, OwnerFeed
+from app.db.models.dashboard import AgentConversation, AgentPageState, AgentTurn, OwnerFeed
 from app.db.models.directory import ChannelIdentity, DirectoryImport, Lease, LeaseParty, Person, Unit
 from app.db.models.documents import DocumentChunk, DocumentLink, DriveReorgItem, DriveReorgPlan
 from app.db.models.ingestion import AttachmentRow, MessageRow, RawEvent
@@ -14,6 +14,7 @@ __all__ = [
     "ActionRevision",
     "ActionRow",
     "AgentConversation",
+    "AgentPageState",
     "AgentTurn",
     "Approval",
     "AttachmentRow",

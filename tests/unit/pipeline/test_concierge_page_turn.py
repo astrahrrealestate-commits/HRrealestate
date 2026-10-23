@@ -34,12 +34,45 @@ def _added_turn(session: MagicMock) -> AgentTurn:
 def test_create_turn_stores_the_validated_page_as_json() -> None:
     page = PageContext.model_validate({"view": "case", "case_id": str(uuid4()), "snapshot": "Sanne  ·  leak"})
     session = MagicMock()
-    with patch(f"{M}.read_turns.owns_conversation", return_value=True):
+    with (
+        patch(f"{M}.read_turns.owns_conversation", return_value=True),
+        patch(f"{M}.page_state.warm_resolved", return_value=None),  # nothing pre-warmed (or stale/other page)
+    ):
         ct.create_turn(session, uuid4(), uuid4(), uuid4(), "summarise this", page=page)
     stored = _added_turn(session).page_context
     assert stored == page.model_dump(mode="json")
     assert stored is not None
     assert stored["snapshot"] == "Sanne · leak"
+
+
+def test_create_turn_reuses_the_owners_warmed_facts_with_the_messages_snapshot() -> None:
+    page = PageContext.model_validate({"view": "case", "case_id": str(uuid4()), "snapshot": "from the message"})
+    warmed = {"facts": "view: case\nopen case: warmed", "dropped": ["visible"]}
+    session, company, owner = MagicMock(), uuid4(), uuid4()
+    with (
+        patch(f"{M}.read_turns.owns_conversation", return_value=True),
+        patch(f"{M}.page_state.warm_resolved", return_value=warmed) as warm,
+    ):
+        ct.create_turn(session, company, owner, uuid4(), "summarise this", page=page)
+    assert warm.call_args.args[1:] == (company, owner, page)  # the principal's ids, never client ids
+    stored = _added_turn(session).page_context
+    assert stored == {**page.model_dump(mode="json"), "resolved": warmed}
+
+
+def test_a_turn_created_with_warmed_facts_never_resolves_again(io: dict[str, MagicMock]) -> None:
+    page = PageContext.model_validate({"view": "case", "case_id": str(PAGE_CASE), "snapshot": "Joris"})
+    warmed = {"facts": f"view: case\nopen case: {PAGE_CASE} | warmed", "dropped": []}
+    session = MagicMock()
+    with (
+        patch(f"{M}.read_turns.owns_conversation", return_value=True),
+        patch(f"{M}.page_state.warm_resolved", return_value=warmed),
+    ):
+        ct.create_turn(session, uuid4(), uuid4(), uuid4(), "summarise this", page=page)
+    ct._outcome(MagicMock(), MagicMock(), _start(_added_turn(session).page_context))
+    io["resolve"].assert_not_called()
+    assert all("page_context" not in c.args[3] for c in io["update"].call_args_list)
+    assert f"open case: {PAGE_CASE} | warmed" in _prompt(io)
+    assert "<page_snapshot>\nJoris\n</page_snapshot>" in _prompt(io)
 
 
 def test_create_turn_without_a_page_stores_none() -> None:

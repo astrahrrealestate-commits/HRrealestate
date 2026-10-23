@@ -154,6 +154,59 @@
           ]
         }
       },
+      "/api/v1/agent/page": {
+        "put": {
+          "description": "Pre-warm: resolve the open page's facts for this owner now, so the next message on the same page skips it.\nA resolver bug stores nothing (still 204: the turn resolves as usual); a transient error is 503.",
+          "operationId": "put_page_api_v1_agent_page_put",
+          "parameters": [
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageContext"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "204": {
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Put Page",
+          "tags": [
+            "agent"
+          ]
+        }
+      },
       "/api/v1/approvals": {
         "get": {
           "operationId": "get_approvals_api_v1_approvals_get",

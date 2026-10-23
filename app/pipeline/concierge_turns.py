@@ -32,7 +32,7 @@ from app.llm.agents.concierge import CONCIERGE
 from app.llm.agents.owner_qa import FALLBACK_ANSWER
 from app.llm.budget import CONCIERGE_PURPOSE
 from app.llm.calls import CallContext, run_agent
-from app.pipeline import concierge_page, owner_commands, read_turns
+from app.pipeline import concierge_page, owner_commands, page_state, read_turns
 from app.pipeline.concierge import run_plan
 from app.pipeline.concierge_brief import Brief, load_brief
 from app.pipeline.concierge_brief import brief_case_ids as _brief_case_ids
@@ -78,7 +78,8 @@ def create_turn(
 ) -> tuple[UUID, UUID]:
     """A `pending` turn in the owner's conversation (created when None). A foreign or other owner's conversation
     raises NotFoundError. The validated page context is stored on the turn: a retried run reads it from the row,
-    never from the request. The caller commits, then enqueues `concierge:{turn_id}`."""
+    never from the request; with the owner's fresh pre-warmed facts for the same page already under `resolved`
+    (`page_state`). The caller commits, then enqueues `concierge:{turn_id}`."""
     if conversation_id is None:
         conversation = AgentConversation(company_id=company_id, owner_id=owner_id)
         session.add(conversation)
@@ -91,7 +92,7 @@ def create_turn(
         conversation_id=conversation_id,
         text=text,
         status=TurnStatus.pending,
-        page_context=None if page is None else page.model_dump(mode="json"),
+        page_context=None if page is None else page_state.turn_page_context(session, company_id, owner_id, page),
     )
     session.add(turn)
     session.flush()
