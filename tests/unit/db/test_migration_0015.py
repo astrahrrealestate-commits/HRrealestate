@@ -47,13 +47,15 @@ def test_revision_follows_0014() -> None:
 def test_columns_types_and_nullability_match_the_model() -> None:
     table, _ = _created()
     model = Base.metadata.tables[TABLE]
-    assert set(table.c.keys()) == set(model.c.keys()) == {
+    expected_0015_cols = {
         "id", "company_id", "owner_id", "page_key", "resolved", "resolved_at", "created_at",
     }  # fmt: skip
-    for column in model.c:
-        migrated = table.c[column.name]
-        assert migrated.nullable == column.nullable is False, column.name
-        assert type(migrated.type) is type(column.type), column.name
+    assert set(table.c.keys()) == expected_0015_cols
+    for name in expected_0015_cols:
+        migrated = table.c[name]
+        column = model.c[name]
+        assert migrated.nullable == column.nullable is False, name
+        assert type(migrated.type) is type(column.type), name
     assert isinstance(table.c.resolved.type, postgresql.JSONB)
     assert isinstance(table.c.resolved_at.type, sa.DateTime)
     assert table.c.resolved_at.type.timezone is True

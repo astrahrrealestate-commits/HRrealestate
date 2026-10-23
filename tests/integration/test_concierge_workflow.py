@@ -112,7 +112,8 @@ def test_question_plans_once_and_stores_plan_and_results(env: Env) -> None:
     assert row.error is None
     timings = row.timings or {}
     assert {"queue_wait_ms", "planner_ms", "executor_ms", "total_ms", "attempts"} <= set(timings)
-    assert all(isinstance(v, int) and v >= 0 for v in timings.values())
+    assert all(isinstance(v, int) and v >= 0 for k, v in timings.items() if k != "warm_hit")
+    assert timings.get("warm_hit", "none") in ("none", "facts", "blocks")  # a label, not a duration
     assert timings["attempts"] == 1
     assert "answer_ms" not in timings  # the plan's reply answered: no owner_qa call to time
 

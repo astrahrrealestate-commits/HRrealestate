@@ -175,6 +175,7 @@ class OutboxStatus(StrEnum):
 class FeedKind(StrEnum):
     approval = "approval"
     document_review = "document_review"
+    memory_review = "memory_review"
     alert = "alert"
     briefing = "briefing"
     task = "task"
@@ -186,3 +187,30 @@ class TurnStatus(StrEnum):
     running = "running"
     done = "done"
     failed = "failed"
+
+
+class MemoryScope(StrEnum):
+    company = "company"
+    owner = "owner"
+    person = "person"
+    unit = "unit"
+    case = "case"
+
+
+class MemoryKind(StrEnum):
+    rule = "rule"
+    preference = "preference"
+    fact = "fact"
+    note = "note"
+
+
+class MemoryStatus(StrEnum):
+    proposed = "proposed"
+    active = "active"
+    retired = "retired"
+
+
+class MemoryOrigin(StrEnum):
+    owner = "owner"
+    distilled = "distilled"
+    system = "system"

@@ -55,9 +55,11 @@ class ModelCall(Base, CompanyScoped):
     input: Mapped[dict[str, Any]]
     output: Mapped[dict[str, Any] | None]
     tokens_in: Mapped[int | None]
+    tokens_cached: Mapped[int | None]
     tokens_out: Mapped[int | None]
     cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
     latency_ms: Mapped[int | None]
+    prefix_hash: Mapped[str | None] = mapped_column(String(64))
     langfuse_trace_id: Mapped[str | None] = mapped_column(String(64))
     error: Mapped[str | None] = mapped_column(Text)
 

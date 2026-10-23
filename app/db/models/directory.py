@@ -1,9 +1,10 @@
 """Directory imported from BRIXX: people, their channel identities, units, leases."""
 
 import uuid
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import ForeignKey, Index, String, Text, UniqueConstraint, text
+from sqlalchemy import ForeignKey, Index, String, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.contracts import Channel
@@ -79,3 +80,21 @@ class LeaseParty(Base, CompanyScoped):
     lease_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("leases.id"), index=True)
     person_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("people.id"), index=True)
     role: Mapped[str] = mapped_column(String(32))  # tenant | co_tenant | guarantor (BRIXX vocabulary, M3)
+
+
+class PersonProfile(Base, CompanyScoped):
+    """T3 Entity Memory: rolling profile summary and communication preferences per person."""
+
+    __tablename__ = "person_profiles"
+
+    person_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("people.id", ondelete="CASCADE"), unique=True, index=True)
+    language: Mapped[str] = mapped_column(String(16), default="nl", server_default="nl")
+    preferred_channel: Mapped[str] = mapped_column(String(32), default="whatsapp", server_default="whatsapp")
+    summary: Mapped[str] = mapped_column(String(800), default="", server_default="")
+    open_cases: Mapped[int] = mapped_column(default=0, server_default="0")
+    closed_cases: Mapped[int] = mapped_column(default=0, server_default="0")
+    last_contact_at: Mapped[datetime | None]
+    response_hours_p50: Mapped[float | None]
+    source_max_message_at: Mapped[datetime | None]
+    profile_version: Mapped[int] = mapped_column(default=1, server_default="1")
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())

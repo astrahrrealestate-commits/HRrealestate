@@ -37,6 +37,7 @@ AGENT_RETRIES = 2  # re-asks on contract validation failure, inside one run
 class CallContext:
     company_id: UUID
     purpose: str
+    prefix_hash: str | None = None
 
 
 @dataclass(frozen=True)
@@ -95,7 +96,7 @@ def _row(
     return ModelCall(
         id=new_id(), company_id=ctx.company_id, purpose=ctx.purpose, prompt_name=spec.prompt.name,
         prompt_version=spec.prompt.version, prompt_sha256=loaded.sha256, model=settings.llm_model,
-        input={"prompt": describe_prompt(prompt)},
+        input={"prompt": describe_prompt(prompt)}, prefix_hash=ctx.prefix_hash,
     )  # fmt: skip
 
 
@@ -127,6 +128,7 @@ def run_agent[T: BaseModel](
     row.output = {"redacted": True, "chars": len(str(dumped))} if spec.redact_output else dumped
     row.cost_usd = _cost(result)
     row.tokens_in, row.tokens_out = usage.input_tokens, usage.output_tokens
+    row.tokens_cached = getattr(usage, "cache_read_tokens", None)
     if settings.llm_model != "fake":  # the provider's resolved name (e.g. a dated snapshot), for audit and drift
         row.model = getattr(result.response, "model_name", None) or settings.llm_model
     _record(engine, row)

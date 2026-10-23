@@ -2963,6 +2963,7 @@
         "enum": [
           "approval",
           "document_review",
+          "memory_review",
           "alert",
           "briefing",
           "task",
@@ -3822,7 +3823,14 @@
             "anyOf": [
               {
                 "additionalProperties": {
-                  "type": "integer"
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
                 },
                 "type": "object"
               },

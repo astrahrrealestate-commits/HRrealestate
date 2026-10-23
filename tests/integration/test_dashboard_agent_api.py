@@ -199,4 +199,6 @@ def test_conversation_turns_expose_their_recorded_timings(world: World, test_set
         "answer_ms",
         "total_ms",
         "attempts",
+        "warm_hit",
+        "first_delta_ms",
     }

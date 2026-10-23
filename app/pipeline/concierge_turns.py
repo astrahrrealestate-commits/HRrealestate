@@ -22,6 +22,12 @@ from uuid import UUID
 from sqlalchemy import Engine, func, select, update
 from sqlalchemy.orm import Session
 
+from app.context.conversation_summary import (
+    count_unsummarized_turns,
+    should_summarize,
+    summarize_conversation_rolling,
+    update_conversation_summary,
+)
 from app.contracts import ConciergePlan, PageContext
 from app.core.errors import NotFoundError
 from app.core.logging import get_logger
@@ -32,7 +38,7 @@ from app.llm.agents.concierge import CONCIERGE
 from app.llm.agents.owner_qa import FALLBACK_ANSWER
 from app.llm.budget import CONCIERGE_PURPOSE
 from app.llm.calls import CallContext, run_agent
-from app.pipeline import concierge_page, owner_commands, page_state, read_turns
+from app.pipeline import concierge_page, owner_commands, page_state, read_turns, turn_timings
 from app.pipeline.concierge import run_plan
 from app.pipeline.concierge_brief import Brief, load_brief
 from app.pipeline.concierge_brief import brief_case_ids as _brief_case_ids
@@ -42,7 +48,7 @@ from app.pipeline.concierge_outcome import (
     Fallback,
     Outcome,
     assemble_answer,
-    build_prompt,
+    compile_prompt,
     failed_outcome,
     fallback_for,
     result_json,
@@ -87,12 +93,17 @@ def create_turn(
         conversation_id = conversation.id
     elif not read_turns.owns_conversation(session, company_id, owner_id, conversation_id):
         raise NotFoundError("conversation not found")
+    page_context: dict[str, Any] | None = None
+    warm_hit: str = "none"
+    if page is not None:
+        page_context, warm_hit = page_state.turn_page_context_with_hit(session, company_id, owner_id, page)
     turn = AgentTurn(
         company_id=company_id,
         conversation_id=conversation_id,
         text=text,
         status=TurnStatus.pending,
-        page_context=None if page is None else page_state.turn_page_context(session, company_id, owner_id, page),
+        page_context=page_context,
+        timings={turn_timings.WARM_HIT: warm_hit},
     )
     session.add(turn)
     session.flush()
@@ -129,6 +140,32 @@ def _update(
         )
 
 
+def _maybe_summarize_conversation(engine: Engine, company_id: UUID, turn_id: UUID) -> None:
+    try:
+        with Session(engine) as session, session.begin():
+            turn = session.get(AgentTurn, turn_id)
+            if turn is None:
+                return
+            conv = session.scalar(
+                select(AgentConversation).where(
+                    AgentConversation.company_id == company_id,
+                    AgentConversation.id == turn.conversation_id,
+                )
+            )
+            if conv is None:
+                return
+            unsummarized = count_unsummarized_turns(session, company_id, conv.id, conv.summary_through)
+            if not should_summarize(unsummarized):
+                return
+            exchanges = read_turns.earlier_exchanges(session, company_id, conv.id, (turn.created_at, turn.id), 6)
+            new_summary = summarize_conversation_rolling(conv.summary, [(e[0], e[1] or "") for e in exchanges])
+            update_conversation_summary(
+                session, company_id, conv.id, new_summary, turn.id, expected_version=conv.summary_version
+            )
+    except Exception as exc:
+        log.warning("concierge.conversation_summary_failed", turn_id=str(turn_id), error=type(exc).__name__)
+
+
 def _finish(
     engine: Engine, company_id: UUID, turn_id: UUID, outcome: Outcome, timings: dict[str, int] | None = None
 ) -> None:
@@ -145,6 +182,8 @@ def _finish(
     if outcome.results is not None:
         values["results"] = outcome.results
     _update(engine, company_id, turn_id, values, timings=timings)
+    if outcome.status is TurnStatus.done:
+        _maybe_summarize_conversation(engine, company_id, turn_id)
     total = (timings or {}).get(TOTAL)
     log.info(
         "concierge.turn_finished",
@@ -181,10 +220,16 @@ def _plan(
     engine: Engine, settings: Settings, start: TurnStart, brief: Brief, timer: TurnTimer
 ) -> ConciergePlan | Outcome:
     briefs, tasks, history = brief
-    prompt = build_prompt(start.text, history, briefs, tasks, concierge_page.stored_prompt(start.page))
+    compiled = compile_prompt(start.text, history, briefs, tasks, concierge_page.stored_prompt(start.page))
     try:
         with timer.measure(PLANNER):
-            result = run_agent(engine, settings, CONCIERGE, prompt, CallContext(start.company_id, CONCIERGE_PURPOSE))
+            result = run_agent(
+                engine,
+                settings,
+                CONCIERGE,
+                compiled.prompt_text,
+                CallContext(start.company_id, CONCIERGE_PURPOSE, prefix_hash=compiled.prefix_hash),
+            )
     except Exception as exc:
         kind = fallback_for(exc)
         log.info("concierge.planner_fallback", company_id=str(start.company_id), fallback=kind.value)

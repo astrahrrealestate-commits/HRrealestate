@@ -9,9 +9,10 @@ from uuid import UUID
 
 from pydantic_core import to_jsonable_python
 
+from app.context import CompiledContext, compile_concierge_context
 from app.core.errors import AgentFailedError, BudgetExceededError
 from app.db.enums import TurnStatus
-from app.llm.agents.concierge import CONCIERGE, concierge_prompt
+from app.llm.agents.concierge import CONCIERGE
 from app.llm.agents.owner_qa import FALLBACK_ANSWER, CaseBrief
 from app.llm.page_blocks import NO_PAGE, PagePrompt
 from app.pipeline.concierge import is_transient
@@ -91,16 +92,15 @@ def history_lines(exchanges: Sequence[tuple[str, str | None, TurnStatus]]) -> li
     return lines
 
 
-def build_prompt(
+def compile_prompt(
     text: str,
     history: Sequence[str],
     cases: Sequence[CaseBrief],
     tasks: Sequence[str],
     page: PagePrompt = NO_PAGE,
-) -> str:
-    """The planner prompt with the brief capped: newest 20 cases and 20 tasks, the history lines already capped, and
-    the page facts/snapshot (empty when the owner is not on a page)."""
-    return concierge_prompt(
+) -> CompiledContext:
+    """Compile the concierge context using ContextSpec and return CompiledContext."""
+    return compile_concierge_context(
         text,
         list(history)[-2 * MAX_HISTORY_TURNS :],
         list(cases)[:MAX_BRIEF_CASES],
@@ -109,6 +109,18 @@ def build_prompt(
         page.snapshot,
         page.filters,
     )
+
+
+def build_prompt(
+    text: str,
+    history: Sequence[str],
+    cases: Sequence[CaseBrief],
+    tasks: Sequence[str],
+    page: PagePrompt = NO_PAGE,
+) -> str:
+    """The planner prompt with the brief capped: newest 20 cases and 20 tasks, the history lines already capped, and
+    the page facts/snapshot (empty when the owner is not on a page). Byte-identical to concierge_prompt."""
+    return compile_prompt(text, history, cases, tasks, page).prompt_text
 
 
 def result_json(result: StepResult) -> dict[str, Any]:

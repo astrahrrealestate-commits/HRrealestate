@@ -1,9 +1,10 @@
 """Importing this package registers every table on `Base.metadata`."""
 
 from app.db.models.dashboard import AgentConversation, AgentPageState, AgentTurn, OwnerFeed
-from app.db.models.directory import ChannelIdentity, DirectoryImport, Lease, LeaseParty, Person, Unit
+from app.db.models.directory import ChannelIdentity, DirectoryImport, Lease, LeaseParty, Person, PersonProfile, Unit
 from app.db.models.documents import DocumentChunk, DocumentLink, DriveReorgItem, DriveReorgPlan
 from app.db.models.ingestion import AttachmentRow, MessageRow, RawEvent
+from app.db.models.memory import MemoryItem
 from app.db.models.ops import MetricSnapshot, ModelCall, Outcome, Timer
 from app.db.models.owner import Approval, OwnerOutbox, Send
 from app.db.models.pipeline import ActionRevision, ActionRow, Case, CaseEvent, CaseLink, UnderstandingRow
@@ -33,6 +34,7 @@ __all__ = [
     "GmailSyncState",
     "Lease",
     "LeaseParty",
+    "MemoryItem",
     "MessageRow",
     "MetricSnapshot",
     "ModelCall",
@@ -41,6 +43,7 @@ __all__ = [
     "OwnerFeed",
     "OwnerOutbox",
     "Person",
+    "PersonProfile",
     "RawEvent",
     "Send",
     "TaskRow",

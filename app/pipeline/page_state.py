@@ -23,6 +23,7 @@ from sqlalchemy import DateTime, Engine, Insert, Select, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.context.focus_trail import append_focus_trail, page_to_focus_item
 from app.contracts import PageContext
 from app.core.ids import new_id
 from app.core.logging import get_logger
@@ -108,11 +109,10 @@ def warm_resolved(session: Session, company_id: UUID, owner_id: UUID, page: Page
     return _shape(resolved)
 
 
-def turn_page_context(session: Session, company_id: UUID, owner_id: UUID, page: PageContext) -> dict[str, Any]:
-    """The `page_context` a new turn stores: the message's validated page (its own snapshot and filters), plus the
-    warmed facts under `resolved` when they match, so the run skips resolving exactly as a retry does. The read runs
-    in a savepoint: a non-transient failure (say, the table not migrated yet) logs its type and gives the cold value,
-    and the turn insert still works; transient errors propagate."""
+def turn_page_context_with_hit(
+    session: Session, company_id: UUID, owner_id: UUID, page: PageContext
+) -> tuple[dict[str, Any], str]:
+    """The `page_context` a new turn stores, plus the warm_hit label ("none" | "facts")."""
     value = page.model_dump(mode="json")
     try:
         with session.begin_nested():
@@ -121,22 +121,48 @@ def turn_page_context(session: Session, company_id: UUID, owner_id: UUID, page: 
         if is_transient(exc):
             raise
         log.warning("dashboard.page_state_read_failed", company_id=str(company_id), error=type(exc).__name__)
-        return value
-    return value if resolved is None else {**value, concierge_page.RESOLVED: resolved}
+        return value, "none"
+    if resolved is None:
+        return value, "none"
+    return {**value, concierge_page.RESOLVED: resolved}, "facts"
 
 
-def _upsert(company_id: UUID, owner_id: UUID, key: str, resolved: dict[str, Any]) -> Insert:
+def turn_page_context(session: Session, company_id: UUID, owner_id: UUID, page: PageContext) -> dict[str, Any]:
+    """The `page_context` a new turn stores: the message's validated page (its own snapshot and filters), plus the
+    warmed facts under `resolved` when they match, so the run skips resolving exactly as a retry does."""
+    ctx, _ = turn_page_context_with_hit(session, company_id, owner_id, page)
+    return ctx
+
+
+def _upsert(
+    company_id: UUID,
+    owner_id: UUID,
+    key: str,
+    resolved: dict[str, Any],
+    focus_trail: list[dict[str, Any]] | None = None,
+) -> Insert:
     """One row per owner; never moved to another company; an older resolution never overwrites a newer one."""
+    trail = focus_trail or []
     stmt = insert(AgentPageState).values(
-        id=new_id(), company_id=company_id, owner_id=owner_id, page_key=key, resolved=resolved, resolved_at=func.now()
+        id=new_id(),
+        company_id=company_id,
+        owner_id=owner_id,
+        page_key=key,
+        resolved=resolved,
+        resolved_at=func.now(),
+        focus_trail=trail,
     )
     return stmt.on_conflict_do_update(
         index_elements=[AgentPageState.owner_id],
-        set_={"page_key": stmt.excluded.page_key, "resolved": stmt.excluded.resolved,
-              "resolved_at": stmt.excluded.resolved_at},
+        set_={
+            "page_key": stmt.excluded.page_key,
+            "resolved": stmt.excluded.resolved,
+            "resolved_at": stmt.excluded.resolved_at,
+            "focus_trail": stmt.excluded.focus_trail,
+        },
         where=(AgentPageState.company_id == stmt.excluded.company_id)
         & (AgentPageState.resolved_at <= stmt.excluded.resolved_at),
-    ).returning(AgentPageState.id)  # fmt: skip
+    ).returning(AgentPageState.id)
 
 
 def warm(engine: Engine, company_id: UUID, owner_id: UUID, page: PageContext) -> bool:
@@ -146,8 +172,17 @@ def warm(engine: Engine, company_id: UUID, owner_id: UUID, page: PageContext) ->
     nothing and returns False (the turn then resolves as usual)."""
     try:
         with Session(engine) as session, session.begin():
+            existing_trail = session.scalar(
+                select(AgentPageState.focus_trail).where(
+                    AgentPageState.company_id == company_id, AgentPageState.owner_id == owner_id
+                )
+            )
+            focus_item = page_to_focus_item(page)
+            new_trail = append_focus_trail(existing_trail or [], focus_item)
             resolved = concierge_page.resolved_value(session, company_id, page)
-            written = session.execute(_upsert(company_id, owner_id, page_key(page), resolved)).scalar_one_or_none()
+            written = session.execute(
+                _upsert(company_id, owner_id, page_key(page), resolved, new_trail)
+            ).scalar_one_or_none()
     except Exception as exc:
         if is_transient(exc):
             raise

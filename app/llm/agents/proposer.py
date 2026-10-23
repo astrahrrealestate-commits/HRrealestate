@@ -43,6 +43,7 @@ class ProposerContext:
     excerpts: Sequence[Passage] = ()  # this tenant's own documents that match the message (v3 prompt)
     guidance: str | None = None  # the owner's sanitised wording (owner-requested drafts only)
     current_draft: Sequence[str] = ()  # the variants of the draft being replaced (owner-requested drafts only)
+    person_profile: str | None = None
 
     @property
     def guided(self) -> bool:
@@ -90,12 +91,14 @@ def proposer_prompt(ctx: ProposerContext) -> str:
         f"<case>\ncase_id: {ctx.case_id}\nchannel: {ctx.channel.value}\nstate: {ctx.case_state}\n"
         f"category: {u.category.value}\nurgency: {u.urgency.value}\n</case>"
     )
+    profile_block = [data_block("person_profile", ctx.person_profile)] if ctx.person_profile else []
     data = f"Subject: {ctx.subject or '-'}\nIntent: {u.intent}\nCase summary: {ctx.case_summary or 'none'}"
     waiting = data_block("waiting", "\n".join(ctx.waiting) or "none")
     return "\n".join(
         [
             f"<mode>{ctx.mode}</mode>",
             case,
+            *profile_block,
             data_block("data", data),
             waiting,
             _contractors(ctx.contractors),

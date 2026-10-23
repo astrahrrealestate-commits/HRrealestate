@@ -246,10 +246,11 @@ the case's own contact from the database, never anything in the guidance or the 
 Each turn records how long its stages took, in whole milliseconds, as `timings` on the turn (read-only, for latency
 diagnostics; `null` for turns from before it was recorded): `queue_wait_ms` (message stored to the run starting, both
 on the database clock), `page_resolve_ms`, `planner_ms`, `executor_ms` (includes `answer_ms`), `answer_ms` (the extra
-answering call, only when the plan had no usable `reply` or the planner failed), `total_ms` (the run) and `attempts`
-(runs started; a retried run keeps the first run's `queue_wait_ms` and any stage it did not repeat). A key is missing
-when its stage did not run (the `tasks` command, for example, has no planner). Turns run on their own `concierge`
-queue, so they never wait behind message processing; the worker picks a waiting turn up within about 0.25 s.
+answering call, only when the plan had no usable `reply` or the planner failed), `first_delta_ms` (time to first visible text),
+`total_ms` (the run), `attempts` (runs started; a retried run keeps the first run's `queue_wait_ms` and any stage it
+did not repeat), and `warm_hit` (`none`, `facts` or `blocks`). A key is missing when its stage did not run (the `tasks` command,
+for example, has no planner). Turns run on their own `concierge` queue, so they never wait behind message processing;
+the worker picks a waiting turn up within about 0.25 s.
 
 ### Page pre-warm (`PUT /agent/page`)
 

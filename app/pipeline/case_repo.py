@@ -11,6 +11,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.context.person_profile import refresh_profile_deterministic
 from app.contracts import CaseState, Category, Channel, Urgency, assert_transition
 from app.core.errors import NotFoundError
 from app.db.enums import CaseEventKind, LinkMethod
@@ -136,4 +137,6 @@ def transition(session: Session, company_id: UUID, case_id: UUID, new_state: Cas
     case.state = new_state
     if new_state in (CaseState.resolved, CaseState.closed):
         case.resolved_at = case.resolved_at or func.now()
+        if case.primary_person_id is not None:
+            refresh_profile_deterministic(session, company_id, case.primary_person_id)
     session.flush()

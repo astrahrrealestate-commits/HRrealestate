@@ -31,6 +31,11 @@ class AgentConversation(Base, CompanyScoped):
     __tablename__ = "agent_conversations"
 
     owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("owner_accounts.id"))
+    summary: Mapped[str] = mapped_column(Text, default="", server_default="")
+    summary_through: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agent_turns.id", ondelete="SET NULL", use_alter=True)
+    )
+    summary_version: Mapped[int] = mapped_column(default=0, server_default="0")
 
 
 class AgentTurn(Base, CompanyScoped):
@@ -71,3 +76,4 @@ class AgentPageState(Base, CompanyScoped):
     page_key: Mapped[str] = mapped_column(Text)  # `page_state.page_key`: a hash of the view and the open ids
     resolved: Mapped[dict[str, Any]]  # the stored `resolved` shape of a turn: {"facts": str, "dropped": [kind]}
     resolved_at: Mapped[datetime]  # database clock at the start of the resolving transaction
+    focus_trail: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, server_default="[]")

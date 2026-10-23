@@ -16,6 +16,7 @@ from uuid import UUID
 from sqlalchemy import Engine, select, text
 from sqlalchemy.orm import Session
 
+from app.context.person_profile import person_profile_line
 from app.contracts import Action, ActionType, Category, NotifyOwnerPayload, ReplyDraftPayload, Understanding
 from app.core.errors import AgentFailedError
 from app.core.logging import get_logger
@@ -29,6 +30,7 @@ from app.db.models import (
     Company,
     MessageRow,
     Person,
+    PersonProfile,
     UnderstandingRow,
     WaitRow,
 )
@@ -122,6 +124,17 @@ def _load(
             Person.company_id == msg.company_id, Person.kind == PersonKind.contractor, Person.valid_to.is_(None)
         )
     ).all()
+    profile = (
+        session.scalar(
+            select(PersonProfile).where(
+                PersonProfile.company_id == msg.company_id,
+                PersonProfile.person_id == case.primary_person_id,
+            )
+        )
+        if case.primary_person_id
+        else None
+    )
+    profile_line = person_profile_line(profile)
     ctx = ProposerContext(
         case_id=case.id,
         channel=msg.channel,
@@ -134,6 +147,7 @@ def _load(
         contractors=tuple(Contractor(c[0], c[1], c[2]) for c in contractors),
         mode="reply",
         excerpts=_case_documents(session, msg, case, embedder) if documents else (),
+        person_profile=profile_line,
     )
     return Loaded(ctx, msg.company_id, bool(company and company.paused))
 

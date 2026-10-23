@@ -140,6 +140,7 @@ layers = [
     "app.api",
     "app.workflows",
     "app.pipeline | app.owner | app.ingestion | app.directory | app.outcomes | app.sender",
+    "app.context",
     "app.db : app.llm : app.storage : app.channels",
     "app.contracts",
     "app.core",
@@ -181,7 +182,7 @@ allow_indirect_imports = true
 name = "Dev tooling (simulator, dev keys) is never imported by production code"
 type = "forbidden"
 source_modules = [
-    "app.main", "app.worker", "app.api", "app.workflows", "app.pipeline", "app.owner", "app.ingestion",
+    "app.main", "app.worker", "app.api", "app.workflows", "app.pipeline", "app.context", "app.owner", "app.ingestion",
     "app.directory", "app.outcomes", "app.sender", "app.db", "app.llm", "app.storage", "app.contracts", "app.core",
     "app.channels",
 ]

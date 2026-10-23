@@ -77,7 +77,8 @@ def test_ms_are_whole_and_never_negative() -> None:
 
 def test_keys_are_the_documented_set() -> None:
     assert KEYS == (
-        "queue_wait_ms", "page_resolve_ms", "planner_ms", "executor_ms", "answer_ms", "total_ms", "attempts"
+        "queue_wait_ms", "page_resolve_ms", "planner_ms", "executor_ms", "answer_ms", "total_ms", "attempts",
+        "warm_hit", "first_delta_ms"
     )  # fmt: skip
 
 
@@ -191,3 +192,13 @@ def test_a_direct_reply_makes_no_answer_call_to_time() -> None:
     settings = Settings(database_url="postgresql+psycopg://u:p@localhost:1/db", _env_file=None)  # type: ignore[arg-type]
     concierge.run_plan(MagicMock(), settings, UUID(int=1), plan, question="what?", now=AT, timer=timer)
     assert timer.stages == {}
+
+
+def test_turn_timings_includes_warm_hit_and_first_delta() -> None:
+    from app.pipeline.turn_timings import FIRST_DELTA, WARM_HIT
+
+    assert WARM_HIT in KEYS
+    assert FIRST_DELTA in KEYS
+    stmt = update(AgentTurn).values(timings=merged({"warm_hit": "facts", "first_delta_ms": 350}))
+    sql = _sql(stmt)
+    assert "||" in sql

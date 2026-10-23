@@ -10,7 +10,7 @@ NEXT_REV = $(shell printf '%04d' $$(( $$(ls app/db/alembic/versions/[0-9]*.py 2>
 
 .PHONY: help setup gmail-consent up up-db down logs ps migrate migration migrate-roundtrip alembic-check \
         fmt lint type boundaries test-unit test-int test cov quick check smoke audit eval \
-        workflows harness-test clean sim-demo rag-eval live-check gmail-pull pending approve
+        workflows harness-test clean sim-demo rag-eval live-check gmail-pull pending approve context-report
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -115,6 +115,9 @@ rag-eval: up-db ## ADR 0008: document RAG quality on the synthetic corpus, M10 b
 
 eval: ## (M4) golden-set eval: make eval agent=understanding|linking|owner_qa|concierge|proposer version=v2
 	$(UV) python -m evals.run --agent $(agent) --version $(version)
+
+context-report: up-db ## (C1) context report: p50/p95 per stage, warm hit rate, cache hit ratio and tokens per turn
+	$(UV) python -m app.dev.context_report $(if $(turns),--turns $(turns))
 
 workflows: up-db ## list recent DBOS workflows (ops)
 	$(UV) dbos workflow list --limit 20 --sys-db-url "$${DBOS_SYSTEM_DATABASE_URL:-postgresql://estateos:estateos@localhost:5433/estateos}"

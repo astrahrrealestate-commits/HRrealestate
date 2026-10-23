@@ -16,6 +16,8 @@ SPEC_TABLES = {
     "agent_page_state",
     # document intelligence (spec 2026-10-21)
     "document_chunks", "document_links", "drive_reorg_plans", "drive_reorg_items",
+    # memory workspace (spec 2026-10-23)
+    "person_profiles", "memory_items",
 }  # fmt: skip
 
 

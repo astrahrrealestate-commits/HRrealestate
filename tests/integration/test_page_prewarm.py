@@ -113,7 +113,16 @@ def test_foreign_ids_are_stored_as_dropped_kinds_only(world: World) -> None:
 def test_0015_table_columns_and_one_row_per_owner(migrated_engine: Engine) -> None:
     insp = inspect(migrated_engine)
     columns = {c["name"]: c for c in insp.get_columns("agent_page_state")}
-    assert set(columns) == {"id", "company_id", "owner_id", "page_key", "resolved", "resolved_at", "created_at"}
+    assert set(columns) == {
+        "id",
+        "company_id",
+        "owner_id",
+        "page_key",
+        "resolved",
+        "resolved_at",
+        "created_at",
+        "focus_trail",
+    }  # focus_trail: migration 0019
     assert all(c["nullable"] is False for c in columns.values())
     assert columns["resolved"]["type"].__class__.__name__ == "JSONB"
     uniques = {u["name"]: u["column_names"] for u in insp.get_unique_constraints("agent_page_state")}

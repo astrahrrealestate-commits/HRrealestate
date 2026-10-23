@@ -8,7 +8,7 @@ from uuid import UUID
 from sqlalchemy import Engine, Select, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Case
+from app.db.models import AgentConversation, Case
 from app.llm.agents.owner_qa import CaseBrief
 from app.pipeline import case_repo, owner_commands, read_turns, work_repo
 from app.pipeline.concierge_outcome import (
@@ -47,5 +47,14 @@ def load_brief(engine: Engine, company_id: UUID, conversation_id: UUID, at: date
         ]
         open_tasks = work_repo.open_tasks(session, company_id, now=at)[:MAX_BRIEF_TASKS]
         tasks = [task_brief(t.id, t.title) for t in open_tasks]
+        conv = session.scalar(
+            select(AgentConversation).where(
+                AgentConversation.company_id == company_id,
+                AgentConversation.id == conversation_id,
+            )
+        )
         exchanges = read_turns.earlier_exchanges(session, company_id, conversation_id, (at, turn_id), MAX_HISTORY_TURNS)
-    return briefs, tasks, history_lines(exchanges)
+        h_lines = history_lines(exchanges)
+        if conv and conv.summary:
+            h_lines.insert(0, f"Summary of earlier conversation: {conv.summary}")
+    return briefs, tasks, h_lines

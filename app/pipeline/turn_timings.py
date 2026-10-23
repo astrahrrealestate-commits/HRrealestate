@@ -29,7 +29,9 @@ EXECUTOR = "executor_ms"
 ANSWER = "answer_ms"
 TOTAL = "total_ms"
 ATTEMPTS = "attempts"
-KEYS = (QUEUE_WAIT, PAGE_RESOLVE, PLANNER, EXECUTOR, ANSWER, TOTAL, ATTEMPTS)
+WARM_HIT = "warm_hit"
+FIRST_DELTA = "first_delta_ms"
+KEYS = (QUEUE_WAIT, PAGE_RESOLVE, PLANNER, EXECUTOR, ANSWER, TOTAL, ATTEMPTS, WARM_HIT, FIRST_DELTA)
 
 Clock = Callable[[], float]  # seconds, monotonic
 
@@ -65,7 +67,7 @@ def _stored() -> ColumnElement[Any]:
     return func.coalesce(AgentTurn.timings, literal_column("'{}'::jsonb", JSONB))
 
 
-def merged(new: Mapping[str, int]) -> ColumnElement[Any]:
+def merged(new: Mapping[str, Any]) -> ColumnElement[Any]:
     """`coalesce(timings, '{}') || new`: new keys win, every other stored key stays."""
     return _stored().op("||", return_type=JSONB)(bindparam("timings_new", dict(new), type_=JSONB))
 
