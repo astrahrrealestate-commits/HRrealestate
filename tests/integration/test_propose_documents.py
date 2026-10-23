@@ -28,13 +28,13 @@ def settings(test_settings: Settings) -> Settings:
 def seen(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """The prompts the proposer received (the fake still answers)."""
     prompts: list[str] = []
-    original = fakes._fake_proposer
+    original = fakes.fake_proposer
 
     def spy(prompt: str) -> dict[str, object]:
         prompts.append(prompt)
         return original(prompt)
 
-    monkeypatch.setattr(fakes, "_fake_proposer", spy)
+    monkeypatch.setattr(fakes, "fake_proposer", spy)
     return prompts
 
 

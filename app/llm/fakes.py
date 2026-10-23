@@ -7,6 +7,8 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from app.contracts import Category, Urgency
 from app.llm.fakes_concierge import fake_concierge
+from app.llm.fakes_owner_qa import fake_owner_qa
+from app.llm.fakes_proposer import fake_proposer
 
 
 def _extract_user_text(messages: list[ModelMessage]) -> str:
@@ -149,103 +151,6 @@ def _fake_case_summary(prompt: str) -> dict[str, object]:
     blocks = re.findall(r"<message>\n(.*?)\n</message>", prompt, flags=re.S)
     text = " ".join(blocks[-1].split())[:200] if blocks else "Case opened."
     return {"summary": text, "next_step": "Review and reply"}
-
-
-def _field(prompt: str, name: str) -> str:
-    m = re.search(rf"^{name}: (.*)$", prompt, flags=re.M)
-    return m.group(1).strip() if m else ""
-
-
-def _action(case_id: str, kind: str, payload: dict[str, object], rationale: str) -> dict[str, object]:
-    return {
-        "type": kind,
-        "case_id": case_id,
-        "payload": {"kind": kind, **payload},
-        "rationale": rationale,
-        "context_ref": [],
-        "draft_version": 1,
-    }
-
-
-def _cited_clause(prompt: str) -> tuple[str, str] | None:
-    """The excerpt sentence that shares the most words with the tenant's message, with its document title."""
-    asked = set(re.findall(r"[^\W_]{5,}", _block(prompt, "message").lower()))
-    best: tuple[int, str, str] = (0, "", "")
-    for _ref, title, text in _ENTRY.findall(_block(prompt, "excerpts")):
-        for sentence in re.split(r"(?<=[.!?\n])\s+", text):
-            score = len(asked & set(re.findall(r"[^\W_]{5,}", sentence.lower())))
-            if score > best[0]:
-                best = (score, title.split(" (")[0], sentence.strip()[:240])
-    return (best[1], best[2]) if best[0] else None
-
-
-def _fake_proposer(prompt: str) -> dict[str, object]:
-    case_id, channel = _field(prompt, "case_id"), _field(prompt, "channel") or "whatsapp"
-    subject = _field(prompt, "Subject")
-    reply_subject = f"Re: {subject}" if channel == "gmail" and subject not in ("", "-") else None
-    if "<mode>chase</mode>" in prompt:
-        variants = [
-            "Geachte heer/mevrouw,\n\nGraag herinneren wij u aan ons eerdere bericht. Kunt u reageren?"
-            "\n\nMet vriendelijke groet,\nHarjot",
-            "Beste,\n\nWij wachten nog op uw reactie. Laat u het ons weten?\n\nMet vriendelijke groet,\nHarjot",
-        ]
-        return {
-            "actions": [
-                _action(
-                    case_id,
-                    "reply_draft",
-                    {"channel": channel, "subject": reply_subject, "body_variants": variants},
-                    "Friendly chaser",
-                )
-            ]
-        }
-    variants = [
-        "Geachte heer/mevrouw,\n\nDank voor uw bericht. Wij nemen dit in behandeling en komen zo snel "
-        "mogelijk bij u terug.\n\nMet vriendelijke groet,\nHarjot",
-        "Geachte heer/mevrouw,\n\nDank voor uw bericht. Kunt u een foto sturen, zodat wij de juiste "
-        "vakman kunnen inschakelen?\n\nMet vriendelijke groet,\nHarjot",
-    ]
-    cited = _cited_clause(prompt)
-    if cited:
-        title, sentence = cited
-        variants.append(
-            f"Geachte heer/mevrouw,\n\nVolgens {title} geldt: {sentence}\n\nMet vriendelijke groet,\nHarjot"
-        )
-    actions = [
-        _action(
-            case_id,
-            "reply_draft",
-            {"channel": channel, "subject": reply_subject, "body_variants": variants},
-            f"Answer from {cited[0]}" if cited else "Acknowledge and ask for details",
-        )
-    ]
-    if _field(prompt, "urgency") == "emergency":
-        actions.append(_action(case_id, "escalate", {"reason": "Emergency reported by tenant"}, "Emergency"))
-    return {"actions": actions}
-
-
-_OFF_TOPIC = (
-    r"\b(poem|gedicht|recipe|recept|joke|grap|capital of|hoofdstad|python|javascript|bitcoin|translate|vertaal"
-    r"|ignore (all )?(previous|prior)|negeer (alle )?(vorige|eerdere))\b"
-)
-
-
-def _fake_owner_qa(prompt: str) -> dict[str, object]:
-    question = " ".join(re.findall(r"<message>\n(.*?)\n</message>", prompt, flags=re.S)).lower()
-    cases = re.findall(r"^case: ([0-9a-f-]{36})", prompt, flags=re.M)
-    if re.search(_OFF_TOPIC, question):
-        return {
-            "in_scope": False,
-            "refusal_reason": "Unrelated to the business",
-            "answer": "Out of scope.",
-            "case_refs": [],
-        }
-    return {
-        "in_scope": True,
-        "refusal_reason": None,
-        "answer": f"You have {len(cases)} open cases. (offline answer)",
-        "case_refs": cases[:3],
-    }
 
 
 def _fake_briefing(prompt: str) -> dict[str, object]:
@@ -422,9 +327,9 @@ def model_for(agent_name: str) -> FunctionModel:
         elif agent_name == "case_summary":
             args = _fake_case_summary(user_text)
         elif agent_name == "proposer":
-            args = _fake_proposer(user_text)
+            args = fake_proposer(user_text)
         elif agent_name == "owner_qa":
-            args = _fake_owner_qa(user_text)
+            args = fake_owner_qa(user_text)
         elif agent_name == "concierge":
             args = fake_concierge(user_text)
         elif agent_name == "briefing":

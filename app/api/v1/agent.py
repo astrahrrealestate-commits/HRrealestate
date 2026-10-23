@@ -47,7 +47,7 @@ def post_message(body: AgentMessageIn, who: Owner, engine: Engine_, client: Clie
     try:
         with Session(engine) as session, session.begin():
             conversation_id, turn_id = concierge_turns.create_turn(
-                session, who.company_id, who.owner_id, body.conversation_id, body.text
+                session, who.company_id, who.owner_id, body.conversation_id, body.text, page=body.page
             )
     except NotFoundError:
         raise HTTPException(status_code=404, detail=NOT_FOUND) from None

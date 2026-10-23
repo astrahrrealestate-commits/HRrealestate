@@ -11,6 +11,12 @@ late commit inside the window is still delivered and nothing is sent twice. A ch
 missed by the stream: the SPA must re-fetch `GET /agent/conversations/{id}` when a turn it submitted is still
 `pending`/`running` after ~30 s (Postgres is the source of truth, SSE only nudges). Edge: more than `MAX_TURN_EVENTS`
 changes for one owner inside one overlap window would stall the cursor; one owner never produces that.
+
+Poll rate (amendment 2026-10-22): turns are polled every `TURN_POLL_SECONDS` (0.5 s) while the feed keeps its 1.5 s
+(`events.POLL_INTERVAL_S`), so a finished answer shows within about half a second. Load per open stream: about 2 turn
+reads/s plus 0.67 feed reads/s. Each turn read is one query served by the index
+`agent_turns (company_id, updated_at, id)` (migration 0010) joined to the owner's conversations, and returns only the
+rows changed inside the 2 s overlap window, so it stays cheap; with one owner that is a handful of streams at most.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -24,6 +30,7 @@ from app.pipeline.read_turns import TurnCursor, turns_changed_after
 
 TURN_REPLAY = timedelta(minutes=5)
 OVERLAP = timedelta(seconds=2)
+TURN_POLL_SECONDS = 0.5  # turn reads per stream: about 2/s (indexed); the feed stays at events.POLL_INTERVAL_S
 
 
 def turn_frame(event: TurnEvent) -> str:

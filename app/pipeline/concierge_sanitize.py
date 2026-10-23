@@ -85,6 +85,11 @@ def safe_question(text: str) -> str:
     return plain[:MAX_TEXT]
 
 
+def plain_line(text: str) -> str:
+    """One line of model text, normalised (control/format/private-use characters out, whitespace collapsed)."""
+    return _normalise(text)
+
+
 def normalise_query(text: str) -> str:
     """The owner's search terms, normalised and bounded. Not redacted: it is a bound, company-scoped parameter."""
     return _normalise(text)[:MAX_TEXT]

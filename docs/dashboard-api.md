@@ -91,7 +91,7 @@ Read (GET, cookie only):
 | `/tasks`, `/waits` | open tasks `{id, ref, title, assignee, due_at, priority, status, case_id}`; open waits `{id, case_id, about, expected_by, chase_count, last_chased_at}` |
 | `/briefing` | `{kind, day_label, urgent[], approvals[], overdue_tasks[], overdue_waits[], exceptions[], stats}` |
 | `/company` | `{name, paused, outbound_mode, timezone}` |
-| `/agent/conversations/{id}` | `{id, turns[{id, text, status, plan, results, answer, created_at, updated_at}]}`; `404` if not yours |
+| `/agent/conversations/{id}` | `{id, turns[{id, text, status, plan, results, answer, created_at, updated_at, timings}]}`; `404` if not yours. `timings`: see [Turn timings](#turn-timings) |
 
 Writes (POST, need the CSRF header; the decision writes share the 120/min limit):
 
@@ -109,12 +109,141 @@ Changing a document link may propose a one-item reorganisation plan (`created_by
 | `/documents/reorg` | none: compares filed documents with layout v2 and records the differences | `200 {plan_id}`; `plan_id` is null when nothing differs or everything is already planned | none |
 | `/documents/reorg/{plan_id}/decide` | `{approve, item_ids?}`: all items, only these (the rest are rejected), or none | `202 {status}`; an approved plan is applied in the background (`drive:reorg:{plan_id}`); a repeat keeps the first decision | `404` |
 | `/company/pause`, `/company/resume` | none | `200 {paused}` | none; resume also re-runs approved but unexecuted actions |
-| `/agent/messages` | `{text, conversation_id?}` | `202 {conversation_id, turn_id}`; answer arrives via SSE or by polling the conversation | `404` for a foreign conversation; `503` if the turn could not be started (it is marked failed; send the message again) |
+| `/agent/messages` | `{text, conversation_id?, page?}` (`page`: see [Page context](#page-context-page-on-post-agentmessages)) | `202 {conversation_id, turn_id}`; answer arrives via SSE or by polling the conversation | `404` for a foreign conversation; `422` for an invalid `page`; `503` if the turn could not be started (it is marked failed; send the message again) |
 | `/auth/session` | `{id_token}` | see Auth | see Auth |
 
 Document choices (`DOC_CHOICES`): `lease`, `invoice`, `quote`, `id_document`, `insurance`, `certificate`, `correspondence`, `photo`, `other`, `skip`.
 
 A decision on an old draft version returns `kind: "stale"` (nothing is sent): refetch `/approvals`.
+
+### Page context (`page` on `POST /agent/messages`)
+
+Optional. Send it whenever the Super Agent is opened on a page, so "this", "it", "reply to him" or "the first one"
+mean the item the owner is looking at. Leave it out (or `null`) when the agent is opened without a page.
+
+| Field | Type and limit | What the server does with it |
+|---|---|---|
+| `view` | required: `inbox`, `thread`, `case`, `approvals`, `tasks`, `waiting`, `documents`, `briefing`, `other` | shown to the planner |
+| `case_id`, `approval_id`, `attachment_id` | UUID, optional | looked up in your company; replaced by server facts (case state, urgency, summary capped at 800 chars, plus the memory pack below with the case's messages; approval type, status, drafts capped at 300 chars, suspicious flag; document file name and status) |
+| `thread_key` | optional, as returned by `/inbox` (an invalid key is `422`) | the memory pack below with this thread's messages only, and the thread's case |
+| `task_ref` | optional, 6 to 8 hex characters (`#` allowed) | the open task's title, due date and status (open or snoozed tasks only; a done task counts as no longer existing) |
+| `filters` | object of strings, at most 10 pairs, key 1 to 40 chars, value at most 120, no control characters | passed as unverified text |
+| `visible_ids` | at most 50 strings (51 or more is `422`), each a UUID or task ref of at most 120 chars, or a thread key of at most 400 chars (long Gmail Message-IDs) | ids that belong to your company get a short label in screen order ("the first one") |
+| `snapshot` | string, at most 6000 characters after whitespace is collapsed (runs of spaces/tabs become one space, blank lines are dropped; raw input over 24000 characters is `422` before collapsing); `\n` and `\t` allowed, `\r\n` and a lone `\r` become `\n`, any other control character (NUL, ESC, ...) is `422`; blank means no snapshot | passed as unverified text |
+
+How the SPA builds it:
+- `snapshot`: the visible text of the main panel (for example `innerText` of the page body without the agent panel and
+  navigation), cut to 6000 characters on the client (the server turns `\r\n` and `\r` into `\n`). Over-long text is
+  rejected, never truncated by the server.
+- Ids: the open entity's id in its field (`case_id` on a case page, `thread_key` on a thread, `approval_id` on an
+  approval, `task_ref` on a task, `attachment_id` on a document) and the ids of the rows on screen, top to bottom, in
+  `visible_ids`.
+
+Trust: **the snapshot and filters are advisory and unverified.** They reach the model only as escaped display text and
+are never a source of ids, recipients or permissions; an id that appears only in the snapshot is ignored. When the page
+facts carry the memory pack below (an open thread or case), the model sees only the first 3000 characters of the
+snapshot (the facts already hold the conversation); otherwise up to 6000. The ids in
+the structured fields are what the server trusts, and only after checking that they belong to your company. A foreign,
+unknown or stale id is dropped (reported to the planner as "no longer exists", without the id). The validated page is
+stored on the turn, and its facts are resolved once, so a retried turn answers from the same context.
+
+What the agent reads for an open thread or case (the memory pack, server facts in the same `<page_facts>` block):
+- **Messages:** with `thread_key`, that thread's messages only (never another thread's, even of the same case);
+  with only `case_id`, the messages linked to the case on any channel. Up to 30: all of them when there are 30 or
+  fewer, else the first 6 and the newest 24. Each is one line `msg NN | direction | channel | time (UTC) | text`
+  with the text's first 600 characters, whitespace collapsed (tenant text can never start a line of its own).
+- **Case memory** (the open case, else the open thread's case): summary (800 chars), the person's name and kind, the
+  person's lease parties (role, unit, the directory version's validity, `current` or `not current since <date>`,
+  current versions first; at most 3), open waits (who, what in 200 chars, expected
+  by; at most 5), the last 15 timeline events (kind, state change such as `open -> waiting` or `(none) -> open`,
+  actor, note in 120 chars) and the case's latest 5
+  actions (type, status, `draft_version`, the owner's latest decision, edit count, first draft variant in 300 chars).
+- **Budget:** the whole facts text is at most 12000 characters. When it would be longer, whole lines are left out in
+  this order: older messages (down to the newest 6), visible rows from the bottom, the oldest events, the oldest
+  earlier drafts, then the remaining messages oldest first. The page item headers, the summary, directory facts and
+  open waits are never left out; a `(N messages not shown)` marker sits where messages are missing and a last line
+  says what was left out. Like all page facts, the pack is resolved once and stored on the turn, so a retried turn
+  reads the same text.
+
+Answers use the page too, in one model call: for a question about the page, the conversation, a case, a draft or
+the tasks, the planner (prompt `concierge/v3`, which `concierge/v4` extends with the document steps) writes the answer itself in the plan's `reply` and plans an
+`answer` step, which shows it. Before the owner sees it, `reply` is screened: only for an in-scope plan (an out-of-scope plan
+gets the fixed refusal and its `reply` is dropped), control characters removed, at most 20 lines and 1200 characters,
+links, email addresses, phone numbers, IBANs and amounts replaced by `[redacted]`; ids are never taken from it. The
+stored `plan` (in `GET /agent/conversations`) carries the screened `reply`, never the raw one. Only when `reply` is
+empty (or the planner fails and the agent falls back to a plain answer) is the question asked again of the answering
+model: from your open cases and tasks plus the page facts, with the snapshot and filters as advisory display text
+(prompt `owner_qa/v3`). So "what does this page say?" or "what did he ask last?" is answered from the page, and "is
+this draft okay?" on an approval is answered from the server's copy of the draft (with an `open_view` step for
+`approvals`; the agent never approves or sends). Actions (drafts, chases, task changes, pause/resume) keep their own
+step summaries; their `reply` is normally empty.
+
+Case ids in a plan: a step may only name a case the planner was shown as company data, that is one of the brief's
+open cases or a case id on a server fact line of the page (`open case:`, `open thread: ... | case`, approval and
+visible rows). Any other id (one that appears only in a tenant message, the snapshot or the history, or a foreign one)
+gets "Open that case's page first, then ask again.", whether or not it exists.
+
+Example ("is this draft okay?" on an open approval):
+
+```json
+{
+  "text": "is this draft okay?",
+  "conversation_id": null,
+  "page": {
+    "view": "approvals",
+    "approval_id": "0192a7c4-5b1e-7c3d-9f00-1a2b3c4d5e6f",
+    "case_id": "0192a7c4-5b1e-7c3d-9f00-6f5e4d3c2b1a",
+    "filters": {"status": "pending"},
+    "visible_ids": ["0192a7c4-5b1e-7c3d-9f00-1a2b3c4d5e6f"],
+    "snapshot": "Approvals\nJoris · maintenance\nBeste Joris, we sturen morgen een glazenmaker."
+  }
+}
+```
+
+### Drafts from the Super Agent (`draft_reply`)
+
+"Reply to this, keep it short", "tell him the plumber comes Tuesday" or "make it shorter" on a thread or case page
+produce a reply draft for the case's latest inbound message:
+- **Guidance.** The owner's own message is the guidance for the drafting model (never the planner's wording, which
+  may echo a tenant message). Links, email addresses, phone numbers, IBANs and amounts are removed first (`[redacted]`); the answer then
+  says so and `details_removed` is `true`. Tenant replies are Dutch unless the guidance asks otherwise; the draft never
+  adds contact or bank details or links that are not already in the conversation.
+- **No draft yet:** a new proposal, as for an incoming message, with the guidance.
+- **A reply draft is waiting for approval:** it is replaced by a new `draft_version` with a new pending approval; the
+  old approval becomes `expired` (deciding it returns `stale`) and its feed card is resolved. Re-run safe: a retried
+  turn returns the same new draft, never a third one.
+- **The earlier draft was approved or rejected** (or the message has only other proposals, such as an escalation):
+  one new reply draft for the same message per turn, as a new pending approval.
+- **A reply draft is being edited** (edit tapped less than 24 hours ago) or waits without a pending approval: nothing
+  changes; the answer asks the owner to finish it in Approvals first. An edit tapped more than 24 hours ago can no
+  longer be applied: the new draft replaces that one like a pending draft.
+- **Held messages** (flagged suspicious, company paused) and a new draft that would add an unverified link, account
+  or phone number change nothing: the answer says why. Approving a draft on a suspicious message still needs
+  `confirm_suspicious: true`.
+
+The turn's `answer` quotes up to 3 variants (each at most 600 characters, lines prefixed `> `; a variant with an
+unverified link, account or phone number is shown redacted with a "held back" note). The `draft_reply` entry in
+`results` has `data`:
+
+```json
+{"approval_ids": ["<approval id>"], "case_id": "<case id>", "draft_version": 2,
+ "drafts": [{"text": "Beste,\nDe loodgieter komt dinsdag bij u langs.\nMet vriendelijke groet,\nHarjot", "flags": []}],
+ "details_removed": false, "superseded_approval_id": "<the replaced approval id or null>"}
+```
+
+`flags` lists `account`, `link` or `phone`. Show approve/edit for `approval_ids[0]` (it is also in `/approvals`); refetch
+`/approvals` when `superseded_approval_id` is set. Nothing is sent until the owner approves; the recipient is always
+the case's own contact from the database, never anything in the guidance or the drafts.
+
+### Turn timings
+
+Each turn records how long its stages took, in whole milliseconds, as `timings` on the turn (read-only, for latency
+diagnostics; `null` for turns from before it was recorded): `queue_wait_ms` (message stored to the run starting, both
+on the database clock), `page_resolve_ms`, `planner_ms`, `executor_ms` (includes `answer_ms`), `answer_ms` (the extra
+answering call, only when the plan had no usable `reply` or the planner failed), `total_ms` (the run) and `attempts`
+(runs started; a retried run keeps the first run's `queue_wait_ms` and any stage it did not repeat). A key is missing
+when its stage did not run (the `tasks` command, for example, has no planner). Turns run on their own `concierge`
+queue, so they never wait behind message processing; the worker picks a waiting turn up within about 0.25 s.
 
 ### thread_key
 
@@ -126,7 +255,9 @@ Pass it unchanged in the path.
 - Use `EventSource` with credentials (or `fetch` streaming). Frames:
   - `event: feed`, `id: <cursor>`, `data: <FeedItem JSON>`.
   - `event: turn`, `data: {id, conversation_id, status, answer, updated_at}`: the current state of one of your agent
-    turns. Turn frames carry no `id:` line, so they do not move `Last-Event-ID`.
+    turns. Turn frames carry no `id:` line, so they do not move `Last-Event-ID`. Turns are checked every 0.5 s (the
+    feed every 1.5 s), so an answer appears about half a second after it is stored. That is about 2 small indexed
+    queries per second per open stream (`agent_turns (company_id, updated_at, id)`); open one stream per tab.
   - `event: ping` every 15 s of silence (keep-alive, ignore).
   - `event: error` once, then the stream ends: reconnect.
 - The stream ends by itself after 15 minutes: reconnect (the cookie is checked again; a `401` means log in).
@@ -181,7 +312,8 @@ Writes commit first and enqueue the background work second. If the API dies in b
 `sweep.stranded` cron (every 5 minutes) picks the work up: approved actions decided 5 minutes to 24 hours ago that are
 still `approved` with no send recorded (company not paused; a paused company's actions wait for Resume), and agent
 turns still `pending` after 5 minutes (up to 24 hours). They are enqueued under the same ids the API uses
-(`exec:{action_id}:{draft_version}`, `concierge:{turn_id}`), so nothing runs twice; at most 200 per round (up to 1000
+(`exec:{action_id}:{draft_version}`, `concierge:{turn_id}`, turns on the `concierge` queue like the API), so nothing
+runs twice; at most 200 per round (up to 1000
 candidates are read and checked against DBOS first, so actions whose run already exists, such as blocked ones, cannot
 crowd out newer stranded work). For the SPA this means a decision or an agent message can take up to about 5 minutes
 longer after a crash, never that it is lost.

@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import PostgresDsn, SecretStr, field_validator
+from pydantic import PositiveInt, PostgresDsn, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 import app
@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     owner_qa_daily_budget_usd: Decimal | None = None
     concierge_daily_cap: int | None = None  # Super Agent plans per day
     concierge_daily_budget_usd: Decimal | None = None
+    concierge_worker_concurrency: PositiveInt = 4  # Super Agent turns running at once per worker (chat queue)
 
     # Owner channel: approved WhatsApp template that reopens the 24-hour window ("{{1}} items need you").
     owner_template_name: str = "estateos_pending"

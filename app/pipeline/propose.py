@@ -2,6 +2,9 @@
 
 Replay-safe: actions carry `context_ref = [message_id]`, and a message that already has actions is not proposed
 again. A failed proposer never drops the message: Harjot gets a "could not draft" notice to approve or dismiss.
+An owner-requested draft (Super Agent `draft_reply`) passes the owner's sanitised guidance (prompt `proposer/v2`) and
+a key; its reply draft then also gets an ActionRevision row under that key, so the turn's retry finds it. The
+redraft module reuses `load_message`, `guided_reply` and `rule_context` for messages that already had a proposal.
 """
 
 from collections.abc import Sequence
@@ -18,9 +21,19 @@ from app.core.errors import AgentFailedError
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import ActionStatus, ApprovalStatus, PersonKind, WaitStatus
-from app.db.models import ActionRow, Approval, Case, Company, MessageRow, Person, UnderstandingRow, WaitRow
+from app.db.models import (
+    ActionRevision,
+    ActionRow,
+    Approval,
+    Case,
+    Company,
+    MessageRow,
+    Person,
+    UnderstandingRow,
+    WaitRow,
+)
 from app.llm.agents.doc_qa import Passage
-from app.llm.agents.proposer import PROPOSER, Contractor, ProposerContext, proposer_prompt
+from app.llm.agents.proposer import Contractor, ProposerContext, proposer_prompt, proposer_spec
 from app.llm.calls import CallContext, run_agent
 from app.llm.embeddings import TextEmbedder, build_embedder
 from app.pipeline import approvals, case_repo
@@ -28,7 +41,7 @@ from app.pipeline.concierge_sanitize import sanitize
 from app.pipeline.document_qa import case_scope, strip_risky
 from app.pipeline.document_search import DocFilter
 from app.pipeline.rag import retrieve_cheap
-from app.pipeline.rules import RuleContext, Verdict, apply_rules
+from app.pipeline.rules import RuleContext, RuleDecision, Verdict, apply_rules
 
 log = get_logger(__name__)
 FALLBACK_RATIONALE = "Proposer failed"  # the "could not draft" notice; callers tell it apart from a real draft
@@ -46,10 +59,19 @@ class ProposeResult:
 
 
 @dataclass(frozen=True)
-class _Loaded:
+class Loaded:
     ctx: ProposerContext
     company_id: UUID
     paused: bool
+
+    def guided(self, guidance: str | None, current: Sequence[str] = ()) -> "Loaded":
+        return replace(self, ctx=replace(self.ctx, guidance=guidance, current_draft=tuple(current)))
+
+    @property
+    def source(self) -> str:
+        """The conversation a draft is checked against (output guard): never the guidance or an earlier draft."""
+        c = self.ctx
+        return "\n".join([c.subject or "", c.message_text, c.case_summary, *c.waiting])
 
 
 def _existing(session: Session, company_id: UUID, message_id: UUID) -> ProposeResult | None:
@@ -74,8 +96,8 @@ MAX_EXCERPTS = 3
 def _case_documents(
     session: Session, msg: MessageRow, case: Case, embedder: TextEmbedder | None
 ) -> tuple[Passage, ...]:
-    """Passages of THIS case's own documents (its case, unit, lease and main person) that resemble the message.
-    Nothing from any other tenant's documents, nothing flagged suspicious, and no link, address or IBAN."""
+    """Passages of THIS case's own documents (its case, lease and main person) that resemble the message. Nothing from
+    any other tenant's documents, nothing flagged suspicious, and no link, address or IBAN."""
     scope = case_scope(session, msg.company_id, case.id)
     if not scope:
         return ()
@@ -85,7 +107,10 @@ def _case_documents(
     return tuple(replace(p, text=strip_risky(p.text)) for p in found)
 
 
-def _load(session: Session, msg: MessageRow, case: Case, und: Understanding, embedder: TextEmbedder | None) -> _Loaded:
+def _load(
+    session: Session, msg: MessageRow, case: Case, und: Understanding, embedder: TextEmbedder | None = None,
+    documents: bool = True,
+) -> Loaded:  # fmt: skip
     company = session.get(Company, msg.company_id)
     waiting = session.scalars(
         select(WaitRow.about).where(
@@ -108,9 +133,9 @@ def _load(session: Session, msg: MessageRow, case: Case, und: Understanding, emb
         waiting=tuple(waiting),
         contractors=tuple(Contractor(c[0], c[1], c[2]) for c in contractors),
         mode="reply",
-        excerpts=_case_documents(session, msg, case, embedder),
+        excerpts=_case_documents(session, msg, case, embedder) if documents else (),
     )
-    return _Loaded(ctx, msg.company_id, bool(company and company.paused))
+    return Loaded(ctx, msg.company_id, bool(company and company.paused))
 
 
 def _fallback(case_id: UUID) -> list[Action]:
@@ -127,15 +152,33 @@ def _fallback(case_id: UUID) -> list[Action]:
     ]
 
 
-def _propose(engine: Engine, settings: Settings, loaded: _Loaded) -> list[Action]:
+def _run_proposer(engine: Engine, settings: Settings, loaded: Loaded) -> list[Action]:
+    spec = proposer_spec(loaded.ctx)
+    result = run_agent(engine, settings, spec, proposer_prompt(loaded.ctx), CallContext(loaded.company_id, "proposer"))
+    return [_trusted(a, loaded) for a in result.output.actions]
+
+
+def _propose(engine: Engine, settings: Settings, loaded: Loaded) -> list[Action]:
     try:
-        result = run_agent(
-            engine, settings, PROPOSER, proposer_prompt(loaded.ctx), CallContext(loaded.company_id, "proposer")
-        )
+        return _run_proposer(engine, settings, loaded)
     except AgentFailedError:
         log.warning("pipeline.proposer_failed", case_id=str(loaded.ctx.case_id))
         return _fallback(loaded.ctx.case_id)
-    return list(result.output.actions)
+
+
+def rule_context(loaded: Loaded) -> RuleContext:
+    contractors = frozenset(c.person_id for c in loaded.ctx.contractors)
+    suspicious = loaded.ctx.understanding.suspicious.flag
+    return RuleContext(
+        paused=loaded.paused, suspicious=suspicious, contractor_ids=contractors, source_text=loaded.source
+    )
+
+
+def guided_reply(engine: Engine, settings: Settings, loaded: Loaded) -> RuleDecision | None:
+    """The proposer's first reply draft for an owner-requested redraft, with the rules' verdict (paused, suspicious,
+    unverified link/account/phone); None when it proposed no reply. AgentFailedError propagates (no notice)."""
+    replies = [a for a in _run_proposer(engine, settings, loaded) if isinstance(a.payload, ReplyDraftPayload)]
+    return apply_rules(replies[:1], rule_context(loaded))[0] if replies else None
 
 
 def _with_sources(action: Action, excerpts: Sequence[Passage]) -> str:
@@ -147,16 +190,11 @@ def _with_sources(action: Action, excerpts: Sequence[Passage]) -> str:
 
 
 def _persist(
-    session: Session, loaded: _Loaded, message_id: UUID, actions: list[Action], contractors: frozenset[UUID]
+    session: Session, loaded: Loaded, message_id: UUID, actions: list[Action], key: str | None
 ) -> ProposeResult:
     und = loaded.ctx.understanding
-    c = loaded.ctx
-    source = "\n".join([c.subject or "", c.message_text, c.case_summary, *c.waiting])
-    rule_ctx = RuleContext(
-        paused=loaded.paused, suspicious=und.suspicious.flag, contractor_ids=contractors, source_text=source
-    )
     result = ProposeResult()
-    for decision in apply_rules(actions, rule_ctx):
+    for decision in apply_rules(actions, rule_context(loaded)):
         if decision.verdict is Verdict.drop:
             continue
         a = decision.action
@@ -172,6 +210,9 @@ def _persist(
         )
         session.add(row)
         session.flush()
+        if key is not None and a.type is ActionType.reply_draft:
+            record_draft(session, loaded.company_id, row, key)
+            key = None  # one keyed reply per call
         if decision.verdict is Verdict.pending_approval:
             now = datetime.now(UTC)
             result.approval_ids.append(
@@ -183,7 +224,7 @@ def _persist(
     return result
 
 
-def _trusted(action: Action, loaded: _Loaded) -> Action:
+def _trusted(action: Action, loaded: Loaded) -> Action:
     """Code owns the case, the version and the reply channel; the model only proposes content."""
     update: dict[str, object] = {"case_id": loaded.ctx.case_id, "draft_version": 1}
     if isinstance(action.payload, ReplyDraftPayload):
@@ -198,7 +239,20 @@ def _with_reply_flag(body: dict[str, Any]) -> dict[str, Any]:
     return {**body, "requires_reply": body.get("category") != Category.spam.value}
 
 
-def _prepare(engine: Engine, message_id: UUID, embedder: TextEmbedder | None) -> _Loaded | ProposeResult:
+def record_draft(session: Session, company_id: UUID, row: ActionRow, key: str) -> None:
+    """The provenance of an owner-requested draft: an ActionRevision of its first version under the turn's key."""
+    session.add(
+        ActionRevision(
+            company_id=company_id, action_id=row.id, draft_version=row.draft_version, payload=row.payload, edited_by=key
+        )
+    )
+
+
+def _prepare(
+    engine: Engine, message_id: UUID, *, replay: bool = True, embedder: TextEmbedder | None = None
+) -> Loaded | ProposeResult:
+    """The proposer context of a message; with `replay`, a message that already has actions returns those instead.
+    Documents are put in view only for a fresh proposal (`replay`): a redraft is steered by the owner."""
     with Session(engine) as session:
         msg = session.get(MessageRow, message_id)
         und = (
@@ -212,7 +266,7 @@ def _prepare(engine: Engine, message_id: UUID, embedder: TextEmbedder | None) ->
         )
         if msg is None or und is None:
             return ProposeResult()
-        done = _existing(session, msg.company_id, message_id)
+        done = _existing(session, msg.company_id, message_id) if replay else None
         if done is not None:
             return done
         case_id = case_repo.case_of_message(session, msg.company_id, message_id)
@@ -222,19 +276,33 @@ def _prepare(engine: Engine, message_id: UUID, embedder: TextEmbedder | None) ->
         understanding = Understanding.model_validate(_with_reply_flag(und.body))
         if not understanding.requires_reply and not understanding.suspicious.flag:
             return ProposeResult()  # nothing to answer: no proposal, no draft, no model call (suspicious mail stays)
-        return _load(session, msg, case, understanding, embedder)
+        return _load(session, msg, case, understanding, embedder, documents=replay)
 
 
-def propose_for_message(engine: Engine, settings: Settings, message_id: UUID) -> ProposeResult:
-    loaded = _prepare(engine, message_id, build_embedder(settings))
+def load_message(engine: Engine, message_id: UUID) -> Loaded | None:
+    """The proposer context even when the message was proposed before (owner-requested redraft); None when there is
+    nothing to answer (no understanding, no case, or no reply needed)."""
+    loaded = _prepare(engine, message_id, replay=False)
+    return loaded if isinstance(loaded, Loaded) else None
+
+
+def propose_for_message(
+    engine: Engine, settings: Settings, message_id: UUID, *, guidance: str | None = None, key: str | None = None
+) -> ProposeResult:
+    """`guidance`/`key` only for an owner-requested first draft (see the module docstring)."""
+    loaded = _prepare(engine, message_id, embedder=build_embedder(settings))
     if isinstance(loaded, ProposeResult):
         return loaded
-    proposed = _propose(engine, settings, loaded)
-    actions = [_trusted(a, loaded) for a in proposed]
-    contractors = frozenset(c.person_id for c in loaded.ctx.contractors)
+    loaded = loaded.guided(guidance) if guidance else loaded
+    actions = _propose(engine, settings, loaded)
     with Session(engine) as session, session.begin():
-        session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"), {"k": f"propose:{message_id}"})
+        lock_message(session, message_id)
         done = _existing(session, loaded.company_id, message_id)  # a concurrent run (pipe:/requeue) finished first
         if done is not None:
             return done
-        return _persist(session, loaded, message_id, actions, contractors)
+        return _persist(session, loaded, message_id, actions, key)
+
+
+def lock_message(session: Session, message_id: UUID) -> None:
+    """Serialises proposals for one message (the pipeline, a requeue and owner-requested drafts)."""
+    session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"), {"k": f"propose:{message_id}"})

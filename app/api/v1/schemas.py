@@ -13,6 +13,7 @@ from app.contracts import (
     Channel,
     Direction,
     OutboundMode,
+    PageContext,
     Urgency,
 )
 from app.db.enums import (
@@ -224,8 +225,12 @@ class ReviewDocumentOut(BaseModel):
 
 
 class AgentMessageIn(BaseModel):
+    """`page`: what the open dashboard page shows. Its ids are validated and resolved server-side; its snapshot text
+    is unverified display text (see docs/dashboard-api.md)."""
+
     text: str = Field(min_length=1, json_schema_extra={"maxLength": MAX_QUESTION_CHARS})
     conversation_id: UUID | None = None
+    page: PageContext | None = None
 
     @field_validator("text")
     @classmethod
@@ -257,6 +262,9 @@ class TurnOut(BaseModel):
     answer: str | None
     created_at: AwareDatetime
     updated_at: AwareDatetime
+    # Stage milliseconds of the run (queue_wait_ms, page_resolve_ms, planner_ms, executor_ms, answer_ms, total_ms,
+    # attempts; any may be missing); null for turns from before they were recorded. Read-only diagnostics.
+    timings: dict[str, int] | None = None
 
 
 class ConversationOut(BaseModel):

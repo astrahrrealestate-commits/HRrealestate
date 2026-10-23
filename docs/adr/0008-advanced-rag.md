@@ -53,7 +53,7 @@ cases).
   (company, case scope) relies on `hnsw.iterative_scan`, which older versions do not have; without it an HNSW scan
   post-filters a fixed number of candidates across every tenant and recall drops silently as the table grows.
   Production must run 0.8+ (check the managed Postgres offering before choosing).
-- **`CREATE EXTENSION vector`** in migration 0012 needs a role that may create extensions; on a managed Postgres, enable
+- **`CREATE EXTENSION vector`** in migration 0014 needs a role that may create extensions; on a managed Postgres, enable
   the extension once as the admin role before the migration runs.
 - **Failure policy.** Any embedding-provider failure (bad key, quota, timeout, outage) is logged at error level with its
   class and retrieval continues on words alone; embeddings have a deadline (`llm_timeout_sec`). The embed step in the

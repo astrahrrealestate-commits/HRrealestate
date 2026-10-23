@@ -1,7 +1,5 @@
 """Read-side queries for the dashboard API. Every function requires `company_id` (CLAUDE.md invariant 4)."""
 
-import base64
-import binascii
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -11,6 +9,10 @@ from sqlalchemy import ColumnElement, ScalarSelect, Select, and_, func, select, 
 from sqlalchemy.orm import Session, aliased
 
 from app.contracts import Channel, Direction
+from app.contracts.thread_key import MAX_REF_LEN as MAX_REF_LEN
+from app.contracts.thread_key import BadThreadKeyError as BadThreadKeyError
+from app.contracts.thread_key import decode_thread_key as decode_thread_key
+from app.contracts.thread_key import encode_thread_key as encode_thread_key
 from app.core.errors import EstateOSError
 from app.db.enums import PipelineStatus
 from app.db.models.dashboard import OwnerFeed
@@ -20,7 +22,6 @@ from app.db.models.pipeline import CaseLink, UnderstandingRow
 
 MAX_PAGE = 100
 MAX_THREAD_MESSAGES = 200
-MAX_REF_LEN = 255  # messages.thread_ref / provider_msg_id are String(255)
 MAX_REASON_LEN = 200
 Cursor = tuple[datetime, UUID]
 
@@ -48,27 +49,6 @@ def feed_page(session: Session, company_id: UUID, after: Cursor | None, limit: i
         q = q.where(tuple_(OwnerFeed.created_at, OwnerFeed.id) > tuple_(*after))
     capped = max(1, min(limit, MAX_PAGE))
     return list(session.scalars(q.order_by(OwnerFeed.created_at, OwnerFeed.id).limit(capped)))
-
-
-class BadThreadKeyError(EstateOSError):
-    """A thread key that does not decode to `{channel}:{ref}`."""
-
-
-def encode_thread_key(channel: Channel, ref: str) -> str:
-    """Opaque, path-safe key: refs may hold `<`, `@`, `/`, `%` (Message-IDs), so the pair is urlsafe-base64 encoded."""
-    raw = f"{channel.value}:{ref}".encode()
-    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
-
-
-def decode_thread_key(key: str) -> tuple[Channel, str]:
-    try:
-        raw = base64.b64decode(key.replace("-", "+").replace("_", "/") + "=" * (-len(key) % 4), validate=True).decode()
-        channel, sep, ref = raw.partition(":")
-        if not sep or not ref or len(ref) > MAX_REF_LEN or any(ord(c) < 0x20 or c == "\x7f" for c in ref):
-            raise ValueError("bad ref")
-        return Channel(channel), ref
-    except (binascii.Error, ValueError):  # UnicodeDecodeError is a ValueError
-        raise BadThreadKeyError("invalid thread key") from None
 
 
 @dataclass(frozen=True)

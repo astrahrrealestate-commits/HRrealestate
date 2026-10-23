@@ -1971,6 +1971,7 @@
         "type": "object"
       },
       "AgentMessageIn": {
+        "description": "`page`: what the open dashboard page shows. Its ids are validated and resolved server-side; its snapshot text\nis unverified display text (see docs/dashboard-api.md).",
         "properties": {
           "conversation_id": {
             "anyOf": [
@@ -1983,6 +1984,16 @@
               }
             ],
             "title": "Conversation Id"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PageContext"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "text": {
             "maxLength": 500,
@@ -3060,6 +3071,114 @@
         "title": "OutboundMode",
         "type": "string"
       },
+      "PageContext": {
+        "additionalProperties": false,
+        "description": "The open entity ids (trusted only after server-side, company-scoped resolution) and the page's unverified\ndisplay text (`snapshot`, `filters`): never an id source, a recipient or a permission.",
+        "properties": {
+          "approval_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Id"
+          },
+          "attachment_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attachment Id"
+          },
+          "case_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "filters": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Filters",
+            "type": "object"
+          },
+          "snapshot": {
+            "default": "",
+            "maxLength": 6000,
+            "title": "Snapshot",
+            "type": "string"
+          },
+          "task_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Ref"
+          },
+          "thread_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thread Key"
+          },
+          "view": {
+            "$ref": "#/components/schemas/PageView"
+          },
+          "visible_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Visible Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "view"
+        ],
+        "title": "PageContext",
+        "type": "object"
+      },
+      "PageView": {
+        "enum": [
+          "inbox",
+          "thread",
+          "case",
+          "approvals",
+          "tasks",
+          "waiting",
+          "documents",
+          "briefing",
+          "other"
+        ],
+        "title": "PageView",
+        "type": "string"
+      },
       "PausedOut": {
         "properties": {
           "paused": {
@@ -3645,6 +3764,20 @@
           "text": {
             "title": "Text",
             "type": "string"
+          },
+          "timings": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timings"
           },
           "updated_at": {
             "format": "date-time",

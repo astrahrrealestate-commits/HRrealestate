@@ -64,3 +64,23 @@ Agent in front of the other agents. Tenant messages are mirrored in the dashboar
 - **Deployment.** Serve the SPA same-origin behind the reverse proxy. `DASHBOARD_CORS_ORIGINS` is an optional exact
   allowlist for a SPA on another origin (never `*`). Each request re-reads the owner row, so removing an owner or
   changing the email ends the session at once.
+
+## Amendment (2026-10-16, page-aware Super Agent)
+- **Page context.** `POST /agent/messages` takes an optional `page` (open entity ids, visible row ids, filters and a
+  text snapshot of the page, at most 6000 characters). Ids are resolved company-scoped into server facts
+  (`<page_facts>`); the snapshot is unverified display text in an escaped `<page_snapshot>` block, never an id,
+  recipient or permission source. Stored on the turn (`agent_turns.page_context`, migration 0011) with the facts
+  resolved once, so a retry reuses them. Prompt `concierge/v2`.
+- **Page-aware answers (Task 4).** The `answer` step and the planner-failure fallback pass the stored page facts and
+  snapshot to `owner_qa`, which uses prompt `owner_qa/v3` only when a page is present (`owner_qa/v2` and a
+  byte-identical prompt otherwise). Still at most one `owner_qa` call per turn, under the same `owner_qa` budget.
+
+## Amendment (2026-10-22, steerable drafts, fast turns)
+- The Super Agent's `draft_reply` steers the proposer with the owner's sanitised wording (prompt `proposer/v2`) and,
+  on a turn, supersedes a pending reply draft (new `draft_version`, old approval expired) or redrafts a decided one,
+  once per turn. The draft is quoted in the chat answer and exists as a pending approval; only the approve click can
+  lead to a send, recipients still come from the DB, and suspicious or paused messages are never redrafted.
+- **Fast turns (Task 3).** Page/chat questions take one model call: the planner's own `reply` (prompt
+  `concierge/v3`), screened (in scope only, redacted, capped, never an id source) before the owner sees it; owner_qa
+  is asked only when the reply is blank. Turns run on their own `concierge` DBOS queue (short poll interval), the SSE
+  stream checks turns every 0.5 s, and each turn stores stage timings (`agent_turns.timings`, migration 0012).

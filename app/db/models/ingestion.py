@@ -12,6 +12,8 @@ from app.contracts import Channel, Direction
 from app.db.base import Base, CompanyScoped, str_enum
 from app.db.enums import DeliveryStatus, ExtractionStatus, PipelineStatus, RawEventStatus
 
+THREAD_KEY_SQL = "coalesce(thread_ref, provider_msg_id)"  # a message's thread key (what thread pages filter on)
+
 
 class RawEvent(Base, CompanyScoped):
     """Exactly what the provider sent, stored before any processing (Postgres first)."""
@@ -42,6 +44,8 @@ class MessageRow(Base, CompanyScoped):
         UniqueConstraint("company_id", "channel", "provider_msg_id"),
         Index(None, "company_id", "thread_ref"),
         Index(None, "pipeline_status", "pipeline_attempts"),  # hourly pipeline requeue sweep
+        # Thread page scan (page_memory/page_facts: channel + thread key); expression index, migration 0012
+        Index("ix_messages_company_channel_thread", "company_id", "channel", sql_text(THREAD_KEY_SQL)),
     )
 
     raw_event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("raw_events.id"), index=True)

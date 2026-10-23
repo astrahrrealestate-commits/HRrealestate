@@ -9,7 +9,7 @@ Dependency changes (pypdf) need ADR 0007 and user OK (hook asks) before Task 2.
 
 | # | Task | Files | Failing test first | Acceptance |
 |---|---|---|---|---|
-| 1 | Migration 0011: `attachments` extraction columns; `documents` summary/facts/reader_version/document_date; `document_chunks` (+GIN tsv); `document_links`; `drive_reorg_plans` | `app/db/models/{ingestion,work,documents}.py`, migration | migration round-trip + drift | `make check` migration tests |
+| 1 | Migration 0013 (written as 0011, renumbered at the merge): `attachments` extraction columns; `documents` summary/facts/reader_version/document_date; `document_chunks` (+GIN tsv); `document_links`; `drive_reorg_plans` | `app/db/models/{ingestion,work,documents}.py`, migration | migration round-trip + drift | `make check` migration tests |
 | 2 | `TextExtractor` port, `FakeExtractor`, pypdf adapter, caps, id_document exclusion, ADR 0007 | `app/storage/extract.py`, `docs/adr/0007-*.md` | caps, id doc skipped, scanned falls to vision | `make quick` |
 | 3 | `DocumentFacts` contract, `doc_reader/v1` prompt, agent spec, fake model, injection scan hook | `app/contracts/document.py`, `app/llm/agents/doc_reader.py`, `app/llm/prompts/v1/` | contract strictness, prompt render snapshot | `make quick` |
 | 4 | Pipeline: extract, read, chunk, store; fallback to classifier; gate unchanged | `app/pipeline/documents.py`, `document_chunks.py` | extract fail falls back; replay safe; budget path | unit + integration |

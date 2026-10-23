@@ -7,14 +7,15 @@ from unittest.mock import patch
 from uuid import UUID
 
 import pytest
-from dbos import DBOS, SetWorkflowID
+from dbos import DBOS, DBOSClient, SetWorkflowID, WorkflowHandle
 from sqlalchemy import Engine, func, select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from app.api.v1.enqueue import enqueue_turn
 from app.core.errors import AgentFailedError
 from app.core.settings import Settings
-from app.core.workflow_names import concierge_workflow_id
+from app.core.workflow_names import CONCIERGE_QUEUE, concierge_workflow_id
 from app.db.enums import TurnStatus
 from app.db.models import ActionRow, AgentTurn, Approval, Company, ModelCall, OwnerAccount, Send, TaskRow
 from app.llm.agents.owner_qa import FALLBACK_ANSWER, REFUSAL_ANSWER
@@ -100,13 +101,20 @@ def test_question_plans_once_and_stores_plan_and_results(env: Env) -> None:
     row = _row(env, turn_id)
     assert row.status is TurnStatus.done
     assert _calls(env, "concierge") == 1
+    assert _calls(env) == 1  # single call (concierge/v3): the plan's own reply answers, no owner_qa call
     assert row.plan is not None
     assert row.plan["in_scope"] is True
+    assert row.plan["reply"] == row.answer
     assert row.results is not None
     assert [r["intent"] for r in row.results] == [s["intent"] for s in row.plan["steps"]]
     assert row.answer
-    assert row.prompt_ref == "concierge/v2"
+    assert row.prompt_ref == "concierge/v4"
     assert row.error is None
+    timings = row.timings or {}
+    assert {"queue_wait_ms", "planner_ms", "executor_ms", "total_ms", "attempts"} <= set(timings)
+    assert all(isinstance(v, int) and v >= 0 for v in timings.values())
+    assert timings["attempts"] == 1
+    assert "answer_ms" not in timings  # the plan's reply answered: no owner_qa call to time
 
 
 def test_budget_spent_turn_is_done_with_the_limit_answer(env: Env, test_settings: Settings) -> None:
@@ -161,7 +169,7 @@ def test_injection_text_is_refused_and_changes_nothing(env: Env) -> None:
     assert _run_wf(turn_id) == "done"
     row = _row(env, turn_id)
     assert row.answer == REFUSAL_ANSWER
-    assert row.plan == {"in_scope": False, "steps": []}
+    assert row.plan == {"in_scope": False, "steps": [], "reply": None}
     assert [count(env.engine, m, env.cid) for m in (ActionRow, Approval, TaskRow, Send)] == before
     with Session(env.engine) as s:
         assert s.scalar(select(Company.paused).where(Company.id == env.cid)) is False
@@ -219,11 +227,21 @@ def test_transient_executor_error_retry_reuses_the_stored_plan(env: Env, test_se
     assert mid.status is TurnStatus.running
     assert mid.plan is not None
     assert mid.results is None
+    assert mid.timings is not None
+    first_wait, first_planner = mid.timings["queue_wait_ms"], mid.timings["planner_ms"]
+    assert mid.timings["attempts"] == 1
     concierge_turns.run_turn(env.engine, test_settings, turn_id)  # the DBOS step retry
     row = _row(env, turn_id)
     assert (row.status, row.plan) == (TurnStatus.done, mid.plan)
     assert "Call plumber" in (row.answer or "")
     assert _calls(env, "concierge") == 1
+    assert row.timings is not None  # merged, never replaced: the first attempt's numbers survive the retry
+    assert (row.timings["attempts"], row.timings["queue_wait_ms"], row.timings["planner_ms"]) == (
+        2,
+        first_wait,
+        first_planner,
+    )
+    assert {"executor_ms", "total_ms"} <= set(row.timings)
 
 
 def test_symbols_only_are_answered_without_a_model(env: Env) -> None:
@@ -261,3 +279,27 @@ def test_each_status_change_moves_updated_at(env: Env, test_settings: Settings) 
     assert running_status is TurnStatus.running
     assert created < running_at < row.updated_at
     assert row.answer == owner_commands.HELP_TEXT
+
+
+def test_api_enqueue_runs_the_turn_on_the_chat_queue(env: Env, test_settings: Settings) -> None:
+    """The API's enqueue options (by name, no app.workflows import) reach the worker's `concierge` queue."""
+    turn_id = _turn(env, "tasks")
+    client = DBOSClient(system_database_url=test_settings.dbos_database_url)
+    try:
+        enqueue_turn(client, turn_id)
+        handle: WorkflowHandle[str] = client.retrieve_workflow(concierge_workflow_id(turn_id))
+        assert handle.get_result(polling_interval_sec=0.1) == "done"
+        assert handle.get_status().queue_name == CONCIERGE_QUEUE
+    finally:
+        client.destroy()
+    assert _row(env, turn_id).status is TurnStatus.done
+
+
+def test_a_finished_turn_is_never_re_timed(env: Env, test_settings: Settings) -> None:
+    turn_id = _turn(env, "tasks")
+    concierge_turns.run_turn(env.engine, test_settings, turn_id)
+    done = _row(env, turn_id)
+    assert done.timings is not None
+    assert done.timings["attempts"] == 1
+    concierge_turns.run_turn(env.engine, test_settings, turn_id)  # a replayed step skips a done turn
+    assert _row(env, turn_id).timings == done.timings

@@ -113,7 +113,7 @@ rag-eval: up-db ## ADR 0008: document RAG quality on the synthetic corpus, M10 b
 	$(UV) alembic upgrade head
 	$(UV) python -m evals.rag_eval
 
-eval: ## (M4) golden-set eval: make eval agent=understanding|linking|owner_qa|concierge version=v2
+eval: ## (M4) golden-set eval: make eval agent=understanding|linking|owner_qa|concierge|proposer version=v2
 	$(UV) python -m evals.run --agent $(agent) --version $(version)
 
 workflows: up-db ## list recent DBOS workflows (ops)

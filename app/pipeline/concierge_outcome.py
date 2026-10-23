@@ -11,8 +11,9 @@ from pydantic_core import to_jsonable_python
 
 from app.core.errors import AgentFailedError, BudgetExceededError
 from app.db.enums import TurnStatus
-from app.llm.agents.concierge import concierge_prompt
+from app.llm.agents.concierge import CONCIERGE, concierge_prompt
 from app.llm.agents.owner_qa import FALLBACK_ANSWER, CaseBrief
+from app.llm.page_blocks import NO_PAGE, PagePrompt
 from app.pipeline.concierge import is_transient
 from app.pipeline.concierge_base import StepResult
 from app.pipeline.owner_commands import LIMIT_ANSWER
@@ -23,7 +24,7 @@ MAX_BRIEF_TASKS = 20
 MAX_HISTORY_TURNS = 6
 MAX_OWNER_CHARS = 400
 MAX_ANSWER_CHARS = 300
-PROMPT_REF = "concierge/v2"
+PROMPT_REF = CONCIERGE.prompt.key
 EMPTY_PLAN = "I am not sure what to do with that. Try rephrasing it, or send `help` for the commands."
 APOLOGY = "Sorry, something went wrong with that message. Please try again in a moment."
 
@@ -90,13 +91,23 @@ def history_lines(exchanges: Sequence[tuple[str, str | None, TurnStatus]]) -> li
     return lines
 
 
-def build_prompt(text: str, history: Sequence[str], cases: Sequence[CaseBrief], tasks: Sequence[str]) -> str:
-    """The planner prompt with the brief capped: newest 20 cases and 20 tasks, the history lines already capped."""
+def build_prompt(
+    text: str,
+    history: Sequence[str],
+    cases: Sequence[CaseBrief],
+    tasks: Sequence[str],
+    page: PagePrompt = NO_PAGE,
+) -> str:
+    """The planner prompt with the brief capped: newest 20 cases and 20 tasks, the history lines already capped, and
+    the page facts/snapshot (empty when the owner is not on a page)."""
     return concierge_prompt(
         text,
         list(history)[-2 * MAX_HISTORY_TURNS :],
         list(cases)[:MAX_BRIEF_CASES],
         list(tasks)[:MAX_BRIEF_TASKS],
+        page.facts,
+        page.snapshot,
+        page.filters,
     )
 
 

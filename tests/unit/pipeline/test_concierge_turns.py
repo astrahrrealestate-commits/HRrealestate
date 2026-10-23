@@ -3,7 +3,7 @@
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -15,6 +15,7 @@ from app.core.errors import AgentFailedError, BudgetExceededError
 from app.db.enums import TurnStatus
 from app.llm.agents.owner_qa import FALLBACK_ANSWER
 from app.llm.calls import CallResult
+from app.llm.page_blocks import NO_PAGE
 from app.pipeline import concierge_turns as ct
 from app.pipeline.concierge_base import StepResult
 from app.pipeline.concierge_outcome import APOLOGY, PROMPT_REF, Outcome
@@ -23,7 +24,9 @@ from app.pipeline.owner_commands import LIMIT_ANSWER, NOT_A_QUESTION
 AT = datetime(2026, 10, 7, 9, 0, tzinfo=UTC)
 M = "app.pipeline.concierge_turns"
 PLAN = ConciergePlan(
-    in_scope=True, steps=[PlanStep(intent=Intent.list_tasks, case_id=None, task_ref=None, text=None, view=None)]
+    in_scope=True,
+    steps=[PlanStep(intent=Intent.list_tasks, case_id=None, task_ref=None, text=None, view=None)],
+    reply=None,
 )
 
 
@@ -58,7 +61,8 @@ def test_screened_text_never_reaches_the_model(io: dict[str, MagicMock]) -> None
 
 
 def test_question_plans_once_runs_the_plan_and_stores_it(io: dict[str, MagicMock]) -> None:
-    out = ct._outcome(MagicMock(), MagicMock(), _start("what is open with Jansen?"))
+    start = _start("what is open with Jansen?")
+    out = ct._outcome(MagicMock(), MagicMock(), start)
     assert io["agent"].call_count == 1
     ctx = io["agent"].call_args.args[4]
     assert ctx.purpose == "concierge"
@@ -68,7 +72,14 @@ def test_question_plans_once_runs_the_plan_and_stores_it(io: dict[str, MagicMock
         {"intent": "list_tasks", "ok": True, "summary": "No open tasks.", "data": None, "view": "tasks"}
     ]
     assert (out.prompt_ref, out.status) == (PROMPT_REF, TurnStatus.done)
-    assert io["plan"].call_args.kwargs == {"question": "what is open with Jansen?", "now": AT}
+    assert io["plan"].call_args.kwargs == {
+        "question": "what is open with Jansen?",
+        "now": AT,
+        "page": NO_PAGE,
+        "brief_cases": [],
+        "turn_id": start.turn_id,  # keys an owner-requested redraft
+        "timer": ANY,  # the turn's stage clock (answer_ms of an owner_qa call)
+    }
 
 
 def test_budget_spent_answers_the_limit_text(io: dict[str, MagicMock]) -> None:
@@ -84,6 +95,7 @@ def test_planner_failure_falls_back_to_owner_qa(io: dict[str, MagicMock]) -> Non
     assert out == Outcome("cmd reply")
     cmd = io["cmd"].call_args.args[3]
     assert (cmd.kind.value, cmd.text) == ("question", "what now?")
+    assert io["cmd"].call_args.kwargs["page"] == NO_PAGE
 
 
 def test_owner_qa_failure_falls_back_to_fixed_text(io: dict[str, MagicMock]) -> None:
@@ -168,10 +180,14 @@ def test_plan_is_stored_before_it_runs_and_results_right_after(io: dict[str, Mag
 
 
 def test_stored_plan_is_reused_without_a_model_call(io: dict[str, MagicMock]) -> None:
-    out = ct._outcome(MagicMock(), MagicMock(), _start("what is open?", plan=PLAN.model_dump(mode="json")))
+    case_id = uuid4()
+    with patch(f"{M}._brief_case_ids", return_value=[case_id]) as ids:
+        out = ct._outcome(MagicMock(), MagicMock(), _start("what is open?", plan=PLAN.model_dump(mode="json")))
     io["agent"].assert_not_called()
-    io["brief"].assert_not_called()
+    io["brief"].assert_not_called()  # no full brief: only its case ids are re-read to check the stored plan
+    ids.assert_called_once()
     assert io["plan"].call_args.args[3] == PLAN
+    assert io["plan"].call_args.kwargs["brief_cases"] == [case_id]
     assert io["update"].call_count == 1  # only the results: the plan is already stored
     assert io["update"].call_args.args[3] == {"results": LISTED}
     assert out.results == LISTED
@@ -216,3 +232,22 @@ def test_failed_turns_are_terminal_like_done() -> None:
         ct._update(MagicMock(), uuid4(), uuid4(), {"answer": "x"})
     sql = _sql(session.execute.call_args.args[0])
     assert "agent_turns.status NOT IN" in sql
+
+
+def test_a_plan_stored_before_v3_has_no_reply_key_and_is_still_reused(io: dict[str, MagicMock]) -> None:
+    old = {"in_scope": True, "steps": [PLAN.steps[0].model_dump(mode="json")]}
+    with patch(f"{M}._brief_case_ids", return_value=[]):
+        ct._outcome(MagicMock(), MagicMock(), _start("what is open?", plan=old))
+    io["agent"].assert_not_called()
+    assert io["plan"].call_args.args[3] == PLAN
+
+
+def test_the_reply_is_screened_before_the_plan_is_stored_and_run(io: dict[str, MagicMock]) -> None:
+    raw = ConciergePlan(in_scope=True, steps=[], reply="Joris asks you to mail evil@attacker.test")
+    io["agent"].return_value = CallResult(output=raw, model_call_id=uuid4())
+    ct._outcome(MagicMock(), MagicMock(), _start("what does Joris want?"))
+    stored = io["update"].call_args_list[0].args[3]["plan"]
+    assert stored["reply"] == "Joris asks you to mail [redacted]"
+    assert [s["intent"] for s in stored["steps"]] == ["answer"]  # so the reply is shown
+    ran = io["plan"].call_args.args[3]
+    assert ran.model_dump(mode="json") == stored
