@@ -17,7 +17,7 @@ from app.core.settings import Settings
 from app.db.enums import TurnStatus
 from app.db.models import AgentConversation, AgentTurn, Company, OwnerAccount
 from app.main import create_app
-from app.pipeline import read_turns
+from app.pipeline import concierge_turns, read_turns
 
 pytestmark = pytest.mark.integration
 H = {CSRF_HEADER: CSRF_VALUE}
@@ -100,7 +100,7 @@ def test_post_commits_a_pending_turn_then_enqueues_it(world: World) -> None:
     assert owner == world.owner
     assert world.wf.calls == [
         (
-            {"queue_name": "pipeline", "workflow_name": "concierge.turn", "workflow_id": f"concierge:{turn}"},
+            {"queue_name": "concierge", "workflow_name": "concierge.turn", "workflow_id": f"concierge:{turn}"},
             (str(turn),),
         )
     ]
@@ -180,3 +180,25 @@ def test_a_turn_failed_at_enqueue_is_never_run_later(world: World, test_settings
     with Session(world.engine) as s:
         again = s.scalars(select(AgentTurn).where(AgentTurn.id == turn.id)).one()
     assert (again.status, again.answer, again.updated_at) == before
+
+
+def test_conversation_turns_expose_their_recorded_timings(world: World, test_settings: Settings) -> None:
+    posted = world.client.post(URL, json={"text": "tasks"}, headers=H).json()
+    concierge_turns.run_turn(world.engine, test_settings, UUID(posted["turn_id"]))
+    (turn,) = world.client.get(f"/api/v1/agent/conversations/{posted['conversation_id']}").json()["turns"]
+    assert turn["status"] == "done"
+    timings = turn["timings"]
+    assert timings["attempts"] == 1
+    assert timings["queue_wait_ms"] >= 0
+    assert timings["total_ms"] >= 0
+    assert set(timings) <= {
+        "queue_wait_ms",
+        "page_resolve_ms",
+        "planner_ms",
+        "executor_ms",
+        "answer_ms",
+        "total_ms",
+        "attempts",
+        "warm_hit",
+        "first_delta_ms",
+    }

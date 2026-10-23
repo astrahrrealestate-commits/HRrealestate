@@ -10,12 +10,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.channels.whatsapp import payloads
+from app.contracts import ActionType
 from app.core.workflow_names import EXECUTE_ACTION
 from app.db.models import ActionRow
 from app.ingestion.process import is_transient
 from app.pipeline import followups, local_actions
 from app.sender.execute import execute_action
-from app.sender.tenant_gate import blocked_key
+from app.sender.tenant_gate import blocked_key, blocked_text
 from app.workflows.deps import get_engine, get_sender_deps
 from app.workflows.owner_notify import send_owner_message
 from app.workflows.retry import STEP_RETRY
@@ -48,15 +49,17 @@ def send_step(action_id: str, draft_version: int) -> list[str]:
 @DBOS.step(name="actions.tell_blocked", **STEP_RETRY)
 def tell_blocked_step(action_id: str, draft_version: int, reason: str) -> None:
     """An approved action could not run: Harjot hears why (and that `resume` retries a paused one). Keyed by
-    `blocked_key` (the sender's tenant alert key too), never the workflow id, so a resume run adds no second alert."""
+    `blocked_key` (the sender's tenant alert key too), never the workflow id, so a resume run adds no second alert:
+    a dashboard owner keeps the one feed row, a WhatsApp/Chat owner gets one message. A tenant reply uses the
+    dashboard alert's wording (`tenant_gate.alert_text`), never "not sent" when the tenant may have it."""
     with Session(get_engine()) as session:
-        company_id = session.scalar(select(ActionRow.company_id).where(ActionRow.id == UUID(action_id)))
-    if company_id is None:
+        row = session.execute(
+            select(ActionRow.company_id, ActionRow.type).where(ActionRow.id == UUID(action_id))
+        ).first()
+    if row is None:
         return
-    text = f"Not sent: {reason or 'the approval is no longer valid'}."
-    if "paused" in reason:
-        text += " Send `resume` to run approved actions."
-    send_owner_message(str(company_id), blocked_key(UUID(action_id), draft_version), partial(_text, text))
+    text = blocked_text(reason, tenant_reply=row[1] is ActionType.reply_draft)
+    send_owner_message(str(row[0]), blocked_key(UUID(action_id), draft_version), partial(_text, text))
 
 
 def _text(body: str, to: str) -> dict[str, Any]:
@@ -93,4 +96,5 @@ def execute_action_wf(action_id: str, draft_version: int, local: bool) -> str:
         after_execute_step(action_id)
     elif outcome in ("blocked", "failed"):  # Harjot always hears when an approved action did not go out
         tell_blocked_step(action_id, draft_version, reason)
+    # "in_progress": another attempt holds the send; it reports, or the stuck sweep settles it. No wait, no alert.
     return outcome

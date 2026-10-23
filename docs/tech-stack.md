@@ -40,7 +40,8 @@ unless vetoed.
 | WhatsApp | Pydantic webhook models + `httpx` (Meta Cloud API or **360dialog**) | inbound parsing, outbound adapter, owner message builders |
 | Gmail | **google-api-python-client**, **google-auth** (OAuth + Pub/Sub OIDC verify) | history sync, draft adapter |
 | Email body cleanup | **mail-parser-reply** (quote/signature strip, German aware), **inscriptis** (HTML→text) | — |
-| PDFs | **Docling** (deferred: Phase 1 reads attachment metadata only, user 2026-10-07) | — |
+| PDFs | **pypdf** + model vision for scans (ADR 0007; Docling still deferred) | `TextExtractor` port |
+| Embeddings + vector search | **pgvector** (HNSW, cosine) in the same Postgres; embeddings through Pydantic AI `Embedder` (OpenAI `text-embedding-3-small` at 1024 dims, or Gemini); hybrid with Postgres full-text via RRF (ADR 0008) | chunking, contextual headers, fusion, reranker/planner prompts, glossary |
 | Photos / scans | model vision via Pydantic AI | — |
 | Phone / email normalising | **phonenumbers**, **email-validator** | — |
 | Fuzzy matching (linking, outcomes) | **rapidfuzz** | thresholds |

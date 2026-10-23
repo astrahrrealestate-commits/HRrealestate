@@ -135,3 +135,113 @@ def test_turn_read_error_ends_the_stream_with_error_frame() -> None:
     with patch("app.api.v1.events._read_page", return_value=[]), patch(P, side_effect=RuntimeError("secret")):
         out = _collect(_connected_twice(), turns=poller)
     assert out == ['event: error\ndata: {"detail":"stream ended"}\n\n']
+
+
+def test_turn_poll_is_half_a_second_and_the_feed_keeps_its_rate() -> None:
+    assert turn_events.TURN_POLL_SECONDS == 0.5
+    assert events.POLL_INTERVAL_S == 1.5
+    assert timedelta(seconds=2) == turn_events.OVERLAP
+    assert events.tick_seconds(1.5, 0.5, turns=True) == 0.5
+    assert events.tick_seconds(1.5, 0.5, turns=False) == 1.5  # no turn poller: the feed's own beat
+    assert events.tick_seconds(1.5, None, turns=True) == turn_events.TURN_POLL_SECONDS
+
+
+def test_feed_due_tolerates_a_sleep_that_wakes_slightly_early() -> None:
+    assert events.feed_due(1.4995, 1.5, 0.5)
+    assert not events.feed_due(1.0, 1.5, 0.5)
+
+
+class FakeTime:
+    """Monotonic time that only moves when the stream sleeps."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def clock(self) -> float:
+        return self.now
+
+    async def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def _connected_for(polls: int) -> MagicMock:
+    request = MagicMock()
+    states = iter([False] * polls + [True])
+
+    async def is_disconnected() -> bool:
+        return next(states)
+
+    request.is_disconnected = is_disconnected
+    return request
+
+
+def _timed(polls: int, **kw: Any) -> tuple[FakeTime, list[float], list[float]]:
+    fake, feed_at, turn_at = FakeTime(), [], []
+    poller = turn_events.TurnPoller(MagicMock(), uuid4(), uuid4(), now=NOW)
+
+    def read_page(*_: object) -> list[FeedItem]:
+        feed_at.append(fake.now)
+        return []
+
+    def read_turns(*_: object) -> list[TurnEvent]:
+        turn_at.append(fake.now)
+        return []
+
+    async def run() -> list[str]:
+        gen = events.event_stream(
+            _connected_for(polls), MagicMock(), uuid4(), (T0, UUID(int=0)), clock=fake.clock, turns=poller, **kw
+        )
+        return [f async for f in gen]
+
+    with (
+        patch("app.api.v1.events._read_page", side_effect=read_page),
+        patch(P, side_effect=read_turns),
+        patch("app.api.v1.events.asyncio.sleep", fake.sleep),
+    ):
+        asyncio.run(run())
+    return fake, feed_at, turn_at
+
+
+def test_turns_are_polled_every_half_second_and_the_feed_every_one_and_a_half() -> None:
+    fake, feed_at, turn_at = _timed(7)
+    assert fake.sleeps == [0.5] * 7
+    assert turn_at == [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]  # about 2 indexed turn reads per second
+    assert feed_at == [0.0, 1.5, 3.0]
+
+
+def test_turn_poll_interval_is_injectable() -> None:
+    fake, feed_at, turn_at = _timed(4, turn_poll_interval=1.5)
+    assert fake.sleeps == [1.5] * 4
+    assert turn_at == feed_at == [0.0, 1.5, 3.0, 4.5]
+
+
+def test_without_turns_the_stream_keeps_the_feed_beat() -> None:
+    fake = FakeTime()
+
+    async def run() -> list[str]:
+        gen = events.event_stream(_connected_for(3), MagicMock(), uuid4(), (T0, UUID(int=0)), clock=fake.clock)
+        return [f async for f in gen]
+
+    with patch("app.api.v1.events._read_page", return_value=[]), patch("app.api.v1.events.asyncio.sleep", fake.sleep):
+        asyncio.run(run())
+    assert fake.sleeps == [1.5] * 3
+
+
+def test_turn_event_query_reads_only_the_event_columns() -> None:
+    from sqlalchemy.dialects import postgresql
+
+    from app.pipeline.read_turns import turns_changed_after
+
+    session = MagicMock()
+    session.execute.return_value.all.return_value = []
+    assert turns_changed_after(session, uuid4(), uuid4(), (T0, UUID(int=0))) == []
+    sql = str(session.execute.call_args.args[0].compile(dialect=postgresql.dialect()))
+    selected = sql.split(" FROM ", 1)[0]
+    for column in ("id", "conversation_id", "status", "answer", "updated_at"):
+        assert f"agent_turns.{column}" in selected
+    for heavy in ("page_context", "plan", "results", "timings", "text"):
+        assert f"agent_turns.{heavy}" not in selected
+    assert "agent_turns.company_id = " in sql
+    assert "agent_conversations.owner_id = " in sql

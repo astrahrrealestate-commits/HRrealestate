@@ -59,6 +59,10 @@ def resolve_message(build: Any, to: str) -> OwnerMessage:
 
 
 def deliver_dashboard(engine: Engine, company_id: UUID, key: str, build: Any, to: str) -> str:
+    with Session(engine) as session:
+        delivered = feed.existing(session, company_id, key)
+    if delivered is not None:  # a replay: nothing to build, nothing to insert
+        return str(delivered)
     kind = feed.kind_for_key(key)
     message = resolve_message(build, to)
     with Session(engine) as session, session.begin():

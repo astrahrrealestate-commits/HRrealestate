@@ -27,3 +27,13 @@ def unverified(draft: str, source: str) -> list[str]:
     found |= {_norm(m) for m in _PHONE.findall(no_dates)}
     new = {item for item in found if item and item not in known}
     return sorted(item for item in new if not any(item != other and item in other for other in new))
+
+
+def unverified_kinds(draft: str, source: str) -> list[str]:
+    """The kinds (`account`, `link`, `phone`) of the items `unverified` finds, never the items themselves."""
+    items = set(unverified(draft, source))
+    if not items:
+        return []
+    no_dates = DATE.sub(" ", DOTTED_TIME.sub(" ", draft))
+    found = (("link", URL, draft), ("account", _IBAN, draft), ("phone", _PHONE, no_dates))
+    return sorted(kind for kind, pattern, text in found if any(_norm(m) in items for m in pattern.findall(text)))

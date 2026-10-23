@@ -15,7 +15,7 @@ from app.pipeline.work_repo import short_ref
 
 AT = datetime(2026, 10, 7, 9, 0, tzinfo=UTC)
 TASK_ID = UUID("0192f0a0-0000-7000-8000-00000000abc1")
-M = "app.pipeline.concierge_turns"
+M = "app.pipeline.concierge_brief"  # the brief's queries (concierge_turns._brief delegates to it)
 
 
 def _brief_tasks() -> list[str]:
@@ -25,7 +25,7 @@ def _brief_tasks() -> list[str]:
     with (
         patch(f"{M}.Session") as session_cls,
         patch(f"{M}.work_repo.open_tasks", return_value=[SimpleNamespace(id=TASK_ID, title="Call plumber")]),
-        patch(f"{M}.read_turns.earlier_texts", return_value=[]),
+        patch(f"{M}.read_turns.earlier_exchanges", return_value=[]),
     ):
         session_cls.return_value.__enter__.return_value = session
         _, tasks, _ = ct._brief(MagicMock(), start)

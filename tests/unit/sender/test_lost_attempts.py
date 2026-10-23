@@ -31,7 +31,7 @@ def _ago(minutes: int) -> datetime:
 def test_in_flight_send_is_in_progress_and_never_given_up() -> None:
     for minutes in (1, 12, 25):
         outcome, give_up = _run([(SendStatus.sending, None, _ago(minutes))], won=True)
-        assert outcome == ExecOutcome("already", reason=IN_PROGRESS)
+        assert outcome == ExecOutcome("in_progress", reason=IN_PROGRESS)
         give_up.assert_not_called()
 
 

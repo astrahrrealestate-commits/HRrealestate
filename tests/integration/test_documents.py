@@ -2,6 +2,7 @@
 
 import hashlib
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 import pytest
@@ -81,7 +82,10 @@ def test_invoice_is_filed_once(migrated_engine: Engine, fake_settings: Settings,
     assert file_document(migrated_engine, fake_settings, storage, drive, company_id, att) is DocumentStatus.filed
     row = _doc(migrated_engine, att)
     assert row.file_name == "2026-10-07_invoice_jan-de-loodgieter_invoice.pdf"
-    assert (row.doc_type, row.drive_folder) == ("invoice", "EstateOS/invoice/2026")
+    assert (row.doc_type, row.drive_folder) == (
+        "invoice",
+        "EstateOS/_Unsorted/Invoices/2026",
+    )  # no unit known: layout v2 files it unsorted
     assert row.drive_file_id in drive.files
     assert len(drive.files) == 1
     with Session(migrated_engine) as session:
@@ -175,11 +179,11 @@ class FlakyDrive(MemoryDrive):
         self.failures = 1
 
     def upload(self, file_id: str, folder_id: str, name: str, mime_type: str, content: bytes,
-               attachment_id: UUID) -> str:  # fmt: skip
+               attachment_id: UUID, **meta: Any) -> str:  # fmt: skip
         if self.failures:
             self.failures -= 1
             raise DriveApiError("drive upload failed (503)", status=503, retryable=True)
-        return super().upload(file_id, folder_id, name, mime_type, content, attachment_id)
+        return super().upload(file_id, folder_id, name, mime_type, content, attachment_id, **meta)
 
 
 def test_retry_after_failed_upload_reuses_plan_without_a_second_model_call(

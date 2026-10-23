@@ -39,9 +39,17 @@ def _candidate(c: CandidateCase) -> str:
     return f"candidate: {c.case_id} | {c.category.value} | {when}\n  {summary}"
 
 
-def link_check_prompt(message_text: str, category: Category, candidates: Sequence[CandidateCase]) -> str:
+def link_check_prompt(
+    message_text: str,
+    category: Category,
+    candidates: Sequence[CandidateCase],
+    person_profile: str | None = None,
+) -> str:
     """Case summaries derive from tenant text, so they sit inside the untrusted <data> block too."""
-    listing = "\n".join(escape(_candidate(c), "data") for c in candidates)
+    lines = [escape(_candidate(c), "data") for c in candidates]
+    if person_profile:
+        lines.insert(0, escape(person_profile, "data"))
+    listing = "\n".join(lines)
     return f"Message category: {category.value}\n{data_block('data', listing)}\n{data_block('message', message_text)}"
 
 

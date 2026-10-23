@@ -55,7 +55,7 @@ def client(clock: Clock) -> Iterator[TestClient]:
     app.state.rate_limiter = RateLimiter(clock=clock)
     with (
         patch("app.api.v1.agent.Session", MagicMock()),
-        patch("app.api.v1.agent.concierge_turns.create_turn", side_effect=lambda *a: (uuid4(), uuid4())),
+        patch("app.api.v1.agent.concierge_turns.create_turn", side_effect=lambda *a, **kw: (uuid4(), uuid4())),
         TestClient(app) as c,
     ):
         app.state.rate_limiter = RateLimiter(clock=clock)  # lifespan does not own it; keep the injected clock
@@ -136,6 +136,28 @@ def test_decision_writes_are_limited_at_120(client: TestClient) -> None:
         ]
     assert codes[:120] == [200] * 120
     assert codes[120] == 429
+
+
+def put_page(c: TestClient, p: Principal) -> Any:
+    return c.put("/api/v1/agent/page", json={"view": "inbox"}, headers=H, cookies={COOKIE: cookie(p)})
+
+
+def test_61st_page_prewarm_is_429_per_principal_with_its_own_bucket(client: TestClient) -> None:
+    p, other = principal(), principal()
+    with patch("app.api.v1.agent.page_state.warm", return_value=True):
+        assert [put_page(client, p).status_code for _ in range(60)] == [204] * 60
+        r = put_page(client, p)
+        assert (r.status_code, r.json()) == (429, {"detail": "rate_limited"})
+        assert int(r.headers["Retry-After"]) >= 1
+        assert put_page(client, other).status_code == 204
+    assert post_agent(client, p).status_code == 202  # pre-warms never spend the agent message bucket
+
+
+def test_page_prewarm_unauthenticated_is_401_and_takes_no_token(client: TestClient) -> None:
+    with patch("app.api.v1.agent.page_state.warm", return_value=True) as warm:
+        for _ in range(70):
+            assert client.put("/api/v1/agent/page", json={"view": "inbox"}, headers=H).status_code == 401
+    warm.assert_not_called()
 
 
 def test_limiter_unit_retry_after() -> None:

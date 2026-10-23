@@ -2,19 +2,33 @@
 
 import re
 
-from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart, UserPromptPart
+from pydantic_ai.messages import BinaryContent, ModelMessage, ModelResponse, ToolCallPart, UserPromptPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from app.contracts import Category, Urgency
 from app.llm.fakes_concierge import fake_concierge
+from app.llm.fakes_owner_qa import fake_owner_qa
+from app.llm.fakes_proposer import fake_proposer
 
 
 def _extract_user_text(messages: list[ModelMessage]) -> str:
     for m in reversed(messages):
         for part in getattr(m, "parts", []):
-            if isinstance(part, UserPromptPart) and isinstance(part.content, str):
-                return part.content
+            if isinstance(part, UserPromptPart):
+                if isinstance(part.content, str):
+                    return part.content
+                return "\n".join(c for c in part.content if isinstance(c, str))
     return ""
+
+
+def _extract_binary(messages: list[ModelMessage]) -> bytes:
+    for m in reversed(messages):
+        for part in getattr(m, "parts", []):
+            if isinstance(part, UserPromptPart) and not isinstance(part.content, str):
+                for c in part.content:
+                    if isinstance(c, BinaryContent):
+                        return c.data
+    return b""
 
 
 _SUSPICIOUS = (
@@ -139,85 +153,6 @@ def _fake_case_summary(prompt: str) -> dict[str, object]:
     return {"summary": text, "next_step": "Review and reply"}
 
 
-def _field(prompt: str, name: str) -> str:
-    m = re.search(rf"^{name}: (.*)$", prompt, flags=re.M)
-    return m.group(1).strip() if m else ""
-
-
-def _action(case_id: str, kind: str, payload: dict[str, object], rationale: str) -> dict[str, object]:
-    return {
-        "type": kind,
-        "case_id": case_id,
-        "payload": {"kind": kind, **payload},
-        "rationale": rationale,
-        "context_ref": [],
-        "draft_version": 1,
-    }
-
-
-def _fake_proposer(prompt: str) -> dict[str, object]:
-    case_id, channel = _field(prompt, "case_id"), _field(prompt, "channel") or "whatsapp"
-    subject = _field(prompt, "Subject")
-    reply_subject = f"Re: {subject}" if channel == "gmail" and subject not in ("", "-") else None
-    if "<mode>chase</mode>" in prompt:
-        variants = [
-            "Geachte heer/mevrouw,\n\nGraag herinneren wij u aan ons eerdere bericht. Kunt u reageren?"
-            "\n\nMet vriendelijke groet,\nHarjot",
-            "Beste,\n\nWij wachten nog op uw reactie. Laat u het ons weten?\n\nMet vriendelijke groet,\nHarjot",
-        ]
-        return {
-            "actions": [
-                _action(
-                    case_id,
-                    "reply_draft",
-                    {"channel": channel, "subject": reply_subject, "body_variants": variants},
-                    "Friendly chaser",
-                )
-            ]
-        }
-    variants = [
-        "Geachte heer/mevrouw,\n\nDank voor uw bericht. Wij nemen dit in behandeling en komen zo snel "
-        "mogelijk bij u terug.\n\nMet vriendelijke groet,\nHarjot",
-        "Geachte heer/mevrouw,\n\nDank voor uw bericht. Kunt u een foto sturen, zodat wij de juiste "
-        "vakman kunnen inschakelen?\n\nMet vriendelijke groet,\nHarjot",
-    ]
-    actions = [
-        _action(
-            case_id,
-            "reply_draft",
-            {"channel": channel, "subject": reply_subject, "body_variants": variants},
-            "Acknowledge and ask for details",
-        )
-    ]
-    if _field(prompt, "urgency") == "emergency":
-        actions.append(_action(case_id, "escalate", {"reason": "Emergency reported by tenant"}, "Emergency"))
-    return {"actions": actions}
-
-
-_OFF_TOPIC = (
-    r"\b(poem|gedicht|recipe|recept|joke|grap|capital of|hoofdstad|python|javascript|bitcoin|translate|vertaal"
-    r"|ignore (all )?(previous|prior)|negeer (alle )?(vorige|eerdere))\b"
-)
-
-
-def _fake_owner_qa(prompt: str) -> dict[str, object]:
-    question = " ".join(re.findall(r"<message>\n(.*?)\n</message>", prompt, flags=re.S)).lower()
-    cases = re.findall(r"^case: ([0-9a-f-]{36})", prompt, flags=re.M)
-    if re.search(_OFF_TOPIC, question):
-        return {
-            "in_scope": False,
-            "refusal_reason": "Unrelated to the business",
-            "answer": "Out of scope.",
-            "case_refs": [],
-        }
-    return {
-        "in_scope": True,
-        "refusal_reason": None,
-        "answer": f"You have {len(cases)} open cases. (offline answer)",
-        "case_refs": cases[:3],
-    }
-
-
 def _fake_briefing(prompt: str) -> dict[str, object]:
     sections: list[dict[str, object]] = []
     items: list[str] = []
@@ -250,6 +185,136 @@ def _fake_doc_classifier(prompt: str) -> dict[str, object]:
     return {"doc_type": "other", "title": "Document", "document_date": None, "confidence": 0.4}
 
 
+def _block(prompt: str, tag: str) -> str:
+    found = re.search(rf"<{tag}>\n(.*?)\n</{tag}>", prompt, re.S)
+    return found.group(1) if found else ""
+
+
+def _party(text: str, label: str, role: str) -> list[dict[str, str]]:
+    found = re.search(rf"^{label}:\s*(.+)$", text, re.M | re.I)
+    return [{"name": found.group(1).strip()[:120], "role": role}] if found else []
+
+
+_FACT_LINE = re.compile(r"^(waarborgsom|huur|opzegtermijn|totaal|vervaldatum):\s*(.+)$", re.M | re.I)
+_TERM = re.compile(r"^looptijd:\s*(\d{4}-\d{2}-\d{2})\s*(?:tot|-)\s*(\d{4}-\d{2}-\d{2})", re.M | re.I)
+
+
+def _fake_doc_reader(prompt: str) -> dict[str, object]:
+    """Offline reader: type from the document text (else the file name); `Huurder:`, `Verhuurder:`, `Leverancier:`
+    and `Adres:` lines give parties and unit, `Looptijd: yyyy-mm-dd tot yyyy-mm-dd` the term, `Label: value` facts."""
+    doc, meta = _block(prompt, "document"), _block(prompt, "file")
+    cls = _fake_doc_classifier(doc + "\n" + meta if doc != "none" else meta)
+    term, address = _TERM.search(doc), re.search(r"^adres:\s*(.+)$", doc, re.M | re.I)
+    facts = [{"label": m.group(1).lower(), "value": m.group(2).strip()[:160]} for m in _FACT_LINE.finditer(doc)]
+    parties = _party(doc, "huurder", "tenant") + _party(doc, "verhuurder", "landlord")
+    parties += _party(doc, "leverancier", "contractor")
+    return {
+        "doc_type": cls["doc_type"], "title": cls["title"], "document_date": None,
+        "summary": " ".join(doc.split())[:300] or "No readable text.",
+        "parties": parties, "unit_hint": address.group(1).strip()[:200] if address else None,
+        "start_date": term.group(1) if term else None, "end_date": term.group(2) if term else None,
+        "key_facts": facts[:10],
+        "confidence": 0.9 if doc != "none" and cls["doc_type"] != "other" else 0.4,
+    }  # fmt: skip
+
+
+_ENTRY = re.compile(r"\[ref ([0-9a-f]{8})\] ([^\n]*)\n(.*?)(?=\n\n---\n\n|\Z)", re.S)
+
+
+def _fake_doc_qa(prompt: str) -> dict[str, object]:
+    """Offline answer: the excerpt sentence sharing the most ideas with the question (glossary words of both languages
+    count as one idea; an idea every sentence has counts for little), quoted verbatim."""
+    from app.core.property_terms import canonical_tokens
+
+    excerpts, question = _block(prompt, "excerpts"), _block(prompt, "message")
+    wanted = {t for t in canonical_tokens(question) if len(t) >= 4}
+    wanted = (wanted - {"lease"}) or wanted  # asking "in the lease" names the document, not the clause
+    sentences = [
+        (ref, s.strip(), {t for t in canonical_tokens(s) if len(t) >= 4})
+        for ref, _title, text in _ENTRY.findall(excerpts)
+        for s in re.split(r"(?<=[.!?\n])\s+", text)
+        if len(s.strip()) >= 8
+    ]
+    weight = {t: 1 / (1 + sum(t in tokens for _, _, tokens in sentences)) for t in wanted}
+    best: tuple[float, str, str] = (0.0, "", "")
+    for ref, sentence, tokens in sentences:
+        score = sum(weight[t] for t in wanted & tokens)
+        if score > best[0]:
+            best = (score, ref, sentence[:300])
+    if best[0] == 0:
+        return {"found": False, "answer": "The excerpts do not answer that.", "quotes": []}
+    return {"found": True, "answer": best[2], "quotes": [{"doc_ref": best[1], "text": best[2]}]}
+
+
+_FACT_BY_GROUP = (("rent", "monthly_rent"), ("deposit", "deposit"), ("notice", "notice_period"))
+
+
+def _fake_fact(question: str, groups: list[str]) -> str | None:
+    low = question.lower()
+    if len(question.split()) > 8:
+        return None
+    if len(groups) == 1:
+        for key, kind in _FACT_BY_GROUP:
+            if key == groups[0]:
+                return kind
+    if "lease" in groups or "term" in groups:
+        if re.search(r"\b(end|ends|einde|einddatum|expir\w*|verloopt)\b", low):
+            return "lease_end"
+        if re.search(r"\b(start|starts|begin|begint|ingangsdatum)\b", low):
+            return "lease_start"
+    return None
+
+
+def _fake_rag_plan(prompt: str) -> dict[str, object]:
+    """Offline planner: glossary words in both languages as keywords, the question's own wording as the hypothetical
+    answer, and a fact only for a short question about exactly one of them."""
+    from app.core.property_terms import expand, groups_in
+
+    question = _block(prompt, "message")
+    groups = groups_in(question)
+    fact = _fake_fact(question, groups)
+    return {
+        "keywords": expand(question)[:8],
+        "hypothetical_answer": question if groups else "",
+        "fact": fact,
+        "doc_types": ["lease"] if "lease" in groups or fact else [],
+    }
+
+
+def _fake_rerank_scores(question: str, passages: list[tuple[int, str, str]]) -> list[dict[str, int]]:
+    """Offline reranker. Relevance 3 when a passage covers two of the question's ideas or words, 2 for one idea or a
+    long shared word, 1 for a short shared word. A name or address the question mentions that appears in some other
+    passage's header but not in this one caps it at 1: it is about someone else."""
+    from app.core.property_terms import GROUPS, canonical_tokens
+
+    wanted = set(canonical_tokens(question))
+    plain = {t for t in wanted if t not in GROUPS and len(t) >= 4}
+    heads = {n: set(canonical_tokens(head)) for n, head, _ in passages}
+    named = {t for t in plain if any(t in h for h in heads.values())}
+    out: list[dict[str, int]] = []
+    for number, head, body in passages:
+        have = set(canonical_tokens(f"{head} {body}"))
+        shared = wanted & have
+        ideas = shared & set(GROUPS)
+        rel = (
+            3
+            if len(ideas) >= 2 or len(shared) >= 3
+            else 2
+            if ideas or any(len(t) >= 5 for t in shared)
+            else int(bool(shared))
+        )
+        if named and not (named & heads[number]):
+            rel = min(rel, 1)
+        out.append({"ref": number, "relevance": rel})
+    return out
+
+
+def _fake_rag_rerank(prompt: str) -> dict[str, object]:
+    pattern = r"\[(\d+)\] ([^\n]*)\n(.*?)(?=\n\n\[\d+\] |\Z)"
+    passages = [(int(n), head, body) for n, head, body in re.findall(pattern, _block(prompt, "excerpts"), re.S)]
+    return {"scores": _fake_rerank_scores(_block(prompt, "message"), passages)}
+
+
 def model_for(agent_name: str) -> FunctionModel:
     def fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         user_text = _extract_user_text(messages)
@@ -262,15 +327,25 @@ def model_for(agent_name: str) -> FunctionModel:
         elif agent_name == "case_summary":
             args = _fake_case_summary(user_text)
         elif agent_name == "proposer":
-            args = _fake_proposer(user_text)
+            args = fake_proposer(user_text)
         elif agent_name == "owner_qa":
-            args = _fake_owner_qa(user_text)
+            args = fake_owner_qa(user_text)
         elif agent_name == "concierge":
             args = fake_concierge(user_text)
         elif agent_name == "briefing":
             args = _fake_briefing(user_text)
         elif agent_name == "doc_classifier":
             args = _fake_doc_classifier(user_text)
+        elif agent_name == "doc_reader":
+            args = _fake_doc_reader(user_text)
+        elif agent_name == "doc_qa":
+            args = _fake_doc_qa(user_text)
+        elif agent_name == "rag_plan":
+            args = _fake_rag_plan(user_text)
+        elif agent_name == "rag_rerank":
+            args = _fake_rag_rerank(user_text)
+        elif agent_name == "doc_ocr":
+            args = {"text": _extract_binary(messages).removeprefix(b"SCAN").decode("utf-8", errors="replace").strip()}
         else:
             args = {}
 

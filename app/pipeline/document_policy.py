@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from app.contracts import DocumentClassification
+from app.contracts import DocType, DocumentClassification
 from app.db.enums import DocumentStatus
 
 FILE_THRESHOLD = 0.80
@@ -46,6 +46,14 @@ def should_skip(meta: FileMeta) -> bool:
     return meta.mime_type.startswith(_SKIP_MIME_PREFIXES) or name.endswith(_SKIP_SUFFIXES)
 
 
+_ID_NAME = re.compile(r"passport|paspoort|identiteit|id[-_ ]?(kaart|card)|rijbewijs|driver.?licen|\bbsn\b", re.I)
+
+
+def looks_like_id(meta: FileMeta) -> bool:
+    """A file name that says it is an identity document: never read its contents (ADR 0007)."""
+    return bool(meta.filename and _ID_NAME.search(meta.filename))
+
+
 def slug(text: str, limit: int = 40) -> str:
     ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
     cut = re.sub(r"[^a-z0-9]+", "-", ascii_text.lower()).strip("-")[:limit].strip("-")
@@ -67,6 +75,11 @@ def _day(cls: DocumentClassification, meta: FileMeta, tz: str) -> date:
     return cls.document_date or meta.sent_at.astimezone(ZoneInfo(tz)).date()
 
 
+def document_day(cls: DocumentClassification, meta: FileMeta, tz: str) -> date:
+    """The day that dates a document: its own date, else the day its message arrived in the company's timezone."""
+    return _day(cls, meta, tz)
+
+
 def file_name(cls: DocumentClassification, meta: FileMeta, party: str, tz: str) -> str:
     day = _day(cls, meta, tz).isoformat()
     return f"{day}_{cls.doc_type.value}_{slug(party)}_{slug(cls.title)}.{_extension(meta)}"
@@ -78,6 +91,22 @@ def folder_path(cls: DocumentClassification, meta: FileMeta, tz: str) -> tuple[s
 
 def filing_status(cls: DocumentClassification) -> DocumentStatus:
     return DocumentStatus.filed if cls.confidence >= FILE_THRESHOLD else DocumentStatus.review
+
+
+def _kinds() -> str:
+    return "|".join(sorted((t.value for t in DocType), key=len, reverse=True))  # id_document has an underscore
+
+
+_NAME = re.compile(rf"^(\d{{4}}-\d{{2}}-\d{{2}})_({_kinds()})_([^_]+)_(.+)\.([a-z0-9]+)$")
+
+
+def parse_name(name: str) -> tuple[str, str, str, str, str] | None:
+    """`(date, kind, party, title, ext)` of a rule-v1/v2 file name, or None when it does not follow the rule."""
+    found = _NAME.match(name)
+    if found is None:
+        return None
+    day, kind, party, title, ext = found.groups()
+    return day, kind, party, title, ext
 
 
 def name_date(name: str) -> date | None:

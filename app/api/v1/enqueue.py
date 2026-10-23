@@ -1,16 +1,21 @@
 """Enqueue worker workflows from the API process by name (DBOSClient: no DBOS runtime, no app.workflows import)."""
 
+from datetime import datetime
 from uuid import UUID
 
 from app.api.deps import WorkflowClient
 from app.core.workflow_names import (
+    BACKFILL_DOCUMENTS,
+    CONCIERGE_QUEUE,
     CONCIERGE_TURN,
     DOCUMENTS_QUEUE,
     EXECUTE_ACTION,
     FILE_DOCUMENT,
     PIPELINE_QUEUE,
+    REORG_PLAN,
     concierge_workflow_id,
     exec_workflow_id,
+    reorg_workflow_id,
 )
 
 
@@ -33,10 +38,33 @@ def enqueue_filing(client: WorkflowClient, company_id: UUID, attachment_id: UUID
     client.enqueue(options, str(company_id), str(attachment_id), choice)
 
 
-def enqueue_turn(client: WorkflowClient, turn_id: UUID) -> None:
-    """`concierge:{turn_id}` on the pipeline queue, after the turn row committed."""
+def enqueue_reorg(client: WorkflowClient, company_id: UUID, plan_id: UUID) -> None:
+    """Apply an approved Drive plan on the documents queue (per company, one at a time: folders never race)."""
     options = {
-        "queue_name": PIPELINE_QUEUE,
+        "queue_name": DOCUMENTS_QUEUE,
+        "workflow_name": REORG_PLAN,
+        "workflow_id": reorg_workflow_id(plan_id),
+        "queue_partition_key": str(company_id),
+    }
+    client.enqueue(options, str(company_id), str(plan_id))
+
+
+def enqueue_backfill(client: WorkflowClient, company_id: UUID, hour: datetime) -> None:
+    """Read and link documents filed before M10; one run per company per hour (DBOS dedupes the id), so a second
+    click after a run that hit its batch cap, or a budget stop, continues within the hour."""
+    options = {
+        "queue_name": DOCUMENTS_QUEUE,
+        "workflow_name": BACKFILL_DOCUMENTS,
+        "workflow_id": f"docs:backfill:{company_id}:{hour:%Y%m%d%H}",
+        "queue_partition_key": str(company_id),
+    }
+    client.enqueue(options, str(company_id))
+
+
+def enqueue_turn(client: WorkflowClient, turn_id: UUID) -> None:
+    """`concierge:{turn_id}` on the chat queue (never behind pipeline work), after the turn row committed."""
+    options = {
+        "queue_name": CONCIERGE_QUEUE,
         "workflow_name": CONCIERGE_TURN,
         "workflow_id": concierge_workflow_id(turn_id),
     }

@@ -18,12 +18,14 @@ dependencies = [
     "mail-parser-reply>=1.30",
     "opentelemetry-exporter-otlp-proto-http>=1.45.1",
     "opentelemetry-sdk>=1.45.1",
+    "pgvector>=0.5.1",
     "phonenumbers>=8.13",
     "psycopg[binary]>=3.2",
     "pydantic>=2.10",
     "pydantic-ai-slim[google,openai]>=2.54.0",
     "pydantic-evals>=2.54.0",
     "pydantic-settings>=2.6",
+    "pypdf>=5.1",
     "rapidfuzz>=3.14.6",
     "sentry-sdk[fastapi]>=2.19",
     "sqlalchemy>=2.0.36",
@@ -138,6 +140,7 @@ layers = [
     "app.api",
     "app.workflows",
     "app.pipeline | app.owner | app.ingestion | app.directory | app.outcomes | app.sender",
+    "app.context",
     "app.db : app.llm : app.storage : app.channels",
     "app.contracts",
     "app.core",
@@ -179,7 +182,7 @@ allow_indirect_imports = true
 name = "Dev tooling (simulator, dev keys) is never imported by production code"
 type = "forbidden"
 source_modules = [
-    "app.main", "app.worker", "app.api", "app.workflows", "app.pipeline", "app.owner", "app.ingestion",
+    "app.main", "app.worker", "app.api", "app.workflows", "app.pipeline", "app.context", "app.owner", "app.ingestion",
     "app.directory", "app.outcomes", "app.sender", "app.db", "app.llm", "app.storage", "app.contracts", "app.core",
     "app.channels",
 ]

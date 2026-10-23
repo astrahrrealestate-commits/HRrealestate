@@ -12,7 +12,10 @@ from app.workflows import (
     actions,
     briefings,
     concierge,
+    distiller,
+    document_backfill,
     documents,
+    drive_reorg,
     followups,
     ingest,
     maintenance,
@@ -31,7 +34,10 @@ _REGISTERED = (
     actions,
     briefings,
     concierge,
+    distiller,
+    document_backfill,
     documents,
+    drive_reorg,
     followups,
     ingest,
     owner_notify,
@@ -58,6 +64,12 @@ SCHEDULES: list[ScheduleInput] = [
     {"schedule_name": "outcomes.capture", "workflow_fn": quality.capture_cron, "schedule": "*/15 * * * *"},
     {"schedule_name": "drift.daily", "workflow_fn": quality.drift_cron, "schedule": "30 4 * * *"},
     {
+        "schedule_name": "distiller.nightly",
+        "workflow_fn": distiller.distiller_cron,
+        "schedule": "0 2 * * *",
+        "cron_timezone": "Europe/Amsterdam",
+    },
+    {
         "schedule_name": "maintenance.dbos_retention",
         "workflow_fn": maintenance.dbos_retention,
         "schedule": "50 3 * * *",
@@ -79,6 +91,6 @@ def launch(settings: Settings, *, reset_for_tests: bool = False, schedules: bool
     if reset_for_tests:
         DBOS.reset_system_database(truncate=True)
     DBOS.launch()
-    queues.register_queues()
+    queues.register_queues(settings)
     if schedules:
         DBOS.apply_schedules(SCHEDULES)

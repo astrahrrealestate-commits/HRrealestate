@@ -12,6 +12,12 @@ SPEC_TABLES = {
     "tasks", "waits", "documents", "metric_snapshots", "owner_outbox",
     # dashboard (spec 2026-10-15)
     "owner_feed", "agent_conversations", "agent_turns",
+    # live chat awareness (amendment 2026-10-22, Task 4: page pre-warm, one row per owner)
+    "agent_page_state",
+    # document intelligence (spec 2026-10-21)
+    "document_chunks", "document_links", "drive_reorg_plans", "drive_reorg_items",
+    # memory workspace (spec 2026-10-23)
+    "person_profiles", "memory_items",
 }  # fmt: skip
 
 
@@ -46,6 +52,7 @@ def test_critical_unique_constraints_present() -> None:
     assert ("message_id",) in _uniques(t["case_links"])
     assert ("message_id",) in _uniques(t["understandings"])
     assert ("action_id", "draft_version") in _uniques(t["action_revisions"])
+    assert ("owner_id",) in _uniques(t["agent_page_state"])  # one pre-warmed page per owner (upsert target)
 
 
 def test_current_identity_unique_is_partial() -> None:

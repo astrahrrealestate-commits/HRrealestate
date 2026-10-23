@@ -13,6 +13,7 @@ from app.contracts import (
     Channel,
     Direction,
     OutboundMode,
+    PageContext,
     Urgency,
 )
 from app.db.enums import (
@@ -21,6 +22,10 @@ from app.db.enums import (
     CaseEventKind,
     DeliveryStatus,
     FeedKind,
+    MemoryKind,
+    MemoryOrigin,
+    MemoryScope,
+    MemoryStatus,
     PipelineStatus,
     TaskPriority,
     TaskStatus,
@@ -224,8 +229,12 @@ class ReviewDocumentOut(BaseModel):
 
 
 class AgentMessageIn(BaseModel):
+    """`page`: what the open dashboard page shows. Its ids are validated and resolved server-side; its snapshot text
+    is unverified display text (see docs/dashboard-api.md)."""
+
     text: str = Field(min_length=1, json_schema_extra={"maxLength": MAX_QUESTION_CHARS})
     conversation_id: UUID | None = None
+    page: PageContext | None = None
 
     @field_validator("text")
     @classmethod
@@ -257,6 +266,10 @@ class TurnOut(BaseModel):
     answer: str | None
     created_at: AwareDatetime
     updated_at: AwareDatetime
+    # Stage milliseconds of the run (queue_wait_ms, page_resolve_ms, planner_ms, executor_ms, answer_ms, total_ms,
+    # first_delta_ms, attempts; any may be missing) and `warm_hit` (a label: none | facts | blocks); null for turns
+    # from before they were recorded. Read-only diagnostics.
+    timings: dict[str, int | str] | None = None
 
 
 class ConversationOut(BaseModel):
@@ -274,3 +287,44 @@ class TurnEvent(BaseModel):
     status: TurnStatus
     answer: str | None
     updated_at: AwareDatetime
+
+
+class MemoryItemOut(BaseModel):
+    """T5 Preference/Rule/Fact memory representation (spec §6.2, Task C11)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    company_id: UUID
+    scope: MemoryScope
+    scope_id: UUID | None
+    kind: MemoryKind
+    text: str
+    status: MemoryStatus
+    origin: MemoryOrigin
+    source_refs: list[Any] = Field(default_factory=list)
+    evidence_count: int
+    confidence: float
+    last_used_at: AwareDatetime | None
+    valid_until: AwareDatetime | None
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+
+
+class CreateMemoryIn(BaseModel):
+    """Input payload to record an owner preference or standing rule."""
+
+    text: str = Field(min_length=1, max_length=300)
+    scope: MemoryScope = MemoryScope.company
+    scope_id: UUID | None = None
+    kind: MemoryKind = MemoryKind.preference
+
+
+class UpdateMemoryIn(BaseModel):
+    """Input payload to update an existing memory item."""
+
+    text: str | None = Field(default=None, min_length=1, max_length=300)
+    status: MemoryStatus | None = None
+    scope: MemoryScope | None = None
+    scope_id: UUID | None = None
+    kind: MemoryKind | None = None

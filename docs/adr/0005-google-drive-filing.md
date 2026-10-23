@@ -28,3 +28,15 @@ google-auth for Gmail. A second storage product (SharePoint, Dropbox) would add 
   rule v2.
 - Rate limits and 5xx errors raise `DriveApiError(retryable=True)` for the DBOS step to retry
   (`app.storage.drive.is_transient`). Other errors fail the step and are visible in `make workflows`.
+
+## Amendment (2026-10-21, M10): layout v2 and organising operations
+- **Layout v2** files by property first: `EstateOS/<unit label>/<Leases|Invoices|Quotes|Insurance|Certificates|
+  Correspondence|Photos|ID documents|Other>/<YYYY>/`, `EstateOS/_Unsorted/...` when no unit is known. The unit comes
+  from the same evidence as document links (the message's case, then names and addresses the reader found). The file
+  name rule is unchanged except that its party is the linked tenant when one is known, else the sender.
+- Every upload carries a Drive `description` (the summary) and `appProperties` (`doc_type`, `unit`, `party`, `date`,
+  `layout`), so Drive's own search works on them too.
+- `DriveStore` gains `relocate(file_id, folder_id, name)` (move and rename in one idempotent call) and
+  `annotate(file_id, description, properties)`. Both stay inside `drive.file`: they only touch files the app created.
+- Existing v1 files are moved by an owner-approved reorganisation plan, never silently. Harjot's pre-existing Drive
+  content is still out of reach (scope unchanged).

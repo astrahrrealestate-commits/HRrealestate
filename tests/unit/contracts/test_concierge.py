@@ -11,17 +11,19 @@ def _step(**kw: Any) -> dict[str, Any]:
 
 
 def test_valid_plan() -> None:
-    plan = ConciergePlan.model_validate({"in_scope": True, "steps": [_step(task_ref="a1b2c3", text="2d")]})
+    plan = ConciergePlan.model_validate(
+        {"in_scope": True, "steps": [_step(task_ref="a1b2c3", text="2d")], "reply": None}
+    )
     assert plan.steps[0].intent is Intent.list_tasks
 
 
 def test_intent_list_is_exact() -> None:
-    assert len(Intent) == 16
+    assert len(Intent) == 18
 
 
 def test_rejects_five_steps() -> None:
     with pytest.raises(ValidationError):
-        ConciergePlan.model_validate({"in_scope": True, "steps": [_step()] * 5})
+        ConciergePlan.model_validate({"in_scope": True, "steps": [_step()] * 5, "reply": None})
 
 
 @pytest.mark.parametrize(
@@ -41,3 +43,18 @@ def test_missing_fields_rejected() -> None:
         PlanStep.model_validate({"intent": "pause"})
     with pytest.raises(ValidationError):
         ConciergePlan.model_validate({"in_scope": True})
+
+
+def test_reply_is_required_nullable_and_capped_at_1200() -> None:
+    with pytest.raises(ValidationError):  # strict schema: required, like every other nullable field
+        ConciergePlan.model_validate({"in_scope": True, "steps": []})
+    assert ConciergePlan.model_validate({"in_scope": True, "steps": [], "reply": None}).reply is None
+    assert ConciergePlan.model_validate({"in_scope": True, "steps": [], "reply": "x" * 1200}).reply == "x" * 1200
+    with pytest.raises(ValidationError):
+        ConciergePlan.model_validate({"in_scope": True, "steps": [], "reply": "x" * 1201})
+
+
+def test_reply_is_in_the_strict_schema_as_a_required_nullable_string() -> None:
+    schema = ConciergePlan.model_json_schema()
+    assert "reply" in schema["required"]
+    assert {"type": "null"} in schema["properties"]["reply"]["anyOf"]

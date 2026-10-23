@@ -13,12 +13,13 @@ from uuid import UUID
 from sqlalchemy import Engine, select, text
 from sqlalchemy.orm import Session
 
+from app.context.person_profile import mark_stale, person_profile_line
 from app.contracts import CaseState, Category, Urgency
 from app.core.errors import AgentFailedError
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import LinkMethod
-from app.db.models import AttachmentRow, CaseLink, MessageRow, Person, UnderstandingRow
+from app.db.models import AttachmentRow, CaseLink, MessageRow, Person, PersonProfile, UnderstandingRow
 from app.llm.agents.case_summary import CASE_SUMMARY, case_summary_prompt
 from app.llm.agents.link_check import LINK_CHECK, CandidateCase, accept_link, link_check_prompt
 from app.llm.calls import CallContext, run_agent
@@ -88,8 +89,14 @@ def _load(session: Session, message_id: UUID) -> _Facts | LinkResult | None:
     )
 
 
-def _ask_model(engine: Engine, settings: Settings, f: _Facts, cands: list[CandidateCase]) -> UUID | None:
-    prompt = link_check_prompt(f.text, f.category, cands)
+def _ask_model(
+    engine: Engine,
+    settings: Settings,
+    f: _Facts,
+    cands: list[CandidateCase],
+    profile_line: str | None = None,
+) -> UUID | None:
+    prompt = link_check_prompt(f.text, f.category, cands, profile_line)
     try:
         result = run_agent(engine, settings, LINK_CHECK, prompt, CallContext(f.company_id, "link_check"))
     except AgentFailedError:
@@ -105,12 +112,16 @@ def _choose(engine: Engine, settings: Settings, f: _Facts, person_id: UUID) -> t
         if thread is not None:
             return thread, LinkMethod.thread
         open_cases = case_repo.open_candidates(session, f.company_id, person_id)
+        profile = session.scalar(
+            select(PersonProfile).where(PersonProfile.company_id == f.company_id, PersonProfile.person_id == person_id)
+        )
+        profile_line = person_profile_line(profile)
     if len(open_cases) == 1:
         return open_cases[0].case_id, LinkMethod.open_case
     if not open_cases:
         return None, LinkMethod.new_case
     cands = [CandidateCase(c.case_id, c.category, c.summary, c.last_message_at) for c in open_cases]
-    chosen = _ask_model(engine, settings, f, cands)
+    chosen = _ask_model(engine, settings, f, cands, profile_line)
     return (chosen, LinkMethod.model) if chosen else (None, LinkMethod.new_case)
 
 
@@ -137,6 +148,7 @@ def _after_link(session: Session, f: _Facts, person_id: UUID, case_id: UUID) -> 
         case_repo.transition(session, f.company_id, case_id, CaseState.open, actor="system")
     if _URGENCY_RANK[f.urgency] > _URGENCY_RANK[case.urgency]:
         case.urgency = f.urgency
+    mark_stale(session, f.company_id, person_id, f.sent_at)
 
 
 def _refresh_summary(engine: Engine, settings: Settings, f: _Facts, result: LinkResult) -> None:

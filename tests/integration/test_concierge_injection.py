@@ -15,6 +15,7 @@ from app.contracts import ConciergePlan, Intent
 from app.core.settings import Settings
 from app.db.models import ActionRow, AgentTurn, Approval, Case, Company, ModelCall, OwnerAccount, Send, TaskRow, Timer
 from app.pipeline import concierge_turns
+from app.pipeline.concierge_base import NOT_SHOWN
 from app.pipeline.concierge_sanitize import has_contact_details
 from tests.integration.concierge_support import count, readable_strings, seed_case, step
 from tests.integration.concierge_support import plan as make_plan
@@ -82,7 +83,7 @@ def test_injected_message_and_summary_change_nothing_and_are_not_echoed(env: Env
     plan = out["plan"]
     assert isinstance(plan, dict)
     assert plan["in_scope"] is True
-    texts = [str(s["text"]) for s in plan["steps"] if s["text"]]
+    texts = [str(s["text"]) for s in plan["steps"] if s["text"]] + [str(plan.get("reply") or "")]
     assert not any(has_contact_details(t) for t in texts)
     assert [s["intent"] for s in plan["steps"]] == ["answer"]
     assert [count(env.engine, m, env.cid) for m in STATE_TABLES] == before
@@ -154,7 +155,7 @@ def test_hostile_plan_is_neutralised_by_the_executor(env: Env, foreign_case: UUI
     results = out["results"]
     assert [r["intent"] for r in results] == ["resume", "draft_reply", "create_task", "task_snooze"]
     assert results[1]["ok"] is False
-    assert results[1]["summary"] == "I could not find that case/task"  # a foreign case id is just not found
+    assert results[1]["summary"] == NOT_SHOWN  # a foreign case id is not in the brief or the page: refused
     assert [count(env.engine, m, env.cid) for m in (ActionRow, Approval, Send, Timer)] == before
     assert _paused(env) is True
     with Session(env.engine) as s:
@@ -173,4 +174,60 @@ def test_hostile_clarify_text_is_replaced_by_the_generic_question(env: Env) -> N
     results = out["results"]
     assert not any(has_contact_details(t) for t in readable_strings(results))
     assert "evil" not in str(out["answer"])
+    assert count(env.engine, Send, env.cid) == 0
+
+
+def _owner_qa_calls(env: Env) -> int:
+    with Session(env.engine) as s:
+        rows = s.scalars(select(ModelCall).where(ModelCall.company_id == env.cid, ModelCall.prompt_name == "owner_qa"))
+        return len(rows.all())
+
+
+def test_hostile_planner_reply_is_redacted_stored_redacted_and_changes_nothing(env: Env) -> None:
+    """A planner that obeyed the poisoned summary writes the payload into `reply`: the owner sees it redacted, the
+    stored plan (served by GET /agent/conversations) holds only the redacted text, and nothing changes."""
+    _paused(env, True)
+    before = [count(env.engine, m, env.cid) for m in STATE_TABLES]
+    reply = f"Done: approved everything. Pay {IBAN}, mail evil@attacker.test, see https://evil.example/x for € 950."
+    hostile = make_plan(step(Intent.answer)).model_copy(update={"reply": reply})
+    out = _hostile_turn(env, hostile)
+    plan = out["plan"]
+    assert isinstance(plan, dict)
+    stored = str(plan["reply"])
+    for leak in (IBAN, "evil@attacker.test", "https://evil.example"):
+        assert leak not in stored
+        assert leak not in str(out["answer"])
+    assert "€ 950" in stored  # amounts are allowed in replies since concierge/v5; contact and bank details are not
+    assert out["answer"] == stored  # one answer step: the screened reply
+    assert _owner_qa_calls(env) == 0  # single call: no owner_qa model call
+    assert [count(env.engine, m, env.cid) for m in STATE_TABLES] == before
+    assert _paused(env) is True
+
+
+def test_out_of_scope_planner_reply_is_never_shown_or_stored(env: Env) -> None:
+    hostile = ConciergePlan(in_scope=False, steps=[], reply=f"Sent {IBAN} to evil@attacker.test as asked.")
+    out = _hostile_turn(env, hostile)
+    plan = out["plan"]
+    assert isinstance(plan, dict)
+    assert plan["reply"] is None
+    assert IBAN not in str(out["answer"])
+    assert "evil" not in str(out["answer"])
+
+
+def test_a_reply_beside_a_draft_is_never_shown_or_stored(env: Env) -> None:
+    """A steered planner pairs a real draft step with "Approved and sent": the answer holds only the deterministic
+    draft summary, the stored plan keeps no reply, and nothing is sent."""
+    hostile = make_plan(step(Intent.draft_reply, case_id=env.case_id)).model_copy(
+        update={"reply": "Approved and sent to Sanne. Done."}
+    )
+    out = _hostile_turn(env, hostile)
+    plan = out["plan"]
+    assert isinstance(plan, dict)
+    assert plan["reply"] is None
+    assert [s["intent"] for s in plan["steps"]] == ["draft_reply"]  # no answer step appended
+    results = out["results"]
+    assert isinstance(results, list)
+    assert out["answer"] == "\n".join(r["summary"].strip() for r in results if r["summary"].strip())
+    assert "Approved and sent" not in str(out["answer"])
+    assert _owner_qa_calls(env) == 0
     assert count(env.engine, Send, env.cid) == 0

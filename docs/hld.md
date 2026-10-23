@@ -104,8 +104,9 @@ the action must be a Gmail draft. Anything else raises.
 for approved owner-directed actions of a `dashboard` owner) and, only in `outbound_mode=send`, the case's own contact
 on the thread's channel, re-derived from the database at execution (spec §5). The company row is locked for the claim,
 the hourly tenant cap is checked, and a tenant send that is blocked or fails leaves one dashboard alert. A send still
-`sending` after 30 minutes is marked failed once (status unknown: check the thread). A 5-minute sweep re-enqueues
-approved actions and Super Agent turns stranded by a crash between commit and enqueue.
+`sending` after 30 minutes is marked failed once (status unknown: check the thread), by a re-run attempt or by the
+5-minute sweep; a younger one is `in_progress` (no alert, no follow-up wait). The same sweep re-enqueues approved
+actions and Super Agent turns stranded by a crash between commit and enqueue (24 h lookback).
 
 ### 4.5 Time-based work
 | Job | Mechanism |

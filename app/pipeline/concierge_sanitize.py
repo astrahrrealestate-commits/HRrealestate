@@ -57,11 +57,21 @@ def _redact_phones(text: str) -> str:
     return _RESTORE.sub(lambda m: kept[ord(m.group(1)) - _SLOT], redacted)
 
 
-def redact(text: str) -> str:
+def _redact_links_and_accounts(text: str) -> str:
     for pattern in (URL, _EMAIL, _OBFUSCATED_EMAIL, _IBAN):  # links and emails first: they may hold digits
         text = pattern.sub(REDACTED, text)
-    text = _AMOUNT.sub(REDACTED, _SPACED_IBAN.sub(_spaced_iban, text))
-    return _redact_phones(text)
+    return _SPACED_IBAN.sub(_spaced_iban, text)
+
+
+def redact_contact(text: str) -> str:
+    """Links, emails, IBANs and phone numbers (8+ digits) redacted; amounts kept (chat replies). An amount whose digits
+    form one run of 8 or more (`€ 12.345.678`) still trips the phone rule."""
+    return _redact_phones(_redact_links_and_accounts(text))
+
+
+def redact(text: str) -> str:
+    """`redact_contact` plus amounts: titles, clarify questions and draft guidance."""
+    return _redact_phones(_AMOUNT.sub(REDACTED, _redact_links_and_accounts(text)))
 
 
 def has_contact_details(text: str) -> bool:
@@ -83,6 +93,11 @@ def safe_question(text: str) -> str:
     if not plain or redact(plain) != plain:
         return GENERIC_QUESTION
     return plain[:MAX_TEXT]
+
+
+def plain_line(text: str) -> str:
+    """One line of model text, normalised (control/format/private-use characters out, whitespace collapsed)."""
+    return _normalise(text)
 
 
 def normalise_query(text: str) -> str:

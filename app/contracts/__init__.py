@@ -24,13 +24,25 @@ from app.contracts.common import (
     OutboundMode,
 )
 from app.contracts.concierge import ConciergePlan, Intent, PlanStep
-from app.contracts.document import DocType, DocumentClassification
+from app.contracts.document import (
+    DocAnswer,
+    DocParty,
+    DocQuote,
+    DocType,
+    DocumentClassification,
+    DocumentFacts,
+    ExtractedText,
+    KeyFact,
+    PartyRole,
+)
 from app.contracts.linking import LinkDecision
 from app.contracts.message import Attachment, Message, normalise_identity
 from app.contracts.owner import OwnerChoice, OwnerMessage
 from app.contracts.owner_outputs import Briefing, BriefingSection, OwnerAnswer
+from app.contracts.page_context import PageContext, PageView
 from app.contracts.prompt_ref import PromptRef
 from app.contracts.proposal import Proposal
+from app.contracts.rag import FactKind, PassageScore, QueryPlan, RerankResult
 from app.contracts.summary import CaseSummary
 from app.contracts.understanding import Category, Entities, Suspicious, Understanding, Urgency
 
@@ -53,14 +65,21 @@ __all__ = [
     "Contract",
     "CreateReminderPayload",
     "Direction",
+    "DocAnswer",
+    "DocParty",
+    "DocQuote",
     "DocType",
     "DocumentClassification",
+    "DocumentFacts",
     "DraftRequest",
     "EmailRequest",
     "Entities",
     "EscalatePayload",
+    "ExtractedText",
+    "FactKind",
     "Intent",
     "InteractiveChannel",
+    "KeyFact",
     "LinkDecision",
     "Message",
     "Money",
@@ -69,11 +88,17 @@ __all__ = [
     "OwnerAnswer",
     "OwnerChoice",
     "OwnerMessage",
+    "PageContext",
+    "PageView",
+    "PartyRole",
+    "PassageScore",
     "PlanStep",
     "PromptRef",
     "Proposal",
+    "QueryPlan",
     "ReplyDraftPayload",
     "RequestContractorPayload",
+    "RerankResult",
     "Suspicious",
     "Understanding",
     "UpdateCaseStatePayload",

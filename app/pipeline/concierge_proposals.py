@@ -1,23 +1,34 @@
-"""Concierge intents that could lead to a tenant message: `draft_reply` and `chase_now`.
+"""Concierge `draft_reply` (steerable since amendment 2026-10-22): a reply draft for the case's latest inbound message.
 
-They only create proposals through the existing propose/follow-up stages. The result points at the approval, and only
-the owner's approve click can lead to a send. Nothing here takes a recipient from the plan; the sender resolves it from
-the DB at send time.
+The owner's own message (never the planner's `text`) is sanitised into guidance for the proposer. A message
+without a proposal goes through the propose stage; on a turn, a pending reply draft is superseded and a decided one
+gets a fresh draft (`redraft`), keyed by turn and step so a retry returns the same revision. The result quotes the
+drafts (capped, output-guard flags) and points at the approval: only the owner's approve click can lead to a send.
+Nothing here takes a recipient from the plan, the guidance or tenant text; the sender resolves it from the DB.
 """
 
 from collections.abc import Sequence
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.contracts import ActionType, Direction, PlanStep
-from app.db.enums import ActionStatus, ApprovalStatus, WaitStatus
-from app.db.models import ActionRow, Approval, CaseLink, MessageRow, UnderstandingRow, WaitRow
-from app.pipeline import followups, propose, timers, work_repo
+from app.db.enums import ActionStatus, ApprovalStatus
+from app.db.models import ActionRow, Approval, CaseLink, MessageRow, UnderstandingRow
+from app.pipeline import propose, redraft
 from app.pipeline.concierge_base import NEED_DETAIL, Ctx, StepResult, failed, log_change
+from app.pipeline.draft_guidance import (
+    READY,
+    Guidance,
+    draft_views,
+    drafted_summary,
+    guidance_for,
+    redraft_key,
+    turn_prefix,
+)
 
-READY = "Nothing is sent until you approve it in Approvals."
 NOTHING_TO_REPLY = "nothing to reply to on that case"
 NOT_UNDERSTOOD = "The latest message on that case is still being processed. Try again in a minute."
 NO_REPLY_NEEDED = "The latest message on that case does not need a reply, so I did not draft one."
@@ -26,10 +37,12 @@ ALREADY_DECIDED = "The latest message on that case was already handled (its prop
 HELD = "The draft was held for your review (paused or flagged). Look at the case before replying."
 PROPOSER_FAILED = "I could not draft a reply. A notice is waiting in Approvals so you can handle it yourself."
 DRAFTED = f"Reply drafted. {READY}"
-NOTHING_TO_CHASE = "We are not waiting on anyone for that case, so there is nothing to chase."
-CHASER_WAITING = f"A follow-up for that case is already waiting for your approval. {READY}"
-CHASED = f"Follow-up prepared. {READY}"
-NO_CHASER = "No follow-up was created (proposals may be paused, or this step was already handled)."
+REDRAFTED = f"New draft ready: it replaces the one that was waiting for your approval. {READY}"
+FRESH_DRAFT = f"The earlier reply on that case was already decided, so I drafted a new one. {READY}"
+NOT_REDRAFTED = "I did not create a new draft ({reason}). Nothing was changed."
+OTHER_WAITING = (
+    "No reply draft is waiting for that case; another proposal for it (such as an escalation) is in Approvals."
+)
 
 
 def _latest_inbound(session: Session, ctx: Ctx, case_id: UUID) -> UUID | None:
@@ -78,74 +91,114 @@ def _pending_ids(session: Session, ctx: Ctx, actions: Sequence[ActionRow]) -> li
     return list(session.scalars(q))
 
 
+def _reply_of(session: Session, ctx: Ctx, approval_ids: Sequence[UUID]) -> tuple[UUID, int, tuple[str, ...]] | None:
+    """The approval, draft version and variants of the reply draft among the approvals (None: no reply among them)."""
+    row = session.execute(
+        select(Approval.id, ActionRow.draft_version, ActionRow.payload)
+        .join(Approval, Approval.action_id == ActionRow.id)
+        .where(
+            Approval.company_id == ctx.company_id,
+            ActionRow.company_id == ctx.company_id,
+            Approval.id.in_(approval_ids),
+            ActionRow.type == ActionType.reply_draft,
+        )
+        .limit(1)
+    ).first()
+    if row is None:
+        return None
+    return row[0], row[1], tuple(str(v) for v in (row[2] or {}).get("body_variants") or ())
+
+
+def _source(ctx: Ctx, message_id: UUID) -> str:
+    loaded = propose.load_message(ctx.engine, message_id)
+    return loaded.source if loaded else ""
+
+
+def _data(step: PlanStep, approvals: Sequence[UUID], version: int | None, views: list[dict[str, Any]],
+          guidance: Guidance, superseded: UUID | None = None) -> dict[str, Any]:  # fmt: skip
+    return {
+        "approval_ids": [str(a) for a in approvals],
+        "case_id": str(step.case_id),
+        "draft_version": version,
+        "drafts": views,
+        "details_removed": guidance.redacted,
+        "superseded_approval_id": str(superseded) if superseded else None,
+    }
+
+
 def draft_reply(ctx: Ctx, step: PlanStep) -> StepResult:
-    """The propose stage works per message: the case's latest inbound message is the one answered (replay-safe there,
-    one set of actions per message). The summary says honestly what happened."""
+    """The case's latest inbound message is the one answered. The summary says honestly what happened and quotes the
+    drafts; `data` carries the approval id(s) for approve/edit in the SPA."""
     if step.case_id is None:
         return failed(step, NEED_DETAIL)
     with Session(ctx.engine) as session:
         message_id = _latest_inbound(session, ctx, step.case_id)
-        already = bool(message_id and _pending_ids(session, ctx, _message_actions(session, ctx, message_id)))
     if message_id is None:
         return failed(step, NOTHING_TO_REPLY)
-    result = propose.propose_for_message(ctx.engine, ctx.settings, message_id)
+    guidance = guidance_for(ctx.question)  # the owner's own message; the plan's text is model output and ignored
+    if ctx.turn_id is not None and (redrafted := _redraft(ctx, step, message_id, guidance)) is not None:
+        return redrafted
+    return _first_draft(ctx, step, message_id, guidance)
+
+
+def _first_draft(ctx: Ctx, step: PlanStep, message_id: UUID, guidance: Guidance) -> StepResult:
+    """The propose stage (replay-safe per message) with the guidance; on a turn the reply is keyed by turn and step."""
+    with Session(ctx.engine) as session:
+        before = set(_pending_ids(session, ctx, _message_actions(session, ctx, message_id)))
+    key = redraft_key(ctx.turn_id, ctx.step_index) if ctx.turn_id is not None else None
+    result = propose.propose_for_message(ctx.engine, ctx.settings, message_id, guidance=guidance.text, key=key)
     log_change(ctx, step)
-    data = {"approval_ids": [str(a) for a in result.approval_ids], "case_id": str(step.case_id)}
     with Session(ctx.engine) as session:
         actions = _message_actions(session, ctx, message_id)
         if not result.approval_ids:
             return failed(step, _no_approval_text(session, ctx, message_id, actions))
+        reply = _reply_of(session, ctx, result.approval_ids)
+    views = draft_views(reply[2], _source(ctx, message_id)) if reply else []
+    data = _data(step, result.approval_ids, reply[1] if reply else None, views, guidance)
     if any(a.type is ActionType.notify_owner and a.rationale == propose.FALLBACK_RATIONALE for a in actions):
         return StepResult(step.intent, False, PROPOSER_FAILED, data, "approvals")
-    return StepResult(step.intent, True, ALREADY_WAITING if already else DRAFTED, data, "approvals")
-
-
-def _open_wait(session: Session, ctx: Ctx, case_id: UUID) -> WaitRow | None:
-    return session.scalar(
-        select(WaitRow)
-        .where(WaitRow.company_id == ctx.company_id, WaitRow.case_id == case_id, WaitRow.status == WaitStatus.waiting)
-        .order_by(WaitRow.expected_by, WaitRow.id)
-        .limit(1)
-    )
-
-
-def _chase_step(wait: WaitRow, ctx: Ctx) -> int:
-    """A retried plan (same `now`) finds the chase it already recorded and replays that step instead of chasing
-    again: the follow-up stage then hands back the card it created."""
-    replay = wait.last_chased_at is not None and wait.last_chased_at >= ctx.now
-    return wait.chase_count - 1 if replay else wait.chase_count
-
-
-def _retire_timer(ctx: Ctx, wait_id: UUID, step_no: int) -> None:
-    """The step's pending `wait.due` timer would only re-show the card; cancel it once the wait moved on."""
-    with Session(ctx.engine) as session, session.begin():
-        wait = work_repo.get_wait(session, ctx.company_id, wait_id)
-        if wait.chase_count > step_no or wait.status is not WaitStatus.waiting:
-            timers.cancel(session, ctx.company_id, f"wait:{wait_id}:{step_no}")  # key format: work_repo._schedule_due
-
-
-def _chased(step: PlanStep, approval_id: UUID, wait_id: UUID, summary: str) -> StepResult:
-    data = {"approval_ids": [str(approval_id)], "case_id": str(step.case_id), "wait_id": str(wait_id)}
+    if reply is None:  # only other proposals are live (an escalation; a held reply has no approval)
+        held = any(a.status in (ActionStatus.paused, ActionStatus.exception) for a in actions)
+        return StepResult(step.intent, False, HELD if held else OTHER_WAITING, data, "approvals")
+    headline = ALREADY_WAITING if reply[0] in before else DRAFTED
+    summary = drafted_summary(headline, views, details_removed=guidance.redacted)
     return StepResult(step.intent, True, summary, data, "approvals")
 
 
-def chase_now(ctx: Ctx, step: PlanStep) -> StepResult:
-    """A chaser still waiting for the owner is returned as is: asking again never moves the ladder."""
-    if step.case_id is None:
-        return failed(step, NEED_DETAIL)
-    with Session(ctx.engine) as session:
-        wait = _open_wait(session, ctx, step.case_id)
-        if wait is None:
-            return failed(step, NOTHING_TO_CHASE)
-        pending = followups.pending_step_approval(session, wait)
-        wait_id, step_no = wait.id, _chase_step(wait, ctx)
-    if pending is not None:
-        return _chased(step, pending, wait_id, CHASER_WAITING)
-    approval_id = followups.handle_wait_due(
-        ctx.engine, ctx.settings, ctx.company_id, wait_id, step=step_no, now=ctx.now, force=True
+def _redraft(ctx: Ctx, step: PlanStep, message_id: UUID, guidance: Guidance) -> StepResult | None:
+    """A message that already had a proposal; None when it had none or it is held: the first-draft path reports."""
+    turn = ctx.turn_id
+    if turn is None:
+        return None
+    req = redraft.Request(
+        ctx.company_id, message_id, guidance.text, turn_prefix(turn), redraft_key(turn, ctx.step_index), ctx.now
     )
-    _retire_timer(ctx, wait_id, step_no)
+    with Session(ctx.engine) as session:
+        done = redraft.turn_replay(session, ctx.company_id, req.prefix, message_id)
+        state = redraft.message_state(session, ctx.company_id, message_id, ctx.now)
+    if done is not None:  # this turn already drafted for the message: the same revision, no model call
+        result = redraft.Redraft(done[0], done[1], _source(ctx, message_id))
+        return _redrafted(step, result, guidance, REDRAFTED if done[0].draft_version > 1 else DRAFTED)
+    if state.kind == "busy":
+        return failed(step, NOT_REDRAFTED.format(reason=redraft.BUSY))
+    if state.kind == "pending" and state.pending is not None:
+        result = redraft.supersede(ctx.engine, ctx.settings, req, state.pending, state.current)
+    elif state.kind in ("decided", "no_reply"):
+        result = redraft.fresh(ctx.engine, ctx.settings, req, state.current)
+    else:
+        return None
     log_change(ctx, step)
-    if approval_id is None:
-        return failed(step, NO_CHASER)
-    return _chased(step, approval_id, wait_id, CHASED)
+    headline = REDRAFTED if result.superseded else FRESH_DRAFT if state.kind == "decided" else DRAFTED
+    return _redrafted(step, result, guidance, headline)
+
+
+def _redrafted(step: PlanStep, result: redraft.Redraft, guidance: Guidance, headline: str) -> StepResult:
+    views = draft_views(result.variants, result.source)
+    if result.revision is None:
+        text = NOT_REDRAFTED.format(reason=result.problem or "held for review")
+        summary = drafted_summary(text, views, details_removed=guidance.redacted)
+        return StepResult(step.intent, False, summary, _data(step, [], None, views, guidance), None)
+    rev = result.revision
+    data = _data(step, [rev.approval_id], rev.draft_version, views, guidance, result.superseded)
+    summary = drafted_summary(headline, views, details_removed=guidance.redacted)
+    return StepResult(step.intent, True, summary, data, "approvals")

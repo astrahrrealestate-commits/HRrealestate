@@ -10,7 +10,7 @@ import pytest
 from dbos import DBOS, DBOSClient
 
 from app.core.settings import Settings
-from app.workflows.queues import PIPELINE_QUEUE
+from app.workflows.queues import CONCIERGE_POLL_SECONDS, CONCIERGE_QUEUE, PIPELINE_QUEUE
 from app.workflows.runtime import launch
 from app.workflows.system import selfcheck, timer_sweep
 
@@ -97,3 +97,11 @@ def test_separate_worker_process_passes_selfcheck_and_stops_on_sigterm(
     finally:
         if proc.poll() is None:
             proc.kill()
+
+
+def test_worker_boot_registers_every_queue_and_the_fast_chat_queue(dbos_runtime: None, test_settings: Settings) -> None:
+    assert {q.name for q in DBOS.list_queues()} >= {"pipeline", "gmail_sync", "timers", "documents", CONCIERGE_QUEUE}
+    chat = DBOS.retrieve_queue(CONCIERGE_QUEUE)
+    assert chat is not None
+    assert chat.worker_concurrency == test_settings.concierge_worker_concurrency
+    assert chat.polling_interval_sec == CONCIERGE_POLL_SECONDS

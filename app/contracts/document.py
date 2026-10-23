@@ -29,3 +29,62 @@ class DocumentClassification(Contract):
     title: Annotated[NonBlankStr, max_len(80)]
     document_date: date | None
     confidence: Annotated[float, Field(ge=0.0, le=1.0)]
+
+
+class PartyRole(StrEnum):
+    landlord = "landlord"
+    tenant = "tenant"
+    contractor = "contractor"
+    insurer = "insurer"
+    other = "other"
+
+
+class DocParty(Contract):
+    name: Annotated[NonBlankStr, max_len(120)]
+    role: PartyRole
+
+
+class KeyFact(Contract):
+    """One labelled fact: ("monthly_rent", "EUR 1150.00"), ("deposit", "2 months rent"), ("due_date", "2026-11-01")."""
+
+    label: Annotated[NonBlankStr, max_len(40)]
+    value: Annotated[NonBlankStr, max_len(160)]
+
+
+class DocumentFacts(Contract):
+    """Output of the doc_reader agent (M10): what the document is and what it says. OpenAI-strict (no defaults)."""
+
+    doc_type: DocType
+    title: Annotated[NonBlankStr, max_len(80)]
+    document_date: date | None
+    summary: Annotated[NonBlankStr, max_len(400)]
+    parties: Annotated[list[DocParty], Field(max_length=6)]
+    unit_hint: Annotated[str, max_len(200)] | None  # the address or unit label as written in the document
+    start_date: date | None  # lease start, insurance period start, work start
+    end_date: date | None  # lease end, policy expiry, quote validity
+    key_facts: Annotated[list[KeyFact], Field(max_length=10)]
+    confidence: Annotated[float, Field(ge=0.0, le=1.0)]
+
+    def as_classification(self) -> DocumentClassification:
+        return DocumentClassification(
+            doc_type=self.doc_type, title=self.title, document_date=self.document_date, confidence=self.confidence
+        )
+
+
+class ExtractedText(Contract):
+    """Output of the doc_ocr agent: the text read off a scan or photo, verbatim."""
+
+    text: Annotated[str, max_len(30_000)]
+
+
+class DocQuote(Contract):
+    doc_ref: Annotated[NonBlankStr, max_len(8)]  # the ref of the excerpt the words were copied from
+    text: Annotated[NonBlankStr, max_len(300)]  # copied verbatim; code checks it appears in that excerpt
+
+
+class DocAnswer(Contract):
+    """Output of the doc_qa agent: an answer grounded in quotes. `found=False`: the excerpts do not answer it."""
+
+    found: bool
+    answer: Annotated[str, max_len(600)]
+    quotes: Annotated[list[DocQuote], Field(max_length=3)]

@@ -12,10 +12,13 @@ from sqlalchemy import Engine
 from app.contracts import Intent, PlanStep
 from app.core.logging import get_logger
 from app.core.settings import Settings
+from app.llm.page_blocks import NO_PAGE, PagePrompt
+from app.pipeline.turn_timings import TurnTimer
 
 log = get_logger("app.pipeline.concierge")
 
 NOT_FOUND = "I could not find that case/task"
+NOT_SHOWN = "Open that case's page first, then ask again."  # a case id outside the brief and the page facts
 NEED_DETAIL = "I need more detail"
 STEP_FAILED = "Something went wrong with that step."
 
@@ -36,7 +39,13 @@ class Ctx:
     company_id: UUID
     now: datetime
     question: str  # the owner's own message (for the `answer` step), never the model's text
+    page: PagePrompt = NO_PAGE  # the turn's stored page facts and snapshot (for the `answer` step); no I/O here
     memo: dict[str, StepResult] = field(default_factory=dict)  # per-plan results reused by later steps (answer)
+    known_cases: frozenset[UUID] = frozenset()  # the only case ids a plan may name: the brief's and the page's
+    turn_id: UUID | None = None  # with step_index, the key of an owner-requested redraft (None: no redraft)
+    step_index: int = 0
+    reply: str | None = None  # the plan's own answer (concierge/v3): the `answer` step screens and shows it
+    timer: TurnTimer = field(default_factory=TurnTimer)  # the turn's stage clock (answer_ms of an owner_qa call)
 
 
 Handler = Callable[[Ctx, PlanStep], StepResult]

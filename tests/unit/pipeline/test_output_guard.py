@@ -1,4 +1,4 @@
-from app.pipeline.output_guard import unverified
+from app.pipeline.output_guard import unverified, unverified_kinds
 
 
 def test_invented_link_iban_and_phone_are_found() -> None:
@@ -38,3 +38,11 @@ def test_real_phone_numbers_are_still_found() -> None:
     assert len(unverified("Bel 06 12 34 56 78", "x")) == 1
     assert len(unverified("Bel +31 6 12345678", "x")) == 1
     assert len(unverified("Bel (020) 123 45 67", "x")) == 1
+
+
+def test_unverified_kinds_names_kinds_never_items() -> None:
+    source = "Bel ons op 020 123 4567"
+    draft = "Betaal op NL91ABNA0417164300, zie https://evil.example/pay of bel 06 9876 5432. Of 020 123 4567."
+    assert unverified_kinds(draft, source) == ["account", "link", "phone"]
+    assert unverified_kinds("Bel 020 123 4567 op 12-10-2026 om 10:30", source) == []
+    assert unverified_kinds("Rekening NL91ABNA0417164300", "") == ["account"]  # its digits are not also a phone

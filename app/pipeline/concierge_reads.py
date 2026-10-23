@@ -11,9 +11,11 @@ from app.db.models import MessageRow
 from app.llm.agents.briefing import fallback_briefing, render_text
 from app.llm.agents.owner_qa import FALLBACK_ANSWER
 from app.pipeline import briefing, case_repo, owner_commands, read_approvals, read_work, work_repo
-from app.pipeline.concierge_base import NEED_DETAIL, Ctx, StepResult, failed
+from app.pipeline.concierge_base import NEED_DETAIL, Ctx, StepResult, failed, log
+from app.pipeline.concierge_reply import screen_reply
 from app.pipeline.concierge_sanitize import normalise_query, safe_question
 from app.pipeline.read_repo import encode_thread_key
+from app.pipeline.turn_timings import ANSWER
 
 MAX_LISTED = 10
 MAX_HITS = 10
@@ -23,14 +25,26 @@ MAX_SUMMARY = 400
 
 
 def answer(ctx: Ctx, step: PlanStep) -> StepResult:
-    """The owner's own question goes to `owner_qa` (scope guard, refusal and budget fallbacks included), at most once
-    per plan: a later `answer` step reuses the first result."""
+    """The plan's own screened `reply` when it has one (one model call for the turn; the plan was in scope, or the
+    executor would not run). Otherwise the owner's own question goes to `owner_qa` (scope guard, refusal and budget
+    fallbacks included) with the turn's stored page facts and snapshot. At most once per plan: a later `answer` step
+    reuses the first result."""
     if "answer" not in ctx.memo:
-        cmd = owner_commands.Command(owner_commands.CommandKind.question, text=ctx.question)
-        text = owner_commands.run_command(ctx.engine, ctx.settings, ctx.company_id, cmd, now=ctx.now)
-        ok = text not in (FALLBACK_ANSWER, owner_commands.LIMIT_ANSWER)
-        ctx.memo["answer"] = StepResult(step.intent, ok, text, None, None)
+        reply = screen_reply(ctx.reply)
+        if reply is not None:
+            log.info("concierge.direct_reply", company_id=str(ctx.company_id))
+            ctx.memo["answer"] = StepResult(step.intent, True, reply, None, None)
+        else:
+            with ctx.timer.measure(ANSWER):
+                ctx.memo["answer"] = _owner_qa_answer(ctx, step)
     return ctx.memo["answer"]
+
+
+def _owner_qa_answer(ctx: Ctx, step: PlanStep) -> StepResult:
+    cmd = owner_commands.Command(owner_commands.CommandKind.question, text=ctx.question)
+    text = owner_commands.run_command(ctx.engine, ctx.settings, ctx.company_id, cmd, now=ctx.now, page=ctx.page)
+    ok = text not in (FALLBACK_ANSWER, owner_commands.LIMIT_ANSWER)
+    return StepResult(step.intent, ok, text, None, None)
 
 
 def list_tasks(ctx: Ctx, step: PlanStep) -> StepResult:

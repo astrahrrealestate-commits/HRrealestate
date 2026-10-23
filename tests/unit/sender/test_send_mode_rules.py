@@ -82,7 +82,8 @@ AGES = [timedelta(seconds=5), timedelta(minutes=9), timedelta(minutes=15), timed
 
 @pytest.mark.parametrize("age", AGES)
 def test_a_recent_sending_row_is_in_progress_without_failure_or_alert(age: timedelta) -> None:
-    assert lost_attempt(True, SendStatus.sending, None, NOW - age, NOW) == ExecOutcome("already", reason=IN_PROGRESS)
+    outcome = lost_attempt(True, SendStatus.sending, None, NOW - age, NOW)
+    assert outcome == ExecOutcome("in_progress", reason=IN_PROGRESS)  # not "already": nothing was sent yet
 
 
 @pytest.mark.parametrize("attempted", [NOW - timedelta(minutes=30), NOW - timedelta(hours=5), None])
@@ -97,9 +98,10 @@ def test_stuck_boundary() -> None:
     assert stuck(NOW - timedelta(minutes=30), NOW)
 
 
-@pytest.mark.parametrize("status", [SendStatus.sending, SendStatus.failed])
-def test_owner_directed_lost_attempts_keep_already(status: SendStatus) -> None:
-    assert lost_attempt(False, status, None).status == "already"
+@pytest.mark.parametrize("status", [SendStatus.sending, SendStatus.failed, SendStatus.pending, None])
+def test_owner_directed_lost_attempts_are_in_progress_unless_sent(status: SendStatus | None) -> None:
+    """Only a sent row is "already"; the holder of an owner-directed send reports its own outcome."""
+    assert lost_attempt(False, status, None).status == "in_progress"
 
 
 def _row(channel: Channel = Channel.gmail, target: str = "sanne@example.test") -> Send:

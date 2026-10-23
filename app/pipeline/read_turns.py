@@ -4,9 +4,10 @@ conversations are also scoped to their owner, so one owner never sees another ow
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import Row, select, tuple_
 from sqlalchemy.orm import Session
 
+from app.db.enums import TurnStatus
 from app.db.models import AgentConversation, AgentTurn
 
 MAX_CONVERSATION_TURNS = 50
@@ -40,29 +41,41 @@ def conversation_turns(
     return list(reversed(newest))
 
 
-def earlier_texts(
+def earlier_exchanges(
     session: Session, company_id: UUID, conversation_id: UUID, before: TurnCursor, limit: int
-) -> list[str]:
-    """The owner's texts of the `limit` turns before `before` (created_at, id) in the conversation, oldest first."""
-    rows = session.scalars(
-        select(AgentTurn.text)
+) -> list[tuple[str, str | None, TurnStatus]]:
+    """(owner text, answer, status) of the `limit` answered, not failed turns before `before` (created_at, id) in the
+    conversation, oldest first. The conversation is joined on the company, so a foreign conversation yields nothing."""
+    rows = session.execute(
+        select(AgentTurn.text, AgentTurn.answer, AgentTurn.status)
+        .join(
+            AgentConversation,
+            (AgentConversation.id == AgentTurn.conversation_id) & (AgentConversation.company_id == company_id),
+        )
         .where(
             AgentTurn.company_id == company_id,
             AgentTurn.conversation_id == conversation_id,
+            AgentTurn.status == TurnStatus.done,
+            AgentTurn.answer.is_not(None),
             tuple_(AgentTurn.created_at, AgentTurn.id) < tuple_(*before),
         )
         .order_by(AgentTurn.created_at.desc(), AgentTurn.id.desc())
         .limit(limit)
     ).all()
-    return list(reversed(rows))
+    return [(r.text, r.answer, r.status) for r in reversed(rows)]
+
+
+TurnEventRow = Row[UUID, UUID, TurnStatus, str | None, datetime]
 
 
 def turns_changed_after(
     session: Session, company_id: UUID, owner_id: UUID, after: TurnCursor, limit: int = MAX_TURN_EVENTS
-) -> list[AgentTurn]:
-    """Turns of this owner whose `updated_at` passed the cursor, in cursor order (SSE `turn` events)."""
+) -> list[TurnEventRow]:
+    """Turns of this owner whose `updated_at` passed the cursor, in cursor order (SSE `turn` events). Only the event
+    columns (id, conversation_id, status, answer, updated_at) are read: never plan/results/page_context, which can
+    hold kilobytes of tenant text, on a query that runs twice a second per stream."""
     q = (
-        select(AgentTurn)
+        select(AgentTurn.id, AgentTurn.conversation_id, AgentTurn.status, AgentTurn.answer, AgentTurn.updated_at)
         .join(
             AgentConversation,
             (AgentConversation.id == AgentTurn.conversation_id) & (AgentConversation.company_id == company_id),
@@ -75,4 +88,4 @@ def turns_changed_after(
         .order_by(AgentTurn.updated_at, AgentTurn.id)
         .limit(max(1, min(limit, MAX_TURN_EVENTS)))
     )
-    return list(session.scalars(q))
+    return list(session.execute(q).all())

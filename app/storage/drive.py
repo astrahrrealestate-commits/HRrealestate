@@ -47,8 +47,17 @@ class DriveStore(Protocol):
     def ensure_folder(self, path: tuple[str, ...]) -> str: ...
 
     def upload(
-        self, file_id: str, folder_id: str, name: str, mime_type: str, content: bytes, attachment_id: UUID
-    ) -> str: ...
+        self, file_id: str, folder_id: str, name: str, mime_type: str, content: bytes, attachment_id: UUID,
+        *, description: str | None = None, properties: dict[str, str] | None = None,
+    ) -> str: ...  # fmt: skip
+
+    def relocate(self, file_id: str, folder_id: str, name: str) -> None:
+        """Move the file into `folder_id` and rename it. A repeat, or a file already there, changes nothing."""
+        ...
+
+    def annotate(self, file_id: str, description: str | None, properties: dict[str, str]) -> None:
+        """Set the description and merge `properties` into the file's app properties (Drive search finds them)."""
+        ...
 
 
 class MemoryDrive:
@@ -57,6 +66,8 @@ class MemoryDrive:
     def __init__(self) -> None:
         self.folders: dict[tuple[str, ...], str] = {}
         self.files: dict[str, tuple[str, str, UUID]] = {}  # file id → (folder id, name, attachment id)
+        self.description: dict[str, str | None] = {}
+        self.properties: dict[str, dict[str, str]] = {}
 
     def new_file_id(self) -> str:
         return f"file-{uuid4()}"
@@ -70,10 +81,30 @@ class MemoryDrive:
         return self.folders.setdefault(path, f"folder-{uuid4()}")
 
     def upload(
-        self, file_id: str, folder_id: str, name: str, mime_type: str, content: bytes, attachment_id: UUID
-    ) -> str:
-        self.files.setdefault(file_id, (folder_id, name, attachment_id))  # same id twice = Drive's 409
+        self, file_id: str, folder_id: str, name: str, mime_type: str, content: bytes, attachment_id: UUID,
+        *, description: str | None = None, properties: dict[str, str] | None = None,
+    ) -> str:  # fmt: skip
+        if file_id not in self.files:  # same id twice = Drive's 409
+            self.files[file_id] = (folder_id, name, attachment_id)
+            self.description[file_id] = description
+            self.properties[file_id] = {APP_PROPERTY: str(attachment_id), **(properties or {})}
         return file_id
+
+    def path_of(self, file_id: str) -> tuple[str, ...]:
+        """Test helper: the folder path a file sits in."""
+        folder_id = self.files[file_id][0]
+        return next(path for path, fid in self.folders.items() if fid == folder_id)
+
+    def relocate(self, file_id: str, folder_id: str, name: str) -> None:
+        if file_id not in self.files:
+            raise DriveApiError("drive relocate failed (404)", status=404, retryable=False)
+        self.files[file_id] = (folder_id, name, self.files[file_id][2])
+
+    def annotate(self, file_id: str, description: str | None, properties: dict[str, str]) -> None:
+        if file_id not in self.files:
+            raise DriveApiError("drive annotate failed (404)", status=404, retryable=False)
+        self.description[file_id] = description
+        self.properties[file_id] = {**self.properties.get(file_id, {}), **properties}
 
 
 def _quote(value: str) -> str:
@@ -137,14 +168,17 @@ class GoogleDrive:
         return parent
 
     def upload(
-        self, file_id: str, folder_id: str, name: str, mime_type: str, content: bytes, attachment_id: UUID
-    ) -> str:
-        body = {
+        self, file_id: str, folder_id: str, name: str, mime_type: str, content: bytes, attachment_id: UUID,
+        *, description: str | None = None, properties: dict[str, str] | None = None,
+    ) -> str:  # fmt: skip
+        body: dict[str, Any] = {
             "id": file_id,
             "name": name,
             "parents": [folder_id],
-            "appProperties": {APP_PROPERTY: str(attachment_id)},
+            "appProperties": {APP_PROPERTY: str(attachment_id), **(properties or {})},
         }
+        if description:
+            body["description"] = description
         resumable = len(content) > RESUMABLE_ABOVE
         media = MediaInMemoryUpload(content, mimetype=mime_type, resumable=resumable, chunksize=CHUNK_SIZE)
         try:
@@ -153,6 +187,23 @@ class GoogleDrive:
             if exc.status != 409:  # 409: a file with this reserved id exists, i.e. an earlier attempt succeeded
                 raise
         return file_id
+
+    def relocate(self, file_id: str, folder_id: str, name: str) -> None:
+        current = _call(self._files.get(fileId=file_id, fields="parents,name"), "locate")
+        parents = [str(p) for p in current.get("parents", [])]
+        if parents == [folder_id] and current.get("name") == name:
+            return
+        stale = ",".join(p for p in parents if p != folder_id)
+        request = self._files.update(
+            fileId=file_id, addParents=folder_id, removeParents=stale or None, body={"name": name}, fields="id"
+        )
+        _call(request, "relocate")
+
+    def annotate(self, file_id: str, description: str | None, properties: dict[str, str]) -> None:
+        body: dict[str, Any] = {"appProperties": properties}
+        if description is not None:
+            body["description"] = description
+        _call(self._files.update(fileId=file_id, body=body, fields="id"), "annotate")
 
 
 def build_drive_service(credentials_file: Path) -> Any:

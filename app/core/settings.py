@@ -5,10 +5,12 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import PostgresDsn, SecretStr, field_validator
+from pydantic import PositiveInt, PostgresDsn, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 import app
+
+EMBEDDING_DIMENSIONS = 1024  # text-embedding-3-small at 1024 dimensions; the `vector` column size (ADR 0008)
 
 
 class Settings(BaseSettings):
@@ -35,6 +37,10 @@ class Settings(BaseSettings):
     # LLM agents (spec phase-1 agents). `fake` = deterministic offline models (app.llm.fakes); prod refuses it.
     llm_model: str = "fake"  # Pydantic AI model string, e.g. "openai:gpt-4.1-mini" or "google-gla:gemini-2.5-flash"
     llm_timeout_sec: float = 60.0
+    # Advanced retrieval (ADR 0008). `fake` = deterministic hashing embedder (tests, simulator); prod refuses it.
+    embedding_model: str = "fake"  # e.g. "openai:text-embedding-3-small" or "google-gla:gemini-embedding-001"
+    rag_query_rewrite: bool = True  # one small LLM call per question: keyword variants, HyDE passage, fact label
+    rag_rerank: bool = True  # listwise LLM rerank of the fused candidates
     llm_max_output_tokens: int = 4000  # structural cap per call, always on
     # Usage limits: None = unlimited (shipped disabled; set the env var to enable). Per company, UTC day/month.
     llm_daily_budget_usd: Decimal | None = None
@@ -44,6 +50,7 @@ class Settings(BaseSettings):
     owner_qa_daily_budget_usd: Decimal | None = None
     concierge_daily_cap: int | None = None  # Super Agent plans per day
     concierge_daily_budget_usd: Decimal | None = None
+    concierge_worker_concurrency: PositiveInt = 4  # Super Agent turns running at once per worker (chat queue)
 
     # Owner channel: approved WhatsApp template that reopens the 24-hour window ("{{1}} items need you").
     owner_template_name: str = "estateos_pending"
@@ -67,6 +74,7 @@ class Settings(BaseSettings):
     # Document filing (#9, ADR 0005): Drive with the `drive.file` scope only.
     drive_provider: Literal["fake", "google"] = "fake"
     drive_credentials_file: Path | None = None  # authorized-user JSON created with the drive.file scope
+    doc_read_content: bool = True  # M10, ADR 0007: read attachment text to file, link and answer; off = metadata only
 
     # Dashboard (owner interface, ADR 0006). `fake` accepts test tokens; prod refuses it.
     dashboard_auth_provider: Literal["fake", "google"] = "fake"

@@ -11,6 +11,8 @@ from app.contracts import (
     CaseSummary,
     ConciergePlan,
     DocumentClassification,
+    DocumentFacts,
+    ExtractedText,
     LinkDecision,
     OwnerAnswer,
     Proposal,
@@ -52,6 +54,8 @@ def _walk(node: Any, path: str = "$") -> list[str]:
         OwnerAnswer,
         Briefing,
         DocumentClassification,
+        DocumentFacts,
+        ExtractedText,
         ConciergePlan,
     ],
 )

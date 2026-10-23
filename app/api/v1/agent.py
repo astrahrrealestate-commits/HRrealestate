@@ -1,7 +1,8 @@
-"""Super Agent chat: post a message (a workflow-backed turn) and read a conversation.
+"""Super Agent chat: post a message (a workflow-backed turn), read a conversation, pre-warm the open page.
 
 The turn row commits before the enqueue (invariant 1). Foreign or other owners' conversations answer the same 404 as
-missing ones. Turn progress reaches the dashboard through `/events` (`event: turn`).
+missing ones. Turn progress reaches the dashboard through `/events` (`event: turn`). `PUT /agent/page` resolves the
+page facts for the session's owner ahead of the next message (`page_state`); it never creates a turn or calls a model.
 """
 
 from typing import Annotated
@@ -14,16 +15,18 @@ from sqlalchemy.orm import Session
 from app.api.deps import WorkflowClient, get_engine, get_workflow_client
 from app.api.v1 import enqueue
 from app.api.v1.auth import Principal, require_csrf, require_principal
-from app.api.v1.ratelimit import agent_limit
+from app.api.v1.ratelimit import agent_limit, page_limit
 from app.api.v1.schemas import AgentMessageIn, AgentMessageOut, ConversationOut, TurnOut
+from app.contracts import PageContext
 from app.core.errors import NotFoundError
 from app.core.logging import get_logger
-from app.pipeline import concierge_turns, read_turns
+from app.pipeline import concierge_turns, page_state, read_turns
 
 router = APIRouter(tags=["agent"])
 log = get_logger(__name__)
 NOT_FOUND = "not found"
 START_FAILED = "could not start the assistant; try again"
+WARM_FAILED = "page facts unavailable; try again"
 Owner = Annotated[Principal, Depends(require_principal)]
 Engine_ = Annotated[Engine, Depends(get_engine)]
 Client = Annotated[WorkflowClient, Depends(get_workflow_client)]
@@ -47,7 +50,7 @@ def post_message(body: AgentMessageIn, who: Owner, engine: Engine_, client: Clie
     try:
         with Session(engine) as session, session.begin():
             conversation_id, turn_id = concierge_turns.create_turn(
-                session, who.company_id, who.owner_id, body.conversation_id, body.text
+                session, who.company_id, who.owner_id, body.conversation_id, body.text, page=body.page
             )
     except NotFoundError:
         raise HTTPException(status_code=404, detail=NOT_FOUND) from None
@@ -63,3 +66,15 @@ def get_conversation(conversation_id: UUID, who: Owner, engine: Engine_) -> Conv
         if turns is None:
             raise HTTPException(status_code=404, detail=NOT_FOUND)
         return ConversationOut(id=conversation_id, turns=[TurnOut.model_validate(t) for t in turns])
+
+
+@router.put("/agent/page", status_code=204, dependencies=[Depends(require_csrf), Depends(page_limit)])
+def put_page(body: PageContext, who: Owner, engine: Engine_) -> None:
+    """Pre-warm: resolve the open page's facts for this owner now, so the next message on the same page skips it.
+    A resolver bug stores nothing (still 204: the turn resolves as usual); a transient error is 503."""
+    try:
+        warmed = page_state.warm(engine, who.company_id, who.owner_id, body)
+    except Exception as exc:  # `warm` lets only transient errors out
+        log.warning("dashboard.page_warm_unavailable", company_id=str(who.company_id), error=type(exc).__name__)
+        raise HTTPException(status_code=503, detail=WARM_FAILED) from None
+    log.info("dashboard.page_warmed", company_id=str(who.company_id), warmed=warmed)

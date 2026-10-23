@@ -7,18 +7,26 @@ PIPELINE_QUEUE = "pipeline"
 GMAIL_SYNC_QUEUE = "gmail_sync"  # concurrency 1: syncs never overlap, no DB locks held across Gmail calls
 TIMERS_QUEUE = "timers"  # due timers never wait behind LLM pipeline work (their lease starts at claim)
 DOCUMENTS_QUEUE = "documents"  # partitioned per company, concurrency 1: Drive folder creation never races
+CONCIERGE_QUEUE = "concierge"  # Super Agent turns: never wait behind pipeline work; short poll interval
 PROCESS_EVENT = "ingest.process_event"
 GMAIL_SYNC = "ingest.gmail_sync"
 OWNER_REPLY = "owner.reply"
 PIPELINE_ENTRY = "pipeline.entry"
 EXECUTE_ACTION = "actions.execute_action"
 FILE_DOCUMENT = "documents.file_document"
+REORG_PLAN = "documents.reorg_plan"
+BACKFILL_DOCUMENTS = "documents.backfill"
 CONCIERGE_TURN = "concierge.turn"
 
 
 def exec_workflow_id(action_id: object, draft_version: object) -> str:
     """`exec:<action_id>:<draft_version>`: the one execution of an approved action version (same as its send key)."""
     return f"exec:{action_id}:{draft_version}"
+
+
+def reorg_workflow_id(plan_id: object) -> str:
+    """`drive:reorg:<plan_id>`: the one application of an approved Drive reorganisation plan."""
+    return f"drive:reorg:{plan_id}"
 
 
 def concierge_workflow_id(turn_id: object) -> str:

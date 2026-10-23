@@ -6,7 +6,7 @@ propagate unchanged so the calling DBOS step retries them.
 """
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
@@ -16,6 +16,7 @@ import httpx
 from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.messages import UserContent
 from pydantic_ai.settings import ModelSettings
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
@@ -36,6 +37,7 @@ AGENT_RETRIES = 2  # re-asks on contract validation failure, inside one run
 class CallContext:
     company_id: UUID
     purpose: str
+    prefix_hash: str | None = None
 
 
 @dataclass(frozen=True)
@@ -50,6 +52,7 @@ class AgentSpec[T]:
     prompt: PromptRef
     output_type: type[T]
     finalize: Callable[[T, LoadedPrompt], T]
+    redact_output: bool = False  # the output is document text stored elsewhere: `model_calls` keeps only its size
 
 
 def is_transient(exc: BaseException) -> bool:
@@ -71,16 +74,34 @@ def _record(engine: Engine, row: ModelCall) -> None:
         session.add(row)
 
 
-def _row(spec: AgentSpec[Any], loaded: LoadedPrompt, settings: Settings, ctx: CallContext, prompt: str) -> ModelCall:
+def describe_prompt(prompt: str | Sequence[UserContent]) -> str:
+    """What `model_calls.input` records: the text, with each binary part (an image) as a size placeholder."""
+    if isinstance(prompt, str):
+        return prompt
+    return "\n".join(
+        part
+        if isinstance(part, str)
+        else f"[{getattr(part, 'media_type', 'binary')}: {len(getattr(part, 'data', b''))} bytes]"
+        for part in prompt
+    )
+
+
+def _row(
+    spec: AgentSpec[Any],
+    loaded: LoadedPrompt,
+    settings: Settings,
+    ctx: CallContext,
+    prompt: str | Sequence[UserContent],
+) -> ModelCall:
     return ModelCall(
         id=new_id(), company_id=ctx.company_id, purpose=ctx.purpose, prompt_name=spec.prompt.name,
         prompt_version=spec.prompt.version, prompt_sha256=loaded.sha256, model=settings.llm_model,
-        input={"prompt": prompt},
+        input={"prompt": describe_prompt(prompt)}, prefix_hash=ctx.prefix_hash,
     )  # fmt: skip
 
 
 def run_agent[T: BaseModel](
-    engine: Engine, settings: Settings, spec: AgentSpec[T], user_prompt: str, ctx: CallContext
+    engine: Engine, settings: Settings, spec: AgentSpec[T], user_prompt: str | Sequence[UserContent], ctx: CallContext
 ) -> CallResult[T]:
     loaded = load_prompt(spec.prompt)
     check_budget(engine, settings, ctx.company_id, ctx.purpose)
@@ -103,8 +124,11 @@ def run_agent[T: BaseModel](
         raise AgentFailedError(f"{spec.name}: {type(exc).__name__}") from exc
     usage = result.usage
     row.latency_ms = int((time.perf_counter() - started) * 1000)
-    row.output, row.cost_usd = output.model_dump(mode="json"), _cost(result)
+    dumped = output.model_dump(mode="json")
+    row.output = {"redacted": True, "chars": len(str(dumped))} if spec.redact_output else dumped
+    row.cost_usd = _cost(result)
     row.tokens_in, row.tokens_out = usage.input_tokens, usage.output_tokens
+    row.tokens_cached = getattr(usage, "cache_read_tokens", None)
     if settings.llm_model != "fake":  # the provider's resolved name (e.g. a dated snapshot), for audit and drift
         row.model = getattr(result.response, "model_name", None) or settings.llm_model
     _record(engine, row)

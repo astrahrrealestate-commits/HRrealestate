@@ -292,7 +292,7 @@ def test_a_second_attempt_never_sends_while_one_holds_the_send(env: Env) -> None
 
     def racing(payload: dict) -> str:  # type: ignore[type-arg]
         calls.append(1)
-        assert execute_action(env.deps, action_id, 1).status == "already"  # a concurrent attempt mid-send
+        assert execute_action(env.deps, action_id, 1).status == "in_progress"  # a concurrent attempt mid-send
         return original(payload)
 
     env.wa.send = racing  # type: ignore[method-assign]

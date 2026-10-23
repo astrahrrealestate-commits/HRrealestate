@@ -10,8 +10,10 @@ from app.core.errors import UnsafeConfigurationError
 from app.core.settings import get_settings
 from app.db.session import make_engine
 from app.ingestion.process import IngestDeps
+from app.llm.embeddings import TextEmbedder, build_embedder
 from app.sender.execute import SenderDeps
 from app.storage.drive import DriveStore, GoogleDrive, MemoryDrive, build_drive_service
+from app.storage.extract import LocalExtractor, TextExtractor
 from app.storage.factory import build_storage
 
 DEV_TOPIC = "projects/estateos-dev/topics/gmail"
@@ -96,3 +98,32 @@ def get_drive() -> DriveStore:
 def set_drive(drive: DriveStore | None) -> None:
     global _drive_override
     _drive_override = drive
+
+
+_extractor_override: TextExtractor | None = None
+
+
+def get_extractor() -> TextExtractor:
+    return _extractor_override if _extractor_override is not None else LocalExtractor()
+
+
+def set_extractor(extractor: TextExtractor | None) -> None:
+    global _extractor_override
+    _extractor_override = extractor
+
+
+_embedder_override: TextEmbedder | None = None
+
+
+@lru_cache(maxsize=1)
+def _default_embedder() -> TextEmbedder:
+    return build_embedder(get_settings())
+
+
+def get_embedder() -> TextEmbedder:
+    return _embedder_override if _embedder_override is not None else _default_embedder()
+
+
+def set_embedder(embedder: TextEmbedder | None) -> None:
+    global _embedder_override
+    _embedder_override = embedder
