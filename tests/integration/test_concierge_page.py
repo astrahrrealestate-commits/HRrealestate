@@ -92,8 +92,9 @@ def test_retry_reuses_the_facts_stored_by_the_first_attempt(env: Env) -> None:
         concierge_turns.run_turn(env.engine, env.settings, turn_id)
     assert _row(env, turn_id).status is TurnStatus.done
     assert len(prompts) == 1
-    assert "ORIGINAL summary" in prompts[0]
-    assert "CHANGED" not in prompts[0]
+    facts = prompts[0].split("<page_facts>")[1].split("</page_facts>")[0]
+    assert "ORIGINAL summary" in facts  # the page facts are the ones stored by the first attempt
+    assert "CHANGED" not in facts  # while the brief of open cases (`<data>`) is read fresh on every attempt
 
 
 def test_foreign_page_id_is_dropped_from_the_stored_facts(env: Env) -> None:

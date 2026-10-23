@@ -198,7 +198,7 @@ def test_stored_plan_is_executed_without_a_second_model_call(env: Env, test_sett
     concierge_turns.run_turn(env.engine, test_settings, turn_id)
     row = _row(env, turn_id)
     assert row.status is TurnStatus.done
-    assert row.plan == LIST_PLAN
+    assert row.plan == {**LIST_PLAN, "reply": None}  # a plan stored before `reply` existed gains it as null
     assert row.results is not None
     assert [r["intent"] for r in row.results] == ["list_tasks"]
     assert "Call plumber" in (row.answer or "")
@@ -267,10 +267,10 @@ def test_each_status_change_moves_updated_at(env: Env, test_settings: Settings) 
     seen: list[tuple[TurnStatus, Any]] = []
     real = concierge_turns._outcome
 
-    def spy(engine: Engine, settings: Settings, start: concierge_turns.TurnStart) -> Any:
+    def spy(engine: Engine, settings: Settings, start: concierge_turns.TurnStart, timer: Any = None) -> Any:
         mid = _row(env, turn_id)  # committed by _start
         seen.append((mid.status, mid.updated_at))
-        return real(engine, settings, start)
+        return real(engine, settings, start, timer)
 
     with patch("app.pipeline.concierge_turns._outcome", side_effect=spy):
         concierge_turns.run_turn(env.engine, test_settings, turn_id)

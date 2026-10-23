@@ -27,6 +27,7 @@ def _run(build: Any, key: str) -> tuple[str | None, MagicMock, FakeWhatsAppOutbo
     with (
         patch("app.sender.execute.Session") as sess,
         patch("app.sender.dashboard.Session"),
+        patch("app.sender.dashboard.feed.existing", return_value=None),  # a first delivery
         patch("app.sender.dashboard.feed.deliver", return_value=row_id) as deliver,
     ):
         sess.return_value.__enter__.return_value.scalar.side_effect = [None, owner]
@@ -83,3 +84,27 @@ def test_dict_shapes_become_readable_text() -> None:
     assert resolve_message(whatsapp, "+31").text == "from whatsapp"
     assert resolve_message(chat_text, "+31").text == "plain chat"
     assert resolve_message(chat_card, "+31").text == "Daily briefing\n2 approvals\n1 overdue task"
+
+
+def test_a_replay_returns_the_delivered_row_without_building_or_inserting() -> None:
+    row_id = uuid4()
+    built: list[str] = []
+
+    def build(to: str) -> OwnerMessage:
+        built.append(to)
+        return CARD
+
+    owner = SimpleNamespace(interactive_channel=InteractiveChannel.dashboard, whatsapp_e164="+31600000100")
+    with (
+        patch("app.sender.execute.Session") as sess,
+        patch("app.sender.dashboard.Session"),
+        patch("app.sender.dashboard.feed.existing", return_value=row_id),
+        patch("app.sender.dashboard.feed.deliver") as deliver,
+    ):
+        sess.return_value.__enter__.return_value.scalar.side_effect = [None, owner]
+        out = send_to_owner(
+            SenderDeps(MagicMock(), FakeWhatsAppOutbound(), lambda _a: MagicMock()), COMPANY, "k", build
+        )
+    assert out == str(row_id)
+    assert built == []
+    deliver.assert_not_called()

@@ -259,7 +259,8 @@ def test_blocked_approval_tells_harjot_and_resume_runs_it(env: Env) -> None:
     with Session(env.engine) as s:
         action_id = s.scalar(select(ActionRow.id).where(ActionRow.case_id == env.case_id))
     assert _wait_for(f"exec:{action_id}:1") == "blocked"
-    assert any("Not sent" in m.payload.get("text", {}).get("body", "") for m in env.wa.sent)
+    told = [m.payload.get("text", {}).get("body", "") for m in env.wa.sent]
+    assert any("Reply not sent to the tenant: company paused" in t and "`resume`" in t for t in told)
     assert env.drafts.created == []
     resume = _owner_msg(env, "resume")
     DBOS.start_workflow(owner_reply.owner_reply, str(resume)).get_result()

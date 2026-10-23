@@ -49,6 +49,15 @@ def stored_key(company_id: UUID, key: str) -> str:
     return prefix + key[: KEY_MAX - len(prefix)]
 
 
+def existing(session: Session, company_id: UUID, key: str) -> UUID | None:
+    """The feed row already delivered under `key`, so a replay can skip building the message at all."""
+    return session.scalar(
+        select(OwnerFeed.id).where(
+            OwnerFeed.company_id == company_id, OwnerFeed.idempotency_key == stored_key(company_id, key)
+        )
+    )
+
+
 def deliver(
     session: Session, company_id: UUID, key: str, kind: FeedKind, ref_id: UUID | None, message: OwnerMessage
 ) -> UUID:
