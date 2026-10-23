@@ -54,7 +54,7 @@ export function TopCommandBar({
   }, [hideSearch, onSearchChange]);
 
   return (
-    <header className="h-14 border-b border-[var(--line)] bg-[var(--pane)] px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 select-none">
+    <header className="h-14 border-b border-[var(--line)] bg-[var(--pane)] px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30">
       {/* Left: Global Search or Page Title */}
       <div className="flex items-center gap-3 flex-1 max-w-md">
         {hideSearch ? (

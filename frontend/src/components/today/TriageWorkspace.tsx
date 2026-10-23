@@ -432,7 +432,7 @@ export function TriageWorkspace({
                 <button
                   type="button"
                   onClick={() => setIsUnderstoodOpen((prev) => !prev)}
-                  className="w-full p-4 flex items-center justify-between text-left hover:bg-neutral-50/80 transition-colors cursor-pointer select-none"
+                  className="w-full p-4 flex items-center justify-between text-left hover:bg-neutral-50/80 transition-colors cursor-pointer"
                 >
                   <div className="flex items-center gap-2.5 flex-wrap">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-500">
@@ -567,7 +567,7 @@ export function TriageWorkspace({
                 <button
                   type="button"
                   onClick={() => setIsApprovePlanOpen((prev) => !prev)}
-                  className="w-full p-4 flex items-center justify-between text-left hover:bg-neutral-50/80 transition-colors cursor-pointer select-none"
+                  className="w-full p-4 flex items-center justify-between text-left hover:bg-neutral-50/80 transition-colors cursor-pointer"
                 >
                   <div className="flex items-center gap-2.5 flex-wrap">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-500">

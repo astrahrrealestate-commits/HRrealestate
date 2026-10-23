@@ -129,7 +129,7 @@ export function EmergencyDeck({
   };
 
   return (
-    <div className="rounded-[18px] border border-[#F25C05] bg-white transition-all overflow-hidden select-none">
+    <div className="rounded-[18px] border border-[#F25C05] bg-white transition-all overflow-hidden">
       {/* 1. Single-Row Minimal Emergency Banner */}
       <div className="p-3.5 sm:px-5 sm:py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         {/* Left: Orange pill + One-line summary */}

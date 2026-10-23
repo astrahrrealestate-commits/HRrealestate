@@ -61,7 +61,7 @@ export function ThreadRow({
       onClick={onSelect}
       aria-current={selected}
       className={cn(
-        "group grid w-full grid-cols-[8px_40px_1fr_auto] items-start gap-3 border-b border-[var(--line)] px-4 py-3 text-left transition-colors cursor-pointer select-none relative focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+        "group grid w-full grid-cols-[8px_40px_1fr_auto] items-start gap-3 border-b border-[var(--line)] px-4 py-3 text-left transition-colors cursor-pointer relative focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
         // Gmail-style contrast: unread rows are elevated crisp pane with rich text, read rows are calm muted bg
         isUnread ? "bg-[var(--pane)]" : "bg-[var(--bg)]/60 text-[var(--ink-3)]",
         selected && "bg-[var(--selected)] shadow-[inset_2px_0_0_var(--ink)]",

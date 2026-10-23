@@ -51,6 +51,7 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
+    user-select: text;
   }
 
   h1, h2, h3, .font-heading {

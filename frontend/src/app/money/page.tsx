@@ -327,7 +327,7 @@ function MoneyContent() {
                     <tr
                       key={tx.id}
                       onClick={() => handleRowClick(tx)}
-                      className="hover:bg-[var(--selected)]/40 transition-colors cursor-pointer select-none h-14"
+                      className="hover:bg-[var(--selected)]/40 transition-colors cursor-pointer h-14"
                     >
                       <td className="py-3 px-4">
                         <span className="font-mono text-[11px] text-[var(--ink-3)] block">
@@ -392,7 +392,7 @@ function MoneyContent() {
                 <button
                   key={tx.id}
                   onClick={() => handleRowClick(tx)}
-                  className="w-full text-left p-4 flex items-center justify-between hover:bg-[var(--selected)]/40 active:bg-[var(--selected)] transition-colors cursor-pointer select-none min-h-[64px]"
+                  className="w-full text-left p-4 flex items-center justify-between hover:bg-[var(--selected)]/40 active:bg-[var(--selected)] transition-colors cursor-pointer min-h-[64px]"
                 >
                   {/* Left: 2 lines per row */}
                   <div className="min-w-0 flex-1 pr-3">

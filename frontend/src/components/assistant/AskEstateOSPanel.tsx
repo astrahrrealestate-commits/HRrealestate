@@ -295,7 +295,7 @@ export function AskEstateOSPanel({
       */}
       <aside
         className={cn(
-          "bg-[#0E1113] text-[#F3F4F6] shadow-2xl flex flex-col justify-between font-sans select-none border-[#22282E]",
+          "bg-[#0E1113] text-[#F3F4F6] shadow-2xl flex flex-col justify-between font-sans border-[#22282E]",
           isFullScreen
             ? "fixed inset-2 md:inset-6 z-50 rounded-[18px] border overflow-hidden transition-all duration-200 animate-in zoom-in-95"
             : panelMode === "center"
@@ -714,8 +714,8 @@ function generateAssistantResponse(
       id: `ans-${Date.now()}`,
       sender: "assistant",
       timestamp: time,
-      text: `**Priority #1: Emergency Heating Failure & Bathroom Water Leak**\n\nThere is an urgent tenant incident at **Pieter Floriszstraat 1 C** regarding bathroom water leakage and radiator failure reported by tenant Suryansh Tyagi. The food in the fridge is warming up and room temperature is dropping.\n\nI prepared a 4-step execution plan for electrician **Kevin from Chahal Bouw** with an authorized PO budget cap of **€ 650,-** and key lockbox code **#4182**.`,
-      readSource: "PostgreSQL Cases #005 · Message from suryanshtyagi.work@gmail.com",
+      text: `**Priority #1: Emergency Heating Failure & Bathroom Water Leak**\n\nThere is an urgent tenant incident at **Pieter Floriszstraat 1 C** regarding bathroom water leakage and radiator failure reported by tenant Pieter Bakker. The food in the fridge is warming up and room temperature is dropping.\n\nI prepared a 4-step execution plan for electrician **Kevin from Chahal Bouw** with an authorized PO budget cap of **€ 650,-** and key lockbox code **#4182**.`,
+      readSource: "PostgreSQL Cases #005 · Message from pieter.bakker@gmail.com",
       facts: [
         { label: "Ticket", value: "#005 Emergency Power & Heating", isAlert: true },
         { label: "Contractor", value: "Chahal Bouw (Kevin)" },
@@ -724,8 +724,8 @@ function generateAssistantResponse(
       ],
       draftBlock: {
         channel: "gmail",
-        to: "suryanshtyagi.work@gmail.com",
-        body: "Hi Suryansh, we marked this as urgent ticket #005. Electrician Kevin from Chahal Bouw arrives today between 11:30 - 12:30. Lockbox access #4182 is authorized.",
+        to: "pieter.bakker@gmail.com",
+        body: "Hi Pieter, we marked this as urgent ticket #005. Electrician Kevin from Chahal Bouw arrives today between 11:30 - 12:30. Lockbox access #4182 is authorized.",
       },
       actions: [
         {

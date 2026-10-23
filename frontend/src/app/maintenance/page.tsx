@@ -463,7 +463,7 @@ function MaintenanceContent() {
                 </div>
 
                 {/* Inline stats (Section 2.4 M2 & 5.4): "4 open · 3 urgent · 1 in progress" */}
-                <p className="text-[13px] text-[var(--ink-2)] mt-0.5 select-none">
+                <p className="text-[13px] text-[var(--ink-2)] mt-0.5">
                   <span className="font-medium text-[var(--ink)] tabular-nums">{openCount}</span> open
                   <span className="text-[var(--ink-3)] mx-1.5">·</span>
                   <span className="font-semibold text-[var(--accent-ink)] tabular-nums">{urgentTicketsCount}</span>{" "}
@@ -600,7 +600,7 @@ function MaintenanceContent() {
             </div>
 
             {/* List / Table Area (The only scrolling part, Section 5.4 & 2.4 M3) */}
-            <div className="flex-1 overflow-y-auto pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-0 select-none">
+            <div className="flex-1 overflow-y-auto pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-0">
               
               {/* Desktop Table View (>= 768px): One line per row (56px), Selected = grey with ink left bar, Status always visible, Contractor hidden below 1500px */}
               <div className="hidden md:block w-full">
@@ -622,7 +622,7 @@ function MaintenanceContent() {
                           key={ticket.id}
                           onClick={() => handleSelectTicket(ticket.id)}
                           className={cn(
-                            "h-14 cursor-pointer transition-colors group select-none relative",
+                            "h-14 cursor-pointer transition-colors group relative",
                             isSelected
                               ? "bg-[var(--selected)] shadow-[inset_2px_0_0_var(--ink)]"
                               : "hover:bg-[var(--selected)]/50"
@@ -678,7 +678,7 @@ function MaintenanceContent() {
                       type="button"
                       onClick={() => handleSelectTicket(ticket.id)}
                       className={cn(
-                        "w-full text-left p-4 transition-colors cursor-pointer select-none active:bg-[var(--selected)]",
+                        "w-full text-left p-4 transition-colors cursor-pointer active:bg-[var(--selected)]",
                         isSelected ? "bg-[var(--selected)]" : "bg-[var(--pane)]"
                       )}
                     >
@@ -729,7 +729,7 @@ function MaintenanceContent() {
             )}
           >
             {selectedTicket ? (
-              <section className="flex flex-col h-full overflow-hidden select-none">
+              <section className="flex flex-col h-full overflow-hidden">
                 {/* 1. Detail Header (Sticky h-14) */}
                 <div className="h-14 px-4 sm:px-6 border-b border-[var(--line)] bg-[var(--pane)] flex items-center justify-between shrink-0 z-10">
                   <div className="flex items-center gap-2.5 min-w-0">

@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { ArrowRight, Check, Send, AlertTriangle, ShieldCheck, ChevronDown } from "lucide-react";
+import { ArrowRight, Check, Send, AlertTriangle, ShieldCheck, ChevronDown, Ticket, Wrench, Mail, MessageSquare, Pencil, Clock, Shield } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
@@ -23,8 +23,12 @@ import {
   getDashboardBriefing,
   syncGmailInbox,
   approveMaintenanceTicket,
+  getMaintenanceTickets,
+  updateMaintenanceTicket,
+  MaintenanceTicket,
   ProspectiveInquiry,
 } from "@/lib/api";
+import { EditTicketModal } from "@/components/maintenance/EditTicketModal";
 import { StalledItem, INITIAL_STALLED_ITEMS } from "@/components/today/UnresponsiveRadarCard";
 import { InboxThread } from "@/types/inbox";
 import { PulseMetrics, AutonomousActionLog } from "@/types/dashboard";
@@ -54,7 +58,38 @@ export default function TodayPage() {
   const [isAskAgentOpen, setIsAskAgentOpen] = useState(false);
   const [isEmergencyExpanded, setIsEmergencyExpanded] = useState<boolean>(false);
   const [nudgedItemIds, setNudgedItemIds] = useState<Record<string, boolean>>({});
-  const [dispatchedEmergency005, setDispatchedEmergency005] = useState<boolean>(false);
+
+  // Maintenance in-place state
+  const DEFAULT_TICKET_005: MaintenanceTicket = useMemo(() => ({
+    id: "m-1",
+    ticketNumber: "#005",
+    issueTitle: "Electricity short circuit in kitchen sockets",
+    unitLabel: "Pieter Floriszstraat 1 C",
+    tenantName: "Pieter Bakker",
+    tenantPhone: "+31 6 12 34 41 87",
+    category: "electrical",
+    contractorName: "Chahal Bouw",
+    contractorTrade: "Electrician",
+    contractorPhone: "+31 6 88 12 34 56",
+    urgency: "emergency",
+    status: "pending_approval",
+    slaRemaining: "38m SLA",
+    isOverdue: false,
+    poBudgetCap: "€ 650",
+    reportedAt: "Yesterday 22:10",
+    notes: "Fridge warming up after power tripped. Monteur Kevin assigned with 11:30 arrival window.",
+    originalMessage: "Nog steeds geen stroom op de stopcontacten in de keuken sinds de kortsluiting. De koelkast begint warm te worden. Kan er vandaag iemand komen? Groet, Pieter",
+    contractorDraft: "Beste Kevin (Chahal Bouw), spoedmelding voor Pieter Floriszstraat 1 C: Storing in keukengroep / aardlek. Huurder Pieter Bakker (+31 6 12 34 41 87) is aanwezig. Geautoriseerd budgetplafond: € 650. Sleutelkast pincode: 4182. Gelieve ETA te bevestigen.",
+    tenantDraft: "Beste Pieter, we hebben je melding over de stroomstoring in de keuken ontvangen. Monteur Kevin van Chahal Bouw is zojuist geautoriseerd met een aankomsttijdstip rond 11:30. Houd de koelkast zo veel mogelijk gesloten om bederf te voorkomen. Met vriendelijke groet, Harjot",
+  }), []);
+
+  const [maintenanceTickets, setMaintenanceTickets] = useState<MaintenanceTicket[]>([DEFAULT_TICKET_005]);
+  const [activeEditTicket, setActiveEditTicket] = useState<MaintenanceTicket | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
+  const [tenantReplySentMap, setTenantReplySentMap] = useState<Record<string, boolean>>({});
+  const [contractorDispatchedMap, setContractorDispatchedMap] = useState<Record<string, boolean>>({});
+  const [customTenantReplyText, setCustomTenantReplyText] = useState<Record<string, string>>({});
+  const [customContractorText, setCustomContractorText] = useState<Record<string, string>>({});
 
   // Fetch live threads and dashboard data
   useEffect(() => {
@@ -85,6 +120,16 @@ export default function TodayPage() {
       })
       .catch((err) => console.warn("Failed to load auxiliary dashboard data:", err));
 
+    // 3. Maintenance tickets for in-place detail view and editing
+    getMaintenanceTickets()
+      .then((mRes) => {
+        if (!isMounted) return;
+        if (mRes.isLive && mRes.tickets.length > 0) {
+          setMaintenanceTickets(mRes.tickets);
+        }
+      })
+      .catch((err) => console.warn("Failed to load maintenance tickets:", err));
+
     return () => {
       isMounted = false;
     };
@@ -93,6 +138,67 @@ export default function TodayPage() {
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const handleSaveTicket = async (updatedTicket: MaintenanceTicket) => {
+    try {
+      await updateMaintenanceTicket(updatedTicket.ticketNumber, updatedTicket);
+      setMaintenanceTickets((prev) =>
+        prev.map((t) => (t.ticketNumber === updatedTicket.ticketNumber ? updatedTicket : t))
+      );
+      showToast(`Ticket ${updatedTicket.ticketNumber} updated successfully.`);
+    } catch {
+      showToast(`Ticket ${updatedTicket.ticketNumber} updated locally.`);
+    }
+    setIsEditModalOpen(false);
+  };
+
+  const handleSendTenantReply = (
+    ticket: MaintenanceTicket,
+    channel: "whatsapp" | "gmail" | string,
+    key?: string
+  ) => {
+    const targetKey = key || ticket.id || ticket.ticketNumber;
+    setTenantReplySentMap((prev) => ({ ...prev, [targetKey]: true }));
+    showToast(`Reply sent to ${ticket.tenantName} via ${channel === "whatsapp" ? "WhatsApp" : "Email"}.`);
+  };
+
+  const handleDispatchContractor = async (
+    ticket: MaintenanceTicket,
+    key?: string
+  ) => {
+    const targetKey = key || ticket.id || ticket.ticketNumber;
+    setContractorDispatchedMap((prev) => ({ ...prev, [targetKey]: true }));
+    showToast(`Work order dispatched to ${ticket.contractorName} (${ticket.poBudgetCap} cap).`);
+    try {
+      await approveMaintenanceTicket(ticket.ticketNumber, {
+        dispatchContractor: true,
+        notifyTenant: false,
+        poBudgetCap: ticket.poBudgetCap,
+      });
+    } catch {
+      // Graceful
+    }
+  };
+
+  const handleApproveBoth = async (
+    ticket: MaintenanceTicket,
+    channel: "whatsapp" | "gmail" | string,
+    key?: string
+  ) => {
+    const targetKey = key || ticket.id || ticket.ticketNumber;
+    setContractorDispatchedMap((prev) => ({ ...prev, [targetKey]: true }));
+    setTenantReplySentMap((prev) => ({ ...prev, [targetKey]: true }));
+    showToast(`Ticket ${ticket.ticketNumber}: Dispatched to ${ticket.contractorName} & replied via ${channel === "whatsapp" ? "WhatsApp" : "Email"}.`);
+    try {
+      await approveMaintenanceTicket(ticket.ticketNumber, {
+        dispatchContractor: true,
+        notifyTenant: true,
+        poBudgetCap: ticket.poBudgetCap,
+      });
+    } catch {
+      // Graceful
+    }
   };
 
   const handleSendNudge = (item: StalledItem) => {
@@ -232,7 +338,7 @@ export default function TodayPage() {
         <main className="flex-1 w-full max-w-[960px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-12 space-y-7 overflow-y-auto">
           
           {/* Top Briefing Header with Daily / Weekly Switcher */}
-          <div className="space-y-3 select-none">
+          <div className="space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <span className="text-[13px] font-medium text-[var(--ink-3)] block tracking-tight">
@@ -367,53 +473,80 @@ export default function TodayPage() {
             </div>
           </div>
 
-          {/* Emergency Alert Card with Expandable Details (Section 2.3 T5 & 5.3) */}
+          {/* Emergency Alert Card with In-Place Maintenance Ticket & Channel-Aware Actions */}
           {topUrgentThread && (() => {
-            const contractorThread = threads.find(
+            const ticketNum = topUrgentThread.ticketNumber || "#005";
+            const ticket: MaintenanceTicket = maintenanceTickets.find(
               (t) =>
-                t.ticketNumber === topUrgentThread.ticketNumber &&
-                (t.recipientRole === "contractor" || t.id !== topUrgentThread.id)
-            ) || threads.find((t) => t.id === "thread-2");
+                t.ticketNumber === ticketNum ||
+                t.ticketNumber === `#${ticketNum.replace("#", "")}`
+            ) || {
+              ...DEFAULT_TICKET_005,
+              ticketNumber: ticketNum,
+              unitLabel: topUrgentThread.unitLabel || DEFAULT_TICKET_005.unitLabel,
+              tenantName: topUrgentThread.senderName || DEFAULT_TICKET_005.tenantName,
+              tenantPhone: topUrgentThread.senderContact || DEFAULT_TICKET_005.tenantPhone,
+              issueTitle: topUrgentThread.subject || topUrgentThread.latestSnippet || DEFAULT_TICKET_005.issueTitle,
+              originalMessage: topUrgentThread.latestSnippet || DEFAULT_TICKET_005.originalMessage,
+            };
 
-            const tenantFirstName = (topUrgentThread.senderName || "Tenant").split(" ")[0];
-            const contractorFirstName = (contractorThread?.senderName || "Contractor").split(" ")[0];
+            const tenantChannel: "whatsapp" | "gmail" = topUrgentThread.channel === "gmail" ? "gmail" : "whatsapp";
+            const emergencyKey = topUrgentThread.id || ticket.ticketNumber;
+            const isTenantReplied = Boolean(tenantReplySentMap[emergencyKey]);
+            const isContractorDispatched = Boolean(contractorDispatchedMap[emergencyKey]);
 
             return (
               <div
                 className={cn(
-                  "border-l-[4px] border-l-[var(--accent)] border-y border-r border-[var(--line)] bg-[var(--pane)] rounded-r-[var(--radius-pane)] transition-all overflow-hidden shadow-2xs select-none"
+                  "border-l-[4px] border-l-[var(--accent)] border-y border-r border-[var(--line)] bg-[var(--pane)] rounded-r-[var(--radius-pane)] transition-all overflow-hidden shadow-2xs"
                 )}
               >
                 {/* Main Prominent Header Bar */}
-                <div className="p-4 sm:px-5 sm:py-4 flex flex-col md:flex-row md:items-center justify-between gap-3.5">
-                  <div className="flex items-start sm:items-center gap-3 min-w-0">
-                    <span className="font-bold text-[14px] text-[var(--accent-ink)] uppercase tracking-wider shrink-0 mt-0.5 sm:mt-0">
+                <div className="p-4 sm:px-5 sm:py-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                  <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+                    <span className="font-bold text-[13px] text-[var(--accent-ink)] uppercase tracking-wider shrink-0 mt-0.5 sm:mt-0">
                       Emergency
                     </span>
                     <span className="text-[var(--line)] hidden sm:inline">·</span>
-                    <div className="min-w-0">
-                      <span className="text-[15px] font-semibold text-[var(--ink)] block sm:inline">
+                    <div className="min-w-0 truncate">
+                      <span className="text-[14.5px] font-semibold text-[var(--ink)]">
                         {topUrgentThread.unitLabel}:
                       </span>{" "}
-                      <span className="text-[14px] text-[var(--ink-2)] font-medium">
+                      <span className="text-[13.5px] text-[var(--ink-2)] font-medium">
                         {topUrgentThread.subject || topUrgentThread.latestSnippet}
                       </span>
                     </div>
                   </div>
 
-                  {/* Actions & Details Dropdown Trigger */}
-                  <div className="flex items-center gap-3 shrink-0 self-end md:self-center">
+                  {/* Exactly Required Options: In-Place Details, Channel-Specific Tenant Reply, Contractor Dispatch */}
+                  <div className="flex items-center gap-2 shrink-0 self-end md:self-center flex-wrap">
                     <span className="font-mono text-xs text-[var(--accent-ink)] font-bold px-2 py-0.5 rounded bg-[var(--accent)]/10 border border-[var(--accent)]/20">
-                      38m SLA
+                      {ticket.slaRemaining || "38m SLA"}
                     </span>
 
+                    {/* View Ticket Details on the same page */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveEditTicket(ticket);
+                        setIsEditModalOpen(true);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-[var(--ink)] bg-[var(--bg)] hover:bg-[var(--selected)] border border-[var(--line)] rounded-lg transition-colors cursor-pointer"
+                      title="View and Edit Maintenance Ticket on this page"
+                    >
+                      <Ticket className="w-3.5 h-3.5 text-[var(--accent-ink)]" />
+                      <span>{ticket.ticketNumber} Details</span>
+                    </button>
+
+                    {/* Expand/Collapse In-Place Card */}
                     <button
                       type="button"
                       onClick={() => setIsEmergencyExpanded(!isEmergencyExpanded)}
                       className="text-xs font-medium text-[var(--ink-2)] hover:text-[var(--ink)] flex items-center gap-1 cursor-pointer py-1 px-1.5 rounded hover:bg-[var(--selected)]"
                       aria-expanded={isEmergencyExpanded}
+                      title="Toggle in-place ticket context"
                     >
-                      <span>{isEmergencyExpanded ? "Hide details" : "Details"}</span>
+                      <span>{isEmergencyExpanded ? "Hide" : "Details"}</span>
                       <ChevronDown
                         className={cn(
                           "w-3.5 h-3.5 transition-transform duration-200",
@@ -422,129 +555,261 @@ export default function TodayPage() {
                       />
                     </button>
 
-                    <span className="text-[var(--line)] select-none">|</span>
+                    <span className="text-[var(--line)]">|</span>
 
+                    {/* Option 1: Reply to Tenant (Strictly matched to message channel: WhatsApp vs Gmail) */}
                     <button
                       type="button"
-                      onClick={() => router.push("/maintenance?ticket=005")}
-                      className="text-xs font-semibold text-[var(--ink)] hover:underline underline-offset-4 cursor-pointer"
-                      title="Open Maintenance Ticket in Hub"
+                      onClick={() => {
+                        setIsEmergencyExpanded(true);
+                        handleSendTenantReply(ticket, tenantChannel, emergencyKey);
+                      }}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg border transition-all cursor-pointer shadow-2xs",
+                        isTenantReplied
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                          : "bg-[var(--pane)] hover:bg-[var(--selected)] text-[var(--ink)] border-[var(--line)]"
+                      )}
+                      title={`Send reply to tenant via ${tenantChannel === "whatsapp" ? "WhatsApp" : "Email"}`}
                     >
-                      Ticket #005 →
+                      {tenantChannel === "whatsapp" ? (
+                        <MessageSquare className="w-3.5 h-3.5 text-[#25D366]" />
+                      ) : (
+                        <Mail className="w-3.5 h-3.5 text-[#EA4335]" />
+                      )}
+                      <span>
+                        {isTenantReplied
+                          ? `Replied (${tenantChannel === "whatsapp" ? "WhatsApp" : "Email"})`
+                          : `Reply Tenant (${tenantChannel === "whatsapp" ? "WhatsApp" : "Email"})`}
+                      </span>
                     </button>
 
+                    {/* Option 2: Dispatch Ticket to Contractor */}
                     <button
                       type="button"
-                      onClick={() => router.push(`/inbox?thread=${topUrgentThread.id}`)}
-                      className="text-xs font-semibold text-[var(--ink-2)] hover:text-[var(--ink)] hover:underline underline-offset-4 cursor-pointer"
+                      onClick={() => {
+                        setIsEmergencyExpanded(true);
+                        handleDispatchContractor(ticket, emergencyKey);
+                      }}
+                      disabled={isContractorDispatched}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer shadow-2xs",
+                        isContractorDispatched
+                          ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                          : "bg-[var(--ink)] hover:bg-[var(--ink)]/90 text-white"
+                      )}
+                      title="Approve work order and dispatch ticket to contractor"
                     >
-                      Reply {tenantFirstName}
+                      <Wrench className="w-3.5 h-3.5 text-[var(--accent)]" />
+                      <span>
+                        {isContractorDispatched
+                          ? "Contractor Dispatched"
+                          : `Dispatch to ${ticket.contractorName || "Contractor"}`}
+                      </span>
                     </button>
-
-                    {contractorThread && (
-                      <button
-                        type="button"
-                        onClick={() => router.push(`/inbox?thread=${contractorThread.id}`)}
-                        className="text-xs font-bold text-[var(--accent-ink)] hover:underline underline-offset-4 cursor-pointer"
-                      >
-                        Connect {contractorFirstName} →
-                      </button>
-                    )}
                   </div>
                 </div>
 
-                {/* Collapsible Details Drawer (Clean, less boxy, full context) */}
+                {/* Collapsible Details Section: In-Place Context & Full Ticket on Same Page */}
                 {isEmergencyExpanded && (
                   <div className="border-t border-[var(--line)] bg-[var(--bg)]/60 px-5 py-4 space-y-4 text-xs animate-in fade-in duration-150">
-                    <div>
-                      <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)] block mb-1">
-                        Reported Issue by {topUrgentThread.senderName} ({topUrgentThread.unitLabel})
-                      </span>
-                      <p className="text-[13.5px] text-[var(--ink)] italic leading-relaxed pl-3.5 border-l-2 border-[var(--accent)] select-text">
-                        "{topUrgentThread.latestSnippet}"
+                    {/* Inbound Distress Message with Channel Tag */}
+                    <div className="bg-[var(--pane)] rounded-xl border border-[var(--line)] p-3.5">
+                      <div className="flex items-center justify-between text-[11px] font-semibold text-[var(--ink-3)] mb-1.5">
+                        <div className="flex items-center gap-1.5">
+                          {tenantChannel === "whatsapp" ? (
+                            <span className="inline-flex items-center gap-1 text-[#25D366] font-medium">
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              <span>Inbound via WhatsApp · {topUrgentThread.senderContact || ticket.tenantPhone}</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[#EA4335] font-medium">
+                              <Mail className="w-3.5 h-3.5" />
+                              <span>Inbound via Email · {topUrgentThread.senderContact || "pieter.bakker@gmail.com"}</span>
+                            </span>
+                          )}
+                          <span>·</span>
+                          <span className="text-[var(--ink-2)] font-medium">{ticket.tenantName} ({ticket.unitLabel})</span>
+                        </div>
+                        <span className="font-mono text-[10px] text-[var(--ink-3)] uppercase bg-[var(--selected)] px-2 py-0.5 rounded">
+                          {topUrgentThread.relativeTime || "Today 08:15"}
+                        </span>
+                      </div>
+                      <p className="text-[13.5px] text-[var(--ink)] italic leading-relaxed pl-3 border-l-2 border-[var(--accent)] select-text">
+                        "{topUrgentThread.latestSnippet || ticket.originalMessage}"
                       </p>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-                      <div className="bg-[var(--pane)] p-3 rounded-xl border border-[var(--line)]">
-                        <span className="text-[var(--ink-3)] block text-[11px]">Assigned Contractor</span>
-                        <span className="font-semibold text-[var(--ink)] text-[13px] block mt-0.5">
-                          {contractorThread?.senderName || "Chahal Bouw (Electrician)"}
-                        </span>
-                        <span className="text-[11px] text-[var(--ink-3)] block mt-0.5">+31 6 88 12 34 56 · 11:30 CET</span>
-                      </div>
-
-                      <div className="bg-[var(--pane)] p-3 rounded-xl border border-[var(--line)]">
-                        <span className="text-[var(--ink-3)] block text-[11px]">Authorized Work Order</span>
-                        <span className="font-semibold text-[var(--ink)] text-[13px] block mt-0.5">
-                          Ticket #005 (€ 650 cap)
-                        </span>
-                        <span className="text-[11px] text-[var(--ink-3)] block mt-0.5">Lockbox PIN: 4182</span>
-                      </div>
-
-                      <div className="bg-[var(--pane)] p-3 rounded-xl border border-[var(--line)] flex flex-col justify-between">
+                    {/* Staged Action Cards: Reply to Tenant vs Work Order to Contractor */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Card 1: Reply to Tenant (same channel) */}
+                      <div className="bg-[var(--pane)] rounded-xl border border-[var(--line)] p-3.5 flex flex-col justify-between space-y-3">
                         <div>
-                          <span className="text-[var(--ink-3)] block text-[11px]">Recommended Protocol</span>
-                          <span className="font-medium text-[var(--accent-ink)] text-[12.5px] block mt-0.5">
-                            Dispatch Kevin & notify tenant
-                          </span>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--ink-3)] flex items-center gap-1.5">
+                              {tenantChannel === "whatsapp" ? (
+                                <MessageSquare className="w-3.5 h-3.5 text-[#25D366]" />
+                              ) : (
+                                <Mail className="w-3.5 h-3.5 text-[#EA4335]" />
+                              )}
+                              <span>1. Reply to Tenant ({tenantChannel === "whatsapp" ? "WhatsApp" : "Email"})</span>
+                            </span>
+                            <span
+                              className={cn(
+                                "text-[10px] font-semibold px-2 py-0.5 rounded-full border",
+                                isTenantReplied
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                  : "bg-amber-50 text-amber-700 border-amber-200"
+                              )}
+                            >
+                              {isTenantReplied ? "✓ Message Sent" : "Draft Staged"}
+                            </span>
+                          </div>
+                          <textarea
+                            rows={3}
+                            value={customTenantReplyText[ticket.ticketNumber] ?? ticket.tenantDraft ?? ""}
+                            onChange={(e) =>
+                              setCustomTenantReplyText((prev) => ({
+                                ...prev,
+                                [ticket.ticketNumber]: e.target.value,
+                              }))
+                            }
+                            disabled={isTenantReplied}
+                            className="w-full text-xs p-2.5 rounded-lg border border-[var(--line)] bg-[var(--bg)] focus:bg-[var(--pane)] focus:outline-hidden focus:border-[var(--accent)] resize-none transition-colors"
+                            placeholder="Type reply to tenant..."
+                          />
                         </div>
-                        <Link
-                          href="/maintenance?ticket=005"
-                          className="text-[11px] font-bold text-[var(--ink)] hover:underline inline-flex items-center gap-1 mt-2"
-                        >
-                          <span>Review & Edit Work Order</span>
-                          <span>→</span>
-                        </Link>
+
+                        <div className="flex items-center justify-between pt-1">
+                          <span className="text-[11px] text-[var(--ink-3)]">
+                            Recipient: {ticket.tenantName} ({topUrgentThread.senderContact || ticket.tenantPhone})
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleSendTenantReply(ticket, tenantChannel, emergencyKey)}
+                            disabled={isTenantReplied}
+                            className={cn(
+                              "px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs",
+                              isTenantReplied
+                                ? "bg-emerald-100 text-emerald-800 cursor-default"
+                                : "bg-[var(--ink)] text-white hover:bg-[var(--ink)]/90"
+                            )}
+                          >
+                            {isTenantReplied ? (
+                              <>
+                                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Sent via {tenantChannel === "whatsapp" ? "WhatsApp" : "Email"}</span>
+                              </>
+                            ) : (
+                              <>
+                                <Send className="w-3.5 h-3.5 text-[var(--accent)]" />
+                                <span>Send via {tenantChannel === "whatsapp" ? "WhatsApp" : "Email"}</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Card 2: Work Order to Contractor */}
+                      <div className="bg-[var(--pane)] rounded-xl border border-[var(--line)] p-3.5 flex flex-col justify-between space-y-3">
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--ink-3)] flex items-center gap-1.5">
+                              <Wrench className="w-3.5 h-3.5 text-[var(--accent-ink)]" />
+                              <span>2. Work Order ({ticket.contractorName})</span>
+                            </span>
+                            <span
+                              className={cn(
+                                "text-[10px] font-semibold px-2 py-0.5 rounded-full border",
+                                isContractorDispatched
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                  : "bg-blue-50 text-blue-700 border-blue-200"
+                              )}
+                            >
+                              {isContractorDispatched ? "✓ Dispatched" : `Cap: ${ticket.poBudgetCap}`}
+                            </span>
+                          </div>
+                          <textarea
+                            rows={3}
+                            value={customContractorText[ticket.ticketNumber] ?? ticket.contractorDraft ?? ""}
+                            onChange={(e) =>
+                              setCustomContractorText((prev) => ({
+                                ...prev,
+                                [ticket.ticketNumber]: e.target.value,
+                              }))
+                            }
+                            disabled={isContractorDispatched}
+                            className="w-full text-xs p-2.5 rounded-lg border border-[var(--line)] bg-[var(--bg)] focus:bg-[var(--pane)] focus:outline-hidden focus:border-[var(--accent)] resize-none transition-colors"
+                            placeholder="Contractor work order details..."
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between pt-1">
+                          <span className="text-[11px] text-[var(--ink-3)]">
+                            {ticket.contractorTrade} · Lockbox #4182
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleDispatchContractor(ticket, emergencyKey)}
+                            disabled={isContractorDispatched}
+                            className={cn(
+                              "px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs",
+                              isContractorDispatched
+                                ? "bg-emerald-100 text-emerald-800 cursor-default"
+                                : "bg-[var(--ink)] text-white hover:bg-[var(--ink)]/90"
+                            )}
+                          >
+                            {isContractorDispatched ? (
+                              <>
+                                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Dispatched</span>
+                              </>
+                            ) : (
+                              <>
+                                <Wrench className="w-3.5 h-3.5 text-[var(--accent)]" />
+                                <span>Dispatch Work Order</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
                     </div>
 
-                    {/* Dual Staged Message Actions */}
+                    {/* Quick In-Place Action Bar */}
                     <div className="pt-2 border-t border-[var(--line)]/60 flex flex-wrap items-center justify-between gap-3">
                       <div className="text-[12px] text-[var(--ink-2)]">
-                        {dispatchedEmergency005 ? (
+                        {isContractorDispatched && isTenantReplied ? (
                           <span className="inline-flex items-center gap-1.5 font-semibold text-emerald-600">
                             <Check className="w-4 h-4" />
-                            <span>Work order dispatched to Chahal Bouw & tenant Pieter notified</span>
+                            <span>Ticket {ticket.ticketNumber} fully approved & dispatched to contractor and tenant.</span>
                           </span>
                         ) : (
-                          <span>Both contractor work order and tenant confirmation are staged and ready.</span>
+                          <span>Review the two drafts above or approve and dispatch both in one click.</span>
                         )}
                       </div>
 
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => router.push("/maintenance?ticket=005")}
-                          className="px-3 py-1.5 rounded-lg border border-[var(--line)] text-xs font-medium text-[var(--ink)] hover:bg-[var(--selected)] transition-colors cursor-pointer"
+                          onClick={() => {
+                            setActiveEditTicket(ticket);
+                            setIsEditModalOpen(true);
+                          }}
+                          className="px-3 py-1.5 rounded-lg border border-[var(--line)] text-xs font-medium text-[var(--ink)] hover:bg-[var(--selected)] transition-colors cursor-pointer inline-flex items-center gap-1.5"
                         >
-                          Edit Ticket Details
+                          <Pencil className="w-3.5 h-3.5 text-[var(--accent-ink)]" />
+                          <span>Edit Ticket Details</span>
                         </button>
 
-                        {!dispatchedEmergency005 ? (
+                        {!(isContractorDispatched && isTenantReplied) && (
                           <button
                             type="button"
-                            onClick={async () => {
-                              setDispatchedEmergency005(true);
-                              setToastMessage("Ticket #005: Work order dispatched to Chahal Bouw & tenant notified.");
-                              try {
-                                await approveMaintenanceTicket("005", {
-                                  dispatchContractor: true,
-                                  notifyTenant: true,
-                                });
-                              } catch {
-                                // Handled gracefully
-                              }
-                            }}
+                            onClick={() => handleApproveBoth(ticket, tenantChannel, emergencyKey)}
                             className="px-3.5 py-1.5 rounded-lg bg-[var(--ink)] text-white text-xs font-bold hover:bg-[var(--ink)]/90 transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
                           >
                             <Check className="w-3.5 h-3.5 text-[var(--accent)]" />
                             <span>Approve & Dispatch Both</span>
                           </button>
-                        ) : (
-                          <span className="text-xs font-semibold text-emerald-600 px-3 py-1 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
-                            Dispatched
-                          </span>
                         )}
                       </div>
                     </div>
@@ -585,14 +850,103 @@ export default function TodayPage() {
                     count: t.messages?.length || 1,
                   };
 
+                  const isMaintenance = t.category === "maintenance" && t.recipientRole !== "contractor";
+
                   return (
-                    <ThreadRow
-                      key={t.id}
-                      t={rowItem}
-                      onSelect={() => router.push(`/inbox?thread=${t.id}`)}
-                      onDone={() => showToast(`Thread ${t.senderName} marked as done.`)}
-                      onSnooze={() => showToast(`Thread ${t.senderName} snoozed until tomorrow 09:00.`)}
-                    />
+                    <div key={t.id} className="group">
+                      <ThreadRow
+                        t={rowItem}
+                        onSelect={() => router.push(`/inbox?thread=${t.id}`)}
+                        onDone={() => showToast(`Thread ${t.senderName} marked as done.`)}
+                        onSnooze={() => showToast(`Thread ${t.senderName} snoozed until tomorrow 09:00.`)}
+                      />
+                      {/* For maintenance messages: strictly isolated by thread ID (t.id) */}
+                      {isMaintenance && (() => {
+                        const mTicket = maintenanceTickets.find(
+                          (mt) => mt.ticketNumber === t.ticketNumber || mt.ticketNumber === `#${t.ticketNumber?.replace('#', '')}`
+                        ) || {
+                          ...DEFAULT_TICKET_005,
+                          id: `m-${t.id}`,
+                          ticketNumber: t.ticketNumber || `#0${t.id.replace(/\D/g, '').slice(-2) || '15'}`,
+                          unitLabel: t.unitLabel || DEFAULT_TICKET_005.unitLabel,
+                          tenantName: t.senderName || DEFAULT_TICKET_005.tenantName,
+                          tenantPhone: t.senderContact || DEFAULT_TICKET_005.tenantPhone,
+                          issueTitle: t.subject || t.latestSnippet || DEFAULT_TICKET_005.issueTitle,
+                        };
+
+                        const tChannel = t.channel === "gmail" ? "gmail" : "whatsapp";
+                        const isReplied = Boolean(tenantReplySentMap[t.id]);
+                        const isDispatched = Boolean(contractorDispatchedMap[t.id]);
+
+                        return (
+                          <div className="bg-[var(--bg)]/50 border-b border-[var(--line)] px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-[11px] font-semibold text-[var(--ink)] bg-[var(--selected)] px-2 py-0.5 rounded border border-[var(--line)]">
+                                {mTicket.ticketNumber} Maintenance
+                              </span>
+                              <span className="text-[var(--ink-3)] hidden sm:inline truncate max-w-xs">
+                                Cap: {mTicket.poBudgetCap} · {mTicket.contractorName}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActiveEditTicket(mTicket);
+                                  setIsEditModalOpen(true);
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-[var(--pane)] hover:bg-[var(--selected)] border border-[var(--line)] text-xs font-medium text-[var(--ink)] transition-colors cursor-pointer"
+                                title="View/Edit ticket details on this page"
+                              >
+                                <Ticket className="w-3 h-3 text-[var(--accent-ink)]" />
+                                <span>Ticket Details</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSendTenantReply(mTicket, tChannel, t.id);
+                                }}
+                                className={cn(
+                                  "inline-flex items-center gap-1 px-2.5 py-1 rounded border text-xs font-semibold transition-colors cursor-pointer",
+                                  isReplied
+                                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                    : "bg-[var(--pane)] hover:bg-[var(--selected)] text-[var(--ink)] border-[var(--line)]"
+                                )}
+                              >
+                                {tChannel === "whatsapp" ? (
+                                  <MessageSquare className="w-3 h-3 text-[#25D366]" />
+                                ) : (
+                                  <Mail className="w-3 h-3 text-[#EA4335]" />
+                                )}
+                                <span>{isReplied ? "Replied" : `Reply (${tChannel === "whatsapp" ? "WhatsApp" : "Email"})`}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDispatchContractor(mTicket, t.id);
+                                }}
+                                disabled={isDispatched}
+                                className={cn(
+                                  "inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold transition-colors cursor-pointer",
+                                  isDispatched
+                                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                    : "bg-[var(--ink)] hover:bg-[var(--ink)]/90 text-white"
+                                )}
+                              >
+                                <Wrench className="w-3 h-3 text-[var(--accent)]" />
+                                <span>{isDispatched ? "Dispatched" : "Dispatch"}</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
                   );
                 })
               ) : (
@@ -676,7 +1030,7 @@ export default function TodayPage() {
                 <div
                   key={lead.id}
                   onClick={() => router.push("/inbox?audience=inquiries")}
-                  className="p-4 sm:px-5 sm:py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm hover:bg-[var(--selected)]/40 transition-colors cursor-pointer select-none"
+                  className="p-4 sm:px-5 sm:py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm hover:bg-[var(--selected)]/40 transition-colors cursor-pointer"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -872,6 +1226,17 @@ export default function TodayPage() {
 
       {/* Mobile Bottom Tab Bar */}
       <MobileTabBar pendingCount={currentNeedsYouCount} />
+
+      {/* In-Place Maintenance Ticket Edit Modal */}
+      {activeEditTicket && (
+        <EditTicketModal
+          ticket={activeEditTicket}
+          isOpen={isEditModalOpen}
+          onClose={() => setIsEditModalOpen(false)}
+          onSave={handleSaveTicket}
+          onShowToast={showToast}
+        />
+      )}
     </div>
   );
 }

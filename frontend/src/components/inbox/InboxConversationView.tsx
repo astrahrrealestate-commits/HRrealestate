@@ -22,6 +22,8 @@ import { Composer } from "@/components/inbox/Composer";
 import { isUrgent } from "@/lib/selectors";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { EditTicketModal } from "@/components/maintenance/EditTicketModal";
+import { MaintenanceTicket, updateMaintenanceTicket } from "@/lib/api";
 
 interface InboxConversationViewProps {
   thread: InboxThread | null;
@@ -43,6 +45,7 @@ export function InboxConversationView({
   className,
 }: InboxConversationViewProps) {
   const [showEarlier, setShowEarlier] = useState(false);
+  const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
   const [expandedEnglishMsgIds, setExpandedEnglishMsgIds] = useState<Record<string, boolean>>({});
   const [isSent, setIsSent] = useState(false);
   const [localMessages, setLocalMessages] = useState<ThreadMessage[]>([]);
@@ -204,7 +207,7 @@ export function InboxConversationView({
   return (
     <section
       className={cn(
-        "flex h-full flex-1 min-h-0 flex-col bg-[var(--pane)] overflow-hidden select-none",
+        "flex h-full flex-1 min-h-0 flex-col bg-[var(--pane)] overflow-hidden",
         className
       )}
     >
@@ -255,11 +258,12 @@ export function InboxConversationView({
             <Button
               variant="ghost"
               size="sm"
-              icon={<Ticket className="w-3.5 h-3.5" />}
-              className="hidden sm:inline-flex text-xs"
-              onClick={() => {}}
+              icon={<Ticket className="w-3.5 h-3.5 text-[var(--accent-ink)]" />}
+              className="text-xs border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)]"
+              onClick={() => setIsTicketModalOpen(true)}
+              title="View and Edit Maintenance Ticket details"
             >
-              Ticket
+              Ticket {thread.ticketNumber}
             </Button>
           )}
 
@@ -542,6 +546,44 @@ export function InboxConversationView({
         onUndo={handleUndo}
         isSent={isSent}
       />
+
+      {/* In-Place Maintenance Ticket Modal */}
+      {thread.ticketNumber && (
+        <EditTicketModal
+          ticket={{
+            id: thread.ticketNumber.replace("#", "m-"),
+            ticketNumber: thread.ticketNumber,
+            issueTitle: thread.issueTitle || thread.subject || "Maintenance Request",
+            unitLabel: thread.unitLabel || "Unassigned Unit",
+            tenantName: thread.senderName || "Tenant",
+            tenantPhone: thread.senderContact || "+31 6 12 34 41 87",
+            category: "electrical",
+            contractorName: "Chahal Bouw",
+            contractorTrade: "Electrician",
+            contractorPhone: "+31 6 88 12 34 56",
+            urgency: thread.urgency === "emergency" ? "emergency" : "normal",
+            status: "pending_approval",
+            slaRemaining: "38m SLA",
+            isOverdue: false,
+            poBudgetCap: "€ 650",
+            reportedAt: thread.relativeTime || "Today",
+            notes: thread.caseSummary || "",
+            originalMessage: thread.latestSnippet || "",
+            contractorDraft: `Beste Kevin (Chahal Bouw), spoedmelding voor ${thread.unitLabel}: ${thread.subject || thread.issueTitle}. Huurder ${thread.senderName} (${thread.senderContact}) is aanwezig. Geautoriseerd budgetplafond: € 650. Sleutelkast pincode: 4182. Gelieve ETA te bevestigen.`,
+            tenantDraft: `Beste ${thread.senderName?.split(" ")[0] || "huurder"}, we hebben je melding over ${thread.subject?.toLowerCase() || "het onderhoud"} ontvangen. Onze monteur is geautoriseerd en neemt contact op. Met vriendelijke groet, Harjot`,
+          }}
+          isOpen={isTicketModalOpen}
+          onClose={() => setIsTicketModalOpen(false)}
+          onSave={async (updated) => {
+            try {
+              await updateMaintenanceTicket(updated.ticketNumber, updated);
+            } catch {
+              // Graceful
+            }
+            setIsTicketModalOpen(false);
+          }}
+        />
+      )}
     </section>
   );
 }

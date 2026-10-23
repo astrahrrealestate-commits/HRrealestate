@@ -214,7 +214,7 @@ function PropertiesContent() {
                     key={comp.id}
                     onClick={() => handleSelectComplex(comp.id)}
                     className={cn(
-                      "w-full text-left p-3.5 transition-colors relative flex flex-col gap-1 cursor-pointer select-none",
+                      "w-full text-left p-3.5 transition-colors relative flex flex-col gap-1 cursor-pointer",
                       isSelected
                         ? "bg-[var(--selected)] border-l-[3px] border-l-[var(--ink)]"
                         : "hover:bg-[var(--selected)]/40 border-l-[3px] border-l-transparent"
@@ -346,7 +346,7 @@ function PropertiesContent() {
                       key={unit.id}
                       onClick={() => handleSelectUnit(unit)}
                       className={cn(
-                        "relative p-2.5 rounded-[var(--radius-pane)] border transition-all text-left flex flex-col justify-between h-[112px] min-w-0 cursor-pointer select-none",
+                        "relative p-2.5 rounded-[var(--radius-pane)] border transition-all text-left flex flex-col justify-between h-[112px] min-w-0 cursor-pointer",
                         isUnitSelected
                           ? "border-[var(--ink)] bg-[var(--selected)] shadow-2xs"
                           : "border-[var(--line)] bg-[var(--pane)] hover:border-[var(--ink-3)] hover:bg-[var(--selected)]/30"
@@ -594,7 +594,7 @@ function PropertiesContent() {
                   <button
                     key={comp.id}
                     onClick={() => handleSelectComplex(comp.id)}
-                    className="w-full text-left p-4 flex items-center justify-between hover:bg-[var(--selected)]/40 active:bg-[var(--selected)] transition-colors cursor-pointer select-none"
+                    className="w-full text-left p-4 flex items-center justify-between hover:bg-[var(--selected)]/40 active:bg-[var(--selected)] transition-colors cursor-pointer"
                   >
                     <div className="min-w-0 flex-1 pr-3">
                       <div className="flex items-center justify-between">

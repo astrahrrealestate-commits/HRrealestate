@@ -95,7 +95,7 @@ export function InboxThreadList({
   return (
     <div
       className={cn(
-        "w-full h-full overflow-y-auto bg-[var(--pane)] border-r border-[var(--line)] flex flex-col select-none",
+        "w-full h-full overflow-y-auto bg-[var(--pane)] border-r border-[var(--line)] flex flex-col",
         className
       )}
     >

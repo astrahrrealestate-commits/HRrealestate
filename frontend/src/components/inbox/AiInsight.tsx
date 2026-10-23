@@ -77,7 +77,7 @@ export function AiInsight({ data, className }: AiInsightProps) {
   return (
     <div
       className={cn(
-        "border border-[var(--line)] rounded-[var(--radius-ctl)] bg-[var(--pane)] transition-all select-none",
+        "border border-[var(--line)] rounded-[var(--radius-ctl)] bg-[var(--pane)] transition-all",
         className
       )}
     >

@@ -129,7 +129,7 @@ function SettingsContent() {
                     key={group.id}
                     onClick={() => handleSelectGroup(group.id)}
                     className={cn(
-                      "w-full text-left p-4 transition-colors relative flex items-center justify-between cursor-pointer select-none",
+                      "w-full text-left p-4 transition-colors relative flex items-center justify-between cursor-pointer",
                       isSelected
                         ? "bg-[var(--selected)] border-l-[3px] border-l-[var(--ink)]"
                         : "hover:bg-[var(--selected)]/40 border-l-[3px] border-l-transparent"
@@ -247,7 +247,7 @@ function SettingsContent() {
                     <button
                       key={group.id}
                       onClick={() => handleSelectGroup(group.id)}
-                      className="w-full text-left p-4 flex items-center justify-between hover:bg-[var(--selected)]/40 active:bg-[var(--selected)] transition-colors cursor-pointer select-none min-h-[64px]"
+                      className="w-full text-left p-4 flex items-center justify-between hover:bg-[var(--selected)]/40 active:bg-[var(--selected)] transition-colors cursor-pointer min-h-[64px]"
                     >
                       <div className="flex items-center gap-3.5 min-w-0 pr-2">
                         <Icon className="w-5 h-5 text-[var(--ink-2)] shrink-0" />

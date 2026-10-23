@@ -217,7 +217,7 @@ function TenantsContent() {
                     key={tenant.id}
                     onClick={() => handleSelectTenant(tenant)}
                     className={cn(
-                      "w-full text-left p-3.5 transition-colors relative flex flex-col gap-1 cursor-pointer select-none",
+                      "w-full text-left p-3.5 transition-colors relative flex flex-col gap-1 cursor-pointer",
                       isSelected
                         ? "bg-[var(--selected)] border-l-[3px] border-l-[var(--ink)]"
                         : "hover:bg-[var(--selected)]/40 border-l-[3px] border-l-transparent"
@@ -387,7 +387,7 @@ function TenantsContent() {
                       <div
                         key={doc.id}
                         onClick={() => setActivePreviewDoc(doc)}
-                        className="p-3.5 flex items-center justify-between hover:bg-[var(--selected)]/50 transition-colors cursor-pointer select-none"
+                        className="p-3.5 flex items-center justify-between hover:bg-[var(--selected)]/50 transition-colors cursor-pointer"
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <FileText className="w-4 h-4 text-[var(--ink-2)] shrink-0" />
@@ -544,7 +544,7 @@ function TenantsContent() {
                   <button
                     key={tenant.id}
                     onClick={() => handleSelectTenant(tenant)}
-                    className="w-full text-left p-4 flex items-center justify-between hover:bg-[var(--selected)]/40 active:bg-[var(--selected)] transition-colors cursor-pointer select-none min-h-[64px]"
+                    className="w-full text-left p-4 flex items-center justify-between hover:bg-[var(--selected)]/40 active:bg-[var(--selected)] transition-colors cursor-pointer min-h-[64px]"
                   >
                     <div className="min-w-0 flex-1 pr-3">
                       <div className="flex items-center justify-between">
@@ -676,7 +676,7 @@ function TenantsContent() {
                       <div
                         key={doc.id}
                         onClick={() => setActivePreviewDoc(doc)}
-                        className="p-3 flex items-center justify-between hover:bg-[var(--selected)]/50 active:bg-[var(--selected)] transition-colors cursor-pointer select-none"
+                        className="p-3 flex items-center justify-between hover:bg-[var(--selected)]/50 active:bg-[var(--selected)] transition-colors cursor-pointer"
                       >
                         <div className="flex items-center gap-2.5 min-w-0 pr-2">
                           <FileText className="w-4 h-4 text-[var(--ink-2)] shrink-0" />
