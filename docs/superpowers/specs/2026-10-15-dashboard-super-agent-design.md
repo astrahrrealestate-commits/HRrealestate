@@ -315,3 +315,8 @@ streaming** in this round.
     and `resolved_at` is at most 120 s before the turn's own `now()` (its `created_at`); the run then skips resolving
     exactly like a retry. The snapshot and filters always come from the message. The TTL is applied at read time; the
     row is overwritten by the next PUT (never by an older resolution, never across companies), so nothing grows.
+    *Fix round 1 (2026-10-23):* freshness is server-side. A candidate reuse is dropped when the company has a message,
+    an approval created or decided, or a case event newer than `resolved_at - 2 s` (one statement of four
+    company-scoped `max()` lookups, indexes from migration 0016), so a tenant message that arrives after the pre-warm
+    is never missing; the SPA pre-warms on navigation and may re-warm after its own writes, for speed only. A failed
+    state read never fails the message (savepoint, cold page).

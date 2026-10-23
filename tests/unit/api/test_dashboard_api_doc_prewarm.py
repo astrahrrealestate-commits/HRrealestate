@@ -6,7 +6,7 @@ from pathlib import Path
 
 from app.api.v1.ratelimit import PAGE_PER_MIN
 from app.contracts import PageContext, PageView
-from app.pipeline.page_state import PAGE_TTL
+from app.pipeline.page_state import FRESHNESS_MARGIN, PAGE_TTL
 
 DOC = Path(__file__).resolve().parents[3] / "docs" / "dashboard-api.md"
 
@@ -30,5 +30,9 @@ def test_documented_ttl_debounce_and_limit_match_the_code() -> None:
     assert f"at most {int(PAGE_TTL.total_seconds())} seconds before the message" in section
     assert "debounced about 300 ms" in section
     assert "`204`" in section
+    assert f"anything from {int(FRESHNESS_MARGIN.total_seconds())} seconds before the pre-warm" in section
+    for source in ("a message (any", "an approval created or decided", "a case event"):
+        assert source in section
+    assert "SSE event for it" not in section  # no such event exists: freshness is server-side
     text = DOC.read_text(encoding="utf-8")
     assert f"| `PUT /agent/page` | {PAGE_PER_MIN} / min | owner" in text

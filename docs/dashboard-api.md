@@ -261,7 +261,8 @@ When the SPA calls it:
 - on navigation to a page, debounced about 300 ms (only the last page of a quick click-through is sent);
 - again when the open entity changes (another thread, case, approval, task or document on the same view) or the rows
   on screen change (new `visible_ids` or a new order);
-- again when the open thread or case gets a new message (an SSE event for it), so the warmed facts include it.
+- optionally again after the SPA's own writes on that page (an approve, edit or task change), so the next message
+  stays fast. This is only for speed; correctness does not depend on it (see below).
 
 The body is the same object as `page` on `POST /agent/messages`, with the same limits and `422` rules. Answer `204`
 with no body; `503` means try later or just ignore it. Foreign or unknown ids are dropped exactly as for a message.
@@ -269,8 +270,11 @@ with no body; `503` means try later or just ignore it. Foreign or unknown ids ar
 When a message reuses the warmed facts: only for the same owner (the session's, never ids in the body), when the
 message's `page` has the same `view`, the same open ids in the same fields and the same `visible_ids` in the same order,
 and the facts were resolved at most 120 seconds before the message. `filters` and `snapshot` do not matter for
-the match. Otherwise the message resolves its facts as before. Facts can therefore be up to 120 seconds old; call the
-pre-warm again when the page changes (above).
+the match. The server also drops warmed facts as soon as your company has anything newer than them: a message (any
+channel, inbound or outbound), an approval created or decided, or a case event (state change, note), counting
+anything from 2 seconds before the pre-warm. So a tenant message that arrives after the pre-warm is never missing:
+the message then resolves its facts itself, as it does without a pre-warm. There is no SSE event to re-warm on, and
+none is needed.
 
 Why the snapshot is not stored: the server keeps only the latest resolved facts per owner (one row, overwritten by
 each call), never the client's `snapshot` or `filters`. A message always sends its own `page`, and its snapshot is the

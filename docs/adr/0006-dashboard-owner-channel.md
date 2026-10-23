@@ -88,5 +88,6 @@ Agent in front of the other agents. Tenant messages are mirrored in the dashboar
   amounts from the server facts (prompt `concierge/v5`), contact and bank details are always redacted.
 - **Page pre-warm (Task 4).** `PUT /agent/page` resolves the open page's facts for the session owner ahead of the next
   message and keeps only the latest per owner (`agent_page_state`, migration 0015, no snapshot); a turn reuses them
-  only for the same owner and page key within 120 s, else resolves as before. It never creates a turn, calls a model
-  or changes what the agent may do.
+  only for the same owner and page key within 120 s and only while the company has no newer message, approval or case
+  event (server-side check, migration 0016), else resolves as before. It never creates a turn, calls a model or
+  changes what the agent may do.
