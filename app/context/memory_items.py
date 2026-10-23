@@ -144,16 +144,103 @@ def format_owner_preferences_block(items: Sequence[MemoryItem]) -> str | None:
     return data_block("owner_preferences", "\n".join(lines))
 
 
-def retire_memory(session: Session, company_id: UUID, memory_id: UUID) -> bool:
-    """Retire a memory item so it is excluded from active prompts."""
-    item = session.scalar(
+def get_memory_item(session: Session, company_id: UUID, memory_id: UUID) -> MemoryItem | None:
+    """Retrieve a single memory item for the given company."""
+    return session.scalar(
         select(MemoryItem).where(
             MemoryItem.company_id == company_id,
             MemoryItem.id == memory_id,
         )
     )
+
+
+def list_memory_items(
+    session: Session,
+    company_id: UUID,
+    *,
+    status: MemoryStatus | None = None,
+    scope: MemoryScope | None = None,
+    kind: MemoryKind | None = None,
+    limit: int = 50,
+) -> list[MemoryItem]:
+    """List memory items with company isolation, optional filters, and bounded pagination."""
+    query = select(MemoryItem).where(MemoryItem.company_id == company_id)
+    if status is not None:
+        query = query.where(MemoryItem.status == status)
+    if scope is not None:
+        query = query.where(MemoryItem.scope == scope)
+    if kind is not None:
+        query = query.where(MemoryItem.kind == kind)
+    capped = min(max(1, limit), 100)
+    query = query.order_by(MemoryItem.created_at.desc(), MemoryItem.id.desc()).limit(capped)
+    return list(session.scalars(query).all())
+
+
+def update_memory_item(
+    session: Session,
+    company_id: UUID,
+    memory_id: UUID,
+    *,
+    text: str | None = None,
+    status: MemoryStatus | None = None,
+    scope: MemoryScope | None = None,
+    scope_id: UUID | None = None,
+    kind: MemoryKind | None = None,
+) -> tuple[MemoryItem | None, str | None]:
+    """Update a memory item with validation and screening (Task C11)."""
+    item = get_memory_item(session, company_id, memory_id)
+    if item is None:
+        return None, "Not found"
+
+    if text is not None:
+        refusal = screen_memory_text(text)
+        if refusal is not None:
+            return None, refusal
+        clean_text = normalize_memory_text(text)
+        if not clean_text:
+            return None, "Memory text cannot be empty"
+        item.text = clean_text
+
+    if status is not None:
+        item.status = status
+    if scope is not None:
+        item.scope = scope
+    if scope_id is not None:
+        item.scope_id = scope_id
+    if kind is not None:
+        item.kind = kind
+
+    item.updated_at = datetime.now(tz=UTC)
+    session.flush()
+    return item, None
+
+
+def retire_memory(session: Session, company_id: UUID, memory_id: UUID) -> bool:
+    """Retire a memory item so it is excluded from active prompts."""
+    item = get_memory_item(session, company_id, memory_id)
     if item is None:
         return False
     item.status = MemoryStatus.retired
+    item.updated_at = datetime.now(tz=UTC)
     session.flush()
     return True
+
+
+def sweep_retired_memories(session: Session, company_id: UUID, cutoff: datetime) -> int:
+    """Retire active memories unused for >= 180 days (spec §6.3, Task C11)."""
+    from sqlalchemy import and_, or_, update
+
+    result = session.execute(
+        update(MemoryItem)
+        .where(
+            MemoryItem.company_id == company_id,
+            MemoryItem.status == MemoryStatus.active,
+            or_(
+                and_(MemoryItem.last_used_at.is_not(None), MemoryItem.last_used_at < cutoff),
+                and_(MemoryItem.last_used_at.is_(None), MemoryItem.created_at < cutoff),
+            ),
+        )
+        .values(status=MemoryStatus.retired, updated_at=datetime.now(tz=UTC))
+    )
+    session.flush()
+    return int(result.rowcount)  # type: ignore[attr-defined]  # CursorResult from a DML statement

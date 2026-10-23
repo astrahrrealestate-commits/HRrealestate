@@ -1674,6 +1674,438 @@
           ]
         }
       },
+      "/api/v1/memory": {
+        "get": {
+          "operationId": "list_memories_api_v1_memory_get",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "status",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/MemoryStatus"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Status"
+              }
+            },
+            {
+              "in": "query",
+              "name": "scope",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/MemoryScope"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Scope"
+              }
+            },
+            {
+              "in": "query",
+              "name": "kind",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/MemoryKind"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Kind"
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "required": false,
+              "schema": {
+                "default": 50,
+                "maximum": 100,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/MemoryItemOut"
+                    },
+                    "title": "Response List Memories Api V1 Memory Get",
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "List Memories",
+          "tags": [
+            "memory"
+          ]
+        },
+        "post": {
+          "operationId": "create_memory_api_v1_memory_post",
+          "parameters": [
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateMemoryIn"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "201": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/MemoryItemOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Create Memory",
+          "tags": [
+            "memory"
+          ]
+        }
+      },
+      "/api/v1/memory/{memory_id}": {
+        "delete": {
+          "operationId": "delete_memory_api_v1_memory__memory_id__delete",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "memory_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Memory Id",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "responses": {
+            "204": {
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Delete Memory",
+          "tags": [
+            "memory"
+          ]
+        },
+        "get": {
+          "operationId": "get_memory_api_v1_memory__memory_id__get",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "memory_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Memory Id",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/MemoryItemOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Get Memory",
+          "tags": [
+            "memory"
+          ]
+        },
+        "patch": {
+          "operationId": "update_memory_api_v1_memory__memory_id__patch",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "memory_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Memory Id",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateMemoryIn"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/MemoryItemOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Update Memory",
+          "tags": [
+            "memory"
+          ]
+        }
+      },
+      "/api/v1/memory/{memory_id}/approve": {
+        "post": {
+          "operationId": "approve_memory_api_v1_memory__memory_id__approve_post",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "memory_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Memory Id",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/MemoryItemOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Approve Memory",
+          "tags": [
+            "memory"
+          ]
+        }
+      },
+      "/api/v1/memory/{memory_id}/reject": {
+        "post": {
+          "operationId": "reject_memory_api_v1_memory__memory_id__reject_post",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "memory_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Memory Id",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/MemoryItemOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Reject Memory",
+          "tags": [
+            "memory"
+          ]
+        }
+      },
       "/api/v1/tasks": {
         "get": {
           "operationId": "get_tasks_api_v1_tasks_get",
@@ -2534,6 +2966,42 @@
         "title": "ConversationOut",
         "type": "object"
       },
+      "CreateMemoryIn": {
+        "description": "Input payload to record an owner preference or standing rule.",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/MemoryKind",
+            "default": "preference"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/MemoryScope",
+            "default": "company"
+          },
+          "scope_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Id"
+          },
+          "text": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "CreateMemoryIn",
+        "type": "object"
+      },
       "DecideIn": {
         "properties": {
           "choice": {
@@ -3116,6 +3584,153 @@
         ],
         "title": "LinkOut",
         "type": "object"
+      },
+      "MemoryItemOut": {
+        "description": "T5 Preference/Rule/Fact memory representation (spec \u00a76.2, Task C11).",
+        "properties": {
+          "company_id": {
+            "format": "uuid",
+            "title": "Company Id",
+            "type": "string"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "evidence_count": {
+            "title": "Evidence Count",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/MemoryKind"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/MemoryOrigin"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/MemoryScope"
+          },
+          "scope_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Id"
+          },
+          "source_refs": {
+            "items": {},
+            "title": "Source Refs",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MemoryStatus"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
+          }
+        },
+        "required": [
+          "id",
+          "company_id",
+          "scope",
+          "scope_id",
+          "kind",
+          "text",
+          "status",
+          "origin",
+          "evidence_count",
+          "confidence",
+          "last_used_at",
+          "valid_until",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "MemoryItemOut",
+        "type": "object"
+      },
+      "MemoryKind": {
+        "enum": [
+          "rule",
+          "preference",
+          "fact",
+          "note"
+        ],
+        "title": "MemoryKind",
+        "type": "string"
+      },
+      "MemoryOrigin": {
+        "enum": [
+          "owner",
+          "distilled",
+          "system"
+        ],
+        "title": "MemoryOrigin",
+        "type": "string"
+      },
+      "MemoryScope": {
+        "enum": [
+          "company",
+          "owner",
+          "person",
+          "unit",
+          "case"
+        ],
+        "title": "MemoryScope",
+        "type": "string"
+      },
+      "MemoryStatus": {
+        "enum": [
+          "proposed",
+          "active",
+          "retired"
+        ],
+        "title": "MemoryStatus",
+        "type": "string"
       },
       "OutboundMode": {
         "enum": [
@@ -3868,6 +4483,68 @@
         ],
         "title": "TurnStatus",
         "type": "string"
+      },
+      "UpdateMemoryIn": {
+        "description": "Input payload to update an existing memory item.",
+        "properties": {
+          "kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemoryKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemoryScope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Id"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemoryStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "text": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          }
+        },
+        "title": "UpdateMemoryIn",
+        "type": "object"
       },
       "Urgency": {
         "enum": [

@@ -14,23 +14,28 @@ from app.db.models import OwnerFeed
 _APPROVAL_PREFIXES = ("approval:", "apr:")
 _BRIEFING_PREFIXES = ("brief", "weekly")
 _DOCUMENT_REVIEW_PREFIX = "docreview:"  # app.owner.cards.document_review_key (documents.review_card_step)
+_MEMORY_REVIEW_PREFIX = "memreview:"
 
 
 def kind_for_key(key: str) -> FeedKind:
-    """approval:/apr: -> approval, docreview: -> document_review, brief/weekly -> briefing,
-    blocked:/nudge:/alert -> alert, everything else -> alert."""
+    """approval:/apr: -> approval, docreview: -> document_review, memreview: -> memory_review,
+    brief/weekly -> briefing, blocked:/nudge:/alert -> alert, everything else -> alert."""
     if key.startswith(_APPROVAL_PREFIXES):
         return FeedKind.approval
     if key.startswith(_DOCUMENT_REVIEW_PREFIX):
         return FeedKind.document_review
+    if key.startswith(_MEMORY_REVIEW_PREFIX):
+        return FeedKind.memory_review
     if key.startswith(_BRIEFING_PREFIXES):
         return FeedKind.briefing
     return FeedKind.alert
 
 
 def ref_for_key(key: str, kind: FeedKind) -> UUID | None:
-    """The approval or attachment id carried in `approval:{uuid}:n` / `apr:{uuid}:c` / `docreview:{uuid}`."""
-    if kind not in (FeedKind.approval, FeedKind.document_review):
+    """The approval, attachment, or memory id carried in keys like
+    `approval:{uuid}:n`, `apr:{uuid}:c`, `docreview:{uuid}`, or `memreview:{uuid}`.
+    """
+    if kind not in (FeedKind.approval, FeedKind.document_review, FeedKind.memory_review):
         return None
     _, _, rest = key.partition(":")
     try:

@@ -1,6 +1,6 @@
 # Project context (auto)
 
-Generated: 2026-10-23T11:10:27.651Z
+Generated: 2026-10-23T11:17:59.146Z
 
 ## Detected stack
 
@@ -10,10 +10,11 @@ Generated: 2026-10-23T11:10:27.651Z
 ## Git
 
 - Branch: `main`
-- HEAD: `af426a5`
+- HEAD: `e993ad4`
 
 ## Recent commits
 
+- `e993ad4` docs: keep the phase 1 agents implementation plan and refresh the generated project context _(Aditya Jain, 2026-10-23)_
 - `af426a5` feat(agent): memory and context layers, turn measurement, steerable-draft and page pre-warm follow-ups _(Aditya Jain, 2026-10-23)_
 - `ea9d3c9` chore(merge): origin/main (PR #8) into the development line _(Aditya Jain, 2026-10-23)_
 - `5cd860e` fix(tests): settle the five long-standing integration failures _(Aditya Jain, 2026-10-23)_
@@ -33,7 +34,6 @@ Generated: 2026-10-23T11:10:27.651Z
 - `db95072` feat(workflows): dedicated concierge queue and faster turn polling _(Aditya Jain, 2026-10-22)_
 - `50389fa` feat(rag): query planning with HyDE, fact-first route, listwise rerank with relevance floor and neighbour widening _(Aditya Jain, 2026-10-22)_
 - `881e8d7` feat(agent): single-call page answers with concierge v3 _(Aditya Jain, 2026-10-22)_
-- `f5637e7` feat(rag): hybrid retrieval with reciprocal rank fusion over words, chunk vectors and document vectors _(Aditya Jain, 2026-10-22)_
 
 ## Inferred recent decisions
 
@@ -51,7 +51,6 @@ Generated: 2026-10-23T11:10:27.651Z
 - `db95072` feat(workflows): dedicated concierge queue and faster turn polling
 - `50389fa` feat(rag): query planning with HyDE, fact-first route, listwise rerank with relevance floor and neighbour widening
 - `881e8d7` feat(agent): single-call page answers with concierge v3
-- `f5637e7` feat(rag): hybrid retrieval with reciprocal rank fusion over words, chunk vectors and document vectors
 
 ## Hotspots
 
