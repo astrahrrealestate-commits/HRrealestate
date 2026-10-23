@@ -84,3 +84,5 @@ Agent in front of the other agents. Tenant messages are mirrored in the dashboar
   `concierge/v3`), screened (in scope only, redacted, capped, never an id source) before the owner sees it; owner_qa
   is asked only when the reply is blank. Turns run on their own `concierge` DBOS queue (short poll interval), the SSE
   stream checks turns every 0.5 s, and each turn stores stage timings (`agent_turns.timings`, migration 0012).
+  A reply is shown only beside read steps (`answer`/`open_view`), never next to an action's summary; replies may state
+  amounts from the server facts (prompt `concierge/v5`), contact and bank details are always redacted.

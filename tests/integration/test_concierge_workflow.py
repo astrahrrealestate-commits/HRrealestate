@@ -108,7 +108,7 @@ def test_question_plans_once_and_stores_plan_and_results(env: Env) -> None:
     assert row.results is not None
     assert [r["intent"] for r in row.results] == [s["intent"] for s in row.plan["steps"]]
     assert row.answer
-    assert row.prompt_ref == "concierge/v4"
+    assert row.prompt_ref == "concierge/v5"
     assert row.error is None
     timings = row.timings or {}
     assert {"queue_wait_ms", "planner_ms", "executor_ms", "total_ms", "attempts"} <= set(timings)

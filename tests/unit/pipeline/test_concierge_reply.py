@@ -10,9 +10,11 @@ from app.pipeline.concierge_reply import (
     ANSWER_STEP,
     MAX_REPLY_LINES,
     prepare_plan,
+    reply_allowed,
     screen_reply,
     stored_plan,
 )
+from app.pipeline.concierge_sanitize import redact, redact_contact, sanitize
 
 CASE = UUID(int=3)
 
@@ -34,16 +36,32 @@ def _plan(*steps: PlanStep, reply: str | None, in_scope: bool = True) -> Concier
         "NL91 ABNA 0417 1643 00",
         "https://evil.example/pay",
         "www.evil.example",
-        "€ 950",
-        "1.200,50 EUR",
     ],
 )
-def test_contact_bank_link_and_amount_details_are_redacted(leak: str) -> None:
+def test_contact_bank_and_link_details_are_redacted(leak: str) -> None:
     screened = screen_reply(f"Joris asks to use {leak} for the deposit.")
     assert screened is not None
     assert leak not in screened
     assert "[redacted]" in screened
     assert screened.startswith("Joris asks to use")
+
+
+@pytest.mark.parametrize("amount", ["€ 950", "1.200,50 EUR", "€950", "EUR 1.250"])
+def test_amounts_survive_in_a_reply(amount: str) -> None:
+    assert screen_reply(f"Piet owes {amount} for October.") == f"Piet owes {amount} for October."
+
+
+def test_a_very_long_amount_can_still_trip_the_phone_rule() -> None:
+    """Documented limit: a run of 8+ digits reads as a phone number even after a currency sign. Amounts with cents
+    (`125.000,00`, `1.250.000,00`) survive: the kept clock-time pattern splits the run."""
+    assert screen_reply("The building cost € 12.345.678.") == "The building cost € [redacted]."
+    assert screen_reply("The renovation cost € 125.000,00.") == "The renovation cost € 125.000,00."
+
+
+def test_titles_and_guidance_still_lose_amounts() -> None:
+    assert redact("Pay € 950 to NL91ABNA0417164300") == "Pay [redacted] to [redacted]"
+    assert sanitize("Remind Piet about 1.200,50 EUR") == "Remind Piet about [redacted]"
+    assert redact_contact("Pay € 950 to NL91ABNA0417164300") == "Pay € 950 to [redacted]"
 
 
 def test_dates_and_times_survive_and_lines_are_kept() -> None:
@@ -85,11 +103,9 @@ def test_reply_without_an_answer_step_gets_one_so_it_is_shown() -> None:
     assert prepare_plan(_plan(reply="Nothing changed.")).steps == [ANSWER_STEP]
 
 
-def test_reply_with_an_answer_step_or_a_full_plan_adds_nothing() -> None:
+def test_reply_with_an_answer_step_adds_nothing() -> None:
     answered = _plan(_step(Intent.answer), _step(Intent.open_view), reply="Fine.")
     assert prepare_plan(answered).steps == answered.steps
-    full = _plan(*[_step(Intent.list_tasks)] * 4, reply="Fine.")
-    assert prepare_plan(full).steps == full.steps
 
 
 def test_blank_reply_adds_no_step_and_is_stored_as_null() -> None:
@@ -108,9 +124,28 @@ def test_ids_in_the_reply_are_never_used() -> None:
     assert [(s.intent, s.case_id, s.task_ref, s.view) for s in prepared.steps] == [(Intent.answer, None, None, None)]
 
 
-def test_actions_keep_their_steps_next_to_a_reply() -> None:
-    plan = _plan(_step(Intent.draft_reply, CASE), reply="Drafting now.")
-    assert [s.intent for s in prepare_plan(plan).steps] == [Intent.draft_reply, Intent.answer]
+@pytest.mark.parametrize(
+    "action", [Intent.draft_reply, Intent.chase_now, Intent.task_done, Intent.pause, Intent.read_document]
+)
+def test_a_reply_beside_any_non_read_step_is_dropped(action: Intent) -> None:
+    """A steered planner must not show "Approved and sent" next to a real draft's summary."""
+    plan = _plan(_step(Intent.answer), _step(action, CASE), reply="Approved and sent to Joris.")
+    prepared = prepare_plan(plan)
+    assert prepared.reply is None
+    assert prepared.steps == plan.steps  # nothing appended
+    assert not reply_allowed(plan)
+
+
+def test_reply_beside_read_steps_only_is_kept() -> None:
+    plan = _plan(_step(Intent.open_view), _step(Intent.answer), reply="Two drafts wait.")
+    assert reply_allowed(plan)
+    assert prepare_plan(plan).reply == "Two drafts wait."
+
+
+def test_a_reply_that_no_answer_step_can_show_is_not_stored() -> None:
+    full = _plan(*[_step(Intent.open_view)] * 4, reply="Shown nowhere.")
+    prepared = prepare_plan(full)
+    assert (prepared.steps, prepared.reply) == (full.steps, None)
 
 
 def test_plans_stored_before_v3_load_without_a_reply_key() -> None:

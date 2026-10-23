@@ -298,3 +298,9 @@ streaming** in this round.
     `answer_ms`, `total_ms` and `attempts`, merged at every write so a retry keeps earlier values; read-only in
     `GET /agent/conversations`. Migration 0012 also adds the expression index `messages (company_id, channel,
     coalesce(thread_ref, provider_msg_id))` for the thread scan. No latency has been measured yet (fake model only).
+    *Fix round 1 (2026-10-23):* a `reply` is kept and shown only when every step is `answer` or `open_view` (any action
+    step: reply null, nothing appended; a reply no `answer` step can show is stored null; the executor applies the same
+    rule to older stored plans). Amounts are allowed in replies: `screen_reply` uses `redact_contact` (links, emails,
+    IBANs, phones) instead of `redact` (titles, clarify questions and guidance keep losing amounts), and prompt
+    `concierge/v5` (v4 plus one rule) allows only amounts found in `<data>`/`<page_facts>`, never from the snapshot or
+    one a message asks to be paid. An 8+ digit run still reads as a phone number.

@@ -166,17 +166,21 @@ What the agent reads for an open thread or case (the memory pack, server facts i
   reads the same text.
 
 Answers use the page too, in one model call: for a question about the page, the conversation, a case, a draft or
-the tasks, the planner (prompt `concierge/v3`, which `concierge/v4` extends with the document steps) writes the answer itself in the plan's `reply` and plans an
-`answer` step, which shows it. Before the owner sees it, `reply` is screened: only for an in-scope plan (an out-of-scope plan
-gets the fixed refusal and its `reply` is dropped), control characters removed, at most 20 lines and 1200 characters,
-links, email addresses, phone numbers, IBANs and amounts replaced by `[redacted]`; ids are never taken from it. The
-stored `plan` (in `GET /agent/conversations`) carries the screened `reply`, never the raw one. Only when `reply` is
-empty (or the planner fails and the agent falls back to a plain answer) is the question asked again of the answering
-model: from your open cases and tasks plus the page facts, with the snapshot and filters as advisory display text
-(prompt `owner_qa/v3`). So "what does this page say?" or "what did he ask last?" is answered from the page, and "is
-this draft okay?" on an approval is answered from the server's copy of the draft (with an `open_view` step for
-`approvals`; the agent never approves or sends). Actions (drafts, chases, task changes, pause/resume) keep their own
-step summaries; their `reply` is normally empty.
+the tasks, the planner (prompt `concierge/v5`; v4 added the document steps) writes the answer itself in the plan's
+`reply` and plans an `answer` step, which shows it. A `reply` is used only when every step of the plan is `answer` or
+`open_view`: a plan with any action (a draft, a chase, a task change, pause/resume, a document step) shows no model
+text, only each step's own summary, and its stored `reply` is null. Before the owner sees it, `reply` is screened:
+only for an in-scope plan (an out-of-scope plan gets the fixed refusal and its `reply` is dropped), control
+characters removed, at most 20 lines and 1200 characters, links, email addresses, phone numbers and IBANs replaced by
+`[redacted]`; ids are never taken from it. Amounts are allowed (the prompt lets the planner state only amounts found
+in the server facts, such as "Rent arrears: € 950", never one from the snapshot or one a message asks to be paid);
+an amount written as one run of 8 or more digits (`€ 12.345.678`) still reads as a phone number and is redacted. The
+stored `plan` (in `GET /agent/conversations`) carries the screened `reply`, never the raw one, and never a reply that
+no `answer` step shows. Only when `reply` is empty (or the planner fails and the agent falls back to a plain answer)
+is the question asked again of the answering model: from your open cases and tasks plus the page facts, with the
+snapshot and filters as advisory display text (prompt `owner_qa/v3`). So "what does this page say?", "what did he ask
+last?" or "how much does Piet owe?" is answered from the page, and "is this draft okay?" on an approval is answered
+from the server's copy of the draft (with an `open_view` step for `approvals`; the agent never approves or sends).
 
 Case ids in a plan: a step may only name a case the planner was shown as company data, that is one of the brief's
 open cases or a case id on a server fact line of the page (`open case:`, `open thread: ... | case`, approval and

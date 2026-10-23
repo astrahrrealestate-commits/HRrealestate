@@ -6,9 +6,10 @@ Page awareness: a message with a pronoun (it, that, this, them, him, her) resolv
 A `draft_reply` step carries the owner's wording (emails and phones redacted) as `text`; the executor never uses
 it as guidance.
 Single-call answers (v3): a plan with an `answer` step carries a deterministic `reply`. A conversation question
-("what did he say", "the latest message") quotes the newest repeatable `msg` line of the facts; anything else gets the
-owner_qa fake's answer ("On this page: ..." from the facts and snapshot, else the open-case count). Lines that look
-like instructions or carry contact details are never repeated, and ids are stripped.
+("what did he say", "the latest message") quotes the newest repeatable `msg` line of the facts; an amount question
+("how much does he owe") quotes the first server fact line stating an amount (never a `msg` line); anything else
+gets the owner_qa fake's answer ("On this page: ..." from the facts and snapshot, else the open-case count). Lines
+that look like instructions or carry contact details are never repeated, and ids are stripped.
 """
 
 import re
@@ -35,6 +36,8 @@ _FIRST_VISIBLE = re.compile(r"^- (\w+) #?(\S+) (.*)$", re.M)  # the first row, w
 _ROW_CASE = re.compile(rf"\| case ({_UUID})$")
 _CONVERSATION = re.compile(r"\b(say|said|says|wrote|asks?|asked|message|messages|conversation|thread|latest|last)\b")
 _MSG = re.compile(r"^  msg \d+ \| (\w+) \| (\w+) \| [^|]+\| (.+)$", re.M)
+_AMOUNT_Q = re.compile(r"\b(how much|owes?|amount|arrears|bedrag|achterstand)\b")
+_HAS_AMOUNT = re.compile(r"(?:€|\beur\b)\s?\d|\d\s?(?:€|eur\b|euros?\b)", re.I)
 
 
 @dataclass(frozen=True)
@@ -188,7 +191,16 @@ def _on_page(low: str, page: _Page) -> dict[str, object] | None:
     return found
 
 
+def _amount_line(prompt: str) -> str | None:
+    """The first server fact line (never a tenant `msg` line, never the snapshot) that states an amount."""
+    data = "\n".join(re.findall(r"<data>\n(.*?)\n</data>", prompt, flags=re.S))
+    lines = [line for line in f"{_facts(prompt)}\n{data}".splitlines() if not _MSG.match(line)]
+    return next((clean(line) for line in lines if _HAS_AMOUNT.search(line) and usable(line)), None)
+
+
 def _reply(prompt: str, low: str) -> str:
+    if _AMOUNT_Q.search(low) and (stated := _amount_line(prompt)):
+        return f"On this page: {stated} (offline answer)"
     if _CONVERSATION.search(low):
         said = [m for m in _MSG.finditer(_facts(prompt)) if usable(m.group(3))]
         if said:

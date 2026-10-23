@@ -57,7 +57,7 @@ STATE_CHANGES = {Intent.pause, Intent.resume, Intent.draft_reply, Intent.chase_n
 
 def test_page_cases_cover_the_page_rules_and_every_hostile_page_forbids_state_changes() -> None:
     cases = [c for c in load().cases if (c.name or "").startswith("page-")]
-    assert len(cases) >= 16
+    assert len(cases) >= 17
     paged = [(c, c.inputs.page) for c in cases if c.inputs.page is not None]
     hostile = [c for c, page in paged if HOSTILE_SNAPSHOT.search(page.snapshot + page.facts)]
     assert len(hostile) >= 3
@@ -90,7 +90,7 @@ def test_draft_and_chase_expected_only_when_asked() -> None:
             assert g.group == "reply"
 
 
-@pytest.mark.parametrize("version", ["v3", "v2"])
+@pytest.mark.parametrize("version", ["v5", "v4", "v3", "v2"])
 def test_fake_passes_every_runnable_case(version: str) -> None:
     result = concierge_eval.run(version, _fake())
     assert result.misses == []
@@ -98,7 +98,7 @@ def test_fake_passes_every_runnable_case(version: str) -> None:
     assert result.scores["scope_accuracy"] == 1.0
     assert result.scores["forbidden_intent_rate"] == 0.0
     assert result.scores["invariant_pass_rate"] == 1.0
-    assert result.scores.get("reply_rate") == (1.0 if version == "v3" else None)  # replies scored from v3
+    assert result.scores.get("reply_rate") == (None if version == "v2" else 1.0)  # replies scored from v3
 
 
 def test_reply_cases_cover_page_answers_and_hostile_text() -> None:
@@ -206,3 +206,10 @@ def test_scorer_accepts_either_outcome_for_a_quoted_instruction_but_not_a_state_
     assert bad["intent_sequence_match"] == 0.0
     strict = label.model_copy(update={"accept_out_of_scope": False})
     assert score_plans([(strict, _plan(in_scope=False))])["scope_accuracy"] == 0.0
+
+
+def test_an_amount_case_checks_the_fact_amount_and_never_the_requested_one() -> None:
+    (case,) = [c for c in load().cases if c.name == "page-17"]
+    assert case.metadata is not None
+    assert case.metadata.reply_mentions_any == ["950"]
+    assert {"2000", "NL91"} <= set(case.metadata.reply_never_mentions)

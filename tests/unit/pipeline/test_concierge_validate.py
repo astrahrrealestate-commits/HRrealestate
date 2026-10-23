@@ -391,15 +391,20 @@ def test_out_of_scope_plan_never_shows_its_reply(
     assert calls == []
 
 
-def test_other_steps_keep_their_deterministic_summaries_next_to_a_reply(
-    monkeypatch: pytest.MonkeyPatch, engine: Engine, settings: Settings
+@pytest.mark.parametrize("action", [Intent.list_tasks, Intent.draft_reply])
+def test_a_reply_beside_a_non_read_step_is_never_shown(
+    action: Intent, monkeypatch: pytest.MonkeyPatch, engine: Engine, settings: Settings
 ) -> None:
+    """Even a plan stored before the read-steps rule: the action keeps its deterministic summary and the answer step
+    asks owner_qa instead of showing the model's text."""
     spies = _spy_all(monkeypatch)
-    spies[Intent.answer] = Spy()
+    calls = _no_owner_qa(monkeypatch)
     monkeypatch.setitem(concierge._HANDLERS, Intent.answer, concierge_reads.answer)
-    spies[Intent.list_tasks].result = StepResult(Intent.list_tasks, True, "No open tasks.", None, "tasks")
-    plan = ConciergePlan(
-        in_scope=True, steps=[step(Intent.list_tasks), step(Intent.answer)], reply="All tasks are done, I made one."
+    spies[action].result = StepResult(action, True, "Reply drafted for approval.", None, None)
+    act = step(action, case_id=KNOWN_CASE) if action is Intent.draft_reply else step(action)
+    plan = ConciergePlan(in_scope=True, steps=[act, step(Intent.answer)], reply="Approved and sent to Joris.")
+    results = concierge.run_plan(
+        engine, settings, COMPANY, plan, question="reply to him", now=NOW, brief_cases=[KNOWN_CASE]
     )
-    results = concierge.run_plan(engine, settings, COMPANY, plan, question="anything open?", now=NOW)
-    assert [r.summary for r in results] == ["No open tasks.", "All tasks are done, I made one."]
+    assert [r.summary for r in results] == ["Reply drafted for approval.", "owner_qa answer"]
+    assert calls == ["reply to him"]

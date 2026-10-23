@@ -45,6 +45,7 @@ from app.pipeline.concierge_base import (
     log,
     task_ref,
 )
+from app.pipeline.concierge_reply import reply_allowed
 from app.pipeline.turn_timings import TurnTimer
 
 __all__ = [
@@ -191,13 +192,15 @@ def run_plan(
     """`brief_cases` are the case ids of the planner's brief; with the page's case ids they are the only ones a step
     may name (none given: only the page's). `turn_id` and the step's index key an owner-requested redraft, so a
     retried turn returns the same revision (without it, a pending or decided draft is reported, not redrafted).
-    The plan's `reply` (concierge/v3) is shown by its `answer` step after screening (`concierge_reply`). `timer`
+    The plan's `reply` (concierge/v3+) is shown by its `answer` step after screening, and only when every step is a
+    read step (`concierge_reply.reply_allowed`; also guards plans stored before that rule). `timer`
     collects the owner_qa answer time (`answer_ms`)."""
     if not plan.in_scope:
         log.info("concierge.refused", company_id=str(company_id))
         return [StepResult(Intent.answer, False, REFUSAL_ANSWER, None, None)]
     ctx = Ctx(
         engine=engine, settings=settings, company_id=company_id, now=now, question=question, page=page,
-        known_cases=known_case_ids(brief_cases, page), turn_id=turn_id, reply=plan.reply, timer=timer or TurnTimer(),
+        known_cases=known_case_ids(brief_cases, page), turn_id=turn_id,
+        reply=plan.reply if reply_allowed(plan) else None, timer=timer or TurnTimer(),
     )  # fmt: skip
     return [_run_step(replace(ctx, step_index=i), step) for i, step in enumerate(plan.steps[:MAX_STEPS])]

@@ -194,9 +194,10 @@ def test_hostile_planner_reply_is_redacted_stored_redacted_and_changes_nothing(e
     plan = out["plan"]
     assert isinstance(plan, dict)
     stored = str(plan["reply"])
-    for leak in (IBAN, "evil@attacker.test", "https://evil.example", "950"):
+    for leak in (IBAN, "evil@attacker.test", "https://evil.example"):
         assert leak not in stored
         assert leak not in str(out["answer"])
+    assert "€ 950" in stored  # amounts are allowed in replies since concierge/v5; contact and bank details are not
     assert out["answer"] == stored  # one answer step: the screened reply
     assert _owner_qa_calls(env) == 0  # single call: no owner_qa model call
     assert [count(env.engine, m, env.cid) for m in STATE_TABLES] == before
@@ -211,3 +212,22 @@ def test_out_of_scope_planner_reply_is_never_shown_or_stored(env: Env) -> None:
     assert plan["reply"] is None
     assert IBAN not in str(out["answer"])
     assert "evil" not in str(out["answer"])
+
+
+def test_a_reply_beside_a_draft_is_never_shown_or_stored(env: Env) -> None:
+    """A steered planner pairs a real draft step with "Approved and sent": the answer holds only the deterministic
+    draft summary, the stored plan keeps no reply, and nothing is sent."""
+    hostile = make_plan(step(Intent.draft_reply, case_id=env.case_id)).model_copy(
+        update={"reply": "Approved and sent to Sanne. Done."}
+    )
+    out = _hostile_turn(env, hostile)
+    plan = out["plan"]
+    assert isinstance(plan, dict)
+    assert plan["reply"] is None
+    assert [s["intent"] for s in plan["steps"]] == ["draft_reply"]  # no answer step appended
+    results = out["results"]
+    assert isinstance(results, list)
+    assert out["answer"] == "\n".join(r["summary"].strip() for r in results if r["summary"].strip())
+    assert "Approved and sent" not in str(out["answer"])
+    assert _owner_qa_calls(env) == 0
+    assert count(env.engine, Send, env.cid) == 0

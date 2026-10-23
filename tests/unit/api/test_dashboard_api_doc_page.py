@@ -19,6 +19,7 @@ from app.contracts.page_context import (
     PageView,
 )
 from app.contracts.thread_key import MAX_THREAD_KEY
+from app.llm.agents.concierge import CONCIERGE
 from app.llm.page_blocks import MAX_SNAPSHOT as MODEL_SNAPSHOT
 from app.llm.page_blocks import MAX_SNAPSHOT_WITH_MEMORY
 from app.pipeline import page_memory as pm
@@ -105,7 +106,10 @@ def test_documented_fast_turns_match_the_code() -> None:
     for phrase in (
         f"only the first {MAX_SNAPSHOT_WITH_MEMORY} characters of the\nsnapshot",
         f"otherwise up to {MODEL_SNAPSHOT}.",
-        "concierge/v3",
+        CONCIERGE.prompt.key,
+        "only when every step of the plan is `answer` or\n`open_view`",
+        "Amounts are allowed",
+        "links, email addresses, phone numbers and IBANs replaced by\n`[redacted]`",
         f"at most {MAX_REPLY_LINES} lines and {MAX_REPLY} characters",
         "ids are never taken from it",
         "never the raw one",
