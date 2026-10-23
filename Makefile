@@ -86,7 +86,7 @@ smoke: up ## G5: stack up, api ready, worker executing, logs clean
 	@$(COMPOSE) exec -T worker python -m app.worker --selfcheck && echo "worker: ok"
 	@! $(COMPOSE) logs --no-color 2>&1 | grep -E 'Traceback|CRITICAL' && echo "logs: clean"
 
-sim-demo: up ## G5: simulate WhatsApp + Gmail through the running stack and assert the stored rows
+sim-demo: up ## G5: simulate WhatsApp + Gmail through the stack, assert rows; then a dashboard scenario (needs DASHBOARD_SESSION_SECRET, compose has a dev default; skipped if unset; temporarily sets outbound_mode=send + dashboard owner, restored after)
 	$(COMPOSE) exec -T api python -m app.dev.simulate demo
 
 gmail-pull: ## real Gmail test: sync NEW mail now, no Pub/Sub (backfill=1 also reads the last day): make gmail-pull mailbox=you@gmail.com
@@ -101,15 +101,15 @@ approve: ## tap a pending approval as Harjot: make approve n=1 choice=d1
 live-check: ## go-live gate: real WhatsApp/Gmail/S3 adapters (credentials: docs/go-live-channels.md); subset: k=gmail
 	$(UV) pytest tests/live --live -v $(if $(k),-k "$(k)")
 
-gmail-consent: ## Google token files (read + compose, drive=1 adds Drive): make gmail-consent client=… mailbox=you@x out=~/.estateos
-	$(UV) python -m app.dev.gmail_consent --client "$(client)" --mailbox "$(mailbox)" --out-dir "$(out)" $(if $(drive),--drive)
+gmail-consent: ## Google token files (read + compose, drive=1 adds Drive, reply_send=1 adds the tenant-reply send token; every consent run re-consents the read and compose tokens too, so reply_send=1 is three tokens): make gmail-consent client=… mailbox=you@x out=~/.estateos
+	$(UV) python -m app.dev.gmail_consent --client "$(client)" --mailbox "$(mailbox)" --out-dir "$(out)" $(if $(drive),--drive) $(if $(reply_send),--reply-send)
 
 audit: ## dependency vulnerability audit
 	mkdir -p .claude/.cache
 	uv export --frozen --no-hashes --format requirements-txt > .claude/.cache/req.txt
 	$(UV) pip-audit -r .claude/.cache/req.txt --strict
 
-eval: ## (M4) golden-set eval: make eval agent=understanding version=v2
+eval: ## (M4) golden-set eval: make eval agent=understanding|linking|owner_qa|concierge version=v2
 	$(UV) python -m evals.run --agent $(agent) --version $(version)
 
 workflows: up-db ## list recent DBOS workflows (ops)

@@ -49,3 +49,12 @@ mocking the unit under test.
 - [ ] No TODOs without an issue link; no commented-out code; no `print`
 - [ ] Docs touched if behaviour or contract changed (spec / HLD / ADR)
 - [ ] PROGRESS.md item ticked with evidence
+
+## Open gate notes
+- **G2 outstanding for dashboard tasks 1-9** (D1-D3): written while Docker was down, so their integration tests
+  (collected and mypy-clean, never run) and the migration round-trip have not been executed. Run `make check` once
+  Docker is available and fix what it finds before relying on send mode.
+- **G2 and G5 outstanding for all dashboard tasks (D1-D5, tasks 1-15):** `make check`, `make smoke` and `make sim-demo`
+  (now including the `dashboard` scenario in `app/dev/demo_dashboard.py`) were never run, because Docker was down;
+  `make cov` needs Docker too (it runs the integration tests); `make live-check k=outbound` needs credentials. G1,
+  `make audit`, `make harness-test` and the concierge eval on the fake model did run (numbers in PROGRESS.md).

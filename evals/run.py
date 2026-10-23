@@ -1,8 +1,9 @@
-"""Golden-set eval runner: `make eval agent=<understanding|linking> version=vN` (pydantic-evals).
+"""Golden-set eval runner: `make eval agent=<understanding|linking|owner_qa|concierge> version=vN` (pydantic-evals).
 
 Runs each golden case through the agent's real spec, prompt file and `finalize`, on the model from `LLM_MODEL`
-(`fake` by default), without a database: evals record no `model_calls` rows. Prints the scores and writes a
-markdown report to `evals/reports/`. Exit code 0 always; there is no CI gate until a real model is configured.
+(`fake` by default; `real_only` golden cases are skipped on the fake), without a database: evals record no
+`model_calls` rows. Prints the scores and writes a markdown report to `evals/reports/`. Exit code 0 always; there is
+no CI gate until a real model is configured.
 """
 
 import argparse
@@ -12,13 +13,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.core.settings import Settings
-from evals import linking_eval, understanding_eval
+from evals import concierge_eval, linking_eval, owner_qa_eval, understanding_eval
 from evals.common import EvalResult, eval_settings
 
 REPORTS = Path(__file__).parent / "reports"
 RUNNERS: dict[str, Callable[[str, Settings], EvalResult]] = {
     "understanding": understanding_eval.run,
     "linking": linking_eval.run,
+    "owner_qa": owner_qa_eval.run,
+    "concierge": concierge_eval.run,
 }
 
 

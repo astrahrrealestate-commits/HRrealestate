@@ -69,7 +69,9 @@ estateos/
 | **M6** | Proposals + rules + chasing | `Action` objects and 2–3 drafts; Phase 1 rules: everything external needs approval, suspicious messages become exceptions, pause switch per company. Overdue waits produce chaser drafts, then an escalation |
 | **M7** | Owner channel + sender | Approval cards (reply buttons, list menu); owner commands (`tasks`, `done`, `snooze`, `waiting`, `pause`, `resume`, `help`) and owner Q&A; Gmail drafts in the thread; 07:30 daily and Friday weekly briefing; WhatsApp 24 h window (outbox + template); the sender re-checks approval, draft version, pause, allowlist and idempotency key |
 | **M9** | Document filing (#9) | Attachments classified from metadata, named and filed in Google Drive (`drive.file`); uncertain ones go to an owner review card |
-| **M8** | Outcomes + drift + hardening | Sent folder and echo capture labels every draft; daily drift snapshots (autonomy, cost, performance) with owner/Sentry alerts; a test proving no code path sends to a tenant; database backups; one day of shadow running on live mail |
+| **M8** | Outcomes + drift + hardening | Sent folder and echo capture labels every draft; daily drift snapshots (autonomy, cost, performance) with owner/Sentry alerts; a test proving no code path sends to a tenant (superseded by the dashboard work: tenant sends now exist only in `outbound_mode=send`, after the owner's approve click, through the guarded sender, see ADR 0006); database backups; one day of shadow running on live mail |
+
+**D (Dashboard + Super Agent, branch `d-dashboard`):** the owner's interface is the dashboard API, with real tenant sends after the approve click. Plan, spec and status: [PROGRESS.md](PROGRESS.md) section D, [dashboard-api.md](dashboard-api.md), [ADR 0006](adr/0006-dashboard-owner-channel.md).
 
 Agents per milestone: [specs/2026-10-07-estateos-phase1-agents-design.md](superpowers/specs/2026-10-07-estateos-phase1-agents-design.md).
 

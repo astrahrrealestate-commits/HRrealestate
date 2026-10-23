@@ -1,0 +1,2693 @@
+# serializer version: 1
+# name: test_v1_openapi_snapshot
+  '''
+  {
+    "paths": {
+      "/api/v1/activity": {
+        "get": {
+          "operationId": "get_activity_api_v1_activity_get",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "limit",
+              "required": false,
+              "schema": {
+                "default": 50,
+                "maximum": 100,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/ActivityItem"
+                    },
+                    "title": "Response Get Activity Api V1 Activity Get",
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Get Activity",
+          "tags": [
+            "cases"
+          ]
+        }
+      },
+      "/api/v1/agent/conversations/{conversation_id}": {
+        "get": {
+          "operationId": "get_conversation_api_v1_agent_conversations__conversation_id__get",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "conversation_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Conversation Id",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ConversationOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Get Conversation",
+          "tags": [
+            "agent"
+          ]
+        }
+      },
+      "/api/v1/agent/messages": {
+        "post": {
+          "operationId": "post_message_api_v1_agent_messages_post",
+          "parameters": [
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentMessageIn"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "202": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/AgentMessageOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Post Message",
+          "tags": [
+            "agent"
+          ]
+        }
+      },
+      "/api/v1/approvals": {
+        "get": {
+          "operationId": "get_approvals_api_v1_approvals_get",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "after",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "After"
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "required": false,
+              "schema": {
+                "default": 50,
+                "maximum": 100,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/PendingApprovalOut"
+                    },
+                    "title": "Response Get Approvals Api V1 Approvals Get",
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Get Approvals",
+          "tags": [
+            "reviews"
+          ]
+        }
+      },
+      "/api/v1/approvals/{approval_id}/decide": {
+        "post": {
+          "operationId": "decide_api_v1_approvals__approval_id__decide_post",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "approval_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Approval Id",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecideIn"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/DecisionOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Decide",
+          "tags": [
+            "decisions"
+          ]
+        }
+      },
+      "/api/v1/approvals/{approval_id}/edit": {
+        "post": {
+          "operationId": "edit_api_v1_approvals__approval_id__edit_post",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "approval_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Approval Id",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditIn"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/RevisionOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Edit",
+          "tags": [
+            "decisions"
+          ]
+        }
+      },
+      "/api/v1/auth/session": {
+        "delete": {
+          "operationId": "delete_session_api_v1_auth_session_delete",
+          "parameters": [
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "responses": {
+            "204": {
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Delete Session",
+          "tags": [
+            "auth"
+          ]
+        },
+        "post": {
+          "operationId": "create_session_api_v1_auth_session_post",
+          "parameters": [
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionRequest"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "additionalProperties": true,
+                    "title": "Response Create Session Api V1 Auth Session Post",
+                    "type": "object"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Create Session",
+          "tags": [
+            "auth"
+          ]
+        }
+      },
+      "/api/v1/briefing": {
+        "get": {
+          "operationId": "get_briefing_api_v1_briefing_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/BriefingOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Get Briefing",
+          "tags": [
+            "work"
+          ]
+        }
+      },
+      "/api/v1/cases": {
+        "get": {
+          "operationId": "get_cases_api_v1_cases_get",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "state",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CaseState"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "State"
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "required": false,
+              "schema": {
+                "default": 50,
+                "maximum": 100,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/CaseSummary"
+                    },
+                    "title": "Response Get Cases Api V1 Cases Get",
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Get Cases",
+          "tags": [
+            "cases"
+          ]
+        }
+      },
+      "/api/v1/cases/{case_id}": {
+        "get": {
+          "operationId": "get_case_api_v1_cases__case_id__get",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "case_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Case Id",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/CaseDetail"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Get Case",
+          "tags": [
+            "cases"
+          ]
+        }
+      },
+      "/api/v1/company": {
+        "get": {
+          "operationId": "get_company_settings_api_v1_company_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/CompanyOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Get Company Settings",
+          "tags": [
+            "work"
+          ]
+        }
+      },
+      "/api/v1/company/pause": {
+        "post": {
+          "operationId": "pause_api_v1_company_pause_post",
+          "parameters": [
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/PausedOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Pause",
+          "tags": [
+            "decisions"
+          ]
+        }
+      },
+      "/api/v1/company/resume": {
+        "post": {
+          "operationId": "resume_api_v1_company_resume_post",
+          "parameters": [
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/PausedOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Resume",
+          "tags": [
+            "decisions"
+          ]
+        }
+      },
+      "/api/v1/documents/review": {
+        "get": {
+          "operationId": "get_documents_to_review_api_v1_documents_review_get",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "after",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "After"
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "required": false,
+              "schema": {
+                "default": 50,
+                "maximum": 100,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/ReviewDocumentOut"
+                    },
+                    "title": "Response Get Documents To Review Api V1 Documents Review Get",
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Get Documents To Review",
+          "tags": [
+            "reviews"
+          ]
+        }
+      },
+      "/api/v1/documents/{attachment_id}/file": {
+        "post": {
+          "operationId": "file_document_api_v1_documents__attachment_id__file_post",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "attachment_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Attachment Id",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileDocumentIn"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "202": {
+              "content": {
+                "application/json": {
+                  "schema": {}
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "File Document",
+          "tags": [
+            "decisions"
+          ]
+        }
+      },
+      "/api/v1/events": {
+        "get": {
+          "operationId": "get_events_api_v1_events_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {}
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Get Events",
+          "tags": [
+            "feed"
+          ]
+        }
+      },
+      "/api/v1/feed": {
+        "get": {
+          "operationId": "get_feed_api_v1_feed_get",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "after",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "After"
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "required": false,
+              "schema": {
+                "default": 50,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/FeedItem"
+                    },
+                    "title": "Response Get Feed Api V1 Feed Get",
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Get Feed",
+          "tags": [
+            "feed"
+          ]
+        }
+      },
+      "/api/v1/inbox": {
+        "get": {
+          "operationId": "get_inbox_api_v1_inbox_get",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "before",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Before"
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "required": false,
+              "schema": {
+                "default": 50,
+                "maximum": 100,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/InboxItem"
+                    },
+                    "title": "Response Get Inbox Api V1 Inbox Get",
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Get Inbox",
+          "tags": [
+            "inbox"
+          ]
+        }
+      },
+      "/api/v1/me": {
+        "get": {
+          "operationId": "me_api_v1_me_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "title": "Response Me Api V1 Me Get",
+                    "type": "object"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Me",
+          "tags": [
+            "auth"
+          ]
+        }
+      },
+      "/api/v1/tasks": {
+        "get": {
+          "operationId": "get_tasks_api_v1_tasks_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/TaskOut"
+                    },
+                    "title": "Response Get Tasks Api V1 Tasks Get",
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Get Tasks",
+          "tags": [
+            "work"
+          ]
+        }
+      },
+      "/api/v1/tasks/{ref}/done": {
+        "post": {
+          "operationId": "task_done_api_v1_tasks__ref__done_post",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "ref",
+              "required": true,
+              "schema": {
+                "pattern": "^[0-9a-f-]{6,36}$",
+                "title": "Ref",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "responses": {
+            "204": {
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Task Done",
+          "tags": [
+            "decisions"
+          ]
+        }
+      },
+      "/api/v1/tasks/{ref}/snooze": {
+        "post": {
+          "operationId": "task_snooze_api_v1_tasks__ref__snooze_post",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "ref",
+              "required": true,
+              "schema": {
+                "pattern": "^[0-9a-f-]{6,36}$",
+                "title": "Ref",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnoozeIn"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "204": {
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Task Snooze",
+          "tags": [
+            "decisions"
+          ]
+        }
+      },
+      "/api/v1/threads/{thread_key}": {
+        "get": {
+          "operationId": "get_thread_api_v1_threads__thread_key__get",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "thread_key",
+              "required": true,
+              "schema": {
+                "title": "Thread Key",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/ThreadMessage"
+                    },
+                    "title": "Response Get Thread Api V1 Threads  Thread Key  Get",
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Get Thread",
+          "tags": [
+            "inbox"
+          ]
+        }
+      },
+      "/api/v1/waits": {
+        "get": {
+          "operationId": "get_waits_api_v1_waits_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/WaitOut"
+                    },
+                    "title": "Response Get Waits Api V1 Waits Get",
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Get Waits",
+          "tags": [
+            "work"
+          ]
+        }
+      }
+    },
+    "schemas": {
+      "ActionOut": {
+        "properties": {
+          "approval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApprovalOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "draft_version": {
+            "title": "Draft Version",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ActionStatus"
+          },
+          "type": {
+            "$ref": "#/components/schemas/ActionType"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "status",
+          "draft_version",
+          "rationale",
+          "payload",
+          "approval"
+        ],
+        "title": "ActionOut",
+        "type": "object"
+      },
+      "ActionStatus": {
+        "enum": [
+          "proposed",
+          "pending_approval",
+          "approved",
+          "rejected",
+          "superseded",
+          "executed",
+          "failed",
+          "exception",
+          "paused"
+        ],
+        "title": "ActionStatus",
+        "type": "string"
+      },
+      "ActionType": {
+        "enum": [
+          "reply_draft",
+          "notify_owner",
+          "create_reminder",
+          "update_case_state",
+          "request_contractor",
+          "escalate"
+        ],
+        "title": "ActionType",
+        "type": "string"
+      },
+      "ActivityItem": {
+        "properties": {
+          "action_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Id"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "case_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "case_event",
+              "send",
+              "outcome"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "at",
+          "case_id",
+          "action_id",
+          "label"
+        ],
+        "title": "ActivityItem",
+        "type": "object"
+      },
+      "AgentMessageIn": {
+        "properties": {
+          "conversation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
+          "text": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "AgentMessageIn",
+        "type": "object"
+      },
+      "AgentMessageOut": {
+        "properties": {
+          "conversation_id": {
+            "format": "uuid",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "turn_id": {
+            "format": "uuid",
+            "title": "Turn Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversation_id",
+          "turn_id"
+        ],
+        "title": "AgentMessageOut",
+        "type": "object"
+      },
+      "ApprovalOut": {
+        "properties": {
+          "choice": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ButtonChoice"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "draft_version": {
+            "title": "Draft Version",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ApprovalStatus"
+          }
+        },
+        "required": [
+          "status",
+          "draft_version",
+          "choice",
+          "decided_at"
+        ],
+        "title": "ApprovalOut",
+        "type": "object"
+      },
+      "ApprovalStatus": {
+        "enum": [
+          "pending",
+          "approved",
+          "rejected",
+          "edited",
+          "expired"
+        ],
+        "title": "ApprovalStatus",
+        "type": "string"
+      },
+      "AttachmentOut": {
+        "properties": {
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "mime_type": {
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "filename",
+          "mime_type",
+          "size_bytes",
+          "url"
+        ],
+        "title": "AttachmentOut",
+        "type": "object"
+      },
+      "BriefingOut": {
+        "properties": {
+          "approvals": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Approvals",
+            "type": "array"
+          },
+          "day_label": {
+            "title": "Day Label",
+            "type": "string"
+          },
+          "exceptions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Exceptions",
+            "type": "array"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "overdue_tasks": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Overdue Tasks",
+            "type": "array"
+          },
+          "overdue_waits": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Overdue Waits",
+            "type": "array"
+          },
+          "stats": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Stats",
+            "type": "object"
+          },
+          "urgent": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Urgent",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "day_label",
+          "urgent",
+          "approvals",
+          "overdue_tasks",
+          "overdue_waits",
+          "exceptions",
+          "stats"
+        ],
+        "title": "BriefingOut",
+        "type": "object"
+      },
+      "ButtonChoice": {
+        "enum": [
+          "ok",
+          "edit",
+          "rej",
+          "d1",
+          "d2",
+          "d3"
+        ],
+        "title": "ButtonChoice",
+        "type": "string"
+      },
+      "CaseDetail": {
+        "properties": {
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/ActionOut"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "category": {
+            "$ref": "#/components/schemas/Category"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "message_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Message Ids",
+            "type": "array"
+          },
+          "opened_at": {
+            "format": "date-time",
+            "title": "Opened At",
+            "type": "string"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "state": {
+            "$ref": "#/components/schemas/CaseState"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "timeline": {
+            "items": {
+              "$ref": "#/components/schemas/CaseEventOut"
+            },
+            "title": "Timeline",
+            "type": "array"
+          },
+          "urgency": {
+            "$ref": "#/components/schemas/Urgency"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "category",
+          "urgency",
+          "summary",
+          "opened_at",
+          "resolved_at",
+          "timeline",
+          "message_ids",
+          "actions"
+        ],
+        "title": "CaseDetail",
+        "type": "object"
+      },
+      "CaseEventKind": {
+        "enum": [
+          "state_change",
+          "note",
+          "link",
+          "summary"
+        ],
+        "title": "CaseEventKind",
+        "type": "string"
+      },
+      "CaseEventOut": {
+        "properties": {
+          "actor": {
+            "title": "Actor",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "from_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CaseState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/CaseEventKind"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "to_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CaseState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "from_state",
+          "to_state",
+          "note",
+          "actor",
+          "created_at"
+        ],
+        "title": "CaseEventOut",
+        "type": "object"
+      },
+      "CaseState": {
+        "enum": [
+          "open",
+          "waiting_on_owner",
+          "waiting_on_third_party",
+          "resolved",
+          "closed"
+        ],
+        "title": "CaseState",
+        "type": "string"
+      },
+      "CaseSummary": {
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/Category"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "opened_at": {
+            "format": "date-time",
+            "title": "Opened At",
+            "type": "string"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "state": {
+            "$ref": "#/components/schemas/CaseState"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "urgency": {
+            "$ref": "#/components/schemas/Urgency"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "category",
+          "urgency",
+          "summary",
+          "opened_at",
+          "resolved_at"
+        ],
+        "title": "CaseSummary",
+        "type": "object"
+      },
+      "Category": {
+        "enum": [
+          "maintenance",
+          "payment",
+          "lease",
+          "complaint",
+          "contractor_update",
+          "admin",
+          "spam",
+          "other"
+        ],
+        "title": "Category",
+        "type": "string"
+      },
+      "Channel": {
+        "enum": [
+          "whatsapp",
+          "gmail",
+          "google_chat",
+          "dashboard"
+        ],
+        "title": "Channel",
+        "type": "string"
+      },
+      "CompanyOut": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "outbound_mode": {
+            "$ref": "#/components/schemas/OutboundMode"
+          },
+          "paused": {
+            "title": "Paused",
+            "type": "boolean"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "paused",
+          "outbound_mode",
+          "timezone"
+        ],
+        "title": "CompanyOut",
+        "type": "object"
+      },
+      "ConversationOut": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "turns": {
+            "items": {
+              "$ref": "#/components/schemas/TurnOut"
+            },
+            "title": "Turns",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "turns"
+        ],
+        "title": "ConversationOut",
+        "type": "object"
+      },
+      "DecideIn": {
+        "properties": {
+          "choice": {
+            "$ref": "#/components/schemas/ButtonChoice"
+          },
+          "confirm_suspicious": {
+            "default": false,
+            "title": "Confirm Suspicious",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "choice"
+        ],
+        "title": "DecideIn",
+        "type": "object"
+      },
+      "DecisionOut": {
+        "properties": {
+          "action_id": {
+            "format": "uuid",
+            "title": "Action Id",
+            "type": "string"
+          },
+          "draft_version": {
+            "title": "Draft Version",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "execute",
+              "edit",
+              "rejected",
+              "stale"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "variant": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variant"
+          }
+        },
+        "required": [
+          "kind",
+          "stale",
+          "action_id",
+          "draft_version",
+          "variant"
+        ],
+        "title": "DecisionOut",
+        "type": "object"
+      },
+      "DeliveryStatus": {
+        "description": "Outbound message delivery, moving forward only: sent < delivered < read; failed is terminal.",
+        "enum": [
+          "sent",
+          "delivered",
+          "read",
+          "failed"
+        ],
+        "title": "DeliveryStatus",
+        "type": "string"
+      },
+      "Direction": {
+        "enum": [
+          "inbound",
+          "outbound"
+        ],
+        "title": "Direction",
+        "type": "string"
+      },
+      "EditIn": {
+        "properties": {
+          "text": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "EditIn",
+        "type": "object"
+      },
+      "FeedItem": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/FeedKind"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "ref_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref Id"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "seen_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seen At"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "ref_id",
+          "payload",
+          "created_at",
+          "seen_at",
+          "resolved_at"
+        ],
+        "title": "FeedItem",
+        "type": "object"
+      },
+      "FeedKind": {
+        "enum": [
+          "approval",
+          "document_review",
+          "alert",
+          "briefing",
+          "task",
+          "agent_note"
+        ],
+        "title": "FeedKind",
+        "type": "string"
+      },
+      "FileDocumentIn": {
+        "properties": {
+          "choice": {
+            "maxLength": 32,
+            "title": "Choice",
+            "type": "string"
+          }
+        },
+        "required": [
+          "choice"
+        ],
+        "title": "FileDocumentIn",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "InboxItem": {
+        "properties": {
+          "case_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "channel": {
+            "$ref": "#/components/schemas/Channel"
+          },
+          "cursor": {
+            "title": "Cursor",
+            "type": "string"
+          },
+          "last_at": {
+            "format": "date-time",
+            "title": "Last At",
+            "type": "string"
+          },
+          "last_text": {
+            "title": "Last Text",
+            "type": "string"
+          },
+          "message_count": {
+            "title": "Message Count",
+            "type": "integer"
+          },
+          "person_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Person Name"
+          },
+          "sender": {
+            "title": "Sender",
+            "type": "string"
+          },
+          "thread_key": {
+            "title": "Thread Key",
+            "type": "string"
+          },
+          "unread_pipeline": {
+            "$ref": "#/components/schemas/PipelineStatus"
+          }
+        },
+        "required": [
+          "thread_key",
+          "cursor",
+          "channel",
+          "last_at",
+          "last_text",
+          "sender",
+          "person_name",
+          "case_id",
+          "unread_pipeline",
+          "message_count"
+        ],
+        "title": "InboxItem",
+        "type": "object"
+      },
+      "OutboundMode": {
+        "enum": [
+          "draft",
+          "send"
+        ],
+        "title": "OutboundMode",
+        "type": "string"
+      },
+      "PausedOut": {
+        "properties": {
+          "paused": {
+            "title": "Paused",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "paused"
+        ],
+        "title": "PausedOut",
+        "type": "object"
+      },
+      "PendingApprovalOut": {
+        "properties": {
+          "action_id": {
+            "format": "uuid",
+            "title": "Action Id",
+            "type": "string"
+          },
+          "action_type": {
+            "$ref": "#/components/schemas/ActionType"
+          },
+          "case_id": {
+            "format": "uuid",
+            "title": "Case Id",
+            "type": "string"
+          },
+          "case_label": {
+            "title": "Case Label",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "cursor": {
+            "title": "Cursor",
+            "type": "string"
+          },
+          "draft_version": {
+            "title": "Draft Version",
+            "type": "integer"
+          },
+          "drafts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Drafts",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "suspicious": {
+            "title": "Suspicious",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "cursor",
+          "action_id",
+          "action_type",
+          "case_id",
+          "case_label",
+          "drafts",
+          "draft_version",
+          "suspicious",
+          "created_at"
+        ],
+        "title": "PendingApprovalOut",
+        "type": "object"
+      },
+      "PipelineStatus": {
+        "description": "Agent pipeline progress of one inbound message (spec phase-1 agents \u00a7M4).",
+        "enum": [
+          "pending",
+          "done",
+          "failed"
+        ],
+        "title": "PipelineStatus",
+        "type": "string"
+      },
+      "ReviewDocumentOut": {
+        "properties": {
+          "attachment_id": {
+            "format": "uuid",
+            "title": "Attachment Id",
+            "type": "string"
+          },
+          "case_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "cursor": {
+            "title": "Cursor",
+            "type": "string"
+          },
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename"
+          },
+          "mime_type": {
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "suggested_type": {
+            "title": "Suggested Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "attachment_id",
+          "cursor",
+          "filename",
+          "mime_type",
+          "case_id",
+          "suggested_type",
+          "created_at"
+        ],
+        "title": "ReviewDocumentOut",
+        "type": "object"
+      },
+      "RevisionOut": {
+        "properties": {
+          "action_id": {
+            "format": "uuid",
+            "title": "Action Id",
+            "type": "string"
+          },
+          "approval_id": {
+            "format": "uuid",
+            "title": "Approval Id",
+            "type": "string"
+          },
+          "draft_version": {
+            "title": "Draft Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action_id",
+          "draft_version",
+          "approval_id"
+        ],
+        "title": "RevisionOut",
+        "type": "object"
+      },
+      "SessionRequest": {
+        "properties": {
+          "id_token": {
+            "title": "Id Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id_token"
+        ],
+        "title": "SessionRequest",
+        "type": "object"
+      },
+      "SnoozeIn": {
+        "properties": {
+          "duration": {
+            "maxLength": 16,
+            "title": "Duration",
+            "type": "string"
+          }
+        },
+        "required": [
+          "duration"
+        ],
+        "title": "SnoozeIn",
+        "type": "object"
+      },
+      "TaskOut": {
+        "properties": {
+          "assignee": {
+            "title": "Assignee",
+            "type": "string"
+          },
+          "case_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/TaskPriority"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TaskStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "ref",
+          "title",
+          "assignee",
+          "due_at",
+          "priority",
+          "status",
+          "case_id"
+        ],
+        "title": "TaskOut",
+        "type": "object"
+      },
+      "TaskPriority": {
+        "enum": [
+          "p1",
+          "p2",
+          "p3"
+        ],
+        "title": "TaskPriority",
+        "type": "string"
+      },
+      "TaskStatus": {
+        "enum": [
+          "open",
+          "done",
+          "snoozed",
+          "cancelled"
+        ],
+        "title": "TaskStatus",
+        "type": "string"
+      },
+      "ThreadMessage": {
+        "properties": {
+          "attachments": {
+            "items": {
+              "$ref": "#/components/schemas/AttachmentOut"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "delivery_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeliveryStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "direction": {
+            "$ref": "#/components/schemas/Direction"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "pipeline_status": {
+            "$ref": "#/components/schemas/PipelineStatus"
+          },
+          "sender": {
+            "title": "Sender",
+            "type": "string"
+          },
+          "sent_at": {
+            "format": "date-time",
+            "title": "Sent At",
+            "type": "string"
+          },
+          "suspicious": {
+            "title": "Suspicious",
+            "type": "boolean"
+          },
+          "suspicious_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suspicious Reason"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "direction",
+          "sent_at",
+          "sender",
+          "text",
+          "delivery_status",
+          "pipeline_status",
+          "suspicious",
+          "suspicious_reason",
+          "attachments"
+        ],
+        "title": "ThreadMessage",
+        "type": "object"
+      },
+      "TurnOut": {
+        "description": "`plan`/`results` may quote untrusted message text: data for the SPA to show as text, never markup.",
+        "properties": {
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan"
+          },
+          "results": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Results"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TurnStatus"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "status",
+          "plan",
+          "results",
+          "answer",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "TurnOut",
+        "type": "object"
+      },
+      "TurnStatus": {
+        "enum": [
+          "pending",
+          "running",
+          "done",
+          "failed"
+        ],
+        "title": "TurnStatus",
+        "type": "string"
+      },
+      "Urgency": {
+        "enum": [
+          "emergency",
+          "high",
+          "normal",
+          "low"
+        ],
+        "title": "Urgency",
+        "type": "string"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "WaitOut": {
+        "properties": {
+          "about": {
+            "title": "About",
+            "type": "string"
+          },
+          "case_id": {
+            "format": "uuid",
+            "title": "Case Id",
+            "type": "string"
+          },
+          "chase_count": {
+            "title": "Chase Count",
+            "type": "integer"
+          },
+          "expected_by": {
+            "format": "date-time",
+            "title": "Expected By",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_chased_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Chased At"
+          }
+        },
+        "required": [
+          "id",
+          "case_id",
+          "about",
+          "expected_by",
+          "chase_count",
+          "last_chased_at"
+        ],
+        "title": "WaitOut",
+        "type": "object"
+      }
+    }
+  }
+  '''
+# ---

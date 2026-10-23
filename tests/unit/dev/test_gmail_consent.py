@@ -117,3 +117,48 @@ def test_drive_token_is_opt_in_and_has_only_the_drive_file_scope(tmp_path: Path)
         "gmail-read.json",
         "gmail-compose.json",
     ]
+
+
+def test_reply_send_scopes_match_the_adapter() -> None:
+    from app.channels.gmail.drafts import SEND_SCOPES
+
+    assert gc.REPLY_SEND_PURPOSE == ("reply-send", SEND_SCOPES)
+
+
+def test_reply_send_token_is_opt_in_and_has_exactly_the_send_scopes(tmp_path: Path) -> None:
+    from app.channels.gmail.drafts import SEND_SCOPES
+
+    written = gc.create_token_files(_consent(), MAILBOX, tmp_path, reply_send=True)
+    assert [p.name for p in written] == ["gmail-read.json", "gmail-compose.json", "gmail-reply-send.json"]
+    assert json.loads(written[-1].read_text())["scopes"] == SEND_SCOPES
+    assert stat.S_IMODE(written[-1].stat().st_mode) == 0o600
+    plain = gc.create_token_files(_consent(), MAILBOX, tmp_path / "plain")
+    assert "gmail-reply-send.json" not in [p.name for p in plain]
+
+
+def test_reply_send_refuses_extra_scopes_and_wrong_mailbox_writing_nothing(tmp_path: Path) -> None:
+    from app.channels.gmail.drafts import SEND_SCOPES
+
+    def authorize(scopes: list[str]) -> Credentials:
+        granted = [*scopes, "https://www.googleapis.com/auth/gmail.readonly"] if scopes == SEND_SCOPES else scopes
+        return _creds(granted)
+
+    greedy = gc.Consent(authorize=authorize, profile_email=lambda _c: "owner@example.com")
+    with pytest.raises(UnsafeConfigurationError, match="scopes"):
+        gc.create_token_files(greedy, MAILBOX, tmp_path, reply_send=True)
+    with pytest.raises(UnsafeConfigurationError, match=r"someone@else\.com"):
+        gc.create_token_files(_consent(mailbox="someone@else.com"), MAILBOX, tmp_path, reply_send=True)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_cli_passes_reply_send_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[bool] = []
+
+    def fake_create(_c: gc.Consent, _m: str, _o: Path, *, drive: bool = False, reply_send: bool = False) -> list[Path]:
+        seen.append(reply_send)
+        return []
+
+    monkeypatch.setattr(gc, "google_consent", lambda _client: _consent())
+    monkeypatch.setattr(gc, "create_token_files", fake_create)
+    gc.main(["--client", "c.json", "--mailbox", "a@b.c", "--out-dir", str(tmp_path), "--reply-send"])
+    assert seen == [True]

@@ -1,5 +1,9 @@
 # EstateOS Phase 1: high-level design
 
+> **2026-10-15:** the owner interface is now a dashboard (`/api/v1` + SSE) with one Super Agent; tenant sends happen after
+> the owner's approve click. Sections below that mention WhatsApp/Chat owner cards or "drafts only" are superseded by
+> [the dashboard spec](superpowers/specs/2026-10-15-dashboard-super-agent-design.md) and [ADR 0006](adr/0006-dashboard-owner-channel.md).
+
 Tools: [tech-stack.md](tech-stack.md) · Decisions: [adr/](adr/) · Milestones: [build-plan.md](build-plan.md)
 
 ## 1. Context
@@ -17,6 +21,8 @@ Tools: [tech-stack.md](tech-stack.md) · Decisions: [adr/](adr/) · Milestones: 
                └─────────────────────────────────────────────┘
  Phase 1 outbound: Gmail DRAFTS in the thread + WhatsApp messages to Harjot ONLY.
 ```
+*(Since the dashboard work: owner messages go to the dashboard feed for a `dashboard` owner, and in
+`outbound_mode=send` an approved reply is sent to the tenant through the guarded sender; see §4.4.)*
 
 ## 2. Containers
 
@@ -94,6 +100,13 @@ Then call the adapter (Gmail `drafts.create` in the thread, or a WhatsApp messag
 `provider_ref`, and mark the action executed. Phase 1 allowlist: the recipient must be an `owner_accounts` number, or
 the action must be a Gmail draft. Anything else raises.
 
+*Dashboard update (ADR 0006):* the allowlist also accepts the company's own dashboard owner feed (an `owner_feed` row
+for approved owner-directed actions of a `dashboard` owner) and, only in `outbound_mode=send`, the case's own contact
+on the thread's channel, re-derived from the database at execution (spec §5). The company row is locked for the claim,
+the hourly tenant cap is checked, and a tenant send that is blocked or fails leaves one dashboard alert. A send still
+`sending` after 30 minutes is marked failed once (status unknown: check the thread). A 5-minute sweep re-enqueues
+approved actions and Super Agent turns stranded by a crash between commit and enqueue.
+
 ### 4.5 Time-based work
 | Job | Mechanism |
 |---|---|
@@ -123,8 +136,8 @@ covers everything. All domain rows carry `company_id`; repositories take `compan
 
 ## 7. Security and compliance
 EU-only data processing (OpenAI EU residency + DPA, Langfuse EU, EU S3/DB). Webhook auth: Meta HMAC, Pub/Sub OIDC.
-Secrets only in env. Least privilege: Gmail scopes `gmail.readonly` + `gmail.compose` (drafts), no `gmail.send` in
-Phase 1. PII not logged at info level. Retention policy is decided at M0 with Harjot.
+Secrets only in env. Least privilege: Gmail scopes `gmail.readonly` + `gmail.compose` (drafts); `gmail.send` only in a
+separate token for send mode (`GMAIL_REPLY_SEND_CREDENTIALS_FILE`, ADR 0006). PII not logged at info level. Retention policy is decided at M0 with Harjot.
 
 ## 8. Failure handling
 | Failure | Behaviour |

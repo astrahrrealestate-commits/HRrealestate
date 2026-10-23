@@ -91,6 +91,9 @@ def test_prod_hides_docs_and_openapi(monkeypatch: pytest.MonkeyPatch, tmp_path: 
         openai_api_key="sk-test",
         drive_provider="google",
         drive_credentials_file=creds,
+        dashboard_auth_provider="google",
+        dashboard_session_secret="x" * 32,
+        google_oauth_client_id="c.apps.googleusercontent.com",
         _env_file=None,
     )  # type: ignore[call-arg]
     with TestClient(create_app(prod, engine=MagicMock())) as client:

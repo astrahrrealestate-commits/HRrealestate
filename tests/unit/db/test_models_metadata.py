@@ -10,6 +10,8 @@ SPEC_TABLES = {
     "timers", "outcomes", "model_calls",
     # phase 1 agents (spec 2026-10-07)
     "tasks", "waits", "documents", "metric_snapshots", "owner_outbox",
+    # dashboard (spec 2026-10-15)
+    "owner_feed", "agent_conversations", "agent_turns",
 }  # fmt: skip
 
 

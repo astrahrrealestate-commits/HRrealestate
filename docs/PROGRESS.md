@@ -57,6 +57,7 @@ Phase 1 agents spec: [2026-10-07-estateos-phase1-agents-design.md](superpowers/s
 - [x] llm core: prompt loader + sha256, data blocks (case/space-insensitive escaping), `run_agent` (model_calls row on success and failure, transient errors retried, timeout, cost, resolved model name), fake FunctionModels, Langfuse OTel
 - [x] understanding agent (#2) + prompt v1; `pipeline.entry` orchestrator (#1); messages.pipeline_status + hourly requeue (max 3)
 - [x] golden set + `make eval` (evals/golden/understanding.yaml, evals/run.py, make eval agent=understanding version=v1)
+- [ ] agent guardrails: owner Q&A scope (`owner_qa/v2`), per-company LLM budget/call caps (disabled by default), injection scanner feeding `suspicious`, draft output guard, owner_qa scope golden set; spec [2026-10-12-agent-guardrails-design.md](superpowers/specs/2026-10-12-agent-guardrails-design.md). Integration tests for these tasks NOT run (Docker unavailable); `make check`/`make smoke` pending. G1 790 passed; G2/smoke pending (Docker unavailable)
 
 ## M5 Case engine + tasks + waits
 - [x] migration 0003: tasks, waits, documents, metric_snapshots, pipeline status, Europe/Amsterdam default, chase/briefing settings
@@ -99,3 +100,53 @@ Phase 1 agents spec: [2026-10-07-estateos-phase1-agents-design.md](superpowers/s
 - [ ] one day of shadow running on live mail (needs live credentials, user)
 - [x] (carried from M1) DBOS system-table retention/GC (daily DBOS system-table retention 30 days with DBOS GC)
 - [ ] (carried from M1) image CVE scan in CI (Docker Scout reports 3 high Debian CVEs in python:3.12-slim)
+
+## D Dashboard + Super Agent (#10) — spec [2026-10-15-dashboard-super-agent-design.md](superpowers/specs/2026-10-15-dashboard-super-agent-design.md) · branch `d-dashboard` · API guide [dashboard-api.md](dashboard-api.md)
+Ticks below carry a quoted line from the build ledger (per-task `make quick` reports and reviews) or from a run on 2026-10-15.
+**Not run anywhere in D (Docker down, no credentials):** every integration test, `make check`, `make cov`, `make smoke`,
+`make sim-demo` (incl. the new `dashboard` scenario), `make live-check k=outbound`. Items that depend on them are unticked or say "written, not run".
+- [x] spec + ADR 0006 written (user decisions 2026-10-15: dashboard-only owner, real sends on approve, backend API only); ADR 0006 now `accepted`
+- [ ] spec review by user (the build proceeded on the user's "start"; spec amended with "Deviations from the first draft")
+- [x] D1 foundation (migration 0009, auth, `/api/v1` skeleton, SSE feed): ledger "Task 3: complete (commits bf44484..f70017d, review clean)"; `make quick` 801 passed (task 1), 842 (after auth review fixes), 881 (task 4)
+- [x] D2 read API (inbox, cases, tasks, waits, briefing, activity, approvals, documents/review): ledger "Task 5: complete (commits 3707141..094d2c6, review clean)"; `make quick` 923 passed after task 6
+- [x] D3 decision routes, dashboard owner channel, sender `send` mode: ledger "Task 9: complete ... review clean; G2 must pass before merge"; `make quick` `1045 passed, 4 warnings`, `Contracts: 5 kept, 0 broken.`
+- [ ] D3 live-check outbound (`make live-check k=outbound`): written, not run (no credentials); ledger "Task 10: complete (commits d492af4..ff2fa0d, review clean)" covers the code review only
+- [ ] **G2 for D1-D3:** integration tests (342 collected, mypy clean) and the migration round-trip have NOT been run. `make check` must pass once Docker is back, before send mode is trusted
+- [x] D4 Super Agent (ConciergePlan, executor, workflow, chat endpoints): ledger "Task 13: complete (commits 27a8169..d698b38, review clean)"
+- [x] D5 concierge golden set and injection suite (unit part): ledger "Task 14: complete (commits d698b38..db24230, review clean)"; `LLM_MODEL=fake make eval agent=concierge version=v1` on 2026-10-15: `intent_sequence_match: 1.00`, `scope_accuracy: 1.00`, `forbidden_intent_rate: 0.00`, `invariant_pass_rate: 1.00`, `misses: 0` (fake model, not a real one). The injection integration tests are written, not run
+- [x] D5 rate limits (30/min agent, 10/min login per IP, 120/min decisions; `app/api/v1/ratelimit.py`) with unit tests in `tests/unit/api/test_ratelimit.py`; CRLF now allowed in agent text
+- [ ] D5 simulator `dashboard` scenario (`app/dev/demo_dashboard.py`, runs inside `make sim-demo`, ends with `dashboard=ok`; compose now forwards the dashboard settings, skip without a secret, provider guard, state restored): written, not run; only its pure helpers are unit-tested
+- [x] D5 docs: dashboard-api.md, ADR 0006 accepted, tech-stack, spec deviations, go-live nits
+- [x] G1 on 2026-10-15 (after task 15): `make quick` -> `1246 passed, 652 warnings`, import-linter contracts kept
+- [x] `make audit` 2026-10-15: `No known vulnerabilities found`
+- [x] `make harness-test` 2026-10-15: `Ran 16 tests ... OK`
+- [ ] `make cov`: needs Docker (runs integration tests): not run
+- [x] whole-branch final review (opus, 60e2afb..76e4003): verdict "merge after fixes" (I1-I8, M1-M8); one fix wave below
+- [x] **Final review fix wave** (unit-tested; integration tests written, mypy-clean and collected, NOT run):
+  - I1 document-review cards (`docreview:{attachment_id}`, now `app.owner.cards.document_review_key`) land as `document_review` with `ref_id`
+  - I2 approved contractor requests, escalations, owner notes and draft-mode WhatsApp replies reach a `dashboard` owner as one feed row (`exec:` key, committed with the `sends` row marked sent); allowlist branch for the company's own owner feed; WhatsApp/Chat owners unchanged
+  - I3 ruling: code default stays `whatsapp`; deviation recorded in the spec; switch runbook in go-live-channels.md
+  - I4 the planner brief lists open tasks as `#<ref> <title>`
+  - I5 `resume` skips actions whose exec send is `sending`/`sent`/`failed`; a lost claim on a tenant send `sending` < 30 min is "in progress" (no alert); `tell_blocked_step` keys alerts by `blocked:exec:{a}:{v}`
+  - I6 a send `sending` 30+ min is marked failed once (send + action), one alert, never re-run by `resume`
+  - I7 `sweep.stranded` cron every 5 min re-enqueues approved actions and pending turns stranded between commit and enqueue (same ids, 200 per round)
+  - I8 same-origin deployment documented; optional `DASHBOARD_CORS_ORIGINS` allowlist (`*` refused)
+  - M1 sessions re-read the owner row per request; M2 import-linter contract `app.api` never imports `app.workflows`/`app.sender` (`Contracts: 6 kept, 0 broken.`); M3 stale docs fixed/annotated; M5 compose and `.env.example` wiring (unit-tested); M8 go-live note on draft mode for a dashboard-only owner
+  - G1 after the wave: `make quick` -> `1322 passed, 654 warnings`; integration suite `401 tests collected`, not run
+- [ ] G5 `make smoke`, `make sim-demo`: not run
+
+### Dashboard follow-ups / parked (from the ledger)
+- Fixed in the final wave (were parked): N1 resume vs in-flight send (I5), stuck `STATUS_UNKNOWN` sends repeating (I6: failed once after 30 min), turns/actions stranded between commit and enqueue (I7 sweep). Their integration tests are written, not run.
+- No owner mark-sent/cancel route for a send whose status is unknown (ruling: the owner checks the thread and resends by hand); owner re-target is refused on a number change.
+- M4: outcome capture labels send-mode sends `unchanged` (the sender delivered the approved text itself); label them apart (follow-up).
+- The owner channel default is still `whatsapp` in code (spec says `dashboard`): needs the user's decision on existing rows.
+- SSE: a row that commits later than about 2 s after a later one can be missed until reconnect; no reconnect frame at lifetime end; generic error frame.
+- Sanitiser gaps in concierge answers: dotted-time hold such as `06.12 34 56 78`, bare domains.
+- `draft_reply` cannot re-draft after a decision.
+- `normalise_identity` has no NL region default (separate change).
+- `handle_wait_due` is about 55 lines and `followups.py` 297 lines (over the style limits).
+- Inbox correlated subqueries per row (EXPLAIN later, index on coalesce); `owner_id` FK on conversations unindexed.
+- Minor ledger items: `fail_turn` raising inside the enqueue-failure path leaves a turn pending; a transient error mid `run_plan` re-executes the stored plan's steps (relies on step idempotency); `pending_step_approval` may match a same-plan `draft_reply`; the live outbound test checks the read-token mailbox, not the reply-send token identity; `test_migration_0009` covers only 2 CHECKs and there is no 0010-specific test; the concierge fake's injection pattern diverged from `_SUSPICIOUS`; `StepResult.data["summary"]` can carry the raw case summary (capped at 400 chars; the SPA must render plain text).
+- Others minor: `_RE_PREFIX` strips only `Re:` (not `Antw:`/`AW:`); a roommate-only thread has no tenant recipient; ApprovalOut may be stale after an edit before the v2 approval row exists; `/feed` clamps `limit` while `/inbox` returns 422; multi-instance rate limits need Postgres counters (ADR 0006).
+
+- [ ] **BLOCKS `outbound_mode=send`** (final review, finding 1): worker crash mid tenant send then DBOS recovery leaves the Send row `sending` and the action `approved` forever with no alert; add a sweep for old `sending` rows (company-scoped, bounded) calling `give_up_stuck` + alert, plus an integration test. Related lows: in-progress outcome should skip `after_execute_step` (opens a follow-up wait early); lock order in `feed_claimed`; WhatsApp/Chat owners still get the old "Not sent" wording in `tell_blocked_step`; sweep batch can be filled by already-known actions and ignores > 24 h strandings.

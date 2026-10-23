@@ -83,3 +83,21 @@ def test_empty_input() -> None:
 
 def test_contractor_ids_are_uuids() -> None:
     assert all(isinstance(c, UUID) for c in _ctx().contractor_ids)
+
+
+def test_reply_with_an_invented_link_becomes_an_exception() -> None:
+    draft = _action(
+        ActionType.reply_draft,
+        body_variants=["Betaal hier: https://evil.example.com/pay", "Zie https://evil.example.com"],
+    )
+    [d] = apply_rules([draft], _ctx(source_text="Wanneer komt de loodgieter?"))
+    assert (d.verdict, d.reason) == (Verdict.exception, "draft contains an unverified link, account or phone number")
+
+
+def test_reply_quoting_the_senders_own_link_is_fine() -> None:
+    draft = _action(
+        ActionType.reply_draft,
+        body_variants=["Foto ontvangen: https://x.example.com/a", "Dank voor https://x.example.com/a"],
+    )
+    [d] = apply_rules([draft], _ctx(source_text="Kijk https://x.example.com/a"))
+    assert d.verdict is Verdict.pending_approval

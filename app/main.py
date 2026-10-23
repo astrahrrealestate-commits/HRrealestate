@@ -11,6 +11,8 @@ from sqlalchemy import Engine
 import app
 from app.api import agent, dashboard, health, inbox, maintenance, properties, tenants
 from app.api.deps import WorkflowClient
+from app.api.v1 import auth as dashboard_auth
+from app.api.v1.ratelimit import RateLimiter
 from app.api.v1.router import api_v1_router
 from app.api.webhooks import gmail as gmail_webhook
 from app.api.webhooks import google_chat as google_chat_webhook
@@ -23,6 +25,7 @@ from app.core.settings import Settings, get_settings
 from app.core.startup import assert_production_safe
 from app.core.telemetry import init_telemetry
 from app.db.session import make_engine
+from app.storage.ports import ObjectStorage
 
 
 def create_app(
@@ -31,6 +34,8 @@ def create_app(
     workflow_client: WorkflowClient | None = None,
     gmail_push_verifier: PushVerifier | None = None,
     google_chat_verifier: ChatVerifier | None = None,
+    id_token_verifier: dashboard_auth.IdTokenVerifier | None = None,
+    storage: ObjectStorage | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     assert_production_safe(settings)
@@ -44,11 +49,13 @@ def create_app(
     async def lifespan(api: FastAPI) -> AsyncIterator[None]:
         api.state.engine = resolved_engine
         api.state.settings = settings
+        api.state.storage = storage
         api.state.workflow_client = workflow_client or DBOSClient(
             system_database_url=settings.dbos_database_url, lazy=True
         )
         api.state.gmail_push_verifier = gmail_push_verifier or registry.gmail_push_verifier(settings)
         api.state.google_chat_verifier = google_chat_verifier or registry.google_chat_verifier(settings)
+        api.state.id_token_verifier = id_token_verifier or dashboard_auth.dashboard_verifier(settings)
         yield
         if workflow_client is None:
             api.state.workflow_client.destroy()
@@ -63,9 +70,11 @@ def create_app(
         openapi_url="/openapi.json" if settings.env != "prod" else None,
         redoc_url=None,
     )
+    api.state.rate_limiter = RateLimiter()
+    cors_origins = list(settings.dashboard_cors_origins) if settings.dashboard_cors_origins else ["http://localhost:3000", "http://127.0.0.1:3000", "*"]
     api.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "*"],
+        allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

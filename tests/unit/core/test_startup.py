@@ -21,6 +21,9 @@ REAL: dict[str, Any] = {
     "llm_model": "openai:gpt-4.1-mini",
     "openai_api_key": "sk-test",
     "drive_provider": "google",
+    "dashboard_auth_provider": "google",
+    "dashboard_session_secret": "x" * 32,
+    "google_oauth_client_id": "client.apps.googleusercontent.com",
 }
 
 
@@ -57,6 +60,12 @@ def test_defaults_are_fakes_and_fine_outside_prod() -> None:
         ({"s3_bucket": None}, "s3_bucket"),
         ({"llm_model": "fake"}, "llm_model"),
         ({"drive_provider": "fake"}, "drive_provider"),
+        ({"dashboard_auth_provider": "fake"}, "dashboard_auth_provider"),
+        ({"dashboard_session_secret": None}, "dashboard_session_secret"),
+        ({"dashboard_session_secret": "short"}, "dashboard_session_secret"),
+        ({"dashboard_session_secret": "dev-only-session-secret-change-me-32-chars"}, "public dev-only default"),
+        ({"dashboard_session_secret": "DEV-ONLY-" + "x" * 30}, "public dev-only default"),
+        ({"google_oauth_client_id": None}, "google_oauth_client_id"),
         ({"drive_credentials_file": None}, "drive_credentials_file"),
         ({"openai_api_key": None}, "openai_api_key"),
         ({"gmail_credentials_file": Path("/nonexistent/gmail.json")}, "gmail_credentials_file"),

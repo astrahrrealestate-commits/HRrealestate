@@ -1,13 +1,14 @@
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings
 
-from tests.live.requirements import configured_from, missing
+from tests.live.requirements import configured_from, live_requirements, missing
 
 
 class Fake(BaseSettings):
     whatsapp_provider: str = "fake"
     s3_bucket: str | None = None
     gmail_credentials_file: str | None = None
+    gmail_reply_send_credentials_file: str | None = None
     whatsapp_media_tokens: dict[str, SecretStr] = {}
 
 
@@ -36,3 +37,21 @@ def test_settings_values_count_even_without_environment() -> None:
 def test_provider_left_on_fake_is_missing() -> None:
     assert missing(["WHATSAPP_PROVIDER"], configured_from({}, Fake())) == ["WHATSAPP_PROVIDER"]
     assert missing(["WHATSAPP_PROVIDER"], configured_from({}, Fake(whatsapp_provider="360dialog"))) == []
+
+
+def test_outbound_lists_the_reply_send_token_and_mailbox_when_missing() -> None:
+    required = live_requirements("outbound")
+    assert missing(required, configured_from({}, Fake())) == [
+        "GMAIL_CREDENTIALS_FILE",
+        "GMAIL_REPLY_SEND_CREDENTIALS_FILE",
+        "LIVE_GMAIL_MAILBOX",
+    ]
+    configured = configured_from(
+        {"LIVE_GMAIL_MAILBOX": "me@example.test"},
+        Fake(gmail_credentials_file="read.json", gmail_reply_send_credentials_file="send.json"),
+    )
+    assert missing(required, configured) == []
+
+
+def test_outbound_never_asks_for_the_compose_token() -> None:
+    assert "GMAIL_SEND_CREDENTIALS_FILE" not in live_requirements("outbound")

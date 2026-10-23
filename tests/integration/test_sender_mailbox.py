@@ -49,14 +49,16 @@ def _thread(db: Session, company: Company, raw_mailbox: str, meta: dict[str, Any
 def test_draft_goes_to_the_mailbox_the_thread_arrived_in(db: Session, company: Company) -> None:
     first, second = _mailboxes(db, company)
     for mailbox in (first, second):  # whichever account row comes back first, the thread's own mailbox wins
-        plan = plan_for(db, _thread(db, company, mailbox, {"mailbox": mailbox}), 0, f"k-{mailbox}")
+        plan = plan_for(
+            db, _thread(db, company, mailbox, {"mailbox": mailbox}), 0, f"k-{mailbox}", send_mode=False, now=NOW
+        )
         assert plan.mailbox == mailbox
         assert plan.draft is not None
 
 
 def test_rows_ingested_before_meta_mailbox_use_the_raw_event(db: Session, company: Company) -> None:
     _, second = _mailboxes(db, company)
-    plan = plan_for(db, _thread(db, company, second, {}), 1, "k-legacy")
+    plan = plan_for(db, _thread(db, company, second, {}), 1, "k-legacy", send_mode=False, now=NOW)
     assert plan.mailbox == second
 
 
@@ -64,4 +66,4 @@ def test_a_mailbox_that_is_not_the_companys_is_blocked(db: Session, company: Com
     _mailboxes(db, company)
     action = _thread(db, company, "someone-else@example.test", {"mailbox": "someone-else@example.test"})
     with pytest.raises(SendBlockedError, match="not one of the company's accounts"):
-        plan_for(db, action, 0, "k-foreign")
+        plan_for(db, action, 0, "k-foreign", send_mode=False, now=NOW)
