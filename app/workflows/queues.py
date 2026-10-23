@@ -4,9 +4,10 @@ Workflow bodies use these module-level handles instead of `DBOS.retrieve_queue`,
 
 The `concierge` queue (Super Agent turns, spec amendment 2026-10-22) keeps chat turns from waiting behind pipeline
 work. Its worker polls every `CONCIERGE_POLL_SECONDS` instead of DBOS's default 1 s: each poll is one dequeue
-transaction (plus a config reload) on the system database per worker, about 8 small queries/s per worker. DBOS accepts
-any positive interval and backs off on its own under contention (doubling up to 120 s, then easing back), so 0.25 s
-is the short end that stays cheap; a turn now waits at most about a quarter second to be picked up when a slot is free.
+transaction (plus a config reload) on the system database per worker, about 8 small queries/s per worker. DBOS
+(3.2.0) accepts any positive interval and backs off on its own under contention (doubling up to 120 s, then easing
+back), so 0.25 s is the short end that stays cheap; a turn waits at most about a quarter second to be picked up when a
+slot is free.
 At most `Settings.concierge_worker_concurrency` turns run at once per worker (each is mostly a model call).
 """
 
@@ -28,7 +29,11 @@ __all__ = [
     "pipeline_queue",
 ]
 
-PIPELINE_WORKER_CONCURRENCY = 4  # per executor; keeps one VM from overrunning LLM rate limits
+# Per executor; keeps one VM from overrunning LLM rate limits. Combined ceiling: the `concierge` queue runs up to
+# `Settings.concierge_worker_concurrency` (default 4) turns at the same time, so one worker can have up to 4 + 4 = 8
+# model calls in flight (a turn makes one planner call, plus one owner_qa call only without a usable reply). Size the
+# provider rate limit, or lower either number, for that total.
+PIPELINE_WORKER_CONCURRENCY = 4
 CONCIERGE_POLL_SECONDS = 0.25  # chat queue poll interval (DBOS default: 1.0)
 _handles: dict[str, Queue] = {}
 

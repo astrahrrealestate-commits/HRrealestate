@@ -227,3 +227,21 @@ def test_without_turns_the_stream_keeps_the_feed_beat() -> None:
     with patch("app.api.v1.events._read_page", return_value=[]), patch("app.api.v1.events.asyncio.sleep", fake.sleep):
         asyncio.run(run())
     assert fake.sleeps == [1.5] * 3
+
+
+def test_turn_event_query_reads_only_the_event_columns() -> None:
+    from sqlalchemy.dialects import postgresql
+
+    from app.pipeline.read_turns import turns_changed_after
+
+    session = MagicMock()
+    session.execute.return_value.all.return_value = []
+    assert turns_changed_after(session, uuid4(), uuid4(), (T0, UUID(int=0))) == []
+    sql = str(session.execute.call_args.args[0].compile(dialect=postgresql.dialect()))
+    selected = sql.split(" FROM ", 1)[0]
+    for column in ("id", "conversation_id", "status", "answer", "updated_at"):
+        assert f"agent_turns.{column}" in selected
+    for heavy in ("page_context", "plan", "results", "timings", "text"):
+        assert f"agent_turns.{heavy}" not in selected
+    assert "agent_turns.company_id = " in sql
+    assert "agent_conversations.owner_id = " in sql
