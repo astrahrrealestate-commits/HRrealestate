@@ -22,7 +22,23 @@ from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import MemoryKind, MemoryScope, MemoryStatus
 from app.channels.calendar import get_calendar_client
-from app.db.models import ActionRow, AgentPageState, Approval, CalendarEventRow, Case, Company, DocumentChunk, DocumentRow, MemoryItem, Person, TaskRow, Unit
+from app.db.models import (
+    ActionRow,
+    AgentPageState,
+    Approval,
+    CalendarEventRow,
+    Case,
+    CaseLink,
+    ChannelIdentity,
+    Company,
+    DocumentChunk,
+    DocumentRow,
+    MemoryItem,
+    MessageRow,
+    Person,
+    TaskRow,
+    Unit,
+)
 from app.llm.agents.calendar import propose_calendar_event
 from app.llm.agents.concierge import CONCIERGE, MAX_HISTORY, concierge_prompt
 from app.llm.agents.owner_qa import CaseBrief
@@ -72,6 +88,11 @@ class ActionButtonData(BaseModel):
     isPrimary: bool = False
 
 
+class DebugInfo(BaseModel):
+    pipeline_stage: str = Field(default="llm_concierge", description="llm_concierge | regex_calendar | regex_document | memory_rule | fake_router | domain_fallback")
+    fallback_reason: str | None = None
+
+
 class AskAgentResponse(BaseModel):
     answer: str
     caseRefs: list[str] = Field(default_factory=list)
@@ -80,6 +101,7 @@ class AskAgentResponse(BaseModel):
     executedAt: str
     steps: list[str] = Field(default_factory=list, description="Execution steps performed by agent")
     previewCard: PreviewCardData | None = None
+    debugInfo: DebugInfo | None = None
 
 
 def _case_label(session: Session, case: Case) -> str:
@@ -117,8 +139,8 @@ def _generate_groq_answer(
             "You directly assist Harjot (the property owner/manager) across his residential portfolio.\n\n"
             "LIVE ESTATE & PORTFOLIO TRUTH:\n"
             f"- Current Active Cases in DB:\n{live_cases or '• No open urgent cases in database.'}\n"
-            "- Portfolio Tenants & Units: Keizersgracht 42-A (Tenant: Vipin Tyagi, phone: +919456916996, email: vipint9902@gmail.com).\n"
-            "- Approved Contractor: Kevin van Dijk (Plumber / leak specialist, +91 94569 16996, suryanshtyagi.work@gmail.com).\n"
+            "- Portfolio Tenants & Units: Keizersgracht 42-A (Tenant: Vipin Tyagi).\n"
+            "- Approved Contractor: Kevin van Dijk (Plumber / leak specialist, Chahal Bouw).\n"
         )
         if memory_rules:
             system_prompt += "\nACTIVE OWNER STANDING RULES (T5 MEMORY):\n"
@@ -174,26 +196,76 @@ def _domain_fallback_answer(query: str, live_cases_text: str = "") -> str:
     if any(w in q_l for w in ["case", "ticket", "open", "active", "status"]):
         if live_cases_text and "no active open" not in live_cases_text.lower():
             return f"**Active Open Cases in Database:**\n\n{live_cases_text}"
-        return "**Active Cases:** 0 open cases in the database right now. All maintenance queues are clear."
+        return "**Active Cases:** No open cases found in database. All maintenance queues are currently clear."
     elif any(w in q_l for w in ["keizersgracht", "vipin", "tenant", "unit"]):
         return (
             "**Unit: Keizersgracht 42-A**\n\n"
-            "• **Tenant:** Vipin Tyagi (Phone: +91 94569 16996, Email: vipint9902@gmail.com)\n"
+            "• **Tenant:** Vipin Tyagi\n"
             "• **Standing Contractor Rule:** Plumber Kevin van Dijk is assigned for any pipe leaks."
         )
     elif any(w in q_l for w in ["contractor", "plumber"]):
         return (
             "**Registered Contractors:**\n\n"
-            "• **Kevin van Dijk (Plumber):** Assigned for leak and plumbing maintenance at Keizersgracht 42-A (+31 6 88 12 34 56)."
+            "• **Kevin van Dijk (Plumber):** Assigned for leak and plumbing maintenance at Keizersgracht 42-A."
         )
     else:
         return f"**EstateOS Live Status:**\n\n{live_cases_text or '• 0 open cases in database.'}"
+
+
+def _find_case_recipient(session: Session, target_case: Case) -> tuple[str, str]:
+    """Finds the true recipient (phone/email) and channel for a case from its linked messages or tenant identity."""
+    # 1. Check latest linked message for this case
+    try:
+        latest_msg = session.scalars(
+            select(MessageRow)
+            .join(CaseLink, CaseLink.message_id == MessageRow.id)
+            .where(CaseLink.case_id == target_case.id)
+            .order_by(MessageRow.sent_at.desc())
+            .limit(1)
+        ).first()
+
+        if latest_msg and getattr(latest_msg, "thread_ref", None) and not hasattr(latest_msg, "_mock_name"):
+            ref = str(latest_msg.thread_ref) if not hasattr(latest_msg.thread_ref, "_mock_name") else ""
+            ch_raw = getattr(latest_msg, "channel", "whatsapp")
+            ch = str(ch_raw.value) if hasattr(ch_raw, "value") else str(ch_raw)
+            if hasattr(ch_raw, "_mock_name"):
+                ch = "whatsapp"
+            if ref:
+                return ref, ch
+    except Exception as err:
+        log.warning("api.superagent.find_case_msg_failed", error=str(err))
+
+    # 2. Check tenant channel identity via primary_person_id
+    if getattr(target_case, "primary_person_id", None) and not hasattr(target_case.primary_person_id, "_mock_name"):
+        try:
+            ident = session.scalars(
+                select(ChannelIdentity)
+                .where(
+                    ChannelIdentity.person_id == target_case.primary_person_id,
+                    ChannelIdentity.valid_to.is_(None),
+                )
+                .order_by(ChannelIdentity.created_at.desc())
+                .limit(1)
+            ).first()
+            if ident and getattr(ident, "identity", None) and not hasattr(ident, "_mock_name"):
+                id_val = str(ident.identity) if not hasattr(ident.identity, "_mock_name") else ""
+                ch_raw = getattr(ident, "channel", "whatsapp")
+                ch = str(ch_raw.value) if hasattr(ch_raw, "value") else str(ch_raw)
+                if hasattr(ch_raw, "_mock_name"):
+                    ch = "whatsapp"
+                if id_val:
+                    return id_val, ch
+        except Exception as err:
+            log.warning("api.superagent.find_person_ident_failed", error=str(err))
+
+    return "", "whatsapp"
 
 
 def _resolve_draft_card(
     engine: Engine,
     approval_ids: list[str] | None = None,
     allow_fallback: bool = False,
+    company_id: UUID | None = None,
 ) -> PreviewCardData | None:
     """Consolidated helper to fetch draft message preview data in a single session scope."""
     with Session(engine) as session:
@@ -208,6 +280,14 @@ def _resolve_draft_card(
                         unit = session.get(Unit, target_case.unit_id) if target_case and target_case.unit_id else None
                         unit_label = unit.address if unit else "Portfolio Unit"
 
+                        # Resolve recipient from action payload or real linked case message
+                        resolved_recipient = payload.get("to") or payload.get("recipient")
+                        channel = payload.get("channel", "whatsapp")
+                        if not resolved_recipient and target_case:
+                            resolved_recipient, resolved_channel = _find_case_recipient(session, target_case)
+                            if resolved_channel:
+                                channel = resolved_channel
+
                         variants = payload.get("body_variants") or []
                         extracted_body = (variants[0] if isinstance(variants, list) and variants else "") or payload.get("body") or payload.get("text") or ""
                         draft_body = (
@@ -217,11 +297,11 @@ def _resolve_draft_card(
 
                         return PreviewCardData(
                             type="draft_message",
-                            channel=payload.get("channel", "whatsapp"),
-                            recipient=payload.get("to") or "+919456916996",
-                            unitLabel=unit_label,
-                            subject=payload.get("subject"),
-                            body=draft_body,
+                            channel=str(channel) if channel and not hasattr(channel, "_mock_name") else "whatsapp",
+                            recipient=str(resolved_recipient) if resolved_recipient and not hasattr(resolved_recipient, "_mock_name") else "",
+                            unitLabel=str(unit_label) if unit_label and not hasattr(unit_label, "_mock_name") else "Portfolio Unit",
+                            subject=str(payload.get("subject")) if payload.get("subject") and not hasattr(payload.get("subject"), "_mock_name") else None,
+                            body=str(draft_body) if draft_body and not hasattr(draft_body, "_mock_name") else "",
                             actionId=str(act.id),
                             caseId=str(act.case_id),
                         )
@@ -229,20 +309,24 @@ def _resolve_draft_card(
                 log.warning("api.superagent.resolve_draft_failed", error=str(e))
 
         if allow_fallback:
-            target_case = session.scalars(
-                select(Case).where(Case.state.in_(case_repo.OPEN_STATES)).order_by(Case.opened_at.desc()).limit(1)
-            ).first()
+            query = select(Case).where(Case.state.in_(case_repo.OPEN_STATES))
+            if company_id:
+                query = query.where(Case.company_id == company_id)
+            target_case = session.scalars(query.order_by(Case.opened_at.desc()).limit(1)).first()
             if target_case:
                 unit = session.get(Unit, target_case.unit_id) if target_case.unit_id else None
                 unit_label = unit.address if unit else "Portfolio Unit"
                 case_id = str(target_case.id)
                 body_text = "Beste bewoner,\n\nDank voor uw bericht. We hebben uw melding ontvangen en zijn direct bezig met de opvolging.\n\nMet vriendelijke groet,\nHarjot — EstateOS"
 
+                # Pull the real recipient phone/email for this case from DB
+                real_recipient, ch = _find_case_recipient(session, target_case)
+
                 return PreviewCardData(
                     type="draft_message",
-                    channel="whatsapp",
-                    recipient="+919456916996",
-                    unitLabel=unit_label,
+                    channel=str(ch) if ch and not hasattr(ch, "_mock_name") else "whatsapp",
+                    recipient=str(real_recipient) if real_recipient and not hasattr(real_recipient, "_mock_name") else "",
+                    unitLabel=str(unit_label) if unit_label and not hasattr(unit_label, "_mock_name") else "Portfolio Unit",
                     body=body_text,
                     actionId=f"act-{case_id[:8]}",
                     caseId=case_id,
@@ -420,6 +504,8 @@ def ask_agent(
     settings: Annotated[Settings, Depends(get_settings_dep)],
 ) -> AskAgentResponse:
     now = datetime.now(UTC)
+    pipeline_stage = "llm_concierge"
+    fallback_reason = None
     with Session(engine) as session:
         # Default company for single-tenant setup
         company = session.scalars(select(Company).limit(1)).first()
@@ -463,6 +549,7 @@ def ask_agent(
                         ],
                         executedAt=now.isoformat(),
                         steps=["Saved owner preference to workspace settings"],
+                        debugInfo=DebugInfo(pipeline_stage="memory_rule"),
                     )
 
         # Pull active owner memory rules (T5)
@@ -521,6 +608,7 @@ def ask_agent(
                 ],
                 executedAt=now.isoformat(),
                 steps=["Retrieved active workspace rules"],
+                debugInfo=DebugInfo(pipeline_stage="memory_rule"),
             )
 
         # Specific Task Trigger: Calendar / Appointment / Visit inquiry or booking
@@ -537,6 +625,7 @@ def ask_agent(
                     executedAt=now.isoformat(),
                     steps=cal_steps,
                     previewCard=cal_card,
+                    debugInfo=DebugInfo(pipeline_stage="regex_calendar"),
                 )
 
         # Specific Task Trigger: Document / Lease / Contract / Terms query
@@ -619,6 +708,7 @@ def ask_agent(
                             previewCard=preview_card,
                             executedAt=now.isoformat(),
                             steps=[],
+                            debugInfo=DebugInfo(pipeline_stage="regex_document"),
                         )
             except Exception as rag_err:
                 log.warning("api.superagent.rag_trigger_failed", error=str(rag_err))
@@ -650,6 +740,8 @@ def ask_agent(
         plan = call_res.output
     except Exception as exc:
         log.warning("api.superagent.llm_fallback", error=str(exc))
+        pipeline_stage = "fake_router"
+        fallback_reason = f"LLM error: {type(exc).__name__}"
         # If model call failed (e.g. 429 quota or offline), use the deterministic fake_concierge router
         try:
             fake_dict = fake_concierge(prompt)
@@ -684,6 +776,7 @@ def ask_agent(
 
     if matching_rule:
         ans_text = f"**Authoritative Standing Rule (T5 Memory):**\n\n• {matching_rule}"
+        pipeline_stage = "memory_rule"
 
     # If the response is empty or an unhandled placeholder, invoke Groq or clean executive domain generator
     needs_fallback = (
@@ -700,6 +793,8 @@ def ask_agent(
         )
     )
     if needs_fallback:
+        pipeline_stage = "domain_fallback"
+        fallback_reason = fallback_reason or "Empty or placeholder response"
         groq_resp = _generate_groq_answer(
             req.query,
             settings,
@@ -843,7 +938,7 @@ def ask_agent(
 
     # Contextual preview card fallback ONLY if drafting was requested, an open case exists, and a draft action wasn't already emitted
     if any(k in q_low for k in ["draft", "send", "message", "reply"]) and not preview_card:
-        preview_card = _resolve_draft_card(engine, allow_fallback=True)
+        preview_card = _resolve_draft_card(engine, allow_fallback=True, company_id=company_id)
 
     # Populate dynamic navigation and micro-cards for priority/maintenance inquiries from real DB state
     if any(k in q_low for k in ["priority", "first", "ticket", "maintenance", "repair"]):
@@ -972,4 +1067,5 @@ def ask_agent(
         executedAt=now.isoformat(),
         steps=step_descriptions,
         previewCard=preview_card,
+        debugInfo=DebugInfo(pipeline_stage=pipeline_stage, fallback_reason=fallback_reason),
     )

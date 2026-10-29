@@ -42,6 +42,10 @@ export interface AssistantMessage {
     contractor?: string;
     targetUrl?: string;
   } | null;
+  debugInfo?: {
+    pipeline_stage: string;
+    fallback_reason?: string | null;
+  } | null;
   actions?: AssistantAction[];
 }
 

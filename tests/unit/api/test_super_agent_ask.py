@@ -363,10 +363,50 @@ def test_resolve_draft_card_fallback():
         assert card.type == "draft_message"
         assert card.caseId == str(test_case_id)
         assert card.unitLabel == "Herengracht 101, Amsterdam"
-        assert card.recipient == "+919456916996"
+        # Without any messages or channel identity in DB, recipient safely falls back to empty string
+        assert card.recipient == ""
         assert "Beste bewoner" in card.body
 
 
+
+
+
+
+def test_resolve_draft_card_with_linked_message_recipient():
+    """Verify that _resolve_draft_card dynamically pulls real recipient phone from linked message."""
+    from app.api.agent.routes import _resolve_draft_card
+    from app.db.models import Unit
+    mock_engine = MagicMock()
+    mock_sess = MagicMock()
+
+    test_case_id = uuid4()
+    test_unit_id = uuid4()
+    mock_case = MagicMock()
+    mock_case.id = test_case_id
+    mock_case.unit_id = test_unit_id
+    mock_case.primary_person_id = None
+
+    mock_unit = MagicMock()
+    mock_unit.id = test_unit_id
+    mock_unit.address = "Keizersgracht 42-A, Amsterdam"
+
+    def mock_get(model, pk):
+        if model is Unit and pk == test_unit_id:
+            return mock_unit
+        return None
+
+    mock_sess.get.side_effect = mock_get
+    mock_sess.scalars.return_value.first.return_value = mock_case
+    mock_sess.__enter__.return_value = mock_sess
+
+    with patch("app.api.agent.routes.Session", return_value=mock_sess):
+        with patch("app.api.agent.routes._find_case_recipient", return_value=("+31612345678", "whatsapp")):
+            card = _resolve_draft_card(mock_engine, allow_fallback=True)
+            assert card is not None
+            assert card.type == "draft_message"
+            assert card.recipient == "+31612345678"
+            assert card.channel == "whatsapp"
+            assert card.unitLabel == "Keizersgracht 42-A, Amsterdam"
 
 
 def test_priority_inquiry_matches_urgent_case_not_newsletter():

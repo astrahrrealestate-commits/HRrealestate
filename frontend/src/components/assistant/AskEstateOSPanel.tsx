@@ -68,6 +68,10 @@ export interface AssistantMessage {
     contractor?: string;
     targetUrl?: string;
   } | null;
+  debugInfo?: {
+    pipeline_stage: string;
+    fallback_reason?: string | null;
+  } | null;
   actions?: AssistantAction[];
 }
 
@@ -229,6 +233,7 @@ export function AskEstateOSPanel({
         text: res.answer,
         steps: res.steps,
         previewCard: res.previewCard,
+        debugInfo: res.debugInfo,
         actions: parsedActions.length > 0 ? parsedActions : undefined,
       };
       setMessages((prev) => [...prev, botMsg]);
@@ -723,8 +728,12 @@ export function AskEstateOSPanel({
                           <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-[#1F252C] text-[#CBD5E1] border border-[#29323B]">
                             Draft · {msg.previewCard.channel || "whatsapp"}
                           </span>
-                          <span className="font-mono text-[10.5px] text-[#64748B]">
-                            {msg.previewCard.recipient}
+                          <span className="font-mono text-[10.5px]">
+                            {msg.previewCard.recipient ? (
+                              <span className="text-[#64748B]">{msg.previewCard.recipient}</span>
+                            ) : (
+                              <span className="text-amber-400 font-sans text-[10px]">⚠️ No recipient phone on file</span>
+                            )}
                           </span>
                         </div>
 
@@ -754,8 +763,9 @@ export function AskEstateOSPanel({
                               <button
                                 type="button"
                                 onClick={() => handleApproveDraft(msg.id, msg.previewCard?.actionId, msg.previewCard?.caseId)}
-                                disabled={sendingCardId === msg.id}
-                                className="px-3 py-1.5 rounded-[7px] bg-[#F25C05] hover:bg-[#d94f00] text-[#0A0A0A] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                                disabled={sendingCardId === msg.id || !msg.previewCard?.recipient}
+                                className="px-3 py-1.5 rounded-[7px] bg-[#F25C05] hover:bg-[#d94f00] text-[#0A0A0A] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                title={!msg.previewCard?.recipient ? "Cannot dispatch: recipient phone is missing" : "Approve and send"}
                               >
                                 {sendingCardId === msg.id ? (
                                   <>
@@ -827,6 +837,19 @@ export function AskEstateOSPanel({
                         <CornerDownRight className="w-3 h-3" />
                       </button>
                     ))}
+                </div>
+              )}
+
+              {msg.debugInfo && (
+                <div className="flex items-center gap-1.5 px-1 text-[9.5px] font-mono text-[#64748B]">
+                  <span className="px-1.5 py-0.5 rounded bg-[#14181B] border border-[#20262B] text-[#94A3B8]">
+                    stage: {msg.debugInfo.pipeline_stage}
+                  </span>
+                  {msg.debugInfo.fallback_reason && (
+                    <span className="text-amber-400">
+                      ⚠️ {msg.debugInfo.fallback_reason}
+                    </span>
+                  )}
                 </div>
               )}
 

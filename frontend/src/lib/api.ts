@@ -767,6 +767,11 @@ export interface AskAgentAction {
   isPrimary?: boolean;
 }
 
+export interface DebugInfo {
+  pipeline_stage: string;
+  fallback_reason?: string | null;
+}
+
 export interface AskAgentResponse {
   answer: string;
   caseRefs?: string[];
@@ -775,6 +780,7 @@ export interface AskAgentResponse {
   executedAt: string;
   steps?: string[];
   previewCard?: PreviewCardData | null;
+  debugInfo?: DebugInfo | null;
 }
 
 /**
