@@ -190,13 +190,15 @@ def _generate_groq_answer(
     return None
 
 
-def _domain_fallback_answer(query: str, live_cases_text: str = "") -> str:
-    """Domain-accurate fallback reflecting real database state."""
+def _domain_fallback_answer(query: str, live_cases_text: str = "", is_error: bool = False) -> str:
+    """Domain-accurate fallback reflecting real database state without false assurances."""
     q_l = query.lower()
+    has_live_cases = bool(live_cases_text and "no active open" not in live_cases_text.lower() and "0 active open" not in live_cases_text.lower())
+
     if any(w in q_l for w in ["case", "ticket", "open", "active", "status"]):
-        if live_cases_text and "no active open" not in live_cases_text.lower():
+        if has_live_cases:
             return f"**Active Open Cases in Database:**\n\n{live_cases_text}"
-        return "**Active Cases:** No open cases found in database. All maintenance queues are currently clear."
+        return "**Active Cases:** 0 open cases found in database."
     elif any(w in q_l for w in ["keizersgracht", "vipin", "tenant", "unit"]):
         return (
             "**Unit: Keizersgracht 42-A**\n\n"
@@ -209,6 +211,12 @@ def _domain_fallback_answer(query: str, live_cases_text: str = "") -> str:
             "• **Kevin van Dijk (Plumber):** Assigned for leak and plumbing maintenance at Keizersgracht 42-A."
         )
     else:
+        if is_error:
+            status_snippet = f"\n\n**Current Live Tickets:**\n{live_cases_text}" if has_live_cases else "\n\n• Database records show 0 open tickets."
+            return (
+                "⚠️ **Assistant Degraded:** The AI model timed out or was rate-limited. "
+                "No automated actions were performed." + status_snippet
+            )
         return f"**EstateOS Live Status:**\n\n{live_cases_text or '• 0 open cases in database.'}"
 
 
@@ -735,19 +743,26 @@ def ask_agent(
     case_refs: list[str] = []
 
     # 1. Try running full CONCIERGE agent via LLM
+    llm_failed = False
     try:
         call_res = run_agent(engine, settings, CONCIERGE, prompt, CallContext(company_id, CONCIERGE_PURPOSE))
         plan = call_res.output
     except Exception as exc:
+        llm_failed = True
         log.warning("api.superagent.llm_fallback", error=str(exc))
-        pipeline_stage = "fake_router"
+        pipeline_stage = "llm_error"
         fallback_reason = f"LLM error: {type(exc).__name__}"
-        # If model call failed (e.g. 429 quota or offline), use the deterministic fake_concierge router
-        try:
-            fake_dict = fake_concierge(prompt)
-            plan = ConciergePlan.model_validate(fake_dict)
-        except Exception as parse_err:
-            log.warning("api.superagent.fake_failed", error=str(parse_err))
+        # Only allow deterministic fake_concierge in offline test environments (settings.env == 'test')
+        # In production/dev, reject mock plans so keyword heuristics cannot mutate live data
+        if settings.env == "test":
+            pipeline_stage = "fake_router"
+            try:
+                fake_dict = fake_concierge(prompt)
+                plan = ConciergePlan.model_validate(fake_dict)
+            except Exception as parse_err:
+                log.warning("api.superagent.fake_failed", error=str(parse_err))
+                plan = None
+        else:
             plan = None
 
     # 2. Dispatch plan through the real concierge pipeline executor
@@ -803,7 +818,7 @@ def ask_agent(
             page_facts=page_facts_text,
             live_cases=live_cases_text,
         )
-        ans_text = groq_resp or _domain_fallback_answer(req.query, live_cases_text=live_cases_text)
+        ans_text = groq_resp or _domain_fallback_answer(req.query, live_cases_text=live_cases_text, is_error=llm_failed)
 
     # 3. Build step badge labels and inspect any generated proposal cards / actions
     step_descriptions: list[str] = []
