@@ -25,6 +25,7 @@ class ActionType(StrEnum):
     update_case_state = "update_case_state"
     request_contractor = "request_contractor"
     escalate = "escalate"
+    calendar_event = "calendar_event"
 
 
 class ReplyDraftPayload(Contract):
@@ -61,13 +62,25 @@ class EscalatePayload(Contract):
     reason: NonBlankStr
 
 
+class CalendarEventPayload(Contract):
+    kind: Literal["calendar_event"]
+    title: NonBlankStr
+    start_time: AwareDatetime
+    end_time: AwareDatetime
+    location: str | None = None
+    contractor_name: str | None = None
+    lockbox_code: str | None = None
+    notes: str | None = None
+
+
 ActionPayload = Annotated[
     ReplyDraftPayload
     | NotifyOwnerPayload
     | CreateReminderPayload
     | UpdateCaseStatePayload
     | RequestContractorPayload
-    | EscalatePayload,
+    | EscalatePayload
+    | CalendarEventPayload,
     Field(union_mode="left_to_right"),
 ]
 

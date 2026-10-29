@@ -4,9 +4,10 @@ Feeds communications triage threads (Gmail & WhatsApp), AI multi-draft proposals
 audience filtering, and 1-click owner approval execution to the Next.js frontend.
 """
 
+from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Annotated, Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -17,12 +18,13 @@ from app.api.deps import WorkflowClient, get_engine, get_workflow_client
 from app.channels.gmail.drafts import GmailDraftError
 from app.contracts import ActionType, ButtonChoice, CaseState, Channel, Direction, DraftRequest, Urgency
 from app.core.errors import NotFoundError
+from app.core.ids import new_id
 from app.core.logging import get_logger
 from app.core.settings import get_settings
-from app.db.enums import ActionStatus, ApprovalStatus, SendStatus
-from app.db.models import ActionRow, Approval, Case, CaseLink, ChannelAccount, GmailSyncState, MessageRow, Person, Send, UnderstandingRow, Unit
+from app.db.enums import ActionStatus, ApprovalStatus, CaseEventKind, LinkMethod, PersonKind, SendStatus
+from app.db.models import ActionRow, Approval, AttachmentRow, Case, CaseEvent, CaseLink, ChannelAccount, DocumentRow, GmailSyncState, MessageRow, Person, RawEvent, Send, UnderstandingRow, Unit
 from app.sender.deps import _sender_settings
-from app.sender.gmail import build_gmail_drafts
+from app.sender.gmail import build_gmail_drafts, build_gmail_sender
 from app.workflows.deps import get_deps
 from app.ingestion.gmail_sync import sync_mailbox
 
@@ -265,10 +267,29 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
         )
         if not messages:
             continue
+
+        # Collect thread refs from linked messages and include all messages sharing the thread
+        thread_refs = [m.thread_ref for m in messages if m.thread_ref]
+        if thread_refs:
+            unlinked_thread_msgs = (
+                session.query(MessageRow)
+                .filter(MessageRow.thread_ref.in_(thread_refs), ~MessageRow.id.in_(msg_ids))
+                .all()
+            )
+            for um in unlinked_thread_msgs:
+                messages.append(um)
+                session.add(CaseLink(company_id=case.company_id, case_id=case.id, message_id=um.id, method=LinkMethod.thread, confidence=1.0))
+            if unlinked_thread_msgs:
+                session.commit()
+                messages.sort(key=lambda m: m.sent_at if m.sent_at else datetime.min.replace(tzinfo=UTC))
+
+        # Identify the tenant's message (inbound), never our own outbound reply
+        inbound_msgs = [m for m in messages if m.direction != Direction.outbound]
+        tenant_msg = inbound_msgs[-1] if inbound_msgs else messages[0]
         latest_msg = messages[-1]
 
         person = session.get(Person, case.primary_person_id) if case.primary_person_id else None
-        sender_email = latest_msg.sender_identity
+        sender_email = tenant_msg.sender_identity
         # Exclude automated job alerts, promotions, and system notifications
         automated_keywords = [
             "noreply", "newsletter", "linkedin", "glassdoor", "naukri", "typesafe",
@@ -276,6 +297,44 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
         ]
         if any(kw in sender_email.lower() for kw in automated_keywords):
             continue
+
+        # Check if this thread involves a contractor
+        is_contractor = False
+        if person and getattr(person, "kind", None) == PersonKind.contractor:
+            is_contractor = True
+        elif case.category and case.category.value in ("contractor_update", "contractor_invoices", "contractor_repairs"):
+            is_contractor = True
+        elif any(c_kw in sender_email.lower() for c_kw in ["suryanshtyagi.work@gmail.com", "contractor", "loodgieter"]):
+            is_contractor = True
+        elif any("suryanshtyagi.work@gmail.com" in (m.sender_identity or "").lower() for m in messages):
+            is_contractor = True
+
+        # If this is a contractor thread, ensure all related contractor communications are attached
+        if is_contractor:
+            known_ids = {m.id for m in messages}
+            extra_contractor_msgs = (
+                session.query(MessageRow)
+                .filter(
+                    ~MessageRow.id.in_(list(known_ids)),
+                    MessageRow.meta.is_not(None),
+                )
+                .all()
+            )
+            for ecm in extra_contractor_msgs:
+                to_val = ecm.meta.get("to", []) if isinstance(ecm.meta, dict) else []
+                to_str = " ".join(to_val) if isinstance(to_val, list) else str(to_val)
+                subj = str(ecm.meta.get("subject", "")) if isinstance(ecm.meta, dict) else ""
+                if (
+                    "suryanshtyagi.work@gmail.com" in to_str.lower()
+                    or "suryanshtyagi.work@gmail.com" in (ecm.sender_identity or "").lower()
+                    or "work order" in subj.lower()
+                    or "inv-2026-104" in subj.lower()
+                ):
+                    messages.append(ecm)
+                    session.add(CaseLink(company_id=case.company_id, case_id=case.id, message_id=ecm.id, method=LinkMethod.thread, confidence=1.0))
+            if len(messages) > len(known_ids):
+                session.commit()
+                messages.sort(key=lambda m: m.sent_at if m.sent_at else datetime.min.replace(tzinfo=UTC))
 
         sender_name = (
             person.display_name
@@ -298,7 +357,7 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
             ]).lower()
 
             PORTFOLIO_UNITS = [
-                ("Keizersgracht 42-A", ["keizersgracht", "+919456916996", "919456916996", "suryansh", "anouk", "de vries"]),
+                ("Keizersgracht 42-A", ["keizersgracht", "+919456916996", "919456916996", "vipint9902@gmail.com", "vipint9902", "vipin", "suryansh", "anouk", "de vries"]),
                 ("Pieter Floriszstraat 1 C", ["pieter floriszstraat", "pieter florisz", "pieter.bakker", "pieter bakker", "keuken", "emma", "wilson"]),
                 ("Singel 412", ["singel", "marloes", "mieter", "heizung"]),
                 ("Prinses Marijkestraat 2 A", ["marijke", "marijkestraat", "daan"]),
@@ -392,10 +451,11 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
                 d1_wa = f"Hi {sender_name}, we've received your lease termination notice. We'll contact you soon to plan the inspection."
                 d2_wa = f"Dear {sender_name}, your lease move-out notice has been officially recorded."
             elif case.category.value == "maintenance":
-                d1_en = f"Hi {sender_name},\n\nThank you for reporting this issue. An emergency work order has been issued to our approved contractor Chahal Bouw (Electrician). They will arrive today between 11:30 and 12:30.\n\nBest regards,\nHarjot Singh"
-                d2_en = f"Hi {sender_name},\n\nWe understand the urgency regarding the kitchen power. Could you please check if the main circuit breaker tripped? A technician is on standby to assist.\n\nBest regards,\nHarjot"
-                d1_wa = f"Hi {sender_name}, electrician from Chahal Bouw is dispatched for your kitchen power outage. Arrival today 11:30."
-                d2_wa = f"Hi {sender_name}, we received your emergency request. Our contractor will call you shortly."
+                issue_snippet = (case.summary.split(".")[0] if case.summary else "maintenance issue").strip()
+                d1_en = f"Hi {sender_name},\n\nThank you for reporting this issue ({issue_snippet}). We have logged an emergency work order and notified our approved contractor. They will contact you shortly to confirm the visit time.\n\nBest regards,\nHarjot Singh"
+                d2_en = f"Hi {sender_name},\n\nWe received your request regarding: {issue_snippet}. Our team is reviewing this with priority and dispatching assistance.\n\nBest regards,\nHarjot"
+                d1_wa = f"Hi {sender_name}, we have logged your report regarding {issue_snippet}. An approved contractor will reach out shortly to schedule the visit."
+                d2_wa = f"Hi {sender_name}, we received your emergency report. A contractor has been alerted and will coordinate with you directly."
             else:
                 d1_en = f"Dear {sender_name},\n\nThank you for your message. We have received your inquiry and are reviewing it.\n\nBest regards,\nHarjot Singh"
                 d2_en = f"Hello {sender_name},\n\nThanks for reaching out. We will get back to you with an update as soon as possible.\n\nKind regards,\nHarjot"
@@ -427,6 +487,31 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
         else:
             rel_label = sent_dt.strftime("%d %b %H:%M")
 
+        # Collect attachments for all messages in this thread
+        msg_ids_list = [m.id for m in messages]
+        attachments_map: dict[UUID, list[dict[str, Any]]] = defaultdict(list)
+        all_thread_attachments: list[dict[str, Any]] = []
+        if msg_ids_list:
+            att_rows = session.query(AttachmentRow).filter(AttachmentRow.message_id.in_(msg_ids_list)).all()
+            for att in att_rows:
+                size_kb = (att.size_bytes or 0) / 1024
+                size_str = f"{size_kb:.0f} KB" if size_kb < 1024 else f"{size_kb / 1024:.1f} MB"
+                doc_row = session.query(DocumentRow).filter(DocumentRow.attachment_id == att.id).first()
+                drive_url = f"https://drive.google.com/file/d/{doc_row.drive_file_id}/view" if doc_row and doc_row.drive_file_id else None
+                att_item = {
+                    "id": str(att.id),
+                    "name": att.filename or "Attachment",
+                    "filename": att.filename or "Attachment",
+                    "type": att.mime_type or "application/octet-stream",
+                    "mimeType": att.mime_type or "application/octet-stream",
+                    "size": size_str,
+                    "sizeBytes": att.size_bytes,
+                    "url": f"/api/inbox/attachments/{att.id}",
+                    "driveUrl": drive_url,
+                }
+                attachments_map[att.message_id].append(att_item)
+                all_thread_attachments.append(att_item)
+
         msgs_data: list[dict[str, Any]] = []
         for m in messages:
             m_dt = m.sent_at if m.sent_at else now_dt
@@ -434,21 +519,36 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
                 m_dt = m_dt.replace(tzinfo=UTC)
             m_days = (now_dt.date() - m_dt.date()).days
             m_time_fmt = f"Today {m_dt.strftime('%H:%M')}" if m_days == 0 else (f"Yesterday {m_dt.strftime('%H:%M')}" if m_days == 1 else m_dt.strftime("%d %b %H:%M"))
+            m_is_incoming = m.direction != Direction.outbound
+            if m.direction == Direction.outbound:
+                m_sender_type = "owner"
+                m_sender_name = "Harjot Singh"
+                m_sender_contact = m.sender_identity or "tyagisurya.04@gmail.com"
+            elif is_contractor:
+                m_sender_type = "contractor"
+                m_sender_name = sender_name
+                m_sender_contact = sender_email
+            else:
+                m_sender_type = "tenant"
+                m_sender_name = sender_name
+                m_sender_contact = sender_email
+
             msgs_data.append({
                 "id": str(m.id),
-                "sender": "owner" if m.direction == Direction.outbound else "tenant",
-                "senderName": "Harjot Singh" if m.direction == Direction.outbound else sender_name,
-                "senderContact": sender_email,
+                "sender": m_sender_type,
+                "senderName": m_sender_name,
+                "senderContact": m_sender_contact,
                 "sentAt": m_dt.isoformat(),
                 "timeFormatted": m_time_fmt,
                 "content": m.text,
                 "body": m.text,
-                "isIncoming": m.direction != Direction.outbound,
+                "isIncoming": m_is_incoming,
                 "channel": m.channel.value if m.channel else "gmail",
+                "attachments": attachments_map.get(m.id, []),
                 "subject": (
-                    m.meta.get("subject", "Tenant Inquiry")
+                    m.meta.get("subject", "Communication")
                     if isinstance(m.meta, dict)
-                    else "Tenant Inquiry"
+                    else "Communication"
                 ),
             })
 
@@ -502,29 +602,36 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
                     "body": body_txt,
                     "isIncoming": False,
                     "channel": s.channel.value if s.channel else "whatsapp",
-                    "subject": "Reply to Tenant",
+                    "subject": "Reply",
                     "replyTo": reply_to_info,
                 })
         # Sort all messages chronologically
         msgs_data.sort(key=lambda x: x.get("sentAt", ""))
+        has_owner_reply = any(m.get("sender") == "owner" for m in msgs_data)
         status_str = "needs_approval"
-        if approval and approval.status == ApprovalStatus.approved:
+        if (approval and approval.status == ApprovalStatus.approved) or has_owner_reply:
             status_str = "approved"
+            if approval and approval.status != ApprovalStatus.approved:
+                approval.status = ApprovalStatus.approved
+                session.commit()
 
         channel_str = latest_msg.channel.value if latest_msg.channel else "gmail"
         subject_str = (
             latest_msg.meta.get("subject") if isinstance(latest_msg.meta, dict) else None
         ) or f"{case.category.value.title()} - {unit_label}"
 
+        trade_name = (person.trade if person and getattr(person, "trade", None) else "Plumber").title()
+        role_label = f"Contractor · {trade_name}" if is_contractor else "Tenant"
+        audience_label = "contractors" if is_contractor else "tenants"
+        recipient_role = "contractor" if is_contractor else "tenant"
+
         live_threads.append({
             "id": f"case-{case.id}",
             "caseId": str(case.id),
             "approvalId": str(approval.id) if approval else f"case-{case.id}",
-            "audience": (
-                "contractors"
-                if case.category.value in ("contractor_invoices", "contractor_repairs")
-                else "tenants"
-            ),
+            "audience": audience_label,
+            "recipientRole": recipient_role,
+            "recipientRoleDetail": role_label,
             "category": case.category.value if case.category else "maintenance",
             "urgency": case.urgency.value if case.urgency else "normal",
             "unit": unit_label,
@@ -536,10 +643,12 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
             "channelBadge": f"{channel_str.title()} · {rel_label}",
             "sourceIdentifier": f"{channel_str.title()} · {sender_email}",
             "subject": subject_str,
+            "externalMessageId": latest_msg.provider_msg_id or str(latest_msg.id),
+            "externalThreadId": latest_msg.thread_ref,
             "sender": {
                 "name": sender_name,
                 "contact": sender_email,
-                "role": "Tenant",
+                "role": role_label,
                 "unit": unit_label,
             },
             "aiSummary": und_intent,
@@ -550,13 +659,14 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
                 "problem": und_intent,
                 "unit": unit_label,
                 "priority": (case.urgency.value if case.urgency else "normal").upper(),
-                "suggestedContractor": "Chahal Bouw (Electrician)" if case.category.value == "maintenance" else None,
+                "suggestedContractor": "Kevin van Dijk (Plumber)" if case.category.value == "maintenance" else None,
                 "customFacts": custom_facts,
             },
             "activeChannel": channel_str,
             "status": status_str,
-            "gmailDrafts": gmail_drafts,
-            "whatsappDrafts": whatsapp_drafts,
+            "gmailDrafts": [] if (status_str == "approved" or (msgs_data and msgs_data[-1].get("sender") == "owner")) else gmail_drafts,
+            "whatsappDrafts": [] if (status_str == "approved" or (msgs_data and msgs_data[-1].get("sender") == "owner")) else whatsapp_drafts,
+            "attachments": all_thread_attachments,
             "messages": msgs_data,
         })
         if len(live_threads) >= 50:
@@ -670,6 +780,106 @@ def sync_inbox(
     }
 
 
+class CreateGmailDraftRequest(BaseModel):
+    to_email: str
+    subject: str
+    body: str
+    thread_id: str | None = None
+    case_id: str | None = None
+
+
+@router.post(
+    "/create-draft",
+    summary="Create In-Thread Gmail Draft",
+    description="Creates a native in-thread draft in Gmail using the Google Workspace API and returns the draft URL.",
+)
+def create_gmail_draft(
+    req: CreateGmailDraftRequest,
+    engine: Annotated[Engine, Depends(get_engine)],
+) -> dict[str, Any]:
+    """Creates a native in-thread draft in Gmail and returns the thread URL."""
+    settings = get_settings()
+    sender = _sender_settings()
+
+    with Session(engine) as session:
+        # Find active Gmail account
+        acct = session.query(ChannelAccount).filter(ChannelAccount.channel == Channel.gmail).first()
+        mailbox_address = acct.address if acct else (getattr(settings, "owner_email", None) or "tyagisurya.04@gmail.com")
+
+        # Find in-reply-to headers from message if thread_id or case_id provided
+        in_reply_to: str | None = None
+        references: str | None = None
+        gmail_thread_id: str | None = req.thread_id
+
+        msg: MessageRow | None = None
+        if req.thread_id:
+            msg = session.query(MessageRow).filter(MessageRow.thread_ref == req.thread_id).first()
+        if not msg and req.case_id:
+            case_uuid_str = req.case_id.replace("case-", "")
+            try:
+                c_uuid = UUID(case_uuid_str)
+                link = session.query(CaseLink).filter(CaseLink.case_id == c_uuid).order_by(CaseLink.linked_at.desc()).first()
+                if link:
+                    msg = session.get(MessageRow, link.message_id)
+            except Exception:
+                pass
+
+        if msg:
+            if not gmail_thread_id and msg.thread_ref:
+                gmail_thread_id = msg.thread_ref
+            if isinstance(msg.meta, dict):
+                in_reply_to = msg.meta.get("message_id")
+                references = msg.meta.get("references") or in_reply_to
+
+    # Prepare subject
+    sub = req.subject
+    if in_reply_to and not sub.lower().startswith("re:"):
+        sub = f"Re: {sub}"
+
+    try:
+        drafts_adapter = build_gmail_drafts(settings, sender, mailbox_address)
+        draft_req = DraftRequest(
+            idempotency_key=str(uuid4()),
+            to=req.to_email,
+            subject=sub,
+            body=req.body,
+            thread_id=gmail_thread_id or "",
+            in_reply_to=in_reply_to,
+            references=references,
+        )
+        draft_id = drafts_adapter.create_draft(draft_req)
+
+        # Retrieve message and thread id from the created draft
+        full_draft = drafts_adapter._drafts.get(userId="me", id=draft_id).execute()
+        msg_id = full_draft.get("message", {}).get("id")
+        created_thread_id = full_draft.get("message", {}).get("threadId") or gmail_thread_id
+
+        web_url = (
+            f"https://mail.google.com/mail/u/0/#inbox/{created_thread_id}"
+            if created_thread_id
+            else f"https://mail.google.com/mail/u/0/#inbox?compose={msg_id}"
+        )
+        return {
+            "ok": True,
+            "draft_id": draft_id,
+            "message_id": msg_id,
+            "thread_id": created_thread_id,
+            "web_url": web_url,
+        }
+    except Exception as e:
+        log.warning("create_gmail_draft.failed", error=str(e))
+        import urllib.parse
+        encoded_to = urllib.parse.quote(req.to_email)
+        encoded_su = urllib.parse.quote(sub)
+        encoded_body = urllib.parse.quote(req.body)
+        fallback_url = f"https://mail.google.com/mail/?view=cm&fs=1&to={encoded_to}&su={encoded_su}&body={encoded_body}"
+        return {
+            "ok": False,
+            "error": str(e),
+            "web_url": fallback_url,
+        }
+
+
 @router.post(
     "/approvals/{approval_id}/decide",
     summary="Decide Inbox Approval",
@@ -775,8 +985,6 @@ def decide_approval(
                     quoted_msg = session.get(MessageRow, UUID(target_quote_id))
                 except Exception:
                     pass
-            if not quoted_msg and latest_msg:
-                quoted_msg = latest_msg
 
             if quoted_msg:
                 clean_text = (quoted_msg.text or "").strip().strip('"').strip("'")
@@ -788,7 +996,28 @@ def decide_approval(
             action.payload = current_payload
 
         if case:
+            from_st = case.state
             case.state = CaseState.waiting_on_third_party
+            channel_str = 'WhatsApp'
+            if (action and getattr(action, 'channel', None) == Channel.gmail) or (action and action.payload and 'gmail' in str(action.payload).lower()):
+                channel_str = 'Gmail'
+            dispatch_stamp = datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')
+            dispatch_note = f'Contractor dispatch approved & dispatched via {channel_str} on {dispatch_stamp}. Waiting on contractor arrival/resolution.'
+            existing_summary = (case.summary or '').strip()
+            if 'Contractor dispatch approved' not in existing_summary:
+                case.summary = f'{existing_summary}\n\n[Action Taken: {dispatch_note}]' if existing_summary else f'[Action Taken: {dispatch_note}]'
+                case.summary_version = (case.summary_version or 0) + 1
+            session.add(
+                CaseEvent(
+                    company_id=case.company_id,
+                    case_id=case.id,
+                    kind=CaseEventKind.state_change,
+                    from_state=from_st,
+                    to_state=CaseState.waiting_on_third_party,
+                    note=dispatch_note,
+                    actor='owner',
+                )
+            )
 
         # 2. If it's a reply draft and Gmail credentials exist, create live draft in Gmail and dispatch it
         if action and action.type == ActionType.reply_draft and sender.gmail_send_credentials_file:
@@ -796,22 +1025,73 @@ def decide_approval(
             variants = payload.get("body_variants") or []
             draft_text = req.edited_text or (variants[0] if variants else "")
 
-            if latest_msg and latest_msg.thread_ref:
+            # Look for tenant inbound message to reply to
+            inbound_msg = None
+            if target_case_id:
+                links = session.query(CaseLink).filter(CaseLink.case_id == target_case_id).all()
+                msg_ids = [l.message_id for l in links]
+                if msg_ids:
+                    inbound_msg = (
+                        session.query(MessageRow)
+                        .filter(MessageRow.id.in_(msg_ids), MessageRow.direction != Direction.outbound)
+                        .order_by(MessageRow.sent_at.desc())
+                        .first()
+                    )
+            target_msg = inbound_msg or latest_msg
+
+            if target_msg and (target_msg.thread_ref or target_msg.channel == Channel.gmail):
                 try:
-                    drafts_client = build_gmail_drafts(settings, sender, "tyagisurya.04@gmail.com")
+                    gmail_thread_id = target_msg.thread_ref or ""
+                    in_reply_to: str | None = None
+                    references: str | None = None
+
+                    if isinstance(target_msg.meta, dict):
+                        in_reply_to = target_msg.meta.get("message_id")
+                        references = target_msg.meta.get("references") or in_reply_to
+
+                    raw_subject = (
+                        target_msg.meta.get("subject", "Property Inquiry")
+                        if isinstance(target_msg.meta, dict)
+                        else "Property Inquiry"
+                    )
+                    sub = raw_subject.strip()
+                    if in_reply_to and not sub.lower().startswith("re:"):
+                        sub = f"Re: {sub}"
+
+                    gmail_acct = session.query(ChannelAccount).filter(ChannelAccount.channel == Channel.gmail).first()
+                    owner_mailbox = (
+                        gmail_acct.address
+                        if gmail_acct and gmail_acct.address
+                        else (getattr(settings, "owner_email", None) or "tyagisurya.04@gmail.com")
+                    )
+                    drafts_client = build_gmail_drafts(settings, sender, owner_mailbox)
                     draft_req = DraftRequest(
                         idempotency_key=f"appr-{action.id}-{datetime.now(UTC).timestamp()}",
-                        thread_id=latest_msg.thread_ref,
-                        to=latest_msg.sender_identity,
-                        subject=latest_msg.meta.get("subject", "Re: Property Inquiry") if isinstance(latest_msg.meta, dict) else "Re: Property Inquiry",
+                        thread_id=gmail_thread_id,
+                        to=target_msg.sender_identity,
+                        subject=sub,
                         body=draft_text,
+                        in_reply_to=in_reply_to,
+                        references=references,
                     )
                     gmail_draft_id = drafts_client.create_draft(draft_req)
-                    log.info("approval.gmail_draft_created", draft_id=gmail_draft_id)
+                    log.info("approval.gmail_draft_created", draft_id=gmail_draft_id, thread_id=gmail_thread_id, in_reply_to=in_reply_to)
 
                     # Dispatch the staged draft directly to the recipient via Gmail
-                    gmail_message_id = drafts_client.send_draft(gmail_draft_id)
-                    log.info("approval.gmail_draft_sent", draft_id=gmail_draft_id, message_id=gmail_message_id)
+                    try:
+                        gmail_message_id = drafts_client.send_draft(gmail_draft_id)
+                        log.info("approval.gmail_draft_sent", draft_id=gmail_draft_id, message_id=gmail_message_id)
+                    except Exception as send_err:
+                        log.warning("approval.gmail_send_draft_failed", error=str(send_err))
+                        try:
+                            if sender.gmail_reply_send_credentials_file:
+                                reply_client = build_gmail_sender(settings, sender, owner_mailbox)
+                                gmail_message_id = reply_client.send_reply(draft_req)
+                            else:
+                                gmail_message_id = drafts_client.send_reply(draft_req)
+                            log.info("approval.gmail_send_reply_sent", message_id=gmail_message_id)
+                        except Exception as reply_err:
+                            log.warning("approval.gmail_send_reply_failed", error=str(reply_err))
 
                     # Record Send entry in database
                     session.add(
@@ -820,10 +1100,45 @@ def decide_approval(
                             action_id=action.id,
                             idempotency_key=draft_req.idempotency_key,
                             channel=Channel.gmail,
-                            target=latest_msg.sender_identity,
+                            target=target_msg.sender_identity,
                             provider_ref=gmail_message_id or gmail_draft_id,
                             status=SendStatus.sent,
                             attempted_at=datetime.now(UTC),
+                        )
+                    )
+
+                    # Immediately record outbound message in messages table & link to case
+                    out_raw_id = new_id()
+                    session.add(
+                        RawEvent(
+                            id=out_raw_id,
+                            company_id=action.company_id,
+                            channel=Channel.gmail,
+                            payload={"provider_msg_id": gmail_message_id or gmail_draft_id},
+                        )
+                    )
+                    out_msg_id = new_id()
+                    session.add(
+                        MessageRow(
+                            id=out_msg_id,
+                            raw_event_id=out_raw_id,
+                            company_id=action.company_id,
+                            channel=Channel.gmail,
+                            provider_msg_id=gmail_message_id or gmail_draft_id or str(out_msg_id),
+                            thread_ref=gmail_thread_id,
+                            sender_identity=owner_mailbox,
+                            direction=Direction.outbound,
+                            sent_at=datetime.now(UTC),
+                            text=draft_text,
+                            meta={"subject": sub, "in_reply_to": in_reply_to, "references": references},
+                            pipeline_status=PipelineStatus.done,
+                        )
+                    )
+                    session.add(
+                        CaseLink(
+                            company_id=action.company_id,
+                            case_id=action.case_id,
+                            message_id=out_msg_id,
                         )
                     )
                 except Exception as exc:
@@ -838,6 +1153,12 @@ def decide_approval(
 
             links = session.query(CaseLink).filter(CaseLink.case_id == action.case_id).all() if action.case_id else []
             msg_ids = [l.message_id for l in links]
+            inbound_msg = (
+                session.query(MessageRow)
+                .filter(MessageRow.id.in_(msg_ids), MessageRow.direction != Direction.outbound)
+                .order_by(MessageRow.sent_at.desc())
+                .first()
+            )
             latest_msg = (
                 session.query(MessageRow)
                 .filter(MessageRow.id.in_(msg_ids))
@@ -846,20 +1167,22 @@ def decide_approval(
                 if msg_ids
                 else None
             )
+            tenant_target = inbound_msg or latest_msg
 
             # Check if this thread is a WhatsApp message
-            if latest_msg and (getattr(latest_msg, "channel", None) == Channel.whatsapp or latest_msg.sender_identity.startswith("+") or latest_msg.sender_identity.replace(" ", "").isdigit()):
+            if tenant_target and (getattr(tenant_target, "channel", None) == Channel.whatsapp or tenant_target.sender_identity.startswith("+") or tenant_target.sender_identity.replace(" ", "").isdigit()):
                 try:
                     token_val = sender.whatsapp_access_token.get_secret_value() if hasattr(sender.whatsapp_access_token, "get_secret_value") else str(sender.whatsapp_access_token)
-                    recipient = latest_msg.sender_identity
+                    recipient = tenant_target.sender_identity
                     
                     # 1. SendZen Dispatch (sz_live_ token or SendZen API)
                     if token_val.startswith("sz_live_"):
                         import requests
                         clean_to = recipient.replace("+", "").replace(" ", "").strip()
-                        clean_from = str(sender.whatsapp_phone_number_id or "916364840587").replace("+", "").strip()
+                        wa_from = getattr(sender, "whatsapp_from_number", None) or getattr(settings, "owner_phone", None) or str(sender.whatsapp_phone_number_id or "916364840587")
+                        clean_from = str(wa_from).replace("+", "").strip()
                         if len(clean_from) > 13:
-                            clean_from = "916364840587"
+                            clean_from = getattr(settings, "owner_phone", None) or "916364840587"
 
                         # Determine 24-hour customer care window state
                         now_utc = datetime.now(UTC)
@@ -885,35 +1208,41 @@ def decide_approval(
                                 except Exception:
                                     pass
 
-                        if not quote_id and latest_msg and latest_msg.provider_msg_id and not latest_msg.provider_msg_id.startswith("wamid.FAKE"):
-                            quote_id = latest_msg.provider_msg_id
-
-                        # Prepend WhatsApp native blockquote '> ' so it renders cleanly inside a reply quote box
+                        # Prepend WhatsApp native blockquote '> ' only if explicitly quoting a snippet
                         final_wa_body = draft_text
                         if quoted_snippet:
                             final_wa_body = f"> {quoted_snippet}\n\n{draft_text}"
 
-                        if is_within_24h:
-                            sz_payload: dict[str, Any] = {
-                                "from": clean_from,
-                                "to": clean_to,
-                                "type": "text",
-                                "text": {"body": final_wa_body},
-                            }
-                            if quote_id:
-                                sz_payload["context"] = {"message_id": quote_id}
-                        else:
-                            # 24-hour window closed or new user -> Auto fallback to pre-approved template
+                        # Direct SendZen text dispatch
+                        sz_payload: dict[str, Any] = {
+                            "from": clean_from,
+                            "to": clean_to,
+                            "type": "text",
+                            "text": {"body": final_wa_body},
+                        }
+                        if quote_id:
+                            sz_payload["context"] = {"message_id": quote_id}
+
+                        sz_resp = requests.post(
+                            "https://api.sendzen.io/v1/messages",
+                            headers={
+                                "Authorization": f"Bearer {token_val}",
+                                "Content-Type": "application/json",
+                            },
+                            json=sz_payload,
+                            timeout=10,
+                        )
+                        # Fallback to template with proper lang_code if direct text fails
+                        if sz_resp.status_code not in (200, 201, 202):
                             template_name = str(getattr(settings, "owner_template_name", "estateos_pending") or "estateos_pending")
                             template_lang = str(getattr(settings, "owner_template_language", "en") or "en")
-                            log.info("approval.sendzen_24h_window_closed", fallback_template=template_name, recipient=clean_to)
-                            sz_payload = {
+                            tpl_payload = {
                                 "from": clean_from,
                                 "to": clean_to,
                                 "type": "template",
                                 "template": {
                                     "name": template_name,
-                                    "language": {"code": template_lang},
+                                    "lang_code": template_lang,
                                     "components": [
                                         {
                                             "type": "body",
@@ -925,22 +1254,22 @@ def decide_approval(
                                     ]
                                 }
                             }
+                            sz_resp = requests.post(
+                                "https://api.sendzen.io/v1/messages",
+                                headers={
+                                    "Authorization": f"Bearer {token_val}",
+                                    "Content-Type": "application/json",
+                                },
+                                json=tpl_payload,
+                                timeout=10,
+                            )
 
-                        sz_resp = requests.post(
-                            "https://api.sendzen.io/v1/messages",
-                            headers={
-                                "Authorization": f"Bearer {token_val}",
-                                "Content-Type": "application/json",
-                            },
-                            json=sz_payload,
-                            timeout=10,
-                        )
                         if sz_resp.status_code in (200, 201, 202):
                             resp_json = sz_resp.json()
                             items = resp_json.get("data") or []
                             first_item = items[0] if items and isinstance(items, list) else {}
                             whatsapp_message_id = first_item.get("message_id") or f"sz_{datetime.now(UTC).timestamp()}"
-                            log.info("approval.sendzen_message_sent", message_id=whatsapp_message_id, to=clean_to, mode=sz_payload.get("type"))
+                            log.info("approval.sendzen_message_sent", message_id=whatsapp_message_id, to=clean_to)
                         else:
                             log.warning("approval.sendzen_send_failed", status=sz_resp.status_code, body=sz_resp.text)
                     else:
@@ -974,6 +1303,25 @@ def decide_approval(
                                 attempted_at=datetime.now(UTC),
                             )
                         )
+                        # Record outbound MessageRow in DB for thread visibility
+                        outbound_msg = MessageRow(
+                            company_id=action.company_id,
+                            raw_event_id=latest_msg.raw_event_id if latest_msg else action.id,
+                            channel=Channel.whatsapp,
+                            provider_msg_id=whatsapp_message_id,
+                            thread_ref=latest_msg.thread_ref if latest_msg else None,
+                            sender_identity=getattr(settings, "owner_phone", None) or "916364840587",
+                            direction=Direction.outbound,
+                            sent_at=datetime.now(UTC),
+                            text=final_wa_body,
+                            person_id=latest_msg.person_id if latest_msg else None,
+                            delivery_status=None,
+                            meta={"choice": req.choice, "reply_to": quote_id},
+                        )
+                        session.add(outbound_msg)
+                        session.flush()
+                        if case:
+                            session.add(CaseLink(company_id=action.company_id, case_id=case.id, message_id=outbound_msg.id, method=LinkMethod.thread, confidence=1.0))
                 except Exception as exc:
                     log.warning("approval.whatsapp_send_failed", error=str(exc))
 
@@ -993,3 +1341,25 @@ def decide_approval(
         ),
         "executedAt": datetime.now(UTC).isoformat(),
     }
+
+
+@router.get("/attachments/{attachment_id}", summary="Download or view an attachment file")
+def get_attachment_file(
+    attachment_id: UUID,
+    engine: Annotated[Engine, Depends(get_engine)],
+):
+    from fastapi.responses import Response
+    with Session(engine) as session:
+        att = session.get(AttachmentRow, attachment_id)
+        if not att:
+            raise HTTPException(status_code=404, detail="Attachment not found")
+        storage = get_deps().storage
+        try:
+            content = storage.get(att.s3_key)
+        except Exception as exc:
+            raise HTTPException(status_code=404, detail="File not found in storage") from exc
+        return Response(
+            content=content,
+            media_type=att.mime_type or "application/octet-stream",
+            headers={"Content-Disposition": f"inline; filename=\"{att.filename or 'attachment'}\""},
+        )

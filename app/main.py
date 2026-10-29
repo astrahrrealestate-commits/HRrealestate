@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import Engine
 
 import app
-from app.api import agent, dashboard, health, inbox, maintenance, properties, tenants
+from app.api import agent, calendar, dashboard, health, inbox, maintenance, properties, tenants
 from app.api.deps import WorkflowClient
 from app.api.v1 import auth as dashboard_auth
 from app.api.v1.ratelimit import RateLimiter
@@ -56,7 +56,27 @@ def create_app(
         api.state.gmail_push_verifier = gmail_push_verifier or registry.gmail_push_verifier(settings)
         api.state.google_chat_verifier = google_chat_verifier or registry.google_chat_verifier(settings)
         api.state.id_token_verifier = id_token_verifier or dashboard_auth.dashboard_verifier(settings)
+        # Automatic background polling for Gmail (every 30s)
+        sync_task = None
+        if settings.gmail_credentials_file:
+            import asyncio
+            from app.api.inbox.routes import sync_inbox
+
+            async def _auto_sync_loop() -> None:
+                await asyncio.sleep(5)
+                while True:
+                    try:
+                        await asyncio.to_thread(sync_inbox, resolved_engine)
+                    except Exception:
+                        pass
+                    await asyncio.sleep(30)
+
+            sync_task = asyncio.create_task(_auto_sync_loop())
+
         yield
+
+        if sync_task:
+            sync_task.cancel()
         if workflow_client is None:
             api.state.workflow_client.destroy()
         if owns_engine:
@@ -82,6 +102,7 @@ def create_app(
 
     api.include_router(health.router)
     api.include_router(agent.router)
+    api.include_router(calendar.router)
     api.include_router(api_v1_router)
     api.include_router(dashboard.router)
     api.include_router(inbox.router)

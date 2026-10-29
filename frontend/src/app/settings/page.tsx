@@ -16,10 +16,12 @@ import {
   Check,
   ShieldCheck,
   Settings as SettingsIcon,
+  BrainCircuit,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SETTING_GROUPS, SettingGroup, SettingItem } from "@/data/settingsMockData";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
+import { MemoryRulesManager } from "@/components/settings/MemoryRulesManager";
 
 function SettingsContent() {
   const router = useRouter();
@@ -84,6 +86,8 @@ function SettingsContent() {
         return Bell;
       case "ai-governance":
         return Sparkles;
+      case "memory-rules":
+        return BrainCircuit;
       case "channels":
         return Radio;
       default:
@@ -167,49 +171,53 @@ function SettingsContent() {
               </p>
             </div>
 
-            {/* Full-width Setting Rows (Section 5.6.1: Each setting a full-width row) */}
-            <div className="divide-y divide-[var(--line)] border border-[var(--line)] rounded-[var(--radius-pane)] bg-[var(--pane)] overflow-hidden shadow-2xs">
-              {activeGroup.settings.map((setting) => (
-                <div
-                  key={setting.id}
-                  className="p-5 flex items-center justify-between gap-4 hover:bg-[var(--selected)]/20 transition-colors"
-                >
-                  <div className="min-w-0 flex-1 pr-4">
-                    <span className="text-sm font-semibold text-[var(--ink)] block">
-                      {setting.title}
-                    </span>
-                    <p className="text-xs text-[var(--ink-3)] mt-0.5 leading-relaxed">
-                      {setting.description}
-                    </p>
-                  </div>
-
-                  {/* Setting Control */}
-                  <div className="shrink-0">
-                    {setting.valueType === "toggle" ? (
-                      <button
-                        onClick={() => handleToggle(activeGroup.id, setting.id)}
-                        className={cn(
-                          "w-11 h-6 rounded-full transition-colors relative cursor-pointer",
-                          setting.currentValue ? "bg-[var(--ink)]" : "bg-[var(--line)]"
-                        )}
-                        aria-label={setting.title}
-                      >
-                        <span
-                          className={cn(
-                            "w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform",
-                            setting.currentValue ? "right-0.5" : "left-0.5"
-                          )}
-                        />
-                      </button>
-                    ) : (
-                      <span className="font-mono text-xs px-3 py-1.5 rounded-md border border-[var(--line)] bg-[var(--bg)] font-semibold text-[var(--ink)]">
-                        {setting.currentValue}
+            {/* Full-width Setting Rows (or Memory Rules Manager) */}
+            {activeGroup.id === "memory-rules" ? (
+              <MemoryRulesManager />
+            ) : (
+              <div className="divide-y divide-[var(--line)] border border-[var(--line)] rounded-[var(--radius-pane)] bg-[var(--pane)] overflow-hidden shadow-2xs">
+                {activeGroup.settings.map((setting) => (
+                  <div
+                    key={setting.id}
+                    className="p-5 flex items-center justify-between gap-4 hover:bg-[var(--selected)]/20 transition-colors"
+                  >
+                    <div className="min-w-0 flex-1 pr-4">
+                      <span className="text-sm font-semibold text-[var(--ink)] block">
+                        {setting.title}
                       </span>
-                    )}
+                      <p className="text-xs text-[var(--ink-3)] mt-0.5 leading-relaxed">
+                        {setting.description}
+                      </p>
+                    </div>
+
+                    {/* Setting Control */}
+                    <div className="shrink-0">
+                      {setting.valueType === "toggle" ? (
+                        <button
+                          onClick={() => handleToggle(activeGroup.id, setting.id)}
+                          className={cn(
+                            "w-11 h-6 rounded-full transition-colors relative cursor-pointer",
+                            setting.currentValue ? "bg-[var(--ink)]" : "bg-[var(--line)]"
+                          )}
+                          aria-label={setting.title}
+                        >
+                          <span
+                            className={cn(
+                              "w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform",
+                              setting.currentValue ? "right-0.5" : "left-0.5"
+                            )}
+                          />
+                        </button>
+                      ) : (
+                        <span className="font-mono text-xs px-3 py-1.5 rounded-md border border-[var(--line)] bg-[var(--bg)] font-semibold text-[var(--ink)]">
+                          {setting.currentValue}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
 
             {/* Compliance Note */}
             <div className="text-xs text-[var(--ink-3)] flex items-center gap-1.5 pt-2">
@@ -293,48 +301,54 @@ function SettingsContent() {
                 </div>
               </div>
 
-              {/* Group Full-width Rows */}
-              <div className="flex-1 overflow-y-auto divide-y divide-[var(--line)] bg-[var(--pane)]">
-                {activeGroup.settings.map((setting) => (
-                  <div
-                    key={setting.id}
-                    className="p-4 flex items-center justify-between gap-3 min-h-[64px]"
-                  >
-                    <div className="min-w-0 flex-1 pr-2">
-                      <span className="font-semibold text-[14px] text-[var(--ink)] block leading-tight">
-                        {setting.title}
-                      </span>
-                      <p className="text-xs text-[var(--ink-3)] mt-1 leading-relaxed">
-                        {setting.description}
-                      </p>
-                    </div>
-
-                    <div className="shrink-0">
-                      {setting.valueType === "toggle" ? (
-                        <button
-                          onClick={() => handleToggle(activeGroup.id, setting.id)}
-                          className={cn(
-                            "w-11 h-6 rounded-full transition-colors relative cursor-pointer",
-                            setting.currentValue ? "bg-[var(--ink)]" : "bg-[var(--line)]"
-                          )}
-                          aria-label={setting.title}
-                        >
-                          <span
-                            className={cn(
-                              "w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform",
-                              setting.currentValue ? "right-0.5" : "left-0.5"
-                            )}
-                          />
-                        </button>
-                      ) : (
-                        <span className="font-mono text-xs px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--bg)] font-semibold text-[var(--ink)]">
-                          {setting.currentValue}
+              {/* Group Full-width Rows (or Memory Rules Manager) */}
+              {activeGroup.id === "memory-rules" ? (
+                <div className="p-4">
+                  <MemoryRulesManager />
+                </div>
+              ) : (
+                <div className="flex-1 overflow-y-auto divide-y divide-[var(--line)] bg-[var(--pane)]">
+                  {activeGroup.settings.map((setting) => (
+                    <div
+                      key={setting.id}
+                      className="p-4 flex items-center justify-between gap-3 min-h-[64px]"
+                    >
+                      <div className="min-w-0 flex-1 pr-2">
+                        <span className="font-semibold text-[14px] text-[var(--ink)] block leading-tight">
+                          {setting.title}
                         </span>
-                      )}
+                        <p className="text-xs text-[var(--ink-3)] mt-1 leading-relaxed">
+                          {setting.description}
+                        </p>
+                      </div>
+
+                      <div className="shrink-0">
+                        {setting.valueType === "toggle" ? (
+                          <button
+                            onClick={() => handleToggle(activeGroup.id, setting.id)}
+                            className={cn(
+                              "w-11 h-6 rounded-full transition-colors relative cursor-pointer",
+                              setting.currentValue ? "bg-[var(--ink)]" : "bg-[var(--line)]"
+                            )}
+                            aria-label={setting.title}
+                          >
+                            <span
+                              className={cn(
+                                "w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform",
+                                setting.currentValue ? "right-0.5" : "left-0.5"
+                              )}
+                            />
+                          </button>
+                        ) : (
+                          <span className="font-mono text-xs px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--bg)] font-semibold text-[var(--ink)]">
+                            {setting.currentValue}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

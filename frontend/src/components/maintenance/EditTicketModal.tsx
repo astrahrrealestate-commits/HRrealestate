@@ -24,7 +24,8 @@ export function EditTicketModal({
   const [urgency, setUrgency] = useState(ticket.urgency || "normal");
   const [contractorName, setContractorName] = useState(ticket.contractorName || "");
   const [contractorTrade, setContractorTrade] = useState(ticket.contractorTrade || "");
-  const [contractorPhone, setContractorPhone] = useState(ticket.contractorPhone || "+31 6 55 43 21 00");
+  const [contractorPhone, setContractorPhone] = useState(ticket.contractorPhone || "+31 6 88 12 34 56");
+  const [contractorEmail, setContractorEmail] = useState(ticket.contractorEmail || "suryanshtyagi.work@gmail.com");
   const [poBudgetCap, setPoBudgetCap] = useState(ticket.poBudgetCap || "€ 450");
   const [notes, setNotes] = useState(ticket.notes || "");
   const [contractorDraft, setContractorDraft] = useState(ticket.contractorDraft || "");
@@ -38,7 +39,8 @@ export function EditTicketModal({
       setUrgency(ticket.urgency || "normal");
       setContractorName(ticket.contractorName || "");
       setContractorTrade(ticket.contractorTrade || "");
-      setContractorPhone(ticket.contractorPhone || "+31 6 55 43 21 00");
+      setContractorPhone(ticket.contractorPhone || "+31 6 88 12 34 56");
+      setContractorEmail(ticket.contractorEmail || "suryanshtyagi.work@gmail.com");
       setPoBudgetCap(ticket.poBudgetCap || "€ 450");
       setNotes(ticket.notes || "");
       setContractorDraft(
@@ -66,6 +68,7 @@ export function EditTicketModal({
         contractorName,
         contractorTrade,
         contractorPhone,
+        contractorEmail,
         poBudgetCap,
         notes,
         contractorDraft,
@@ -220,15 +223,26 @@ export function EditTicketModal({
               </div>
 
               <div>
-                <label className="block text-[12px] font-medium text-[var(--ink-2)] mb-1">Internal Notes & Access</label>
+                <label className="block text-[12px] font-medium text-[var(--ink-2)] mb-1">Contractor Email (Work Order Dispatch)</label>
                 <input
-                  type="text"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="e.g. Lockbox code 4182"
-                  className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--line)] rounded-lg text-xs text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] transition-colors"
+                  type="email"
+                  value={contractorEmail}
+                  onChange={(e) => setContractorEmail(e.target.value)}
+                  placeholder="e.g. suryanshtyagi.work@gmail.com"
+                  className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--line)] rounded-lg text-xs font-mono text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] transition-colors"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-[12px] font-medium text-[var(--ink-2)] mb-1">Internal Notes & Access</label>
+              <input
+                type="text"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="e.g. Lockbox code 4182"
+                className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--line)] rounded-lg text-xs text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] transition-colors"
+              />
             </div>
           </div>
 

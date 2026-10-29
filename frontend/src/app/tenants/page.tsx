@@ -29,6 +29,32 @@ import { DocumentViewerModal, DocumentItem } from "@/components/ui/DocumentViewe
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 
+function findMatchingTenant(allTenants: TenantProfile[], query: string): TenantProfile | null {
+  if (!query) return null;
+  const q = query.trim().toLowerCase();
+  if (!q) return null;
+
+  // 1. Exact ID match
+  const exactId = allTenants.find((t) => t.id.toLowerCase() === q);
+  if (exactId) return exactId;
+
+  // 2. Name match (exact or substring)
+  const byName = allTenants.find((t) => t.name.toLowerCase().includes(q));
+  if (byName) return byName;
+
+  // 3. Unit label, email or phone match
+  const byUnit = allTenants.find(
+    (t) =>
+      t.unitLabel.toLowerCase().includes(q) ||
+      t.email.toLowerCase().includes(q) ||
+      (q.replace(/[^0-9]/g, "").length >= 4 &&
+        t.phone.replace(/[^0-9]/g, "").includes(q.replace(/[^0-9]/g, "")))
+  );
+  if (byUnit) return byUnit;
+
+  return null;
+}
+
 function TenantsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -47,15 +73,48 @@ function TenantsContent() {
 
   // Sync state if URL changes
   useEffect(() => {
-    if (tenantParam && MOCK_TENANTS.some((t) => t.id === tenantParam)) {
-      setSelectedTenantId(tenantParam);
+    if (tenantParam) {
+      const matched = findMatchingTenant(MOCK_TENANTS, tenantParam);
+      if (matched) {
+        setSelectedTenantId(matched.id);
+        if (matched.rentStatus === "overdue" && activeTab === "up_to_date") {
+          setActiveTab("overdue");
+        } else if (matched.rentStatus === "up_to_date" && activeTab === "overdue") {
+          setActiveTab("up_to_date");
+        }
+      }
     }
-  }, [tenantParam]);
+  }, [tenantParam, activeTab]);
+
+  // Listen for instant custom navigation events (handles same-page Super Agent clicks)
+  useEffect(() => {
+    const handleCustomNav = (e: Event) => {
+      const customEvent = e as CustomEvent<{ url: string }>;
+      const url = customEvent?.detail?.url;
+      if (url && url.includes("/tenants")) {
+        const match = url.match(/[?&]tenant=([^&]+)/);
+        if (match) {
+          const target = decodeURIComponent(match[1]);
+          const matched = findMatchingTenant(MOCK_TENANTS, target);
+          if (matched) {
+            setSelectedTenantId(matched.id);
+            if (matched.rentStatus === "overdue" && activeTab === "up_to_date") {
+              setActiveTab("overdue");
+            } else if (matched.rentStatus === "up_to_date" && activeTab === "overdue") {
+              setActiveTab("up_to_date");
+            }
+          }
+        }
+      }
+    };
+    window.addEventListener("estateos:navigate", handleCustomNav);
+    return () => window.removeEventListener("estateos:navigate", handleCustomNav);
+  }, [activeTab]);
 
   // Derived active tenant
   const activeTenant = useMemo(() => {
     return (
-      MOCK_TENANTS.find((t) => t.id === selectedTenantId) ||
+      findMatchingTenant(MOCK_TENANTS, selectedTenantId) ||
       MOCK_TENANTS[0]
     );
   }, [selectedTenantId]);

@@ -1,6 +1,7 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef } from "react";
+import { prewarmAgentPage } from "@/lib/api";
 
 export interface AssistantAction {
   label: string;
@@ -20,11 +21,6 @@ export interface AssistantMessage {
     channel: "whatsapp" | "gmail";
     to: string;
     body: string;
-  };
-  documentCard?: {
-    title: string;
-    size: string;
-    url?: string;
   };
   steps?: string[];
   previewCard?: {
@@ -49,6 +45,11 @@ export interface AssistantMessage {
   actions?: AssistantAction[];
 }
 
+export interface ActiveDrawerInfo {
+  title: string;
+  kind: "Ticket" | "Invoice" | "Thread" | string;
+}
+
 interface SuperAgentContextType {
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
@@ -63,6 +64,8 @@ interface SuperAgentContextType {
   messages: AssistantMessage[];
   setMessages: React.Dispatch<React.SetStateAction<AssistantMessage[]>>;
   clearMessages: () => void;
+  activeDrawerInfo: ActiveDrawerInfo | null;
+  setActiveDrawerInfo: (info: ActiveDrawerInfo | null) => void;
 }
 
 const SuperAgentContext = createContext<SuperAgentContextType | null>(null);
@@ -92,6 +95,8 @@ export function SuperAgentProvider({ children }: { children: React.ReactNode }) 
   const [currentPageName, setCurrentPageName] = useState<string>("Today");
   const [selectedContext, setSelectedContext] = useState<string>("The whole page");
   const [messages, setMessages] = useState<AssistantMessage[]>([DEFAULT_INITIAL_MESSAGE]);
+  const [activeDrawerInfo, setActiveDrawerInfo] = useState<ActiveDrawerInfo | null>(null);
+  const isInitialized = useRef<boolean>(false);
 
   // Load persistent open state, mode & messages across page navigations
   useEffect(() => {
@@ -113,17 +118,30 @@ export function SuperAgentProvider({ children }: { children: React.ReactNode }) 
           setMessages(parsed);
         }
       }
-    } catch {}
+    } catch {} finally {
+      isInitialized.current = true;
+    }
   }, []);
 
-  // Save messages in sessionStorage whenever they update
+  // Save messages in sessionStorage whenever they update (guarded against initial load race condition)
   useEffect(() => {
+    if (!isInitialized.current) return;
     try {
       if (messages.length > 0) {
         sessionStorage.setItem(MESSAGES_KEY, JSON.stringify(messages));
       }
     } catch {}
   }, [messages]);
+
+  // Debounced background pre-warming of open page facts (Task 4)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      prewarmAgentPage({
+        pageName: currentPageName,
+      });
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [currentPageName]);
 
   const setIsOpen = (open: boolean) => {
     setIsOpenState(open);
@@ -171,6 +189,8 @@ export function SuperAgentProvider({ children }: { children: React.ReactNode }) 
         messages,
         setMessages,
         clearMessages,
+        activeDrawerInfo,
+        setActiveDrawerInfo,
       }}
     >
       {children}
@@ -196,6 +216,8 @@ export function useSuperAgent() {
       messages: [],
       setMessages: () => {},
       clearMessages: () => {},
+      activeDrawerInfo: null,
+      setActiveDrawerInfo: () => {},
     };
   }
   return context;

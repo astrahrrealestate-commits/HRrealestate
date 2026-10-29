@@ -17,6 +17,7 @@ def production_problems(settings: Settings) -> list[str]:
     elif settings.llm_model.startswith("openai:") and not settings.openai_api_key:
         problems.append("openai_api_key is not set (llm_model is an openai model)")
     elif settings.llm_model.startswith("google-gla:") and not settings.gemini_api_key:
+        problems.append("gemini_api_key is not set (llm_model is a gemini model)")
     elif settings.llm_model.startswith("groq:") and not settings.groq_api_key:
         problems.append("groq_api_key is not set (llm_model is a groq model)")
     if settings.embedding_model == "fake":

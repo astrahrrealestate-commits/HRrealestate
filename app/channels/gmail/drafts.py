@@ -65,6 +65,10 @@ class GmailDrafts(Protocol):
         """Send the reply in `thread_id` (idempotent through `X-EstateOS-Key`); returns the provider message id."""
         ...
 
+    def send_draft(self, draft_id: str) -> str:
+        """Send an existing draft; returns provider message id."""
+        ...
+
 
 def build_mime(sender: str, request: DraftRequest) -> bytes:
     msg = EmailMessage()
@@ -161,6 +165,15 @@ class GoogleDrafts:
         draft_id: str = response["id"]
         return draft_id
 
+    def send_draft(self, draft_id: str) -> str:
+        """Send an existing draft; returns provider message id."""
+        try:
+            response = self._drafts.send(userId="me", body={"id": draft_id}).execute()
+            message_id: str = response.get("id", draft_id)
+            return message_id
+        except HttpError as exc:
+            raise _send_error(exc) from exc
+
     def send_message(self, request: EmailRequest) -> str:
         raw = _b64(build_owner_email_mime(self._address, request))
         try:
@@ -238,3 +251,6 @@ class FakeDrafts:
         message_id = self.mailbox.add_message(raw, labels=["SENT"], thread_id=request.thread_id)
         self.replies.append(request)
         return message_id
+
+    def send_draft(self, draft_id: str) -> str:
+        return f"sent-{draft_id}"

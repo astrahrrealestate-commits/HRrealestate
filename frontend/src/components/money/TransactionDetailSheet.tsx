@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useEffect } from "react";
-import { X, ArrowUpRight, ArrowDownRight, CheckCircle2, AlertTriangle, Clock, Building, Calendar, CreditCard, Send } from "lucide-react";
+import { X, ArrowUpRight, ArrowDownRight, CheckCircle2, AlertTriangle, Clock, Building, Calendar, CreditCard, Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { MoneyTransaction } from "@/data/moneyMockData";
+import { useSuperAgent } from "@/context/SuperAgentContext";
 
 interface TransactionDetailSheetProps {
   transaction: MoneyTransaction | null;
@@ -21,6 +22,8 @@ export function TransactionDetailSheet({
   onClose,
   onAction,
 }: TransactionDetailSheetProps) {
+  const superAgent = useSuperAgent();
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -37,7 +40,7 @@ export function TransactionDetailSheet({
   const isInflow = transaction.direction === "inflow";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center md:justify-end bg-black/50 backdrop-blur-xs">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center md:justify-end bg-black/50 md:bg-black/20 backdrop-blur-xs md:backdrop-blur-none">
       
       {/* Backdrop click dismiss */}
       <div className="absolute inset-0" onClick={onClose} />
@@ -59,13 +62,26 @@ export function TransactionDetailSheet({
             </h3>
           </div>
 
-          <button
-            onClick={onClose}
-            className="p-1.5 text-[var(--ink-3)] hover:text-[var(--ink)] rounded-md hover:bg-[var(--selected)] transition-colors cursor-pointer"
-            aria-label="Close detail sheet"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {/* 1-Click Fast Toggle to Super Agent (Unified Right Rail) */}
+            <button
+              type="button"
+              onClick={() => superAgent.setIsOpen(true)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-emerald-400 bg-[#161A1D] hover:bg-[#1E2328] border border-[#252B32] rounded-lg transition-colors cursor-pointer"
+              title="Ask Super Agent about this invoice"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Ask Agent</span>
+            </button>
+
+            <button
+              onClick={onClose}
+              className="p-1.5 text-[var(--ink-3)] hover:text-[var(--ink)] rounded-md hover:bg-[var(--selected)] transition-colors cursor-pointer"
+              aria-label="Close detail sheet"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Sheet Content (Scrollable) */}

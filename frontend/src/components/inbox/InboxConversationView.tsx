@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Ticket,
   Reply,
+  FileText,
 } from "lucide-react";
 import { InboxThread, ThreadMessage } from "@/types/inbox";
 import { Avatar } from "@/components/ui/Avatar";
@@ -27,6 +28,7 @@ import { MaintenanceTicket, updateMaintenanceTicket } from "@/lib/api";
 
 interface InboxConversationViewProps {
   thread: InboxThread | null;
+  initialDraft?: string;
   onBack?: () => void;
   onApproveDraft?: (threadId: string, draftText: string, channel: "whatsapp" | "gmail", replyToMessageId?: string) => void;
   onRejectDraft?: (threadId: string) => void;
@@ -37,6 +39,7 @@ interface InboxConversationViewProps {
 
 export function InboxConversationView({
   thread,
+  initialDraft,
   onBack,
   onApproveDraft,
   onRejectDraft,
@@ -72,17 +75,24 @@ export function InboxConversationView({
               },
             ];
       setLocalMessages(msgs);
-      setIsSent(thread.status === "approved" || thread.status === "replied");
+      const isAlreadyReplied = thread.status === "approved" || thread.status === "replied";
+      setIsSent(isAlreadyReplied);
 
-      const draft =
-        thread.draftProposal?.drafts?.[0]?.text ||
-        thread.draftProposal?.whatsappDrafts?.[0]?.text ||
-        thread.draftProposal?.gmailDrafts?.[0]?.text ||
-        "";
-      setStagedDraftText(draft);
+      // Resolve channel drafts safely
+      const channelDrafts =
+        (thread.channel === "whatsapp"
+          ? thread.draftProposal?.whatsappDrafts
+          : thread.draftProposal?.gmailDrafts) ||
+        thread.draftProposal?.drafts ||
+        thread.draftProposal?.whatsappDrafts ||
+        thread.draftProposal?.gmailDrafts ||
+        [];
+
+      const draft = !isAlreadyReplied && channelDrafts.length > 0 ? channelDrafts[0]?.text || "" : "";
+      setStagedDraftText(initialDraft || draft);
       setShowEarlier(false);
     }
-  }, [thread?.id, thread?.status, thread?.messages?.length]);
+  }, [thread?.id, thread?.status, thread?.messages?.length, thread?.draftProposal, initialDraft]);
 
   // Scroll to bottom when messages update
   useEffect(() => {
@@ -142,14 +152,8 @@ export function InboxConversationView({
   const handleAcceptAndSend = (text: string, channel: string, replyToMessageId?: string) => {
     const outboundChannel = (channel === "gmail" ? "gmail" : "whatsapp") as "whatsapp" | "gmail";
 
-    // Default to the latest incoming message from tenant if not explicitly chosen
-    const latestIncoming = [...localMessages].reverse().find((m) => m.sender !== "owner");
-    const targetReply = replyingTo || (latestIncoming ? {
-      id: latestIncoming.id,
-      sender: latestIncoming.senderName || thread.senderName || "Tenant",
-      text: latestIncoming.body?.replace(/^["']|["']$/g, "").slice(0, 80) || "",
-    } : null);
-
+    // Only quote if replyingTo is explicitly selected by the user
+    const targetReply = replyingTo || null;
     const effectiveReplyId = replyToMessageId || targetReply?.id;
     if (onApproveDraft) {
       onApproveDraft(thread.id, text, outboundChannel, effectiveReplyId);
@@ -435,6 +439,82 @@ export function InboxConversationView({
                     <p className="text-[13.5px] leading-relaxed whitespace-pre-line select-text">
                       {msg.body?.replace(/^["']|["']$/g, "")}
                     </p>
+
+                    {/* Attachments (Photos & Documents) */}
+                    {msg.attachments && msg.attachments.length > 0 && (
+                      <div className="mt-3 flex flex-col gap-2">
+                        {msg.attachments.map((att: any, attIdx: number) => {
+                          const isImage =
+                            att.type?.startsWith("image/") ||
+                            att.mimeType?.startsWith("image/") ||
+                            att.name?.match(/\.(jpe?g|png|webp|gif)$/i);
+                          const fileUrl = att.url?.startsWith("http")
+                            ? att.url
+                            : `http://127.0.0.1:8000${att.url}`;
+                          return (
+                            <div
+                              key={att.id || attIdx}
+                              className="rounded-xl overflow-hidden border border-[var(--line)] bg-[var(--pane)] shadow-2xs"
+                            >
+                              {isImage ? (
+                                <a
+                                  href={att.driveUrl || fileUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="block group"
+                                  title={att.driveUrl ? "Open in Google Drive" : "View Image"}
+                                >
+                                  <div className="relative aspect-video max-h-48 overflow-hidden bg-black/5 flex items-center justify-center">
+                                    <img
+                                      src={fileUrl}
+                                      alt={att.name || "Attached photo"}
+                                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                                      loading="lazy"
+                                    />
+                                    {att.driveUrl && (
+                                      <div className="absolute top-2 right-2 opacity-90 group-hover:opacity-100 transition-opacity">
+                                        <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-800 bg-white/90 backdrop-blur-xs px-2 py-0.5 rounded shadow-2xs border border-emerald-300">
+                                          Google Drive
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="px-3 py-1.5 flex items-center justify-between text-xs text-[var(--ink-2)] bg-[var(--pane)] border-t border-[var(--line)]">
+                                    <span className="truncate max-w-[180px] font-medium group-hover:text-[var(--accent-ink)] transition-colors">{att.name}</span>
+                                    <span className="text-[11px] text-[var(--ink-3)] font-mono">{att.size}</span>
+                                  </div>
+                                </a>
+                              ) : (
+                                <a
+                                  href={att.driveUrl || fileUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-2.5 p-2.5 hover:bg-[var(--selected)] transition-colors group"
+                                >
+                                  <div className="w-8 h-8 rounded-lg bg-red-50 text-red-600 flex items-center justify-center shrink-0 border border-red-200">
+                                    <FileText className="w-4 h-4" />
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-xs font-semibold text-[var(--ink)] truncate group-hover:text-[var(--accent-ink)]">
+                                      {att.name}
+                                    </p>
+                                    <p className="text-[11px] text-[var(--ink-3)] font-mono">
+                                      {att.size} · PDF Document
+                                    </p>
+                                  </div>
+                                  {att.driveUrl && (
+                                    <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                      Google Drive
+                                    </span>
+                                  )}
+                                  <ExternalLink className="w-3.5 h-3.5 text-[var(--ink-3)] group-hover:text-[var(--ink)] shrink-0" />
+                                </a>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                     <div className="flex items-center justify-between gap-3 text-[11px] font-mono text-[var(--ink-3)] mt-1">
                       <button
                         type="button"
@@ -524,14 +604,23 @@ export function InboxConversationView({
       <Composer
         draftText={isSent ? "" : stagedDraftText}
         drafts={
-          (thread.channel === "whatsapp"
-            ? thread.draftProposal?.whatsappDrafts
-            : thread.draftProposal?.gmailDrafts) ||
-          thread.draftProposal?.drafts ||
-          []
+          isSent
+            ? []
+            : (thread.channel === "whatsapp"
+                ? thread.draftProposal?.whatsappDrafts
+                : thread.draftProposal?.gmailDrafts) ||
+              thread.draftProposal?.drafts ||
+              thread.draftProposal?.whatsappDrafts ||
+              thread.draftProposal?.gmailDrafts ||
+              []
         }
         detectedLanguage={thread.detectedLanguage || "Dutch (detected)"}
         channel={thread.channel}
+        recipientPhone={thread.senderContact}
+        recipientEmail={thread.senderContact?.includes("@") ? thread.senderContact : undefined}
+        subject={thread.subject}
+        externalThreadId={thread.externalThreadId}
+        isReply={Boolean(replyingTo || (thread.messages && thread.messages.length > 0))}
         replyingTo={replyingTo}
         onClearReplyingTo={() => setReplyingTo(null)}
         onAcceptAndSend={(text, channel, replyId) => {

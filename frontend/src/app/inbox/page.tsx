@@ -18,6 +18,45 @@ import { needsYouCount, isNeedsYou, isUrgent } from "@/lib/selectors";
 import { cn } from "@/lib/utils";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 
+function findMatchingThread(allThreads: InboxThread[], query: string): InboxThread | null {
+  if (!query) return null;
+  const qClean = query.replace(/^(case-|thread-|#)/, "").trim().toLowerCase();
+  if (!qClean) return null;
+
+  // 1. Exact match on ID, caseRef, or approvalId
+  const exact = allThreads.find(
+    (t) =>
+      t.id.toLowerCase() === query.toLowerCase() ||
+      t.id.toLowerCase() === qClean ||
+      (t.caseRef && t.caseRef.toLowerCase() === query.toLowerCase()) ||
+      (t.caseRef && t.caseRef.replace(/^#/, "").toLowerCase() === qClean) ||
+      (t.approvalId && t.approvalId.toLowerCase() === query.toLowerCase())
+  );
+  if (exact) return exact;
+
+  // 2. Substring / prefix match on ID, caseRef, or approvalId
+  const partial = allThreads.find(
+    (t) =>
+      t.id.toLowerCase().includes(qClean) ||
+      qClean.includes(t.id.toLowerCase()) ||
+      (t.caseRef && t.caseRef.toLowerCase().includes(qClean)) ||
+      (t.approvalId && t.approvalId.toLowerCase().includes(qClean))
+  );
+  if (partial) return partial;
+
+  // 3. Fallback match on senderName or unitLabel if length >= 3
+  if (qClean.length >= 3) {
+    const byText = allThreads.find(
+      (t) =>
+        t.senderName.toLowerCase().includes(qClean) ||
+        t.unitLabel.toLowerCase().includes(qClean)
+    );
+    if (byText) return byText;
+  }
+
+  return null;
+}
+
 function InboxContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -33,6 +72,7 @@ function InboxContent() {
 
   // Read selected thread from URL query (?thread=id, Section 5.6 & 6.5)
   const threadParam = searchParams?.get("thread") || "";
+  const draftParam = searchParams?.get("draft") || "";
   const [selectedThreadId, setSelectedThreadId] = useState<string>(threadParam);
 
   // Track viewport width for responsive mobile switching (<1024px)
@@ -48,11 +88,44 @@ function InboxContent() {
   // Sync selected thread from URL param
   useEffect(() => {
     if (threadParam) {
-      setSelectedThreadId(threadParam);
+      const matched = findMatchingThread(threads, threadParam);
+      if (matched) {
+        setSelectedThreadId(matched.id);
+        if (matched.status === "approved" || matched.status === "replied" || matched.status === "closed") {
+          setActiveTab("all");
+        }
+      } else {
+        setSelectedThreadId(threadParam);
+      }
     } else if (!isMobile && threads.length > 0 && !selectedThreadId) {
       setSelectedThreadId(threads[0].id);
     }
   }, [threadParam, isMobile, threads]);
+
+  // Listen for instant custom navigation events (handles same-page Super Agent clicks)
+  useEffect(() => {
+    const handleCustomNav = (e: Event) => {
+      const customEvent = e as CustomEvent<{ url: string }>;
+      const url = customEvent?.detail?.url;
+      if (url && url.includes("/inbox")) {
+        const match = url.match(/[?&]thread=([^&]+)/);
+        if (match) {
+          const target = decodeURIComponent(match[1]);
+          const matched = findMatchingThread(threads, target);
+          if (matched) {
+            setSelectedThreadId(matched.id);
+            if (matched.status === "approved" || matched.status === "replied" || matched.status === "closed") {
+              setActiveTab("all");
+            }
+          } else {
+            setSelectedThreadId(target);
+          }
+        }
+      }
+    };
+    window.addEventListener("estateos:navigate", handleCustomNav);
+    return () => window.removeEventListener("estateos:navigate", handleCustomNav);
+  }, [threads]);
 
   // Load live threads on mount and poll periodically for new incoming messages
   useEffect(() => {
@@ -63,7 +136,12 @@ function InboxContent() {
         .then(({ threads: live }) => {
           if (isMounted && live && live.length > 0) {
             setThreads(live);
-            setSelectedThreadId((prev) => prev || live[0].id);
+            if (threadParam) {
+              const m = findMatchingThread(live, threadParam);
+              if (m) setSelectedThreadId(m.id);
+            } else {
+              setSelectedThreadId((prev) => prev || live[0].id);
+            }
           }
         })
         .catch((err) => {
@@ -78,7 +156,7 @@ function InboxContent() {
       isMounted = false;
       clearInterval(pollInterval);
     };
-  }, []);
+  }, [threadParam]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -127,11 +205,9 @@ function InboxContent() {
     const targetThread = threads.find((t) => t.id === threadId);
     const approvalId = targetThread?.approvalId || targetThread?.id || threadId;
 
-    const incomingMsgs = (targetThread?.messages || []).filter((m) => m.sender !== "owner");
-    const latestIncoming = incomingMsgs[incomingMsgs.length - 1];
     const effectiveMsg = replyToMessageId
       ? targetThread?.messages?.find((m) => m.id === replyToMessageId)
-      : latestIncoming;
+      : undefined;
 
     let replyToObj: { id?: string; sender?: string; text?: string } | undefined = undefined;
     if (effectiveMsg) {
@@ -166,6 +242,7 @@ function InboxContent() {
             status: "approved" as const,
             latestSnippet: draftText,
             messages: [...currentMsgs, newMsg],
+            draftProposal: undefined,
           };
         }
         return t;
@@ -378,7 +455,7 @@ function InboxContent() {
   }, [threads, activeTab, selectedFilterIds, searchQuery]);
 
   const activeThread =
-    threads.find((t) => t.id === selectedThreadId) ||
+    findMatchingThread(threads, selectedThreadId) ||
     filteredAndSortedThreads[0] ||
     null;
 
@@ -389,10 +466,12 @@ function InboxContent() {
       superAgent.setSelectedContext(
         `Thread: ${activeThread.senderName} (${activeThread.unitLabel}) [Channel: ${activeThread.channel}, Subject: ${activeThread.subject || activeThread.latestSnippet}]`
       );
+      superAgent.setActiveDrawerInfo({ title: activeThread.senderName, kind: "Thread" });
     } else {
       superAgent.setSelectedContext("Omnichannel Inbox (All Communications)");
+      superAgent.setActiveDrawerInfo(null);
     }
-  }, [activeThread, superAgent.setCurrentPageName, superAgent.setSelectedContext]);
+  }, [activeThread, superAgent.setCurrentPageName, superAgent.setSelectedContext, superAgent.setActiveDrawerInfo]);
 
   // On mobile (<1024px), is conversation pane active?
   const isMobileConversationOpen = Boolean(selectedThreadId && isMobile);
@@ -461,6 +540,7 @@ function InboxContent() {
           >
             <InboxConversationView
               thread={activeThread}
+              initialDraft={draftParam}
               onBack={() => handleSelectThread("")}
               onApproveDraft={handleApproveDraft}
               onRejectDraft={handleRejectDraft}

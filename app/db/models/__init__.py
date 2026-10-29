@@ -1,5 +1,6 @@
 """Importing this package registers every table on `Base.metadata`."""
 
+from app.db.models.calendar import CalendarEventRow
 from app.db.models.dashboard import AgentConversation, AgentPageState, AgentTurn, OwnerFeed
 from app.db.models.directory import ChannelIdentity, DirectoryImport, Lease, LeaseParty, Person, PersonProfile, Unit
 from app.db.models.documents import DocumentChunk, DocumentLink, DriveReorgItem, DriveReorgPlan

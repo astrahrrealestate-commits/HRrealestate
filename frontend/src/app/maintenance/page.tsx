@@ -17,12 +17,15 @@ import {
   ArrowUpRight,
   X,
   History,
-  CheckCheck,
   Pencil,
   Send,
   Wrench,
   MessageSquare,
   Shield,
+  Phone,
+  Sparkles,
+  Mail,
+  ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TicketHistoryModal } from "@/components/maintenance/TicketHistoryModal";
@@ -46,6 +49,7 @@ export interface MaintenanceTicket {
   contractorName: string;
   contractorTrade: string;
   contractorPhone?: string;
+  contractorEmail?: string;
   urgency: "emergency" | "high" | "normal" | "low";
   status: "pending_approval" | "dispatched" | "scheduled" | "completed";
   slaRemaining: string;
@@ -205,6 +209,44 @@ const MOCK_MAINTENANCE_TICKETS: MaintenanceTicket[] = [
   },
 ];
 
+function findMatchingTicket(allTickets: MaintenanceTicket[], query: string): MaintenanceTicket | null {
+  if (!query) return null;
+  const qClean = query.replace(/^#/, "").replace(/^case-/, "").trim().toLowerCase();
+  if (!qClean) return null;
+
+  // 1. Exact ID or TicketNumber match
+  const exact = allTickets.find(
+    (t) =>
+      t.id.toLowerCase() === query.toLowerCase() ||
+      t.id.toLowerCase() === qClean ||
+      t.ticketNumber.toLowerCase() === query.toLowerCase() ||
+      t.ticketNumber.replace(/^#/, "").toLowerCase() === qClean
+  );
+  if (exact) return exact;
+
+  // 2. Prefix / substring match on ID or Ticket Number
+  const partial = allTickets.find(
+    (t) =>
+      t.id.toLowerCase().startsWith(qClean) ||
+      qClean.startsWith(t.id.toLowerCase()) ||
+      t.ticketNumber.toLowerCase().includes(qClean) ||
+      t.ticketNumber.replace(/^#/, "").toLowerCase().includes(qClean)
+  );
+  if (partial) return partial;
+
+  // 3. Fallback: match by unit label or tenant name if search string is a keyword
+  if (qClean.length >= 4) {
+    const byText = allTickets.find(
+      (t) =>
+        t.unitLabel.toLowerCase().includes(qClean) ||
+        t.tenantName.toLowerCase().includes(qClean)
+    );
+    if (byText) return byText;
+  }
+
+  return null;
+}
+
 function MaintenanceContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -234,22 +276,61 @@ function MaintenanceContent() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Sync ticket param (supports either id or ticketNumber e.g. "005" or "#005")
+  // Sync ticket param (supports UUID, prefix #01a1, 01a1, mock m-1, address)
   useEffect(() => {
     if (ticketParam) {
-      const cleanParam = ticketParam.replace(/^#/, "");
-      const matched = tickets.find(
-        (t) => t.id === ticketParam || t.ticketNumber === ticketParam || t.ticketNumber.replace(/^#/, "") === cleanParam
-      );
+      const matched = findMatchingTicket(tickets, ticketParam);
       if (matched) {
         setSelectedTicketId(matched.id);
+        // Auto-switch tab if the ticket would be hidden by the current tab
+        if (matched.status === "completed" && activeTab === "open") {
+          setActiveTab("done");
+        } else if (matched.status !== "completed" && activeTab === "done") {
+          setActiveTab("open");
+        }
       } else {
         setSelectedTicketId(ticketParam);
       }
-    } else if (!isMobile && tickets.length > 0 && !selectedTicketId) {
-      setSelectedTicketId(tickets[0].id);
     }
-  }, [ticketParam, isMobile, tickets, selectedTicketId]);
+  }, [ticketParam, tickets, activeTab]);
+
+  // Listen for instant custom navigation events (handles same-page Super Agent clicks)
+  useEffect(() => {
+    const handleCustomNav = (e: Event) => {
+      const customEvent = e as CustomEvent<{ url: string }>;
+      const url = customEvent?.detail?.url;
+      if (url && url.includes("/maintenance")) {
+        const match = url.match(/[?&]ticket=([^&]+)/);
+        if (match) {
+          const target = decodeURIComponent(match[1]);
+          const matched = findMatchingTicket(tickets, target);
+          if (matched) {
+            setSelectedTicketId(matched.id);
+            if (matched.status === "completed" && activeTab === "open") {
+              setActiveTab("done");
+            } else if (matched.status !== "completed" && activeTab === "done") {
+              setActiveTab("open");
+            }
+          } else {
+            setSelectedTicketId(target);
+          }
+        }
+      }
+    };
+    window.addEventListener("estateos:navigate", handleCustomNav);
+    return () => window.removeEventListener("estateos:navigate", handleCustomNav);
+  }, [tickets, activeTab]);
+
+  // Close drawer on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && selectedTicketId) {
+        handleSelectTicket("");
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedTicketId]);
 
   // Load live tickets on mount
   useEffect(() => {
@@ -259,8 +340,11 @@ function MaintenanceContent() {
         if (!isMounted) return;
         if (res.isLive && res.tickets && res.tickets.length > 0) {
           setTickets(res.tickets);
-          if (!selectedTicketId) {
-            setSelectedTicketId(res.tickets[0].id);
+          if (ticketParam) {
+            const m = findMatchingTicket(res.tickets, ticketParam);
+            if (m) {
+              setSelectedTicketId(m.id);
+            }
           }
         }
       })
@@ -268,7 +352,7 @@ function MaintenanceContent() {
     return () => {
       isMounted = false;
     };
-  }, [selectedTicketId]);
+  }, [ticketParam]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -290,18 +374,20 @@ function MaintenanceContent() {
   const handleSaveTicket = async (updated: MaintenanceTicket) => {
     setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
     try {
-      await updateMaintenanceTicket(updated.ticketNumber || updated.id, {
+      await updateMaintenanceTicket(updated.id || updated.ticketNumber, {
         issueTitle: updated.issueTitle,
         unitLabel: updated.unitLabel,
         urgency: updated.urgency,
         contractorName: updated.contractorName,
         contractorTrade: updated.contractorTrade,
         contractorPhone: updated.contractorPhone,
+        contractorEmail: updated.contractorEmail,
         poBudgetCap: updated.poBudgetCap,
         notes: updated.notes,
         contractorDraft: updated.contractorDraft,
         tenantDraft: updated.tenantDraft,
       });
+      showToast(`Ticket ${updated.ticketNumber} saved.`);
     } catch (err) {
       console.warn("Failed to update ticket in backend:", err);
     }
@@ -322,20 +408,21 @@ function MaintenanceContent() {
     );
 
     const parts: string[] = [];
+    const targetEmail = target.contractorEmail || "suryanshtyagi.work@gmail.com";
     if (options.dispatchContractor) {
-      parts.push(`Dispatched work order to ${target.contractorName}`);
+      parts.push(`Dispatching work order to ${target.contractorName} (${targetEmail})`);
     }
     if (options.notifyTenant) {
       parts.push(`Confirmation sent to ${target.tenantName}`);
     }
     showToast(
       parts.length > 0
-        ? `Ticket ${target.ticketNumber}: ${parts.join(" & ")}.`
+        ? `Ticket ${target.ticketNumber}: ${parts.join(" & ")}...`
         : `Ticket ${target.ticketNumber} marked as dispatched.`
     );
 
     try {
-      await approveMaintenanceTicket(target.ticketNumber || id, {
+      const res = await approveMaintenanceTicket(target.id || target.ticketNumber, {
         approvalNote: "Authorized by Harjot Singh",
         dispatchContractor: options.dispatchContractor ?? true,
         notifyTenant: options.notifyTenant ?? true,
@@ -343,9 +430,30 @@ function MaintenanceContent() {
         tenantMessage: target.tenantDraft,
         poBudgetCap: target.poBudgetCap,
       });
-    } catch {
-      // Handled gracefully
+      if (res && res.status === "authorized") {
+        showToast(`Real work order email successfully dispatched to ${targetEmail} via Gmail!`);
+      }
+    } catch (err) {
+      console.warn("Dispatch error:", err);
+      showToast(`Work order marked dispatched. Verify Gmail dispatch logs.`);
     }
+  };
+
+  const handleOpenWhatsAppToContractor = (ticket: MaintenanceTicket) => {
+    const rawPhone = ticket.contractorPhone || "+31 6 88 12 34 56";
+    const phone = rawPhone.replace(/[^0-9]/g, "");
+    if (!phone) return;
+    const body = ticket.contractorDraft || `Beste ${ticket.contractorName}, spoedmelding voor ${ticket.unitLabel}: ${ticket.issueTitle}. Geautoriseerd budgetplafond: ${ticket.poBudgetCap}. Gelieve ETA te bevestigen.`;
+    const url = `https://wa.me/${phone}?text=${encodeURIComponent(body)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const handleOpenGmailToContractor = (ticket: MaintenanceTicket) => {
+    const email = ticket.contractorEmail || "suryanshtyagi.work@gmail.com";
+    const subject = `[Work Order] ${ticket.issueTitle} - ${ticket.unitLabel}`;
+    const body = ticket.contractorDraft || `Hi ${ticket.contractorName}, emergency work order for ${ticket.unitLabel}: ${ticket.issueTitle}. Authorized budget cap: ${ticket.poBudgetCap}. Please confirm your earliest ETA.`;
+    const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
   };
 
   // 1. Stats calculation (Section 2.4 M2 & 5.4: "4 open · 3 urgent · 1 in progress")
@@ -397,10 +505,9 @@ function MaintenanceContent() {
     });
   }, [tickets, activeTab, statusFilter, searchQuery]);
 
-  const selectedTicket =
-    tickets.find((t) => t.id === selectedTicketId) ||
-    filteredTickets[0] ||
-    null;
+  const selectedTicket = useMemo(() => {
+    return findMatchingTicket(tickets, selectedTicketId);
+  }, [tickets, selectedTicketId]);
 
   const isMobileDetailOpen = Boolean(selectedTicketId && isMobile);
 
@@ -411,10 +518,12 @@ function MaintenanceContent() {
       superAgent.setSelectedContext(
         `Ticket ${selectedTicket.ticketNumber} · ${selectedTicket.issueTitle} (${selectedTicket.unitLabel}) [Status: ${selectedTicket.status}, Contractor: ${selectedTicket.contractorName}]`
       );
+      superAgent.setActiveDrawerInfo({ title: selectedTicket.ticketNumber, kind: "Ticket" });
     } else {
       superAgent.setSelectedContext("Active Maintenance Work Orders (11 open tickets)");
+      superAgent.setActiveDrawerInfo(null);
     }
-  }, [selectedTicket, superAgent.setCurrentPageName, superAgent.setSelectedContext]);
+  }, [selectedTicket, superAgent.setCurrentPageName, superAgent.setSelectedContext, superAgent.setActiveDrawerInfo]);
 
   const getStatusLabel = (t: MaintenanceTicket): string => {
     if (t.status === "completed") return "Done";
@@ -443,16 +552,11 @@ function MaintenanceContent() {
           />
         </div>
 
-        {/* 3. Maintenance Workspace: 2-column layout */}
-        <div className="lg:grid lg:grid-cols-[1fr_340px] xl:grid-cols-[1fr_380px] flex-1 min-h-0 h-[calc(100dvh-3.5rem)]">
+        {/* 3. Maintenance Workspace: Full Width with Right Drawer UI */}
+        <div className="flex-1 flex flex-col min-h-0 h-[calc(100dvh-3.5rem)] relative overflow-hidden bg-[var(--pane)]">
           
-          {/* Left Column: Header + Controls + Table / Ticket Rows List */}
-          <div
-            className={cn(
-              "h-full flex flex-col overflow-hidden bg-[var(--pane)] border-r border-[var(--line)]",
-              isMobileDetailOpen ? "hidden lg:flex" : "flex"
-            )}
-          >
+          {/* Header + Controls + Table / Ticket Rows List */}
+          <div className="h-full flex flex-col overflow-hidden bg-[var(--pane)]">
             {/* Header: Title, Inline Stats, Ghost "New ticket" (Section 5.4 & 2.4 M2) */}
             <div className="px-4 sm:px-6 py-3.5 border-b border-[var(--line)] flex flex-wrap items-center justify-between gap-3 shrink-0">
               <div className="min-w-0">
@@ -607,9 +711,12 @@ function MaintenanceContent() {
                 <table className="w-full text-left border-collapse table-fixed">
                   <thead>
                     <tr className="border-b border-[var(--line)] text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)] bg-[var(--bg)]/90 sticky top-0 z-10">
-                      <th className="py-2.5 px-3.5 font-medium w-[45%]">Ticket / Issue</th>
-                      <th className="py-2.5 px-3 font-medium w-[30%]">Unit</th>
-                      <th className="py-2.5 px-3.5 font-medium text-right w-[25%]">Status</th>
+                      <th className="py-2.5 px-3.5 font-medium w-[32%]">Ticket / Issue</th>
+                      <th className="py-2.5 px-3 font-medium w-[18%]">Unit</th>
+                      <th className="py-2.5 px-3 font-medium w-[12%]">Category</th>
+                      <th className="py-2.5 px-3 font-medium w-[18%]">Contractor</th>
+                      <th className="py-2.5 px-3 font-medium w-[10%]">Budget Cap</th>
+                      <th className="py-2.5 px-3.5 font-medium text-right w-[10%]">Status / SLA</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--line)] text-[13.5px]">
@@ -624,7 +731,7 @@ function MaintenanceContent() {
                           className={cn(
                             "h-14 cursor-pointer transition-colors group relative",
                             isSelected
-                              ? "bg-[var(--selected)] shadow-[inset_2px_0_0_var(--ink)]"
+                              ? "bg-[var(--selected)] shadow-[inset_3px_0_0_var(--accent-ink)]"
                               : "hover:bg-[var(--selected)]/50"
                           )}
                         >
@@ -634,7 +741,8 @@ function MaintenanceContent() {
                               <span className="font-semibold text-[var(--ink)] shrink-0 font-mono text-[13px]">
                                 {ticket.ticketNumber}
                               </span>
-                              <span className="text-[var(--ink-2)] truncate font-normal">
+                              {urgent && <UrgentLabel />}
+                              <span className="text-[var(--ink)] font-medium truncate">
                                 {ticket.issueTitle}
                               </span>
                             </div>
@@ -645,7 +753,27 @@ function MaintenanceContent() {
                             {ticket.unitLabel}
                           </td>
 
-                          {/* Status / SLA: ALWAYS visible, aligned right cleanly without collision */}
+                          {/* Category */}
+                          <td className="px-3 py-2 text-[12px] truncate">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-[var(--bg)] border border-[var(--line)] text-[11px] font-medium text-[var(--ink-2)] capitalize">
+                              {ticket.category}
+                            </span>
+                          </td>
+
+                          {/* Contractor */}
+                          <td className="px-3 py-2 text-[13px] truncate">
+                            <div className="flex flex-col truncate">
+                              <span className="text-[var(--ink)] font-medium truncate">{ticket.contractorName}</span>
+                              <span className="text-[var(--ink-3)] text-[11px] truncate">{ticket.contractorTrade}</span>
+                            </div>
+                          </td>
+
+                          {/* Budget Cap */}
+                          <td className="px-3 py-2 font-mono text-[12.5px] text-[var(--ink-2)]">
+                            {ticket.poBudgetCap}
+                          </td>
+
+                          {/* Status / SLA */}
                           <td className="px-3.5 py-2 text-right whitespace-nowrap">
                             <div className="flex flex-col items-end leading-tight">
                               <StatusText status={getStatusLabel(ticket)} />
@@ -721,28 +849,26 @@ function MaintenanceContent() {
             </div>
           </div>
 
-          {/* Right Column: Flat Detail Pane with Sticky Footer (Section 5.4 & 2.4 M5) */}
-          <div
-            className={cn(
-              "h-full flex flex-col overflow-hidden bg-[var(--pane)]",
-              isMobileDetailOpen ? "flex" : "hidden lg:flex"
-            )}
-          >
-            {selectedTicket ? (
-              <section className="flex flex-col h-full overflow-hidden">
+          {/* Right Drawer Slide-over for Ticket Details */}
+          {selectedTicket && (
+            <>
+              {/* Dimmed Backdrop */}
+              <div
+                className="fixed inset-0 bg-black/40 backdrop-blur-xs z-40 transition-opacity animate-in fade-in duration-200"
+                onClick={() => handleSelectTicket("")}
+                aria-hidden="true"
+              />
+
+              {/* Right Drawer Panel */}
+              <aside
+                className="fixed inset-y-0 right-0 z-50 w-full sm:w-[560px] md:w-[620px] lg:w-[680px] bg-[var(--pane)] border-l border-[var(--line)] shadow-2xl flex flex-col animate-in slide-in-from-right duration-250 ease-out"
+                role="dialog"
+                aria-modal="true"
+                aria-label={`Ticket ${selectedTicket.ticketNumber} Details`}
+              >
                 {/* 1. Detail Header (Sticky h-14) */}
                 <div className="h-14 px-4 sm:px-6 border-b border-[var(--line)] bg-[var(--pane)] flex items-center justify-between shrink-0 z-10">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    {/* Mobile Back Button (Section 5.6) */}
-                    <button
-                      type="button"
-                      onClick={() => handleSelectTicket("")}
-                      className="lg:hidden p-1.5 -ml-1.5 rounded-[var(--radius-ctl)] text-[var(--ink-2)] hover:bg-[var(--selected)]"
-                      title="Back to ticket list"
-                    >
-                      <ArrowLeft className="w-5 h-5" />
-                    </button>
-
                     <span className="font-mono font-bold text-[15px] text-[var(--ink)]">
                       {selectedTicket.ticketNumber}
                     </span>
@@ -767,6 +893,16 @@ function MaintenanceContent() {
                       <UrgentLabel />
                     )}
                     <StatusText status={getStatusLabel(selectedTicket)} />
+
+                    {/* Close Drawer Button */}
+                    <button
+                      type="button"
+                      onClick={() => handleSelectTicket("")}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-[var(--ink-3)] hover:text-[var(--ink)] hover:bg-[var(--selected)] transition-colors cursor-pointer ml-1"
+                      title="Close drawer (Esc)"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
 
@@ -874,57 +1010,94 @@ function MaintenanceContent() {
                     </div>
                   </div>
 
-                  {/* Dual Outbound Drafts (Contractor Dispatch + Tenant Update) */}
+                  {/* Contractor Work Order Dispatch (Focused exclusively on Contractor) */}
                   <div className="space-y-3 pt-1">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--ink-3)] block">
-                      Staged Outbound Communications
-                    </span>
-
-                    {/* 1. Contractor Work Order Dispatch Draft */}
-                    <div className="rounded-2xl border border-[var(--line)] bg-[var(--bg)]/80 p-4 space-y-2 select-text shadow-2xs">
-                      <div className="flex items-center justify-between text-[11px]">
-                        <div className="flex items-center gap-1.5 font-semibold text-[var(--ink)]">
-                          <Wrench className="w-3.5 h-3.5 text-[var(--accent-ink)]" />
-                          <span>1. Work Order to Contractor ({selectedTicket.contractorName})</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setIsEditModalOpen(true)}
-                          className="text-[11px] font-semibold text-[var(--accent-ink)] hover:underline cursor-pointer"
-                        >
-                          Edit Draft
-                        </button>
-                      </div>
-                      <p className="text-[12.5px] text-[var(--ink-2)] leading-relaxed bg-[var(--pane)] p-3 rounded-xl border border-[var(--line)] font-sans">
-                        {selectedTicket.contractorDraft ||
-                          `Beste ${selectedTicket.contractorName}, spoedmelding voor ${selectedTicket.unitLabel}: ${selectedTicket.issueTitle}. Huurder ${selectedTicket.tenantName} (${selectedTicket.tenantPhone}). Geautoriseerd budgetplafond: ${selectedTicket.poBudgetCap}. Gelieve ETA te bevestigen.`}
-                      </p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--ink-3)] block">
+                        Contractor Work Order & Dispatch
+                      </span>
+                      <span className="text-[11px] font-medium text-[var(--ink-2)]">
+                        {selectedTicket.contractorName} ({selectedTicket.contractorTrade})
+                      </span>
                     </div>
 
-                    {/* 2. Tenant Status Update Reply Draft */}
-                    <div className="rounded-2xl border border-[var(--line)] bg-[var(--bg)]/80 p-4 space-y-2 select-text shadow-2xs">
-                      <div className="flex items-center justify-between text-[11px]">
-                        <div className="flex items-center gap-1.5 font-semibold text-[var(--ink)]">
-                          <MessageSquare className="w-3.5 h-3.5 text-blue-500" />
-                          <span>2. Confirmation Reply to Tenant ({selectedTicket.tenantName})</span>
+                    {/* Contractor Dispatch Card with Phone & Email */}
+                    <div className="rounded-2xl border border-[var(--line)] bg-[var(--bg)]/80 p-4 space-y-3 select-text shadow-2xs">
+                      {/* Contractor Contact Header */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)]/60 pb-3">
+                        <div className="flex items-center gap-2">
+                          <Wrench className="w-4 h-4 text-[var(--accent-ink)]" />
+                          <div>
+                            <span className="font-semibold text-[13px] text-[var(--ink)] block">
+                              {selectedTicket.contractorName}
+                            </span>
+                            <span className="text-[11px] text-[var(--ink-3)]">
+                              {selectedTicket.contractorTrade} · Approved Partner
+                            </span>
+                          </div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => setIsEditModalOpen(true)}
-                          className="text-[11px] font-semibold text-[var(--accent-ink)] hover:underline cursor-pointer"
-                        >
-                          Edit Draft
-                        </button>
+
+                        {/* Direct Communication Channels */}
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1 text-[11.5px] font-mono text-[var(--ink-2)] bg-[var(--pane)] px-2.5 py-1 rounded-md border border-[var(--line)]">
+                            <Phone className="w-3 h-3 text-emerald-600" />
+                            <span>{selectedTicket.contractorPhone || "+31 6 88 12 34 56"}</span>
+                          </span>
+                          <span className="inline-flex items-center gap-1 text-[11.5px] font-mono text-[var(--ink-2)] bg-[var(--pane)] px-2.5 py-1 rounded-md border border-[var(--line)]">
+                            <Mail className="w-3 h-3 text-blue-600" />
+                            <span>{selectedTicket.contractorEmail || "suryanshtyagi.work@gmail.com"}</span>
+                          </span>
+                        </div>
                       </div>
-                      <p className="text-[12.5px] text-[var(--ink-2)] leading-relaxed bg-[var(--pane)] p-3 rounded-xl border border-[var(--line)] font-sans">
-                        {selectedTicket.tenantDraft ||
-                          `Beste ${selectedTicket.tenantName?.split(" ")[0] || "huurder"}, we hebben je melding over de ${selectedTicket.issueTitle.toLowerCase()} ontvangen. Onze ${selectedTicket.contractorTrade.toLowerCase()} ${selectedTicket.contractorName} is geautoriseerd en neemt z.s.m. contact op. Met vriendelijke groet, Harjot`}
-                      </p>
+
+                      {/* Work Order Staged Message */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-semibold text-[var(--ink-3)] uppercase tracking-wider text-[10px]">
+                            Staged Work Order Dispatch Text
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setIsEditModalOpen(true)}
+                            className="text-[11px] font-semibold text-[var(--accent-ink)] hover:underline cursor-pointer"
+                          >
+                            Edit Text
+                          </button>
+                        </div>
+                        <p className="text-[12.5px] text-[var(--ink-2)] leading-relaxed bg-[var(--pane)] p-3 rounded-xl border border-[var(--line)] font-sans">
+                          {selectedTicket.contractorDraft ||
+                            `Beste ${selectedTicket.contractorName}, spoedmelding voor ${selectedTicket.unitLabel}: ${selectedTicket.issueTitle}. Huurder ${selectedTicket.tenantName} (${selectedTicket.tenantPhone}). Geautoriseerd budgetplafond: ${selectedTicket.poBudgetCap}. Gelieve ETA te bevestigen.`}
+                        </p>
+                      </div>
+
+                      {/* Quick 1-Click External Dispatch Links */}
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => handleOpenWhatsAppToContractor(selectedTicket)}
+                          className="text-emerald-600 hover:text-emerald-700 bg-emerald-50/60 hover:bg-emerald-100/60 dark:bg-emerald-950/20 dark:hover:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 font-semibold cursor-pointer text-xs"
+                          icon={<ExternalLink className="w-3.5 h-3.5 text-emerald-600" />}
+                          title="Open WhatsApp Web or App with this work order pre-filled to contractor"
+                        >
+                          Send via WhatsApp
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => handleOpenGmailToContractor(selectedTicket)}
+                          className="text-blue-600 hover:text-blue-700 bg-blue-50/60 hover:bg-blue-100/60 dark:bg-blue-950/20 dark:hover:bg-blue-950/40 border border-blue-300 dark:border-blue-800 font-semibold cursor-pointer text-xs"
+                          icon={<ExternalLink className="w-3.5 h-3.5 text-blue-600" />}
+                          title="Open Gmail with this work order pre-filled to contractor"
+                        >
+                          Send via Gmail
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                {/* 3. Sticky Footer in Detail: Full History + Dual or All-in-One Dispatch */}
+                {/* 3. Sticky Footer in Detail: Full History + Direct Contractor Dispatch */}
                 <div className="shrink-0 p-4 border-t border-[var(--line)] bg-[var(--pane)] flex flex-wrap items-center justify-between gap-2.5 select-none pb-[calc(1rem+env(safe-area-inset-bottom))] lg:pb-4">
                   <Button
                     variant="ghost"
@@ -939,52 +1112,48 @@ function MaintenanceContent() {
                   {selectedTicket.status === "pending_approval" ? (
                     <div className="flex items-center gap-2">
                       <Button
-                        variant="ghost"
+                        variant="secondary"
                         size="sm"
-                        onClick={() => handleApproveWorkOrder(selectedTicket.id, { dispatchContractor: false, notifyTenant: true })}
-                        className="text-xs border border-[var(--line)] hover:bg-[var(--selected)]"
-                        title="Send confirmation update to tenant only"
+                        onClick={() => handleOpenWhatsAppToContractor(selectedTicket)}
+                        className="text-xs text-emerald-600 border-emerald-300 dark:border-emerald-800"
+                        icon={<ExternalLink className="w-3 h-3 text-emerald-600" />}
                       >
-                        Notify Tenant
+                        WhatsApp
                       </Button>
 
                       <Button
-                        variant="ghost"
+                        variant="secondary"
                         size="sm"
-                        onClick={() => handleApproveWorkOrder(selectedTicket.id, { dispatchContractor: true, notifyTenant: false })}
-                        className="text-xs border border-[var(--line)] hover:bg-[var(--selected)] text-[var(--accent-ink)]"
-                        title="Send work order to contractor only"
+                        onClick={() => handleOpenGmailToContractor(selectedTicket)}
+                        className="text-xs text-blue-600 border-blue-300 dark:border-blue-800"
+                        icon={<ExternalLink className="w-3 h-3 text-blue-600" />}
                       >
-                        Dispatch Contractor
+                        Email
                       </Button>
 
                       <Button
                         variant="primary"
                         size="default"
-                        onClick={() => handleApproveWorkOrder(selectedTicket.id, { dispatchContractor: true, notifyTenant: true })}
-                        icon={<CheckCheck className="w-4 h-4 text-[#0A0A0A]" />}
+                        onClick={() => handleApproveWorkOrder(selectedTicket.id, { dispatchContractor: true, notifyTenant: false })}
+                        icon={<Wrench className="w-3.5 h-3.5 text-[#0A0A0A]" />}
                         className="text-xs font-bold"
-                        title="Authorize budget cap, dispatch contractor via WhatsApp, and confirm to tenant"
+                        title="Authorize budget cap and mark work order dispatched"
                       >
-                        Approve & Dispatch Both
+                        Authorize & Dispatch PO
                       </Button>
                     </div>
                   ) : (
                     <div className="flex items-center gap-2">
                       <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
                         <Check className="w-3.5 h-3.5" />
-                        <span>Order Dispatched & Tenant Notified</span>
+                        <span>Work Order Dispatched to {selectedTicket.contractorName}</span>
                       </span>
                     </div>
                   )}
                 </div>
-              </section>
-            ) : (
-              <div className="h-full flex items-center justify-center p-8 text-center text-sm text-[var(--ink-3)]">
-                Select a ticket from the list to view dispatch details.
-              </div>
-            )}
-          </div>
+              </aside>
+            </>
+          )}
         </div>
       </div>
 

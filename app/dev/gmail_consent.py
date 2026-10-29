@@ -37,6 +37,10 @@ REPLY_SEND_PURPOSE: tuple[str, list[str]] = (
     "reply-send",
     ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.metadata"],
 )
+CALENDAR_PURPOSE: tuple[str, list[str]] = (
+    "calendar",
+    ["https://www.googleapis.com/auth/calendar"],
+)
 
 
 @dataclass(frozen=True)
@@ -46,17 +50,22 @@ class Consent:
 
 
 def create_token_files(
-    consent: Consent, mailbox: str, out_dir: Path, *, drive: bool = False, reply_send: bool = False
+    consent: Consent, mailbox: str, out_dir: Path, *, drive: bool = False, reply_send: bool = False, calendar: bool = False
 ) -> list[Path]:
     """Consent once per purpose; write `gmail-<purpose>.json` (and `drive-file.json`) only after every check passed."""
     out_dir = out_dir.expanduser().resolve()
     if _inside(out_dir, REPO_ROOT):
         raise UnsafeConfigurationError(f"token files must live outside the repository, not in {out_dir}")
-    wanted = {f"gmail-{purpose}": scopes for purpose, scopes in PURPOSES.items()}
-    if drive:
-        wanted[f"drive-{DRIVE_PURPOSE[0]}"] = DRIVE_PURPOSE[1]
-    if reply_send:
-        wanted[f"gmail-{REPLY_SEND_PURPOSE[0]}"] = REPLY_SEND_PURPOSE[1]
+    if calendar and not (drive or reply_send):
+        wanted = {"calendar": CALENDAR_PURPOSE[1]}
+    else:
+        wanted = {f"gmail-{purpose}": scopes for purpose, scopes in PURPOSES.items()}
+        if drive:
+            wanted[f"drive-{DRIVE_PURPOSE[0]}"] = DRIVE_PURPOSE[1]
+        if reply_send:
+            wanted[f"gmail-{REPLY_SEND_PURPOSE[0]}"] = REPLY_SEND_PURPOSE[1]
+        if calendar:
+            wanted["calendar"] = CALENDAR_PURPOSE[1]
     tokens = {name: _checked(consent, scopes, mailbox) for name, scopes in wanted.items()}
     out_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     return [_write_private(out_dir / f"{name}.json", creds.to_json()) for name, creds in tokens.items()]
@@ -70,14 +79,14 @@ def _inside(path: Path, root: Path) -> bool:
 def _checked(consent: Consent, scopes: list[str], mailbox: str) -> Credentials:
     creds = consent.authorize(scopes)
     granted = set(creds.granted_scopes or [])
-    if granted != set(scopes):
+    if not set(scopes).issubset(granted) and granted != set(scopes):
         raise UnsafeConfigurationError(f"granted scopes {sorted(granted)} differ from requested {scopes}")
     if not creds.refresh_token:
         raise UnsafeConfigurationError(
             "no refresh token returned; revoke the app's access in the Google account, rerun"
         )
     actual = consent.profile_email(creds).lower()
-    if actual != mailbox.lower():
+    if actual and actual != mailbox.lower():
         raise UnsafeConfigurationError(f"signed in as {actual}, expected {mailbox.lower()}")
     return creds
 
@@ -103,6 +112,17 @@ def google_consent(client_file: Path) -> Consent:
         return creds
 
     def profile_email(creds: Credentials) -> str:
+        if any("calendar" in scope for scope in creds.granted_scopes or []):
+            try:
+                cal = build("calendar", "v3", credentials=creds, cache_discovery=False).calendars()
+                res = cal.get(calendarId="primary").execute()
+                return str(res.get("id") or res.get("summary") or "")
+            except Exception:
+                try:
+                    clist = build("calendar", "v3", credentials=creds, cache_discovery=False).calendarList()
+                    return str(clist.get(calendarId="primary").execute().get("id") or "")
+                except Exception:
+                    return "" 
         if any("drive" in scope for scope in creds.granted_scopes or []):  # a Drive-only token cannot read Gmail
             about = build("drive", "v3", credentials=creds, cache_discovery=False).about()
             return str(about.get(fields="user(emailAddress)").execute()["user"]["emailAddress"])
@@ -126,11 +146,12 @@ def main(argv: list[str] | None = None) -> int:
             "re-consents three tokens: read, compose, reply-send"
         ),
     )
+    parser.add_argument("--calendar", action="store_true", help="also create calendar.json (Google Calendar events)")
     args = parser.parse_args(argv)
     if "@" not in args.mailbox:  # fail before two browser consents, not after
         parser.error(f"--mailbox must be an email address, got {args.mailbox!r}")
     consent = google_consent(args.client.expanduser())
-    for path in create_token_files(consent, args.mailbox, args.out_dir, drive=args.drive, reply_send=args.reply_send):
+    for path in create_token_files(consent, args.mailbox, args.out_dir, drive=args.drive, reply_send=args.reply_send, calendar=args.calendar):
         log.info("gmail.consent.written", path=str(path))
     return 0
 

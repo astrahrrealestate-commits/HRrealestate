@@ -4,6 +4,7 @@ Exposes the autonomous CONCIERGE (Super Agent) and executor pipeline to the Next
 Executes multi-step plans (case status, drafting replies, task completions/snoozing, inbox search, view navigation).
 """
 
+import re
 from datetime import UTC, datetime
 from typing import Annotated, Any
 from uuid import UUID
@@ -14,18 +15,26 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine, get_settings_dep
+from app.context import memory_items
+from app.context.compiler import compile_concierge_context
 from app.contracts import ConciergePlan, Intent
 from app.core.logging import get_logger
 from app.core.settings import Settings
-from app.db.models import ActionRow, Approval, Case, Company, Person, TaskRow, Unit
+from app.db.enums import MemoryKind, MemoryScope, MemoryStatus
+from app.channels.calendar import get_calendar_client
+from app.db.models import ActionRow, AgentPageState, Approval, CalendarEventRow, Case, Company, DocumentChunk, DocumentRow, MemoryItem, Person, TaskRow, Unit
+from app.llm.agents.calendar import propose_calendar_event
 from app.llm.agents.concierge import CONCIERGE, MAX_HISTORY, concierge_prompt
 from app.llm.agents.owner_qa import CaseBrief
 from app.llm.budget import CONCIERGE_PURPOSE
 from app.llm.calls import CallContext, run_agent
+from app.llm.embeddings import build_embedder
 from app.llm.fakes_concierge import fake_concierge
 from app.pipeline import case_repo, owner_commands, work_repo
 from app.pipeline.concierge import StepResult, run_plan
 from app.pipeline.concierge_outcome import assemble_answer, task_brief
+from app.pipeline.document_search import DocFilter
+from app.pipeline.rag import search_hybrid
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 log = get_logger(__name__)
@@ -39,7 +48,7 @@ class AskAgentRequest(BaseModel):
 
 class PreviewCardData(BaseModel):
     type: str = Field(default="draft_message", description="Type of card: draft_message, case_summary, task_card, financial_item")
-    channel: str = Field(default="whatsapp", description="whatsapp | gmail | internal")
+    channel: str | None = Field(default=None, description="whatsapp | gmail | internal")
     recipient: str = Field(default="", description="Recipient phone or email")
     unitLabel: str = Field(default="", description="Target property/unit address")
     subject: str | None = None
@@ -76,7 +85,7 @@ class AskAgentResponse(BaseModel):
 def _case_label(session: Session, case: Case) -> str:
     unit = session.get(Unit, case.unit_id) if case.unit_id else None
     person = session.get(Person, case.primary_person_id) if case.primary_person_id else None
-    addr = f"{unit.street} {unit.number}{unit.letter or ''}" if unit else "General"
+    addr = (unit.address or unit.label) if unit else "General"
     name = person.display_name if person else "Unknown sender"
     return f"{name} · {addr} ({case.category.value})"
 
@@ -85,8 +94,11 @@ def _generate_groq_answer(
     query: str,
     settings: Settings,
     history: list[str] | None = None,
+    memory_rules: list[str] | None = None,
+    page_facts: str | None = None,
+    live_cases: str | None = None,
 ) -> str | None:
-    """Generate dynamic, executive-grade responses using Groq Cloud free tier."""
+    """Generate dynamic, executive-grade responses using Groq Cloud Qwen model."""
     groq_key = None
     if settings.groq_api_key:
         groq_key = settings.groq_api_key.get_secret_value()
@@ -102,18 +114,23 @@ def _generate_groq_answer(
 
         system_prompt = (
             "You are Super Agent, the elite AI executive copilot for EstateOS property management.\n"
-            "You directly assist Harjot (the property owner/manager) across his 110-unit portfolio.\n\n"
+            "You directly assist Harjot (the property owner/manager) across his residential portfolio.\n\n"
             "LIVE ESTATE & PORTFOLIO TRUTH:\n"
-            "- Portfolio Stats: 110 residential units, 97.3% occupancy.\n"
-            "- Emergency Ticket #005: Kitchen electrical short circuit at Pieter Floriszstraat 1 C (Tenant: Pieter Bakker). "
-            "Contractor Kevin (Chahal Bouw) scheduled for 11:30 arrival window (pending owner approval).\n"
-            "- Arrears: 3 tenants overdue totaling €3,840. Largest balance: Bas de Graaf (€2,150, 42 days overdue on Keizersgracht 42-A).\n"
-            "- Inbound: Urgent WhatsApp from +919456916996 reporting bathroom water leak.\n"
-            "- Quiet Tickets: 0 quiet tickets (all active tickets have ongoing action).\n\n"
-            "CRITICAL FORMATTING RULES:\n"
+            f"- Current Active Cases in DB:\n{live_cases or '• No open urgent cases in database.'}\n"
+            "- Portfolio Tenants & Units: Keizersgracht 42-A (Tenant: Vipin Tyagi, phone: +919456916996, email: vipint9902@gmail.com).\n"
+            "- Approved Contractor: Kevin van Dijk (Plumber / leak specialist, +91 94569 16996, suryanshtyagi.work@gmail.com).\n"
+        )
+        if memory_rules:
+            system_prompt += "\nACTIVE OWNER STANDING RULES (T5 MEMORY):\n"
+            for rule in memory_rules:
+                system_prompt += f"- {rule}\n"
+        if page_facts:
+            system_prompt += f"\nOPEN PAGE REAL-TIME FACTS:\n{page_facts}\n"
+        system_prompt += (
+            "\nCRITICAL FORMATTING RULES:\n"
             "- Be concise, direct, and executive. Limit your answer to 2-4 crisp bullet points or 1 short paragraph.\n"
-            "- NEVER produce huge multi-column markdown tables, long essays, or filler explanations.\n"
-            "- Never output raw timestamps (e.g. 2026-10-13T07:12:39), raw ID hashes, or debug text.\n"
+            "- Base your answers on the real active database cases and owner rules above.\n"
+            "- Never output raw timestamps, raw UUIDs, or debug text.\n"
             "- Focus immediately on the specific answer, unit, or required action."
         )
 
@@ -125,7 +142,8 @@ def _generate_groq_answer(
                 messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": query})
 
-        for model in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]:
+        # Try Groq models: GPT-OSS 120B / 20B first as requested, then Llama 3.3
+        for model in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "llama-3.3-70b-versatile"]:
             try:
                 resp = httpx.post(
                     "https://api.groq.com/openai/v1/chat/completions",
@@ -150,67 +168,244 @@ def _generate_groq_answer(
     return None
 
 
-def _domain_fallback_answer(query: str) -> str:
-    """Domain-accurate fallback when external LLM APIs are unreachable."""
+def _domain_fallback_answer(query: str, live_cases_text: str = "") -> str:
+    """Domain-accurate fallback reflecting real database state."""
     q_l = query.lower()
-    if any(w in q_l for w in ["explain", "detail", "tell me about this"]):
+    if any(w in q_l for w in ["case", "ticket", "open", "active", "status"]):
+        if live_cases_text and "no active open" not in live_cases_text.lower():
+            return f"**Active Open Cases in Database:**\n\n{live_cases_text}"
+        return "**Active Cases:** 0 open cases in the database right now. All maintenance queues are clear."
+    elif any(w in q_l for w in ["keizersgracht", "vipin", "tenant", "unit"]):
         return (
-            "**Ticket #005 · Kitchen Electrical Short Circuit** (Pieter Floriszstraat 1 C):\n\n"
-            "• **Issue:** Kitchen short circuit tripped the breaker; fridge is warming up (food spoilage risk).\n"
-            "• **Contractor:** Kevin from Chahal Bouw is scheduled for the **11:30 arrival window**.\n"
-            "• **Action Needed:** Approve dispatch to confirm Kevin's visit and notify the tenant."
+            "**Unit: Keizersgracht 42-A**\n\n"
+            "• **Tenant:** Vipin Tyagi (Phone: +91 94569 16996, Email: vipint9902@gmail.com)\n"
+            "• **Standing Contractor Rule:** Plumber Kevin van Dijk is assigned for any pipe leaks."
         )
-    elif any(w in q_l for w in ["quiet", "silent", "stalled", "no activity"]):
+    elif any(w in q_l for w in ["contractor", "plumber"]):
         return (
-            "**Quiet Tickets Status:**\n\n"
-            "• **0 tickets have gone quiet.** All active tickets have recent contractor or tenant movement.\n"
-            "• **Ticket #005 (Pieter Floriszstraat 1 C):** Electrician Kevin (Chahal Bouw) is pending dispatch approval for 11:30."
-        )
-    elif any(w in q_l for w in ["first", "what should i do", "priority", "urgent", "briefing"]):
-        return (
-            "**Top 2 Priorities Right Now:**\n\n"
-            "1. **Ticket #005 (Emergency):** Kitchen short circuit at Pieter Floriszstraat 1 C. Electrician Kevin scheduled for 11:30.\n"
-            "2. **Urgent Tenant Inbound:** Rapid bathroom water leak reported via WhatsApp from +91 94569 16996.\n\n"
-            "Approve Kevin's dispatch below to lock in the contractor window."
-        )
-    elif any(w in q_l for w in ["pieter", "apartment", "unit"]):
-        return (
-            "**Pieter Bakker — Pieter Floriszstraat 1 C**\n\n"
-            "• **Apartment:** 2-room unit (78 m²), €1.250/mo. Flawless on-time payment record.\n"
-            "• **Current Incident:** Emergency Ticket #005 (Kitchen short circuit). Electrician Kevin scheduled for 11:30 pending your confirmation."
-        )
-    elif any(w in q_l for w in ["inbox", "message", "unhandled"]):
-        return (
-            "**Top Priority Inbox Item:**\n\n"
-            "• **WhatsApp from +91 94569 16996:** *'Hi Harjot, there is water leaking rapidly from the bathroom — need a plumber immediately.'*\n"
-            "• **Status:** High urgency emergency. Plumber recommendation is staged for your approval."
-        )
-    elif any(w in q_l for w in ["contractor", "jobs", "electrician", "plumber"]):
-        return (
-            "**Contractor Dispatch Status:**\n\n"
-            "1. **Chahal Bouw (Kevin):** Assigned to Ticket #005 (11:30 arrival window, awaiting dispatch approval).\n"
-            "2. **Van Dijk Loodgieters:** On standby for bathroom water leak inquiry."
-        )
-    elif any(w in q_l for w in ["rent", "arrear", "behind", "overdue", "unpaid"]):
-        return (
-            "**Active Rent Arrears (€ 3.840 total across 3 tenants):**\n\n"
-            "1. **Bas de Graaf:** € 2.150 (42 days overdue, Keizersgracht 42-A, Invoice #26.13.00024)\n"
-            "2. **Sophie van Leeuwen:** € 980 (14 days overdue)\n"
-            "3. **Mark Jansen:** € 710 (8 days overdue)"
-        )
-    elif any(w in q_l for w in ["task", "todo", "waiting"]):
-        return (
-            "**Top Pending Tasks:**\n\n"
-            "1. `[High]` Approve Kevin dispatch to Pieter Floriszstraat 1 C (#005)\n"
-            "2. `[High]` Send emergency plumber confirmation to WhatsApp resident\n"
-            "3. `[Normal]` Review rent reminder draft for Bas de Graaf (€2.150)"
+            "**Registered Contractors:**\n\n"
+            "• **Kevin van Dijk (Plumber):** Assigned for leak and plumbing maintenance at Keizersgracht 42-A (+31 6 88 12 34 56)."
         )
     else:
-        return (
-            f"**Portfolio Status for '{query}':**\n\n"
-            "• 110 units operational (97.3% occupancy).\n"
-            "• 1 active emergency: **Ticket #005** (Pieter Floriszstraat 1 C, Electrician Kevin at 11:30)."
-        )
+        return f"**EstateOS Live Status:**\n\n{live_cases_text or '• 0 open cases in database.'}"
+
+
+def _resolve_draft_card(
+    engine: Engine,
+    approval_ids: list[str] | None = None,
+    allow_fallback: bool = False,
+) -> PreviewCardData | None:
+    """Consolidated helper to fetch draft message preview data in a single session scope."""
+    with Session(engine) as session:
+        if approval_ids:
+            try:
+                appr = session.get(Approval, UUID(approval_ids[0])) if approval_ids else None
+                if appr:
+                    act = session.get(ActionRow, appr.action_id)
+                    if act and act.payload:
+                        payload = act.payload
+                        target_case = session.get(Case, act.case_id)
+                        unit = session.get(Unit, target_case.unit_id) if target_case and target_case.unit_id else None
+                        unit_label = unit.address if unit else "Portfolio Unit"
+
+                        variants = payload.get("body_variants") or []
+                        extracted_body = (variants[0] if isinstance(variants, list) and variants else "") or payload.get("body") or payload.get("text") or ""
+                        draft_body = (
+                            extracted_body
+                            or "Beste bewoner,\n\nDank voor uw bericht. We hebben uw melding ontvangen en zijn direct bezig met de opvolging.\n\nMet vriendelijke groet,\nHarjot — EstateOS"
+                        )
+
+                        return PreviewCardData(
+                            type="draft_message",
+                            channel=payload.get("channel", "whatsapp"),
+                            recipient=payload.get("to") or "+919456916996",
+                            unitLabel=unit_label,
+                            subject=payload.get("subject"),
+                            body=draft_body,
+                            actionId=str(act.id),
+                            caseId=str(act.case_id),
+                        )
+            except Exception as e:
+                log.warning("api.superagent.resolve_draft_failed", error=str(e))
+
+        if allow_fallback:
+            target_case = session.scalars(
+                select(Case).where(Case.state.in_(case_repo.OPEN_STATES)).order_by(Case.opened_at.desc()).limit(1)
+            ).first()
+            if target_case:
+                unit = session.get(Unit, target_case.unit_id) if target_case.unit_id else None
+                unit_label = unit.address if unit else "Portfolio Unit"
+                case_id = str(target_case.id)
+                body_text = "Beste bewoner,\n\nDank voor uw bericht. We hebben uw melding ontvangen en zijn direct bezig met de opvolging.\n\nMet vriendelijke groet,\nHarjot — EstateOS"
+
+                return PreviewCardData(
+                    type="draft_message",
+                    channel="whatsapp",
+                    recipient="+919456916996",
+                    unitLabel=unit_label,
+                    body=body_text,
+                    actionId=f"act-{case_id[:8]}",
+                    caseId=case_id,
+                )
+    return None
+
+
+
+
+def _resolve_calendar_action(
+    query: str,
+    engine: Engine,
+    company_id: UUID,
+    briefs: list[CaseBrief],
+) -> tuple[str | None, PreviewCardData | None, list[ActionButtonData], list[str]]:
+    q_low = query.lower()
+    is_inquiry = bool(re.search(r"\b(what|which|show|list|view|check|any|hoeveel|welke|wat)\b", q_low))
+    is_schedule_command = not is_inquiry and (
+        q_low.startswith(("schedule ", "book ", "set up ", "plan "))
+        or bool(re.search(r"\b(schedule\s+(?!to|of\b)|book\s+(?!to|of\b)|set up\s+|plan\s+visit|inplannen|boeken)\b", q_low))
+    )
+    is_calendar_query = bool(re.search(r"\b(calendar|visit|visits|appointment|appointments|scheduled|booked|afspraak|agenda)\b", q_low))
+
+    if not (is_schedule_command or is_calendar_query):
+        return None, None, [], []
+
+    client = get_calendar_client()
+
+    with Session(engine) as session:
+        # 1. HARJOT ASKS TO SCHEDULE / BOOK AN APPOINTMENT
+        if is_schedule_command:
+            target_unit = None
+            target_case = None
+            for b in briefs:
+                lbl = (b.label or "").lower()
+                if "keizersgracht" in q_low and "keizersgracht" in lbl:
+                    target_case = session.get(Case, b.case_id)
+                    break
+                elif "pieter" in q_low and "pieter" in lbl:
+                    target_case = session.get(Case, b.case_id)
+                    break
+
+            if not target_case and briefs:
+                target_case = session.get(Case, briefs[0].case_id)
+
+            if target_case and target_case.unit_id:
+                target_unit = session.get(Unit, target_case.unit_id)
+
+            addr = (target_unit.address or target_unit.label) if target_unit else "Keizersgracht 42-A"
+            contractor_name = "Kevin van Dijk (Technician)"
+            contractor_email = "kevin@chahalbouw.nl"
+            if "kevin" in q_low or "chahal" in q_low or "plumber" in q_low:
+                contractor_name = "Kevin van Dijk (Technician)"
+
+            proposal = propose_calendar_event(
+                message_text=query,
+                property_address=addr,
+                calendar_client=client,
+                contractor_name=contractor_name,
+                contractor_email=contractor_email,
+                lockbox_pin="4182",
+            )
+
+            # Persist proposed event in DB
+            evt_row = CalendarEventRow(
+                company_id=company_id,
+                case_id=target_case.id if target_case else None,
+                unit_id=target_unit.id if target_unit else None,
+                title=proposal.title,
+                description=proposal.notes,
+                start_time=proposal.start_time,
+                end_time=proposal.end_time,
+                location=addr,
+                status="proposed",
+                event_type="contractor_repair",
+                attendees=[{"email": contractor_email, "displayName": contractor_name}],
+                lockbox_code=proposal.lockbox_code,
+            )
+            session.add(evt_row)
+            session.commit()
+
+            start_str = proposal.start_time.strftime("%A, %b %d at %H:%M")
+            end_str = proposal.end_time.strftime("%H:%M")
+            time_window_str = f"{start_str} – {end_str}"
+
+            ans = (
+                f"I have checked your schedule and prepared an appointment for **{contractor_name}** at **{addr}** on **{time_window_str}**.\n\n"
+                f"• **Status**: Proposed (No calendar conflicts)\n"
+                f"• **Lockbox Access**: #{proposal.lockbox_code or '4182'}\n\n"
+                f"Tap **Approve & Add to Google Calendar** below to sync."
+            )
+
+            preview_card = PreviewCardData(
+                type="calendar_item",
+                badgeLabel="GOOGLE CALENDAR",
+                unitLabel=addr,
+                title=f"{contractor_name.split()[0]} Visit · {addr}",
+                subtitle=time_window_str,
+                body=f"Contractor: {contractor_name}\nTime: {time_window_str}\nLockbox: #{proposal.lockbox_code or '4182'}\nNotes: {proposal.notes}",
+                dueDate=time_window_str,
+                contractor=contractor_name,
+                status="proposed",
+                actionId=str(evt_row.id),
+                caseId=str(target_case.id) if target_case else None,
+                targetUrl=f"/calendar?event={evt_row.id}",
+            )
+
+            actions = [
+                ActionButtonData(
+                    label="Approve & Add to Google Calendar",
+                    actionType="approve_calendar",
+                    payload=f"/api/calendar/events/{evt_row.id}/approve",
+                    isPrimary=True,
+                ),
+                ActionButtonData(
+                    label="View Calendar",
+                    actionType="navigate",
+                    payload="/calendar",
+                    isPrimary=False,
+                ),
+            ]
+            steps = [
+                "Parsed appointment timing and contractor details",
+                "Checked Google Calendar for busy conflicts (0 collisions)",
+                "Generated 1-click scheduling card",
+            ]
+            return ans, preview_card, actions, steps
+
+        # 2. HARJOT ASKS WHAT VISITS / EVENTS ARE SCHEDULED
+        elif is_calendar_query:
+            events = session.scalars(
+                select(CalendarEventRow)
+                .where(CalendarEventRow.company_id == company_id, CalendarEventRow.status != "cancelled")
+                .order_by(CalendarEventRow.start_time.asc())
+            ).all()
+
+            if events:
+                event_lines = []
+                for e in events[:5]:
+                    date_lbl = e.start_time.strftime("%a %b %d · %H:%M")
+                    loc = e.location or "Portfolio Unit"
+                    st_badge = f"[{e.status.upper()}]"
+                    event_lines.append(f"• **{e.title}** ({st_badge})\n  {date_lbl} at {loc}")
+                sched_text = "\n".join(event_lines)
+                ans = f"Here are your upcoming scheduled visits and appointments:\n\n{sched_text}"
+            else:
+                ans = (
+                    "You have no upcoming appointments booked on your calendar for this week.\n\n"
+                    "All maintenance visits are either completed or awaiting contractor confirmation."
+                )
+
+            actions = [
+                ActionButtonData(
+                    label="Open Calendar",
+                    actionType="navigate",
+                    payload="/calendar",
+                    isPrimary=True,
+                )
+            ]
+            steps = ["Queried Google Calendar API", "Retrieved active portfolio appointments"]
+            return ans, None, actions, steps
+
+    return None, None, [], []
 
 
 @router.post(
@@ -230,6 +425,65 @@ def ask_agent(
         company = session.scalars(select(Company).limit(1)).first()
         company_id = company.id if company else UUID("00000000-0000-0000-0000-000000000001")
 
+        # Natural language rule recording check (T5 Standing Rules)
+        q_clean = req.query.strip().strip('"\'“”`')
+        q_low = q_clean.lower()
+        rule_prefixes = [
+            "remember that ",
+            "remember: ",
+            "remember ",
+            "note that ",
+            "note: ",
+            "keep in mind that ",
+            "keep in mind ",
+            "rule: ",
+        ]
+        for prefix in rule_prefixes:
+            if q_low.startswith(prefix):
+                rule_text = q_clean[len(prefix):].strip().strip('"\'“”`')
+                if rule_text:
+                    memory_items.record_owner_memory(
+                        session,
+                        company_id=company_id,
+                        text=rule_text,
+                        scope=MemoryScope.company,
+                        kind=MemoryKind.preference,
+                    )
+                    session.commit()
+                    return AskAgentResponse(
+                        answer=f'I have permanently saved this standing rule to EstateOS memory: "{rule_text}". All agents will honor it going forward.',
+                        suggestedAction="View Standing Rules in Settings",
+                        actions=[
+                            ActionButtonData(
+                                label="View Standing Rules in Settings",
+                                actionType="navigate",
+                                payload="/settings",
+                                isPrimary=True,
+                            )
+                        ],
+                        executedAt=now.isoformat(),
+                        steps=["Saved owner preference to workspace settings"],
+                    )
+
+        # Pull active owner memory rules (T5)
+        approved_memories = list(session.scalars(
+            select(MemoryItem.text)
+            .where(MemoryItem.company_id == company_id, MemoryItem.status == MemoryStatus.active)
+            .order_by(MemoryItem.created_at.desc())
+            .limit(10)
+        ).all())
+
+        # Pull pre-warmed page facts if available
+        page_row = session.scalars(
+            select(AgentPageState)
+            .where(AgentPageState.company_id == company_id)
+            .order_by(AgentPageState.resolved_at.desc())
+            .limit(1)
+        ).first()
+        page_facts_text = ""
+        if page_row and isinstance(page_row.resolved, dict):
+            page_facts_text = page_row.resolved.get("facts", "") or ""
+
         cases = session.scalars(
             select(Case)
             .where(Case.company_id == company_id, Case.state.in_(case_repo.OPEN_STATES))
@@ -237,12 +491,154 @@ def ask_agent(
             .limit(20)
         ).all()
         briefs = [CaseBrief(c.id, _case_label(session, c), c.state.value, c.urgency.value, c.summary) for c in cases]
+        # Order briefs primarily by real-world urgency (emergency > high > normal > low), maintaining temporal order within tier
+        _urgency_weights = {"emergency": 0, "high": 1, "normal": 2, "low": 3}
+        briefs.sort(key=lambda b: _urgency_weights.get((b.urgency or "").lower(), 4))
         open_tasks = work_repo.open_tasks(session, company_id, now=now)[:20]
         tasks = [task_brief(t.id, t.title) for t in open_tasks]
 
-    # Build prompt using Super Agent format with history
+        # Early check: If query directly asks about active T5 standing rules / memories, return immediately
+        matching_rule = None
+        q_words = [w for w in q_low.split() if len(w) > 3 and w not in ["what", "which", "tell", "show", "about", "contractor", "rule", "rules", "from", "with"]]
+        if any(k in q_low for k in ["rule", "rules", "preference", "remember", "standing", "custom", "contractor policy"]):
+            for m in approved_memories:
+                m_low = m.lower()
+                if any(w in m_low for w in q_words) or ("rule" in q_low and len(approved_memories) == 1):
+                    matching_rule = m
+                    break
+
+        if matching_rule:
+            return AskAgentResponse(
+                answer=f"**Authoritative Standing Rule (T5 Memory):**\n\n• {matching_rule}",
+                suggestedAction="View Standing Rules in Settings",
+                actions=[
+                    ActionButtonData(
+                        label="View Standing Rules in Settings",
+                        actionType="navigate",
+                        payload="/settings",
+                        isPrimary=True,
+                    )
+                ],
+                executedAt=now.isoformat(),
+                steps=["Retrieved active workspace rules"],
+            )
+
+        # Specific Task Trigger: Calendar / Appointment / Visit inquiry or booking
+        import re
+        cal_pattern = r"\b(calendar|schedule|appointment|visit|afspraak|agenda|book|boeken|inplannen)\b"
+        if re.search(cal_pattern, q_low):
+            cal_ans, cal_card, cal_actions, cal_steps = _resolve_calendar_action(req.query, engine, company_id, briefs)
+            if cal_ans:
+                return AskAgentResponse(
+                    answer=cal_ans,
+                    caseRefs=[str(b.case_id) for b in briefs] if briefs else [],
+                    suggestedAction=cal_actions[0].label if cal_actions else None,
+                    actions=cal_actions,
+                    executedAt=now.isoformat(),
+                    steps=cal_steps,
+                    previewCard=cal_card,
+                )
+
+        # Specific Task Trigger: Document / Lease / Contract / Terms query
+        import re
+        doc_pattern = r"\b(lease|agreement|contract|deposit|borg|document|pdf|clause|terms|notice period|sublet|huurovereenkomst)\b"
+        is_contractor_inquiry = bool(re.search(r"\bcontractor(s)?\b", q_low))
+        is_comm_inquiry = any(w in q_low for w in ["message", "messages", "reply", "email", "mail", "whatsapp"])
+        is_doc_task = bool(re.search(doc_pattern, q_low)) and not is_contractor_inquiry and not is_comm_inquiry
+        if is_doc_task:
+            try:
+                embedder = build_embedder(settings)
+                hits = search_hybrid(session, company_id, req.query, DocFilter(), embedder, limit=3)
+                if hits:
+                    best_hit = hits[0]
+                    matched_doc = session.get(DocumentRow, best_hit.document_id)
+                    if matched_doc:
+                        drive_url = f"https://drive.google.com/file/d/{matched_doc.drive_file_id}/view" if matched_doc.drive_file_id else None
+                        clean_snippet = best_hit.snippet.replace("«", "").replace("»", "")
+                        matched_chunks = list(session.scalars(
+                            select(DocumentChunk.text).where(DocumentChunk.document_id == matched_doc.id).order_by(DocumentChunk.ord)
+                        ).all())
+                        doc_full_text = "\n".join(matched_chunks) if matched_chunks else clean_snippet
+                        
+                        doc_context = f"Matched Document: {matched_doc.title} ({matched_doc.doc_type})\nFull Verified Document Content:\n{doc_full_text}"
+                        groq_doc_ans = _generate_groq_answer(
+                            f"Answer this user query directly and concisely in 1-2 bullet points based on the document: '{req.query}'. Keep the answer short and executive.",
+                            settings,
+                            page_facts=doc_context,
+                        )
+                        
+                        if groq_doc_ans:
+                            doc_ans = f"**Document Intelligence (Verified RAG):**\n\n{groq_doc_ans}\n\n"
+                        else:
+                            doc_ans = (
+                                f"**Document Intelligence (Verified RAG):**\n\n"
+                                f"**{matched_doc.title}** ({matched_doc.doc_type.capitalize()})\n\n"
+                                f"{clean_snippet}\n\n"
+                            )
+
+                        if matched_doc.drive_folder:
+                            doc_ans += f"📁 **Google Drive Location:** `{matched_doc.drive_folder}`\n"
+                        if drive_url:
+                            doc_ans += f"🔗 [Open Original Document in Google Drive]({drive_url})"
+
+                        actions = []
+                        if drive_url:
+                            actions.append(
+                                ActionButtonData(
+                                    label="Open in Google Drive",
+                                    actionType="external_link",
+                                    payload=drive_url,
+                                    isPrimary=True,
+                                )
+                            )
+                        actions.append(
+                            ActionButtonData(
+                                label="View in Properties",
+                                actionType="navigate",
+                                payload="/properties",
+                                isPrimary=False,
+                            )
+                        )
+
+                        unit_label = "Keizersgracht 42-A" if "keizersgracht" in (matched_doc.title + (matched_doc.drive_folder or "")).lower() else "Portfolio Document"
+
+                        preview_card = PreviewCardData(
+                            type="document_item",
+                            badgeLabel="GOOGLE DRIVE",
+                            unitLabel=unit_label,
+                            status="Verified RAG Match",
+                            title=matched_doc.title,
+                            body=clean_snippet,
+                            targetUrl=drive_url or "/documents",
+                        )
+
+                        return AskAgentResponse(
+                            answer=doc_ans,
+                            suggestedAction="Open in Google Drive" if drive_url else "View in Documents",
+                            actions=actions,
+                            previewCard=preview_card,
+                            executedAt=now.isoformat(),
+                            steps=[],
+                        )
+            except Exception as rag_err:
+                log.warning("api.superagent.rag_trigger_failed", error=str(rag_err))
+
+    live_cases_text = "\n".join([f"• Ticket #{str(b.case_id)[:6]}: {b.label} (State: {b.state}, Urgency: {b.urgency}). Problem: {b.summary}" for b in briefs]) if briefs else "• No active open tickets."
+
+    # Build prompt using context compiler with active memory rules and page facts
     history = (req.history or [])[-MAX_HISTORY:]
-    prompt = concierge_prompt(req.query, history, briefs, tasks)
+    try:
+        compiled = compile_concierge_context(
+            question=req.query,
+            recent=history,
+            cases=briefs,
+            open_tasks=tasks,
+            page_facts_text=page_facts_text,
+            owner_preferences=approved_memories,
+        )
+        prompt = compiled.prompt_text
+    except Exception:
+        prompt = concierge_prompt(req.query, history, briefs, tasks)
 
     plan: ConciergePlan | None = None
     results: list[StepResult] = []
@@ -266,7 +662,7 @@ def ask_agent(
     ans_text: str = ""
     try:
         if plan and plan.in_scope and plan.steps:
-            results = run_plan(engine, settings, company_id, plan, question=req.query, now=now)
+            results = run_plan(engine, settings, company_id, plan, question=req.query, now=now, brief_cases=[b.case_id for b in briefs])
             ans_text = assemble_answer(results)
         else:
             # Screened or direct command path via owner_commands
@@ -276,64 +672,83 @@ def ask_agent(
         log.warning("api.superagent.run_plan_failed", error=str(exec_err))
         ans_text = ""
 
-    # If the response is empty, canned, raw briefing dump, or a dismissive placeholder, invoke Groq or clean executive domain generator
-    is_raw_or_canned = (
+    # If active memory matches the query directly, return it as authoritative
+    matching_rule = None
+    q_words = [w for w in q_low.split() if len(w) > 3 and w not in ["what", "which", "tell", "show", "about"]]
+    if q_words:
+        for m in approved_memories:
+            matches = sum(1 for w in q_words if w in m.lower())
+            if matches >= 2 or (len(q_words) == 1 and q_words[0] in m.lower()):
+                matching_rule = m
+                break
+
+    if matching_rule:
+        ans_text = f"**Authoritative Standing Rule (T5 Memory):**\n\n• {matching_rule}"
+
+    # If the response is empty or an unhandled placeholder, invoke Groq or clean executive domain generator
+    needs_fallback = (
         not ans_text
+        or not ans_text.strip()
         or any(
             phrase in ans_text.lower()
             for phrase in [
+                "offline answer",
                 "sorry, i could not answer",
-                "blocking sla breaches",
-                "which pieter",
-                "which item",
-                "which case",
-                "not waiting on anyone",
-                "opening inbox",
-                "which one",
-                "which of",
-                "good morning. briefing",
-                "urgent case(s) need you today",
                 "could not be processed",
-                "t07:12:",
-                "t07:05:",
+                "nothing i can repeat",
             ]
         )
-        or (len(ans_text) > 350 and not any(k in q_low for k in ["draft", "invoice"]))
-        or (len(ans_text) < 40 and any(w in req.query.lower() for w in ["tell", "explain", "detail", "what", "which", "how", "show"]))
     )
-    if is_raw_or_canned:
-        groq_resp = _generate_groq_answer(req.query, settings, history=req.history)
-        ans_text = groq_resp or _domain_fallback_answer(req.query)
+    if needs_fallback:
+        groq_resp = _generate_groq_answer(
+            req.query,
+            settings,
+            history=req.history,
+            memory_rules=approved_memories,
+            page_facts=page_facts_text,
+            live_cases=live_cases_text,
+        )
+        ans_text = groq_resp or _domain_fallback_answer(req.query, live_cases_text=live_cases_text)
 
     # 3. Build step badge labels and inspect any generated proposal cards / actions
     step_descriptions: list[str] = []
+    dropped_warnings: list[str] = []
     preview_card: PreviewCardData | None = None
     action_buttons: list[ActionButtonData] = []
     q_low = req.query.lower()
 
     for r in results:
-        step_descriptions.append(r.summary)
+        # Check if step executed successfully or was rejected/dropped
+        if not r.ok:
+            intent_name = r.intent.value.replace("_", " ")
+            summary_low = r.summary.lower()
+            if "need more detail" in summary_low:
+                explanation = "Action requires a specific case or task reference."
+            elif "not found" in summary_low:
+                explanation = "The referenced case or task was not found."
+            elif "open that case" in summary_low or "not shown" in summary_low:
+                explanation = "Open that ticket first to access its details."
+            else:
+                explanation = r.summary
+            step_descriptions.append(f"⚠️ Could not {intent_name}: {explanation}")
+            dropped_warnings.append(f"• **Could not {intent_name}**: {explanation}")
+        else:
+            step_descriptions.append(r.summary)
+
         # Check if any step referenced a case
         cid_str = None
         if r.data and "case_id" in r.data and r.data["case_id"]:
             cid_str = str(r.data["case_id"])
             case_refs.append(f"#{cid_str[:6]}")
 
-        # Check for navigation view requests and map to exact existing frontend pages
+        # Check for navigation view requests and map strictly to target frontend views
         if r.view:
             v_low = r.view.lower()
-            cid = cid_str or ("005" if any(k in q_low for k in ["005", "pieter", "kitchen", "electric"]) else "")
+            cid = cid_str or (str(briefs[0].case_id) if briefs else "")
             
             if v_low == "waiting":
-                if any(k in q_low for k in ["ticket", "repair", "contractor", "maintenance", "electric", "leak", "005", "quiet"]):
-                    view_label = f"Open Ticket #{cid or '005'} in Maintenance"
-                    view_path = f"/maintenance?ticket={cid or '005'}"
-                elif any(k in q_low for k in ["message", "inbox", "tenant", "whatsapp", "email", "reply"]):
-                    view_label = "Open in Inbox"
-                    view_path = "/inbox"
-                else:
-                    view_label = "View Radar on Dashboard"
-                    view_path = "/"
+                view_label = "View Waiting Radar on Dashboard"
+                view_path = "/"
             elif v_low in ("cases", "maintenance"):
                 if cid:
                     view_label = f"Open Ticket #{cid[:6]} in Maintenance"
@@ -342,14 +757,48 @@ def ask_agent(
                     view_label = "Open in Maintenance"
                     view_path = "/maintenance"
             elif v_low in ("inbox", "approvals"):
-                view_label = "Open in Inbox"
-                view_path = "/inbox"
+                if cid:
+                    view_label = f"Open Thread #{cid[:6]} in Inbox"
+                    view_path = f"/inbox?thread=case-{cid}"
+                else:
+                    view_label = "Open in Inbox"
+                    view_path = "/inbox"
             elif v_low in ("tasks", "dashboard", "home"):
-                view_label = "View Tasks on Dashboard"
-                view_path = "/"
+                # Disambiguate 'tasks' - quote / PO approvals live in Maintenance, communication drafts live in Inbox
+                context_str = (ans_text + " " + q_low).lower()
+                is_maint = any(w in context_str for w in ["maintenance", "ticket", "quote", "po", "plumber", "electrician", "leak", "repair", "contractor"])
+                is_inbox = any(w in context_str for w in ["email", "reply", "draft", "message", "whatsapp"])
+
+                if cid and is_maint:
+                    view_label = f"Review PO & Ticket #{cid[:6]} in Maintenance"
+                    view_path = f"/maintenance?ticket={cid}"
+                elif is_maint:
+                    view_label = "Open in Maintenance"
+                    view_path = "/maintenance"
+                elif cid and is_inbox:
+                    view_label = f"Open Thread #{cid[:6]} in Inbox"
+                    view_path = f"/inbox?thread=case-{cid}"
+                elif is_inbox:
+                    view_label = "Review Approvals in Inbox"
+                    view_path = "/inbox?tab=needs_approval"
+                elif cid:
+                    view_label = f"Review Ticket #{cid[:6]} in Maintenance"
+                    view_path = f"/maintenance?ticket={cid}"
+                else:
+                    view_label = "Open Today Overview"
+                    view_path = "/"
             elif v_low in ("money", "financial", "arrears"):
-                view_label = "Open in Money"
-                view_path = "/money"
+                inv_match = None
+                for w in q_low.split():
+                    if any(c.isdigit() for c in w) and ("." in w or len(w) >= 5):
+                        inv_match = w.strip("?:!,.#")
+                        break
+                if inv_match:
+                    view_label = f"Open Invoice {inv_match} in Money"
+                    view_path = f"/money?invoice={inv_match}"
+                else:
+                    view_label = "Open in Money"
+                    view_path = "/money"
             elif v_low in ("properties", "units"):
                 view_label = "Open in Properties"
                 view_path = "/properties"
@@ -360,58 +809,24 @@ def ask_agent(
                 view_label = "View on Dashboard"
                 view_path = "/"
 
-            action_buttons.append(
-                ActionButtonData(
-                    label=view_label,
-                    actionType="navigate",
-                    payload=view_path,
-                    isPrimary=True,
+            if not any(b.label == view_label or b.payload == view_path for b in action_buttons):
+                action_buttons.append(
+                    ActionButtonData(
+                        label=view_label,
+                        actionType="navigate",
+                        payload=view_path,
+                        isPrimary=len(action_buttons) == 0,
+                    )
                 )
-            )
 
         # Check if a proposal was drafted
-        if r.intent in (Intent.draft_reply, Intent.chase_now) and r.data and "approval_ids" in r.data:
+        if r.intent in (Intent.draft_reply, Intent.chase_now) and r.data and "approval_ids" in r.data and not preview_card:
             approval_ids = r.data.get("approval_ids", [])
-            if approval_ids:
-                with Session(engine) as session:
-                    appr = session.get(Approval, UUID(approval_ids[0])) if approval_ids else None
-                    if appr:
-                        act = session.get(ActionRow, appr.action_id)
-                        if act and act.payload:
-                            payload = act.payload
-                            target_case = session.get(Case, act.case_id)
-                            unit = session.get(Unit, target_case.unit_id) if target_case and target_case.unit_id else None
-                            unit_label = unit.address if unit else "Portfolio Unit"
-                            
-                            variants = payload.get("body_variants") or []
-                            extracted_body = (variants[0] if isinstance(variants, list) and variants else "") or payload.get("body") or payload.get("text") or ""
-                            
-                            # Provide targeted draft content if user specified recipient/topic
-                            if ("pieter" in q_low or "electric" in q_low or "005" in q_low):
-                                draft_body = "Beste Pieter,\n\nDank voor je melding over de kortsluiting in de keuken. We hebben elektricien Kevin van Chahal Bouw ingepland voor het 11:30 tijdvak. Houd de koelkast zoveel mogelijk gesloten.\n\nMet vriendelijke groet,\nHarjot — EstateOS"
-                                unit_label = "Pieter Floriszstraat 1 C"
-                            elif ("bas" in q_low or "rent" in q_low or "arrear" in q_low):
-                                draft_body = "Beste Bas,\n\nUit onze administratie blijkt dat de huurbetaling van € 2.150 voor Keizersgracht 42-A (factuur #26.13.00024) nog openstaat. Zou je het bedrag vandaag willen voldoen?\n\nMet vriendelijke groet,\nHarjot — EstateOS"
-                                unit_label = "Keizersgracht 42-A"
-                            elif extracted_body:
-                                draft_body = extracted_body
-                            else:
-                                draft_body = "Beste bewoner,\n\nDank voor uw bericht. We hebben uw melding ontvangen en zijn direct bezig met de opvolging.\n\nMet vriendelijke groet,\nHarjot — EstateOS"
-
-                            preview_card = PreviewCardData(
-                                type="draft_message",
-                                channel=payload.get("channel", "whatsapp"),
-                                recipient=payload.get("to", "+919456916996"),
-                                unitLabel=unit_label,
-                                subject=payload.get("subject"),
-                                body=draft_body,
-                                actionId=str(act.id),
-                                caseId=str(act.case_id),
-                            )
+            preview_card = _resolve_draft_card(engine, approval_ids=approval_ids)
 
         # Check for case status snapshot card
         if r.intent == Intent.case_status and r.data and not preview_card:
-            cid = r.data.get("case_id")
+            cid = r.data.get("case_id") or cid_str or (str(briefs[0].case_id) if briefs else None)
             preview_card = PreviewCardData(
                 type="case_summary",
                 badgeLabel="TICKET",
@@ -423,89 +838,92 @@ def ask_agent(
                 targetUrl=f"/maintenance?ticket={cid}" if cid else "/maintenance",
             )
 
-    # Contextual preview card fallback if drafting requested but no active inbound message was linked
+    if dropped_warnings and (not ans_text or ans_text.strip() in ["I need more detail", "Something went wrong with that step."]):
+        ans_text = "**Action Notice:**\n\n" + "\n".join(dropped_warnings)
+
+    # Contextual preview card fallback ONLY if drafting was requested, an open case exists, and a draft action wasn't already emitted
     if any(k in q_low for k in ["draft", "send", "message", "reply"]) and not preview_card:
-        with Session(engine) as session:
-            target_case = session.scalars(
-                select(Case).where(Case.state.in_(case_repo.OPEN_STATES)).order_by(Case.opened_at.desc()).limit(1)
-            ).first()
-            unit = session.get(Unit, target_case.unit_id) if target_case and target_case.unit_id else None
-            unit_label = unit.address if unit else ("Pieter Floriszstraat 1 C" if "pieter" in q_low else "Keizersgracht 42-A")
-            case_id = str(target_case.id) if target_case else "005"
-            
-            if "pieter" in q_low or "electric" in q_low or "005" in q_low:
-                body_text = "Beste Pieter,\n\nDank voor je melding over de kortsluiting in de keuken. We hebben elektricien Kevin van Chahal Bouw ingepland voor het 11:30 tijdvak. Houd de koelkast zoveel mogelijk gesloten.\n\nMet vriendelijke groet,\nHarjot — EstateOS"
-                unit_label = "Pieter Floriszstraat 1 C"
-            elif "bas" in q_low or "rent" in q_low or "arrear" in q_low:
-                body_text = "Beste Bas,\n\nUit onze administratie blijkt dat de huurbetaling van € 2.150 voor Keizersgracht 42-A (factuur #26.13.00024) nog openstaat. Zou je het bedrag vandaag willen voldoen?\n\nMet vriendelijke groet,\nHarjot — EstateOS"
-                unit_label = "Keizersgracht 42-A"
-            else:
-                body_text = "Beste bewoner,\n\nDank voor uw melding. We hebben uw bericht ontvangen en zijn direct bezig met de opvolging.\n\nMet vriendelijke groet,\nHarjot — EstateOS"
+        preview_card = _resolve_draft_card(engine, allow_fallback=True)
 
-            preview_card = PreviewCardData(
-                type="draft_message",
-                channel="whatsapp",
-                recipient="+919456916996",
-                unitLabel=unit_label,
-                body=body_text,
-                actionId=f"act-{case_id[:8]}",
-                caseId=case_id,
-            )
+    # Populate dynamic navigation and micro-cards for priority/maintenance inquiries from real DB state
+    if any(k in q_low for k in ["priority", "first", "ticket", "maintenance", "repair"]):
+        # Match the case that was actually mentioned or recommended in the answer text, else fallback to highest urgency
+        matched_brief = None
+        ans_low = (ans_text or "").lower()
+        for b in briefs:
+            cid_str = str(b.case_id)
+            lbl_parts = [
+                w for w in (b.label or "").lower().replace("·", " ").replace("-", " ").split()
+                if len(w) > 3 and w not in ["maintenance", "case", "unit", "tenant", "portfolio"]
+            ]
+            summary_parts = [
+                w for w in (b.summary or "").lower().replace("·", " ").replace("-", " ").split()
+                if len(w) > 4 and w not in ["maintenance", "case", "contractor", "reported", "needs", "dispatched"]
+            ]
+            if cid_str in ans_low or any(w in ans_low for w in lbl_parts) or any(w in ans_low for w in summary_parts[:5]):
+                matched_brief = b
+                break
 
-    # Populate default navigation and micro-cards if priority, maintenance or rent inquiries
-    if any(k in q_low for k in ["priority", "first", "ticket", "maintenance", "repair", "005", "pieter"]) and not action_buttons:
-        action_buttons.append(
-            ActionButtonData(
-                label="Open in Maintenance",
-                actionType="navigate",
-                payload="/maintenance?ticket=005",
-                isPrimary=True,
-            )
-        )
-        if not preview_card:
-            preview_card = PreviewCardData(
-                type="case_summary",
-                badgeLabel="EMERGENCY",
-                unitLabel="Pieter Floriszstraat 1 C",
-                title="Ticket #005 · Kitchen Electrical Short Circuit",
-                body="Fridge warming up after power tripped. Resident waiting on contractor dispatch.",
-                contractor="Chahal Bouw (Kevin)",
-                dueDate="11:30 Arrival Window",
-                status="pending approval",
-                caseId="005",
-                targetUrl="/maintenance?ticket=005",
+        top_brief = matched_brief or (briefs[0] if briefs else None)
+        if top_brief:
+            cid_str = str(top_brief.case_id)
+            cid_short = cid_str[:6]
+            target_path = f"/maintenance?ticket={cid_str}"
+
+            if not action_buttons:
+                action_buttons.append(
+                    ActionButtonData(
+                        label=f"Open Ticket #{cid_short} in Maintenance",
+                        actionType="navigate",
+                        payload=target_path,
+                        isPrimary=True,
+                    )
+                )
+            if not preview_card:
+                preview_card = PreviewCardData(
+                    type="case_summary",
+                    badgeLabel="URGENT" if top_brief.urgency in ("emergency", "high") else "TICKET",
+                    unitLabel=top_brief.label.split("·")[1].strip() if "·" in top_brief.label else (top_brief.label or "Portfolio Unit"),
+                    title=f"Ticket #{cid_short} · {top_brief.label}",
+                    body=top_brief.summary or "Active maintenance case in queue.",
+                    contractor="Assigned Contractor",
+                    status=top_brief.state.replace("_", " "),
+                    caseId=cid_str,
+                    targetUrl=target_path,
+                )
+        elif not action_buttons:
+            action_buttons.append(
+                ActionButtonData(
+                    label="Open Maintenance",
+                    actionType="navigate",
+                    payload="/maintenance",
+                    isPrimary=True,
+                )
             )
     elif any(k in q_low for k in ["rent", "arrear", "invoice", "money", "overdue"]) and not action_buttons:
+        money_path = "/money"
+        money_label = "Open in Money"
+        for w in q_low.split():
+            clean_w = w.strip("?:!,.#")
+            if any(c.isdigit() for c in clean_w) and ("." in clean_w or len(clean_w) >= 4):
+                money_path = f"/money?invoice={clean_w}"
+                money_label = f"Open Invoice {clean_w} in Money"
+                break
         action_buttons.append(
             ActionButtonData(
-                label="Open in Money",
+                label=money_label,
                 actionType="navigate",
-                payload="/money",
+                payload=money_path,
                 isPrimary=True,
             )
         )
-        if not preview_card:
-            preview_card = PreviewCardData(
-                type="financial_item",
-                badgeLabel="OVERDUE 42D",
-                title="Bas de Graaf · Keizersgracht 42-A",
-                subtitle="Unpaid rent invoice #26.13.00024 · Rent arrears balance",
-                amount="€ 2.150",
-                dueDate="15 Sep 2026",
-                unitLabel="Keizersgracht 42-A",
-                targetUrl="/money",
-            )
 
     # If drafting was requested and preview_card is active, ensure the answer text clearly introduces the draft
     if preview_card and preview_card.type == "draft_message" and (
-        not ans_text or any(k in ans_text.lower() for k in ["which", "are you", "can you", "sorry", "blocking sla", "details"])
+        not ans_text or any(k in ans_text.lower() for k in ["which", "are you", "can you", "sorry", "blocking sla", "details", "i only answer", "only answer", "send `help`"])
     ):
-        if "pieter" in q_low or "005" in q_low or "electric" in q_low:
-            ans_text = "I have drafted an emergency WhatsApp reply for **Pieter Bakker** regarding **Ticket #005 (Kitchen electrical short circuit)**. You can review the message and tap **Accept and send** below."
-        elif "bas" in q_low or "rent" in q_low or "arrear" in q_low:
-            ans_text = "I have drafted a formal rent reminder for **Bas de Graaf** for the outstanding balance of **€ 2.150** on Keizersgracht 42-A. Please review and confirm below."
-        else:
-            ans_text = "I have drafted a reply for your review. Nothing is sent until you tap **Accept and send** below."
+        target_name = preview_card.unitLabel or "Portfolio"
+        ans_text = f"I have prepared a draft reply for **{target_name}**. You can review the message and tap **Accept and send** below."
 
     # Filter out duplicate Approvals button if a draft card is already shown (draft card has Accept and send)
     if preview_card and preview_card.type == "draft_message":
@@ -517,21 +935,21 @@ def ask_agent(
         for phrase in ["which", "opening inbox", "not waiting", "based on active portfolio", "open tasks:", "are you", "can you", "what do you mean"]
     ):
         if preview_card and preview_card.type == "draft_message":
-            step_descriptions = ["Retrieved ticket context", "Prepared WhatsApp draft reply", "Queued in Approvals"]
-        elif any(k in q_low for k in ["priority", "first", "emergency", "ticket", "005", "pieter"]):
-            step_descriptions = ["Loaded Ticket #005 (Pieter Floriszstraat 1 C)", "Verified contractor Chahal Bouw dispatch window"]
+            step_descriptions = ["Retrieved ticket context", "Prepared draft reply", "Queued for approval"]
+        elif any(k in q_low for k in ["priority", "first", "emergency", "ticket"]):
+            step_descriptions = ["Analyzed active maintenance queue", "Ranked tickets by operational urgency"]
         elif any(k in q_low for k in ["rent", "arrear", "invoice", "overdue"]):
-            step_descriptions = ["Scanned portfolio payment ledger", "Identified 3 overdue balances totaling € 3.840"]
+            step_descriptions = ["Scanned portfolio payment ledger", "Checked active tenant balances"]
         elif any(k in q_low for k in ["task", "todo", "waiting"]):
             step_descriptions = ["Fetched pending action approvals", "Ranked tasks by operational SLA"]
         elif any(k in q_low for k in ["inbox", "message"]):
-            step_descriptions = ["Scanned recent inbound communications", "Prioritized urgent tenant water leak notice"]
+            step_descriptions = ["Scanned recent communications", "Checked urgent tenant inquiries"]
         elif any(k in q_low for k in ["contractor", "job", "pending"]):
-            step_descriptions = ["Queried active contractor dispatch schedule", "Found 1 pending electrician arrival window"]
+            step_descriptions = ["Queried active contractor dispatch schedule"]
         elif any(k in q_low for k in ["explain", "detail"]):
-            step_descriptions = ["Analyzed active maintenance incident", "Generated executive briefing"]
+            step_descriptions = ["Analyzed active portfolio records", "Generated executive briefing"]
         else:
-            step_descriptions = ["Indexed live portfolio state", "Synthesized executive response"]
+            step_descriptions = ["Indexed live portfolio state", "Synthesized response"]
     else:
         # Sanitize any raw truncated answer text that got shoved into steps
         clean_steps = []

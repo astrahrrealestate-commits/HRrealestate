@@ -88,7 +88,7 @@ export const SETTING_GROUPS: SettingGroup[] = [
       {
         id: "s-gmail-sync",
         title: "Google Workspace Gmail Push Notifications",
-        description: "Pub/Sub webhook connected to management@estateos.com.",
+        description: "OAuth 2.0 connected & synced to tyagisurya.04@gmail.com.",
         valueType: "toggle",
         currentValue: true,
       },
@@ -122,5 +122,11 @@ export const SETTING_GROUPS: SettingGroup[] = [
         currentValue: false,
       },
     ],
+  },
+  {
+    id: "memory-rules",
+    title: "AI Standing Rules & Memory",
+    description: "T5 standing memory rules, contractor ceilings, and tenant communication preferences.",
+    settings: [],
   },
 ];

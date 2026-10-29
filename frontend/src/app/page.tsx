@@ -44,6 +44,7 @@ import {
 } from "@/lib/selectors";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 
+
 export default function TodayPage() {
   const router = useRouter();
   const superAgent = useSuperAgent();
@@ -56,8 +57,9 @@ export default function TodayPage() {
   const [logs, setLogs] = useState<AutonomousActionLog[]>(RECENT_AUTONOMOUS_LOGS);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isAskAgentOpen, setIsAskAgentOpen] = useState(false);
-  const [isEmergencyExpanded, setIsEmergencyExpanded] = useState<boolean>(false);
+  const [isEmergencyExpanded, setIsEmergencyExpanded] = useState<boolean>(true);
   const [nudgedItemIds, setNudgedItemIds] = useState<Record<string, boolean>>({});
+  const [activeSection, setActiveSection] = useState<"all" | "urgent" | "needs_you" | "waiting" | "leads" | "overview">("all");
 
   // Maintenance in-place state
   const DEFAULT_TICKET_005: MaintenanceTicket = useMemo(() => ({
@@ -473,8 +475,153 @@ export default function TodayPage() {
             </div>
           </div>
 
+          {/* Section Navigation & Quick Filter Bar */}
+          <div className="sticky top-0 z-20 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-2.5 bg-[var(--bg)]/95 backdrop-blur-xs border-y border-[var(--line)] flex items-center justify-between gap-3 overflow-x-auto no-scrollbar">
+            <div className="flex items-center gap-1.5 min-w-max">
+              <button
+                type="button"
+                onClick={() => setActiveSection("all")}
+                className={cn(
+                  "px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5",
+                  activeSection === "all"
+                    ? "bg-[var(--ink)] text-white font-semibold shadow-2xs"
+                    : "text-[var(--ink-2)] hover:text-[var(--ink)] hover:bg-[var(--pane)] border border-transparent hover:border-[var(--line)]"
+                )}
+              >
+                <span>All</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveSection(activeSection === "urgent" ? "all" : "urgent")}
+                className={cn(
+                  "px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5",
+                  activeSection === "urgent"
+                    ? "bg-[var(--ink)] text-white font-semibold shadow-2xs"
+                    : "text-[var(--ink-2)] hover:text-[var(--ink)] hover:bg-[var(--pane)] border border-transparent hover:border-[var(--line)]"
+                )}
+              >
+                {currentUrgentCount > 0 && (
+                  <span
+                    className={cn(
+                      "w-1.5 h-1.5 rounded-full",
+                      activeSection === "urgent" ? "bg-amber-300" : "bg-[var(--accent)]"
+                    )}
+                  />
+                )}
+                <span>Urgent</span>
+                {currentUrgentCount > 0 && (
+                  <span
+                    className={cn(
+                      "font-mono text-[10.5px] px-1.5 py-0.2 rounded-full",
+                      activeSection === "urgent"
+                        ? "bg-white/20 text-white font-bold"
+                        : "bg-[var(--accent)]/15 text-[var(--accent-ink)] font-semibold"
+                    )}
+                  >
+                    {currentUrgentCount}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveSection(activeSection === "needs_you" ? "all" : "needs_you")}
+                className={cn(
+                  "px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5",
+                  activeSection === "needs_you"
+                    ? "bg-[var(--ink)] text-white font-semibold shadow-2xs"
+                    : "text-[var(--ink-2)] hover:text-[var(--ink)] hover:bg-[var(--pane)] border border-transparent hover:border-[var(--line)]"
+                )}
+              >
+                <span>Needs you</span>
+                <span
+                  className={cn(
+                    "font-mono text-[10.5px] px-1.5 py-0.2 rounded-full",
+                    activeSection === "needs_you"
+                      ? "bg-white/20 text-white font-bold"
+                      : "bg-[var(--selected)] text-[var(--ink-2)] font-semibold"
+                  )}
+                >
+                  {currentNeedsYouCount}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveSection(activeSection === "waiting" ? "all" : "waiting")}
+                className={cn(
+                  "px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5",
+                  activeSection === "waiting"
+                    ? "bg-[var(--ink)] text-white font-semibold shadow-2xs"
+                    : "text-[var(--ink-2)] hover:text-[var(--ink)] hover:bg-[var(--pane)] border border-transparent hover:border-[var(--line)]"
+                )}
+              >
+                <span>Waiting</span>
+                <span
+                  className={cn(
+                    "font-mono text-[10.5px] px-1.5 py-0.2 rounded-full",
+                    activeSection === "waiting"
+                      ? "bg-white/20 text-white font-bold"
+                      : "bg-[var(--selected)] text-[var(--ink-2)] font-semibold"
+                  )}
+                >
+                  {radarItems.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveSection(activeSection === "leads" ? "all" : "leads")}
+                className={cn(
+                  "px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5",
+                  activeSection === "leads"
+                    ? "bg-[var(--ink)] text-white font-semibold shadow-2xs"
+                    : "text-[var(--ink-2)] hover:text-[var(--ink)] hover:bg-[var(--pane)] border border-transparent hover:border-[var(--line)]"
+                )}
+              >
+                <span>New leads</span>
+                <span
+                  className={cn(
+                    "font-mono text-[10.5px] px-1.5 py-0.2 rounded-full",
+                    activeSection === "leads"
+                      ? "bg-white/20 text-white font-bold"
+                      : "bg-[var(--selected)] text-[var(--ink-2)] font-semibold"
+                  )}
+                >
+                  {leadItems.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveSection(activeSection === "overview" ? "all" : "overview")}
+                className={cn(
+                  "px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5",
+                  activeSection === "overview"
+                    ? "bg-[var(--ink)] text-white font-semibold shadow-2xs"
+                    : "text-[var(--ink-2)] hover:text-[var(--ink)] hover:bg-[var(--pane)] border border-transparent hover:border-[var(--line)]"
+                )}
+              >
+                <span>Overview</span>
+              </button>
+            </div>
+
+            {/* Active Filter Reset Indicator */}
+            {activeSection !== "all" && (
+              <button
+                type="button"
+                onClick={() => setActiveSection("all")}
+                className="text-[11px] font-medium text-[var(--ink-3)] hover:text-[var(--ink)] underline underline-offset-2 shrink-0 cursor-pointer"
+              >
+                Show all sections
+              </button>
+            )}
+          </div>
+
           {/* Emergency Alert Card with In-Place Maintenance Ticket & Channel-Aware Actions */}
-          {topUrgentThread && (() => {
+          {(activeSection === "all" || activeSection === "urgent") && (
+            topUrgentThread ? (() => {
             const ticketNum = topUrgentThread.ticketNumber || "#005";
             const ticket: MaintenanceTicket = maintenanceTickets.find(
               (t) =>
@@ -497,6 +644,7 @@ export default function TodayPage() {
 
             return (
               <div
+                id="section-emergency"
                 className={cn(
                   "border-l-[4px] border-l-[var(--accent)] border-y border-r border-[var(--line)] bg-[var(--pane)] rounded-r-[var(--radius-pane)] transition-all overflow-hidden shadow-2xs"
                 )}
@@ -610,63 +758,72 @@ export default function TodayPage() {
                   </div>
                 </div>
 
-                {/* Collapsible Details Section: In-Place Context & Full Ticket on Same Page */}
+                {/* Prominent Details Section: In-Place Context & Full Ticket on Same Page */}
                 {isEmergencyExpanded && (
-                  <div className="border-t border-[var(--line)] bg-[var(--bg)]/60 px-5 py-4 space-y-4 text-xs animate-in fade-in duration-150">
-                    {/* Inbound Distress Message with Channel Tag */}
-                    <div className="bg-[var(--pane)] rounded-xl border border-[var(--line)] p-3.5">
-                      <div className="flex items-center justify-between text-[11px] font-semibold text-[var(--ink-3)] mb-1.5">
-                        <div className="flex items-center gap-1.5">
+                  <div className="border-t border-[var(--line)] bg-[var(--bg)]/50 px-5 sm:px-6 py-5 space-y-5 animate-in fade-in duration-150">
+                    {/* Inbound Distress Message with Clear Channel Badge */}
+                    <div className="bg-[var(--pane)] rounded-xl border border-[var(--line)] p-4 sm:p-5 shadow-xs space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] pb-2.5">
+                        <div className="flex items-center gap-2 flex-wrap">
                           {tenantChannel === "whatsapp" ? (
-                            <span className="inline-flex items-center gap-1 text-[#25D366] font-medium">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#25D366]/10 text-[#128C7E] font-semibold text-xs border border-[#25D366]/20">
                               <MessageSquare className="w-3.5 h-3.5" />
                               <span>Inbound via WhatsApp · {topUrgentThread.senderContact || ticket.tenantPhone}</span>
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 text-[#EA4335] font-medium">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#EA4335]/10 text-[#C5221F] font-semibold text-xs border border-[#EA4335]/20">
                               <Mail className="w-3.5 h-3.5" />
                               <span>Inbound via Email · {topUrgentThread.senderContact || "pieter.bakker@gmail.com"}</span>
                             </span>
                           )}
-                          <span>·</span>
-                          <span className="text-[var(--ink-2)] font-medium">{ticket.tenantName} ({ticket.unitLabel})</span>
+                          <span className="text-[var(--ink-3)] hidden sm:inline">·</span>
+                          <span className="text-[13px] font-bold text-[var(--ink)]">{ticket.tenantName}</span>
+                          <span className="text-xs text-[var(--ink-3)] font-mono">({ticket.unitLabel})</span>
                         </div>
-                        <span className="font-mono text-[10px] text-[var(--ink-3)] uppercase bg-[var(--selected)] px-2 py-0.5 rounded">
-                          {topUrgentThread.relativeTime || "Today 08:15"}
+                        <span className="font-mono text-xs font-semibold text-[var(--ink-3)] bg-[var(--selected)] px-2.5 py-0.5 rounded border border-[var(--line)]">
+                          {topUrgentThread.relativeTime || "Today 08:15 CET"}
                         </span>
                       </div>
-                      <p className="text-[13.5px] text-[var(--ink)] italic leading-relaxed pl-3 border-l-2 border-[var(--accent)] select-text">
-                        "{topUrgentThread.latestSnippet || ticket.originalMessage}"
-                      </p>
+
+                      {/* Prominent, readable distress message - No scrolling required */}
+                      <div className="py-1">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--ink-3)] block mb-1.5">
+                          Tenant Distress Message:
+                        </span>
+                        <p className="text-[15px] sm:text-[16px] text-[var(--ink)] italic font-normal leading-relaxed pl-4 border-l-4 border-[var(--accent)] select-text bg-[var(--bg)]/40 py-3 rounded-r-lg">
+                          "{topUrgentThread.latestSnippet || ticket.originalMessage}"
+                        </p>
+                      </div>
                     </div>
 
                     {/* Staged Action Cards: Reply to Tenant vs Work Order to Contractor */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
                       {/* Card 1: Reply to Tenant (same channel) */}
-                      <div className="bg-[var(--pane)] rounded-xl border border-[var(--line)] p-3.5 flex flex-col justify-between space-y-3">
+                      <div className="bg-[var(--pane)] rounded-xl border border-[var(--line)] p-4 sm:p-5 flex flex-col justify-between space-y-3.5 shadow-2xs">
                         <div>
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--ink-3)] flex items-center gap-1.5">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-bold uppercase tracking-wider text-[var(--ink)] flex items-center gap-2">
                               {tenantChannel === "whatsapp" ? (
-                                <MessageSquare className="w-3.5 h-3.5 text-[#25D366]" />
+                                <MessageSquare className="w-4 h-4 text-[#25D366]" />
                               ) : (
-                                <Mail className="w-3.5 h-3.5 text-[#EA4335]" />
+                                <Mail className="w-4 h-4 text-[#EA4335]" />
                               )}
-                              <span>1. Reply to Tenant ({tenantChannel === "whatsapp" ? "WhatsApp" : "Email"})</span>
+                              <span>1. Outgoing Tenant Reply ({tenantChannel === "whatsapp" ? "WhatsApp" : "Email"})</span>
                             </span>
                             <span
                               className={cn(
-                                "text-[10px] font-semibold px-2 py-0.5 rounded-full border",
+                                "text-xs font-semibold px-2.5 py-0.5 rounded-full border",
                                 isTenantReplied
                                   ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                                   : "bg-amber-50 text-amber-700 border-amber-200"
                               )}
                             >
-                              {isTenantReplied ? "✓ Message Sent" : "Draft Staged"}
+                              {isTenantReplied ? "✓ Message Sent" : "Ready to Send"}
                             </span>
                           </div>
+                          {/* Expanded 6-row textarea with min-h-[145px] so full message is visible without scrolling */}
                           <textarea
-                            rows={3}
+                            rows={6}
                             value={customTenantReplyText[ticket.ticketNumber] ?? ticket.tenantDraft ?? ""}
                             onChange={(e) =>
                               setCustomTenantReplyText((prev) => ({
@@ -675,21 +832,21 @@ export default function TodayPage() {
                               }))
                             }
                             disabled={isTenantReplied}
-                            className="w-full text-xs p-2.5 rounded-lg border border-[var(--line)] bg-[var(--bg)] focus:bg-[var(--pane)] focus:outline-hidden focus:border-[var(--accent)] resize-none transition-colors"
+                            className="w-full min-h-[145px] text-[13.5px] p-3 rounded-lg border border-[var(--line)] bg-[var(--bg)] focus:bg-[var(--pane)] focus:outline-hidden focus:border-[var(--accent)] transition-colors leading-relaxed text-[var(--ink)] font-normal resize-y"
                             placeholder="Type reply to tenant..."
                           />
                         </div>
 
                         <div className="flex items-center justify-between pt-1">
-                          <span className="text-[11px] text-[var(--ink-3)]">
-                            Recipient: {ticket.tenantName} ({topUrgentThread.senderContact || ticket.tenantPhone})
+                          <span className="text-xs text-[var(--ink-3)] font-medium">
+                            To: {ticket.tenantName} ({topUrgentThread.senderContact || ticket.tenantPhone})
                           </span>
                           <button
                             type="button"
                             onClick={() => handleSendTenantReply(ticket, tenantChannel, emergencyKey)}
                             disabled={isTenantReplied}
                             className={cn(
-                              "px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs",
+                              "px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs",
                               isTenantReplied
                                 ? "bg-emerald-100 text-emerald-800 cursor-default"
                                 : "bg-[var(--ink)] text-white hover:bg-[var(--ink)]/90"
@@ -703,7 +860,7 @@ export default function TodayPage() {
                             ) : (
                               <>
                                 <Send className="w-3.5 h-3.5 text-[var(--accent)]" />
-                                <span>Send via {tenantChannel === "whatsapp" ? "WhatsApp" : "Email"}</span>
+                                <span>Send to Tenant</span>
                               </>
                             )}
                           </button>
@@ -711,26 +868,27 @@ export default function TodayPage() {
                       </div>
 
                       {/* Card 2: Work Order to Contractor */}
-                      <div className="bg-[var(--pane)] rounded-xl border border-[var(--line)] p-3.5 flex flex-col justify-between space-y-3">
+                      <div className="bg-[var(--pane)] rounded-xl border border-[var(--line)] p-4 sm:p-5 flex flex-col justify-between space-y-3.5 shadow-2xs">
                         <div>
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--ink-3)] flex items-center gap-1.5">
-                              <Wrench className="w-3.5 h-3.5 text-[var(--accent-ink)]" />
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-bold uppercase tracking-wider text-[var(--ink)] flex items-center gap-2">
+                              <Wrench className="w-4 h-4 text-[var(--accent-ink)]" />
                               <span>2. Work Order ({ticket.contractorName})</span>
                             </span>
                             <span
                               className={cn(
-                                "text-[10px] font-semibold px-2 py-0.5 rounded-full border",
+                                "text-xs font-semibold px-2.5 py-0.5 rounded-full border",
                                 isContractorDispatched
                                   ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                                   : "bg-blue-50 text-blue-700 border-blue-200"
                               )}
                             >
-                              {isContractorDispatched ? "✓ Dispatched" : `Cap: ${ticket.poBudgetCap}`}
+                              {isContractorDispatched ? "✓ Dispatched" : `Pre-Approved Cap: ${ticket.poBudgetCap}`}
                             </span>
                           </div>
+                          {/* Expanded 6-row textarea with min-h-[145px] so full work order is visible without scrolling */}
                           <textarea
-                            rows={3}
+                            rows={6}
                             value={customContractorText[ticket.ticketNumber] ?? ticket.contractorDraft ?? ""}
                             onChange={(e) =>
                               setCustomContractorText((prev) => ({
@@ -739,21 +897,21 @@ export default function TodayPage() {
                               }))
                             }
                             disabled={isContractorDispatched}
-                            className="w-full text-xs p-2.5 rounded-lg border border-[var(--line)] bg-[var(--bg)] focus:bg-[var(--pane)] focus:outline-hidden focus:border-[var(--accent)] resize-none transition-colors"
+                            className="w-full min-h-[145px] text-[13.5px] p-3 rounded-lg border border-[var(--line)] bg-[var(--bg)] focus:bg-[var(--pane)] focus:outline-hidden focus:border-[var(--accent)] transition-colors leading-relaxed text-[var(--ink)] font-normal resize-y"
                             placeholder="Contractor work order details..."
                           />
                         </div>
 
                         <div className="flex items-center justify-between pt-1">
-                          <span className="text-[11px] text-[var(--ink-3)]">
-                            {ticket.contractorTrade} · Lockbox #4182
+                          <span className="text-xs text-[var(--ink-3)] font-medium">
+                            {ticket.contractorTrade} · Key lockbox #4182
                           </span>
                           <button
                             type="button"
                             onClick={() => handleDispatchContractor(ticket, emergencyKey)}
                             disabled={isContractorDispatched}
                             className={cn(
-                              "px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs",
+                              "px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs",
                               isContractorDispatched
                                 ? "bg-emerald-100 text-emerald-800 cursor-default"
                                 : "bg-[var(--ink)] text-white hover:bg-[var(--ink)]/90"
@@ -775,9 +933,9 @@ export default function TodayPage() {
                       </div>
                     </div>
 
-                    {/* Quick In-Place Action Bar */}
-                    <div className="pt-2 border-t border-[var(--line)]/60 flex flex-wrap items-center justify-between gap-3">
-                      <div className="text-[12px] text-[var(--ink-2)]">
+                    {/* Prominent Quick In-Place Action Bar */}
+                    <div className="pt-3 pb-1 border-t border-[var(--line)] flex flex-wrap items-center justify-between gap-3">
+                      <div className="text-[13px] text-[var(--ink-2)] font-medium">
                         {isContractorDispatched && isTenantReplied ? (
                           <span className="inline-flex items-center gap-1.5 font-semibold text-emerald-600">
                             <Check className="w-4 h-4" />
@@ -788,14 +946,14 @@ export default function TodayPage() {
                         )}
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2.5">
                         <button
                           type="button"
                           onClick={() => {
                             setActiveEditTicket(ticket);
                             setIsEditModalOpen(true);
                           }}
-                          className="px-3 py-1.5 rounded-lg border border-[var(--line)] text-xs font-medium text-[var(--ink)] hover:bg-[var(--selected)] transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                          className="px-3.5 py-2 rounded-lg border border-[var(--line)] text-xs font-semibold text-[var(--ink)] hover:bg-[var(--selected)] transition-colors cursor-pointer inline-flex items-center gap-1.5"
                         >
                           <Pencil className="w-3.5 h-3.5 text-[var(--accent-ink)]" />
                           <span>Edit Ticket Details</span>
@@ -805,7 +963,7 @@ export default function TodayPage() {
                           <button
                             type="button"
                             onClick={() => handleApproveBoth(ticket, tenantChannel, emergencyKey)}
-                            className="px-3.5 py-1.5 rounded-lg bg-[var(--ink)] text-white text-xs font-bold hover:bg-[var(--ink)]/90 transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                            className="px-4 py-2 rounded-lg bg-[var(--ink)] text-white text-xs font-bold hover:bg-[var(--ink)]/90 transition-all cursor-pointer flex items-center gap-2 shadow-xs"
                           >
                             <Check className="w-3.5 h-3.5 text-[var(--accent)]" />
                             <span>Approve & Dispatch Both</span>
@@ -817,10 +975,20 @@ export default function TodayPage() {
                 )}
               </div>
             );
-          })()}
+            })() : (
+              activeSection === "urgent" ? (
+                <div className="p-8 text-center bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] space-y-2">
+                  <ShieldCheck className="w-6 h-6 text-emerald-600 mx-auto" />
+                  <p className="text-sm font-semibold text-[var(--ink)]">No urgent issues</p>
+                  <p className="text-xs text-[var(--ink-3)]">All critical tickets and SLAs are within normal parameters.</p>
+                </div>
+              ) : null
+            )
+          )}
 
           {/* Section 1: Needs You (Top 5 threads using exact ThreadRow component, Section 5.3) */}
-          <section className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] overflow-hidden">
+          {(activeSection === "all" || activeSection === "needs_you") && (
+          <section id="section-needs-you" className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] overflow-hidden">
             <div className="px-4 sm:px-5 py-3 border-b border-[var(--line)] bg-[var(--pane)]">
               <SectionHeader
                 title="Needs you"
@@ -956,9 +1124,11 @@ export default function TodayPage() {
               )}
             </div>
           </section>
+          )}
 
           {/* Section 2: Waiting on others (Unresponsive cases, Section 2.3 T3 & 5.3) */}
-          <section className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] overflow-hidden">
+          {(activeSection === "all" || activeSection === "waiting") && (
+          <section id="section-waiting" className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] overflow-hidden">
             <div className="px-4 sm:px-5 py-3 border-b border-[var(--line)] bg-[var(--pane)]">
               <SectionHeader
                 title="Waiting on others"
@@ -1013,9 +1183,11 @@ export default function TodayPage() {
               })}
             </div>
           </section>
+          )}
 
           {/* Section 3: New leads (Inquiries, Section 5.3) */}
-          <section className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] overflow-hidden">
+          {(activeSection === "all" || activeSection === "leads") && (
+          <section id="section-leads" className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] overflow-hidden">
             <div className="px-4 sm:px-5 py-3 border-b border-[var(--line)] bg-[var(--pane)]">
               <SectionHeader
                 title="New leads"
@@ -1068,9 +1240,11 @@ export default function TodayPage() {
               ))}
             </div>
           </section>
+          )}
 
           {/* Bottom Pane: ONE pane, THREE columns separated by 1px vertical lines (Section 5.3 & 3.1) */}
-          <section className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] overflow-hidden">
+          {(activeSection === "all" || activeSection === "overview") && (
+          <section id="section-overview" className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] overflow-hidden">
             <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-[var(--line)]">
               
               {/* Column 1: Open rent */}
@@ -1199,6 +1373,7 @@ export default function TodayPage() {
 
             </div>
           </section>
+          )}
 
         </main>
       </div>

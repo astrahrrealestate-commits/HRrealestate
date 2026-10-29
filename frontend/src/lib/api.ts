@@ -108,6 +108,12 @@ export async function getInboxThreads(
             ticketNumber: t.ticketNumber || t.caseRef,
             fallbackId: t.id,
           });
+          const isApproved = t.status === "approved" || t.status === "replied";
+          const rawMsgs = Array.isArray(t.messages) ? t.messages : [];
+          const lastMsg = rawMsgs.length > 0 ? rawMsgs[rawMsgs.length - 1] : null;
+          const lastMsgIsOutbound = Boolean(
+            lastMsg && (lastMsg.sender === "owner" || lastMsg.direction === "outbound" || lastMsg.isIncoming === false)
+          );
 
           return {
             id: t.id || `thread-${Math.random()}`,
@@ -117,8 +123,8 @@ export async function getInboxThreads(
             channel,
             recipientRole: (t.audience === "contractors" || t.recipientRole === "contractor") ? "contractor" : (t.audience === "inquiries" ? "inquiry" : "tenant"),
             recipientRoleDetail: t.sender?.role || (t.audience === "contractors" ? "Contractor" : "Tenant"),
-            externalMessageId: t.sourceIdentifier || t.id,
-            externalThreadId: t.caseId || t.id,
+            externalMessageId: t.externalMessageId || t.sourceIdentifier || t.id,
+            externalThreadId: t.externalThreadId || t.caseId || t.id,
             approvalId: t.approvalId || t.caseId || t.id,
             subject: t.subject || t.title,
             senderName: resolvedSenderName,
@@ -159,7 +165,7 @@ export async function getInboxThreads(
                     channel,
                   },
                 ],
-            draftProposal: (gDrafts.length > 0 || wDrafts.length > 0)
+            draftProposal: (!isApproved && !lastMsgIsOutbound && (gDrafts.length > 0 || wDrafts.length > 0))
               ? {
                   confidence: (t.aiConfidence || 95) / 100,
                   recommendedAction: t.aiSummary || "Review and approve staged draft reply.",
@@ -264,6 +270,40 @@ export async function approveInboxDraft(
       executedAt: new Date().toISOString(),
     };
   }
+}
+
+/**
+ * Creates a native in-thread draft in Gmail via the backend API.
+ */
+export async function createGmailDraft(payload: {
+  to_email: string;
+  subject: string;
+  body: string;
+  thread_id?: string;
+  case_id?: string;
+}): Promise<{ ok: boolean; web_url: string; draft_id?: string; thread_id?: string }> {
+  try {
+    const res = await fetch("http://localhost:8000/api/inbox/create-draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn("createGmailDraft error:", err);
+  }
+  const encodedTo = encodeURIComponent(payload.to_email);
+  const encodedSu = encodeURIComponent(
+    payload.subject.toLowerCase().startsWith("re:") ? payload.subject : `Re: ${payload.subject}`
+  );
+  const encodedBody = encodeURIComponent(payload.body);
+  return {
+    ok: false,
+    web_url: `https://mail.google.com/mail/?view=cm&fs=1&to=${encodedTo}&su=${encodedSu}&body=${encodedBody}`,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -472,6 +512,7 @@ export interface MaintenanceTicket {
   contractorName: string;
   contractorTrade: string;
   contractorPhone?: string;
+  contractorEmail?: string;
   urgency: "emergency" | "high" | "normal" | "low";
   status: "pending_approval" | "dispatched" | "scheduled" | "completed";
   slaRemaining: string;
@@ -746,12 +787,12 @@ export async function askAgent(
   history?: string[]
 ): Promise<AskAgentResponse> {
   const fallbackAns: AskAgentResponse = {
-    answer: "Based on active records: 0 blocking SLA breaches detected. Pieter Bakker's emergency ticket #005 is awaiting electrician dispatch.",
-    caseRefs: ["#005"],
-    suggestedAction: "View ticket #005 in Maintenance",
+    answer: "No active blocking SLA breaches detected. All maintenance queues are up to date.",
+    caseRefs: [],
+    suggestedAction: "View Maintenance Hub",
     actions: [
       {
-        label: "View ticket #005 in Maintenance",
+        label: "View Maintenance Hub",
         actionType: "navigate",
         payload: "/maintenance",
         isPrimary: true,
@@ -768,7 +809,7 @@ export async function askAgent(
         Accept: "application/json",
       },
       body: JSON.stringify({ query, context, history }),
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(35000),
     });
 
     if (res.ok) {
@@ -779,5 +820,197 @@ export async function askAgent(
   }
 
   return fallbackAns;
+}
+
+// ---------------------------------------------------------------------------
+// Authentication Handshake & Session Management
+// ---------------------------------------------------------------------------
+
+let authPromise: Promise<void> | null = null;
+
+export async function ensureAuthenticated(): Promise<void> {
+  if (authPromise) return authPromise;
+  authPromise = (async () => {
+    try {
+      await fetch(`${BACKEND_BASE_URL}/api/v1/auth/session`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-EstateOS-Client": "dashboard",
+        },
+        body: JSON.stringify({ id_token: "test-owner-token" }),
+        credentials: "include",
+      });
+    } catch (err) {
+      console.warn("Auth handshake failed (dev mode fallback active):", err);
+    }
+  })();
+  return authPromise;
+}
+
+// ---------------------------------------------------------------------------
+// T5 Standing Memory & Owner Preferences (/api/v1/memory)
+// ---------------------------------------------------------------------------
+
+export interface MemoryItem {
+  id: string;
+  company_id: string;
+  scope: "company" | "unit" | "person";
+  scope_id: string | null;
+  kind: "instruction" | "correction" | "preference" | "fact";
+  text: string;
+  status: "proposed" | "active" | "retired";
+  origin: "owner" | "extracted" | "distilled" | "system";
+  confidence: number;
+  evidence_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function getStandingRules(params?: {
+  status?: string;
+  scope?: string;
+  kind?: string;
+  limit?: number;
+}): Promise<MemoryItem[]> {
+  await ensureAuthenticated();
+  const query = new URLSearchParams();
+  if (params?.status) query.set("status", params.status);
+  if (params?.scope) query.set("scope", params.scope);
+  if (params?.kind) query.set("kind", params.kind);
+  if (params?.limit) query.set("limit", params.limit.toString());
+
+  try {
+    const res = await fetch(`${BACKEND_BASE_URL}/api/v1/memory?${query.toString()}`, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        "X-EstateOS-Client": "dashboard",
+      },
+      credentials: "include",
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn("Failed to fetch memory items:", err);
+  }
+  return [];
+}
+
+export async function createStandingRule(data: {
+  text: string;
+  scope?: "company" | "unit" | "person";
+  scope_id?: string | null;
+  kind?: "instruction" | "correction" | "preference" | "fact";
+}): Promise<MemoryItem | null> {
+  await ensureAuthenticated();
+  try {
+    const res = await fetch(`${BACKEND_BASE_URL}/api/v1/memory`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-EstateOS-Client": "dashboard",
+      },
+      credentials: "include",
+      body: JSON.stringify({
+        text: data.text,
+        scope: data.scope || "company",
+        scope_id: data.scope_id || null,
+        kind: data.kind || "preference",
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn("Failed to create memory item:", err);
+  }
+  return null;
+}
+
+export async function retireStandingRule(memoryId: string): Promise<boolean> {
+  await ensureAuthenticated();
+  try {
+    const res = await fetch(`${BACKEND_BASE_URL}/api/v1/memory/${memoryId}`, {
+      method: "DELETE",
+      headers: {
+        "X-EstateOS-Client": "dashboard",
+      },
+      credentials: "include",
+      signal: AbortSignal.timeout(5000),
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn("Failed to retire memory item:", err);
+    return false;
+  }
+}
+
+export async function approveStandingRule(memoryId: string): Promise<boolean> {
+  await ensureAuthenticated();
+  try {
+    const res = await fetch(`${BACKEND_BASE_URL}/api/v1/memory/${memoryId}/approve`, {
+      method: "POST",
+      headers: {
+        "X-EstateOS-Client": "dashboard",
+      },
+      credentials: "include",
+      signal: AbortSignal.timeout(5000),
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn("Failed to approve memory item:", err);
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Page Pre-Warming Context Dispatcher (/api/v1/agent/page)
+// ---------------------------------------------------------------------------
+
+export interface PrewarmPageParams {
+  pageName: string;
+  unitId?: string;
+  ticketNumber?: string;
+  threadId?: string;
+  approvalId?: string;
+  taskRef?: string;
+}
+
+export async function prewarmAgentPage(params: PrewarmPageParams): Promise<boolean> {
+  await ensureAuthenticated();
+  try {
+    let view = "home";
+    const lower = params.pageName.toLowerCase();
+    if (lower.includes("inbox")) view = "inbox";
+    else if (lower.includes("maintenance") || lower.includes("ticket")) view = "cases";
+    else if (lower.includes("money") || lower.includes("arrear")) view = "money";
+    else if (lower.includes("properties") || lower.includes("unit")) view = "units";
+    else if (lower.includes("tenants") || lower.includes("contact")) view = "tenants";
+
+    const res = await fetch(`${BACKEND_BASE_URL}/api/v1/agent/page`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "X-EstateOS-Client": "dashboard",
+      },
+      credentials: "include",
+      body: JSON.stringify({
+        view,
+        thread_key: params.threadId || null,
+        approval_id: params.approvalId || null,
+        task_ref: params.taskRef || (params.ticketNumber ? `#${params.ticketNumber}` : null),
+        visible_ids: [],
+      }),
+      signal: AbortSignal.timeout(3000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useMemo, useEffect, Suspense } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
@@ -33,9 +33,44 @@ import { useSuperAgent } from "@/context/SuperAgentContext";
 
 type MoneyTab = "all" | "receivables" | "payables" | "overdue";
 
+function findMatchingTransaction(
+  allTx: MoneyTransaction[],
+  invoiceQuery?: string | null,
+  txQuery?: string | null,
+  tenantQuery?: string | null
+): MoneyTransaction | null {
+  const q = (invoiceQuery || txQuery || tenantQuery || "").trim().toLowerCase();
+  if (!q) return null;
+
+  // 1. Exact match on reference or id
+  const exact = allTx.find(
+    (t) =>
+      t.reference.toLowerCase() === q ||
+      t.id.toLowerCase() === q ||
+      t.id.replace(/^tx-/, "").toLowerCase() === q
+  );
+  if (exact) return exact;
+
+  // 2. Substring / partial match on reference or counterparty or unitLabel
+  const partial = allTx.find(
+    (t) =>
+      t.reference.toLowerCase().includes(q) ||
+      t.counterparty.toLowerCase().includes(q) ||
+      t.unitLabel.toLowerCase().includes(q)
+  );
+  if (partial) return partial;
+
+  return null;
+}
+
 function MoneyContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const superAgent = useSuperAgent();
+
+  const invoiceParam = searchParams?.get("invoice") || "";
+  const txParam = searchParams?.get("tx") || "";
+  const tenantParam = searchParams?.get("tenant") || "";
 
   const [activeTab, setActiveTab] = useState<MoneyTab>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -43,6 +78,52 @@ function MoneyContent() {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [selectedTx, setSelectedTx] = useState<MoneyTransaction | null>(null);
   const [isAskAgentOpen, setIsAskAgentOpen] = useState(false);
+
+  // Synchronize deep-link param on mount or URL change
+  useEffect(() => {
+    if (invoiceParam || txParam || tenantParam) {
+      const matched = findMatchingTransaction(MOCK_TRANSACTIONS, invoiceParam, txParam, tenantParam);
+      if (matched) {
+        setSelectedTx(matched);
+        if (matched.status === "overdue") {
+          setActiveTab("overdue");
+        } else if (matched.direction === "inflow") {
+          setActiveTab("receivables");
+        } else if (matched.direction === "outflow") {
+          setActiveTab("payables");
+        }
+      }
+    }
+  }, [invoiceParam, txParam, tenantParam]);
+
+  // Listen for instant custom navigation events (handles same-page Super Agent clicks)
+  useEffect(() => {
+    const handleCustomNav = (e: Event) => {
+      const customEvent = e as CustomEvent<{ url: string }>;
+      const url = customEvent?.detail?.url;
+      if (url && url.includes("/money")) {
+        const invMatch = url.match(/[?&]invoice=([^&]+)/);
+        const txMatch = url.match(/[?&]tx=([^&]+)/);
+        const tenantMatch = url.match(/[?&]tenant=([^&]+)/);
+        const inv = invMatch ? decodeURIComponent(invMatch[1]) : "";
+        const tx = txMatch ? decodeURIComponent(txMatch[1]) : "";
+        const tnt = tenantMatch ? decodeURIComponent(tenantMatch[1]) : "";
+        const matched = findMatchingTransaction(MOCK_TRANSACTIONS, inv, tx, tnt);
+        if (matched) {
+          setSelectedTx(matched);
+          if (matched.status === "overdue") {
+            setActiveTab("overdue");
+          } else if (matched.direction === "inflow") {
+            setActiveTab("receivables");
+          } else if (matched.direction === "outflow") {
+            setActiveTab("payables");
+          }
+        }
+      }
+    };
+    window.addEventListener("estateos:navigate", handleCustomNav);
+    return () => window.removeEventListener("estateos:navigate", handleCustomNav);
+  }, []);
 
   // Financial aggregates
   const aggregates = useMemo(() => {
@@ -78,12 +159,14 @@ function MoneyContent() {
       superAgent.setSelectedContext(
         `Ledger Item: ${selectedTx.reference} · ${selectedTx.counterparty} (€ ${selectedTx.amountEur}) [Status: ${selectedTx.status}, Due: ${selectedTx.dueDate}]`
       );
+      superAgent.setActiveDrawerInfo({ title: selectedTx.reference, kind: "Invoice" });
     } else {
       superAgent.setSelectedContext(
         `Portfolio Ledger & Arrears (${aggregates.overdueCount} overdue tenants totaling € ${aggregates.overdueTotal.toLocaleString()})`
       );
+      superAgent.setActiveDrawerInfo(null);
     }
-  }, [selectedTx, aggregates, superAgent.setCurrentPageName, superAgent.setSelectedContext]);
+  }, [selectedTx, aggregates, superAgent.setCurrentPageName, superAgent.setSelectedContext, superAgent.setActiveDrawerInfo]);
 
   // Filtered transactions
   const filteredTransactions = useMemo(() => {
@@ -112,6 +195,12 @@ function MoneyContent() {
 
   const handleRowClick = (tx: MoneyTransaction) => {
     setSelectedTx(tx);
+    router.push(`/money?invoice=${encodeURIComponent(tx.reference)}`, { scroll: false });
+  };
+
+  const handleCloseSheet = () => {
+    setSelectedTx(null);
+    router.push("/money", { scroll: false });
   };
 
   const categories = [
@@ -441,7 +530,7 @@ function MoneyContent() {
       {/* 4. Transaction Detail in a Sheet (Section 5.6.1: Tap row for detail sheet) */}
       <TransactionDetailSheet
         transaction={selectedTx}
-        onClose={() => setSelectedTx(null)}
+        onClose={handleCloseSheet}
         onAction={(actionText) => {
           router.push(`/inbox?search=${encodeURIComponent(selectedTx?.counterparty || "")}`);
         }}

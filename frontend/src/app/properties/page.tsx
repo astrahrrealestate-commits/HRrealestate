@@ -35,6 +35,50 @@ import {
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 
+function findMatchingUnitAndComplex(
+  complexes: PropertyComplex[],
+  unitQuery?: string | null,
+  complexQuery?: string | null
+): { complex: PropertyComplex; unit: UnitDetail } | null {
+  const uClean = (unitQuery || "").trim().toLowerCase();
+  const cClean = (complexQuery || "").trim().toLowerCase();
+
+  let searchPool = complexes;
+  if (cClean) {
+    const matchedComp = complexes.find(
+      (c) => c.id.toLowerCase() === cClean || c.name.toLowerCase().includes(cClean)
+    );
+    if (matchedComp) {
+      if (!uClean) {
+        return { complex: matchedComp, unit: matchedComp.units[0] };
+      }
+      searchPool = [matchedComp, ...complexes.filter((c) => c.id !== matchedComp.id)];
+    }
+  }
+
+  if (!uClean) return null;
+
+  for (const comp of searchPool) {
+    const exact = comp.units.find(
+      (u) =>
+        u.id.toLowerCase() === uClean ||
+        u.unitNumber.toLowerCase() === uClean ||
+        u.fullAddress.toLowerCase() === uClean
+    );
+    if (exact) return { complex: comp, unit: exact };
+
+    const partial = comp.units.find(
+      (u) =>
+        u.unitNumber.toLowerCase().includes(uClean) ||
+        u.fullAddress.toLowerCase().includes(uClean) ||
+        (u.currentTenant?.name && u.currentTenant.name.toLowerCase().includes(uClean))
+    );
+    if (partial) return { complex: comp, unit: partial };
+  }
+
+  return null;
+}
+
 function PropertiesContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -53,17 +97,51 @@ function PropertiesContent() {
   const [isAskAgentOpen, setIsAskAgentOpen] = useState(false);
   const [copiedLockbox, setCopiedLockbox] = useState(false);
 
-  // Sync state if URL changes (e.g. browser back button)
+  // Sync state if URL changes (e.g. deep links or browser navigation)
   useEffect(() => {
-    if (complexParam && PROPERTY_COMPLEXES.some((c) => c.id === complexParam)) {
-      setSelectedComplexId(complexParam);
-    }
-    if (unitParam) {
-      setSelectedUnitId(unitParam);
+    if (unitParam || complexParam) {
+      const result = findMatchingUnitAndComplex(PROPERTY_COMPLEXES, unitParam, complexParam);
+      if (result) {
+        setSelectedComplexId(result.complex.id);
+        setSelectedUnitId(result.unit.id);
+        if (result.unit.status === "occupied" && activeTab === "vacant") {
+          setActiveTab("occupied");
+        } else if (result.unit.status === "vacant" && activeTab === "occupied") {
+          setActiveTab("vacant");
+        }
+      } else if (complexParam && PROPERTY_COMPLEXES.some((c) => c.id === complexParam)) {
+        setSelectedComplexId(complexParam);
+      }
     } else {
       setSelectedUnitId(null);
     }
-  }, [complexParam, unitParam]);
+  }, [complexParam, unitParam, activeTab]);
+
+  // Listen for instant custom navigation events (handles same-page Super Agent clicks)
+  useEffect(() => {
+    const handleCustomNav = (e: Event) => {
+      const customEvent = e as CustomEvent<{ url: string }>;
+      const url = customEvent?.detail?.url;
+      if (url && url.includes("/properties")) {
+        const uMatch = url.match(/[?&]unit=([^&]+)/);
+        const cMatch = url.match(/[?&]complex=([^&]+)/);
+        const u = uMatch ? decodeURIComponent(uMatch[1]) : "";
+        const c = cMatch ? decodeURIComponent(cMatch[1]) : "";
+        const result = findMatchingUnitAndComplex(PROPERTY_COMPLEXES, u, c);
+        if (result) {
+          setSelectedComplexId(result.complex.id);
+          setSelectedUnitId(result.unit.id);
+          if (result.unit.status === "occupied" && activeTab === "vacant") {
+            setActiveTab("occupied");
+          } else if (result.unit.status === "vacant" && activeTab === "occupied") {
+            setActiveTab("vacant");
+          }
+        }
+      }
+    };
+    window.addEventListener("estateos:navigate", handleCustomNav);
+    return () => window.removeEventListener("estateos:navigate", handleCustomNav);
+  }, [activeTab]);
 
   // Derived current complex and current unit
   const activeComplex = useMemo(() => {

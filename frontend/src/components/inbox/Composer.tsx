@@ -1,16 +1,22 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Sparkles, Check, RotateCcw, Send, MessageSquare, Mail, Maximize2, X } from "lucide-react";
+import { Sparkles, Check, RotateCcw, Send, MessageSquare, Mail, Maximize2, X, ExternalLink, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { DraftOption } from "@/types/dashboard";
+import { createGmailDraft } from "@/lib/api";
 
 export interface ComposerProps {
   draftText?: string;
   drafts?: DraftOption[];
   detectedLanguage?: string;
   channel?: "whatsapp" | "gmail" | string;
+  recipientPhone?: string;
+  recipientEmail?: string;
+  subject?: string;
+  externalThreadId?: string;
+  isReply?: boolean;
   replyingTo?: { id: string; text: string; sender: string } | null;
   onClearReplyingTo?: () => void;
   onAcceptAndSend?: (text: string, channel: string, replyToMessageId?: string) => void;
@@ -25,8 +31,8 @@ export interface ComposerProps {
 /**
  * Composer implements Sections 5.2, 5.6, 5.6.1 & 6.2:
  * - Sticky at the bottom of the conversation, never scrolls away.
- * - State 1: AI draft ready with editable textarea, draft switcher tabs, Reject, Edit, Accept and send.
- * - State 2: Sent state ("✓ Sent via WhatsApp · 08:21 · Undo" for 30s).
+ * - State 1: AI draft ready with editable textarea, draft switcher tabs, Reject, Edit, Accept and send, Open in WhatsApp / Gmail.
+ * - State 2: Sent state ("✓ Sent via WhatsApp / Gmail · 08:21 · Undo" for 30s).
  * - State 3: Normal reply input with channel indicator and "Draft with AI".
  * - Mobile responsive: 16px font (no iOS zoom), full-height edit sheet, mobile button stack.
  */
@@ -35,6 +41,11 @@ export function Composer({
   drafts = [],
   detectedLanguage = "Dutch (detected)",
   channel = "whatsapp",
+  recipientPhone,
+  recipientEmail,
+  subject,
+  externalThreadId,
+  isReply = true,
   replyingTo = null,
   onClearReplyingTo,
   onAcceptAndSend,
@@ -45,23 +56,68 @@ export function Composer({
   sentTimestamp,
   className,
 }: ComposerProps) {
-  const [content, setContent] = useState(draftText);
+  const [isSent, setIsSent] = useState(initialSent);
+  const [content, setContent] = useState(() => draftText || (!initialSent && drafts.length > 0 ? drafts[0]?.text : ""));
   const [selectedDraftId, setSelectedDraftId] = useState<string>(drafts[0]?.id || "d1");
   const [activeChannel, setActiveChannel] = useState<string>(channel);
   const [isEditingFull, setIsEditingFull] = useState(false);
   const [fullEditText, setFullEditText] = useState("");
-  const [isSent, setIsSent] = useState(initialSent);
   const [undoSeconds, setUndoSeconds] = useState(30);
+  const [isDraftingGmail, setIsDraftingGmail] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Sync draft prop changes
-  useEffect(() => {
-    setContent(draftText);
-    setActiveChannel(channel);
-    if (drafts.length > 0) {
-      setSelectedDraftId(drafts[0].id);
+  const cleanPhone = (recipientPhone || "").replace(/[^0-9]/g, "");
+  const effectiveEmail = recipientEmail || (recipientPhone && recipientPhone.includes("@") ? recipientPhone : "");
+
+  const handleOpenWhatsApp = () => {
+    if (!cleanPhone) return;
+    const textToSend = content || draftText || "";
+    const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(textToSend)}`;
+    window.open(waUrl, "_blank", "noopener,noreferrer");
+  };
+
+  const handleOpenGmail = async () => {
+    if (!effectiveEmail || isDraftingGmail) return;
+    const textToSend = content || draftText || "";
+    const baseSubject = subject || "Regarding your message - EstateOS";
+    const subjectToSend = isReply && !baseSubject.toLowerCase().startsWith("re:")
+      ? `Re: ${baseSubject}`
+      : baseSubject;
+
+    const isMobileDevice = typeof window !== "undefined" && /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    if (isMobileDevice) {
+      window.location.href = `mailto:${encodeURIComponent(effectiveEmail)}?subject=${encodeURIComponent(subjectToSend)}&body=${encodeURIComponent(textToSend)}`;
+      return;
     }
-  }, [draftText, channel, drafts]);
+
+    setIsDraftingGmail(true);
+    try {
+      const res = await createGmailDraft({
+        to_email: effectiveEmail,
+        subject: subjectToSend,
+        body: textToSend,
+        thread_id: externalThreadId,
+      });
+      window.open(res.web_url, "_blank", "noopener,noreferrer");
+    } catch {
+      const fallbackUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(effectiveEmail)}&su=${encodeURIComponent(subjectToSend)}&body=${encodeURIComponent(textToSend)}`;
+      window.open(fallbackUrl, "_blank", "noopener,noreferrer");
+    } finally {
+      setIsDraftingGmail(false);
+    }
+  };
+
+  // Sync draft prop changes & sent status changes when switching threads
+  useEffect(() => {
+    setIsSent(initialSent);
+    setActiveChannel(channel);
+    if (!initialSent && drafts.length > 0) {
+      setSelectedDraftId(drafts[0].id);
+      setContent(draftText || drafts[0]?.text || "");
+    } else {
+      setContent(draftText || "");
+    }
+  }, [draftText, channel, drafts, initialSent]);
 
   // Focus textarea when user quotes a message
   useEffect(() => {
@@ -119,8 +175,8 @@ export function Composer({
     }
   };
 
-  // State 1: AI draft available or matching draft text
-  const hasDraft = Boolean(draftText) || Boolean(content.trim() && drafts.length > 0);
+  // State 1: AI draft available or matching draft text (only if not already sent)
+  const hasDraft = !isSent && (Boolean(draftText) || Boolean(content.trim() && drafts.length > 0));
 
   return (
     <>
@@ -264,7 +320,17 @@ export function Composer({
             rows={hasDraft ? 5 : 3}
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            placeholder="Reply..."
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                if (hasDraft) {
+                  handleAccept();
+                } else {
+                  handleSendNormal();
+                }
+              }
+            }}
+            placeholder="Type a reply... (Press Enter to send)"
             className="w-full min-h-[96px] sm:min-h-[110px] text-base sm:text-[14px] p-3 rounded-[var(--radius-ctl)] bg-[var(--bg)] border border-[var(--line)] text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:bg-[var(--pane)] focus:border-[var(--ink)] focus:outline-none transition-colors resize-y leading-relaxed"
           />
         </div>
@@ -276,7 +342,7 @@ export function Composer({
               On accept: escalate · dispatch approved contractor · reply · log
             </span>
 
-            {/* Desktop: Reject | Edit | Accept and send */}
+            {/* Desktop: Reject | Edit | Open in WhatsApp | Accept and send */}
             <div className="hidden sm:flex items-center gap-2 justify-end shrink-0">
               <Button
                 variant="ghost"
@@ -294,6 +360,31 @@ export function Composer({
               >
                 Edit
               </Button>
+              {activeChannel === "whatsapp" && cleanPhone && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleOpenWhatsApp}
+                  className="whitespace-nowrap shrink-0 text-emerald-600 hover:text-emerald-700 bg-emerald-50/60 hover:bg-emerald-100/60 dark:bg-emerald-950/20 dark:hover:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 font-semibold cursor-pointer"
+                  icon={<ExternalLink className="w-3.5 h-3.5 text-emerald-600" />}
+                  title="Open this drafted reply directly in WhatsApp Web or App"
+                >
+                  Open in WhatsApp
+                </Button>
+              )}
+              {activeChannel === "gmail" && effectiveEmail && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleOpenGmail}
+                  disabled={isDraftingGmail}
+                  className="whitespace-nowrap shrink-0 text-blue-600 hover:text-blue-700 bg-blue-50/60 hover:bg-blue-100/60 dark:bg-blue-950/20 dark:hover:bg-blue-950/40 border border-blue-300 dark:border-blue-800 font-semibold cursor-pointer"
+                  icon={isDraftingGmail ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" /> : <ExternalLink className="w-3.5 h-3.5 text-blue-600" />}
+                  title={isReply ? "Reply to this thread in Gmail" : "Compose a new email in Gmail"}
+                >
+                  {isDraftingGmail ? "Preparing Draft..." : (isReply ? "Reply in Gmail" : "Open in Gmail")}
+                </Button>
+              )}
               <Button
                 variant="primary"
                 size="sm"
@@ -315,6 +406,29 @@ export function Composer({
                   Edit
                 </Button>
               </div>
+              {activeChannel === "whatsapp" && cleanPhone && (
+                <Button
+                  variant="secondary"
+                  size="default"
+                  onClick={handleOpenWhatsApp}
+                  className="w-full text-emerald-600 border-emerald-300 font-semibold"
+                  icon={<ExternalLink className="w-3.5 h-3.5" />}
+                >
+                  Open in WhatsApp
+                </Button>
+              )}
+              {activeChannel === "gmail" && effectiveEmail && (
+                <Button
+                  variant="secondary"
+                  size="default"
+                  onClick={handleOpenGmail}
+                  disabled={isDraftingGmail}
+                  className="w-full text-blue-600 border-blue-300 font-semibold"
+                  icon={isDraftingGmail ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" /> : <ExternalLink className="w-3.5 h-3.5" />}
+                >
+                  {isDraftingGmail ? "Preparing Draft..." : (isReply ? "Reply in Gmail" : "Open in Gmail")}
+                </Button>
+              )}
               <Button
                 variant="primary"
                 size="default"
@@ -328,16 +442,48 @@ export function Composer({
           </div>
         ) : (
           /* Normal Send Bar */
-          <div className="flex items-center justify-end gap-2">
-            <Button
-              variant="secondary"
-              size="default"
-              onClick={handleSendNormal}
-              disabled={!content.trim()}
-              icon={<Send className="w-3.5 h-3.5" />}
-            >
-              Send
-            </Button>
+          <div className="flex items-center justify-between gap-2 pt-1">
+            <span className="text-[11.5px] text-[var(--ink-3)] hidden sm:inline">
+              Press <kbd className="px-1.5 py-0.5 rounded border border-[var(--line)] bg-[var(--card)] font-mono text-[10px]">Enter</kbd> to send, <kbd className="px-1.5 py-0.5 rounded border border-[var(--line)] bg-[var(--card)] font-mono text-[10px]">Shift+Enter</kbd> for newline
+            </span>
+            <div className="flex items-center gap-2">
+              {activeChannel === "whatsapp" && cleanPhone && (
+                <Button
+                  variant="secondary"
+                  size="default"
+                  onClick={handleOpenWhatsApp}
+                  disabled={!content.trim()}
+                  className="text-emerald-600 hover:text-emerald-700 bg-emerald-50/60 hover:bg-emerald-100/60 dark:bg-emerald-950/20 dark:hover:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 font-semibold cursor-pointer"
+                  icon={<ExternalLink className="w-3.5 h-3.5 text-emerald-600" />}
+                  title="Open this message directly in WhatsApp Web or App"
+                >
+                  Open in WhatsApp
+                </Button>
+              )}
+              {activeChannel === "gmail" && effectiveEmail && (
+                <Button
+                  variant="secondary"
+                  size="default"
+                  onClick={handleOpenGmail}
+                  disabled={!content.trim() || isDraftingGmail}
+                  className="text-blue-600 hover:text-blue-700 bg-blue-50/60 hover:bg-blue-100/60 dark:bg-blue-950/20 dark:hover:bg-blue-950/40 border border-blue-300 dark:border-blue-800 font-semibold cursor-pointer"
+                  icon={isDraftingGmail ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" /> : <ExternalLink className="w-3.5 h-3.5 text-blue-600" />}
+                  title={isReply ? "Reply to this thread in Gmail" : "Compose a new email in Gmail"}
+                >
+                  {isDraftingGmail ? "Preparing Draft..." : (isReply ? "Reply in Gmail" : "Open in Gmail")}
+                </Button>
+              )}
+              <Button
+                variant="primary"
+                size="default"
+                onClick={handleSendNormal}
+                disabled={!content.trim()}
+                icon={<Send className="w-3.5 h-3.5 fill-current" />}
+                className="px-4 font-bold"
+              >
+                Send
+              </Button>
+            </div>
           </div>
         )}
       </div>
