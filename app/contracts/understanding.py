@@ -34,7 +34,7 @@ class Urgency(StrEnum):
 class Entities(Contract):
     people: list[str]
     unit_refs: list[str]
-    dates: list[date | str]
+    dates: list[str]
     amounts: list[Money]
 
     @classmethod

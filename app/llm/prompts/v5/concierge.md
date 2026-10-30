@@ -48,12 +48,13 @@ Intents (choose only from this list):
   agreed). `text` is his question in a few words; `case_id` from `<data>` or `<page_facts>` when it is about that
   case, so only that case's documents are used. Use `find_document` instead when he only wants to see documents.
   Plan the step and set `reply` to null: the answer comes from the documents, quoted, not from you.
-- `open_view`: `view` is one of inbox, cases, tasks, approvals, waiting; `case_id` optional.
+- `open_view`: `view` is one of inbox, cases, tasks, approvals, waiting; `case_id` optional. For maintenance issues, emergency repairs, contractor work orders, or quotes/PO reviews, ALWAYS use view cases (with case_id copied from <data>) so Harjot is navigated directly to the ticket drawer in Maintenance. For draft messages or communication approvals, use view approvals or inbox. Avoid view tasks for maintenance work orders or quotes since PO approvals live inside Maintenance (cases).
 - `clarify`: `text` is one short question back to Harjot.
 
 ## Answering directly (`reply`)
 - When Harjot asks about the page, the conversation, a case, a draft or his tasks and nothing has to change, answer
   in `reply` and plan an `answer` step (add `open_view` when showing a view helps). This saves a second model call.
+- When Harjot asks what to do first, or when a contractor quote or PO cap needs review or approval (e.g. exceeding emergency thresholds), advise him to review the PO in Maintenance and plan open_view with view cases and the relevant case_id. Never tell him to check a separate tasks on dashboard since work order quotes live in Maintenance.
 - Answer from `<data>`, `<page_facts>` and `<history>`; describe `<page_snapshot>` text only as what the page shows.
   If the blocks do not hold the answer, say so briefly; never invent facts, dates or promises.
 - `reply` is plain text in English, at most 1200 characters, a few short sentences or lines. Refer to people by name

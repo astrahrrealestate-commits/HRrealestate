@@ -11,7 +11,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, WithJsonSchema
+from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field, StringConstraints, WithJsonSchema
 
 
 class Contract(BaseModel):
@@ -62,9 +62,11 @@ class Direction(StrEnum):
 
 
 class Money(Contract):
+    model_config = ConfigDict(frozen=True, extra="ignore", populate_by_name=True)
+
     amount: Annotated[
         Decimal,
-        Field(max_digits=12, decimal_places=2),
+        Field(validation_alias=AliasChoices("amount", "value", "total"), max_digits=12, decimal_places=2),
         WithJsonSchema({"type": "string", "pattern": r"^-?[0-9]{1,10}(\.[0-9]{1,2})?$"}),
     ]
     currency: Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")]

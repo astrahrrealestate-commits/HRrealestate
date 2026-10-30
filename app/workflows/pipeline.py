@@ -48,12 +48,16 @@ _RETRY: dict[str, Any] = {
 }
 
 
+def _as_uuid(val: Any) -> UUID:
+    return val if isinstance(val, UUID) else UUID(str(val))
+
+
 @DBOS.step(name="pipeline.understand", **_RETRY)
 def understand_step(message_id: str) -> str:
     engine = get_engine()
     settings = get_settings()
     try:
-        return "understood" if understand_message(engine, settings, UUID(message_id)) is not None else "failed"
+        return "understood" if understand_message(engine, settings, _as_uuid(message_id)) is not None else "failed"
     except BudgetExceededError:
         return "budget"
 
@@ -72,12 +76,12 @@ def alert_budget_step(company_id: str) -> bool:
 @DBOS.step(name="pipeline.final_failure", **_RETRY)
 def final_failure_step(message_id: str) -> bool:
     """Its own step: a DB blip here must never re-run the LLM call above."""
-    return understanding_is_final_failure(get_engine(), UUID(message_id))
+    return understanding_is_final_failure(get_engine(), _as_uuid(message_id))
 
 
 @DBOS.step(name="pipeline.mark_failed", **_RETRY)
 def mark_failed_step(message_id: str, error: str) -> int:
-    return mark_pipeline_failed(get_engine(), UUID(message_id), error)
+    return mark_pipeline_failed(get_engine(), _as_uuid(message_id), error)
 
 
 @DBOS.step(name="pipeline.alert_unreadable", **_RETRY)
@@ -91,32 +95,32 @@ def alert_unreadable_step(company_id: str, message_id: str) -> bool:
 
 @DBOS.step(name="pipeline.resolve_sender", **_RETRY)
 def resolve_step(message_id: str) -> None:
-    resolve_message_sender(get_engine(), UUID(message_id))
+    resolve_message_sender(get_engine(), _as_uuid(message_id))
 
 
 @DBOS.step(name="pipeline.link", **_RETRY)
 def link_step(message_id: str) -> str | None:
-    result = link_message(get_engine(), get_settings(), UUID(message_id))
+    result = link_message(get_engine(), get_settings(), _as_uuid(message_id))
     return str(result.case_id) if result else None
 
 
 @DBOS.step(name="pipeline.propose", **_RETRY)
 def propose_step(message_id: str) -> dict[str, Any]:
-    result = propose_for_message(get_engine(), get_settings(), UUID(message_id))
+    result = propose_for_message(get_engine(), get_settings(), _as_uuid(message_id))
     return {"approval_ids": [str(a) for a in result.approval_ids], "exceptions": result.exceptions}
 
 
 @DBOS.step(name="pipeline.company")
 def company_step(message_id: str) -> str | None:
     with Session(get_engine()) as session:
-        msg = session.get(MessageRow, UUID(message_id))
+        msg = session.get(MessageRow, _as_uuid(message_id))
         return str(msg.company_id) if msg else None
 
 
 @DBOS.step(name="pipeline.attachments")
 def attachments_step(message_id: str) -> list[str]:
     with Session(get_engine()) as session:
-        msg = session.get(MessageRow, UUID(message_id))
+        msg = session.get(MessageRow, _as_uuid(message_id))
         if msg is None:
             return []
         rows = session.scalars(
@@ -129,7 +133,7 @@ def attachments_step(message_id: str) -> list[str]:
 
 @DBOS.step(name="pipeline.done")
 def done_step(message_id: str) -> None:
-    mark_pipeline_done(get_engine(), UUID(message_id))
+    mark_pipeline_done(get_engine(), _as_uuid(message_id))
 
 
 def _text(body: str, to: str) -> dict[str, Any]:

@@ -89,6 +89,24 @@ def persist_event(deps: IngestDeps, raw_event_id: UUID) -> Persisted:
     with Session(deps.engine) as session, session.begin():
         message_id, _ = save_message(session, message, meta, attachments)
         mark_raw_event(session, company_id, raw_event_id, RawEventStatus.processed)
+
+        # If outbound message in a thread, link it to the matching case and resolve approval
+        if message.direction is Direction.outbound and message.thread_ref:
+            try:
+                from app.pipeline.case_repo import thread_case, link_message
+                from app.db.enums import LinkMethod, ApprovalStatus
+                from app.db.models import Approval, MessageRow
+                msg_row = session.get(MessageRow, message_id)
+                if msg_row:
+                    c_id = thread_case(session, company_id, msg_row)
+                    if c_id:
+                        link_message(session, company_id, c_id, message_id, LinkMethod.thread, 1.0)
+                        appr = session.query(Approval).filter(Approval.case_id == c_id, Approval.status == ApprovalStatus.pending).first()
+                        if appr:
+                            appr.status = ApprovalStatus.approved
+            except Exception as e:
+                log.warning("ingest.outbound_link_failed", error=str(e), message_id=str(message_id))
+
         route = _route(session, message)
     return Persisted("processed", str(message_id), route)
 

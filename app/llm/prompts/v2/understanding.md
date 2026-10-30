@@ -39,4 +39,4 @@ Set `suspicious.flag = true` and provide a clear `suspicious.reason` if:
 Otherwise, set `suspicious.flag = false` and `suspicious.reason = null`.
 
 ## Entities
-Extract any mentioned people, unit references (e.g., apartment number, address), dates, and monetary amounts. If none, provide empty lists.
+Extract any mentioned people, unit references (e.g., apartment number, address), dates, and monetary amounts (each amount must have "amount": string and "currency": string, e.g. {"amount": "285.00", "currency": "EUR"}). If none, provide empty lists.

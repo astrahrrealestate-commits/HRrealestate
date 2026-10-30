@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     langfuse_secret_key: SecretStr | None = None
     openai_api_key: SecretStr | None = None
     gemini_api_key: SecretStr | None = None  # Google AI Studio key for `google-gla:*` models (testing)
+    groq_api_key: SecretStr | None = None  # Groq Cloud key (https://console.groq.com) for `groq:*` models
 
     # LLM agents (spec phase-1 agents). `fake` = deterministic offline models (app.llm.fakes); prod refuses it.
     llm_model: str = "fake"  # Pydantic AI model string, e.g. "openai:gpt-4.1-mini" or "google-gla:gemini-2.5-flash"
@@ -54,6 +55,8 @@ class Settings(BaseSettings):
     # Owner channel: approved WhatsApp template that reopens the 24-hour window ("{{1}} items need you").
     owner_template_name: str = "estateos_pending"
     owner_template_language: str = "en"
+    owner_email: str = ""
+    owner_phone: str = ""
     # Send mode (companies.outbound_mode=send): tenant replies per company per rolling hour; at the cap → blocked.
     tenant_sends_per_hour: int = 30
 
@@ -74,6 +77,9 @@ class Settings(BaseSettings):
     drive_provider: Literal["fake", "google"] = "fake"
     drive_credentials_file: Path | None = None  # authorized-user JSON created with the drive.file scope
     doc_read_content: bool = True  # M10, ADR 0007: read attachment text to file, link and answer; off = metadata only
+
+    calendar_provider: Literal["fake", "google"] = "fake"
+    calendar_credentials_file: Path | None = None
 
     # Dashboard (owner interface, ADR 0006). `fake` accepts test tokens; prod refuses it.
     dashboard_auth_provider: Literal["fake", "google"] = "fake"

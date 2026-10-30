@@ -15,7 +15,7 @@ from app.context.person_profile import refresh_profile_deterministic
 from app.contracts import CaseState, Category, Channel, Urgency, assert_transition
 from app.core.errors import NotFoundError
 from app.db.enums import CaseEventKind, LinkMethod
-from app.db.models import Case, CaseEvent, CaseLink, MessageRow
+from app.db.models import Case, CaseEvent, CaseLink, Lease, LeaseParty, MessageRow
 
 WHATSAPP_THREAD_WINDOW = timedelta(hours=72)
 OPEN_STATES = (CaseState.open, CaseState.waiting_on_owner, CaseState.waiting_on_third_party)
@@ -39,7 +39,32 @@ def get_case(session: Session, company_id: UUID, case_id: UUID) -> Case:
 def create_case(
     session: Session, company_id: UUID, person_id: UUID | None, category: Category, urgency: Urgency
 ) -> UUID:
-    case = Case(company_id=company_id, primary_person_id=person_id, category=category, urgency=urgency)
+    unit_id = None
+    lease_id = None
+    if person_id:
+        lease = session.scalars(
+            select(Lease)
+            .join(LeaseParty, LeaseParty.lease_id == Lease.id)
+            .where(
+                LeaseParty.person_id == person_id,
+                LeaseParty.company_id == company_id,
+                Lease.company_id == company_id,
+            )
+            .order_by(Lease.created_at.desc())
+            .limit(1)
+        ).first()
+        if lease:
+            unit_id = lease.unit_id
+            lease_id = lease.id
+
+    case = Case(
+        company_id=company_id,
+        primary_person_id=person_id,
+        category=category,
+        urgency=urgency,
+        unit_id=unit_id,
+        lease_id=lease_id,
+    )
     session.add(case)
     session.flush()
     return case.id

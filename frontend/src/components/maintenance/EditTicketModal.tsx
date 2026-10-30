@@ -1,0 +1,314 @@
+"use client";
+
+import React, { useState, useEffect } from "react";
+import { MaintenanceTicket } from "@/lib/api";
+import { X, Check, Wrench, Shield, MessageSquare, AlertCircle } from "lucide-react";
+
+interface EditTicketModalProps {
+  ticket: MaintenanceTicket;
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (updatedTicket: MaintenanceTicket) => Promise<void>;
+  onShowToast?: (msg: string) => void;
+}
+
+export function EditTicketModal({
+  ticket,
+  isOpen,
+  onClose,
+  onSave,
+  onShowToast,
+}: EditTicketModalProps) {
+  const [issueTitle, setIssueTitle] = useState(ticket.issueTitle || "");
+  const [unitLabel, setUnitLabel] = useState(ticket.unitLabel || "");
+  const [urgency, setUrgency] = useState(ticket.urgency || "normal");
+  const [contractorName, setContractorName] = useState(ticket.contractorName || "");
+  const [contractorTrade, setContractorTrade] = useState(ticket.contractorTrade || "");
+  const [contractorPhone, setContractorPhone] = useState(ticket.contractorPhone || "+31 6 88 12 34 56");
+  const [contractorEmail, setContractorEmail] = useState(ticket.contractorEmail || "suryanshtyagi.work@gmail.com");
+  const [poBudgetCap, setPoBudgetCap] = useState(ticket.poBudgetCap || "€ 450");
+  const [notes, setNotes] = useState(ticket.notes || "");
+  const [contractorDraft, setContractorDraft] = useState(ticket.contractorDraft || "");
+  const [tenantDraft, setTenantDraft] = useState(ticket.tenantDraft || "");
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setIssueTitle(ticket.issueTitle || "");
+      setUnitLabel(ticket.unitLabel || "");
+      setUrgency(ticket.urgency || "normal");
+      setContractorName(ticket.contractorName || "");
+      setContractorTrade(ticket.contractorTrade || "");
+      setContractorPhone(ticket.contractorPhone || "+31 6 88 12 34 56");
+      setContractorEmail(ticket.contractorEmail || "suryanshtyagi.work@gmail.com");
+      setPoBudgetCap(ticket.poBudgetCap || "€ 450");
+      setNotes(ticket.notes || "");
+      setContractorDraft(
+        ticket.contractorDraft ||
+          `Beste ${ticket.contractorName || "aannemer"}, spoedverzoek voor ${ticket.unitLabel}: ${ticket.issueTitle}. Huurder ${ticket.tenantName} (${ticket.tenantPhone}). Geautoriseerd budgetplafond: ${ticket.poBudgetCap}. Gelieve ETA te bevestigen.`
+      );
+      setTenantDraft(
+        ticket.tenantDraft ||
+          `Beste ${ticket.tenantName?.split(" ")[0] || "huurder"}, we hebben je melding over ${ticket.issueTitle.toLowerCase()} ontvangen. Onze ${ticket.contractorTrade.toLowerCase()} ${ticket.contractorName} is geautoriseerd en neemt z.s.m. contact op. Met vriendelijke groet, Harjot`
+      );
+    }
+  }, [isOpen, ticket]);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSaving(true);
+    try {
+      const updated: MaintenanceTicket = {
+        ...ticket,
+        issueTitle,
+        unitLabel,
+        urgency: urgency as any,
+        contractorName,
+        contractorTrade,
+        contractorPhone,
+        contractorEmail,
+        poBudgetCap,
+        notes,
+        contractorDraft,
+        tenantDraft,
+      };
+      await onSave(updated);
+      onShowToast?.(`Ticket ${ticket.ticketNumber} updated successfully.`);
+      onClose();
+    } catch {
+      onShowToast?.("Failed to update ticket. Please try again.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+      <div
+        className="w-full max-w-[620px] bg-[var(--pane)] border border-[var(--line)] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] text-[var(--ink)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Modal Header */}
+        <div className="px-6 py-4.5 border-b border-[var(--line)] flex items-center justify-between shrink-0 bg-[var(--pane)]">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-[var(--accent)]/10 text-[var(--accent-ink)] flex items-center justify-center">
+              <Wrench className="w-4.5 h-4.5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-mono font-bold text-[15px]">{ticket.ticketNumber}</span>
+                <span className="text-[var(--ink-3)]">·</span>
+                <span className="text-[14px] font-semibold text-[var(--ink)] truncate max-w-[280px]">
+                  Edit Work Order & Budget
+                </span>
+              </div>
+              <p className="text-[12px] text-[var(--ink-3)] mt-0.5">
+                Customize contractor assignment, spending cap, and outbound messages
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-[var(--ink-3)] hover:text-[var(--ink)] hover:bg-[var(--selected)] transition-colors cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Modal Body Form */}
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-6 py-5 space-y-5 text-xs">
+          {/* Section 1: Ticket Essentials */}
+          <div className="space-y-3">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--ink-3)] block">
+              1. Work Order Details
+            </span>
+
+            <div>
+              <label className="block text-[12px] font-medium text-[var(--ink-2)] mb-1">Issue Description</label>
+              <input
+                type="text"
+                value={issueTitle}
+                onChange={(e) => setIssueTitle(e.target.value)}
+                required
+                className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--line)] rounded-lg text-xs font-medium text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] transition-colors"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[12px] font-medium text-[var(--ink-2)] mb-1">Unit / Property</label>
+                <input
+                  type="text"
+                  value={unitLabel}
+                  onChange={(e) => setUnitLabel(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--line)] rounded-lg text-xs font-medium text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[12px] font-medium text-[var(--ink-2)] mb-1">Urgency</label>
+                <select
+                  value={urgency}
+                  onChange={(e) => setUrgency(e.target.value as any)}
+                  className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--line)] rounded-lg text-xs font-medium text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] transition-colors"
+                >
+                  <option value="emergency">Emergency (4h SLA)</option>
+                  <option value="high">High Priority (24h SLA)</option>
+                  <option value="normal">Normal (48h SLA)</option>
+                  <option value="low">Low Priority (7d SLA)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 2: Contractor & Authorized PO Budget Cap */}
+          <div className="space-y-3 pt-2 border-t border-[var(--line)]/70">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--ink-3)] block">
+              2. Contractor & Authorized Budget Cap
+            </span>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="col-span-1">
+                <label className="block text-[12px] font-medium text-[var(--ink-2)] mb-1">Contractor Name</label>
+                <input
+                  type="text"
+                  value={contractorName}
+                  onChange={(e) => setContractorName(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--line)] rounded-lg text-xs font-medium text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] transition-colors"
+                />
+              </div>
+
+              <div className="col-span-1">
+                <label className="block text-[12px] font-medium text-[var(--ink-2)] mb-1">Trade Specialty</label>
+                <input
+                  type="text"
+                  value={contractorTrade}
+                  onChange={(e) => setContractorTrade(e.target.value)}
+                  className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--line)] rounded-lg text-xs font-medium text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] transition-colors"
+                />
+              </div>
+
+              <div className="col-span-1">
+                <label className="block text-[12px] font-medium text-[var(--ink-2)] mb-1">
+                  PO Budget Cap
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={poBudgetCap}
+                    onChange={(e) => setPoBudgetCap(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--line)] rounded-lg text-xs font-mono font-bold text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] transition-colors"
+                  />
+                  <Shield className="w-3.5 h-3.5 text-[var(--ink-3)] absolute right-2.5 top-2.5 pointer-events-none" />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[12px] font-medium text-[var(--ink-2)] mb-1">Contractor Phone (WhatsApp)</label>
+                <input
+                  type="text"
+                  value={contractorPhone}
+                  onChange={(e) => setContractorPhone(e.target.value)}
+                  className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--line)] rounded-lg text-xs font-mono text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[12px] font-medium text-[var(--ink-2)] mb-1">Contractor Email (Work Order Dispatch)</label>
+                <input
+                  type="email"
+                  value={contractorEmail}
+                  onChange={(e) => setContractorEmail(e.target.value)}
+                  placeholder="e.g. suryanshtyagi.work@gmail.com"
+                  className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--line)] rounded-lg text-xs font-mono text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] transition-colors"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[12px] font-medium text-[var(--ink-2)] mb-1">Internal Notes & Access</label>
+              <input
+                type="text"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="e.g. Lockbox code 4182"
+                className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--line)] rounded-lg text-xs text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] transition-colors"
+              />
+            </div>
+          </div>
+
+          {/* Section 3: Drafted Outbound Messages */}
+          <div className="space-y-3 pt-2 border-t border-[var(--line)]/70">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--ink-3)] block">
+              3. Outbound Message Previews
+            </span>
+
+            {/* Contractor Dispatch Message */}
+            <div className="p-3 bg-[var(--bg)] border border-[var(--line)] rounded-xl space-y-1.5">
+              <div className="flex items-center justify-between text-[11px]">
+                <div className="flex items-center gap-1.5 font-semibold text-[var(--ink)]">
+                  <Wrench className="w-3.5 h-3.5 text-[var(--accent-ink)]" />
+                  <span>Work Order for Contractor ({contractorName})</span>
+                </div>
+                <span className="text-[var(--ink-3)] font-mono">WhatsApp Dispatch</span>
+              </div>
+              <textarea
+                rows={3}
+                value={contractorDraft}
+                onChange={(e) => setContractorDraft(e.target.value)}
+                className="w-full p-2 bg-[var(--pane)] border border-[var(--line)] rounded-lg text-xs leading-relaxed text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] resize-y"
+              />
+            </div>
+
+            {/* Tenant Confirmation Message */}
+            <div className="p-3 bg-[var(--bg)] border border-[var(--line)] rounded-xl space-y-1.5">
+              <div className="flex items-center justify-between text-[11px]">
+                <div className="flex items-center gap-1.5 font-semibold text-[var(--ink)]">
+                  <MessageSquare className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Confirmation Reply for Tenant ({ticket.tenantName})</span>
+                </div>
+                <span className="text-[var(--ink-3)] font-mono">Tenant Update</span>
+              </div>
+              <textarea
+                rows={3}
+                value={tenantDraft}
+                onChange={(e) => setTenantDraft(e.target.value)}
+                className="w-full p-2 bg-[var(--pane)] border border-[var(--line)] rounded-lg text-xs leading-relaxed text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] resize-y"
+              />
+            </div>
+          </div>
+
+          {/* Modal Footer Controls */}
+          <div className="pt-3 border-t border-[var(--line)] flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSaving}
+              className="px-4 py-2 rounded-xl text-xs font-medium text-[var(--ink-2)] hover:text-[var(--ink)] hover:bg-[var(--selected)] transition-colors cursor-pointer border border-[var(--line)]"
+            >
+              Cancel
+            </button>
+
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="px-5 py-2 rounded-xl text-xs font-semibold bg-[var(--ink)] text-white hover:bg-[var(--ink)]/90 transition-all cursor-pointer flex items-center gap-2 shadow-sm"
+            >
+              <Check className="w-3.5 h-3.5 text-[var(--accent)]" />
+              <span>{isSaving ? "Saving..." : "Save Work Order Changes"}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
