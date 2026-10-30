@@ -304,9 +304,9 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
             is_contractor = True
         elif case.category and case.category.value in ("contractor_update", "contractor_invoices", "contractor_repairs"):
             is_contractor = True
-        elif any(c_kw in sender_email.lower() for c_kw in ["suryanshtyagi.work@gmail.com", "contractor", "loodgieter"]):
+        elif any(c_kw in sender_email.lower() for c_kw in ["chahalbouw.nl", "contractor", "loodgieter"]):
             is_contractor = True
-        elif any("suryanshtyagi.work@gmail.com" in (m.sender_identity or "").lower() for m in messages):
+        elif any("chahalbouw.nl" in (m.sender_identity or "").lower() for m in messages):
             is_contractor = True
 
         # If this is a contractor thread, ensure all related contractor communications are attached
@@ -325,8 +325,8 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
                 to_str = " ".join(to_val) if isinstance(to_val, list) else str(to_val)
                 subj = str(ecm.meta.get("subject", "")) if isinstance(ecm.meta, dict) else ""
                 if (
-                    "suryanshtyagi.work@gmail.com" in to_str.lower()
-                    or "suryanshtyagi.work@gmail.com" in (ecm.sender_identity or "").lower()
+                    "chahalbouw.nl" in to_str.lower()
+                    or "chahalbouw.nl" in (ecm.sender_identity or "").lower()
                     or "work order" in subj.lower()
                     or "inv-2026-104" in subj.lower()
                 ):
@@ -357,7 +357,7 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
             ]).lower()
 
             PORTFOLIO_UNITS = [
-                ("Keizersgracht 42-A", ["keizersgracht", "+919456916996", "919456916996", "vipint9902@gmail.com", "vipint9902", "vipin", "suryansh", "anouk", "de vries"]),
+                ("Keizersgracht 42-A", ["keizersgracht", "vipin", "suryansh", "anouk", "de vries"]),
                 ("Pieter Floriszstraat 1 C", ["pieter floriszstraat", "pieter florisz", "pieter.bakker", "pieter bakker", "keuken", "emma", "wilson"]),
                 ("Singel 412", ["singel", "marloes", "mieter", "heizung"]),
                 ("Prinses Marijkestraat 2 A", ["marijke", "marijkestraat", "daan"]),
@@ -523,7 +523,7 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
             if m.direction == Direction.outbound:
                 m_sender_type = "owner"
                 m_sender_name = "Harjot Singh"
-                m_sender_contact = m.sender_identity or "tyagisurya.04@gmail.com"
+                m_sender_contact = m.sender_identity or (getattr(settings, "owner_email", None) or "owner@estateos.com")
             elif is_contractor:
                 m_sender_type = "contractor"
                 m_sender_name = sender_name
@@ -804,7 +804,7 @@ def create_gmail_draft(
     with Session(engine) as session:
         # Find active Gmail account
         acct = session.query(ChannelAccount).filter(ChannelAccount.channel == Channel.gmail).first()
-        mailbox_address = acct.address if acct else (getattr(settings, "owner_email", None) or "tyagisurya.04@gmail.com")
+        mailbox_address = acct.address if acct else (getattr(settings, "owner_email", None) or "owner@estateos.com")
 
         # Find in-reply-to headers from message if thread_id or case_id provided
         in_reply_to: str | None = None
@@ -1062,7 +1062,7 @@ def decide_approval(
                     owner_mailbox = (
                         gmail_acct.address
                         if gmail_acct and gmail_acct.address
-                        else (getattr(settings, "owner_email", None) or "tyagisurya.04@gmail.com")
+                        else (getattr(settings, "owner_email", None) or "owner@estateos.com")
                     )
                     drafts_client = build_gmail_drafts(settings, sender, owner_mailbox)
                     draft_req = DraftRequest(
@@ -1179,10 +1179,10 @@ def decide_approval(
                     if token_val.startswith("sz_live_"):
                         import requests
                         clean_to = recipient.replace("+", "").replace(" ", "").strip()
-                        wa_from = getattr(sender, "whatsapp_from_number", None) or getattr(settings, "owner_phone", None) or str(sender.whatsapp_phone_number_id or "916364840587")
+                        wa_from = getattr(sender, "whatsapp_from_number", None) or getattr(settings, "owner_phone", None) or str(sender.whatsapp_phone_number_id or getattr(settings, "owner_phone", None) or "")
                         clean_from = str(wa_from).replace("+", "").strip()
                         if len(clean_from) > 13:
-                            clean_from = getattr(settings, "owner_phone", None) or "916364840587"
+                            clean_from = getattr(settings, "owner_phone", None) or ""
 
                         # Determine 24-hour customer care window state
                         now_utc = datetime.now(UTC)
@@ -1310,7 +1310,7 @@ def decide_approval(
                             channel=Channel.whatsapp,
                             provider_msg_id=whatsapp_message_id,
                             thread_ref=latest_msg.thread_ref if latest_msg else None,
-                            sender_identity=getattr(settings, "owner_phone", None) or "916364840587",
+                            sender_identity=getattr(settings, "owner_phone", None) or "",
                             direction=Direction.outbound,
                             sent_at=datetime.now(UTC),
                             text=final_wa_body,

@@ -41,7 +41,7 @@ class MaintenanceTicketItem(BaseModel):
     contractorName: str
     contractorTrade: str
     contractorPhone: str | None = "+31 6 88 12 34 56"
-    contractorEmail: str | None = "suryanshtyagi.work@gmail.com"
+    contractorEmail: str | None = "dispatch@chahalbouw.nl"
     urgency: str = Field(description="emergency, high, normal, low")
     status: str = Field(description="pending_approval, dispatched, scheduled, completed")
     slaRemaining: str = Field(description="Remaining SLA time or overdue status")
@@ -243,7 +243,7 @@ DEFAULT_TICKETS = [
         "reportedAt": "Today 12:00",
         "notes": "Emergency water leak reported. Resident available for immediate dispatch.",
         "originalMessage": "Water is leaking rapidly from the bathroom. Need someone immediately.",
-        "contractorDraft": "Beste Chahal Bouw (Kevin), spoedmelding Keizersgracht 42-A: Ernstige lekkage badkamer. Huurder Vipin Tyagi (+91 94569 16996). Geautoriseerd PO budget: € 650,-. Sleutelkluis: 4182. Gelieve ETA te bevestigen.",
+        "contractorDraft": "Beste Chahal Bouw (Kevin), spoedmelding Keizersgracht 42-A: Ernstige lekkage badkamer. Huurder Vipin Tyagi. Geautoriseerd PO budget: € 650,-. Gelieve ETA te bevestigen.",
         "tenantDraft": "Hi Vipin, we marked this as emergency ticket #022. Contractor Kevin from Chahal Bouw has been authorized with PO cap €650 and will arrive shortly. Emergency desk: +31 20 555 0199.",
     },
 ]
@@ -354,7 +354,7 @@ def get_maintenance_tickets(
                 contractor_name = "Kevin van Dijk"
                 contractor_trade = "Plumber"
                 contractor_phone = "+31 6 88 12 34 56"
-                contractor_email = "suryanshtyagi.work@gmail.com"
+                contractor_email = "dispatch@chahalbouw.nl"
                 contractor_draft = ""
 
                 # Look up registered contractor Kevin van Dijk from database
@@ -435,7 +435,7 @@ def get_maintenance_tickets(
                         subj = str(om.meta.get("subject", "")) if isinstance(om.meta, dict) else ""
                         to_val = om.meta.get("to", []) if isinstance(om.meta, dict) else []
                         to_str = " ".join(to_val) if isinstance(to_val, list) else str(to_val)
-                        if tag.lower() in subj.lower() or "suryanshtyagi.work@gmail.com" in to_str.lower():
+                        if tag.lower() in subj.lower() or "chahalbouw.nl" in to_str.lower():
                             has_approved_action = True
                             break
 
@@ -550,7 +550,7 @@ def update_maintenance_ticket(
                         "contractorName": updates.get("contractorName", "Kevin van Dijk"),
                         "contractorTrade": updates.get("contractorTrade", "Plumber"),
                         "contractorPhone": updates.get("contractorPhone", "+31 6 88 12 34 56"),
-                        "contractorEmail": updates.get("contractorEmail", "suryanshtyagi.work@gmail.com"),
+                        "contractorEmail": updates.get("contractorEmail", "dispatch@chahalbouw.nl"),
                         "urgency": target_case.urgency.value if target_case.urgency else "emergency",
                         "status": "pending_approval",
                         "slaRemaining": "45m SLA",
@@ -607,10 +607,10 @@ def approve_ticket_dispatch(
 
     unit_label = "Keizersgracht 42-A"
     contractor_name = "Kevin van Dijk"
-    contractor_email = "suryanshtyagi.work@gmail.com"
+    contractor_email = "dispatch@chahalbouw.nl"
     contractor_phone = "+31 6 88 12 34 56"
     tenant_name = "Vipin Tyagi"
-    tenant_phone = "+91 94569 16996"
+    tenant_phone = "+31 6 94 56 16 99"
     ticket_num = ticket_id if ticket_id.startswith("#") else f"#{ticket_id[:4]}"
 
     target_case_id: UUID | None = None
@@ -709,7 +709,7 @@ def approve_ticket_dispatch(
 
     # Send REAL EMAIL via Gmail API to contractor
     if body.dispatchContractor:
-        to_email = contractor_email or ticket.get("contractorEmail") or "suryanshtyagi.work@gmail.com"
+        to_email = contractor_email or ticket.get("contractorEmail") or "dispatch@chahalbouw.nl"
         work_order_text = (
             body.contractorMessage
             or ticket.get("contractorDraft")
@@ -732,7 +732,7 @@ def approve_ticket_dispatch(
                 svc = build("gmail", "v1", credentials=creds)
 
                 em = EmailMessage()
-                em["From"] = "tyagisurya.04@gmail.com"
+                em["From"] = getattr(sender_settings, "owner_email", None) or "dispatch@estateos.com"
                 em["To"] = to_email
                 em["Subject"] = email_subj
                 em.set_content(work_order_text)
@@ -768,7 +768,7 @@ def approve_ticket_dispatch(
                             channel=Channel.gmail,
                             provider_msg_id=s_obj.get("id") if (s_obj and isinstance(s_obj, dict)) else str(out_msg_id),
                             thread_ref=None,
-                            sender_identity="tyagisurya.04@gmail.com",
+                            sender_identity=getattr(sender_settings, "owner_email", None) or "dispatch@estateos.com",
                             direction=Direction.outbound,
                             sent_at=datetime.now(UTC),
                             text=work_order_text,

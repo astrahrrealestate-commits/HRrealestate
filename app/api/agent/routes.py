@@ -395,7 +395,7 @@ def _resolve_calendar_action(
                 calendar_client=client,
                 contractor_name=contractor_name,
                 contractor_email=contractor_email,
-                lockbox_pin="4182",
+                lockbox_pin=getattr(target_unit, "lockbox_code", None) if target_unit else None,
             )
 
             # Persist proposed event in DB
@@ -420,10 +420,13 @@ def _resolve_calendar_action(
             end_str = proposal.end_time.strftime("%H:%M")
             time_window_str = f"{start_str} – {end_str}"
 
+            access_line = f"• **Lockbox Access**: #{proposal.lockbox_code}\n\n" if proposal.lockbox_code else "• **Access**: Tenant present / direct access\n\n"
+            lockbox_line = f"Lockbox: #{proposal.lockbox_code}\n" if proposal.lockbox_code else "Lockbox: None (Tenant access)\n"
+
             ans = (
                 f"I have checked your schedule and prepared an appointment for **{contractor_name}** at **{addr}** on **{time_window_str}**.\n\n"
                 f"• **Status**: Proposed (No calendar conflicts)\n"
-                f"• **Lockbox Access**: #{proposal.lockbox_code or '4182'}\n\n"
+                f"{access_line}"
                 f"Tap **Approve & Add to Google Calendar** below to sync."
             )
 
@@ -433,7 +436,7 @@ def _resolve_calendar_action(
                 unitLabel=addr,
                 title=f"{contractor_name.split()[0]} Visit · {addr}",
                 subtitle=time_window_str,
-                body=f"Contractor: {contractor_name}\nTime: {time_window_str}\nLockbox: #{proposal.lockbox_code or '4182'}\nNotes: {proposal.notes}",
+                body=f"Contractor: {contractor_name}\nTime: {time_window_str}\n{lockbox_line}Notes: {proposal.notes}",
                 dueDate=time_window_str,
                 contractor=contractor_name,
                 status="proposed",

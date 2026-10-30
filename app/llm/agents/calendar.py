@@ -185,7 +185,7 @@ def propose_calendar_event(
     contractor_name: str | None = "Kevin van Dijk (Technician)",
     contractor_email: str | None = "kevin@chahalbouw.nl",
     tenant_email: str | None = None,
-    lockbox_pin: str | None = "4182",
+    lockbox_pin: str | None = None,
     reference_date: datetime | None = None,
 ) -> CalendarProposal:
     """Analyze message, extract timing, check Google Calendar busy slots, and propose 1-click event."""
@@ -227,8 +227,11 @@ def propose_calendar_event(
         title = f"{contractor_name.split()[0]} Visit · {property_address}"
 
     notes_parts = []
-    if needs_lockbox and lockbox_pin:
-        notes_parts.append(f"Tenant is away. Lockbox code: #{lockbox_pin}.")
+    if needs_lockbox:
+        if lockbox_pin:
+            notes_parts.append(f"Tenant is away. Lockbox code: #{lockbox_pin}.")
+        else:
+            notes_parts.append("Tenant is away. Direct access coordination needed.")
     if tw.is_default_fallback:
         notes_parts.append("Proposed slot based on standard availability window (needs tenant confirmation).")
 

@@ -63,7 +63,7 @@ class ProposeSlotRequest(BaseModel):
     propertyAddress: str
     contractorName: str | None = "Kevin van Dijk (Technician)"
     contractorEmail: str | None = "kevin@chahalbouw.nl"
-    lockboxCode: str | None = "4182"
+    lockboxCode: str | None = None
     caseId: str | None = None
 
 

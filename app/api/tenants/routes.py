@@ -74,8 +74,8 @@ DEFAULT_TENANTS = [
     {
         "id": "p-3",
         "name": "Vipin Tyagi",
-        "phone": "+91 94569 16996",
-        "email": "vipint9902@gmail.com",
+        "phone": "+31 6 94 56 16 99",
+        "email": "vipin.tyagi@amsterdam-living.nl",
         "unitLabel": "Keizersgracht 42-A",
         "leaseStart": "01-01-2024",
         "leaseEnd": "31-12-2027",
