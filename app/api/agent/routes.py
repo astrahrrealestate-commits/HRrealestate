@@ -459,9 +459,14 @@ def _resolve_calendar_action(
                     isPrimary=False,
                 ),
             ]
+            conflict_summary = (
+                f"Collision detected: {proposal.conflict_reason}"
+                if proposal.has_conflict
+                else "Checked calendar for busy slots (0 conflicts detected)"
+            )
             steps = [
                 "Parsed appointment timing and contractor details",
-                "Checked Google Calendar for busy conflicts (0 collisions)",
+                conflict_summary,
                 "Generated 1-click scheduling card",
             ]
             return ans, preview_card, actions, steps
@@ -497,7 +502,10 @@ def _resolve_calendar_action(
                     isPrimary=True,
                 )
             ]
-            steps = ["Queried Google Calendar API", "Retrieved active portfolio appointments"]
+            steps = [
+                "Queried scheduled property visits from database",
+                f"Retrieved {len(events)} upcoming appointments",
+            ]
             return ans, None, actions, steps
 
     return None, None, [], []
@@ -522,33 +530,53 @@ def ask_agent(
         company = session.scalars(select(Company).limit(1)).first()
         company_id = company.id if company else UUID("00000000-0000-0000-0000-000000000001")
 
-        # Natural language rule recording check (T5 Standing Rules)
+        # Natural language rule recording check (T5 Standing Rules - Issue 1.9)
         q_clean = req.query.strip().strip('"\'“”`')
         q_low = q_clean.lower()
+
+        # Distinguish temporary tasks/reminders from permanent standing policy rules
+        is_task_reminder = (
+            q_low.startswith(("remember to ", "remind me to ", "note to "))
+            or bool(re.search(r"^(remember|remind me|note)\s+(to\s+)?(call|email|text|message|pay|chase|ask|contact|check on)\b", q_low))
+        )
+
         rule_prefixes = [
-            "remember that ",
-            "remember: ",
-            "remember ",
-            "note that ",
-            "note: ",
-            "keep in mind that ",
-            "keep in mind ",
+            "standing rule:",
+            "standing rule ",
+            "company policy:",
+            "company policy ",
             "rule: ",
+            "set rule: ",
+            "new rule: ",
+            "policy: ",
+            "always remember that ",
+            "remember that ",
+            "keep in mind that ",
         ]
-        for prefix in rule_prefixes:
-            if q_low.startswith(prefix):
-                rule_text = q_clean[len(prefix):].strip().strip('"\'“”`')
-                if rule_text:
-                    memory_items.record_owner_memory(
-                        session,
-                        company_id=company_id,
-                        text=rule_text,
-                        scope=MemoryScope.company,
-                        kind=MemoryKind.preference,
-                    )
-                    session.commit()
+
+        matched_rule_prefix = None
+        if not is_task_reminder:
+            for prefix in rule_prefixes:
+                if q_low.startswith(prefix):
+                    matched_rule_prefix = prefix
+                    break
+
+        if matched_rule_prefix:
+            rule_text = q_clean[len(matched_rule_prefix):].strip().strip('"\'“”`')
+            if rule_text:
+                item, reason = memory_items.record_owner_memory(
+                    session,
+                    company_id=company_id,
+                    text=rule_text,
+                    scope=MemoryScope.company,
+                    kind=MemoryKind.rule,
+                    status=MemoryStatus.proposed,
+                )
+                session.commit()
+
+                if item is not None and item.status == MemoryStatus.active:
                     return AskAgentResponse(
-                        answer=f'I have permanently saved this standing rule to EstateOS memory: "{rule_text}". All agents will honor it going forward.',
+                        answer=f'This standing rule is already active in your company settings:\\n\\n• **"{item.text}"**\\n\\nAll agents and automated workflows already enforce it.',
                         suggestedAction="View Standing Rules in Settings",
                         actions=[
                             ActionButtonData(
@@ -559,7 +587,47 @@ def ask_agent(
                             )
                         ],
                         executedAt=now.isoformat(),
-                        steps=["Saved owner preference to workspace settings"],
+                        steps=["Verified existing company standing rule in database"],
+                        debugInfo=DebugInfo(pipeline_stage="memory_rule"),
+                    )
+
+                if item is not None:
+                    rule_id = str(item.id)
+                    return AskAgentResponse(
+                        answer=(
+                            f'I have drafted a new proposed standing rule for your company:\\n\\n'
+                            f'• **"{item.text}"**\\n\\n'
+                            f'Would you like to activate this policy across your portfolio?'
+                        ),
+                        suggestedAction="Activate Standing Rule",
+                        actions=[
+                            ActionButtonData(
+                                label="Activate Standing Rule",
+                                actionType="approve_memory",
+                                payload=f"/api/v1/memory/{rule_id}/approve",
+                                isPrimary=True,
+                            ),
+                            ActionButtonData(
+                                label="Review in Settings",
+                                actionType="navigate",
+                                payload="/settings",
+                                isPrimary=False,
+                            ),
+                        ],
+                        previewCard=PreviewCardData(
+                            type="memory_item",
+                            badgeLabel="POLICY PROPOSAL",
+                            unitLabel="Company Portfolio",
+                            status="Proposed",
+                            title="Proposed Standing Rule",
+                            body=item.text,
+                            actionId=rule_id,
+                        ),
+                        executedAt=now.isoformat(),
+                        steps=[
+                            "Extracted policy constraint from request",
+                            "Drafted proposed standing rule in database (pending activation)",
+                        ],
                         debugInfo=DebugInfo(pipeline_stage="memory_rule"),
                     )
 
@@ -623,7 +691,6 @@ def ask_agent(
             )
 
         # Specific Task Trigger: Calendar / Appointment / Visit inquiry or booking
-        import re
         cal_pattern = r"\b(calendar|schedule|appointment|visit|afspraak|agenda|book|boeken|inplannen)\b"
         if re.search(cal_pattern, q_low):
             cal_ans, cal_card, cal_actions, cal_steps = _resolve_calendar_action(req.query, engine, company_id, briefs)
@@ -640,7 +707,6 @@ def ask_agent(
                 )
 
         # Specific Task Trigger: Document / Lease / Contract / Terms query
-        import re
         doc_pattern = r"\b(lease|agreement|contract|deposit|borg|document|pdf|clause|terms|notice period|sublet|huurovereenkomst)\b"
         is_contractor_inquiry = bool(re.search(r"\bcontractor(s)?\b", q_low))
         is_comm_inquiry = any(w in q_low for w in ["message", "messages", "reply", "email", "mail", "whatsapp"])

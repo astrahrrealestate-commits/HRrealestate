@@ -518,3 +518,53 @@ def test_document_rag_returns_document_item_preview_card():
         assert "Keizersgracht" in card["title"]
         assert "drive.google.com" in card["targetUrl"]
         assert "whatsapp" not in (card.get("channel") or "")
+
+def test_standing_rule_creates_proposed_memory_with_action_card():
+    """Verify Issue 1.9: standing rules create proposed memory items with approval action buttons."""
+    from app.db.enums import MemoryStatus
+
+    mock_engine = MagicMock()
+    app = create_app(SETTINGS, engine=mock_engine)
+
+    fake_memory = MagicMock()
+    fake_memory.id = uuid4()
+    fake_memory.text = "Always require owner signoff for repairs exceeding €500"
+    fake_memory.status = MemoryStatus.proposed
+
+    mock_sess = create_mock_session()
+    with (
+        patch("app.api.agent.routes.Session", return_value=mock_sess),
+        patch("app.context.memory_items.record_owner_memory", return_value=(fake_memory, None)) as mock_record,
+        TestClient(app) as client,
+    ):
+        res = client.post(URL, json={"query": "Standing rule: Always require owner signoff for repairs exceeding €500"})
+        assert res.status_code == 200
+        data = res.json()
+        assert "drafted a new proposed standing rule" in data["answer"]
+        assert data["previewCard"] is not None
+        assert data["previewCard"]["type"] == "memory_item"
+        assert data["previewCard"]["badgeLabel"] == "POLICY PROPOSAL"
+        assert data["previewCard"]["actionId"] == str(fake_memory.id)
+        assert any(a["actionType"] == "approve_memory" for a in data["actions"])
+        mock_record.assert_called_once()
+        _, kwargs = mock_record.call_args
+        assert kwargs.get("status") == MemoryStatus.proposed
+
+
+def test_task_reminder_not_saved_as_standing_rule():
+    """Verify Issue 1.9: user task reminders ('remember to call Vipin') are not treated as standing policies."""
+    mock_engine = MagicMock()
+    app = create_app(SETTINGS, engine=mock_engine)
+
+    mock_sess = create_mock_session()
+    with (
+        patch("app.api.agent.routes.Session", return_value=mock_sess),
+        patch("app.context.memory_items.record_owner_memory") as mock_record,
+        patch("app.api.agent.routes.run_agent") as mock_run_agent,
+        TestClient(app) as client,
+    ):
+        mock_run_agent.return_value.output = ConciergePlan(in_scope=False, steps=[], reply="I noted that down.")
+        res = client.post(URL, json={"query": "Remember to call Vipin tomorrow morning"})
+        assert res.status_code == 200
+        mock_record.assert_not_called()
+

@@ -59,8 +59,9 @@ def record_owner_memory(
     scope: MemoryScope = MemoryScope.company,
     scope_id: UUID | None = None,
     kind: MemoryKind = MemoryKind.rule,
+    status: MemoryStatus = MemoryStatus.active,
 ) -> tuple[MemoryItem | None, str]:
-    """Record an immediate owner preference or rule (Task C11).
+    """Record an immediate or proposed owner preference/rule (Task C11).
 
     Screens against approval bypass and inserts or increments evidence count.
     """
@@ -72,21 +73,23 @@ def record_owner_memory(
     if not clean_text:
         return None, "Empty memory content."
 
-    # Upsert: if already active for this company/scope/text, increment evidence_count
+    # Upsert: if already active or proposed for this company/scope/text
     existing = session.scalar(
         select(MemoryItem).where(
             MemoryItem.company_id == company_id,
             MemoryItem.scope == scope,
             MemoryItem.scope_id == scope_id,
-            MemoryItem.status == MemoryStatus.active,
+            MemoryItem.status.in_((MemoryStatus.active, MemoryStatus.proposed)),
             MemoryItem.text == clean_text,
         )
     )
     if existing is not None:
-        existing.evidence_count += 1
-        existing.last_used_at = datetime.now(tz=UTC)
-        session.flush()
-        return existing, f"Remembered (updated evidence count: {existing.evidence_count})."
+        if existing.status == MemoryStatus.active:
+            existing.evidence_count += 1
+            existing.last_used_at = datetime.now(tz=UTC)
+            session.flush()
+            return existing, f"Remembered (updated evidence count: {existing.evidence_count})."
+        return existing, f"Rule is already proposed and pending activation."
 
     item = MemoryItem(
         id=new_id(),
@@ -95,7 +98,7 @@ def record_owner_memory(
         scope_id=scope_id,
         kind=kind,
         text=clean_text,
-        status=MemoryStatus.active,
+        status=status,
         origin=MemoryOrigin.owner,
         source_refs=[],
         evidence_count=1,

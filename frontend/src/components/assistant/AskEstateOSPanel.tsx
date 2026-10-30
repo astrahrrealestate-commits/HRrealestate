@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { askAgent, approveInboxDraft } from "@/lib/api";
+import { askAgent, approveInboxDraft, approveStandingRule } from "@/lib/api";
 
 export interface AssistantAction {
   label: string;
@@ -109,6 +109,8 @@ export function AskEstateOSPanel({
   const [sendingCardId, setSendingCardId] = useState<string | null>(null);
   const [approvingCalendarId, setApprovingCalendarId] = useState<string | null>(null);
   const [approvedCalendarIds, setApprovedCalendarIds] = useState<Set<string>>(new Set());
+  const [approvingMemoryId, setApprovingMemoryId] = useState<string | null>(null);
+  const [approvedMemoryIds, setApprovedMemoryIds] = useState<Set<string>>(new Set());
   const [sentCardIds, setSentCardIds] = useState<Set<string>>(new Set());
   const [sendErrorCardIds, setSendErrorCardIds] = useState<Set<string>>(new Set());
 
@@ -268,6 +270,30 @@ export function AskEstateOSPanel({
     }
   };
 
+  const handleApproveMemory = async (cardId: string, memoryId?: string | null, payloadUrl?: string | null) => {
+    setApprovingMemoryId(cardId);
+    try {
+      if (memoryId) {
+        await approveStandingRule(memoryId);
+      } else if (payloadUrl) {
+        const fullUrl = payloadUrl.startsWith("http") ? payloadUrl : `${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}${payloadUrl}`;
+        await fetch(fullUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-EstateOS-Client": "dashboard" },
+          credentials: "include",
+        });
+      }
+      setApprovedMemoryIds((prev) => new Set([...prev, cardId]));
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("estateos:memory_updated"));
+      }
+    } catch (err) {
+      console.error("Failed to approve memory rule:", err);
+    } finally {
+      setApprovingMemoryId(null);
+    }
+  };
+
   const handleApproveDraft = async (cardId: string, actionId?: string | null, caseId?: string | null) => {
     setSendingCardId(cardId);
     setSendErrorCardIds((prev) => {
@@ -309,6 +335,12 @@ export function AskEstateOSPanel({
   };
 
   const handleActionClick = (action: AssistantAction) => {
+    if (action.actionType === "approve_memory" && typeof action.payload === "string") {
+      const match = action.payload.match(/memory\/([^/]+)\/approve/);
+      const memId = match ? match[1] : undefined;
+      handleApproveMemory(action.payload, memId, action.payload);
+      return;
+    }
     if (action.actionType === "approve_calendar" && typeof action.payload === "string") {
       const match = action.payload.match(/events\/([^/]+)\/approve/);
       const eventId = match ? match[1] : undefined;
@@ -721,8 +753,67 @@ export function AskEstateOSPanel({
                           </button>
                         </div>
                       </div>
+                    ) : msg.previewCard.type === "memory_item" ? (
+                      /* 4. Standing Rule / Policy Proposal Card */
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-[#1F252C] text-[#CBD5E1] border border-[#29323B] flex items-center gap-1">
+                              <Sparkles className="w-3 h-3 text-[#F25C05]" />
+                              {msg.previewCard.badgeLabel || "POLICY PROPOSAL"}
+                            </span>
+                            <span className="text-[#F3F4F6] font-medium truncate max-w-[200px]">
+                              {msg.previewCard.unitLabel || "Company Portfolio"}
+                            </span>
+                          </div>
+                          <span className={cn(
+                            "text-[10.5px] font-mono",
+                            approvedMemoryIds.has(msg.previewCard.actionId || "") ? "text-emerald-400" : "text-amber-400"
+                          )}>
+                            {approvedMemoryIds.has(msg.previewCard.actionId || "") ? "Active Rule" : "Pending Activation"}
+                          </span>
+                        </div>
+                        <div className="text-[13px] font-semibold text-[#F9FAFB]">
+                          {msg.previewCard.title || "Proposed Standing Rule"}
+                        </div>
+                        {msg.previewCard.body && (
+                          <div className="p-2.5 rounded-[8px] bg-[#0E1113] border border-[#1E2328] text-[12px] text-[#CBD5E1] font-sans leading-relaxed break-words [overflow-wrap:anywhere]">
+                            • {msg.previewCard.body}
+                          </div>
+                        )}
+                        <div className="pt-1.5 flex items-center justify-between border-t border-[#1E2328]">
+                          <span className="text-[10.5px] font-mono text-[#64748B]">
+                            {approvedMemoryIds.has(msg.previewCard.actionId || "") ? "Enforced across all workflows" : "Requires owner sign-off"}
+                          </span>
+                          {approvedMemoryIds.has(msg.previewCard.actionId || "") ? (
+                            <div className="flex items-center gap-1.5 text-emerald-400 text-[11.5px] font-semibold">
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>Rule Activated</span>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleApproveMemory(msg.previewCard?.actionId || msg.id, msg.previewCard?.actionId)}
+                              disabled={approvingMemoryId === (msg.previewCard?.actionId || msg.id)}
+                              className="px-3 py-1.5 rounded-[7px] bg-[#F25C05] hover:bg-[#d94f00] text-[#0A0A0A] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              {approvingMemoryId === (msg.previewCard?.actionId || msg.id) ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  <span>Activating...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>Activate Standing Rule</span>
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     ) : (
-                      /* 4. Default: Message Draft Card (WhatsApp / Gmail) */
+                      /* 5. Default: Message Draft Card (WhatsApp / Gmail) */
                       <div className="space-y-2.5">
                         <div className="flex items-center justify-between text-[11px] text-[#94A3B8]">
                           <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-[#1F252C] text-[#CBD5E1] border border-[#29323B]">
@@ -821,22 +912,52 @@ export function AskEstateOSPanel({
                       }
                       return true;
                     })
-                    .map((act, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => handleActionClick(act)}
-                        className={cn(
-                          "px-3 py-1.5 rounded-[8px] text-[12px] font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs",
-                          act.isPrimary
-                            ? "bg-[#F25C05] hover:bg-[#d94f00] text-[#0A0A0A]"
-                            : "bg-[#181818] hover:bg-[#222222] border border-[#262626] text-[#FFFFFF]"
-                        )}
-                      >
-                        <span>{act.label}</span>
-                        <CornerDownRight className="w-3 h-3" />
-                      </button>
-                    ))}
+                    .map((act, idx) => {
+                      const isMemApprove = act.actionType === "approve_memory";
+                      const isMemActivating = isMemApprove && approvingMemoryId === act.payload;
+                      const isMemActivated = isMemApprove && (approvedMemoryIds.has(act.payload) || (msg.previewCard?.actionId && approvedMemoryIds.has(msg.previewCard.actionId)));
+
+                      if (isMemActivated) {
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            disabled
+                            className="px-3 py-1.5 rounded-[8px] text-[12px] font-semibold flex items-center gap-1.5 bg-[#0F291E] border border-emerald-500/30 text-emerald-400 cursor-default"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Rule Activated</span>
+                          </button>
+                        );
+                      }
+
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => handleActionClick(act)}
+                          disabled={isMemActivating}
+                          className={cn(
+                            "px-3 py-1.5 rounded-[8px] text-[12px] font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50",
+                            act.isPrimary
+                              ? "bg-[#F25C05] hover:bg-[#d94f00] text-[#0A0A0A]"
+                              : "bg-[#181818] hover:bg-[#222222] border border-[#262626] text-[#FFFFFF]"
+                          )}
+                        >
+                          {isMemActivating ? (
+                            <>
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              <span>Activating...</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>{act.label}</span>
+                              <CornerDownRight className="w-3 h-3" />
+                            </>
+                          )}
+                        </button>
+                      );
+                    })}
                 </div>
               )}
 
