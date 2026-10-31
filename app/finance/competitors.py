@@ -5,10 +5,12 @@ from datetime import date
 from uuid import UUID
 
 from sqlalchemy import or_, select
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.orm import Session
 
 from app.channels.prices.ports import PriceObservation
 from app.db.models import Person, VendorRate
+from app.finance.review_types import REFERENCE_CURRENCY
 
 
 class CompetitorRatesSource:
@@ -27,15 +29,17 @@ class CompetitorRatesSource:
                 VendorRate.company_id == self._company_id,
                 VendorRate.item_key == item_key,
                 VendorRate.unit == unit,
+                VendorRate.currency == REFERENCE_CURRENCY,
                 VendorRate.valid_from <= as_of,
                 or_(VendorRate.valid_to.is_(None), VendorRate.valid_to >= as_of),
             )
-            .order_by(VendorRate.amount, Person.display_name)
+            .ext(distinct_on(VendorRate.person_id))  # one rate per vendor: the newest version valid on as_of
+            .order_by(VendorRate.person_id, VendorRate.valid_from.desc())
         )
         if self._exclude is not None:
             stmt = stmt.where(VendorRate.person_id != self._exclude)
         with self._session_factory() as session:
-            rows = session.execute(stmt).all()
+            rows = sorted(session.execute(stmt).all(), key=lambda r: (r[0].amount, r[1]))
         return [
             PriceObservation(
                 amount=rate.amount,
