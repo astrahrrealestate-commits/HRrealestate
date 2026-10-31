@@ -167,7 +167,8 @@ def test_estimate_basis_caps_verdict_at_needs_check() -> None:
     assert capped.lines[0].status is LineStatus.well_above_market
     assert capped.verdict is Verdict.needs_check
     assert capped.low_confidence is True
-    assert fine.verdict is Verdict.ok
+    assert fine.lines[0].status is LineStatus.ok
+    assert fine.verdict is Verdict.needs_check  # an estimate never says "fair on the decision day"
     assert fine.low_confidence is True
 
 
@@ -341,3 +342,5 @@ def test_verdict_is_monotonic_in_price(
         return review_quote(quote(priced, line(str(other), item="callout"), refs=refs, basis=basis), T).verdict
 
     assert SEVERITY[verdict(base + step)] >= SEVERITY[verdict(base)]
+    if basis is SnapshotBasis.estimate_current_prices:
+        assert verdict(base) is verdict(base + step) is Verdict.needs_check

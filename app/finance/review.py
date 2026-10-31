@@ -13,8 +13,9 @@ incl.-VAT reading is shown beside it, and the line is flagged.
 Verdict = the MOST SEVERE line verdict (ok < needs_check < above_market < above_agreed < well_above_market), not
 weighted by amount: weighting would let a price rise improve the verdict. Amount only picks `worst_line_index`.
 Flags hold a line at `needs_check` (never `ok`): VAT unknown, a thin (`low_confidence`) market reference, a lump-sum
-quote. A flagged line or a snapshot estimated from current prices caps the verdict at `needs_check` and sets
-`low_confidence`. Overcharge per comparable line = max(0, (unit price − reference) × quantity).
+quote. A flagged line or a snapshot estimated from current prices makes the verdict `needs_check` (capped from above,
+and never `ok`: an estimate cannot claim "fair on the decision day") and sets `low_confidence`.
+Overcharge per comparable line = max(0, (unit price − reference) × quantity).
 """
 
 from collections.abc import Sequence
@@ -142,12 +143,10 @@ def _held(result: LineResult) -> Verdict:
 
 
 def _verdict(results: Sequence[LineResult], capped: bool) -> Verdict:
-    if not results:
+    """`capped` (estimate basis or a flagged line) → `needs_check`, both from above and from `ok`."""
+    if capped or not results:
         return Verdict.needs_check
-    worst = max((_held(r) for r in results), key=SEVERITY.__getitem__)
-    if capped and SEVERITY[worst] > SEVERITY[Verdict.needs_check]:
-        return Verdict.needs_check
-    return worst
+    return max((_held(r) for r in results), key=SEVERITY.__getitem__)
 
 
 def worst_line_index(quote: ReviewInput, results: Sequence[LineResult]) -> int | None:
