@@ -41,6 +41,10 @@ class TenantMismatchError(EstateOSError):
     """A row belongs to a different company than the caller."""
 
 
+class PriceSourceNotConfiguredError(EstateOSError):
+    """The configured market price source has no adapter wired up."""
+
+
 class UnsafeConfigurationError(EstateOSError):
     """Settings that must never reach production (fake providers, local storage, missing webhook secrets)."""
 
