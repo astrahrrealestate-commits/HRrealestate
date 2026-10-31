@@ -150,7 +150,7 @@ layers = [
     "app.main | app.worker | app.dev",
     "app.api",
     "app.workflows",
-    "app.pipeline | app.owner | app.ingestion | app.directory | app.outcomes | app.sender",
+    "app.pipeline | app.owner | app.ingestion | app.directory | app.outcomes | app.sender | app.finance",
     "app.context",
     "app.db : app.llm : app.storage : app.channels",
     "app.contracts",
@@ -209,6 +209,12 @@ forbidden_modules = ["app.workflows", "app.sender"]
 name = "Rules engine is pure (no I/O layers)"
 type = "forbidden"
 source_modules = ["app.pipeline.rules"]
+forbidden_modules = ["app.db", "app.llm", "app.channels", "app.storage"]
+
+[[tool.importlinter.contracts]]
+name = "Finance review is pure (no I/O layers)"
+type = "forbidden"
+source_modules = ["app.finance.review", "app.finance.review_types", "app.finance.stats"]
 forbidden_modules = ["app.db", "app.llm", "app.channels", "app.storage"]
 
 # ---------------------------------------------------------------- pyright (IDE only; mypy is the gate)
