@@ -1,6 +1,6 @@
 """Glossary helpers: ideas in a text, other-language expansion, canonical tokens."""
 
-from app.core.property_terms import GROUPS, canonical_tokens, expand, fold, groups_in
+from app.core.property_terms import GROUPS, canonical_tokens, expand, fold, groups_in, normalise_item_key
 
 
 def test_fold_removes_accents_and_case() -> None:
@@ -45,3 +45,29 @@ def test_groups_do_not_share_words() -> None:
             for word in fold(term).split():
                 if len(word) >= 3 and " " not in term:
                     assert seen.setdefault(word, key) == key, f"{word!r} is in {seen[word]} and {key}"
+
+
+def test_item_key_dutch_and_english_agree() -> None:
+    assert normalise_item_key("Cv ketel onderhoud") == normalise_item_key("boiler service") == "boiler_service"
+
+
+def test_item_key_unknown_is_slug() -> None:
+    assert normalise_item_key("Fix the wobbly gate") == "fix_wobbly_gate"
+
+
+def test_item_key_known_repairs_and_trades() -> None:
+    assert normalise_item_key("Lekkage reparatie badkamer") == "leak_repair"
+    assert normalise_item_key("Schilderwerk woonkamer") == "painting"
+    assert normalise_item_key("  Painting the living room ") == "painting"
+
+
+def test_item_key_slug_is_at_most_four_words_and_ascii() -> None:
+    assert (
+        normalise_item_key("Vervangen van de Gebroken Bürgersteig tegels nu") == "vervangen_gebroken_burgersteig_tegels"
+    )
+
+
+def test_item_key_tolerates_a_one_letter_typo_and_returns_the_key_not_the_term() -> None:
+    assert normalise_item_key("schilderwerc woonkamer") == "painting"
+    assert normalise_item_key("boiler servic") == "boiler_service"
+    assert normalise_item_key("elektricen bellen") == "electrical_repair"

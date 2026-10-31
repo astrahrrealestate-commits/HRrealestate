@@ -3,7 +3,7 @@
 import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Annotated, Any, Protocol
+from typing import Annotated, Any, Protocol, cast
 from uuid import UUID
 
 import structlog
@@ -149,7 +149,7 @@ def _short(email: str) -> str:
 
 
 def default_dev_principal(engine: Engine | Connection) -> Principal | None:
-    """Resolve default owner account for dev/test environments when session cookie is absent."""
+    """Resolve the default owner account for local dev when the session cookie is absent or invalid."""
     with Session(engine) as session:
         owner = session.scalars(select(OwnerAccount).limit(1)).first()
         if owner:
@@ -157,32 +157,36 @@ def default_dev_principal(engine: Engine | Connection) -> Principal | None:
     return None
 
 
+def _dev_bypass(request: Request) -> bool:
+    """Local dev only (`env == "dev"`): the SPA runs without a login. `test` and `prod` always authenticate."""
+    settings = getattr(request.app.state, "settings", None)
+    return isinstance(settings, Settings) and settings.env == "dev"
+
+
+def _dev_principal_or_401(request: Request) -> Principal:
+    if _dev_bypass(request):
+        dev_p = default_dev_principal(request.app.state.engine)
+        if dev_p:
+            return dev_p
+    raise HTTPException(status_code=401, detail="not authenticated")
+
+
 def cookie_principal(request: Request) -> Principal:
     """The signed-cookie checks alone (no I/O): signature, age. 401 when missing or invalid."""
     token = request.cookies.get(COOKIE)
-    settings: Settings = getattr(request.app.state, "settings", None)
     if not token:
-        if settings and settings.env != "prod":
-            dev_p = default_dev_principal(request.app.state.engine)
-            if dev_p:
-                return dev_p
-        raise HTTPException(status_code=401, detail="not authenticated")
+        return _dev_principal_or_401(request)
     try:
-        return read_session(settings, token, datetime.now(UTC))
+        return read_session(cast(Settings, request.app.state.settings), token, datetime.now(UTC))
     except AuthError:
-        if settings and settings.env != "prod":
-            dev_p = default_dev_principal(request.app.state.engine)
-            if dev_p:
-                return dev_p
-        raise HTTPException(status_code=401, detail="not authenticated") from None
+        return _dev_principal_or_401(request)
 
 
 async def require_principal(request: Request) -> Principal:
     """Signed-cookie checks first, then the owner row is re-read: a removed owner or a changed email ends the
     session at once instead of at cookie expiry."""
     principal = cookie_principal(request)
-    settings: Settings = getattr(request.app.state, "settings", None)
-    if settings and settings.env != "prod":
+    if _dev_bypass(request):
         return principal
     if not await run_in_threadpool(owner_matches, request.app.state.engine, principal):
         log.info("dashboard_session_owner_gone", owner_id=str(principal.owner_id))
@@ -194,10 +198,7 @@ def require_csrf(
     request: Request,
     x_estateos_client: Annotated[str | None, Header()] = None,
 ) -> None:
-    settings: Settings = getattr(request.app.state, "settings", None)
-    if x_estateos_client != CSRF_VALUE:
-        if settings and settings.env != "prod":
-            return
+    if x_estateos_client != CSRF_VALUE and not _dev_bypass(request):
         raise HTTPException(status_code=403, detail="missing client header")
 
 

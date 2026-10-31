@@ -137,3 +137,9 @@ def test_360dialog_deliveries_are_verified_by_their_own_header(monkeypatch: pyte
             "/webhooks/whatsapp", content=body, headers={"x-hub-signature-256": sign_body("platform-secret", body)}
         )
     assert (ok.status_code, meta_style.status_code) == (200, 401)
+
+
+@pytest.mark.parametrize("relay_header", ["x-hookdeck-event-id", "x-hookdeck-signature"])
+def test_a_relay_header_never_waives_the_signature(client: TestClient, recorded: Load, relay_header: str) -> None:
+    headers = {relay_header: "evt_123", "x-hub-signature-256": "sha256=" + "0" * 64}
+    assert client.post("/webhooks/whatsapp", content=recorded("whatsapp", "text"), headers=headers).status_code == 401

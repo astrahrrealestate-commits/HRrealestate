@@ -45,15 +45,15 @@
 - [ ] **Step 4:** Same command; expect PASS. `make quick` green.
 - [ ] **Step 5:** Commit `feat(finance): quote contracts, enums and item keys`.
 
-### Task 2: Migration 0021, models and settings
-**Files:** Create `app/db/alembic/versions/0021_finance.py`, `app/db/models/finance.py`, `tests/integration/test_migration_0021.py`, `tests/unit/db/test_finance_models.py`; Modify `app/db/models/__init__.py`, `app/core/settings.py`, `.env.example`, `app/db/alembic/versions` check swap for `owner_feed.kind`.
+### Task 2: Migration 0022, models and settings
+**Files:** Create `app/db/alembic/versions/0022_finance.py`, `app/db/models/finance.py`, `tests/integration/test_migration_0022.py`, `tests/unit/db/test_finance_models.py`; Modify `app/db/models/__init__.py`, `app/core/settings.py`, `.env.example`, `app/db/alembic/versions` check swap for `owner_feed.kind`.
 **Interfaces — Produces:** ORM classes `VendorRate`, `PriceSnapshot`, `QuoteRow`, `QuoteLineRow`, `QuoteReview` with the columns and unique keys in the spec "Data" section (all `CompanyScoped`, `str_enum` for enums, Decimal(12,2) via the base map; `price_snapshots.sources` and `quote_reviews.report` JSONB). Settings fields listed in Global Constraints plus `price_source: Literal["fake","competitors","web"] = "fake"` (prod refuses `fake`, same validator as the other providers).
 
-- [ ] **Step 1:** Unit test `test_models_declare_company_scope_and_uniques` (each table has `company_id`; uniques `uq_price_snapshots_company_id_action_id_item_key`, `uq_quotes_company_id_source_source_id`). Integration (written, not run): `test_0021_round_trip_and_drift`, `test_snapshot_unique_per_action_item`, `test_feed_kind_accepts_quote_review`.
+- [ ] **Step 1:** Unit test `test_models_declare_company_scope_and_uniques` (each table has `company_id`; uniques `uq_price_snapshots_company_id_action_id_item_key`, `uq_quotes_company_id_source_source_id`). Integration (written, not run): `test_0022_round_trip`, `test_snapshot_unique_per_action_item`, `test_feed_kind_accepts_quote_review`.
 - [ ] **Step 2:** Run the unit test; expect FAIL.
-- [ ] **Step 3:** Write models, then the hand-written migration (down_revision `0020`; mirror 0020's CHECK and feed-kind swap pattern; indexes on `(company_id, case_id)` and `(company_id, person_id, item_key)`). Add settings and `.env.example` lines; extend the prod-boot validator.
+- [ ] **Step 3:** Write models, then the hand-written migration (down_revision `0021`; mirror 0020's CHECK and feed-kind swap pattern; indexes on `(company_id, case_id)` and `(company_id, person_id, item_key)`). Add settings and `.env.example` lines; extend the prod-boot validator.
 - [ ] **Step 4:** Unit test passes; `make quick`; `make migration`-style drift check by `uv run alembic upgrade head` is Docker-only → note "not run".
-- [ ] **Step 5:** Commit `feat(finance): migration 0021, models and settings`.
+- [ ] **Step 5:** Commit `feat(finance): migration 0022, models and settings`.
 
 ### Task 3: Review engine (pure)
 **Files:** Create `app/finance/__init__.py`, `app/finance/stats.py`, `app/finance/review.py`, `tests/unit/finance/test_stats.py`, `tests/unit/finance/test_review.py`; Modify `pyproject.toml` (layer row + contract).

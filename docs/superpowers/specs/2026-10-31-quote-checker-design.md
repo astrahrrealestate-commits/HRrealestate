@@ -67,7 +67,7 @@ message text are untrusted data inside prompt data blocks, agents have no write 
 `PriceSource` is an adapter with a fake; contracts in `app/contracts/finance.py` are the agent `output_type`s;
 new prompts `app/llm/prompts/v1/{job_items,quote_reader}.md` are immutable once published.
 
-## Data (migration 0021, hand-written)
+## Data (migration 0022, hand-written)
 - `vendor_rates`: company, person_id (contractor), item_key, description, unit, amount, currency, valid_from, valid_to,
   source (`owner`|`document`|`quote`), source_ref. Unique current rate per (company, person, item_key, valid_from).
 - `price_snapshots`: company, case_id, action_id, item_key, unit, as_of, low, avg, high, sample_count, basis

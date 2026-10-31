@@ -4,7 +4,6 @@
 overwrites it with the `PromptRef.key` actually used (M4).
 """
 
-from datetime import date
 from enum import StrEnum
 from typing import Annotated, Self
 

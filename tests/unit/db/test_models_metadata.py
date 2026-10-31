@@ -18,6 +18,10 @@ SPEC_TABLES = {
     "document_chunks", "document_links", "drive_reorg_plans", "drive_reorg_items",
     # memory workspace (spec 2026-10-23)
     "person_profiles", "memory_items",
+    # calendar scheduling agent (PR #15; migration 0021_calendar_events)
+    "calendar_events",
+    # quote checker (spec 2026-10-31)
+    "vendor_rates", "price_snapshots", "quotes", "quote_lines", "quote_reviews",
 }  # fmt: skip
 
 

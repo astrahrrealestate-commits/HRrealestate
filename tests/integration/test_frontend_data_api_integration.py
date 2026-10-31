@@ -26,6 +26,7 @@ def api_client(test_settings: Settings, migrated_engine: Engine) -> TestClient:
 # 1. Dashboard Pulse & Metrics APIs
 # ============================================================================
 
+
 def test_dashboard_pulse_endpoint(api_client: TestClient) -> None:
     """Verifies GET /api/dashboard/pulse returns pulse pillars and portfolio stats."""
     res = api_client.get("/api/dashboard/pulse")
@@ -92,6 +93,7 @@ def test_dashboard_logs_endpoint(api_client: TestClient) -> None:
 # 2. Maintenance Hub APIs
 # ============================================================================
 
+
 def test_maintenance_tickets_list(api_client: TestClient) -> None:
     """Verifies GET /api/maintenance/tickets returns ticket records and operational stats."""
     res = api_client.get("/api/maintenance/tickets")
@@ -139,15 +141,16 @@ def test_maintenance_ticket_approve(api_client: TestClient) -> None:
     payload = {"approval_note": "Approved by Harjot Singh"}
     res = api_client.post("/api/maintenance/tickets/005/approve", json=payload)
     assert res.status_code == 200
-    data = res.json()
-    assert data["status"] == "dispatched"
-    assert "ticketId" in data
-    assert "dispatched" in data["message"].lower()
+    data = res.json()  # ApproveDispatchResponse; the SPA adds ticketId and its own message (api.ts)
+    assert data["status"] == "authorized"
+    assert data["ticketNumber"] == "#005"
+    assert data["contractorDispatched"] is True
 
 
 # ============================================================================
 # 3. Properties & Units APIs
 # ============================================================================
+
 
 def test_properties_list_and_details(api_client: TestClient) -> None:
     """Verifies GET /api/properties directory and single unit lookups."""
@@ -171,6 +174,7 @@ def test_properties_list_and_details(api_client: TestClient) -> None:
 # ============================================================================
 # 4. Tenants APIs
 # ============================================================================
+
 
 def test_tenants_list_and_details(api_client: TestClient) -> None:
     """Verifies GET /api/tenants directory and single tenant profile."""
@@ -197,6 +201,7 @@ def test_tenants_list_and_details(api_client: TestClient) -> None:
 # 5. Inbox Endpoints & CORS Validation
 # ============================================================================
 
+
 def test_inbox_threads_api(api_client: TestClient) -> None:
     """Verifies GET /api/inbox/threads for communications triage."""
     res = api_client.get("/api/inbox/threads")
@@ -205,12 +210,14 @@ def test_inbox_threads_api(api_client: TestClient) -> None:
     assert "threads" in data
 
 
-def test_cors_headers_for_frontend(api_client: TestClient) -> None:
-    """Verifies CORS headers allow requests originating from http://localhost:3000."""
+def test_cors_headers_for_frontend(test_settings: Settings, migrated_engine: Engine) -> None:
+    """An allowlisted SPA origin (DASHBOARD_CORS_ORIGINS) passes the preflight; without one, CORS is off outside dev."""
+    settings = test_settings.model_copy(update={"dashboard_cors_origins": ["http://localhost:3000"]})
     headers = {
         "Origin": "http://localhost:3000",
         "Access-Control-Request-Method": "GET",
     }
-    res = api_client.options("/api/dashboard/pulse", headers=headers)
+    with TestClient(create_app(settings, engine=migrated_engine)) as client:
+        res = client.options("/api/dashboard/pulse", headers=headers)
     assert res.status_code in (200, 204)
     assert res.headers.get("access-control-allow-origin") in ("http://localhost:3000", "*")

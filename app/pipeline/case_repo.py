@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.context.person_profile import refresh_profile_deterministic
-from app.contracts import CaseState, Category, Channel, Urgency, assert_transition
+from app.contracts import CaseState, Category, Channel, Direction, Urgency, assert_transition
 from app.core.errors import NotFoundError
 from app.db.enums import CaseEventKind, LinkMethod
 from app.db.models import Case, CaseEvent, CaseLink, Lease, LeaseParty, MessageRow
@@ -165,3 +165,15 @@ def transition(session: Session, company_id: UUID, case_id: UUID, new_state: Cas
         if case.primary_person_id is not None:
             refresh_profile_deterministic(session, company_id, case.primary_person_id)
     session.flush()
+
+
+def link_outbound_reply(session: Session, message_id: UUID) -> UUID | None:
+    """An owner reply sent outside EstateOS (e.g. straight from Gmail) joins the open case holding its thread.
+    The id comes from our own persist step; everything after is scoped to the message's company. Idempotent."""
+    message = session.get(MessageRow, message_id)
+    if message is None or message.direction is not Direction.outbound or not message.thread_ref:
+        return None
+    case_id = thread_case(session, message.company_id, message)
+    if case_id is not None:
+        link_message(session, message.company_id, case_id, message.id, LinkMethod.thread, 1.0)
+    return case_id

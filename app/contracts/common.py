@@ -62,7 +62,12 @@ class Direction(StrEnum):
 
 
 class Money(Contract):
-    model_config = ConfigDict(frozen=True, extra="ignore", populate_by_name=True)
+    """Parsing tolerates stray keys from a model (`extra="ignore"`), but the published schema stays strict-mode
+    (`additionalProperties: false`), which the OpenAI structured-output API requires on every object."""
+
+    model_config = ConfigDict(
+        frozen=True, extra="ignore", populate_by_name=True, json_schema_extra={"additionalProperties": False}
+    )
 
     amount: Annotated[
         Decimal,

@@ -5,7 +5,6 @@ from typing import Any
 
 from app.channels.calendar.fake import FakeCalendarClient
 from app.channels.calendar.ports import (
-    CalendarAttendee,
     CalendarClientProtocol,
     CalendarEvent,
     CalendarEventCreate,
@@ -147,4 +146,3 @@ class GoogleCalendarClient(CalendarClientProtocol):
         except Exception as e:
             log.warning("google_calendar.delete_failed", error=str(e))
             return False
-

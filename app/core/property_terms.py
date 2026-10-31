@@ -6,6 +6,8 @@ maps words of one idea to one feature, so tests can show cross-language retrieva
 import re
 import unicodedata
 
+from rapidfuzz import fuzz, process
+
 GROUPS: dict[str, tuple[str, ...]] = {
     "deposit": ("deposit", "security deposit", "waarborgsom", "borgsom", "borg"),
     "notice": ("notice", "notice period", "opzegtermijn", "opzegging", "opzeggen", "opzeg"),
@@ -97,3 +99,89 @@ def canonical_tokens(text: str) -> list[str]:
     """Tokens of `text` without function words, every glossary word replaced by its idea (the fake embedder's
     vocabulary)."""
     return [_WORD_TO_GROUP.get(w, w) for w in _WORD.findall(fold(text)) if w not in _STOPWORDS]
+
+
+ITEM_TERMS: dict[str, tuple[str, ...]] = {
+    "boiler_service": (
+        "boiler service",
+        "boiler maintenance",
+        "boiler servicing",
+        "cv ketel onderhoud",
+        "cv onderhoud",
+        "cv-ketel onderhoud",
+        "ketelonderhoud",
+        "ketel onderhoud",
+        "onderhoud cv ketel",
+        "onderhoud ketel",
+    ),
+    "leak_repair": (
+        "leak repair",
+        "fix leak",
+        "leaking",
+        "lekkage reparatie",
+        "lekkage",
+        "lekkage herstel",
+        "lek repareren",
+        "reparatie lekkage",
+    ),
+    "painting": ("painting", "paint work", "painter", "schilderwerk", "schilderen", "schilder", "verven"),
+    "plumbing": ("plumbing", "plumber", "loodgieter", "loodgieterswerk", "sanitair", "verstopping", "blocked drain"),
+    "electrical_repair": (
+        "electrical repair",
+        "electrician",
+        "electrical work",
+        "elektra reparatie",
+        "elektricien",
+        "elektrawerk",
+    ),
+    "cleaning": ("cleaning", "deep clean", "schoonmaak", "schoonmaken", "eindschoonmaak", "reiniging"),
+    "locksmith": ("locksmith", "lock replacement", "change locks", "slotenmaker", "slot vervangen", "sleutelservice"),
+    "roof_repair": ("roof repair", "roofing", "dakreparatie", "dakwerk", "dakbedekking", "dakgoot"),
+    "window_repair": ("window repair", "glass repair", "glaszetter", "raamreparatie", "glas vervangen", "ramen"),
+    "gardening": ("gardening", "garden maintenance", "tuinonderhoud", "tuinwerk", "hovenier", "tuinman"),
+    "pest_control": ("pest control", "exterminator", "ongediertebestrijding", "ongedierte", "plaagdierbestrijding"),
+    "flooring": ("flooring", "floor repair", "laminate", "vloer", "vloeren", "vloerbedekking", "parket"),
+    "call_out_fee": ("call-out fee", "call out fee", "callout", "travel costs", "voorrijkosten", "voorrijdkosten"),
+    "labour": ("labour", "labor", "hourly rate", "arbeid", "arbeidsloon", "uurloon", "manuren"),
+    "materials": ("materials", "material costs", "materiaal", "materialen", "materiaalkosten"),
+}
+_FUZZY_CUTOFF = 90
+_SLUG_WORDS = 4
+_ALNUM = re.compile(r"[a-z0-9]+")
+
+
+def _term_table() -> list[tuple[re.Pattern[str], str]]:
+    """Every term, longest first, so the most specific phrase wins (`cv ketel onderhoud` before `onderhoud`)."""
+    rows = [(fold(t), key) for key, terms in ITEM_TERMS.items() for t in terms]
+    rows.sort(key=lambda r: (-len(r[0]), r[0]))
+    return [(re.compile(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])"), key) for term, key in rows]
+
+
+_ITEM_PATTERNS = _term_table()
+_ITEM_FOLDED = {fold(t): key for key, terms in ITEM_TERMS.items() for t in terms}
+_ITEM_TERMS_FOLDED = list(_ITEM_FOLDED)
+
+
+def _fuzzy_key(low: str) -> str | None:
+    """Typo tolerance: the whole text, then each word, against the term table (cutoff 90)."""
+    for candidate in [low, *_ALNUM.findall(low)]:
+        if len(candidate) < 5:
+            continue
+        hit = process.extractOne(candidate, _ITEM_TERMS_FOLDED, scorer=fuzz.ratio, score_cutoff=_FUZZY_CUTOFF)
+        if hit is not None:
+            return _ITEM_FOLDED[hit[0]]
+    return None
+
+
+def normalise_item_key(description: str) -> str:
+    """Stable key for a job line, so a Dutch and an English line for the same work meet (`Cv ketel onderhoud` and
+    `boiler service` are `boiler_service`). Known term, then a near-miss spelling, else a slug of up to 4 words."""
+    low = fold(description).strip()
+    for pattern, key in _ITEM_PATTERNS:
+        if pattern.search(low):
+            return key
+    fuzzy = _fuzzy_key(low)
+    if fuzzy is not None:
+        return fuzzy
+    words = [w for w in _ALNUM.findall(low) if w not in _STOPWORDS]
+    return "_".join(words[:_SLUG_WORDS]) or "other"

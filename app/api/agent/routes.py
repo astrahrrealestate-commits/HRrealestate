@@ -6,7 +6,7 @@ Executes multi-step plans (case status, drafting replies, task completions/snooz
 
 import re
 from datetime import UTC, datetime
-from typing import Annotated, Any
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
@@ -15,18 +15,17 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine, get_settings_dep
+from app.channels.calendar import get_calendar_client
 from app.context import memory_items
 from app.context.compiler import compile_concierge_context
 from app.contracts import ConciergePlan, Intent
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import MemoryKind, MemoryScope, MemoryStatus
-from app.channels.calendar import get_calendar_client
 from app.db.models import (
     ActionRow,
     AgentPageState,
     Approval,
-    CalendarEventRow,
     Case,
     CaseLink,
     ChannelIdentity,
@@ -36,9 +35,9 @@ from app.db.models import (
     MemoryItem,
     MessageRow,
     Person,
-    TaskRow,
     Unit,
 )
+from app.db.models.calendar import CalendarEventRow
 from app.llm.agents.calendar import propose_calendar_event
 from app.llm.agents.concierge import CONCIERGE, MAX_HISTORY, concierge_prompt
 from app.llm.agents.owner_qa import CaseBrief
@@ -63,7 +62,9 @@ class AskAgentRequest(BaseModel):
 
 
 class PreviewCardData(BaseModel):
-    type: str = Field(default="draft_message", description="Type of card: draft_message, case_summary, task_card, financial_item")
+    type: str = Field(
+        default="draft_message", description="Type of card: draft_message, case_summary, task_card, financial_item"
+    )
     channel: str | None = Field(default=None, description="whatsapp | gmail | internal")
     recipient: str = Field(default="", description="Recipient phone or email")
     unitLabel: str = Field(default="", description="Target property/unit address")
@@ -89,7 +90,10 @@ class ActionButtonData(BaseModel):
 
 
 class DebugInfo(BaseModel):
-    pipeline_stage: str = Field(default="llm_concierge", description="llm_concierge | regex_calendar | regex_document | memory_rule | fake_router | domain_fallback")
+    pipeline_stage: str = Field(
+        default="llm_concierge",
+        description="llm_concierge | regex_calendar | regex_document | memory_rule | fake_router | domain_fallback",
+    )
     fallback_reason: str | None = None
 
 
@@ -126,6 +130,7 @@ def _generate_groq_answer(
         groq_key = settings.groq_api_key.get_secret_value()
     if not groq_key:
         import os
+
         groq_key = os.environ.get("GROQ_API_KEY")
 
     if not groq_key:
@@ -179,10 +184,12 @@ def _generate_groq_answer(
                     timeout=10.0,
                 )
                 if resp.status_code == 200:
-                    ans = resp.json()["choices"][0]["message"]["content"].strip()
+                    content = resp.json()["choices"][0]["message"]["content"]
+                    ans = content.strip() if isinstance(content, str) else ""
                     if ans:
                         return ans
-            except Exception:
+            except Exception as model_err:  # try the next model
+                log.warning("api.superagent.groq_model_failed", error=type(model_err).__name__)
                 continue
     except Exception as g_err:
         log.warning("api.superagent.groq_failed", error=str(g_err))
@@ -193,7 +200,11 @@ def _generate_groq_answer(
 def _domain_fallback_answer(query: str, live_cases_text: str = "", is_error: bool = False) -> str:
     """Domain-accurate fallback reflecting real database state without false assurances."""
     q_l = query.lower()
-    has_live_cases = bool(live_cases_text and "no active open" not in live_cases_text.lower() and "0 active open" not in live_cases_text.lower())
+    has_live_cases = bool(
+        live_cases_text
+        and "no active open" not in live_cases_text.lower()
+        and "0 active open" not in live_cases_text.lower()
+    )
 
     if any(w in q_l for w in ["case", "ticket", "open", "active", "status"]):
         if has_live_cases:
@@ -212,7 +223,11 @@ def _domain_fallback_answer(query: str, live_cases_text: str = "", is_error: boo
         )
     else:
         if is_error:
-            status_snippet = f"\n\n**Current Live Tickets:**\n{live_cases_text}" if has_live_cases else "\n\n• Database records show 0 open tickets."
+            status_snippet = (
+                f"\n\n**Current Live Tickets:**\n{live_cases_text}"
+                if has_live_cases
+                else "\n\n• Database records show 0 open tickets."
+            )
             return (
                 "⚠️ **Assistant Degraded:** The AI model timed out or was rate-limited. "
                 "No automated actions were performed." + status_snippet
@@ -297,18 +312,29 @@ def _resolve_draft_card(
                                 channel = resolved_channel
 
                         variants = payload.get("body_variants") or []
-                        extracted_body = (variants[0] if isinstance(variants, list) and variants else "") or payload.get("body") or payload.get("text") or ""
-                        draft_body = (
-                            extracted_body
-                            or "Beste bewoner,\n\nDank voor uw bericht. We hebben uw melding ontvangen en zijn direct bezig met de opvolging.\n\nMet vriendelijke groet,\nHarjot — EstateOS"
+                        extracted_body = (
+                            (variants[0] if isinstance(variants, list) and variants else "")
+                            or payload.get("body")
+                            or payload.get("text")
+                            or ""
+                        )
+                        draft_body = extracted_body or (
+                            "Beste bewoner,\n\nDank voor uw bericht. We hebben uw melding ontvangen en zijn "
+                            "direct bezig met de opvolging.\n\nMet vriendelijke groet,\nHarjot — EstateOS"
                         )
 
                         return PreviewCardData(
                             type="draft_message",
                             channel=str(channel) if channel and not hasattr(channel, "_mock_name") else "whatsapp",
-                            recipient=str(resolved_recipient) if resolved_recipient and not hasattr(resolved_recipient, "_mock_name") else "",
-                            unitLabel=str(unit_label) if unit_label and not hasattr(unit_label, "_mock_name") else "Portfolio Unit",
-                            subject=str(payload.get("subject")) if payload.get("subject") and not hasattr(payload.get("subject"), "_mock_name") else None,
+                            recipient=str(resolved_recipient)
+                            if resolved_recipient and not hasattr(resolved_recipient, "_mock_name")
+                            else "",
+                            unitLabel=str(unit_label)
+                            if unit_label and not hasattr(unit_label, "_mock_name")
+                            else "Portfolio Unit",
+                            subject=str(payload.get("subject"))
+                            if payload.get("subject") and not hasattr(payload.get("subject"), "_mock_name")
+                            else None,
                             body=str(draft_body) if draft_body and not hasattr(draft_body, "_mock_name") else "",
                             actionId=str(act.id),
                             caseId=str(act.case_id),
@@ -325,7 +351,10 @@ def _resolve_draft_card(
                 unit = session.get(Unit, target_case.unit_id) if target_case.unit_id else None
                 unit_label = unit.address if unit else "Portfolio Unit"
                 case_id = str(target_case.id)
-                body_text = "Beste bewoner,\n\nDank voor uw bericht. We hebben uw melding ontvangen en zijn direct bezig met de opvolging.\n\nMet vriendelijke groet,\nHarjot — EstateOS"
+                body_text = (
+                    "Beste bewoner,\n\nDank voor uw bericht. We hebben uw melding ontvangen en zijn direct bezig "
+                    "met de opvolging.\n\nMet vriendelijke groet,\nHarjot — EstateOS"
+                )
 
                 # Pull the real recipient phone/email for this case from DB
                 real_recipient, ch = _find_case_recipient(session, target_case)
@@ -333,15 +362,17 @@ def _resolve_draft_card(
                 return PreviewCardData(
                     type="draft_message",
                     channel=str(ch) if ch and not hasattr(ch, "_mock_name") else "whatsapp",
-                    recipient=str(real_recipient) if real_recipient and not hasattr(real_recipient, "_mock_name") else "",
-                    unitLabel=str(unit_label) if unit_label and not hasattr(unit_label, "_mock_name") else "Portfolio Unit",
+                    recipient=str(real_recipient)
+                    if real_recipient and not hasattr(real_recipient, "_mock_name")
+                    else "",
+                    unitLabel=str(unit_label)
+                    if unit_label and not hasattr(unit_label, "_mock_name")
+                    else "Portfolio Unit",
                     body=body_text,
                     actionId=f"act-{case_id[:8]}",
                     caseId=case_id,
                 )
     return None
-
-
 
 
 def _resolve_calendar_action(
@@ -354,9 +385,13 @@ def _resolve_calendar_action(
     is_inquiry = bool(re.search(r"\b(what|which|show|list|view|check|any|hoeveel|welke|wat)\b", q_low))
     is_schedule_command = not is_inquiry and (
         q_low.startswith(("schedule ", "book ", "set up ", "plan "))
-        or bool(re.search(r"\b(schedule\s+(?!to|of\b)|book\s+(?!to|of\b)|set up\s+|plan\s+visit|inplannen|boeken)\b", q_low))
+        or bool(
+            re.search(r"\b(schedule\s+(?!to|of\b)|book\s+(?!to|of\b)|set up\s+|plan\s+visit|inplannen|boeken)\b", q_low)
+        )
     )
-    is_calendar_query = bool(re.search(r"\b(calendar|visit|visits|appointment|appointments|scheduled|booked|afspraak|agenda)\b", q_low))
+    is_calendar_query = bool(
+        re.search(r"\b(calendar|visit|visits|appointment|appointments|scheduled|booked|afspraak|agenda)\b", q_low)
+    )
 
     if not (is_schedule_command or is_calendar_query):
         return None, None, [], []
@@ -370,10 +405,7 @@ def _resolve_calendar_action(
             target_case = None
             for b in briefs:
                 lbl = (b.label or "").lower()
-                if "keizersgracht" in q_low and "keizersgracht" in lbl:
-                    target_case = session.get(Case, b.case_id)
-                    break
-                elif "pieter" in q_low and "pieter" in lbl:
+                if ("keizersgracht" in q_low and "keizersgracht" in lbl) or ("pieter" in q_low and "pieter" in lbl):
                     target_case = session.get(Case, b.case_id)
                     break
 
@@ -420,11 +452,18 @@ def _resolve_calendar_action(
             end_str = proposal.end_time.strftime("%H:%M")
             time_window_str = f"{start_str} – {end_str}"
 
-            access_line = f"• **Lockbox Access**: #{proposal.lockbox_code}\n\n" if proposal.lockbox_code else "• **Access**: Tenant present / direct access\n\n"
-            lockbox_line = f"Lockbox: #{proposal.lockbox_code}\n" if proposal.lockbox_code else "Lockbox: None (Tenant access)\n"
+            access_line = (
+                f"• **Lockbox Access**: #{proposal.lockbox_code}\n\n"
+                if proposal.lockbox_code
+                else "• **Access**: Tenant present / direct access\n\n"
+            )
+            lockbox_line = (
+                f"Lockbox: #{proposal.lockbox_code}\n" if proposal.lockbox_code else "Lockbox: None (Tenant access)\n"
+            )
 
             ans = (
-                f"I have checked your schedule and prepared an appointment for **{contractor_name}** at **{addr}** on **{time_window_str}**.\n\n"
+                f"I have checked your schedule and prepared an appointment for **{contractor_name}** at **{addr}** "
+                f"on **{time_window_str}**.\n\n"
                 f"• **Status**: Proposed (No calendar conflicts)\n"
                 f"{access_line}"
                 f"Tap **Approve & Add to Google Calendar** below to sync."
@@ -515,7 +554,10 @@ def _resolve_calendar_action(
     "/ask",
     response_model=AskAgentResponse,
     summary="Ask EstateOS Super Agent",
-    description="Natural language queries & autonomous execution across portfolio, leases, arrears, and maintenance tickets using the CONCIERGE agent.",
+    description=(
+        "Natural language queries & autonomous execution across portfolio, leases, arrears, and maintenance "
+        "tickets using the CONCIERGE agent."
+    ),
 )
 def ask_agent(
     req: AskAgentRequest,
@@ -531,13 +573,15 @@ def ask_agent(
         company_id = company.id if company else UUID("00000000-0000-0000-0000-000000000001")
 
         # Natural language rule recording check (T5 Standing Rules - Issue 1.9)
-        q_clean = req.query.strip().strip('"\'“”`')
+        q_clean = req.query.strip().strip("\"'“”`")
         q_low = q_clean.lower()
 
         # Distinguish temporary tasks/reminders from permanent standing policy rules
-        is_task_reminder = (
-            q_low.startswith(("remember to ", "remind me to ", "note to "))
-            or bool(re.search(r"^(remember|remind me|note)\s+(to\s+)?(call|email|text|message|pay|chase|ask|contact|check on)\b", q_low))
+        is_task_reminder = q_low.startswith(("remember to ", "remind me to ", "note to ")) or bool(
+            re.search(
+                r"^(remember|remind me|note)\s+(to\s+)?(call|email|text|message|pay|chase|ask|contact|check on)\b",
+                q_low,
+            )
         )
 
         rule_prefixes = [
@@ -562,9 +606,9 @@ def ask_agent(
                     break
 
         if matched_rule_prefix:
-            rule_text = q_clean[len(matched_rule_prefix):].strip().strip('"\'“”`')
+            rule_text = q_clean[len(matched_rule_prefix) :].strip().strip("\"'“”`")
             if rule_text:
-                item, reason = memory_items.record_owner_memory(
+                item, _reason = memory_items.record_owner_memory(
                     session,
                     company_id=company_id,
                     text=rule_text,
@@ -576,7 +620,11 @@ def ask_agent(
 
                 if item is not None and item.status == MemoryStatus.active:
                     return AskAgentResponse(
-                        answer=f'This standing rule is already active in your company settings:\\n\\n• **"{item.text}"**\\n\\nAll agents and automated workflows already enforce it.',
+                        answer=(
+                            "This standing rule is already active in your company settings:\\n\\n"
+                            f'• **"{item.text}"**\\n\\nAll '
+                            "agents and automated workflows already enforce it."
+                        ),
                         suggestedAction="View Standing Rules in Settings",
                         actions=[
                             ActionButtonData(
@@ -595,9 +643,9 @@ def ask_agent(
                     rule_id = str(item.id)
                     return AskAgentResponse(
                         answer=(
-                            f'I have drafted a new proposed standing rule for your company:\\n\\n'
+                            f"I have drafted a new proposed standing rule for your company:\\n\\n"
                             f'• **"{item.text}"**\\n\\n'
-                            f'Would you like to activate this policy across your portfolio?'
+                            f"Would you like to activate this policy across your portfolio?"
                         ),
                         suggestedAction="Activate Standing Rule",
                         actions=[
@@ -632,12 +680,14 @@ def ask_agent(
                     )
 
         # Pull active owner memory rules (T5)
-        approved_memories = list(session.scalars(
-            select(MemoryItem.text)
-            .where(MemoryItem.company_id == company_id, MemoryItem.status == MemoryStatus.active)
-            .order_by(MemoryItem.created_at.desc())
-            .limit(10)
-        ).all())
+        approved_memories = list(
+            session.scalars(
+                select(MemoryItem.text)
+                .where(MemoryItem.company_id == company_id, MemoryItem.status == MemoryStatus.active)
+                .order_by(MemoryItem.created_at.desc())
+                .limit(10)
+            ).all()
+        )
 
         # Pull pre-warmed page facts if available
         page_row = session.scalars(
@@ -657,7 +707,8 @@ def ask_agent(
             .limit(20)
         ).all()
         briefs = [CaseBrief(c.id, _case_label(session, c), c.state.value, c.urgency.value, c.summary) for c in cases]
-        # Order briefs primarily by real-world urgency (emergency > high > normal > low), maintaining temporal order within tier
+        # Order briefs primarily by real-world urgency (emergency > high > normal > low), keeping temporal order
+        # within a tier
         _urgency_weights = {"emergency": 0, "high": 1, "normal": 2, "low": 3}
         briefs.sort(key=lambda b: _urgency_weights.get((b.urgency or "").lower(), 4))
         open_tasks = work_repo.open_tasks(session, company_id, now=now)[:20]
@@ -665,8 +716,15 @@ def ask_agent(
 
         # Early check: If query directly asks about active T5 standing rules / memories, return immediately
         matching_rule = None
-        q_words = [w for w in q_low.split() if len(w) > 3 and w not in ["what", "which", "tell", "show", "about", "contractor", "rule", "rules", "from", "with"]]
-        if any(k in q_low for k in ["rule", "rules", "preference", "remember", "standing", "custom", "contractor policy"]):
+        q_words = [
+            w
+            for w in q_low.split()
+            if len(w) > 3
+            and w not in ["what", "which", "tell", "show", "about", "contractor", "rule", "rules", "from", "with"]
+        ]
+        if any(
+            k in q_low for k in ["rule", "rules", "preference", "remember", "standing", "custom", "contractor policy"]
+        ):
             for m in approved_memories:
                 m_low = m.lower()
                 if any(w in m_low for w in q_words) or ("rule" in q_low and len(approved_memories) == 1):
@@ -707,7 +765,10 @@ def ask_agent(
                 )
 
         # Specific Task Trigger: Document / Lease / Contract / Terms query
-        doc_pattern = r"\b(lease|agreement|contract|deposit|borg|document|pdf|clause|terms|notice period|sublet|huurovereenkomst)\b"
+        doc_pattern = (
+            r"\b(lease|agreement|contract|deposit|borg|document|pdf|clause|terms|notice period|sublet"
+            r"|huurovereenkomst)\b"
+        )
         is_contractor_inquiry = bool(re.search(r"\bcontractor(s)?\b", q_low))
         is_comm_inquiry = any(w in q_low for w in ["message", "messages", "reply", "email", "mail", "whatsapp"])
         is_doc_task = bool(re.search(doc_pattern, q_low)) and not is_contractor_inquiry and not is_comm_inquiry
@@ -719,20 +780,35 @@ def ask_agent(
                     best_hit = hits[0]
                     matched_doc = session.get(DocumentRow, best_hit.document_id)
                     if matched_doc:
-                        drive_url = f"https://drive.google.com/file/d/{matched_doc.drive_file_id}/view" if matched_doc.drive_file_id else None
-                        clean_snippet = best_hit.snippet.replace("«", "").replace("»", "")
-                        matched_chunks = list(session.scalars(
-                            select(DocumentChunk.text).where(DocumentChunk.document_id == matched_doc.id).order_by(DocumentChunk.ord)
-                        ).all())
+                        drive_url = (
+                            f"https://drive.google.com/file/d/{matched_doc.drive_file_id}/view"
+                            if matched_doc.drive_file_id
+                            else None
+                        )
+                        clean_snippet = (best_hit.snippet or "").replace("«", "").replace("»", "")
+                        matched_chunks = list(
+                            session.scalars(
+                                select(DocumentChunk.text)
+                                .where(DocumentChunk.document_id == matched_doc.id)
+                                .order_by(DocumentChunk.ord)
+                            ).all()
+                        )
                         doc_full_text = "\n".join(matched_chunks) if matched_chunks else clean_snippet
-                        
-                        doc_context = f"Matched Document: {matched_doc.title} ({matched_doc.doc_type})\nFull Verified Document Content:\n{doc_full_text}"
+
+                        doc_context = (
+                            f"Matched Document: {matched_doc.title} ({matched_doc.doc_type})\n"
+                            f"Full Verified Document Content:\n{doc_full_text}"
+                        )
                         groq_doc_ans = _generate_groq_answer(
-                            f"Answer this user query directly and concisely in 1-2 bullet points based on the document: '{req.query}'. Keep the answer short and executive.",
+                            (
+                                "Answer this user query directly and concisely in 1-2 bullet points based on the "
+                                "document: "
+                                f"'{req.query}'. Keep the answer short and executive."
+                            ),
                             settings,
                             page_facts=doc_context,
                         )
-                        
+
                         if groq_doc_ans:
                             doc_ans = f"**Document Intelligence (Verified RAG):**\n\n{groq_doc_ans}\n\n"
                         else:
@@ -766,9 +842,13 @@ def ask_agent(
                             )
                         )
 
-                        unit_label = "Keizersgracht 42-A" if "keizersgracht" in (matched_doc.title + (matched_doc.drive_folder or "")).lower() else "Portfolio Document"
+                        unit_label = (
+                            "Keizersgracht 42-A"
+                            if "keizersgracht" in (matched_doc.title + (matched_doc.drive_folder or "")).lower()
+                            else "Portfolio Document"
+                        )
 
-                        preview_card = PreviewCardData(
+                        preview_card: PreviewCardData | None = PreviewCardData(
                             type="document_item",
                             badgeLabel="GOOGLE DRIVE",
                             unitLabel=unit_label,
@@ -790,7 +870,19 @@ def ask_agent(
             except Exception as rag_err:
                 log.warning("api.superagent.rag_trigger_failed", error=str(rag_err))
 
-    live_cases_text = "\n".join([f"• Ticket #{str(b.case_id)[:6]}: {b.label} (State: {b.state}, Urgency: {b.urgency}). Problem: {b.summary}" for b in briefs]) if briefs else "• No active open tickets."
+    live_cases_text = (
+        "\n".join(
+            [
+                (
+                    f"• Ticket #{str(b.case_id)[:6]}: {b.label} (State: {b.state}, Urgency: {b.urgency}). Problem: "
+                    f"{b.summary}"
+                )
+                for b in briefs
+            ]
+        )
+        if briefs
+        else "• No active open tickets."
+    )
 
     # Build prompt using context compiler with active memory rules and page facts
     history = (req.history or [])[-MAX_HISTORY:]
@@ -838,7 +930,9 @@ def ask_agent(
     ans_text: str = ""
     try:
         if plan and plan.in_scope and plan.steps:
-            results = run_plan(engine, settings, company_id, plan, question=req.query, now=now, brief_cases=[b.case_id for b in briefs])
+            results = run_plan(
+                engine, settings, company_id, plan, question=req.query, now=now, brief_cases=[b.case_id for b in briefs]
+            )
             ans_text = assemble_answer(results)
         else:
             # Screened or direct command path via owner_commands
@@ -892,7 +986,7 @@ def ask_agent(
     # 3. Build step badge labels and inspect any generated proposal cards / actions
     step_descriptions: list[str] = []
     dropped_warnings: list[str] = []
-    preview_card: PreviewCardData | None = None
+    preview_card = None
     action_buttons: list[ActionButtonData] = []
     q_low = req.query.lower()
 
@@ -924,7 +1018,7 @@ def ask_agent(
         if r.view:
             v_low = r.view.lower()
             cid = cid_str or (str(briefs[0].case_id) if briefs else "")
-            
+
             if v_low == "waiting":
                 view_label = "View Waiting Radar on Dashboard"
                 view_path = "/"
@@ -945,7 +1039,20 @@ def ask_agent(
             elif v_low in ("tasks", "dashboard", "home"):
                 # Disambiguate 'tasks' - quote / PO approvals live in Maintenance, communication drafts live in Inbox
                 context_str = (ans_text + " " + q_low).lower()
-                is_maint = any(w in context_str for w in ["maintenance", "ticket", "quote", "po", "plumber", "electrician", "leak", "repair", "contractor"])
+                is_maint = any(
+                    w in context_str
+                    for w in [
+                        "maintenance",
+                        "ticket",
+                        "quote",
+                        "po",
+                        "plumber",
+                        "electrician",
+                        "leak",
+                        "repair",
+                        "contractor",
+                    ]
+                )
                 is_inbox = any(w in context_str for w in ["email", "reply", "draft", "message", "whatsapp"])
 
                 if cid and is_maint:
@@ -999,13 +1106,18 @@ def ask_agent(
                 )
 
         # Check if a proposal was drafted
-        if r.intent in (Intent.draft_reply, Intent.chase_now) and r.data and "approval_ids" in r.data and not preview_card:
+        if (
+            r.intent in (Intent.draft_reply, Intent.chase_now)
+            and r.data
+            and "approval_ids" in r.data
+            and not preview_card
+        ):
             approval_ids = r.data.get("approval_ids", [])
             preview_card = _resolve_draft_card(engine, approval_ids=approval_ids)
 
         # Check for case status snapshot card
         if r.intent == Intent.case_status and r.data and not preview_card:
-            cid = r.data.get("case_id") or cid_str or (str(briefs[0].case_id) if briefs else None)
+            status_cid = r.data.get("case_id") or cid_str or (str(briefs[0].case_id) if briefs else None)
             preview_card = PreviewCardData(
                 type="case_summary",
                 badgeLabel="TICKET",
@@ -1013,14 +1125,17 @@ def ask_agent(
                 title=r.summary,
                 body=r.data.get("summary", r.summary),
                 status=r.data.get("state", "open").replace("_", " "),
-                caseId=cid,
-                targetUrl=f"/maintenance?ticket={cid}" if cid else "/maintenance",
+                caseId=status_cid,
+                targetUrl=f"/maintenance?ticket={status_cid}" if status_cid else "/maintenance",
             )
 
-    if dropped_warnings and (not ans_text or ans_text.strip() in ["I need more detail", "Something went wrong with that step."]):
+    if dropped_warnings and (
+        not ans_text or ans_text.strip() in ["I need more detail", "Something went wrong with that step."]
+    ):
         ans_text = "**Action Notice:**\n\n" + "\n".join(dropped_warnings)
 
-    # Contextual preview card fallback ONLY if drafting was requested, an open case exists, and a draft action wasn't already emitted
+    # Contextual preview card fallback ONLY if drafting was requested, an open case exists, and a draft action
+    # wasn't already emitted
     if any(k in q_low for k in ["draft", "send", "message", "reply"]) and not preview_card:
         preview_card = _resolve_draft_card(engine, allow_fallback=True, company_id=company_id)
 
@@ -1032,14 +1147,20 @@ def ask_agent(
         for b in briefs:
             cid_str = str(b.case_id)
             lbl_parts = [
-                w for w in (b.label or "").lower().replace("·", " ").replace("-", " ").split()
+                w
+                for w in (b.label or "").lower().replace("·", " ").replace("-", " ").split()
                 if len(w) > 3 and w not in ["maintenance", "case", "unit", "tenant", "portfolio"]
             ]
             summary_parts = [
-                w for w in (b.summary or "").lower().replace("·", " ").replace("-", " ").split()
+                w
+                for w in (b.summary or "").lower().replace("·", " ").replace("-", " ").split()
                 if len(w) > 4 and w not in ["maintenance", "case", "contractor", "reported", "needs", "dispatched"]
             ]
-            if cid_str in ans_low or any(w in ans_low for w in lbl_parts) or any(w in ans_low for w in summary_parts[:5]):
+            if (
+                cid_str in ans_low
+                or any(w in ans_low for w in lbl_parts)
+                or any(w in ans_low for w in summary_parts[:5])
+            ):
                 matched_brief = b
                 break
 
@@ -1062,7 +1183,9 @@ def ask_agent(
                 preview_card = PreviewCardData(
                     type="case_summary",
                     badgeLabel="URGENT" if top_brief.urgency in ("emergency", "high") else "TICKET",
-                    unitLabel=top_brief.label.split("·")[1].strip() if "·" in top_brief.label else (top_brief.label or "Portfolio Unit"),
+                    unitLabel=top_brief.label.split("·")[1].strip()
+                    if "·" in top_brief.label
+                    else (top_brief.label or "Portfolio Unit"),
                     title=f"Ticket #{cid_short} · {top_brief.label}",
                     body=top_brief.summary or "Active maintenance case in queue.",
                     contractor="Assigned Contractor",
@@ -1098,11 +1221,32 @@ def ask_agent(
         )
 
     # If drafting was requested and preview_card is active, ensure the answer text clearly introduces the draft
-    if preview_card and preview_card.type == "draft_message" and (
-        not ans_text or any(k in ans_text.lower() for k in ["which", "are you", "can you", "sorry", "blocking sla", "details", "i only answer", "only answer", "send `help`"])
+    if (
+        preview_card
+        and preview_card.type == "draft_message"
+        and (
+            not ans_text
+            or any(
+                k in ans_text.lower()
+                for k in [
+                    "which",
+                    "are you",
+                    "can you",
+                    "sorry",
+                    "blocking sla",
+                    "details",
+                    "i only answer",
+                    "only answer",
+                    "send `help`",
+                ]
+            )
+        )
     ):
         target_name = preview_card.unitLabel or "Portfolio"
-        ans_text = f"I have prepared a draft reply for **{target_name}**. You can review the message and tap **Accept and send** below."
+        ans_text = (
+            f"I have prepared a draft reply for **{target_name}**. You can review the message and tap **Accept "
+            "and send** below."
+        )
 
     # Filter out duplicate Approvals button if a draft card is already shown (draft card has Accept and send)
     if preview_card and preview_card.type == "draft_message":
@@ -1111,7 +1255,16 @@ def ask_agent(
     # Clean, professional execution steps
     if not step_descriptions or any(
         phrase in "".join(step_descriptions).lower()
-        for phrase in ["which", "opening inbox", "not waiting", "based on active portfolio", "open tasks:", "are you", "can you", "what do you mean"]
+        for phrase in [
+            "which",
+            "opening inbox",
+            "not waiting",
+            "based on active portfolio",
+            "open tasks:",
+            "are you",
+            "can you",
+            "what do you mean",
+        ]
     ):
         if preview_card and preview_card.type == "draft_message":
             step_descriptions = ["Retrieved ticket context", "Prepared draft reply", "Queued for approval"]

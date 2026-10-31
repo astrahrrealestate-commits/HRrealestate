@@ -46,6 +46,16 @@ def test_every_type_has_matching_payload() -> None:
             "body_variants": ["a", "b"],
         },
         ActionType.escalate: {"kind": "escalate", "reason": "legal threat"},
+        ActionType.calendar_event: {
+            "kind": "calendar_event",
+            "title": "Loodgieter Keizersgracht 42-A",
+            "start_time": "2026-01-02T11:30:00+01:00",
+            "end_time": "2026-01-02T12:30:00+01:00",
+            "location": None,
+            "contractor_name": None,
+            "lockbox_code": None,
+            "notes": None,
+        },
     }
     assert set(payloads) == set(ActionType)
     for t, p in payloads.items():

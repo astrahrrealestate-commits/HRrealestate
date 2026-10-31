@@ -2389,7 +2389,8 @@
           "create_reminder",
           "update_case_state",
           "request_contractor",
-          "escalate"
+          "escalate",
+          "calendar_event"
         ],
         "title": "ActionType",
         "type": "string"
@@ -3435,7 +3436,8 @@
           "alert",
           "briefing",
           "task",
-          "agent_note"
+          "agent_note",
+          "quote_review"
         ],
         "title": "FeedKind",
         "type": "string"

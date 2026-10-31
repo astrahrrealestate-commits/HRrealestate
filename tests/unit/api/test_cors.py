@@ -68,3 +68,12 @@ def test_origins_parse_from_a_comma_list(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_a_wildcard_is_refused(origins: object) -> None:
     with pytest.raises(ValidationError, match="never"):
         _settings(origins)
+
+
+def test_dev_without_an_allowlist_admits_only_the_local_spa() -> None:
+    dev = _settings().model_copy(update={"env": "dev"})
+    with _client(dev) as c:
+        local = c.options("/api/v1/approvals/x/decide", headers={"Origin": "http://localhost:3000", **PREFLIGHT})
+        other = c.options("/api/v1/approvals/x/decide", headers={"Origin": SPA, **PREFLIGHT})
+    assert local.headers["access-control-allow-origin"] == "http://localhost:3000"
+    assert "access-control-allow-origin" not in other.headers
