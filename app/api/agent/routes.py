@@ -258,11 +258,19 @@ def _domain_fallback_answer(query: str, live_cases_text: str = "", is_error: boo
         return f"**EstateOS Live Status:**\n\n{live_cases_text or '• 0 open cases in database.'}"
 
 
-def _find_case_recipient(session: Session, target_case: Case) -> tuple[str, str]:
-    """Finds the true recipient (phone/email) and channel for a case from its linked messages or tenant identity."""
-    # 1. Check latest linked message for this case
+def _find_case_recipient(session: Session, target_case: Case) -> tuple[str, str, str | None]:
+    """Finds the true recipient (phone/email), channel, and thread_ref for a case from its linked messages or tenant identity."""
+    # 1. Check latest linked message for this case (prioritizing inbound to know who to reply to)
     try:
-        latest_msg = session.scalars(
+        inbound_msg = session.scalars(
+            select(MessageRow)
+            .join(CaseLink, CaseLink.message_id == MessageRow.id)
+            .where(CaseLink.case_id == target_case.id, MessageRow.direction != Direction.outbound)
+            .order_by(MessageRow.sent_at.desc())
+            .limit(1)
+        ).first()
+
+        latest_msg = inbound_msg or session.scalars(
             select(MessageRow)
             .join(CaseLink, CaseLink.message_id == MessageRow.id)
             .where(CaseLink.case_id == target_case.id)
@@ -270,14 +278,18 @@ def _find_case_recipient(session: Session, target_case: Case) -> tuple[str, str]
             .limit(1)
         ).first()
 
-        if latest_msg and getattr(latest_msg, "thread_ref", None) and not hasattr(latest_msg, "_mock_name"):
-            ref = str(latest_msg.thread_ref) if not hasattr(latest_msg.thread_ref, "_mock_name") else ""
-            ch_raw = getattr(latest_msg, "channel", "whatsapp")
+        if latest_msg:
+            ch_raw = getattr(latest_msg, "channel", Channel.whatsapp)
             ch = str(ch_raw.value) if hasattr(ch_raw, "value") else str(ch_raw)
             if hasattr(ch_raw, "_mock_name"):
                 ch = "whatsapp"
-            if ref:
-                return ref, ch
+            thread_ref = str(latest_msg.thread_ref) if getattr(latest_msg, "thread_ref", None) and not hasattr(latest_msg.thread_ref, "_mock_name") else None
+            # Sender identity holds the real phone (+31...) or email (name@...)
+            recip = str(latest_msg.sender_identity) if getattr(latest_msg, "sender_identity", None) and not hasattr(latest_msg.sender_identity, "_mock_name") else ""
+            if not recip and thread_ref and ("@" in thread_ref or thread_ref.startswith("+") or thread_ref.isdigit()):
+                recip = thread_ref
+            if recip:
+                return recip, ch, thread_ref
     except Exception as err:
         log.warning("api.superagent.find_case_msg_failed", error=str(err))
 
@@ -295,16 +307,16 @@ def _find_case_recipient(session: Session, target_case: Case) -> tuple[str, str]
             ).first()
             if ident and getattr(ident, "identity", None) and not hasattr(ident, "_mock_name"):
                 id_val = str(ident.identity) if not hasattr(ident.identity, "_mock_name") else ""
-                ch_raw = getattr(ident, "channel", "whatsapp")
+                ch_raw = getattr(ident, "channel", Channel.whatsapp)
                 ch = str(ch_raw.value) if hasattr(ch_raw, "value") else str(ch_raw)
                 if hasattr(ch_raw, "_mock_name"):
                     ch = "whatsapp"
                 if id_val:
-                    return id_val, ch
+                    return id_val, ch, None
         except Exception as err:
             log.warning("api.superagent.find_person_ident_failed", error=str(err))
 
-    return "", "whatsapp"
+    return "", "whatsapp", None
 
 
 def _resolve_draft_card(
@@ -329,8 +341,11 @@ def _resolve_draft_card(
                         # Resolve recipient from action payload or real linked case message
                         resolved_recipient = payload.get("to") or payload.get("recipient")
                         channel = payload.get("channel", "whatsapp")
-                        if not resolved_recipient and target_case:
-                            resolved_recipient, resolved_channel = _find_case_recipient(session, target_case)
+                        resolved_thread_ref = None
+                        if target_case:
+                            recip_from_db, resolved_channel, resolved_thread_ref = _find_case_recipient(session, target_case)
+                            if not resolved_recipient and recip_from_db:
+                                resolved_recipient = recip_from_db
                             if resolved_channel:
                                 channel = resolved_channel
 
@@ -351,7 +366,10 @@ def _resolve_draft_card(
                         elif chan_str == "gmail" and resolved_recipient:
                             subj_str = str(payload.get("subject") or "")
                             ext_url = f"https://mail.google.com/mail/?view=cm&fs=1&to={quote_plus(str(resolved_recipient))}&su={quote_plus(subj_str)}&body={quote_plus(draft_body)}"
-                            thread_url = f"https://mail.google.com/mail/u/0/#search/{quote_plus(str(resolved_recipient))}"
+                            if resolved_thread_ref:
+                                thread_url = f"https://mail.google.com/mail/u/0/#inbox/{resolved_thread_ref}"
+                            else:
+                                thread_url = f"https://mail.google.com/mail/u/0/#search/{quote_plus(str(resolved_recipient))}"
 
                         return PreviewCardData(
                             type="draft_message",
@@ -380,16 +398,31 @@ def _resolve_draft_card(
                 body_text = "Beste bewoner,\n\nDank voor uw bericht. We hebben uw melding ontvangen en zijn direct bezig met de opvolging.\n\nMet vriendelijke groet,\nHarjot — EstateOS"
 
                 # Pull the real recipient phone/email for this case from DB
-                real_recipient, ch = _find_case_recipient(session, target_case)
+                real_recipient, ch, thread_ref = _find_case_recipient(session, target_case)
+                chan_str = str(ch) if ch and not hasattr(ch, "_mock_name") else "whatsapp"
+                clean_phone = re.sub(r"[^0-9]", "", str(real_recipient or ""))
+                ext_url = None
+                thread_url = None
+                if chan_str == "whatsapp" and clean_phone:
+                    ext_url = f"https://wa.me/{clean_phone}?text={quote_plus(body_text)}"
+                    thread_url = f"https://wa.me/{clean_phone}"
+                elif chan_str == "gmail" and real_recipient:
+                    ext_url = f"https://mail.google.com/mail/?view=cm&fs=1&to={quote_plus(str(real_recipient))}&su={quote_plus('Maintenance Update')}&body={quote_plus(body_text)}"
+                    if thread_ref:
+                        thread_url = f"https://mail.google.com/mail/u/0/#inbox/{thread_ref}"
+                    else:
+                        thread_url = f"https://mail.google.com/mail/u/0/#search/{quote_plus(str(real_recipient))}"
 
                 return PreviewCardData(
                     type="draft_message",
-                    channel=str(ch) if ch and not hasattr(ch, "_mock_name") else "whatsapp",
+                    channel=chan_str,
                     recipient=str(real_recipient) if real_recipient and not hasattr(real_recipient, "_mock_name") else "",
                     unitLabel=str(unit_label) if unit_label and not hasattr(unit_label, "_mock_name") else "Portfolio Unit",
                     body=body_text,
                     actionId=f"act-{case_id[:8]}",
                     caseId=case_id,
+                    externalUrl=ext_url,
+                    threadSearchUrl=thread_url,
                 )
     return None
 
