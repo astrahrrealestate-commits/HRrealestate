@@ -6,11 +6,11 @@ Executes multi-step plans (case status, drafting replies, task completions/snooz
 """
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
@@ -21,11 +21,14 @@ from app.context.compiler import compile_concierge_context
 from app.contracts import ConciergePlan, Intent
 from app.core.logging import get_logger
 from app.core.settings import Settings
-from app.db.enums import MemoryKind, MemoryScope, MemoryStatus
+from app.db.enums import MemoryKind, MemoryScope, MemoryStatus, TurnStatus
 from app.channels.calendar import get_calendar_client
 from app.db.models import (
     ActionRow,
+    AgentConversation,
     AgentPageState,
+    AgentTurn,
+    OwnerAccount,
     Approval,
     CalendarEventRow,
     Case,
@@ -60,6 +63,7 @@ log = get_logger(__name__)
 class AskAgentRequest(BaseModel):
     query: str = Field(description="The question or command by Harjot / owner")
     context: str | None = Field(default=None, description="Optional page context e.g. Inbox, Maintenance, Money")
+    conversation_id: str | None = Field(default=None, description="Existing conversation UUID or null for new thread")
     history: list[str] | None = Field(default=None, description="Recent conversation turns for context")
 
 
@@ -130,6 +134,8 @@ class DebugInfo(BaseModel):
 
 
 class AskAgentResponse(BaseModel):
+    conversation_id: str = Field(default="", description="ID of the conversation thread in Postgres")
+    conversation_title: str = Field(default="New Chat", description="Title of the thread")
     answer: str
     caseRefs: list[str] = Field(default_factory=list)
     suggestedAction: str | None = None
@@ -140,6 +146,47 @@ class AskAgentResponse(BaseModel):
     cards: list[AssistantCardData] = Field(default_factory=list, description="Polymorphic assistant cards")
     debugInfo: DebugInfo | None = None
     suggestedPrompts: list[str] = Field(default_factory=list, description="Dynamic 3 workflow suggestion pills")
+    focus_state: dict[str, Any] = Field(default_factory=dict, description="Active thread focus")
+
+
+class ConversationSummaryItem(BaseModel):
+    id: str
+    title: str
+    last_turn_at: str
+    snippet: str
+    pinned: bool = False
+    time_bucket: str  # "Today" | "Yesterday" | "Earlier"
+
+
+class ConversationListResponse(BaseModel):
+    conversations: list[ConversationSummaryItem]
+
+
+class TurnReplayItem(BaseModel):
+    id: str
+    sender: str  # "user" | "assistant"
+    text: str
+    timestamp: str
+    steps: list[str] = Field(default_factory=list)
+    previewCard: PreviewCardData | None = None
+    cards: list[AssistantCardData] = Field(default_factory=list)
+    actions: list[ActionButtonData] = Field(default_factory=list)
+    suggestedPrompts: list[str] = Field(default_factory=list)
+
+
+class ConversationDetailResponse(BaseModel):
+    id: str
+    title: str
+    pinned: bool
+    last_turn_at: str
+    focus_state: dict[str, Any] = Field(default_factory=dict)
+    turns: list[TurnReplayItem] = Field(default_factory=list)
+
+
+class UpdateConversationRequest(BaseModel):
+    title: str | None = None
+    pinned: bool | None = None
+    hidden: bool | None = None
 
 
 def _case_label(session: Session, case: Case) -> str:
@@ -596,6 +643,115 @@ def _resolve_calendar_action(
     return None, None, [], []
 
 
+def _generate_thread_title(query: str, ans: str, cases: list[CaseBrief]) -> str:
+    """Generate concise 3-5 word title for the conversation thread."""
+    q_low = query.lower()
+    if "keizersgracht" in q_low or (cases and any("keizersgracht" in getattr(c, "label", "").lower() for c in cases)):
+        if any(w in q_low for w in ["leak", "water", "pipe", "plumber", "burst"]):
+            return "Keizersgracht Pipe Leak"
+        return "Keizersgracht 42-A"
+    if any(w in q_low for w in ["rent", "arrear", "overdue", "pay", "behind"]):
+        if "pieter" in q_low:
+            return "Pieter Bakker Arrears"
+        return "Tenant Rent Arrears"
+    if any(w in q_low for w in ["draft", "reply", "send", "message"]):
+        return "Draft Tenant Reply"
+    if any(w in q_low for w in ["calendar", "visit", "schedule", "appointment", "afspraak"]):
+        return "Property Visit & Schedule"
+    if any(w in q_low for w in ["invoice", "bill", "factuur"]):
+        return "Contractor Invoice Check"
+    if any(w in q_low for w in ["priority", "first", "emergency", "ticket"]):
+        return "Urgent Maintenance Queue"
+    clean_words = [w.capitalize() for w in re.sub(r"[^a-zA-Z0-9\s]", "", query).split() if len(w) > 2]
+    return " ".join(clean_words[:4]) or "Conversation"
+
+
+def _finish_agent_response(
+    session: Session,
+    conv: AgentConversation,
+    req: AskAgentRequest,
+    ans_text: str,
+    case_refs: list[str],
+    suggested_action: str | None,
+    action_buttons: list[ActionButtonData],
+    step_descriptions: list[str],
+    preview_card: PreviewCardData | None,
+    cards_list: list[AssistantCardData],
+    pipeline_stage: str,
+    fallback_reason: str | None,
+    suggestions: list[str],
+    now: datetime,
+    briefs: list[CaseBrief],
+) -> AskAgentResponse:
+    if not conv.title or conv.title == "New Chat":
+        conv.title = _generate_thread_title(req.query, ans_text, briefs)
+
+    current_focus = dict(conv.focus_state or {})
+    if preview_card:
+        if preview_card.caseId:
+            current_focus["case_id"] = str(preview_card.caseId)
+        if preview_card.unitLabel:
+            current_focus["unit_label"] = preview_card.unitLabel
+        if preview_card.recipient:
+            current_focus["recipient"] = preview_card.recipient
+        if preview_card.contractor:
+            current_focus["contractor"] = preview_card.contractor
+        if preview_card.actionId:
+            current_focus["last_action_id"] = preview_card.actionId
+        if preview_card.channel:
+            current_focus["channel"] = preview_card.channel
+    elif briefs:
+        current_focus["case_id"] = str(briefs[0].case_id)
+        current_focus["unit_label"] = briefs[0].label
+
+    conv.focus_state = current_focus
+    conv.last_turn_at = now
+
+    user_turn = AgentTurn(
+        company_id=conv.company_id,
+        conversation_id=conv.id,
+        text=req.query,
+        status=TurnStatus.done,
+        answer=None,
+        page_context={"context": req.context},
+    )
+    session.add(user_turn)
+    session.flush()
+
+    agent_turn = AgentTurn(
+        company_id=conv.company_id,
+        conversation_id=conv.id,
+        text=req.query,
+        status=TurnStatus.done,
+        answer=ans_text,
+        results={
+            "cards": [c.model_dump() for c in cards_list],
+            "previewCard": preview_card.model_dump() if preview_card else None,
+            "actions": [a.model_dump() for a in action_buttons],
+            "steps": step_descriptions,
+            "suggestedPrompts": suggestions,
+        },
+    )
+    session.add(agent_turn)
+    session.commit()
+
+    return AskAgentResponse(
+        conversation_id=str(conv.id),
+        conversation_title=conv.title or "New Chat",
+        answer=ans_text,
+        caseRefs=case_refs,
+        suggestedAction=suggested_action,
+        actions=action_buttons,
+        executedAt=now.isoformat(),
+        steps=step_descriptions,
+        previewCard=preview_card,
+        cards=cards_list,
+        debugInfo=DebugInfo(pipeline_stage=pipeline_stage, fallback_reason=fallback_reason),
+        suggestedPrompts=suggestions,
+        focus_state=current_focus,
+    )
+
+
 @router.post(
     "/ask",
     response_model=AskAgentResponse,
@@ -614,6 +770,26 @@ def ask_agent(
         # Default company for single-tenant setup
         company = session.scalars(select(Company).limit(1)).first()
         company_id = company.id if company else UUID("00000000-0000-0000-0000-000000000001")
+
+        # Resolve or initialize AgentConversation thread
+        conv: AgentConversation | None = None
+        if req.conversation_id:
+            try:
+                conv = session.get(AgentConversation, UUID(req.conversation_id))
+            except Exception:
+                conv = None
+
+        if not conv:
+            owner_acct = session.scalars(select(OwnerAccount).where(OwnerAccount.company_id == company_id).limit(1)).first()
+            owner_id = owner_acct.id if owner_acct else company_id
+            conv = AgentConversation(
+                company_id=company_id,
+                owner_id=owner_id,
+                title="New Chat",
+                focus_state={},
+            )
+            session.add(conv)
+            session.flush()
 
         # Natural language rule recording check (T5 Standing Rules - Issue 1.9)
         q_clean = req.query.strip().strip('"\'“”`')
@@ -910,12 +1086,27 @@ def ask_agent(
     # Build prompt using context compiler with active memory rules and page facts
     history = (req.history or [])[-MAX_HISTORY:]
     try:
+        # Inject active thread focus if available
+        focus_text = ""
+        if conv and conv.focus_state:
+            f_lines = []
+            if conv.focus_state.get("unit_label"):
+                f_lines.append(f"• Property / Unit: {conv.focus_state['unit_label']}")
+            if conv.focus_state.get("recipient"):
+                f_lines.append(f"• Active Contact / Tenant: {conv.focus_state['recipient']}")
+            if conv.focus_state.get("contractor"):
+                f_lines.append(f"• Assigned Contractor: {conv.focus_state['contractor']}")
+            if conv.focus_state.get("case_id"):
+                f_lines.append(f"• Active Ticket: #{str(conv.focus_state['case_id'])[:6]}")
+            if f_lines:
+                focus_text = "\n\nActive Thread Focus (Pronouns like 'he', 'him', 'that ticket' refer to these entities):\n" + "\n".join(f_lines)
+
         compiled = compile_concierge_context(
             question=req.query,
             recent=history,
             cases=briefs,
             open_tasks=tasks,
-            page_facts_text=page_facts_text,
+            page_facts_text=(page_facts_text or "") + focus_text,
             owner_preferences=approved_memories,
         )
         prompt = compiled.prompt_text
@@ -1359,15 +1550,157 @@ def ask_agent(
             )
         )
 
-    return AskAgentResponse(
-        answer=ans_text,
-        caseRefs=case_refs,
-        suggestedAction=suggested_action,
-        actions=action_buttons,
-        executedAt=now.isoformat(),
-        steps=step_descriptions,
-        previewCard=preview_card,
-        cards=cards_list,
-        debugInfo=DebugInfo(pipeline_stage=pipeline_stage, fallback_reason=fallback_reason),
-        suggestedPrompts=suggestions,
+    return _finish_agent_response(
+        session=session,
+        conv=conv,
+        req=req,
+        ans_text=ans_text,
+        case_refs=case_refs,
+        suggested_action=suggested_action,
+        action_buttons=action_buttons,
+        step_descriptions=step_descriptions,
+        preview_card=preview_card,
+        cards_list=cards_list,
+        pipeline_stage=pipeline_stage,
+        fallback_reason=fallback_reason,
+        suggestions=suggestions,
+        now=now,
+        briefs=briefs,
     )
+
+
+@router.get("/conversations", response_model=ConversationListResponse, summary="List Super Agent Conversation Threads")
+def list_conversations(engine: Annotated[Engine, Depends(get_engine)]) -> ConversationListResponse:
+    with Session(engine) as session:
+        company = session.scalars(select(Company).limit(1)).first()
+        company_id = company.id if company else UUID("00000000-0000-0000-0000-000000000001")
+
+        now = datetime.now(UTC)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        yesterday_start = today_start - timedelta(days=1)
+
+        convs = list(session.scalars(
+            select(AgentConversation)
+            .where(
+                AgentConversation.company_id == company_id,
+                AgentConversation.hidden_at.is_(None),
+            )
+            .order_by(AgentConversation.pinned.desc(), AgentConversation.last_turn_at.desc())
+            .limit(50)
+        ).all())
+
+        items = []
+        for c in convs:
+            t_at = c.last_turn_at if c.last_turn_at.tzinfo else c.last_turn_at.replace(tzinfo=UTC)
+            if t_at >= today_start:
+                bucket = "Today"
+            elif t_at >= yesterday_start:
+                bucket = "Yesterday"
+            else:
+                bucket = "Earlier"
+
+            snippet = c.summary or ""
+            if not snippet:
+                last_turn = session.scalars(
+                    select(AgentTurn)
+                    .where(AgentTurn.conversation_id == c.id, AgentTurn.answer.is_not(None))
+                    .order_by(AgentTurn.created_at.desc())
+                    .limit(1)
+                ).first()
+                if last_turn and last_turn.answer:
+                    clean = re.sub(r"[#*`]", "", last_turn.answer).strip().splitlines()[0]
+                    snippet = clean[:80]
+
+            items.append(
+                ConversationSummaryItem(
+                    id=str(c.id),
+                    title=c.title or "Conversation",
+                    last_turn_at=c.last_turn_at.isoformat(),
+                    snippet=snippet or "No messages yet",
+                    pinned=bool(c.pinned),
+                    time_bucket=bucket,
+                )
+            )
+        return ConversationListResponse(conversations=items)
+
+
+@router.get("/conversations/{conversation_id}", response_model=ConversationDetailResponse, summary="Replay Stored Conversation Turns")
+def get_conversation_detail(conversation_id: str, engine: Annotated[Engine, Depends(get_engine)]) -> ConversationDetailResponse:
+    with Session(engine) as session:
+        try:
+            cid = UUID(conversation_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid conversation UUID")
+
+        conv = session.get(AgentConversation, cid)
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        turns_db = list(session.scalars(
+            select(AgentTurn)
+            .where(AgentTurn.conversation_id == cid)
+            .order_by(AgentTurn.created_at.asc())
+        ).all())
+
+        replay_items = []
+        for t in turns_db:
+            res_dict = t.results if isinstance(t.results, dict) else {}
+            sender = "assistant" if t.answer else "user"
+            text = t.answer if t.answer else t.text
+            cards_raw = res_dict.get("cards") or []
+            preview_raw = res_dict.get("previewCard")
+            actions_raw = res_dict.get("actions") or []
+            steps_raw = res_dict.get("steps") or []
+            prompts_raw = res_dict.get("suggestedPrompts") or []
+
+            replay_items.append(
+                TurnReplayItem(
+                    id=str(t.id),
+                    sender=sender,
+                    text=text or "",
+                    timestamp=t.created_at.strftime("%H:%M") if t.created_at else "",
+                    steps=steps_raw,
+                    previewCard=PreviewCardData.model_validate(preview_raw) if preview_raw else None,
+                    cards=[AssistantCardData.model_validate(card_it) for card_it in cards_raw] if cards_raw else [],
+                    actions=[ActionButtonData.model_validate(act_it) for act_it in actions_raw] if actions_raw else [],
+                    suggestedPrompts=prompts_raw,
+                )
+            )
+
+        return ConversationDetailResponse(
+            id=str(conv.id),
+            title=conv.title or "Conversation",
+            pinned=bool(conv.pinned),
+            last_turn_at=conv.last_turn_at.isoformat(),
+            focus_state=conv.focus_state or {},
+            turns=replay_items,
+        )
+
+
+@router.patch("/conversations/{conversation_id}", summary="Rename, Pin or Hide Thread")
+def update_conversation(
+    conversation_id: str,
+    req: UpdateConversationRequest,
+    engine: Annotated[Engine, Depends(get_engine)],
+) -> dict[str, Any]:
+    with Session(engine) as session:
+        try:
+            cid = UUID(conversation_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid conversation UUID")
+
+        conv = session.get(AgentConversation, cid)
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        if req.title is not None:
+            conv.title = req.title.strip()
+        if req.pinned is not None:
+            conv.pinned = req.pinned
+        if req.hidden is True:
+            conv.hidden_at = datetime.now(UTC)
+        elif req.hidden is False:
+            conv.hidden_at = None
+
+        session.commit()
+        return {"ok": True, "id": str(conv.id), "title": conv.title, "pinned": conv.pinned, "hidden": bool(conv.hidden_at)}

@@ -808,6 +808,8 @@ export interface DebugInfo {
 }
 
 export interface AskAgentResponse {
+  conversation_id?: string;
+  conversation_title?: string;
   answer: string;
   caseRefs?: string[];
   suggestedAction?: string | null;
@@ -818,6 +820,37 @@ export interface AskAgentResponse {
   cards?: AssistantCard[];
   debugInfo?: DebugInfo | null;
   suggestedPrompts?: string[];
+  focus_state?: Record<string, any>;
+}
+
+export interface ConversationSummaryItem {
+  id: string;
+  title: string;
+  last_turn_at: string;
+  snippet: string;
+  pinned: boolean;
+  time_bucket: "Today" | "Yesterday" | "Earlier" | string;
+}
+
+export interface TurnReplayItem {
+  id: string;
+  sender: "user" | "assistant";
+  text: string;
+  timestamp: string;
+  steps?: string[];
+  previewCard?: PreviewCardData | null;
+  cards?: AssistantCard[];
+  actions?: AskAgentAction[];
+  suggestedPrompts?: string[];
+}
+
+export interface ConversationDetailResponse {
+  id: string;
+  title: string;
+  pinned: boolean;
+  last_turn_at: string;
+  focus_state: Record<string, any>;
+  turns: TurnReplayItem[];
 }
 
 /**
@@ -827,7 +860,8 @@ export interface AskAgentResponse {
 export async function askAgent(
   query: string,
   context?: string,
-  history?: string[]
+  history?: string[],
+  conversationId?: string | null
 ): Promise<AskAgentResponse> {
   const fallbackAns: AskAgentResponse = {
     answer: "No active blocking SLA breaches detected. All maintenance queues are up to date.",
@@ -851,7 +885,7 @@ export async function askAgent(
         "Content-Type": "application/json",
         Accept: "application/json",
       },
-      body: JSON.stringify({ query, context, history }),
+      body: JSON.stringify({ query, context, history, conversation_id: conversationId || null }),
       signal: AbortSignal.timeout(35000),
     });
 
@@ -864,6 +898,58 @@ export async function askAgent(
 
   return fallbackAns;
 }
+
+export async function getAgentConversations(): Promise<ConversationSummaryItem[]> {
+  try {
+    const res = await fetch(`${BACKEND_BASE_URL}/api/agent/conversations`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.conversations || [];
+    }
+  } catch (e) {
+    console.warn("getAgentConversations failed", e);
+  }
+  return [];
+}
+
+export async function getConversationDetail(conversationId: string): Promise<ConversationDetailResponse | null> {
+  try {
+    const res = await fetch(`${BACKEND_BASE_URL}/api/agent/conversations/${conversationId}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (e) {
+    console.warn("getConversationDetail failed", e);
+  }
+  return null;
+}
+
+export async function updateAgentConversation(
+  conversationId: string,
+  payload: { title?: string; pinned?: boolean; hidden?: boolean }
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${BACKEND_BASE_URL}/api/agent/conversations/${conversationId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10000),
+    });
+    return res.ok;
+  } catch (e) {
+    console.warn("updateAgentConversation failed", e);
+    return false;
+  }
+}
+
 
 // ---------------------------------------------------------------------------
 // Authentication Handshake & Session Management
