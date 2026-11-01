@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { askAgent, approveInboxDraft, approveStandingRule } from "@/lib/api";
+import { askAgent, approveInboxDraft, approveStandingRule, AssistantCard, CardAction } from "@/lib/api";
 
 export interface AssistantAction {
   label: string;
@@ -67,7 +67,10 @@ export interface AssistantMessage {
     dueDate?: string;
     contractor?: string;
     targetUrl?: string;
+    externalUrl?: string | null;
+    threadSearchUrl?: string | null;
   } | null;
+  cards?: AssistantCard[];
   debugInfo?: {
     pipeline_stage: string;
     fallback_reason?: string | null;
@@ -114,6 +117,43 @@ export function AskEstateOSPanel({
   const [approvedMemoryIds, setApprovedMemoryIds] = useState<Set<string>>(new Set());
   const [sentCardIds, setSentCardIds] = useState<Set<string>>(new Set());
   const [sendErrorCardIds, setSendErrorCardIds] = useState<Set<string>>(new Set());
+  const [executingActionKey, setExecutingActionKey] = useState<string | null>(null);
+  const [completedActionKeys, setCompletedActionKeys] = useState<Set<string>>(new Set());
+
+  const handleUniversalCardAction = async (action: CardAction, cardId: string) => {
+    const actionKey = `${cardId}-${action.label}`;
+    if (action.kind === "open_external" && action.targetUrl) {
+      window.open(action.targetUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (action.kind === "navigate" && action.targetUrl) {
+      handleNavigate(action.targetUrl);
+      return;
+    }
+    if (action.kind === "api_call" && action.endpoint) {
+      setExecutingActionKey(actionKey);
+      try {
+        const fullUrl = action.endpoint.startsWith("http")
+          ? action.endpoint
+          : `${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}${action.endpoint}`;
+        const res = await fetch(fullUrl, {
+          method: action.method || "POST",
+          headers: { "Content-Type": "application/json" },
+          body: action.payload ? JSON.stringify(action.payload) : undefined,
+        });
+        if (res.ok) {
+          setCompletedActionKeys((prev) => new Set([...prev, actionKey]));
+          if (action.endpoint.includes("/approvals/") || action.label.toLowerCase().includes("send")) {
+            setSentCardIds((prev) => new Set([...prev, cardId]));
+          }
+        }
+      } catch (e) {
+        console.error("Action execution failed", e);
+      } finally {
+        setExecutingActionKey(null);
+      }
+    }
+  };
 
   // Use persistent shared messages from SuperAgentContext
   const messages = superAgent.messages;
@@ -238,6 +278,7 @@ export function AskEstateOSPanel({
         text: res.answer,
         steps: res.steps,
         previewCard: res.previewCard,
+        cards: res.cards,
         debugInfo: res.debugInfo,
         actions: parsedActions.length > 0 ? parsedActions : undefined,
         suggestedPrompts: res.suggestedPrompts,
@@ -836,8 +877,8 @@ export function AskEstateOSPanel({
                           "{msg.previewCard.body && msg.previewCard.body !== "--" ? msg.previewCard.body : "Beste bewoner,\n\nDank voor uw melding. We hebben uw bericht ontvangen en zijn direct bezig met de opvolging.\n\nMet vriendelijke groet,\nHarjot — EstateOS"}"
                         </div>
 
-                        <div className="pt-1 flex items-center justify-between gap-2">
-                          <div>
+                        <div className="pt-1 flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             {sentCardIds.has(msg.id) ? (
                               <div className="flex items-center gap-1.5 text-emerald-400 text-[11.5px] font-medium py-1">
                                 <Check className="w-4 h-4 stroke-[2.5]" />
@@ -875,23 +916,59 @@ export function AskEstateOSPanel({
                                 )}
                               </button>
                             )}
+
+                            {msg.previewCard.externalUrl && (
+                              <button
+                                type="button"
+                                onClick={() => window.open(msg.previewCard?.externalUrl!, "_blank", "noopener,noreferrer")}
+                                className={cn(
+                                  "px-2.5 py-1.5 rounded-[7px] font-medium text-[11.5px] flex items-center gap-1.5 transition-all cursor-pointer border",
+                                  msg.previewCard.channel?.toLowerCase() === "whatsapp"
+                                    ? "bg-[#25D366]/15 hover:bg-[#25D366]/25 text-[#25D366] border-[#25D366]/30 shadow-sm"
+                                    : "bg-red-500/15 hover:bg-red-500/25 text-red-400 border-red-500/30 shadow-sm"
+                                )}
+                                title={`Open pre-filled draft in ${msg.previewCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}`}
+                              >
+                                {msg.previewCard.channel?.toLowerCase() === "whatsapp" ? (
+                                  <MessageSquare className="w-3.5 h-3.5" />
+                                ) : (
+                                  <Mail className="w-3.5 h-3.5" />
+                                )}
+                                <span>Open in {msg.previewCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}</span>
+                                <ExternalLink className="w-3 h-3 opacity-70" />
+                              </button>
+                            )}
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const draftText = msg.previewCard?.body ? encodeURIComponent(msg.previewCard.body) : "";
-                              const baseTarget = msg.previewCard?.targetUrl || `/inbox?thread=case-${msg.previewCard?.caseId || ""}`;
-                              const urlWithDraft = draftText && !baseTarget.includes("draft=")
-                                ? `${baseTarget}${baseTarget.includes("?") ? "&" : "?"}draft=${draftText}`
-                                : baseTarget;
-                              handleNavigate(urlWithDraft);
-                            }}
-                            className="text-[11px] text-[#888888] hover:text-[#FFFFFF] flex items-center gap-1 transition-colors cursor-pointer"
-                          >
-                            <span>Open in Inbox</span>
-                            <ExternalLink className="w-3 h-3" />
-                          </button>
+                          <div className="flex items-center gap-2.5">
+                            {msg.previewCard.threadSearchUrl && (
+                              <button
+                                type="button"
+                                onClick={() => window.open(msg.previewCard?.threadSearchUrl!, "_blank", "noopener,noreferrer")}
+                                className="text-[11px] text-[#94A3B8] hover:text-[#E2E8F0] flex items-center gap-1 transition-colors cursor-pointer"
+                                title={`View thread history in ${msg.previewCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}`}
+                              >
+                                <span>View Thread</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const draftText = msg.previewCard?.body ? encodeURIComponent(msg.previewCard.body) : "";
+                                const baseTarget = msg.previewCard?.targetUrl || `/inbox?thread=case-${msg.previewCard?.caseId || ""}`;
+                                const urlWithDraft = draftText && !baseTarget.includes("draft=")
+                                  ? `${baseTarget}${baseTarget.includes("?") ? "&" : "?"}draft=${draftText}`
+                                  : baseTarget;
+                                handleNavigate(urlWithDraft);
+                              }}
+                              className="text-[11px] text-[#888888] hover:text-[#FFFFFF] flex items-center gap-1 transition-colors cursor-pointer"
+                            >
+                              <span>Open in Inbox</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     )}

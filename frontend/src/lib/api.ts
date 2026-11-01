@@ -739,6 +739,39 @@ export async function getTenants(rentStatus: string = "all") {
 // AI Assistant / Ask EstateOS (OWNER_QA Agent)
 // ---------------------------------------------------------------------------
 
+export interface CardAction {
+  label: string;
+  kind: "api_call" | "navigate" | "open_external";
+  endpoint?: string;
+  method?: "POST" | "GET";
+  payload?: any;
+  targetUrl?: string;
+  variant?: "primary" | "secondary" | "danger" | "whatsapp" | "gmail";
+}
+
+export interface AssistantCard {
+  id: string;
+  type: string;
+  badgeLabel?: string;
+  badgeColor?: "orange" | "emerald" | "amber" | "blue" | "red";
+  title?: string;
+  subtitle?: string;
+  body?: string;
+  amount?: string;
+  contractor?: string;
+  dueDate?: string;
+  status?: string;
+  unitLabel?: string;
+  recipient?: string;
+  channel?: string;
+  actions?: CardAction[];
+  externalUrl?: string | null;
+  threadSearchUrl?: string | null;
+  targetUrl?: string | null;
+  caseId?: string | null;
+  actionId?: string | null;
+}
+
 export interface PreviewCardData {
   type: "draft_message" | "case_summary" | "task_card" | "financial_item" | string;
   channel?: string;
@@ -758,6 +791,8 @@ export interface PreviewCardData {
   dueDate?: string;
   contractor?: string;
   targetUrl?: string;
+  externalUrl?: string | null;
+  threadSearchUrl?: string | null;
 }
 
 export interface AskAgentAction {
@@ -780,6 +815,7 @@ export interface AskAgentResponse {
   executedAt: string;
   steps?: string[];
   previewCard?: PreviewCardData | null;
+  cards?: AssistantCard[];
   debugInfo?: DebugInfo | null;
   suggestedPrompts?: string[];
 }

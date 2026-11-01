@@ -1,3 +1,4 @@
+from urllib.parse import quote_plus
 """AI Copilot / Super Agent REST API Route.
 
 Exposes the autonomous CONCIERGE (Super Agent) and executor pipeline to the Next.js frontend Top Command Bar (⌘K).
@@ -62,6 +63,39 @@ class AskAgentRequest(BaseModel):
     history: list[str] | None = Field(default=None, description="Recent conversation turns for context")
 
 
+class CardActionData(BaseModel):
+    label: str
+    kind: str = Field(default="api_call", description="api_call | navigate | open_external")
+    endpoint: str | None = None
+    method: str = "POST"
+    payload: dict[str, Any] | None = None
+    targetUrl: str | None = None
+    variant: str = "primary"  # primary | secondary | danger | whatsapp | gmail
+
+
+class AssistantCardData(BaseModel):
+    id: str
+    type: str  # draft_message | case_summary | financial_item | calendar_item | document_item | memory_item | data_table
+    badgeLabel: str
+    badgeColor: str = "orange"
+    title: str
+    subtitle: str | None = None
+    body: str | None = None
+    amount: str | None = None
+    contractor: str | None = None
+    dueDate: str | None = None
+    status: str | None = None
+    unitLabel: str | None = None
+    recipient: str | None = None
+    channel: str | None = None
+    actions: list[CardActionData] = Field(default_factory=list)
+    externalUrl: str | None = None
+    threadSearchUrl: str | None = None
+    targetUrl: str | None = None
+    caseId: str | None = None
+    actionId: str | None = None
+
+
 class PreviewCardData(BaseModel):
     type: str = Field(default="draft_message", description="Type of card: draft_message, case_summary, task_card, financial_item")
     channel: str | None = Field(default=None, description="whatsapp | gmail | internal")
@@ -79,6 +113,8 @@ class PreviewCardData(BaseModel):
     dueDate: str | None = None
     contractor: str | None = None
     targetUrl: str | None = None
+    externalUrl: str | None = None
+    threadSearchUrl: str | None = None
 
 
 class ActionButtonData(BaseModel):
@@ -101,6 +137,7 @@ class AskAgentResponse(BaseModel):
     executedAt: str
     steps: list[str] = Field(default_factory=list, description="Execution steps performed by agent")
     previewCard: PreviewCardData | None = None
+    cards: list[AssistantCardData] = Field(default_factory=list, description="Polymorphic assistant cards")
     debugInfo: DebugInfo | None = None
     suggestedPrompts: list[str] = Field(default_factory=list, description="Dynamic 3 workflow suggestion pills")
 
@@ -304,15 +341,29 @@ def _resolve_draft_card(
                             or "Beste bewoner,\n\nDank voor uw bericht. We hebben uw melding ontvangen en zijn direct bezig met de opvolging.\n\nMet vriendelijke groet,\nHarjot — EstateOS"
                         )
 
+                        clean_phone = re.sub(r"[^0-9]", "", str(resolved_recipient or ""))
+                        chan_str = str(channel) if channel and not hasattr(channel, "_mock_name") else "whatsapp"
+                        ext_url = None
+                        thread_url = None
+                        if chan_str == "whatsapp" and clean_phone:
+                            ext_url = f"https://wa.me/{clean_phone}?text={quote_plus(draft_body)}"
+                            thread_url = f"https://wa.me/{clean_phone}"
+                        elif chan_str == "gmail" and resolved_recipient:
+                            subj_str = str(payload.get("subject") or "")
+                            ext_url = f"https://mail.google.com/mail/?view=cm&fs=1&to={quote_plus(str(resolved_recipient))}&su={quote_plus(subj_str)}&body={quote_plus(draft_body)}"
+                            thread_url = f"https://mail.google.com/mail/u/0/#search/{quote_plus(str(resolved_recipient))}"
+
                         return PreviewCardData(
                             type="draft_message",
-                            channel=str(channel) if channel and not hasattr(channel, "_mock_name") else "whatsapp",
+                            channel=chan_str,
                             recipient=str(resolved_recipient) if resolved_recipient and not hasattr(resolved_recipient, "_mock_name") else "",
                             unitLabel=str(unit_label) if unit_label and not hasattr(unit_label, "_mock_name") else "Portfolio Unit",
                             subject=str(payload.get("subject")) if payload.get("subject") and not hasattr(payload.get("subject"), "_mock_name") else None,
                             body=str(draft_body) if draft_body and not hasattr(draft_body, "_mock_name") else "",
                             actionId=str(act.id),
                             caseId=str(act.case_id),
+                            externalUrl=ext_url,
+                            threadSearchUrl=thread_url,
                         )
             except Exception as e:
                 log.warning("api.superagent.resolve_draft_failed", error=str(e))
@@ -657,7 +708,37 @@ def ask_agent(
             .order_by(Case.opened_at.desc(), Case.id.desc())
             .limit(20)
         ).all()
-        briefs = [CaseBrief(c.id, _case_label(session, c), c.state.value, c.urgency.value, c.summary) for c in cases]
+
+        # Attach real conversation history (last 3 messages) to the top active cases
+        case_ids = [c.id for c in cases[:6]]
+        case_msgs_map: dict[UUID, list[str]] = {cid: [] for cid in case_ids}
+        if case_ids:
+            try:
+                msg_rows = session.execute(
+                    select(CaseLink.case_id, MessageRow.direction, MessageRow.channel, MessageRow.sent_at, MessageRow.text)
+                    .join(MessageRow, MessageRow.id == CaseLink.message_id)
+                    .where(CaseLink.company_id == company_id, CaseLink.case_id.in_(case_ids))
+                    .order_by(MessageRow.sent_at.desc(), MessageRow.id.desc())
+                    .limit(30)
+                ).all()
+                for cid, direction, channel, sent_at, text in msg_rows:
+                    if len(case_msgs_map.get(cid, [])) < 3:
+                        snippet = " ".join(text.split())[:180]
+                        dir_val = getattr(direction, "value", str(direction))
+                        dir_label = "Inbound from tenant/contractor" if dir_val == "inbound" else "Outbound"
+                        date_str = sent_at.strftime("%d %b %H:%M") if sent_at else ""
+                        case_msgs_map[cid].append(f"[{date_str} {dir_label} via {channel}]: \"{snippet}\"")
+            except Exception as e:
+                log.warning("api.superagent.case_msgs_enrich_failed", error=str(e))
+
+        briefs = []
+        for c in cases:
+            recent_lines = case_msgs_map.get(c.id, [])
+            summary = c.summary or ""
+            if recent_lines:
+                summary += " | Recent messages: " + " ; ".join(reversed(recent_lines))
+            briefs.append(CaseBrief(c.id, _case_label(session, c), c.state.value, c.urgency.value, summary))
+
         # Order briefs primarily by real-world urgency (emergency > high > normal > low), maintaining temporal order within tier
         _urgency_weights = {"emergency": 0, "high": 1, "normal": 2, "low": 3}
         briefs.sort(key=lambda b: _urgency_weights.get((b.urgency or "").lower(), 4))
@@ -1159,6 +1240,92 @@ def ask_agent(
         merged = suggestions + [p for p in fallback_pills if p not in suggestions]
         suggestions = merged[:3]
 
+    # Build polymorphic AssistantCardData list from preview_card
+    cards_list: list[AssistantCardData] = []
+    if preview_card:
+        card_actions: list[CardActionData] = []
+        if preview_card.type == "draft_message":
+            card_actions.append(
+                CardActionData(
+                    label="Accept and send",
+                    kind="api_call",
+                    endpoint=f"/api/inbox/approvals/{preview_card.actionId}/decide" if preview_card.actionId else None,
+                    payload={"decision": "approved"},
+                    variant="primary",
+                )
+            )
+            if preview_card.externalUrl:
+                label = "Open in WhatsApp" if preview_card.channel == "whatsapp" else "Open in Gmail"
+                card_actions.append(
+                    CardActionData(
+                        label=label,
+                        kind="open_external",
+                        targetUrl=preview_card.externalUrl,
+                        variant="whatsapp" if preview_card.channel == "whatsapp" else "gmail",
+                    )
+                )
+            if preview_card.threadSearchUrl:
+                label = "View Thread on WhatsApp" if preview_card.channel == "whatsapp" else "View Thread in Gmail"
+                card_actions.append(
+                    CardActionData(
+                        label=label,
+                        kind="open_external",
+                        targetUrl=preview_card.threadSearchUrl,
+                        variant="secondary",
+                    )
+                )
+            card_actions.append(
+                CardActionData(
+                    label="Open in Inbox",
+                    kind="navigate",
+                    targetUrl=preview_card.targetUrl or (f"/inbox?thread=case-{preview_card.caseId}" if preview_card.caseId else "/inbox"),
+                    variant="secondary",
+                )
+            )
+        elif preview_card.type == "case_summary":
+            card_actions.append(
+                CardActionData(
+                    label="Open in Maintenance",
+                    kind="navigate",
+                    targetUrl=preview_card.targetUrl or (f"/maintenance?ticket={preview_card.caseId}" if preview_card.caseId else "/maintenance"),
+                    variant="primary",
+                )
+            )
+        elif preview_card.type == "calendar_item":
+            card_actions.append(
+                CardActionData(
+                    label="Approve & Add to Calendar",
+                    kind="api_call",
+                    endpoint=f"/api/calendar/events/{preview_card.actionId}/approve" if preview_card.actionId else None,
+                    variant="primary",
+                )
+            )
+
+        cards_list.append(
+            AssistantCardData(
+                id=preview_card.actionId or preview_card.caseId or "card-0",
+                type=preview_card.type,
+                badgeLabel=preview_card.badgeLabel or ("DRAFT" if preview_card.type == "draft_message" else "TICKET"),
+                badgeColor=preview_card.badgeColor or "orange",
+                title=preview_card.title or (preview_card.unitLabel or "Draft Message"),
+                subtitle=preview_card.subtitle,
+                body=preview_card.body,
+                amount=preview_card.amount,
+                contractor=preview_card.contractor,
+                dueDate=preview_card.dueDate,
+                status=preview_card.status,
+                unitLabel=preview_card.unitLabel,
+                recipient=preview_card.recipient,
+                channel=preview_card.channel,
+                actions=card_actions,
+                externalUrl=preview_card.externalUrl,
+                threadSearchUrl=preview_card.threadSearchUrl,
+                targetUrl=preview_card.targetUrl,
+                caseId=preview_card.caseId,
+                actionId=preview_card.actionId,
+            )
+        )
+
     return AskAgentResponse(
         answer=ans_text,
         caseRefs=case_refs,
@@ -1167,6 +1334,7 @@ def ask_agent(
         executedAt=now.isoformat(),
         steps=step_descriptions,
         previewCard=preview_card,
+        cards=cards_list,
         debugInfo=DebugInfo(pipeline_stage=pipeline_stage, fallback_reason=fallback_reason),
         suggestedPrompts=suggestions,
     )

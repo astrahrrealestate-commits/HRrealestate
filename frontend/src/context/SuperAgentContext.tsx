@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useRef } from "react";
-import { prewarmAgentPage } from "@/lib/api";
+import { prewarmAgentPage, AssistantCard } from "@/lib/api";
 
 export interface AssistantAction {
   label: string;
@@ -41,7 +41,10 @@ export interface AssistantMessage {
     dueDate?: string;
     contractor?: string;
     targetUrl?: string;
+    externalUrl?: string | null;
+    threadSearchUrl?: string | null;
   } | null;
+  cards?: AssistantCard[];
   debugInfo?: {
     pipeline_stage: string;
     fallback_reason?: string | null;
