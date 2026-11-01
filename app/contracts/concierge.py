@@ -26,6 +26,7 @@ class Intent(StrEnum):
     file_document = "file_document"
     find_document = "find_document"
     read_document = "read_document"
+    query_data = "query_data"
     open_view = "open_view"
     clarify = "clarify"
 
@@ -48,3 +49,4 @@ class ConciergePlan(Contract):
     # concierge/v3: the planner's own answer to a page/chat question (one model call). Untrusted model text: the
     # executor screens it (scope, redaction, cap) before Harjot sees it and never reads ids from it. Null for actions.
     reply: Annotated[str, max_len(MAX_REPLY)] | None
+    suggestions: Annotated[list[str], Field(default_factory=list, max_length=3)]

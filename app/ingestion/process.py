@@ -107,6 +107,14 @@ def persist_event(deps: IngestDeps, raw_event_id: UUID) -> Persisted:
             except Exception as e:
                 log.warning("ingest.outbound_link_failed", error=str(e), message_id=str(message_id))
 
+        if message.direction is Direction.outbound:
+            try:
+                from app.core.settings import get_settings
+                from app.tools.message_rag import index_message
+                index_message(deps.engine, get_settings(), message_id)
+            except Exception as e:
+                log.warning("ingest.outbound_index_failed", error=str(e), message_id=str(message_id))
+
         route = _route(session, message)
     return Persisted("processed", str(message_id), route)
 

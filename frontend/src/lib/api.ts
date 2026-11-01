@@ -781,6 +781,7 @@ export interface AskAgentResponse {
   steps?: string[];
   previewCard?: PreviewCardData | null;
   debugInfo?: DebugInfo | null;
+  suggestedPrompts?: string[];
 }
 
 /**

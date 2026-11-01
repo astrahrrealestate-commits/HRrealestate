@@ -47,6 +47,7 @@ export interface AssistantMessage {
     fallback_reason?: string | null;
   } | null;
   actions?: AssistantAction[];
+  suggestedPrompts?: string[];
 }
 
 export interface ActiveDrawerInfo {

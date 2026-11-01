@@ -102,6 +102,7 @@ class AskAgentResponse(BaseModel):
     steps: list[str] = Field(default_factory=list, description="Execution steps performed by agent")
     previewCard: PreviewCardData | None = None
     debugInfo: DebugInfo | None = None
+    suggestedPrompts: list[str] = Field(default_factory=list, description="Dynamic 3 workflow suggestion pills")
 
 
 def _case_label(session: Session, case: Case) -> str:
@@ -1020,10 +1021,6 @@ def ask_agent(
     if dropped_warnings and (not ans_text or ans_text.strip() in ["I need more detail", "Something went wrong with that step."]):
         ans_text = "**Action Notice:**\n\n" + "\n".join(dropped_warnings)
 
-    # Contextual preview card fallback ONLY if drafting was requested, an open case exists, and a draft action wasn't already emitted
-    if any(k in q_low for k in ["draft", "send", "message", "reply"]) and not preview_card:
-        preview_card = _resolve_draft_card(engine, allow_fallback=True, company_id=company_id)
-
     # Populate dynamic navigation and micro-cards for priority/maintenance inquiries from real DB state
     if any(k in q_low for k in ["priority", "first", "ticket", "maintenance", "repair"]):
         # Match the case that was actually mentioned or recommended in the answer text, else fallback to highest urgency
@@ -1143,6 +1140,25 @@ def ask_agent(
 
     suggested_action = action_buttons[0].label if action_buttons else None
 
+    # Determine 3 dynamic workflow suggestions (2-3 words each)
+    suggestions: list[str] = []
+    if plan and getattr(plan, "suggestions", None):
+        suggestions = [s.strip() for s in plan.suggestions if s.strip()][:3]
+
+    if not suggestions or len(suggestions) < 3:
+        if preview_card and preview_card.type == "draft_message":
+            fallback_pills = ["Send WhatsApp now", "Make reply firmer", "Open in Inbox"]
+        elif any(k in q_low for k in ["rent", "arrear", "invoice", "money", "overdue"]):
+            fallback_pills = ["Draft payment reminder", "Show lease PDF", "Open in Money"]
+        elif any(k in q_low for k in ["leak", "boiler", "repair", "maintenance", "ticket", "priority"]):
+            fallback_pills = ["Draft plumber order", "Show leak photos", "Open ticket drawer"]
+        elif any(k in q_low for k in ["lease", "contract", "doc", "pdf"]):
+            fallback_pills = ["Draft rent increase", "Show tenant contact", "Open lease view"]
+        else:
+            fallback_pills = ["List active leases", "Check open tickets", "Show today summary"]
+        merged = suggestions + [p for p in fallback_pills if p not in suggestions]
+        suggestions = merged[:3]
+
     return AskAgentResponse(
         answer=ans_text,
         caseRefs=case_refs,
@@ -1152,4 +1168,5 @@ def ask_agent(
         steps=step_descriptions,
         previewCard=preview_card,
         debugInfo=DebugInfo(pipeline_stage=pipeline_stage, fallback_reason=fallback_reason),
+        suggestedPrompts=suggestions,
     )

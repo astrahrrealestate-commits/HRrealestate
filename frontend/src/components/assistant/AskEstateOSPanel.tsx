@@ -73,6 +73,7 @@ export interface AssistantMessage {
     fallback_reason?: string | null;
   } | null;
   actions?: AssistantAction[];
+  suggestedPrompts?: string[];
 }
 
 import { useSuperAgent } from "@/context/SuperAgentContext";
@@ -150,40 +151,42 @@ export function AskEstateOSPanel({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
-  // Context-aware suggested chips per section
+  // Dynamic workflow suggestions from latest assistant turn, or context-aware section starters
+  const lastAssistantMsg = React.useMemo(() => {
+    return [...messages].reverse().find((m) => m.sender === "assistant" && m.suggestedPrompts && m.suggestedPrompts.length > 0);
+  }, [messages]);
+
   const suggestedChips = React.useMemo(() => {
+    if (lastAssistantMsg?.suggestedPrompts && lastAssistantMsg.suggestedPrompts.length > 0) {
+      return lastAssistantMsg.suggestedPrompts.slice(0, 3);
+    }
     if (currentPageName.toLowerCase().includes("inbox")) {
       return [
-        "Summarize unread tenant emails",
-        "Explain emergency leak in Pieter Floriszstraat",
-        "Draft technician work order",
-        "Who needs a follow-up today?",
+        "Summarize unread emails",
+        "Explain leak ticket",
+        "Draft work order",
       ];
     }
     if (currentPageName.toLowerCase().includes("money")) {
       return [
-        "Why is invoice 26.13.00024 still open?",
-        "Which payments need matching?",
-        "Who is 30+ days behind on rent?",
-        "Show total unpaid rent across 110 units",
+        "Why invoice open",
+        "Match open payments",
+        "Who behind rent",
       ];
     }
     if (currentPageName.toLowerCase().includes("maintenance")) {
       return [
-        "Which tickets have gone quiet?",
-        "Show electrician dispatch status for #005",
-        "What quotes exceed the €250 limit?",
-        "List pending contractor invoices",
+        "Tickets gone quiet",
+        "Electrician status",
+        "Quotes over limit",
       ];
     }
-    // Default: Today page
     return [
-      "What should I do first?",
-      "Explain this item",
-      "Who is behind on rent?",
-      "Show the energy label",
+      "What do first",
+      "Who behind rent",
+      "Show active leases",
     ];
-  }, [currentPageName]);
+  }, [lastAssistantMsg, currentPageName]);
 
   const handleSendQuery = async (queryText: string) => {
     const trimmed = queryText.trim();
@@ -237,6 +240,7 @@ export function AskEstateOSPanel({
         previewCard: res.previewCard,
         debugInfo: res.debugInfo,
         actions: parsedActions.length > 0 ? parsedActions : undefined,
+        suggestedPrompts: res.suggestedPrompts,
       };
       setMessages((prev) => [...prev, botMsg]);
     } catch (err) {
@@ -995,7 +999,7 @@ export function AskEstateOSPanel({
         {/* 3. Suggested Chips: Streamlined minimal pills, no heavy container */}
         <div className="px-4 sm:px-5 py-2 border-t border-[#1A1F24] bg-[#0E1113] flex-shrink-0">
           <div className="flex flex-wrap gap-1.5">
-            {suggestedChips.slice(0, 3).map((chip, idx) => (
+            {suggestedChips.slice(0, 3).map((chip: string, idx: number) => (
               <button
                 key={idx}
                 onClick={() => handleSendQuery(chip)}

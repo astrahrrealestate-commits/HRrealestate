@@ -6,6 +6,7 @@ from app.db.models.directory import ChannelIdentity, DirectoryImport, Lease, Lea
 from app.db.models.documents import DocumentChunk, DocumentLink, DriveReorgItem, DriveReorgPlan
 from app.db.models.ingestion import AttachmentRow, MessageRow, RawEvent
 from app.db.models.memory import MemoryItem
+from app.db.models.message_rag import MessageChunk, MessageIndexState
 from app.db.models.ops import MetricSnapshot, ModelCall, Outcome, Timer
 from app.db.models.owner import Approval, OwnerOutbox, Send
 from app.db.models.pipeline import ActionRevision, ActionRow, Case, CaseEvent, CaseLink, UnderstandingRow
@@ -36,6 +37,8 @@ __all__ = [
     "Lease",
     "LeaseParty",
     "MemoryItem",
+    "MessageChunk",
+    "MessageIndexState",
     "MessageRow",
     "MetricSnapshot",
     "ModelCall",
