@@ -17,6 +17,7 @@ from app.channels.gmail.push import (
     local_push_verifier,
 )
 from app.channels.google_chat.verifier import ChatVerifier
+from app.channels.prices.search import FakeSearchClient, SearchClient, UnconfiguredSearchClient
 from app.channels.whatsapp.fake_media import DirWhatsAppMedia
 from app.channels.whatsapp.media import HttpWhatsAppMedia, WhatsAppMedia
 from app.channels.whatsapp.media_settings import WhatsAppMediaSettings
@@ -129,3 +130,10 @@ def google_chat_verifier(settings: Settings) -> ChatVerifier:
         project_number=settings.google_chat_project_number,
         provider=settings.google_chat_provider,
     )
+
+
+def search_client(settings: Settings) -> SearchClient:
+    """The web-search adapter for `price_search_provider`. A real provider adds its case here."""
+    if settings.price_search_provider == "fake":
+        return FakeSearchClient()
+    return UnconfiguredSearchClient()

@@ -37,6 +37,8 @@ from app.contracts.document import (
     PartyRole,
 )
 from app.contracts.finance import (
+    ExtractedPrice,
+    ExtractedPrices,
     ExtractedQuote,
     JobItem,
     JobItems,
@@ -87,6 +89,8 @@ __all__ = [
     "EmailRequest",
     "Entities",
     "EscalatePayload",
+    "ExtractedPrice",
+    "ExtractedPrices",
     "ExtractedQuote",
     "ExtractedText",
     "FactKind",

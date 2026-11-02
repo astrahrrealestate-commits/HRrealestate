@@ -66,7 +66,7 @@ def snapshot_step(action_id: str, company_id: str, vendor_id: str) -> int | None
     """Rows written (or already there on a replay). The market excludes the action's own contractor."""
     engine, settings = get_engine(), get_settings()
     try:
-        source = build_price_source(settings, sessionmaker(engine), UUID(company_id), UUID(vendor_id))
+        source = build_price_source(settings, sessionmaker(engine), UUID(company_id), UUID(vendor_id), engine)
         outcome = take_snapshot(engine, settings, source, UUID(action_id), today=_today())
     except EstateOSError as exc:
         if retryable(exc):

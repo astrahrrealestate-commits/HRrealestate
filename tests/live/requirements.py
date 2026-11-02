@@ -29,7 +29,7 @@ def _present(value: object) -> bool:
     if isinstance(value, SecretStr):
         value = value.get_secret_value()
     if isinstance(value, str):
-        return value.strip() not in ("", "fake")  # a provider still set to its fake is not configured for live
+        return value.strip() not in ("", "fake", "none")  # a provider still on its fake (or none) is not live-ready
     return bool(value)  # None, {} and [] are unset
 
 

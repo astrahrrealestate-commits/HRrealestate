@@ -3,9 +3,9 @@
 from decimal import Decimal
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
-from app.contracts import ExtractedQuote, JobItems, Money, QuoteLine
+from app.contracts import ExtractedPrice, ExtractedPrices, ExtractedQuote, JobItems, Money, QuoteLine
 from app.contracts.finance import LineStatus, PriceBasis, SnapshotBasis, Verdict
 from tests.unit.contracts.test_llm_schema import _walk
 
@@ -29,8 +29,8 @@ def test_line_rejects_zero_quantity() -> None:
     assert QuoteLine.model_validate(_line("2.5")).quantity == Decimal("2.5")
 
 
-@pytest.mark.parametrize("model", [ExtractedQuote, JobItems])
-def test_extracted_quote_schema_is_openai_strict(model: type[ExtractedQuote] | type[JobItems]) -> None:
+@pytest.mark.parametrize("model", [ExtractedQuote, JobItems, ExtractedPrice, ExtractedPrices])
+def test_extracted_quote_schema_is_openai_strict(model: type[BaseModel]) -> None:
     assert _walk(model.model_json_schema()) == []
 
 
@@ -110,3 +110,40 @@ def test_instruction_like_description_is_plain_data() -> None:
     assert set(ExtractedQuote.model_fields) == {
         "lines", "total", "quote_date", "work_date", "vat_included", "is_quote"
     }  # fmt: skip
+
+
+def _extracted_price(**over: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "amount": {"amount": "85.00", "currency": "EUR"},
+        "unit": "hour",
+        "vat_included": None,
+        "evidence": "vanaf € 85,00 per uur",
+    }
+    return {**base, **over}
+
+
+def test_extracted_price_accepts_unknown_vat_and_carries_currency() -> None:
+    price = ExtractedPrice.model_validate(_extracted_price())
+    assert (price.amount.currency, price.vat_included) == ("EUR", None)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"amount": {"amount": "0.00", "currency": "EUR"}},
+        {"amount": {"amount": "-5.00", "currency": "EUR"}},
+        {"evidence": "   "},
+        {"evidence": "x" * 301},
+        {"unit": "x" * 31},
+    ],
+)
+def test_extracted_price_rejects_bad_values(bad: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        ExtractedPrice.model_validate(_extracted_price(**bad))
+
+
+def test_extracted_prices_holds_at_most_ten() -> None:
+    ok = [_extracted_price()] * 10
+    assert len(ExtractedPrices.model_validate({"prices": ok}).prices) == 10
+    with pytest.raises(ValidationError):
+        ExtractedPrices.model_validate({"prices": [*ok, _extracted_price()]})

@@ -7,7 +7,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from app.contracts import Category, Urgency
 from app.llm.fakes_concierge import fake_concierge
-from app.llm.fakes_finance import fake_job_items, fake_quote_reader
+from app.llm.fakes_finance import fake_job_items, fake_price_extractor, fake_quote_reader
 from app.llm.fakes_owner_qa import fake_owner_qa
 from app.llm.fakes_proposer import fake_proposer
 
@@ -349,6 +349,8 @@ def model_for(agent_name: str) -> FunctionModel:
             args = fake_quote_reader(user_text)
         elif agent_name == "job_items":
             args = fake_job_items(user_text)
+        elif agent_name == "price_extractor":
+            args = fake_price_extractor(user_text)
         elif agent_name == "doc_ocr":
             args = {"text": _extract_binary(messages).removeprefix(b"SCAN").decode("utf-8", errors="replace").strip()}
         else:

@@ -168,7 +168,7 @@ def _review(
     if facts.case_id is None or facts.vendor_id is None:
         return None
     if source is None:
-        source = build_price_source(settings, sessionmaker(engine), facts.company_id, facts.vendor_id)
+        source = build_price_source(settings, sessionmaker(engine), facts.company_id, facts.vendor_id, engine)
     plan = gather_references(engine, settings, source, facts, facts.case_id, facts.vendor_id, today)
     return plan, run_review(facts, plan, thresholds_from_settings(settings))
 
