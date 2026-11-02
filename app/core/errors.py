@@ -41,10 +41,6 @@ class DiligenceRequestError(EstateOSError):
     """A due diligence request the caller must fix (no documents, too many, review not restartable)."""
 
 
-class DiligenceBusyError(DiligenceRequestError):
-    """The review is running; it cannot be restarted until the run ends."""
-
-
 class TenantMismatchError(EstateOSError):
     """A row belongs to a different company than the caller."""
 

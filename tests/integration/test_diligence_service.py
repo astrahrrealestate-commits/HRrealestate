@@ -4,18 +4,19 @@ from datetime import date
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, func, select, update
 from sqlalchemy.orm import Session
 
 from app.contracts.diligence import DDPropertyKind
 from app.contracts.diligence_report import DDVerdict
-from app.core.errors import DiligenceBusyError, DiligenceRequestError, NotFoundError
+from app.core.errors import DiligenceRequestError, NotFoundError
 from app.core.ids import new_id
 from app.core.settings import Settings
 from app.db.enums import DDReviewStatus, FeedKind
-from app.db.models import Company, DDDocumentRead, ModelCall, OwnerFeed
+from app.db.models import Company, DDDocumentRead, DocumentRow, ModelCall, OwnerFeed
 from app.diligence import repo, service
 from app.diligence.framework import default_framework
+from app.llm.agents.dd_reader import MAX_DOCUMENT_CHARS
 from tests.integration.diligence_support import make_document
 
 pytestmark = pytest.mark.integration
@@ -155,18 +156,53 @@ def test_restart_bumps_the_run_and_a_stale_run_is_ignored(migrated_engine: Engin
     assert len(keys) == 2
 
 
-def test_restart_is_refused_while_running(migrated_engine: Engine, company_id: UUID) -> None:
+def test_restart_while_running_is_allowed_and_makes_the_running_run_stale(migrated_engine: Engine,
+                                                                          test_settings: Settings,
+                                                                          company_id: UUID) -> None:  # fmt: skip
     review = _review(migrated_engine, company_id, [_doc(migrated_engine, company_id, BROCHURE)])
     service.begin_run(migrated_engine, company_id, review, 1)
-    with pytest.raises(DiligenceBusyError):
-        repo.restart_review(migrated_engine, company_id, review, None, 30)
+    assert repo.restart_review(migrated_engine, company_id, review, None, 30) == 2
+    assert service.compile_review(migrated_engine, default_framework(), company_id, review, 1, TODAY) is None
+    assert _run(migrated_engine, test_settings, company_id, review, 2) is DDVerdict.needs_documents
+
+
+def test_restart_clears_the_previous_report(migrated_engine: Engine, test_settings: Settings, company_id: UUID) -> None:
+    review = _review(migrated_engine, company_id, [_doc(migrated_engine, company_id, BROCHURE)])
+    _run(migrated_engine, test_settings, company_id, review)
+    repo.restart_review(migrated_engine, company_id, review, None, 30)
+    view = repo.get_review(migrated_engine, company_id, review)
+    assert (view.report, view.verdict, view.framework_version) == (None, None, None)
+
+
+def test_a_cached_read_is_ignored_once_the_document_is_ineligible(migrated_engine: Engine, test_settings: Settings,
+                                                                  company_id: UUID) -> None:  # fmt: skip
+    doc = _doc(migrated_engine, company_id, BROCHURE)
+    service.read_document(migrated_engine, test_settings, company_id, doc)
+    with Session(migrated_engine) as s, s.begin():
+        s.execute(update(DocumentRow).where(DocumentRow.id == doc).values(doc_type="id_document"))
+    assert service.read_document(migrated_engine, test_settings, company_id, doc) is False
+    review = _review(migrated_engine, company_id, [doc])
+    _run(migrated_engine, test_settings, company_id, review)
+    report = repo.get_review(migrated_engine, company_id, review).report
+    assert report is not None
+    assert [d.readable for d in report.documents] == [False]
+
+
+def test_a_long_document_is_flagged_as_truncated(migrated_engine: Engine, test_settings: Settings,
+                                                 company_id: UUID) -> None:  # fmt: skip
+    long_text = "Akte van levering\n" + "x" * (MAX_DOCUMENT_CHARS + 10)
+    review = _review(migrated_engine, company_id, [_doc(migrated_engine, company_id, long_text)])
+    _run(migrated_engine, test_settings, company_id, review)
+    report = repo.get_review(migrated_engine, company_id, review).report
+    assert report is not None
+    assert "document_truncated" in {r.code for r in report.risks}
 
 
 def test_fail_review_records_the_error_only_for_the_current_run(migrated_engine: Engine, company_id: UUID) -> None:
     review = _review(migrated_engine, company_id, [_doc(migrated_engine, company_id, BROCHURE)])
     service.fail_review(migrated_engine, company_id, review, 7, "stale")
     assert repo.get_review(migrated_engine, company_id, review).status is DDReviewStatus.pending
-    service.fail_review(migrated_engine, company_id, review, 1, "model down")
+    service.fail_review(migrated_engine, company_id, review, 1, "AgentFailedError")
     view = repo.get_review(migrated_engine, company_id, review)
-    assert (view.status, view.error) == (DDReviewStatus.failed, "model down")
+    assert (view.status, view.error) == (DDReviewStatus.failed, "AgentFailedError")
     assert repo.restart_review(migrated_engine, company_id, review, None, 30) == 2  # a failed review can be rerun

@@ -17,7 +17,7 @@ from app.api.v1.auth import Principal, require_csrf, require_principal
 from app.api.v1.ratelimit import decision_limit
 from app.contracts.diligence import DDPropertyKind
 from app.contracts.diligence_report import DDReport, DDVerdict
-from app.core.errors import DiligenceBusyError, DiligenceRequestError, NotFoundError
+from app.core.errors import DiligenceRequestError, NotFoundError
 from app.core.settings import Settings
 from app.db.enums import DDReviewStatus
 from app.diligence import repo
@@ -133,8 +133,6 @@ def rerun(
         run_no = repo.restart_review(engine, who.company_id, review_id, body.document_ids, settings.dd_max_documents)
     except NotFoundError:
         raise HTTPException(status_code=404, detail=NOT_FOUND) from None
-    except DiligenceBusyError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from None
     except DiligenceRequestError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     enqueue.enqueue_dd_review(client, who.company_id, review_id, run_no)

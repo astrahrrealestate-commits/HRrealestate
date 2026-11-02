@@ -5,20 +5,24 @@ from uuid import UUID
 
 from app.contracts.diligence import DDDocRead, DDPropertyKind
 from app.contracts.diligence_report import ChecklistItem, ChecklistStatus
-from app.diligence.facts import ReadableDoc, number_of, readable_docs, text_of
+from app.diligence.facts import ReadableDoc, normalise_text, readable_docs, top_claims
 from app.diligence.framework import Condition, Framework, Requirement
 from app.diligence.inputs import DocInput
 
+UNDATED_NOTE = "Undated: its age could not be checked."
+
 
 def _applies(cond: Condition | None, readable: list[ReadableDoc]) -> bool:
+    """Whether the requirement applies. Every top-authority statement counts: one saying leasehold is enough."""
     if cond is None:
         return True
+    claims = [c for _, c in top_claims(readable, cond.field)]
+    if not claims:
+        return cond.if_unknown
     if cond.contains is not None:
-        value = text_of(readable, cond.field)
-        return cond.if_unknown if value is None else cond.contains in value
+        return any(cond.contains in normalise_text(cond.field, c.text or "") for c in claims)
     if cond.below is not None:
-        number = number_of(readable, cond.field)
-        return cond.if_unknown if number is None else number < cond.below
+        return any(c.number is not None and c.number < cond.below for c in claims)
     return True
 
 
@@ -28,6 +32,11 @@ def _is_stale(read: DDDocRead, max_age_days: int | None, today: date) -> bool:
     return (
         max_age_days is not None and read.document_date is not None and (today - read.document_date).days > max_age_days
     )
+
+
+def _undated(read: DDDocRead, max_age_days: int | None) -> bool:
+    """Its age cannot be checked: the requirement has an age limit and the document carries no date."""
+    return max_age_days is not None and read.document_date is None and read.valid_until is None
 
 
 def _item(req: Requirement, status: ChecklistStatus, ids: list[UUID], note: str | None) -> ChecklistItem:
@@ -47,9 +56,10 @@ def _status_of(fw: Framework, req: Requirement, docs: list[DocInput], today: dat
     current = [(i, r) for i, r in sure if not _is_stale(r, req.max_age_days, today)]
     if not current:
         return _item(req, ChecklistStatus.stale, [i for i, _ in sure], "Every matching document is out of date.")
-    undated = req.max_age_days is not None and all(r.document_date is None for _, r in current)
-    note = "Undated: its age could not be checked." if undated else None
-    return _item(req, ChecklistStatus.present, [i for i, _ in current], note)
+    dated = [(i, r) for i, r in current if not _undated(r, req.max_age_days)]
+    if not dated:  # nothing proves it is recent enough: a silent pass would be a gap
+        return _item(req, ChecklistStatus.unclear, [i for i, _ in current], UNDATED_NOTE)
+    return _item(req, ChecklistStatus.present, [i for i, _ in dated], None)
 
 
 def build_checklist(fw: Framework, kind: DDPropertyKind, docs: list[DocInput], today: date) -> list[ChecklistItem]:

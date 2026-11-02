@@ -9,7 +9,7 @@ import re
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
-from app.contracts.diligence import FIELD_KIND, DDDocKind, DDField, ValueKind
+from app.contracts.diligence import FIELD_KIND, KIND_KEYWORDS, DDDocKind, DDField, ValueKind
 
 _LINE = re.compile(r"^\s*([^:\n]{2,40}):\s*(.+?)\s*$")
 _NUMBER = re.compile(r"\d[\d.,]*")
@@ -20,26 +20,6 @@ _DATE_LINE = re.compile(r"^\s*(?:datum|date):\s*(\d{4}-\d{2}-\d{2})\s*$", re.I |
 _THOUSANDS = re.compile(r"^\d{1,3}([.,]\d{3})+$")
 _CENT = Decimal("0.01")
 _ABSENT = ("niet aanwezig", "afwezig", "absent", "geen")
-
-_KINDS: tuple[tuple[DDDocKind, tuple[str, ...]], ...] = (
-    (DDDocKind.vve_minutes, ("notulen", "minutes")),
-    (DDDocKind.vve_budget, ("begroting", "jaarrekening", "budget")),
-    (DDDocKind.vve_maintenance_plan, ("meerjaren", "mjop", "maintenance plan")),
-    (DDDocKind.vve_rules, ("splitsing", "reglement")),
-    (DDDocKind.ground_lease, ("erfpacht", "ground lease")),
-    (DDDocKind.energy_label, ("energielabel", "energy label")),
-    (DDDocKind.building_survey, ("bouwkundig", "survey", "keuring")),
-    (DDDocKind.asbestos_report, ("asbest",)),
-    (DDDocKind.valuation, ("taxatie", "valuation")),
-    (DDDocKind.permit, ("vergunning", "bestemmingsplan", "permit")),
-    (DDDocKind.insurance, ("verzekering", "polis", "insurance")),
-    (DDDocKind.lease_agreement, ("huurovereenkomst", "lease agreement")),
-    (DDDocKind.rent_roll, ("huurspecificatie", "rent roll")),
-    (DDDocKind.kadaster_extract, ("kadaster",)),
-    (DDDocKind.deed_of_title, ("akte van levering", "eigendomsakte", "deed of title")),
-    (DDDocKind.purchase_agreement, ("koopovereenkomst", "purchase agreement", "koopakte")),
-    (DDDocKind.brochure, ("brochure",)),
-)
 
 _LABELS: tuple[tuple[DDField, tuple[str, ...]], ...] = (
     (DDField.ground_lease_end, ("einddatum erfpacht", "erfpacht tot", "ground lease end")),
@@ -125,7 +105,7 @@ def _claim(field: DDField, value: str, line: str) -> dict[str, object] | None:
 
 def _kind_of(header: str, text: str) -> DDDocKind:
     for source in (header, text.casefold()):
-        for kind, words in _KINDS:
+        for kind, words in KIND_KEYWORDS.items():
             if any(w in source for w in words):
                 return kind
     return DDDocKind.other

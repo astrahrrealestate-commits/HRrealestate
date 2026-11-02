@@ -43,7 +43,6 @@ class Thresholds(Contract):
     leasehold_high_years: int
     leasehold_medium_years: int
     old_building_year: int
-    asbestos_year: int
     tenancy_warn_days: int
     energy_high: list[str]
     energy_medium: list[str]
@@ -61,6 +60,9 @@ class Framework(Contract):
         keys = [r.key for r in self.requirements]
         if len(keys) != len(set(keys)):
             raise ValueError("requirement keys must be unique")
+        missing = set(DDDocKind) - set(self.authority)
+        if missing:
+            raise ValueError(f"authority is missing document kinds: {sorted(k.value for k in missing)}")
         return self
 
     def tolerance(self, field: DDField) -> Decimal:
@@ -96,7 +98,7 @@ _REQUIREMENTS = [
     _req("vve_mjop", "VvE multi-year maintenance plan", _APARTMENT, [K.vve_maintenance_plan], S.important,
          "Shows upcoming building costs and whether the reserve covers them."),
     _req("energy_label", "Energy label (valid 10 years)", _ALL, [K.energy_label], S.important,
-         "Required at sale; low labels cost money to improve.", max_age_days=3650),
+         "Required at sale; low labels cost money to improve.", max_age_days=3653),
     _req("house_survey", "Building survey", [P.house], [K.building_survey], S.important,
          "Shows structural and maintenance defects."),
     _req("survey", "Building survey", _APARTMENT, [K.building_survey], S.nice,
@@ -130,7 +132,7 @@ _TOLERANCE = {
 }  # fmt: skip
 
 _THRESHOLDS = Thresholds(
-    min_confidence=0.5, leasehold_high_years=15, leasehold_medium_years=30, old_building_year=1945, asbestos_year=1994,
+    min_confidence=0.5, leasehold_high_years=15, leasehold_medium_years=30, old_building_year=1945,
     tenancy_warn_days=365, energy_high=["F", "G"], energy_medium=["E"],
 )  # fmt: skip
 

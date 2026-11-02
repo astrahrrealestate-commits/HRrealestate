@@ -48,3 +48,50 @@ def test_empty_text_drops_everything() -> None:
     kept, dropped = verify_read(read, "")
     assert kept.claims == []
     assert dropped == 1
+
+
+def test_a_number_claim_must_appear_in_its_quote() -> None:
+    from app.contracts.diligence import DDDocKind
+
+    good = num(DDField.year_built, "1965", "Bouwjaar 1965")
+    wrong = num(DDField.year_built, "2024", "Bouwjaar 1965")
+    short = num(DDField.year_built, "1965", "65")
+    read = doc(DDDocKind.brochure, good, wrong, short).read
+    assert read is not None
+    kept, dropped = verify_read(read, "Verkoopbrochure\nBouwjaar 1965 en 65")
+    assert kept.claims == [good]
+    assert dropped == 2
+
+
+def test_text_and_date_claims_must_be_supported_by_their_quote() -> None:
+    from datetime import date
+
+    from app.contracts.diligence import DDDocKind
+    from tests.unit.diligence.builders import day, txt
+
+    text = "Verkoopbrochure\nEnergielabel: B\nEinddatum erfpacht: 2045-01-01"
+    ok = [
+        txt(DDField.energy_label, "B", "Energielabel: B"),
+        day(DDField.ground_lease_end, date(2045, 1, 1), "Einddatum erfpacht: 2045-01-01"),
+    ]
+    bad = [
+        txt(DDField.energy_label, "A", "Energielabel: B"),
+        day(DDField.ground_lease_end, date(2060, 1, 1), "Einddatum erfpacht: 2045-01-01"),
+    ]
+    read = doc(DDDocKind.brochure, *ok, *bad).read
+    assert read is not None
+    kept, dropped = verify_read(read, text)
+    assert kept.claims == ok
+    assert dropped == 2
+
+
+def test_a_document_kind_with_no_supporting_words_is_not_trusted() -> None:
+    from app.contracts.diligence import DDDocKind
+
+    read = doc(DDDocKind.deed_of_title, confidence=0.9).read
+    assert read is not None
+    kept, _ = verify_read(read, "Leuke woning met tuin, vraagprijs op aanvraag.")
+    assert kept.confidence <= 0.4
+    honest = doc(DDDocKind.deed_of_title, confidence=0.9).read
+    assert honest is not None
+    assert verify_read(honest, "Akte van levering\nvan de woning")[0].confidence == 0.9

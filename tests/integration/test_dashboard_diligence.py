@@ -137,10 +137,10 @@ def test_rerun_bumps_the_run_and_queues_it(fx: Fixture) -> None:
     assert fx.client.get(f"/api/v1/diligence/reviews/{created['id']}").json()["document_ids"] == [str(fx.mine[1])]
 
 
-def test_rerun_is_refused_while_running_and_for_unknown_reviews(fx: Fixture) -> None:
+def test_rerun_works_while_running_and_unknown_reviews_are_404(fx: Fixture) -> None:
     created = _start(fx)
     service.begin_run(fx.engine, fx.company_id, UUID(str(created["id"])), 1)
-    busy = fx.client.post(f"/api/v1/diligence/reviews/{created['id']}/rerun", json={}, headers=CSRF)
-    assert busy.status_code == 409
+    again = fx.client.post(f"/api/v1/diligence/reviews/{created['id']}/rerun", json={}, headers=CSRF)
+    assert (again.status_code, again.json()["run_no"]) == (202, 2)
     missing = fx.client.post(f"/api/v1/diligence/reviews/{uuid4()}/rerun", json={}, headers=CSRF)
     assert missing.status_code == 404

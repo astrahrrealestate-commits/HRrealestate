@@ -78,16 +78,11 @@ def reference_claim(docs: list[ReadableDoc], field: DDField) -> tuple[ReadableDo
     return found[0] if found else None
 
 
-def number_of(docs: list[ReadableDoc], field: DDField) -> Decimal | None:
-    ref = reference_claim(docs, field)
-    return ref[1].number if ref else None
-
-
-def text_of(docs: list[ReadableDoc], field: DDField) -> str | None:
-    ref = reference_claim(docs, field)
-    return normalise_text(field, ref[1].text or "") if ref else None
-
-
-def day_of(docs: list[ReadableDoc], field: DDField) -> date | None:
-    ref = reference_claim(docs, field)
-    return ref[1].day if ref else None
+def top_claims(docs: list[ReadableDoc], field: DDField) -> list[tuple[ReadableDoc, DDClaim]]:
+    """Every claim for the fact from the documents at the highest authority that states it. Rules look at all of them
+    (worst case), so the order of equally authoritative documents never hides a risk."""
+    found = claims_of(docs, field)
+    if not found:
+        return []
+    top = found[0][0].authority
+    return [(d, c) for d, c in found if d.authority == top]

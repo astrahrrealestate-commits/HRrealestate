@@ -10,6 +10,7 @@ from app.diligence.framework import Framework
 from app.diligence.inputs import DocInput
 
 _PERCENT = Decimal(100)
+_DECISIVE = frozenset({DDField.ground_lease_end, DDField.ownership_type, DDField.asbestos, DDField.energy_label})
 
 
 def _show(value: Value) -> str:
@@ -47,7 +48,8 @@ def _classify(field: DDField, ref: ReadableDoc, other: ReadableDoc) -> tuple[Mis
         and ref.authority > other.authority
     )
     if not marketing:
-        return MismatchKind.inconsistent, DDSeverity.medium
+        # two official sources disagreeing on a fact that decides the deal is not a footnote
+        return MismatchKind.inconsistent, DDSeverity.high if field in _DECISIVE else DDSeverity.medium
     # asking price and agreed price legitimately differ, so a price gap is worth a look, not an alarm
     return MismatchKind.marketing_vs_legal, DDSeverity.medium if field is DDField.price else DDSeverity.high
 

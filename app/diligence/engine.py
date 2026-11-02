@@ -27,12 +27,22 @@ from app.diligence.risks import find_risks
 _MUST_HAVE = (RequirementSeverity.critical, RequirementSeverity.important)
 
 
+def _incomplete(fw: Framework, docs: list[DocInput], unverified: int) -> bool:
+    """Something was not screened: a clear verdict would hide the gap."""
+    return unverified > 0 or any(d.truncated or not is_readable(fw, d) for d in docs)
+
+
 def _verdict(
-    fw: Framework, docs: list[DocInput], items: list[ChecklistItem], ms: list[Mismatch], rs: list[DDRisk]
+    fw: Framework,
+    docs: list[DocInput],
+    items: list[ChecklistItem],
+    ms: list[Mismatch],
+    rs: list[DDRisk],
+    unverified: int,
 ) -> DDVerdict:
     if any(m.severity is DDSeverity.high for m in ms) or any(r.severity is DDSeverity.high for r in rs):
         return DDVerdict.red_flags
-    if not any(is_readable(fw, d) for d in docs):
+    if not any(is_readable(fw, d) for d in docs) or _incomplete(fw, docs, unverified):
         return DDVerdict.needs_documents
     gaps = [i for i in items if i.status is not ChecklistStatus.present and i.severity in _MUST_HAVE]
     return DDVerdict.needs_documents if gaps else DDVerdict.clear_to_review
@@ -54,7 +64,7 @@ def screen(fw: Framework, kind: DDPropertyKind, docs: list[DocInput], today: dat
     present = sum(1 for i in items if i.status is ChecklistStatus.present)
     return DDReport(
         framework_version=fw.version, property_kind=kind, as_of=today,
-        verdict=_verdict(fw, docs, items, mismatches, risks),
+        verdict=_verdict(fw, docs, items, mismatches, risks, unverified),
         coverage=Coverage(present=present, applicable=len(items)),
         checklist=items, mismatches=mismatches, risks=risks,
         documents=[_summary(fw, d) for d in docs], unverified_claims=unverified, disclaimer=DISCLAIMER,

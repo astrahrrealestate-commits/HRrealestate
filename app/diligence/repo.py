@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.contracts.diligence import DDPropertyKind
 from app.contracts.diligence_report import DDReport, DDVerdict
-from app.core.errors import DiligenceBusyError, DiligenceRequestError, NotFoundError
+from app.core.errors import DiligenceRequestError, NotFoundError
 from app.db.enums import DDReviewStatus
 from app.db.models import DDReview, DDReviewDocument, DocumentRow, Unit
 
@@ -78,18 +78,23 @@ def create_review(
 def restart_review(
     engine: Engine, company_id: UUID, review_id: UUID, document_ids: list[UUID] | None, max_documents: int
 ) -> int:
-    """Bump `run_no` and reset to pending (optionally with a new document set); returns the new run number."""
+    """Bump `run_no` and reset to pending (optionally with a new document set); returns the new run number. Allowed in
+    any state: a run still going finds its `run_no` stale and writes nothing, so a stuck review can always be rerun."""
     with Session(engine) as session, session.begin():
         review = _review(session, company_id, review_id, lock=True)
-        if review.status is DDReviewStatus.running:
-            raise DiligenceBusyError("the review is running")
         if document_ids is not None:
             ids = clean_ids(document_ids, max_documents)
             _check_documents(session, company_id, ids)
-            session.execute(delete(DDReviewDocument).where(DDReviewDocument.review_id == review_id))
+            session.execute(
+                delete(DDReviewDocument).where(
+                    DDReviewDocument.company_id == company_id, DDReviewDocument.review_id == review_id
+                )
+            )
             session.add_all(DDReviewDocument(company_id=company_id, review_id=review_id, document_id=d) for d in ids)
         review.run_no += 1
+        # the old run is stale from here on (its run_no no longer matches); nothing of it may be served as current
         review.status, review.error, review.completed_at = DDReviewStatus.pending, None, None
+        review.report, review.verdict, review.framework_version = None, None, None
         return review.run_no
 
 

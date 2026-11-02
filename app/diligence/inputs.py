@@ -11,3 +11,4 @@ class DocInput:
     document_id: UUID
     title: str  # the library title, shown when there is no read
     read: DDDocRead | None  # None: no text, an identity document, or the reader failed
+    truncated: bool = False  # the text was longer than the reader saw

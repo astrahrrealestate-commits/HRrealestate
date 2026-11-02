@@ -69,13 +69,31 @@ def test_expired_validity_is_stale_even_when_recent() -> None:
     assert _status(build_checklist(FW, DDPropertyKind.house, [label], TODAY), "energy_label") is St.stale
 
 
-def test_undated_document_is_present_with_a_note() -> None:
+def test_undated_document_with_an_age_limit_is_unclear() -> None:
     item = next(
         i for i in build_checklist(FW, DDPropertyKind.house, [doc(K.energy_label)], TODAY) if i.key == "energy_label"
     )
-    assert item.status is St.present
+    assert item.status is St.unclear
     assert item.note is not None
     assert "undated" in item.note.lower()
+
+
+def test_undated_document_with_a_future_validity_date_is_present() -> None:
+    label = doc(K.energy_label, valid_until=date(2030, 1, 1))
+    assert _status(build_checklist(FW, DDPropertyKind.house, [label], TODAY), "energy_label") is St.present
+
+
+def test_a_dated_fresh_document_beats_an_undated_one() -> None:
+    docs = [doc(K.vve_minutes), doc(K.vve_minutes, document_date=date(2026, 5, 1))]
+    assert _status(build_checklist(FW, DDPropertyKind.apartment, docs, TODAY), "vve_minutes") is St.present
+
+
+def test_leasehold_in_any_top_authority_document_requires_ground_lease_papers() -> None:
+    docs = [
+        doc(K.deed_of_title, txt(DDField.ownership_type, "freehold")),
+        doc(K.purchase_agreement, txt(DDField.ownership_type, "erfpacht")),
+    ]
+    assert _status(build_checklist(FW, DDPropertyKind.house, docs, TODAY), "ground_lease") is St.missing
 
 
 def test_low_confidence_read_is_unclear_not_present() -> None:

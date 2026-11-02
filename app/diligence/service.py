@@ -9,7 +9,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -57,27 +57,26 @@ def begin_run(engine: Engine, company_id: UUID, review_id: UUID, run_no: int) ->
         )
 
 
-def _source(session: Session, company_id: UUID, document_id: UUID) -> tuple[str, str] | None:
-    """(filename, text) of a document that may be sent to the model, else None. Identity documents are never read
-    (ADR 0007) and a document the injection scan flagged is not sent either."""
-    row = session.execute(
-        select(DocumentRow, AttachmentRow.extracted_text)
-        .join(AttachmentRow, AttachmentRow.id == DocumentRow.attachment_id)
-        .where(DocumentRow.company_id == company_id, DocumentRow.id == document_id)
-    ).first()
-    if row is None:
-        raise NotFoundError("document not found")
-    doc, extracted = row
-    text = extracted or ""
-    if doc.doc_type == DocType.id_document.value or doc.suspicious or not text.strip():
-        return None
-    return doc.file_name, text
+def _eligible(doc_type: str, suspicious: bool) -> bool:
+    """Identity documents are never read (ADR 0007) and a document the injection scan flagged is not sent either.
+    Checked on every use, so a cached read of a document reclassified since is ignored."""
+    return doc_type != DocType.id_document.value and not suspicious
 
 
 def read_document(engine: Engine, settings: Settings, company_id: UUID, document_id: UUID) -> bool:
     """Read the document with `dd_reader` unless a verified read by this reader version already exists. True when a
     read is stored afterwards."""
     with Session(engine) as session:
+        row = session.execute(
+            select(DocumentRow.doc_type, DocumentRow.suspicious, DocumentRow.file_name, AttachmentRow.extracted_text)
+            .join(AttachmentRow, AttachmentRow.id == DocumentRow.attachment_id)
+            .where(DocumentRow.company_id == company_id, DocumentRow.id == document_id)
+        ).first()
+        if row is None:
+            raise NotFoundError("document not found")
+        doc_type, suspicious, filename, extracted = row
+        if not _eligible(doc_type, suspicious):
+            return False
         cached = session.scalar(
             select(DDDocumentRead.id).where(
                 DDDocumentRead.company_id == company_id,
@@ -85,12 +84,11 @@ def read_document(engine: Engine, settings: Settings, company_id: UUID, document
                 DDDocumentRead.reader_version == READER_VERSION,
             )
         )
-        source = None if cached else _source(session, company_id, document_id)
+    text = extracted or ""
     if cached:
         return True
-    if source is None:
+    if not text.strip():
         return False
-    filename, text = source
     ctx = CallContext(company_id=company_id, purpose="dd_reader")
     result = run_agent(engine, settings, DD_READER, dd_reader_prompt(filename, text), ctx)
     read, dropped = verify_read(result.output, text[:MAX_DOCUMENT_CHARS])
@@ -108,21 +106,29 @@ def read_document(engine: Engine, settings: Settings, company_id: UUID, document
 
 def _doc_inputs(session: Session, company_id: UUID, review_id: UUID) -> tuple[list[DocInput], int]:
     rows = session.execute(
-        select(DocumentRow.id, DocumentRow.title, DDDocumentRead.read, DDDocumentRead.unverified)
+        select(
+            DocumentRow.id, DocumentRow.title, DocumentRow.doc_type, DocumentRow.suspicious, DDDocumentRead.read,
+            DDDocumentRead.unverified, func.length(AttachmentRow.extracted_text) > MAX_DOCUMENT_CHARS,
+        )
         .join(DDReviewDocument, DDReviewDocument.document_id == DocumentRow.id)
+        .join(AttachmentRow, AttachmentRow.id == DocumentRow.attachment_id)
         .outerjoin(
             DDDocumentRead,
             (DDDocumentRead.document_id == DocumentRow.id)
             & (DDDocumentRead.company_id == company_id)
             & (DDDocumentRead.reader_version == READER_VERSION),
         )
-        .where(DDReviewDocument.company_id == company_id, DDReviewDocument.review_id == review_id)
+        .where(
+            DDReviewDocument.company_id == company_id, DDReviewDocument.review_id == review_id,
+            DocumentRow.company_id == company_id,
+        )
         .order_by(DDReviewDocument.created_at, DDReviewDocument.id)
-    ).all()
+    ).all()  # fmt: skip
     docs, unverified = [], 0
-    for doc_id, title, raw, dropped in rows:
-        docs.append(DocInput(document_id=doc_id, title=title, read=_parse(raw)))
-        unverified += dropped or 0
+    for doc_id, title, doc_type, suspicious, raw, dropped, cut in rows:
+        read = _parse(raw) if _eligible(doc_type, suspicious) else None
+        docs.append(DocInput(document_id=doc_id, title=title, read=read, truncated=bool(cut) and read is not None))
+        unverified += (dropped or 0) if read is not None else 0
     return docs, unverified
 
 
@@ -171,4 +177,4 @@ def fail_review(engine: Engine, company_id: UUID, review_id: UUID, run_no: int, 
             select(DDReview).where(DDReview.company_id == company_id, DDReview.id == review_id).with_for_update()
         )
         if review is not None and review.run_no == run_no and review.status is not DDReviewStatus.done:
-            review.status, review.error = DDReviewStatus.failed, error[:500]
+            review.status, review.error = DDReviewStatus.failed, error[:100]  # a type name: never model output

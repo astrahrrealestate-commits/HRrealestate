@@ -108,3 +108,20 @@ def test_feed_payload_is_compact_and_names_the_gaps() -> None:
     assert payload["missing"] == ["Kadaster extract"]
     assert payload["coverage"] == {"present": report.coverage.present, "applicable": report.coverage.applicable}
     assert payload["counts"] == {"mismatches": 0, "high_risks": 0, "risks": 0}
+
+
+def test_unverified_claims_block_clear_to_review() -> None:
+    assert screen(FW, DDPropertyKind.house, _complete_house(), TODAY, unverified=1).verdict is DDVerdict.needs_documents
+
+
+def test_an_unreadable_document_blocks_clear_to_review() -> None:
+    docs = [*_complete_house(), unreadable()]
+    assert screen(FW, DDPropertyKind.house, docs, TODAY, unverified=0).verdict is DDVerdict.needs_documents
+
+
+def test_a_truncated_document_blocks_clear_to_review() -> None:
+    from dataclasses import replace
+
+    docs = _complete_house()
+    docs[0] = replace(docs[0], truncated=True)
+    assert screen(FW, DDPropertyKind.house, docs, TODAY, unverified=0).verdict is DDVerdict.needs_documents

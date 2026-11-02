@@ -8,7 +8,7 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from app.contracts.diligence import DDPropertyKind
-from app.core.errors import AgentFailedError
+from app.core.errors import AgentFailedError, BudgetExceededError
 from app.db.enums import DDReviewStatus
 from app.diligence import repo, service
 from app.workflows import diligence
@@ -50,17 +50,30 @@ def test_a_restarted_review_makes_the_old_run_stale(migrated_engine: Engine, com
     assert diligence.dd_review_wf(str(company_id), str(review), 2) == "red_flags"
 
 
-def test_a_failing_read_marks_the_review_failed(
+def test_a_document_the_model_cannot_read_degrades_to_unreadable(
     migrated_engine: Engine, company_id: UUID, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     review = _review(migrated_engine, company_id)
 
-    def boom(*_args: object) -> bool:
+    def garbage(*_args: object) -> bool:
         raise AgentFailedError("model returned garbage")
 
-    monkeypatch.setattr(service, "read_document", boom)
+    monkeypatch.setattr(service, "read_document", garbage)
+    assert diligence.dd_review_wf(str(company_id), str(review), 1) == "needs_documents"
+    report = repo.get_review(migrated_engine, company_id, review).report
+    assert report is not None
+    assert "unreadable_documents" in {r.code for r in report.risks}
+
+
+def test_a_spent_budget_fails_the_review_instead_of_a_misleading_report(
+    migrated_engine: Engine, company_id: UUID, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    review = _review(migrated_engine, company_id)
+
+    def spent(*_args: object) -> bool:
+        raise BudgetExceededError("daily")
+
+    monkeypatch.setattr(service, "read_document", spent)
     assert diligence.dd_review_wf(str(company_id), str(review), 1) == "failed"
     view = repo.get_review(migrated_engine, company_id, review)
-    assert view.status is DDReviewStatus.failed
-    assert view.error is not None
-    assert "model returned garbage" in view.error
+    assert (view.status, view.error) == (DDReviewStatus.failed, "BudgetExceededError")

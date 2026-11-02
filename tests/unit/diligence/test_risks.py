@@ -100,3 +100,39 @@ def test_the_reference_value_is_the_most_authoritative_claim() -> None:
     brochure = doc(K.brochure, txt(F.energy_label, "A"))
     label = doc(K.energy_label, txt(F.energy_label, "G"))
     assert _by_code(find_risks(FW, DDPropertyKind.house, [brochure, label], TODAY), "low_energy_label")
+
+
+def test_equal_authority_documents_are_all_considered_worst_case() -> None:
+    deed = doc(K.deed_of_title, day(F.ground_lease_end, date(2060, 1, 1)))
+    lease = doc(K.ground_lease, day(F.ground_lease_end, date(2030, 1, 1)))
+    for docs in ([deed, lease], [lease, deed]):
+        [r] = _by_code(find_risks(FW, DDPropertyKind.house, docs, TODAY), "ground_lease_ending")
+        assert r.severity is Sev.high
+
+
+def test_asbestos_present_in_any_top_authority_document_is_a_risk() -> None:
+    report = doc(K.asbestos_report, txt(F.asbestos, "present"))
+    survey = doc(K.building_survey, txt(F.asbestos, "absent"))
+    for docs in ([report, survey], [survey, report]):
+        assert _by_code(find_risks(FW, DDPropertyKind.house, docs, TODAY), "asbestos_present")
+
+
+def test_energy_label_is_read_as_a_letter_not_the_first_character() -> None:
+    label = doc(K.energy_label, txt(F.energy_label, "Label G"))
+    [r] = _by_code(find_risks(FW, DDPropertyKind.house, [label], TODAY), "low_energy_label")
+    assert r.severity is Sev.high
+
+
+def test_dutch_asbestos_wording_and_negation_are_normalised() -> None:
+    present = doc(K.asbestos_report, txt(F.asbestos, "aangetroffen"))
+    absent = doc(K.asbestos_report, txt(F.asbestos, "niet aanwezig"))
+    assert _by_code(find_risks(FW, DDPropertyKind.house, [present], TODAY), "asbestos_present")
+    assert _by_code(find_risks(FW, DDPropertyKind.house, [absent], TODAY), "asbestos_present") == []
+
+
+def test_truncated_document_is_a_medium_risk() -> None:
+    from dataclasses import replace
+
+    long_doc = replace(doc(K.deed_of_title), truncated=True)
+    [r] = _by_code(find_risks(FW, DDPropertyKind.house, [long_doc], TODAY), "document_truncated")
+    assert r.severity is Sev.medium

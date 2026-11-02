@@ -99,3 +99,13 @@ def test_the_same_document_stating_two_values_is_inconsistent() -> None:
     d = doc(K.brochure, num(F.living_area_m2, "85"), num(F.living_area_m2, "100"))
     [m] = find_mismatches(FW, [d])
     assert m.kind is MismatchKind.inconsistent
+
+
+def test_equal_authority_disagreement_on_a_critical_field_is_high() -> None:
+    docs = [
+        doc(K.deed_of_title, day(F.ground_lease_end, date(2060, 1, 1))),
+        doc(K.ground_lease, day(F.ground_lease_end, date(2030, 1, 1))),
+    ]
+    [m] = find_mismatches(FW, docs)
+    assert m.kind is MismatchKind.inconsistent
+    assert m.severity is DDSeverity.high

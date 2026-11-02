@@ -51,6 +51,29 @@ class DDDocKind(StrEnum):
     other = "other"
 
 
+# Words that make a document of this kind plain (Dutch and English). Order is priority: the first kind whose words
+# appear wins. Used by the offline fake to pick a kind, and by verification to distrust a kind nothing supports.
+KIND_KEYWORDS: dict[DDDocKind, tuple[str, ...]] = {
+    DDDocKind.vve_minutes: ("notulen", "minutes"),
+    DDDocKind.vve_budget: ("begroting", "jaarrekening", "budget"),
+    DDDocKind.vve_maintenance_plan: ("meerjaren", "mjop", "maintenance plan"),
+    DDDocKind.vve_rules: ("splitsing", "reglement"),
+    DDDocKind.ground_lease: ("erfpacht", "ground lease"),
+    DDDocKind.energy_label: ("energielabel", "energy label"),
+    DDDocKind.building_survey: ("bouwkundig", "survey", "keuring"),
+    DDDocKind.asbestos_report: ("asbest",),
+    DDDocKind.valuation: ("taxatie", "valuation"),
+    DDDocKind.permit: ("vergunning", "bestemmingsplan", "permit"),
+    DDDocKind.insurance: ("verzekering", "polis", "insurance"),
+    DDDocKind.lease_agreement: ("huurovereenkomst", "lease agreement"),
+    DDDocKind.rent_roll: ("huurspecificatie", "rent roll"),
+    DDDocKind.kadaster_extract: ("kadaster",),
+    DDDocKind.deed_of_title: ("akte van levering", "eigendomsakte", "deed of title"),
+    DDDocKind.purchase_agreement: ("koopovereenkomst", "purchase agreement", "koopakte"),
+    DDDocKind.brochure: ("brochure",),
+}
+
+
 class DDField(StrEnum):
     price = "price"  # EUR
     living_area_m2 = "living_area_m2"

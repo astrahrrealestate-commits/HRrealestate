@@ -47,3 +47,10 @@ def test_duplicate_keys_are_rejected(tmp_path: Path) -> None:
     data["requirements"].append(data["requirements"][0])
     with pytest.raises(ValidationError):
         Framework.model_validate(data)
+
+
+def test_authority_must_cover_every_doc_kind() -> None:
+    data = default_framework().model_dump(mode="json")
+    del data["authority"]["brochure"]
+    with pytest.raises(ValidationError):
+        Framework.model_validate(data)
