@@ -125,12 +125,14 @@ def insert_review(
     overcharge: Decimal,
     late_days: int,
     report: dict[str, Any],
+    review_id: UUID | None = None,
 ) -> UUID:
-    """Append a review of one of this company's quotes (append-only: a recheck adds a row)."""
+    """Append a review of one of this company's quotes (append-only: a recheck adds a row). `review_id` lets the
+    caller put the id in the report it stores."""
     require_in_company(session, QuoteRow, company_id, quote_id)
     row = QuoteReview(
-        id=new_id(), company_id=company_id, quote_id=quote_id, snapshot_basis=snapshot_basis, verdict=verdict,
-        overcharge=overcharge, late_days=late_days, report=report,
+        id=review_id or new_id(), company_id=company_id, quote_id=quote_id, snapshot_basis=snapshot_basis,
+        verdict=verdict, overcharge=overcharge, late_days=late_days, report=report,
     )  # fmt: skip
     session.add(row)
     session.flush()

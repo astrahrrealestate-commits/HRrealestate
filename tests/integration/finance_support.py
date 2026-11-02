@@ -27,8 +27,8 @@ class Seeded:
     message_id: UUID
 
 
-def person(s: Session, company_id: UUID, name: str) -> UUID:
-    row = Person(company_id=company_id, kind=PersonKind.contractor, display_name=name, valid_from=date(2025, 1, 1))
+def person(s: Session, company_id: UUID, name: str, kind: PersonKind = PersonKind.contractor) -> UUID:
+    row = Person(company_id=company_id, kind=kind, display_name=name, valid_from=date(2025, 1, 1))
     s.add(row)
     s.flush()
     return row.id
@@ -44,18 +44,28 @@ def rate(s: Session, company_id: UUID, person_id: UUID, item: str, amount: str, 
     return row
 
 
-def message(s: Session, company_id: UUID, case_id: UUID, text: str) -> UUID:
+def message(
+    s: Session,
+    company_id: UUID,
+    case_id: UUID | None,
+    text: str,
+    *,
+    sent_at: datetime = SENT_AT,
+    person_id: UUID | None = None,
+) -> UUID:
+    """An inbound WhatsApp message from `person_id` (None = unresolved sender), linked to `case_id` when given."""
     raw = RawEvent(company_id=company_id, provider=Channel.whatsapp, provider_msg_id=str(new_id()), payload={})
     s.add(raw)
     s.flush()
     msg = MessageRow(
         company_id=company_id, raw_event_id=raw.id, channel=Channel.whatsapp, provider_msg_id=raw.provider_msg_id,
-        thread_ref="thr-fin", sender_identity="+31612345678", direction=Direction.inbound, sent_at=SENT_AT, text=text,
-        meta={},
+        thread_ref="thr-fin", sender_identity="+31612345678", direction=Direction.inbound, sent_at=sent_at, text=text,
+        meta={}, person_id=person_id,
     )  # fmt: skip
     s.add(msg)
     s.flush()
-    s.add(CaseLink(company_id=company_id, case_id=case_id, message_id=msg.id, method=LinkMethod.thread))
+    if case_id is not None:
+        s.add(CaseLink(company_id=company_id, case_id=case_id, message_id=msg.id, method=LinkMethod.thread))
     return msg.id
 
 
