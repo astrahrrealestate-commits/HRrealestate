@@ -306,22 +306,25 @@ def _domain_fallback_answer(query: str, live_cases_text: str = "", is_error: boo
         return f"**EstateOS Live Status:**\n\n{live_cases_text or '• 0 open cases in database.'}"
 
 
-def _find_case_recipient(session: Session, target_case: Case) -> tuple[str, str, str | None, str | None]:
-    """Finds the true recipient (phone/email), channel, thread_ref, and failure reason for a case.
-
-    Rules:
-    - Use the channel of the latest inbound message.
-    - Match active ChannelIdentity for target_case.primary_person_id (valid_to is None) on that channel.
+def _find_case_recipient(session: Session, target_case: Case | UUID) -> tuple[str, str, str | None, str | None]:
+    """WP1 Recipient resolver rules:
+    - Target case can be a Case object or a case UUID.
+    - If inbound message exists: use its channel, find matching identity for case.primary_person_id.
+    - If no inbound message: inspect tenant identity directly on case.primary_person_id.
     - Never use an outbound message's sender as the recipient.
     - If no recipient exists, return clear reason.
     Returns: (recipient, channel, thread_ref, reason_if_missing)
     """
     try:
+        case_obj = target_case if hasattr(target_case, "id") else session.get(Case, target_case)
+        if not case_obj:
+            return "", "whatsapp", None, "case_not_found"
+
         inbound_msg = session.scalars(
             select(MessageRow)
             .join(CaseLink, CaseLink.message_id == MessageRow.id)
             .where(
-                CaseLink.case_id == target_case.id,
+                CaseLink.case_id == case_obj.id,
                 MessageRow.direction == Direction.inbound,
             )
             .order_by(MessageRow.sent_at.desc(), MessageRow.id.desc())
@@ -334,11 +337,11 @@ def _find_case_recipient(session: Session, target_case: Case) -> tuple[str, str,
             thread_ref = inbound_msg.thread_ref
 
             # Primary: person channel identity matching this inbound channel
-            if target_case.primary_person_id:
+            if case_obj.primary_person_id:
                 ident = session.scalars(
                     select(ChannelIdentity)
                     .where(
-                        ChannelIdentity.person_id == target_case.primary_person_id,
+                        ChannelIdentity.person_id == case_obj.primary_person_id,
                         ChannelIdentity.channel == ch_raw,
                         ChannelIdentity.valid_to.is_(None),
                     )
@@ -356,15 +359,15 @@ def _find_case_recipient(session: Session, target_case: Case) -> tuple[str, str,
                 elif chan_str == "whatsapp" and re.sub(r"[^0-9]", "", sender_id):
                     return sender_id, chan_str, thread_ref, None
 
-            reason = f"no_{chan_str}_on_file" if target_case.primary_person_id else "no_primary_person"
+            reason = f"no_{chan_str}_on_file" if case_obj.primary_person_id else "no_primary_person"
             return "", chan_str, thread_ref, reason
 
         # No inbound message found: inspect tenant identity directly
-        if target_case.primary_person_id:
+        if case_obj.primary_person_id:
             ident = session.scalars(
                 select(ChannelIdentity)
                 .where(
-                    ChannelIdentity.person_id == target_case.primary_person_id,
+                    ChannelIdentity.person_id == case_obj.primary_person_id,
                     ChannelIdentity.valid_to.is_(None),
                 )
                 .order_by(ChannelIdentity.created_at.desc())
