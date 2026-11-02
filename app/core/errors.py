@@ -74,3 +74,11 @@ class BrixxError(EstateOSError):
 
 class BrixxAuthError(BrixxError):
     """BRIXX rejected the token (401/403). Retrying cannot help until the token is replaced."""
+
+
+class StaleRunError(BrixxError):
+    """A BRIXX table sync step belongs to a run that no longer owns the table's resume point (or skipped a page)."""
+
+
+class BrixxStoreError(BrixxError):
+    """The mirror database rejected a page. The message names only the DB error class, table and page."""

@@ -13,8 +13,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
-from app.core.errors import BrixxError
-from app.db.models.brixx import BrixxSyncTableState
+from app.core.errors import BrixxError, StaleRunError
+from app.db.models.brixx import BrixxSyncRun, BrixxSyncTableState
 
 
 def get_or_create_table_state(session: Session, company_id: UUID, table: str) -> BrixxSyncTableState:
@@ -42,7 +42,18 @@ def _select(session: Session, company_id: UUID, table: str) -> BrixxSyncTableSta
 
 
 def begin_table_run(session: Session, state: BrixxSyncTableState, run_id: UUID) -> int:
-    """First page to fetch for `run_id`: `last_page + 1` when this same run was interrupted, otherwise 1."""
+    """First page to fetch for `run_id`: `last_page + 1` when this same run was interrupted, otherwise 1.
+
+    Locks the state row (`FOR UPDATE`) until the caller commits. Taking over from another run resets the page
+    counters, which makes that run's later `record_page`/`mark_success` calls raise `StaleRunError`. The run must
+    exist for the state's own company.
+    """
+    _lock(session, state)
+    known = session.scalar(
+        sa.select(BrixxSyncRun.id).where(BrixxSyncRun.id == run_id, BrixxSyncRun.company_id == state.company_id)
+    )
+    if known is None:
+        raise BrixxError(f"unknown BRIXX sync run for table {state.table_name!r}")
     if state.last_run_id == run_id and state.last_page > 0:
         return state.last_page + 1
     state.last_run_id = run_id
@@ -52,8 +63,16 @@ def begin_table_run(session: Session, state: BrixxSyncTableState, run_id: UUID) 
     return 1
 
 
-def record_page(session: Session, state: BrixxSyncTableState, page: int, written: int) -> None:
-    """Mark `page` fully committed. A replayed page (at or below `last_page`) is not counted twice."""
+def record_page(session: Session, state: BrixxSyncTableState, page: int, written: int, run_id: UUID) -> None:
+    """Mark `page` fully committed by `run_id`. Locks the state row; raises `StaleRunError` unless this run owns it.
+
+    Pages must arrive in order: `last_page + 1` (page 1 when `last_page` is 0). The page just recorded (`last_page`)
+    is accepted again as an idempotent replay (a DBOS step retried after its commit) and is not counted twice.
+    """
+    _lock(session, state)
+    _require_owner(state, run_id)
+    if page not in (state.last_page, state.last_page + 1) or page < 1:
+        raise StaleRunError(f"BRIXX table {state.table_name!r} expected page {state.last_page + 1}, got {page}")
     if page > state.last_page:
         state.last_page = page
         state.row_count += written
@@ -61,12 +80,19 @@ def record_page(session: Session, state: BrixxSyncTableState, page: int, written
     session.flush()
 
 
-def mark_success(session: Session, state: BrixxSyncTableState, upd: datetime | None, started_at: datetime) -> None:
+def mark_success(
+    session: Session, state: BrixxSyncTableState, upd: datetime | None, started_at: datetime, run_id: UUID
+) -> None:
     """Finish the table: advance the watermark and clear the resume point. Call only after the last page.
 
-    The watermark never moves backwards and is capped at `started_at` so a future-dated row cannot skip later
-    changes; `upd=None` (no timestamps seen) leaves it as it was.
+    `started_at` must be the run's ORIGINAL start (not a retry's), both datetimes must be timezone-aware, and
+    `run_id` must still own the table (else `StaleRunError`). The watermark never moves backwards and is capped at
+    `started_at` so a future-dated row cannot skip later changes; `upd=None` leaves it as it was.
     """
+    if started_at.utcoffset() is None or (upd is not None and upd.utcoffset() is None):
+        raise BrixxError("mark_success needs timezone-aware datetimes")
+    _lock(session, state)
+    _require_owner(state, run_id)
     if upd is not None:
         capped = min(upd, started_at)
         if state.last_success_upd is None or capped > state.last_success_upd:
@@ -74,6 +100,16 @@ def mark_success(session: Session, state: BrixxSyncTableState, upd: datetime | N
     state.last_page = 0
     state.last_error = None
     session.flush()
+
+
+def _lock(session: Session, state: BrixxSyncTableState) -> None:
+    """Re-read the state row under a row lock, so overlapping runs serialise on it."""
+    session.refresh(state, with_for_update=True)
+
+
+def _require_owner(state: BrixxSyncTableState, run_id: UUID) -> None:
+    if state.last_run_id != run_id:
+        raise StaleRunError(f"BRIXX table {state.table_name!r} is owned by another run")
 
 
 def mark_error(session: Session, state: BrixxSyncTableState, error: str) -> None:

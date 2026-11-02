@@ -7,11 +7,12 @@ from datetime import UTC, datetime, timedelta
 import pytest
 import sqlalchemy as sa
 from sqlalchemy import Engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.channels.brixx.fake import FakeBrixxApi, FakeTable
 from app.channels.brixx.models import BrixxField, BrixxTable
-from app.core.errors import BrixxAuthError, BrixxError
+from app.core.errors import BrixxAuthError, BrixxError, BrixxStoreError, StaleRunError
 from app.db.enums import BrixxRunKind
 from app.db.models import Company
 from app.db.models.brixx import BrixxSyncRun, BrixxSyncTableState
@@ -87,13 +88,15 @@ def _run(
     session.commit()
     max_upd: datetime | None = None
     while True:
-        result: PageResult = sync_table_page(session, api, company, info, table, page=page, since=since, now=NOW)
+        result: PageResult = sync_table_page(
+            session, api, company, info, table, run_id=run_id, page=page, since=since, now=NOW
+        )
         max_upd = latest(max_upd, result.max_upd)
         if not result.has_next:
             break
         page += 1
     state = get_or_create_table_state(session, company, info.name)
-    mark_success(session, state, max_upd, NOW)
+    mark_success(session, state, max_upd, NOW, run_id)
     session.commit()
     return max_upd
 
@@ -104,6 +107,15 @@ def _new_run(session: Session, company: uuid.UUID) -> uuid.UUID:
     session.add(run)
     session.commit()
     return run.id
+
+
+def _begun(session: Session, company: uuid.UUID, table: str = "PRG_DEMO") -> tuple[BrixxSyncTableState, uuid.UUID]:
+    """A state row owned by a fresh run, ready for `record_page`/`mark_success`."""
+    run_id = _new_run(session, company)
+    state = get_or_create_table_state(session, company, table)
+    begin_table_run(session, state, run_id)
+    session.commit()
+    return state, run_id
 
 
 def _state(session: Session, company: uuid.UUID, table: str) -> BrixxSyncTableState:
@@ -122,6 +134,7 @@ def test_first_run_is_full_load(session: Session, mirror: MirrorSchema, company_
     api = _api(info, _rows(5))
     _run(session, api, company_id, info, table, _new_run(session, company_id))
     assert api.fetch_log == [("PRG_DEMO", 1, None), ("PRG_DEMO", 2, None), ("PRG_DEMO", 3, None)]
+    assert api.order_log == ["id", "id", "id"]  # always the lower-case immutable primary key
     assert _ids(session, table, company_id) == [1, 2, 3, 4, 5]
     state = _state(session, company_id, info.name)
     assert state.row_count == 5
@@ -220,23 +233,95 @@ def test_success_only_after_last_page_and_never_on_failure(
 
 
 def test_mark_success_is_monotonic_and_capped(session: Session, company_id: uuid.UUID) -> None:
-    state = get_or_create_table_state(session, company_id, "PRG_DEMO")
+    state, run_id = _begun(session, company_id)
     started = datetime(2026, 11, 1, 8, 0, tzinfo=UTC)
-    mark_success(session, state, datetime(2026, 10, 30, tzinfo=UTC), started)
-    mark_success(session, state, datetime(2026, 10, 1, tzinfo=UTC), started)
+    mark_success(session, state, datetime(2026, 10, 30, tzinfo=UTC), started, run_id)
+    mark_success(session, state, datetime(2026, 10, 1, tzinfo=UTC), started, run_id)
     assert state.last_success_upd == datetime(2026, 10, 30, tzinfo=UTC)
-    mark_success(session, state, None, started)
+    mark_success(session, state, None, started, run_id)
     assert state.last_success_upd == datetime(2026, 10, 30, tzinfo=UTC)
-    mark_success(session, state, started + timedelta(days=30), started)
+    mark_success(session, state, started + timedelta(days=30), started, run_id)
     assert state.last_success_upd == started
 
 
-def test_record_page_does_not_double_count_a_replayed_page(session: Session, company_id: uuid.UUID) -> None:
-    state = get_or_create_table_state(session, company_id, "PRG_DEMO")
-    record_page(session, state, 1, 2)
-    record_page(session, state, 1, 2)
-    record_page(session, state, 2, 1)
+def test_mark_success_requires_timezone_aware_datetimes(session: Session, company_id: uuid.UUID) -> None:
+    state, run_id = _begun(session, company_id)
+    aware = datetime(2026, 11, 1, 8, 0, tzinfo=UTC)
+    naive = datetime.fromisoformat("2026-11-01T08:00:00")
+    with pytest.raises(BrixxError):
+        mark_success(session, state, aware, naive, run_id)
+    with pytest.raises(BrixxError):
+        mark_success(session, state, naive, aware, run_id)
+    assert state.last_success_upd is None
+
+
+def test_record_page_replay_is_not_double_counted_and_gaps_are_rejected(
+    session: Session, company_id: uuid.UUID
+) -> None:
+    state, run_id = _begun(session, company_id)
+    record_page(session, state, 1, 2, run_id)
+    record_page(session, state, 1, 2, run_id)
+    record_page(session, state, 2, 1, run_id)
     assert (state.last_page, state.row_count) == (2, 3)
+    for bad_page in (4, 1, 0):
+        with pytest.raises(StaleRunError):
+            record_page(session, state, bad_page, 1, run_id)
+    assert (state.last_page, state.row_count) == (2, 3)
+
+
+def test_first_page_must_be_page_one(session: Session, company_id: uuid.UUID) -> None:
+    state, run_id = _begun(session, company_id)
+    with pytest.raises(StaleRunError):
+        record_page(session, state, 2, 1, run_id)
+    assert state.last_page == 0
+
+
+def test_interleaved_runs_cannot_move_each_others_resume_point(session: Session, company_id: uuid.UUID) -> None:
+    state, run_a = _begun(session, company_id)
+    record_page(session, state, 1, 2, run_a)
+    record_page(session, state, 2, 2, run_a)
+    session.commit()
+    run_b = _new_run(session, company_id)
+    assert begin_table_run(session, state, run_b) == 1  # B takes over from A's unfinished work
+    record_page(session, state, 1, 5, run_b)
+    session.commit()
+
+    with pytest.raises(StaleRunError):
+        record_page(session, state, 3, 2, run_a)  # A was mid-flight: page 3 of a run that no longer owns the table
+    with pytest.raises(StaleRunError):
+        mark_success(session, state, None, NOW, run_a)
+    session.rollback()
+    state = _state(session, company_id, "PRG_DEMO")
+    assert (state.last_run_id, state.last_page, state.row_count) == (run_b, 1, 5)
+    assert begin_table_run(session, state, run_b) == 2  # B's own resume is unaffected
+
+
+def test_begin_table_run_rejects_unknown_and_foreign_runs(
+    session: Session, company_id: uuid.UUID, other_company_id: uuid.UUID
+) -> None:
+    state = get_or_create_table_state(session, company_id, "PRG_DEMO")
+    with pytest.raises(BrixxError):
+        begin_table_run(session, state, uuid.uuid4())
+    foreign_run = _new_run(session, other_company_id)
+    with pytest.raises(BrixxError):
+        begin_table_run(session, state, foreign_run)
+
+
+def test_stale_run_page_is_not_stored_and_does_not_touch_error_state(
+    session: Session, mirror: MirrorSchema, company_id: uuid.UUID
+) -> None:
+    info = versioned_table_info()
+    table = mirror.create(info)
+    state, run_a = _begun(session, company_id, info.name)
+    run_b = _new_run(session, company_id)
+    begin_table_run(session, state, run_b)
+    session.commit()
+    with pytest.raises(StaleRunError):
+        sync_table_page(
+            session, _api(info, _rows(3)), company_id, info, table, run_id=run_a, page=1, since=None, now=NOW
+        )
+    assert _ids(session, table, company_id) == []
+    assert _state(session, company_id, info.name).last_error is None
 
 
 def test_drift_flagged_not_failed(session: Session, mirror: MirrorSchema, company_id: uuid.UUID) -> None:
@@ -324,3 +409,70 @@ def test_tenant_scoping_same_table_separate_state(
     assert mine.last_success_upd is not None
     assert _ids(session, table, company_id) == [1, 2, 3, 4, 5]
     assert _ids(session, table, other_company_id) == []
+
+
+def test_update_between_pages_loses_and_duplicates_nothing(
+    session: Session, mirror: MirrorSchema, company_id: uuid.UUID
+) -> None:
+    info = versioned_table_info()
+    table = mirror.create(info)
+    rows = _rows(5)
+    api = _api(info, rows)
+    run_id = _new_run(session, company_id)
+    state = get_or_create_table_state(session, company_id, info.name)
+    begin_table_run(session, state, run_id)
+    session.commit()
+
+    first = sync_table_page(session, api, company_id, info, table, run_id=run_id, page=1, since=None, now=NOW)
+    # BRIXX updates row 1 between the pages: new upddatetime and name. An upddatetime-ordered feed would now move it
+    # to the end and shift every later row up by one; the primary-key order keeps page boundaries where they were.
+    updated = {**rows[0], "NAAM": "changed", "UPDDATETIME": "2026-10-30 09:00:00"}
+    rows.append(updated)
+    del rows[0]
+    second = sync_table_page(session, api, company_id, info, table, run_id=run_id, page=2, since=None, now=NOW)
+    third = sync_table_page(session, api, company_id, info, table, run_id=run_id, page=3, since=None, now=NOW)
+
+    assert (first.has_next, second.has_next, third.has_next) == (True, True, False)
+    assert first.written + second.written + third.written == 5
+    assert _ids(session, table, company_id) == [1, 2, 3, 4, 5]
+    assert api.order_log == ["id", "id", "id"]
+
+
+def test_database_error_records_class_name_only_and_does_not_advance(
+    session: Session, mirror: MirrorSchema, company_id: uuid.UUID
+) -> None:
+    info = versioned_table_info()
+    table = mirror.create(info)
+    rows = _rows(3)
+    rows[0]["NAAM"] = "x" * 80 + LEAK_PROBE  # longer than the VARCHAR(50) mirror column
+    api = _api(info, rows)
+    with pytest.raises(BrixxStoreError) as raised:
+        _run(session, api, company_id, info, table, _new_run(session, company_id))
+    for text in (str(raised.value), repr(raised.value)):
+        assert LEAK_PROBE not in text
+        assert "INSERT" not in text
+    assert raised.value.__cause__ is None
+    assert raised.value.__suppress_context__ is True
+    state = _state(session, company_id, info.name)
+    assert state.last_page == 0
+    assert state.last_error is not None
+    assert state.last_error.endswith("table=PRG_DEMO page=1")
+    assert LEAK_PROBE not in state.last_error
+    assert "x" * 10 not in state.last_error
+    assert _ids(session, table, company_id) == []
+
+
+def test_failure_recording_that_fails_keeps_the_original_error(
+    session: Session, mirror: MirrorSchema, company_id: uuid.UUID, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    info = versioned_table_info()
+    table = mirror.create(info)
+    api = _api(info, _rows(3))
+    api.fail_on(info.name, 1, BrixxAuthError("denied"))
+
+    def broken(*_args: object, **_kwargs: object) -> None:
+        raise OperationalError("UPDATE", {}, Exception("database is down"))
+
+    monkeypatch.setattr("app.directory.brixx.sync.mark_error", broken)
+    with pytest.raises(BrixxAuthError):
+        _run(session, api, company_id, info, table, _new_run(session, company_id))

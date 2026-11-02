@@ -70,8 +70,9 @@ Import-linter: pipeline and agents may read the mirror and mapped tables; only `
 
 - Cron workflow `brixx_incremental` (default every 15 min; setting `brixx_sync_interval_minutes`) enqueues one child workflow per table on a `brixx` queue (worker_concurrency 2, so BRIXX is not hammered). Workflow id `brixx:{run_id}:{table}`; deterministic, no I/O in workflow bodies.
 - Per table: step loop over pages. Each page is one `@DBOS.step` (fetch, normalise, upsert in one short transaction, advance `last_page`). Retry with DBOS step retries; `401`/`403` is non-retryable and raises a typed `BrixxAuthError`.
-- Incremental filter: `[upddatetime >= <last_success_upd - 5 min overlap>]`, ordered by `upddatetime`. Tables without `UPDDATETIME` always do a full fetch with hash compare (so unchanged rows are not rewritten).
+- Incremental filter: `[upddatetime >= <last_success_upd - 5 min overlap>]`, ordered by primary key (immutable, stable under updates). Tables without `UPDDATETIME` always do a full fetch with hash compare (so unchanged rows are not rewritten).
 - First run per table is a full load (no filter). A table is never marked successful until `links.next` is exhausted.
+- Phase B requirement: keyset paging on the PK and a reconcile that backfills primary keys BRIXX has and the mirror lacks, because a mid-run hard delete can shift page-number pages by one.
 - Cron workflow `brixx_reconcile` (default daily 03:00 Europe/Amsterdam): full fetch of primary keys per table, rows missing from BRIXX get `_deleted_at` (soft). `INDVERWIJDERD=1` rows are kept as-is (BRIXX's own soft delete).
 - History `Z*` tables: append-only fetch keyed by their own PK; incremental on `UPDDATETIME` where present.
 - Documents: after `PRG_DOCUMENT`/`PRG_DOCUMENTLINK` sync, a `documents`-queue workflow per new/changed document id downloads the file with the S3 adapter, stores sha256 and key, idempotent via `brixx_documents` unique `(company_id, document_id, sha256)`. Needs the personal-data permission; if missing, status `forbidden` and surfaced.

@@ -100,3 +100,14 @@ def test_error_text_has_class_table_and_page_but_no_message() -> None:
 
     text = describe_error(LeakyError("https://x/?ZOEKID=secret"), "PRG_DEMO", 3)
     assert text == "LeakyError table=PRG_DEMO page=3"
+
+
+def test_ambiguous_autumn_time_maps_to_the_earlier_instant() -> None:
+    # 02:30 happens twice on 2026-10-25 (CEST, then CET): the first is 00:30 UTC
+    assert parse_upddatetime("2026-10-25 02:30:00") == datetime(2026, 10, 25, 0, 30, tzinfo=UTC)
+
+
+def test_nonexistent_spring_time_does_not_crash_and_is_not_later_than_either_reading() -> None:
+    # 02:30 does not exist on 2026-03-29: readings are 00:30 UTC (CEST) and 01:30 UTC (CET); keep the earlier
+    parsed = parse_upddatetime("2026-03-29 02:30:00")
+    assert parsed == datetime(2026, 3, 29, 0, 30, tzinfo=UTC)
