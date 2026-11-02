@@ -29,6 +29,8 @@ import {
   Plus,
   Pin,
   Trash2,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -95,6 +97,31 @@ export function AskEstateOSPanel({
   const [inputQuery, setInputQuery] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("superagent_theme") as "light" | "dark" | null;
+      if (saved === "dark" || saved === "light") {
+        setTheme(saved);
+      } else {
+        setTheme("light");
+      }
+    } catch {
+      setTheme("light");
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const next = theme === "light" ? "dark" : "light";
+    setTheme(next);
+    try {
+      localStorage.setItem("superagent_theme", next);
+    } catch {}
+  };
+
+  const isDark = theme === "dark";
+
   const [sendingCardId, setSendingCardId] = useState<string | null>(null);
   const [approvingCalendarId, setApprovingCalendarId] = useState<string | null>(null);
   const [approvedCalendarIds, setApprovedCalendarIds] = useState<Set<string>>(new Set());
@@ -426,7 +453,11 @@ export function AskEstateOSPanel({
       */}
       <aside
         className={cn(
-          "bg-[#0E1113] text-[#F3F4F6] shadow-2xl flex flex-col justify-between font-sans border-[#22282E]",
+          "shadow-2xl flex flex-col justify-between font-sans transition-colors duration-150",
+          isDark
+            ? "bg-[#0E1113] text-[#F3F4F6] border-[#22282E]"
+            : "bg-[#FFFFFF] text-[#0A0A0A] border-[#E8E8E5]",
+
           isFullScreen
             ? "fixed inset-2 md:inset-6 z-50 rounded-[18px] border overflow-hidden transition-all duration-200 animate-in zoom-in-95"
             : panelMode === "center"
@@ -435,28 +466,57 @@ export function AskEstateOSPanel({
         )}
       >
         {/* 1. Header Bar with Integrated Context Tag (No extra box bar needed) */}
-        <div className="h-14 px-4 sm:px-5 border-b border-[#1A1F24] flex items-center justify-between flex-shrink-0 bg-[#0E1113]">
+        <div
+          className={cn(
+            "h-14 px-4 sm:px-5 border-b flex items-center justify-between flex-shrink-0 transition-colors",
+            isDark ? "bg-[#0E1113] border-[#1A1F24]" : "bg-[#FFFFFF] border-[#E8E8E5]"
+          )}
+        >
           <div className="flex items-center gap-2.5 min-w-0">
             {/* Mobile Back Button */}
             <button
               onClick={onClose}
-              className="md:hidden p-1.5 -ml-1 rounded-[8px] text-[#9CA3AF] hover:text-white hover:bg-[#1A1F24] transition-colors cursor-pointer"
+              className={cn(
+                "md:hidden p-1.5 -ml-1 rounded-[8px] transition-colors cursor-pointer",
+                isDark
+                  ? "text-[#9CA3AF] hover:text-white hover:bg-[#1A1F24]"
+                  : "text-[#6B7280] hover:text-[#0A0A0A] hover:bg-[#F0F0EE]"
+              )}
               title="Back"
             >
               <ArrowLeft className="w-5 h-5 stroke-[2]" />
             </button>
 
             {/* AI Agent Icon */}
-            <div className="w-7 h-7 rounded-[8px] bg-[#182026] border border-[#2A3540] flex items-center justify-center text-emerald-300 shadow-xs shrink-0">
+            <div
+              className={cn(
+                "w-7 h-7 rounded-[8px] border flex items-center justify-center shadow-xs shrink-0",
+                isDark
+                  ? "bg-[#182026] border-[#2A3540] text-emerald-300"
+                  : "bg-[#FFF1E7] border-[#F25C05]/30 text-[#F25C05]"
+              )}
+            >
               <Sparkles className="w-3.5 h-3.5" />
             </div>
 
             {/* Title & Page Context */}
             <div className="flex items-center gap-2 min-w-0">
-              <span className="font-heading font-semibold text-[14px] text-[#F9FAFB] tracking-tight shrink-0">
+              <span
+                className={cn(
+                  "font-heading font-semibold text-[14px] tracking-tight shrink-0",
+                  isDark ? "text-[#F9FAFB]" : "text-[#0A0A0A]"
+                )}
+              >
                 Super Agent
               </span>
-              <span className="text-[10px] font-mono uppercase bg-[#161A1D] text-[#94A3B8] border border-[#252B32] px-1.5 py-0.5 rounded-[5px] shrink-0">
+              <span
+                className={cn(
+                  "text-[10px] font-mono uppercase px-1.5 py-0.5 rounded-[5px] shrink-0 border",
+                  isDark
+                    ? "bg-[#161A1D] text-[#94A3B8] border-[#252B32]"
+                    : "bg-[#F6F6F4] text-[#6B7280] border-[#E8E8E5]"
+                )}
+              >
                 Concierge
               </span>
 
@@ -467,8 +527,12 @@ export function AskEstateOSPanel({
                 className={cn(
                   "w-7 h-7 rounded-[7px] border flex items-center justify-center transition-colors cursor-pointer shrink-0 ml-1",
                   superAgent.isHistoryOpen
-                    ? "bg-[#1E2328] border-[#F25C05]/50 text-white"
-                    : "bg-[#14181B] hover:bg-[#1C2227] border-[#20262B] text-[#94A3B8] hover:text-[#FFFFFF]"
+                    ? isDark
+                      ? "bg-[#1E2328] border-[#F25C05]/50 text-white"
+                      : "bg-[#FFF1E7] border-[#F25C05] text-[#F25C05]"
+                    : isDark
+                      ? "bg-[#14181B] hover:bg-[#1C2227] border-[#20262B] text-[#94A3B8] hover:text-[#FFFFFF]"
+                      : "bg-[#F6F6F4] hover:bg-[#EBEBE8] border-[#E8E8E5] text-[#444444] hover:text-[#0A0A0A]"
                 )}
                 title="Toggle Conversation History"
               >
@@ -479,7 +543,12 @@ export function AskEstateOSPanel({
               <button
                 type="button"
                 onClick={superAgent.startNewChat}
-                className="hidden sm:flex items-center gap-1 px-2 py-1 rounded-[6px] bg-[#14181B] hover:bg-[#1C2227] border border-[#20262B] text-[11px] font-medium text-[#CBD5E1] hover:text-white transition-colors cursor-pointer shrink-0"
+                className={cn(
+                  "hidden sm:flex items-center gap-1 px-2 py-1 rounded-[6px] border text-[11px] font-medium transition-colors cursor-pointer shrink-0",
+                  isDark
+                    ? "bg-[#14181B] hover:bg-[#1C2227] border-[#20262B] text-[#CBD5E1] hover:text-white"
+                    : "bg-[#F6F6F4] hover:bg-[#EBEBE8] border-[#E8E8E5] text-[#222222] hover:text-[#0A0A0A]"
+                )}
                 title="Start a new conversation thread"
               >
                 <Plus className="w-3 h-3 text-[#F25C05]" />
@@ -488,7 +557,14 @@ export function AskEstateOSPanel({
 
               {/* Active Conversation Title */}
               {superAgent.conversationTitle && superAgent.conversationTitle !== "New Chat" && (
-                <span className="hidden md:inline-block text-[11.5px] font-medium text-emerald-300 bg-emerald-500/10 border border-emerald-500/25 px-2 py-0.5 rounded-[5px] truncate max-w-[140px]">
+                <span
+                  className={cn(
+                    "hidden md:inline-block text-[11.5px] font-medium px-2 py-0.5 rounded-[5px] truncate max-w-[140px] border",
+                    isDark
+                      ? "text-emerald-300 bg-emerald-500/10 border-emerald-500/25"
+                      : "text-emerald-700 bg-emerald-50 border-emerald-200 font-semibold"
+                  )}
+                >
                   {superAgent.conversationTitle}
                 </span>
               )}
@@ -501,7 +577,12 @@ export function AskEstateOSPanel({
               <button
                 type="button"
                 onClick={onClose}
-                className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-[#F25C05] bg-[#161A1D] hover:bg-[#20262B] border border-[#252B32] rounded-[7px] transition-colors cursor-pointer shrink-0"
+                className={cn(
+                  "hidden sm:inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold border rounded-[7px] transition-colors cursor-pointer shrink-0",
+                  isDark
+                    ? "text-[#F25C05] bg-[#161A1D] hover:bg-[#20262B] border-[#252B32]"
+                    : "text-[#B93C00] bg-[#FFF1E7] hover:bg-[#FFE5D4] border-[#F25C05]/30"
+                )}
                 title={`Switch back to ${activeDrawerInfo.kind} ${activeDrawerInfo.title}`}
               >
                 <ArrowLeft className="w-3 h-3 text-[#F25C05]" />
@@ -512,7 +593,12 @@ export function AskEstateOSPanel({
             {/* Mode Switcher: Center (40%) <-> Dock (30%) */}
             <button
               onClick={togglePanelMode}
-              className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-[7px] bg-[#14181B] hover:bg-[#1C2227] border border-[#20262B] text-[11px] text-[#94A3B8] hover:text-[#FFFFFF] transition-colors cursor-pointer"
+              className={cn(
+                "hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-[7px] border text-[11px] transition-colors cursor-pointer",
+                isDark
+                  ? "bg-[#14181B] hover:bg-[#1C2227] border-[#20262B] text-[#94A3B8] hover:text-[#FFFFFF]"
+                  : "bg-[#F6F6F4] hover:bg-[#EBEBE8] border-[#E8E8E5] text-[#444444] hover:text-[#0A0A0A]"
+              )}
               title={panelMode === "center" ? "Dock to right side (30%)" : "Float in center (40%)"}
             >
               {panelMode === "center" ? (
@@ -531,7 +617,12 @@ export function AskEstateOSPanel({
             {/* Fullscreen / Restore Toggle Button */}
             <button
               onClick={() => setIsFullScreen((prev) => !prev)}
-              className="hidden md:flex w-8 h-8 rounded-[7px] bg-[#14181B] hover:bg-[#1C2227] border border-[#20262B] text-[#94A3B8] hover:text-[#FFFFFF] items-center justify-center transition-colors cursor-pointer"
+              className={cn(
+                "hidden md:flex w-8 h-8 rounded-[7px] border items-center justify-center transition-colors cursor-pointer",
+                isDark
+                  ? "bg-[#14181B] hover:bg-[#1C2227] border-[#20262B] text-[#94A3B8] hover:text-[#FFFFFF]"
+                  : "bg-[#F6F6F4] hover:bg-[#EBEBE8] border-[#E8E8E5] text-[#444444] hover:text-[#0A0A0A]"
+              )}
               title={isFullScreen ? "Restore Window" : "Expand to Full Screen"}
             >
               {isFullScreen ? (
@@ -541,10 +632,29 @@ export function AskEstateOSPanel({
               )}
             </button>
 
+            {/* Theme Toggle: Light / Dark Mode */}
+            <button
+              onClick={toggleTheme}
+              className={cn(
+                "w-8 h-8 rounded-[7px] border flex items-center justify-center transition-colors cursor-pointer",
+                isDark
+                  ? "bg-[#14181B] hover:bg-[#1C2227] border-[#20262B] text-amber-300 hover:text-amber-200"
+                  : "bg-[#F6F6F4] hover:bg-[#EBEBE8] border-[#E8E8E5] text-[#6B7280] hover:text-[#0A0A0A]"
+              )}
+              title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+            >
+              {isDark ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+            </button>
+
             {/* Close Button */}
             <button
               onClick={onClose}
-              className="w-8 h-8 rounded-[7px] bg-[#14181B] hover:bg-[#1C2227] border border-[#20262B] text-[#94A3B8] hover:text-[#FFFFFF] flex items-center justify-center transition-colors cursor-pointer"
+              className={cn(
+                "w-8 h-8 rounded-[7px] border flex items-center justify-center transition-colors cursor-pointer",
+                isDark
+                  ? "bg-[#14181B] hover:bg-[#1C2227] border-[#20262B] text-[#94A3B8] hover:text-[#FFFFFF]"
+                  : "bg-[#F6F6F4] hover:bg-[#EBEBE8] border-[#E8E8E5] text-[#444444] hover:text-[#0A0A0A]"
+              )}
               title="Close (Esc)"
             >
               <X className="w-4 h-4 stroke-[2]" />
@@ -556,15 +666,35 @@ export function AskEstateOSPanel({
         <div className="flex-1 flex min-h-0 overflow-hidden relative">
           {/* History Drawer Sidebar */}
           {superAgent.isHistoryOpen && (
-            <div className="w-[230px] border-r border-[#1E2328] bg-[#0A0C0E] flex flex-col shrink-0 animate-in slide-in-from-left-4 duration-150 z-20">
-              <div className="p-3 border-b border-[#1E2328] flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-[#CBD5E1] uppercase font-mono tracking-wider">
+            <div
+              className={cn(
+                "w-[230px] border-r flex flex-col shrink-0 animate-in slide-in-from-left-4 duration-150 z-20 transition-colors",
+                isDark ? "border-[#1E2328] bg-[#0A0C0E]" : "border-[#E8E8E5] bg-[#FBFBFA]"
+              )}
+            >
+              <div
+                className={cn(
+                  "p-3 border-b flex items-center justify-between",
+                  isDark ? "border-[#1E2328]" : "border-[#E8E8E5]"
+                )}
+              >
+                <span
+                  className={cn(
+                    "text-[11px] font-semibold uppercase font-mono tracking-wider",
+                    isDark ? "text-[#CBD5E1]" : "text-[#444444]"
+                  )}
+                >
                   Chats ({superAgent.conversations.length})
                 </span>
                 <button
                   type="button"
                   onClick={superAgent.startNewChat}
-                  className="px-2 py-1 rounded-[6px] bg-[#1E2328] hover:bg-[#28323B] text-[11px] font-medium text-white flex items-center gap-1 cursor-pointer transition-colors"
+                  className={cn(
+                    "px-2 py-1 rounded-[6px] text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-colors",
+                    isDark
+                      ? "bg-[#1E2328] hover:bg-[#28323B] text-white"
+                      : "bg-[#FFFFFF] hover:bg-[#F0F0EE] border border-[#E8E8E5] text-[#0A0A0A]"
+                  )}
                   title="Start a new conversation"
                 >
                   <Plus className="w-3 h-3 text-[#F25C05]" />
@@ -574,7 +704,7 @@ export function AskEstateOSPanel({
 
               <div className="flex-1 overflow-y-auto p-2 space-y-3">
                 {superAgent.conversations.length === 0 ? (
-                  <div className="p-3 text-center text-[11.5px] text-[#64748B]">
+                  <div className={cn("p-3 text-center text-[11.5px]", isDark ? "text-[#64748B]" : "text-[#888888]")}>
                     No saved chats yet.
                   </div>
                 ) : (
@@ -586,7 +716,7 @@ export function AskEstateOSPanel({
 
                     return (
                       <div key={bucket} className="space-y-1">
-                        <div className="px-2 py-1 text-[10px] font-mono uppercase text-[#64748B]">
+                        <div className={cn("px-2 py-1 text-[10px] font-mono uppercase", isDark ? "text-[#64748B]" : "text-[#888888]")}>
                           {bucket}
                         </div>
                         {bucketConvs.map((conv) => {
@@ -598,15 +728,19 @@ export function AskEstateOSPanel({
                               className={cn(
                                 "group p-2 rounded-[8px] transition-all cursor-pointer flex items-center justify-between gap-1.5 text-left",
                                 isActive
-                                  ? "bg-[#161B20] text-white border-l-2 border-[#F25C05]"
-                                  : "hover:bg-[#13161A] text-[#94A3B8] hover:text-[#E2E8F0]"
+                                  ? isDark
+                                    ? "bg-[#161B20] text-white border-l-2 border-[#F25C05]"
+                                    : "bg-[#FFFFFF] text-[#0A0A0A] border-l-2 border-[#F25C05] shadow-xs border-y border-r border-[#E8E8E5]"
+                                  : isDark
+                                    ? "hover:bg-[#13161A] text-[#94A3B8] hover:text-[#E2E8F0]"
+                                    : "hover:bg-[#F0F0EE] text-[#444444] hover:text-[#0A0A0A]"
                               )}
                             >
                               <div className="min-w-0 flex-1">
                                 <div className="text-[12px] font-medium truncate">
                                   {conv.title}
                                 </div>
-                                <div className="text-[10.5px] text-[#64748B] truncate">
+                                <div className={cn("text-[10.5px] truncate", isDark ? "text-[#64748B]" : "text-[#6B7280]")}>
                                   {conv.snippet}
                                 </div>
                               </div>
@@ -619,9 +753,9 @@ export function AskEstateOSPanel({
                                     await updateAgentConversation(conv.id, { pinned: !conv.pinned });
                                     superAgent.refreshConversations();
                                   }}
-                                  className="p-1 hover:text-white transition-colors"
+                                  className={cn("p-1 transition-colors", isDark ? "hover:text-white" : "hover:text-[#0A0A0A]")}
                                 >
-                                  <Pin className={cn("w-3 h-3", conv.pinned ? "text-[#F25C05] fill-[#F25C05]" : "text-[#64748B]")} />
+                                  <Pin className={cn("w-3 h-3", conv.pinned ? "text-[#F25C05] fill-[#F25C05]" : isDark ? "text-[#64748B]" : "text-[#9CA3AF]")} />
                                 </button>
                                 <button
                                   type="button"
@@ -634,9 +768,9 @@ export function AskEstateOSPanel({
                                     }
                                     superAgent.refreshConversations();
                                   }}
-                                  className="p-1 hover:text-rose-400 transition-colors"
+                                  className="p-1 hover:text-rose-500 transition-colors"
                                 >
-                                  <Trash2 className="w-3 h-3 text-[#64748B]" />
+                                  <Trash2 className={cn("w-3 h-3", isDark ? "text-[#64748B]" : "text-[#9CA3AF]")} />
                                 </button>
                               </div>
                             </div>
@@ -653,7 +787,12 @@ export function AskEstateOSPanel({
           {/* Center Column: Messages & Input */}
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
             {/* 2. Scrollable Message Thread */}
-            <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-5 space-y-4 text-[13.5px] leading-relaxed min-w-0 w-full">
+            <div
+              className={cn(
+                "flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-5 space-y-4 text-[13.5px] leading-relaxed min-w-0 w-full transition-colors",
+                isDark ? "bg-[#0E1113]" : "bg-[#F6F6F4]"
+              )}
+            >
           {messages.map((msg) => (
             <div
               key={msg.id}
@@ -667,34 +806,58 @@ export function AskEstateOSPanel({
                 className={cn(
                   "p-3.5 sm:p-4 rounded-[14px] text-[13.5px] min-w-0 max-w-full break-words [overflow-wrap:anywhere]",
                   msg.sender === "user"
-                    ? "bg-[#1F2730] border border-[#2D3945] text-[#F9FAFB] rounded-tr-none"
-                    : "bg-[#14171A] border border-[#222830] text-[#E5E7EB] rounded-tl-none shadow-sm w-full"
+                    ? isDark
+                      ? "bg-[#1F2730] border border-[#2D3945] text-[#F9FAFB] rounded-tr-none"
+                      : "bg-[#0A0A0A] border border-[#0A0A0A] text-[#FFFFFF] rounded-tr-none"
+                    : isDark
+                      ? "bg-[#14171A] border border-[#222830] text-[#E5E7EB] rounded-tl-none shadow-sm w-full"
+                      : "bg-[#FFFFFF] border border-[#E8E8E5] text-[#0A0A0A] rounded-tl-none shadow-xs w-full"
                 )}
               >
                 <div
                   className="whitespace-pre-line leading-relaxed break-words [overflow-wrap:anywhere] min-w-0 max-w-full"
                   dangerouslySetInnerHTML={{
-                    __html: formatMarkdown(msg.text),
+                    __html: formatMarkdown(msg.text, isDark),
                   }}
                 />
 
                 {/* Read citation: subtle inline text */}
                 {msg.readSource && (
-                  <div className="mt-2.5 pt-2 border-t border-[#1E2328] text-[11px] text-[#64748B] flex items-center gap-1.5 font-mono">
-                    <span className="text-[#94A3B8]">Read:</span>
+                  <div
+                    className={cn(
+                      "mt-2.5 pt-2 border-t text-[11px] flex items-center gap-1.5 font-mono",
+                      isDark ? "border-[#1E2328] text-[#64748B]" : "border-[#E8E8E5] text-[#6B7280]"
+                    )}
+                  >
+                    <span className={isDark ? "text-[#94A3B8]" : "text-[#4B5563]"}>Read:</span>
                     <span className="truncate">{msg.readSource}</span>
                   </div>
                 )}
 
                 {/* Facts: Minimal 2-column key/value list without heavy nested boxes */}
                 {msg.facts && msg.facts.length > 0 && (
-                  <div className="mt-3 pt-2.5 border-t border-[#1E2328] grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11.5px]">
+                  <div
+                    className={cn(
+                      "mt-3 pt-2.5 border-t grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11.5px]",
+                      isDark ? "border-[#1E2328]" : "border-[#E8E8E5]"
+                    )}
+                  >
                     {msg.facts.map((fact, idx) => (
                       <div key={idx} className="flex flex-col">
-                        <span className="text-[10px] uppercase font-mono text-[#64748B] tracking-wider mb-0.5">
+                        <span
+                          className={cn(
+                            "text-[10px] uppercase font-mono tracking-wider mb-0.5",
+                            isDark ? "text-[#64748B]" : "text-[#6B7280]"
+                          )}
+                        >
                           {fact.label}
                         </span>
-                        <span className={cn("font-medium truncate", fact.isAlert ? "text-[#F25C05]" : "text-[#E2E8F0]")}>
+                        <span
+                          className={cn(
+                            "font-medium truncate",
+                            fact.isAlert ? "text-[#F25C05]" : isDark ? "text-[#E2E8F0]" : "text-[#0A0A0A]"
+                          )}
+                        >
                           {fact.value}
                         </span>
                       </div>
@@ -707,10 +870,15 @@ export function AskEstateOSPanel({
                   const validSteps = filterValidSteps(msg.steps);
                   if (validSteps.length === 0) return null;
                   return (
-                    <div className="mt-2.5 space-y-1.5 text-[12px] text-[#94A3B8]">
+                    <div
+                      className={cn(
+                        "mt-2.5 space-y-1.5 text-[12px]",
+                        isDark ? "text-[#94A3B8]" : "text-[#4B5563]"
+                      )}
+                    >
                       {validSteps.map((st, sIdx) => (
                         <div key={sIdx} className="flex items-center gap-2">
-                          <Check className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+                          <Check className={cn("w-3.5 h-3.5 shrink-0", isDark ? "text-emerald-300" : "text-emerald-600")} />
                           <span className="leading-tight">{st}</span>
                         </div>
                       ))}
@@ -720,7 +888,12 @@ export function AskEstateOSPanel({
 
                 {/* Mini Preview Workspace Card (Single clean container, color reserved for important items) */}
                 {msg.previewCard && (
-                  <div className="mt-3 rounded-[10px] bg-[#15181C] border border-[#222830] p-3.5 space-y-2.5 shadow-sm animate-in fade-in-50 duration-150 min-w-0 max-w-full overflow-hidden">
+                  <div
+                    className={cn(
+                      "mt-3 rounded-[10px] border p-3.5 space-y-2.5 shadow-xs animate-in fade-in-50 duration-150 min-w-0 max-w-full overflow-hidden transition-colors",
+                      isDark ? "bg-[#15181C] border-[#222830]" : "bg-[#FBFBFA] border-[#E8E8E5]"
+                    )}
+                  >
                     {/* 1. Case Snapshot Card */}
                     {msg.previewCard.type === "case_summary" ? (
                       (() => {
@@ -735,39 +908,51 @@ export function AskEstateOSPanel({
                               <div className="flex items-center gap-2 min-w-0">
                                 <span className={cn(
                                   "font-mono text-[10px] font-semibold uppercase px-2 py-0.5 rounded border shrink-0",
-                                  isUrgent ? "bg-rose-950/60 text-rose-300 border-rose-800/50" : "bg-blue-950/60 text-blue-300 border-blue-800/50"
+                                  isUrgent
+                                    ? isDark
+                                      ? "bg-rose-950/60 text-rose-300 border-rose-800/50"
+                                      : "bg-rose-50 text-rose-700 border-rose-200"
+                                    : isDark
+                                      ? "bg-blue-950/60 text-blue-300 border-blue-800/50"
+                                      : "bg-blue-50 text-blue-700 border-blue-200"
                                 )}>
                                   {isUrgent ? "URGENT" : "TICKET"}
                                 </span>
-                                <span className="text-[#F3F4F6] font-medium truncate">
+                                <span className={cn("font-medium truncate", isDark ? "text-[#F3F4F6]" : "text-[#0A0A0A]")}>
                                   {msg.previewCard.unitLabel || "Portfolio"}
                                 </span>
                               </div>
                               {msg.previewCard.status && (
-                                <span className="text-[10.5px] font-mono text-[#94A3B8] capitalize px-2 py-0.5 rounded bg-[#1A1F26] border border-[#262F3A] shrink-0">
+                                <span className={cn(
+                                  "text-[10.5px] font-mono capitalize px-2 py-0.5 rounded border shrink-0",
+                                  isDark ? "bg-[#1A1F26] border-[#262F3A] text-[#94A3B8]" : "bg-[#FFFFFF] border-[#E8E8E5] text-[#4B5563]"
+                                )}>
                                   {msg.previewCard.status}
                                 </span>
                               )}
                             </div>
-                            <div className="text-[12.5px] text-[#E2E8F0] leading-relaxed font-sans break-words [overflow-wrap:anywhere]">
+                            <div className={cn("text-[12.5px] leading-relaxed font-sans break-words [overflow-wrap:anywhere]", isDark ? "text-[#E2E8F0]" : "text-[#1F2937]")}>
                               {cleanBody}
                             </div>
                             {(contractor || poCap) && (
-                              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#1E2328] text-[11px]">
+                              <div className={cn("flex flex-wrap items-center justify-between gap-2 pt-2 border-t text-[11px]", isDark ? "border-[#1E2328]" : "border-[#E8E8E5]")}>
                                 {contractor ? (
-                                  <div className="flex items-center gap-1.5 text-[#94A3B8]">
-                                    <Wrench className="w-3.5 h-3.5 text-[#64748B] shrink-0" />
-                                    <span>Contractor: <strong className="text-[#E2E8F0] font-medium">{contractor}</strong></span>
+                                  <div className={cn("flex items-center gap-1.5", isDark ? "text-[#94A3B8]" : "text-[#6B7280]")}>
+                                    <Wrench className={cn("w-3.5 h-3.5 shrink-0", isDark ? "text-[#64748B]" : "text-[#9CA3AF]")} />
+                                    <span>Contractor: <strong className={cn("font-medium", isDark ? "text-[#E2E8F0]" : "text-[#0A0A0A]")}>{contractor}</strong></span>
                                   </div>
                                 ) : <span />}
                                 {poCap && (
-                                  <span className="font-mono text-[10.5px] font-semibold text-amber-300 bg-amber-950/40 border border-amber-800/40 px-2 py-0.5 rounded">
+                                  <span className={cn(
+                                    "font-mono text-[10.5px] font-semibold px-2 py-0.5 rounded border",
+                                    isDark ? "text-amber-300 bg-amber-950/40 border-amber-800/40" : "text-amber-800 bg-amber-50 border-amber-200"
+                                  )}>
                                     {poCap}
                                   </span>
                                 )}
                               </div>
                             )}
-                            <div className="pt-1 flex items-center justify-end border-t border-[#1E2328]/60">
+                            <div className={cn("pt-1 flex items-center justify-end border-t", isDark ? "border-[#1E2328]/60" : "border-[#E8E8E5]")}>
                               <button
                                 type="button"
                                 onClick={() => {
@@ -790,22 +975,24 @@ export function AskEstateOSPanel({
                       /* 2. Financial Arrears / Ledger Card (Amount is the important highlight) */
                       <div className="space-y-2">
                         <div className="flex items-center justify-between text-[11px]">
-                          <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-[#1F252C] text-[#CBD5E1] border border-[#29323B]">
+                          <span className={cn(
+                            "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border",
+                            isDark ? "bg-[#1F252C] text-[#CBD5E1] border-[#29323B]" : "bg-[#FFFFFF] text-[#4B5563] border-[#E8E8E5]"
+                          )}>
                             {msg.previewCard.badgeLabel || "ARREARS"}
                           </span>
-                          {/* Amount is highlighted in red because it's an overdue financial figure */}
-                          <span className="font-mono text-[14px] font-bold text-rose-400">
+                          <span className={cn("font-mono text-[14px] font-bold", isDark ? "text-rose-400" : "text-rose-600")}>
                             {msg.previewCard.amount}
                           </span>
                         </div>
-                        <div className="text-[13px] font-semibold text-[#F9FAFB] break-words">
+                        <div className={cn("text-[13px] font-semibold break-words", isDark ? "text-[#F9FAFB]" : "text-[#0A0A0A]")}>
                           {msg.previewCard.title}
                         </div>
-                        <div className="text-[12px] text-[#94A3B8] leading-relaxed break-words [overflow-wrap:anywhere]">
+                        <div className={cn("text-[12px] leading-relaxed break-words [overflow-wrap:anywhere]", isDark ? "text-[#94A3B8]" : "text-[#4B5563]")}>
                           {cleanCardBody(msg.previewCard.subtitle || msg.previewCard.body)}
                         </div>
-                        <div className="pt-2 flex items-center justify-between border-t border-[#1E2328] text-[11px]">
-                          <span className="text-[#64748B] font-mono text-[10.5px]">
+                        <div className={cn("pt-2 flex items-center justify-between border-t text-[11px]", isDark ? "border-[#1E2328]" : "border-[#E8E8E5]")}>
+                          <span className={cn("font-mono text-[10.5px]", isDark ? "text-[#64748B]" : "text-[#888888]")}>
                             {msg.previewCard.dueDate ? `Due: ${msg.previewCard.dueDate}` : msg.previewCard.unitLabel}
                           </span>
                           <button
@@ -1000,25 +1187,31 @@ export function AskEstateOSPanel({
                     ) : msg.previewCard.type === "notice" ? (
                       /* 5. Notice / Alert Card (WP2: Failed draft / Groq timeout / Rate limit) */
                       <div className="space-y-2.5">
-                        <div className="flex items-center justify-between text-[11px] text-[#94A3B8]">
-                          <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className={cn(
+                            "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border",
+                            isDark ? "bg-amber-500/15 text-amber-400 border-amber-500/30" : "bg-amber-50 text-amber-800 border-amber-200"
+                          )}>
                             {msg.previewCard.badgeLabel || "NOTICE"}
                           </span>
-                          <span className="text-[10.5px] font-mono text-[#64748B]">
+                          <span className={cn("text-[10.5px] font-mono", isDark ? "text-[#64748B]" : "text-[#888888]")}>
                             {msg.previewCard.unitLabel || "Action Required"}
                           </span>
                         </div>
 
-                        <div className="text-[13px] font-semibold text-[#F9FAFB]">
+                        <div className={cn("text-[13px] font-semibold", isDark ? "text-[#F9FAFB]" : "text-[#0A0A0A]")}>
                           {msg.previewCard.title || "Action Notice"}
                         </div>
 
-                        <div className="p-2.5 rounded-[8px] bg-[#0E1113] border border-amber-500/20 text-[12px] text-[#E2E8F0] leading-relaxed font-sans break-words [overflow-wrap:anywhere]">
+                        <div className={cn(
+                          "p-2.5 rounded-[8px] text-[12px] leading-relaxed font-sans break-words [overflow-wrap:anywhere] border",
+                          isDark ? "bg-[#0E1113] border-amber-500/20 text-[#E2E8F0]" : "bg-[#FFFBEB] border-amber-200 text-[#78350F]"
+                        )}>
                           {msg.previewCard.body}
                         </div>
 
-                        <div className="pt-1 flex items-center justify-between gap-2 border-t border-[#1E2328]">
-                          <span className="text-[10px] font-mono text-[#64748B]">
+                        <div className={cn("pt-1 flex items-center justify-between gap-2 border-t", isDark ? "border-[#1E2328]" : "border-[#E8E8E5]")}>
+                          <span className={cn("text-[10px] font-mono", isDark ? "text-[#64748B]" : "text-[#888888]")}>
                             Status: {msg.previewCard.status || "Pending Review"}
                           </span>
                           <div className="flex items-center gap-2">
@@ -1026,7 +1219,12 @@ export function AskEstateOSPanel({
                               <button
                                 type="button"
                                 onClick={() => handleSendQuery(`draft a reply for case ${msg.previewCard?.caseId}`)}
-                                className="px-2.5 py-1 rounded-[6px] bg-[#181818] hover:bg-[#222222] border border-[#262626] text-[#FFFFFF] text-[11px] font-medium transition-colors cursor-pointer"
+                                className={cn(
+                                  "px-2.5 py-1 rounded-[6px] border text-[11px] font-medium transition-colors cursor-pointer",
+                                  isDark
+                                    ? "bg-[#181818] hover:bg-[#222222] border-[#262626] text-[#FFFFFF]"
+                                    : "bg-[#0A0A0A] hover:bg-[#222222] border-[#0A0A0A] text-[#FFFFFF]"
+                                )}
                               >
                                 Retry Draft
                               </button>
@@ -1045,35 +1243,41 @@ export function AskEstateOSPanel({
                     ) : (
                       /* 6. Message Draft Card (WhatsApp / Gmail) */
                       <div className="space-y-2.5">
-                        <div className="flex items-center justify-between text-[11px] text-[#94A3B8]">
-                          <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-[#1F252C] text-[#CBD5E1] border border-[#29323B]">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className={cn(
+                            "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border",
+                            isDark ? "bg-[#1F252C] text-[#CBD5E1] border-[#29323B]" : "bg-[#FFFFFF] text-[#4B5563] border-[#E8E8E5]"
+                          )}>
                             Draft · {msg.previewCard.channel || "whatsapp"}
                           </span>
                           <span className="font-mono text-[10.5px]">
                             {msg.previewCard.recipient ? (
-                              <span className="text-[#64748B]">{msg.previewCard.recipient}</span>
+                              <span className={isDark ? "text-[#64748B]" : "text-[#6B7280]"}>{msg.previewCard.recipient}</span>
                             ) : (
-                              <span className="text-amber-400 font-sans text-[10px]">
+                              <span className={cn("font-sans text-[10px] font-semibold", isDark ? "text-amber-400" : "text-amber-700")}>
                                 {msg.previewCard.channel?.toLowerCase() === "gmail" ? "⚠️ No recipient email on file" : "⚠️ No recipient phone on file"}
                               </span>
                             )}
                           </span>
                         </div>
 
-                        <div className="p-2.5 rounded-[8px] bg-[#0E1113] border border-[#1E2328] text-[12px] text-[#E2E8F0] italic whitespace-pre-line leading-relaxed font-sans break-words [overflow-wrap:anywhere]">
+                        <div className={cn(
+                          "p-2.5 rounded-[8px] border text-[12px] italic whitespace-pre-line leading-relaxed font-sans break-words [overflow-wrap:anywhere]",
+                          isDark ? "bg-[#0E1113] border-[#1E2328] text-[#E2E8F0]" : "bg-[#FFFFFF] border-[#E8E8E5] text-[#111827]"
+                        )}>
                           "{msg.previewCard.body || "(Draft empty)"}"
                         </div>
 
                         <div className="pt-1 flex flex-wrap items-center justify-between gap-2">
                           <div className="flex flex-wrap items-center gap-2">
                             {sentCardIds.has(msg.id) ? (
-                              <div className="flex items-center gap-1.5 text-emerald-400 text-[11.5px] font-medium py-1">
+                              <div className={cn("flex items-center gap-1.5 text-[11.5px] font-medium py-1", isDark ? "text-emerald-400" : "text-emerald-700")}>
                                 <Check className="w-4 h-4 stroke-[2.5]" />
                                 <span>Dispatched to {msg.previewCard.channel || "WhatsApp"}</span>
                               </div>
                             ) : sendErrorCardIds.has(msg.id) ? (
                               <div className="flex items-center gap-2">
-                                <span className="text-rose-400 text-[11px]">Failed to dispatch draft.</span>
+                                <span className={cn("text-[11px]", isDark ? "text-rose-400" : "text-rose-600")}>Failed to dispatch draft.</span>
                                 <button
                                   type="button"
                                   onClick={() => handleApproveDraft(msg.id, msg.previewCard?.actionId, msg.previewCard?.caseId)}
@@ -1083,7 +1287,7 @@ export function AskEstateOSPanel({
                                 </button>
                               </div>
                             ) : msg.previewCard.status && msg.previewCard.status !== "pending" ? (
-                              <div className="flex items-center gap-1.5 text-[#94A3B8] text-[11.5px] font-medium py-1 capitalize">
+                              <div className={cn("flex items-center gap-1.5 text-[11.5px] font-medium py-1 capitalize", isDark ? "text-[#94A3B8]" : "text-[#6B7280]")}>
                                 <span>Status: {msg.previewCard.status}</span>
                               </div>
                             ) : (
@@ -1091,7 +1295,7 @@ export function AskEstateOSPanel({
                                 type="button"
                                 onClick={() => handleApproveDraft(msg.id, msg.previewCard?.actionId, msg.previewCard?.caseId)}
                                 disabled={sendingCardId === msg.id || !msg.previewCard?.recipient}
-                                className="px-3 py-1.5 rounded-[7px] bg-[#F25C05] hover:bg-[#d94f00] text-[#0A0A0A] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                className="px-3 py-1.5 rounded-[7px] bg-[#F25C05] hover:bg-[#d94f00] text-[#FFFFFF] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                 title={!msg.previewCard?.recipient ? "Cannot dispatch: recipient is missing" : "Approve and send"}
                               >
                                 {sendingCardId === msg.id ? (
@@ -1115,8 +1319,12 @@ export function AskEstateOSPanel({
                                 className={cn(
                                   "px-2.5 py-1.5 rounded-[7px] font-medium text-[11.5px] flex items-center gap-1.5 transition-all cursor-pointer border",
                                   msg.previewCard.channel?.toLowerCase() === "whatsapp"
-                                    ? "bg-[#25D366]/15 hover:bg-[#25D366]/25 text-[#25D366] border-[#25D366]/30 shadow-sm"
-                                    : "bg-red-500/15 hover:bg-red-500/25 text-red-400 border-red-500/30 shadow-sm"
+                                    ? isDark
+                                      ? "bg-[#25D366]/15 hover:bg-[#25D366]/25 text-[#25D366] border-[#25D366]/30 shadow-sm"
+                                      : "bg-[#25D366]/10 hover:bg-[#25D366]/20 text-[#128C7E] border-[#25D366]/30 shadow-xs"
+                                    : isDark
+                                      ? "bg-red-500/15 hover:bg-red-500/25 text-red-400 border-red-500/30 shadow-sm"
+                                      : "bg-red-50 hover:bg-red-100 text-red-600 border-red-200 shadow-xs"
                                 )}
                                 title={`Open pre-filled draft in ${msg.previewCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}`}
                               >
@@ -1136,7 +1344,10 @@ export function AskEstateOSPanel({
                               <button
                                 type="button"
                                 onClick={() => window.open(msg.previewCard?.threadSearchUrl!, "_blank", "noopener,noreferrer")}
-                                className="text-[11px] text-[#94A3B8] hover:text-[#E2E8F0] flex items-center gap-1 transition-colors cursor-pointer"
+                                className={cn(
+                                  "text-[11px] flex items-center gap-1 transition-colors cursor-pointer",
+                                  isDark ? "text-[#94A3B8] hover:text-[#E2E8F0]" : "text-[#6B7280] hover:text-[#0A0A0A]"
+                                )}
                                 title={`View thread history in ${msg.previewCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}`}
                               >
                                 <span>View Thread</span>
@@ -1154,7 +1365,10 @@ export function AskEstateOSPanel({
                                   : baseTarget;
                                 handleNavigate(urlWithDraft);
                               }}
-                              className="text-[11px] text-[#888888] hover:text-[#FFFFFF] flex items-center gap-1 transition-colors cursor-pointer"
+                              className={cn(
+                                "text-[11px] flex items-center gap-1 transition-colors cursor-pointer",
+                                isDark ? "text-[#888888] hover:text-[#FFFFFF]" : "text-[#6B7280] hover:text-[#0A0A0A]"
+                              )}
                             >
                               <span>Open in Inbox</span>
                               <ExternalLink className="w-3 h-3" />
@@ -1212,8 +1426,10 @@ export function AskEstateOSPanel({
                           className={cn(
                             "px-3 py-1.5 rounded-[8px] text-[12px] font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50",
                             act.isPrimary
-                              ? "bg-[#F25C05] hover:bg-[#d94f00] text-[#0A0A0A]"
-                              : "bg-[#181818] hover:bg-[#222222] border border-[#262626] text-[#FFFFFF]"
+                              ? "bg-[#F25C05] hover:bg-[#d94f00] text-[#FFFFFF]"
+                              : isDark
+                                ? "bg-[#181818] hover:bg-[#222222] border border-[#262626] text-[#FFFFFF]"
+                                : "bg-[#FFFFFF] hover:bg-[#F0F0EE] border border-[#E8E8E5] text-[#0A0A0A]"
                           )}
                         >
                           {isMemActivating ? (
@@ -1234,19 +1450,22 @@ export function AskEstateOSPanel({
               )}
 
               {msg.debugInfo && (
-                <div className="flex items-center gap-1.5 px-1 text-[9.5px] font-mono text-[#64748B]">
-                  <span className="px-1.5 py-0.5 rounded bg-[#14181B] border border-[#20262B] text-[#94A3B8]">
+                <div className={cn("flex items-center gap-1.5 px-1 text-[9.5px] font-mono", isDark ? "text-[#64748B]" : "text-[#888888]")}>
+                  <span className={cn(
+                    "px-1.5 py-0.5 rounded border",
+                    isDark ? "bg-[#14181B] border-[#20262B] text-[#94A3B8]" : "bg-[#F0F0EE] border-[#E8E8E5] text-[#6B7280]"
+                  )}>
                     stage: {msg.debugInfo.pipeline_stage}
                   </span>
                   {msg.debugInfo.fallback_reason && (
-                    <span className="text-amber-400">
+                    <span className="text-amber-600 font-semibold">
                       ⚠️ {msg.debugInfo.fallback_reason}
                     </span>
                   )}
                 </div>
               )}
 
-              <span className="text-[10px] font-mono text-[#666666] px-1">
+              <span className={cn("text-[10px] font-mono px-1", isDark ? "text-[#666666]" : "text-[#9CA3AF]")}>
                 {msg.timestamp}
               </span>
             </div>
@@ -1254,7 +1473,10 @@ export function AskEstateOSPanel({
 
           {/* Animated 3-dot Typing Indicator */}
           {isTyping && (
-            <div className="flex items-center gap-1.5 p-3 rounded-[12px] bg-[#14181B] border border-[#20262B] w-fit text-[#888888]">
+            <div className={cn(
+              "flex items-center gap-1.5 p-3 rounded-[12px] border w-fit",
+              isDark ? "bg-[#14181B] border-[#20262B] text-[#888888]" : "bg-[#FFFFFF] border-[#E8E8E5] text-[#6B7280] shadow-xs"
+            )}>
               <div className="w-1.5 h-1.5 rounded-full bg-[#F25C05] animate-bounce" />
               <div className="w-1.5 h-1.5 rounded-full bg-[#F25C05] animate-bounce [animation-delay:0.15s]" />
               <div className="w-1.5 h-1.5 rounded-full bg-[#F25C05] animate-bounce [animation-delay:0.3s]" />
@@ -1265,23 +1487,34 @@ export function AskEstateOSPanel({
         </div>
 
         {/* 3. Suggested Chips: Streamlined minimal pills, no heavy container */}
-        <div className="px-4 sm:px-5 py-2 border-t border-[#1A1F24] bg-[#0E1113] flex-shrink-0">
+        <div className={cn(
+          "px-4 sm:px-5 py-2 border-t flex-shrink-0 transition-colors",
+          isDark ? "border-[#1A1F24] bg-[#0E1113]" : "border-[#E8E8E5] bg-[#FFFFFF]"
+        )}>
           <div className="flex flex-wrap gap-1.5">
             {suggestedChips.slice(0, 3).map((chip: string, idx: number) => (
               <button
                 key={idx}
                 onClick={() => handleSendQuery(chip)}
-                className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#14181B] hover:bg-[#1C2227] border border-[#20262B] hover:border-[#334155] text-[11px] text-[#94A3B8] hover:text-[#FFFFFF] transition-colors cursor-pointer"
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1 rounded-full border text-[11px] transition-colors cursor-pointer",
+                  isDark
+                    ? "bg-[#14181B] hover:bg-[#1C2227] border-[#20262B] hover:border-[#334155] text-[#94A3B8] hover:text-[#FFFFFF]"
+                    : "bg-[#F6F6F4] hover:bg-[#EBEBE8] border-[#E8E8E5] text-[#374151] hover:text-[#0A0A0A]"
+                )}
               >
                 <span>{chip}</span>
-                <ArrowUpRight className="w-3 h-3 text-[#64748B]" />
+                <ArrowUpRight className={cn("w-3 h-3", isDark ? "text-[#64748B]" : "text-[#9CA3AF]")} />
               </button>
             ))}
           </div>
         </div>
 
         {/* 4. Input Field Row: Sleek and flat */}
-        <div className="p-3.5 sm:p-4 border-t border-[#1A1F24] bg-[#0B0D0E] flex-shrink-0">
+        <div className={cn(
+          "p-3.5 sm:p-4 border-t flex-shrink-0 transition-colors",
+          isDark ? "border-[#1A1F24] bg-[#0B0D0E]" : "border-[#E8E8E5] bg-[#FFFFFF]"
+        )}>
           <div className="max-w-[760px] mx-auto w-full space-y-1.5">
             <form
               onSubmit={(e) => {
@@ -1296,19 +1529,24 @@ export function AskEstateOSPanel({
                 value={inputQuery}
                 onChange={(e) => setInputQuery(e.target.value)}
                 placeholder="Ask Super Agent across portfolio, maintenance, arrears..."
-                className="w-full h-10 pl-3.5 pr-11 rounded-[10px] bg-[#14181C] border border-[#222830] text-[13px] text-[#FFFFFF] placeholder:text-[#64748B] focus:outline-none focus:border-[#4B5563] transition-colors"
+                className={cn(
+                  "w-full h-10 pl-3.5 pr-11 rounded-[10px] border text-[13px] transition-colors focus:outline-none",
+                  isDark
+                    ? "bg-[#14181C] border-[#222830] text-[#FFFFFF] placeholder:text-[#64748B] focus:border-[#4B5563]"
+                    : "bg-[#F6F6F4] border-[#E8E8E5] text-[#0A0A0A] placeholder:text-[#9CA3AF] focus:border-[#0A0A0A]"
+                )}
               />
               <button
                 type="submit"
                 disabled={!inputQuery.trim() || isTyping}
-                className="absolute right-1.5 w-7 h-7 rounded-[7px] bg-[#F25C05] hover:bg-[#d94f00] disabled:opacity-30 text-[#0A0A0A] flex items-center justify-center transition-colors cursor-pointer"
+                className="absolute right-1.5 w-7 h-7 rounded-[7px] bg-[#F25C05] hover:bg-[#d94f00] disabled:opacity-30 text-[#FFFFFF] flex items-center justify-center transition-colors cursor-pointer"
                 title="Send query"
               >
                 <Send className="w-3.5 h-3.5 stroke-[2.4]" />
               </button>
             </form>
 
-            <p className="text-[10px] text-[#475569] text-center leading-tight">
+            <p className={cn("text-[10px] text-center leading-tight", isDark ? "text-[#475569]" : "text-[#9CA3AF]")}>
               Autonomous planning with explicit confirmation before dispatch.
             </p>
           </div>
@@ -1374,7 +1612,7 @@ function filterValidSteps(steps?: string[]): string[] {
   });
 }
 
-function formatMarkdown(text: string): string {
+function formatMarkdown(text: string, isDark: boolean = false): string {
   if (!text) return "";
   let clean = text
     // Strip leading tool chatter e.g. "Opening cases.", "Opening inbox."
@@ -1390,19 +1628,19 @@ function formatMarkdown(text: string): string {
   // 2. Structured Headings: ### Header
   clean = clean.replace(
     /^###\s+(.*?)$/gm,
-    '<div class="text-[11.5px] font-semibold uppercase tracking-wider text-[#94A3B8] mt-3 mb-1.5 flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-[#F25C05] shrink-0"></span><span>$1</span></div>'
+    '<div class=\"text-[11.5px] font-semibold uppercase tracking-wider \" + (isDark ? \"text-[#94A3B8]\" : \"text-[#374151]\") + \" mt-3 mb-1.5 flex items-center gap-1.5\"><span class=\"w-1.5 h-1.5 rounded-full bg-[#F25C05] shrink-0\"></span><span>$1</span></div>'
   );
 
   // 3. Executive Callout Quotes: > ...
   clean = clean.replace(
     /^>\s+(.*?)$/gm,
-    '<div class="border-l-2 border-[#F25C05] bg-[#F25C05]/10 px-3 py-2 rounded-r-[8px] my-2 text-[12.5px] text-[#F3F4F6] leading-relaxed font-normal">$1</div>'
+    '<div class=\"border-l-2 border-[#F25C05] \" + (isDark ? \"bg-[#F25C05]/10 text-[#F3F4F6]\" : \"bg-[#FFF1E7] text-[#0A0A0A]\") + \" px-3 py-2 rounded-r-[8px] my-2 text-[12.5px] leading-relaxed font-normal\">$1</div>'
   );
 
   // 4. Numbered Step Lists: 1. ...
   clean = clean.replace(
     /^(\d+)\.\s+(.*?)$/gm,
-    '<div class="flex items-start gap-2.5 my-1.5"><span class="flex items-center justify-center w-4 h-4 rounded-full bg-[#20272F] text-[10px] font-semibold text-[#94A3B8] shrink-0 mt-0.5">$1</span><span class="break-words min-w-0 flex-1">$2</span></div>'
+    '<div class="flex items-start gap-2.5 my-1.5"><span class="flex items-center justify-center w-4 h-4 rounded-full \" + (isDark ? \"bg-[#20272F] text-[#94A3B8]\" : \"bg-[#E5E7EB] text-[#374151]\") + \" text-[10px] font-semibold shrink-0 mt-0.5">$1</span><span class="break-words min-w-0 flex-1">$2</span></div>'
   );
 
   // 5. Bullet list: • or -
@@ -1414,26 +1652,26 @@ function formatMarkdown(text: string): string {
   // 6. Currency amounts: €650 or € 650,00 -> monospace tabular-nums pill
   clean = clean.replace(
     /(€\s?\d+(?:[.,]\d+)?)/g,
-    '<span class="font-mono tabular-nums font-semibold text-emerald-300 bg-emerald-500/15 px-1.5 py-0.5 rounded border border-emerald-500/30 text-[12px] inline-block">$1</span>'
+    '<span class=\"font-mono tabular-nums font-semibold \" + (isDark ? \"text-emerald-300 bg-emerald-500/15 border-emerald-500/30\" : \"text-emerald-800 bg-emerald-50 border-emerald-200\") + \" px-1.5 py-0.5 rounded border text-[12px] inline-block\">$1</span>'
   );
 
   // 7. Ticket references: #01a181 or case 01a181
   clean = clean.replace(
     /(#[0-9a-f]{6,8})\b/gi,
-    '<span class="font-mono text-[11px] font-semibold text-sky-300 bg-sky-500/15 px-1.5 py-0.5 rounded border border-sky-500/30 inline-block">$1</span>'
+    '<span class=\"font-mono text-[11px] font-semibold \" + (isDark ? \"text-sky-300 bg-sky-500/15 border-sky-500/30\" : \"text-sky-800 bg-sky-50 border-sky-200\") + \" px-1.5 py-0.5 rounded border inline-block\">$1</span>'
   );
 
   // 8. Inline backticks: `code`
   clean = clean.replace(
     /`([^`]+)`/g,
-    '<code class="px-1.5 py-0.5 rounded bg-[#181D22] text-[#E2E8F0] font-mono text-[12px] break-all border border-[#262F38]">$1</code>'
+    '<code class=\"px-1.5 py-0.5 rounded \" + (isDark ? \"bg-[#181D22] text-[#E2E8F0] border-[#262F38]\" : \"bg-[#F3F4F6] text-[#1F2937] border-[#E5E7EB]\") + \" font-mono text-[12px] break-all border\">$1</code>'
   );
 
   // 9. Bold: **text**
-  clean = clean.replace(/\*\*(.*?)\*\*/g, '<strong class="text-[#FFFFFF] font-semibold">$1</strong>');
+  clean = clean.replace(/\*\*(.*?)\*\*/g, `<strong class="${isDark ? "text-[#FFFFFF]" : "text-[#0A0A0A]"} font-semibold">$1</strong>`);
 
   // 10. Italics: *text*
-  clean = clean.replace(/\*(.*?)\*/g, '<em class="text-[#CCCCCC]">$1</em>');
+  clean = clean.replace(/\*(.*?)\*/g, `<em class="${isDark ? "text-[#CCCCCC]" : "text-[#4B5563]"}">$1</em>`);
 
   return clean;
 }
