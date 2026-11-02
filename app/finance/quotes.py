@@ -9,7 +9,6 @@ is returned, nothing new is written), and the quote insert is ON CONFLICT DO NOT
 model call or the price lookups; quote, lines, review, card and the `reviewed` status commit in one transaction.
 """
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from uuid import UUID
@@ -25,14 +24,23 @@ from app.core.ids import new_id
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import FeedKind, PersonKind, QuoteSource, QuoteStatus
-from app.db.models import AttachmentRow, CaseLink, Company, MessageRow, Person, QuoteLineRow, QuoteReview, QuoteRow
+from app.db.models import (
+    AttachmentRow,
+    CaseLink,
+    Company,
+    MessageRow,
+    Person,
+    QuoteLineRow,
+    QuoteReview,
+    QuoteRow,
+)
 from app.finance import repo
 from app.finance.config import thresholds_from_settings
+from app.finance.quote_inputs import gather_references
 from app.finance.quote_lines import QuoteFacts, ReviewOutcome, quote_currency, run_review, stored_lines
-from app.finance.references import Fresh, ReferencePlan, fresh_from, plan_lines, plan_lump_sum
+from app.finance.references import ReferencePlan
 from app.finance.repo_quotes import NewQuoteLine
 from app.finance.report import build_report
-from app.finance.review_types import REFERENCE_CURRENCY
 from app.finance.sources import build_price_source
 from app.llm.agents.quote_reader import QUOTE_READER, quote_reader_prompt
 from app.llm.calls import CallContext, run_agent
@@ -40,7 +48,6 @@ from app.llm.calls import CallContext, run_agent
 log = get_logger(__name__)
 PURPOSE = "finance_quote_reader"
 FEED_KEY_PREFIX = "quote_review:"
-MAX_FRESH_KEYS = 10  # fresh (drift/estimate) lookups per quote (R19: not counted in the daily snapshot cap)
 
 
 @dataclass(frozen=True)
@@ -114,35 +121,6 @@ def _facts(inc: _Incoming, quote: ExtractedQuote) -> QuoteFacts:
     )  # fmt: skip
 
 
-def _units(lines: Sequence[NewQuoteLine]) -> dict[str, str]:
-    units: dict[str, str] = {}
-    for line in lines:
-        units.setdefault(line.item_key, line.unit)
-    return units
-
-
-def _gather(
-    engine: Engine, settings: Settings, source: PriceSource, facts: QuoteFacts, case_id: UUID, vendor_id: UUID,
-    today: date,
-) -> ReferencePlan:  # fmt: skip
-    """Snapshots and rate cards from the DB (session closed), then at most MAX_FRESH_KEYS fresh lookups."""
-    cid, on, min_samples = facts.company_id, facts.quote_date, settings.finance_min_samples
-    units = _units(facts.lines)
-    with Session(engine) as session:
-        if facts.lump_sum:
-            case_snaps = repo.snapshots_for_case(session, cid, case_id, on)
-            return plan_lump_sum(case_snaps, quote_date=on, min_samples=min_samples)
-        snaps = {k: s for k in units if (s := repo.snapshot_for(session, cid, case_id, k, on)) is not None}
-        cards = {k: repo.current_rate(session, cid, vendor_id, k, u, on) for k, u in units.items() if k not in snaps}
-        amounts = {k: c.amount for k, c in cards.items() if c is not None and c.currency.upper() == REFERENCE_CURRENCY}
-    looked = {k: snaps[k].unit if k in snaps else u for k, u in list(units.items())[:MAX_FRESH_KEYS]}
-    fresh: dict[str, Fresh] = {
-        k: fresh_from(source.lookup(k, u, today), u, vat_rate=settings.finance_vat_rate, min_samples=min_samples)
-        for k, u in looked.items()
-    }
-    return plan_lines(units, snaps, amounts, fresh, quote_date=on, min_samples=min_samples)
-
-
 def _write_quote(session: Session, facts: QuoteFacts, message_id: UUID, status: QuoteStatus) -> UUID | None:
     quote_id = repo.insert_quote(
         session, facts.company_id, source=QuoteSource.message, source_id=message_id, quote_date=facts.quote_date,
@@ -155,11 +133,16 @@ def _write_quote(session: Session, facts: QuoteFacts, message_id: UUID, status: 
 
 
 def _append_review(
-    session: Session, facts: QuoteFacts, quote_id: UUID, plan: ReferencePlan, outcome: ReviewOutcome
+    session: Session,
+    facts: QuoteFacts,
+    quote_id: UUID,
+    plan: ReferencePlan,
+    outcome: ReviewOutcome,
+    review_id: UUID | None = None,
 ) -> UUID:
     """The review row, its feed card (key `quote_review:{review_id}`) and the `reviewed` status, in the caller's
     transaction."""
-    review_id, result = new_id(), outcome.result
+    review_id, result = review_id or new_id(), outcome.result
     report = build_report(quote_id=quote_id, review_id=review_id, facts=facts, outcome=outcome, plan=plan)
     repo.insert_review(
         session, facts.company_id, quote_id=quote_id, snapshot_basis=plan.basis, verdict=result.verdict,
@@ -184,7 +167,7 @@ def _review(
         return None
     if source is None:
         source = build_price_source(settings, sessionmaker(engine), facts.company_id, facts.vendor_id)
-    plan = _gather(engine, settings, source, facts, facts.case_id, facts.vendor_id, today)
+    plan = gather_references(engine, settings, source, facts, facts.case_id, facts.vendor_id, today)
     return plan, run_review(facts, plan, thresholds_from_settings(settings))
 
 
@@ -225,34 +208,56 @@ def _new_line(row: QuoteLineRow) -> NewQuoteLine:
     )  # fmt: skip
 
 
-def _load_quote(session: Session, quote_id: UUID) -> QuoteFacts | None:
-    row = session.scalar(select(QuoteRow).where(QuoteRow.id == quote_id))  # our own id: it gives the company
+def _load_quote(session: Session, company_id: UUID, quote_id: UUID) -> QuoteFacts | None:
+    row = session.scalar(select(QuoteRow).where(QuoteRow.company_id == company_id, QuoteRow.id == quote_id))
     if row is None or row.status is QuoteStatus.unlinked or row.case_id is None:
         return None
-    vendor = _contractor(session, row.company_id, row.person_id)
+    vendor = _contractor(session, company_id, row.person_id)
     if vendor is None:
         return None
     lines = session.scalars(
         select(QuoteLineRow)
-        .where(QuoteLineRow.company_id == row.company_id, QuoteLineRow.quote_id == row.id)
+        .where(QuoteLineRow.company_id == company_id, QuoteLineRow.quote_id == row.id)
         .order_by(QuoteLineRow.position, QuoteLineRow.id)
     ).all()
     return QuoteFacts(
-        company_id=row.company_id, case_id=row.case_id, vendor_id=vendor[0], vendor_name=vendor[1],
+        company_id=company_id, case_id=row.case_id, vendor_id=vendor[0], vendor_name=vendor[1],
         currency=row.currency, total=row.total, quote_date=row.quote_date, work_date=row.work_date,
         lines=tuple(_new_line(line) for line in lines),
     )  # fmt: skip
 
 
+def _review_exists(session: Session, company_id: UUID, quote_id: UUID, review_id: UUID | None) -> bool:
+    if review_id is None:
+        return False
+    found = session.scalar(
+        select(QuoteReview.id).where(
+            QuoteReview.company_id == company_id, QuoteReview.quote_id == quote_id, QuoteReview.id == review_id
+        )
+    )
+    return found is not None
+
+
 def recheck_quote(
-    engine: Engine, settings: Settings, source: PriceSource | None, quote_id: UUID, *, today: date
+    engine: Engine,
+    settings: Settings,
+    source: PriceSource | None,
+    quote_id: UUID,
+    *,
+    company_id: UUID,
+    today: date,
+    review_id: UUID | None = None,
 ) -> UUID | None:
-    """Review a stored quote again from its stored lines (no model call; fresh lookups for drift and estimates);
-    appends a review and a card. None if the quote is unknown or unlinked."""
+    """Review one of `company_id`'s stored quotes again from its stored lines (no model call; fresh lookups for drift
+    and estimates); appends a review and a card. None if the quote is unknown, another company's, or unlinked.
+    Retry-safe with `review_id`: when that review is already stored, its id is returned and nothing is written."""
     with Session(engine) as session:
-        facts = _load_quote(session, quote_id)
+        if _review_exists(session, company_id, quote_id, review_id):
+            log.info("finance.quote.recheck_replay", quote_id=str(quote_id), review_id=str(review_id))
+            return review_id
+        facts = _load_quote(session, company_id, quote_id)
     reviewed = _review(engine, settings, source, facts, today) if facts is not None else None
     if facts is None or reviewed is None:
         return None
     with Session(engine) as session, session.begin():
-        return _append_review(session, facts, quote_id, *reviewed)
+        return _append_review(session, facts, quote_id, *reviewed, review_id=review_id)

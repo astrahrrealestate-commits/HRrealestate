@@ -6,6 +6,8 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
+import pytest
+
 from app.contracts.finance import SnapshotBasis
 from app.core.settings import Settings
 from app.finance.config import thresholds_from_settings
@@ -113,3 +115,18 @@ def test_report_lists_skipped_lines() -> None:
     assert (report["skipped_lines"], report["verdict"], report["low_confidence"]) == (1, "needs_check", True)
     assert report["skipped"] == [{"position": 2, "description": "Cv ketel onderhoud"}]
     assert len(report["lines"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("qty", "shown"), [("10", "10"), ("100", "100"), ("2.5", "2.5"), ("0.5", "0.5"), ("2.000", "2")]
+)
+def test_report_quantity_is_fixed_point(qty: str, shown: str) -> None:
+    (line,) = _report(_line(1, "131.00", qty=qty))["lines"]
+
+    assert line["quantity"] == shown
+
+
+def test_report_labels_each_line_decision_day_or_estimate() -> None:
+    (line,) = _report(_line(1, "131.00"))["lines"]
+
+    assert (line["reference_as_of"], line["snapshot_as_of"]) == ("decision_day", "2026-10-15")

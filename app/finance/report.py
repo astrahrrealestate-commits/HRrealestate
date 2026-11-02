@@ -2,8 +2,9 @@
 shape, reused by the finance API). Pure. JSON only: Decimals as strings (never floats), dates ISO, ids as strings.
 
 Honesty fields: `snapshot_basis` (an estimate from current prices is labelled), `low_confidence`, `lump_sum`,
-`skipped_lines`, per line `vat_unknown` with the incl.-VAT reading beside it, and whether `overcharge_total` assumed
-excl. VAT for lines whose VAT was unknown. Every market figure carries its sources (each with a name).
+`skipped_lines`, per line `reference_as_of` (`decision_day` | `estimate`; null = no reference) and `vat_unknown`
+with the incl.-VAT reading beside it, and whether `overcharge_total` assumed excl. VAT for lines whose VAT was
+unknown. Every market figure carries its sources (each with a name).
 """
 
 from collections.abc import Mapping
@@ -23,6 +24,11 @@ _SOURCE_FIELDS = ("name", "url", "price", "observed_on", "item_key")
 
 def _dec(value: Decimal | None) -> str | None:
     return None if value is None else str(value)
+
+
+def _quantity(value: Decimal) -> str:
+    """Fixed point without trailing zeros: 10 → "10" (never "1E+1"), 2.500 → "2.5"."""
+    return f"{value.normalize():f}"
 
 
 def _day(value: date | None) -> str | None:
@@ -59,11 +65,11 @@ def _reference(result: LineResult, item: ItemReference | None) -> dict[str, Any]
 def _line(line: NewQuoteLine, result: LineResult, item: ItemReference | None, drift: Decimal | None) -> dict[str, Any]:
     return {
         "position": line.position, "description": line.description, "item_key": line.item_key,
-        "quantity": _dec(line.quantity.normalize()), "unit": line.unit, "unit_price": _dec(line.unit_price),
+        "quantity": _quantity(line.quantity), "unit": line.unit, "unit_price": _dec(line.unit_price),
         "amount": _dec(line.amount), "vat_included": line.vat_included,
         "unit_price_excl_vat": _dec(result.unit_price_excl_vat), "status": result.status.value,
         "reference": _reference(result, item), "rate_card": _dec(item.reference.rate_card) if item else None,
-        "reference_as_of": _day(item.as_of) if item else None,
+        "reference_as_of": item.label if item else None, "snapshot_as_of": _day(item.as_of) if item else None,
         "vs_rate_card_pct": _dec(result.vs_rate_card_pct), "vs_market_pct": _dec(result.vs_market_pct),
         "overcharge": _dec(result.overcharge), "vat_unknown": result.vat_unknown,
         "vs_reference_pct_if_vat_included": _dec(result.vs_reference_pct_if_vat_included),

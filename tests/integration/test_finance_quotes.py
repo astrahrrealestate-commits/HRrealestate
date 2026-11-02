@@ -226,7 +226,10 @@ def test_unknown_or_non_contractor_sender_stores_an_unlinked_quote_without_revie
     assert _count(migrated_engine, QuoteReview, seeded.company_id) == 0
     assert _count(migrated_engine, OwnerFeed, seeded.company_id) == 0
     assert _reader_calls(migrated_engine, seeded.company_id) == 1
-    assert recheck_quote(migrated_engine, test_settings, NOW_130, quote.id, today=QUOTED) is None
+    assert (
+        recheck_quote(migrated_engine, test_settings, NOW_130, quote.id, company_id=seeded.company_id, today=QUOTED)
+        is None
+    )
 
 
 def test_quote_without_a_case_is_unlinked_but_keeps_the_contractor(
@@ -356,7 +359,9 @@ def test_recheck_appends_a_review_and_a_card_without_a_model_call(
     first = _run(migrated_engine, test_settings, _quote_message(migrated_engine, seeded))
     quote = _quote(migrated_engine, seeded.company_id)
 
-    second = recheck_quote(migrated_engine, test_settings, NOW_130, quote.id, today=date(2026, 11, 2))
+    second = recheck_quote(
+        migrated_engine, test_settings, NOW_130, quote.id, company_id=seeded.company_id, today=date(2026, 11, 2)
+    )
 
     assert second is not None
     assert second != first
@@ -365,7 +370,10 @@ def test_recheck_appends_a_review_and_a_card_without_a_model_call(
     assert _count(migrated_engine, QuoteReview, seeded.company_id) == 2
     assert _count(migrated_engine, OwnerFeed, seeded.company_id) == 2
     assert _reader_calls(migrated_engine, seeded.company_id) == 1
-    assert recheck_quote(migrated_engine, test_settings, NOW_130, new_id(), today=QUOTED) is None
+    assert (
+        recheck_quote(migrated_engine, test_settings, NOW_130, new_id(), company_id=seeded.company_id, today=QUOTED)
+        is None
+    )
 
 
 def test_unreadable_stored_line_does_not_crash_the_recheck(
@@ -380,7 +388,9 @@ def test_unreadable_stored_line_does_not_crash_the_recheck(
         s.execute(update(QuoteLineRow).where(QuoteLineRow.item_key == "leak_repair").values(quantity=Decimal(0)))
         s.commit()
 
-    review_id = recheck_quote(migrated_engine, test_settings, NOW_130, quote.id, today=QUOTED)
+    review_id = recheck_quote(
+        migrated_engine, test_settings, NOW_130, quote.id, company_id=seeded.company_id, today=QUOTED
+    )
 
     assert review_id is not None
     review, _ = _review(migrated_engine, review_id)
@@ -388,3 +398,109 @@ def test_unreadable_stored_line_does_not_crash_the_recheck(
         "needs_check", True, 1,
     )  # fmt: skip
     assert [ln["item_key"] for ln in review.report["lines"]] == ["boiler_service"]
+
+
+def _recheck(engine: Engine, settings: Settings, quote_id: UUID, company_id: UUID, **kw: Any) -> UUID | None:
+    return recheck_quote(engine, settings, NOW_130, quote_id, company_id=company_id, today=QUOTED, **kw)
+
+
+def test_recheck_of_another_companys_quote_returns_none_and_writes_nothing(
+    migrated_engine: Engine, committed_company: Company, other_company: Company, test_settings: Settings
+) -> None:
+    seeded = _seed(migrated_engine, committed_company)
+    _snapshot(migrated_engine, seeded)
+    _run(migrated_engine, test_settings, _quote_message(migrated_engine, seeded))
+    quote = _quote(migrated_engine, seeded.company_id)
+
+    assert _recheck(migrated_engine, test_settings, quote.id, other_company.id) is None
+
+    assert _count(migrated_engine, QuoteReview, seeded.company_id) == 1
+    assert _count(migrated_engine, OwnerFeed, seeded.company_id) == 1
+    assert _count(migrated_engine, QuoteReview, other_company.id) == 0
+    assert _count(migrated_engine, OwnerFeed, other_company.id) == 0
+
+
+def test_recheck_with_the_same_review_id_is_retry_safe(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    seeded = _seed(migrated_engine, committed_company)
+    _snapshot(migrated_engine, seeded)
+    _run(migrated_engine, test_settings, _quote_message(migrated_engine, seeded))
+    quote = _quote(migrated_engine, seeded.company_id)
+    wanted = new_id()
+
+    first = _recheck(migrated_engine, test_settings, quote.id, seeded.company_id, review_id=wanted)
+    again = _recheck(migrated_engine, test_settings, quote.id, seeded.company_id, review_id=wanted)
+
+    assert first == again == wanted
+    review, card = _review(migrated_engine, wanted)
+    assert (review.report["review_id"], card.ref_id) == (str(wanted), quote.id)
+    assert _count(migrated_engine, QuoteReview, seeded.company_id) == 2
+    assert _count(migrated_engine, OwnerFeed, seeded.company_id) == 2
+
+
+def test_another_contractor_is_not_judged_against_the_snapshot_vendors_card(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    seeded = _seed(migrated_engine, committed_company)
+    _snapshot(migrated_engine, seeded, card="100")  # taken for the action's contractor (Vendor BV)
+    with Session(migrated_engine) as s:
+        other = person(s, seeded.company_id, "Other Contractor BV")
+        s.commit()
+
+    review_id = _run(migrated_engine, test_settings, _quote_message(migrated_engine, seeded, sender=other))
+
+    assert review_id is not None
+    review, _ = _review(migrated_engine, review_id)
+    (line,) = review.report["lines"]
+    assert (line["rate_card"], line["reference"]["kind"], review.verdict.value) == (
+        None, "market", "well_above_market",
+    )  # fmt: skip
+    assert review.report["vendor"]["id"] == str(other)
+
+
+def test_another_contractor_with_his_own_card_is_judged_against_his_card(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    seeded = _seed(migrated_engine, committed_company)
+    _snapshot(migrated_engine, seeded, card="100")
+    with Session(migrated_engine) as s:
+        other = person(s, seeded.company_id, "Other Contractor BV")
+        rate(s, seeded.company_id, other, "boiler_service", "130", unit="job")  # valid from 2026-01-01
+        s.commit()
+
+    review_id = _run(migrated_engine, test_settings, _quote_message(migrated_engine, seeded, sender=other))
+
+    assert review_id is not None
+    review, _ = _review(migrated_engine, review_id)
+    (line,) = review.report["lines"]
+    assert line["reference"] == {"kind": "rate_card", "amount": "130.00", "unit": "job"}
+    assert (line["vs_rate_card_pct"], line["status"], review.verdict.value) == ("0.77", "ok", "ok")
+
+
+def test_mixed_quote_is_an_estimate_with_truthful_lateness_and_per_line_labels(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    seeded = _seed(migrated_engine, committed_company)
+    _snapshot(migrated_engine, seeded)  # boiler_service only: leak_repair has no decision-day snapshot
+    with Session(migrated_engine) as s:  # the vendor's leak card: valid on the decision day, replaced before the quote
+        rate(s, seeded.company_id, seeded.vendor_id, "leak_repair", "50")
+        repo.upsert_rate(
+            s, seeded.company_id, person_id=seeded.vendor_id, item_key="leak_repair", description="x", unit="hour",
+            amount=Decimal(90), currency="EUR", valid_from=date(2026, 10, 20), source=RateSource.owner,
+        )  # fmt: skip
+        s.commit()
+    text = "Offerte\nCv ketel onderhoud € 131,00 excl. BTW\nLekkage herstel 2 uur € 120,00 excl. BTW"
+
+    review_id = _run(migrated_engine, test_settings, _quote_message(migrated_engine, seeded, text))
+
+    assert review_id is not None
+    review, _ = _review(migrated_engine, review_id)
+    boiler, leak = review.report["lines"]
+    assert (review.snapshot_basis.value, review.verdict.value, review.late_days) == (
+        "estimate_current_prices", "needs_check", 15,
+    )  # fmt: skip
+    assert (review.report["decision_date"], review.report["late_flag"]) == ("2026-10-15", True)
+    assert (boiler["reference_as_of"], boiler["snapshot_as_of"]) == ("decision_day", "2026-10-15")
+    assert (leak["reference_as_of"], leak["snapshot_as_of"]) == ("estimate", None)
+    assert leak["rate_card"] == "50.00"  # the card valid on the decision day, not the later 90

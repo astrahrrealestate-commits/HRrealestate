@@ -1,11 +1,13 @@
 """What each quote item is compared with (spec 2026-10-31; rulings R18, R21). Pure: rows and lookups come in.
 
 Basis: `decision_day` only when EVERY item of the quote has a snapshot of the case at or before the quote date;
-otherwise the whole review is `estimate_current_prices`. Per item with a snapshot: the snapshot row's rate card
-(immutable) and market figures, and the fresh lookup only as `market_now` (drift). Per item without one: the current
-rate card on the quote date and the fresh lookup as the market (nothing is stored as a snapshot). `decision_date` =
-the earliest snapshot used, else the quote date. A lump sum is compared, as ONE `job`, with the sum over the case's
-snapshots of each item's rate card, else its market figure (quantity 1: snapshots store none).
+otherwise the whole review is `estimate_current_prices` (R22: the hybrid is kept and labelled per item). The decision
+date is a case fact: the earliest snapshot used, else the quote date, so lateness stays truthful in a mixed quote.
+Per item with a snapshot: the snapshot's market figures, and the fresh lookup only as `market_now` (drift). Per item
+without one: the fresh lookup as the market (nothing is stored as a snapshot). The rate card is always the QUOTING
+vendor's (resolved by the caller: the snapshot's card only if it is that vendor's, else the vendor's card on the
+decision date). A lump sum is compared, as ONE `job`, with the sum over the case's snapshots of the vendor's card per
+item, else its market figure (quantity 1: snapshots store none).
 """
 
 from collections.abc import Mapping, Sequence
@@ -24,6 +26,8 @@ from app.finance.stats import MarketStats, aggregate
 LUMP_SUM_KEY = "lump_sum"
 LUMP_SUM_UNIT = "job"
 UNNAMED_SOURCE = "unnamed source"
+DECISION_DAY_LABEL = "decision_day"
+ESTIMATE_LABEL = "estimate"
 
 
 @dataclass(frozen=True)
@@ -42,6 +46,11 @@ class ItemReference:
     sources: list[dict[str, str]]
     as_of: date | None
     parts: list[dict[str, str]] = field(default_factory=list)
+
+    @property
+    def label(self) -> str:
+        """`decision_day`: compared with a decision-day snapshot; `estimate`: with current prices."""
+        return DECISION_DAY_LABEL if self.as_of is not None else ESTIMATE_LABEL
 
 
 @dataclass(frozen=True)
@@ -86,14 +95,11 @@ def named(entries: Sequence[Any]) -> list[dict[str, str]]:
     return out
 
 
-def from_snapshot(snap: PriceSnapshot, fresh: Fresh | None, min_samples: int) -> ItemReference:
+def from_snapshot(snap: PriceSnapshot, card: Decimal | None, fresh: Fresh | None, min_samples: int) -> ItemReference:
+    """`card` is the QUOTING vendor's card (the caller resolves it): the snapshot's own card belongs to the contractor
+    the action named, who may not be the one quoting."""
     now = fresh.stats if fresh is not None else None
-    ref = Reference(
-        unit=snap.unit,
-        rate_card=_card(snap.rate_card_amount),
-        market=snapshot_market(snap, min_samples),
-        market_now=now,
-    )
+    ref = Reference(unit=snap.unit, rate_card=_card(card), market=snapshot_market(snap, min_samples), market_now=now)
     return ItemReference(ref, named(snap.sources), snap.as_of)
 
 
@@ -115,14 +121,15 @@ def plan_lines(
     quote_date: date,
     min_samples: int,
 ) -> ReferencePlan:
-    """`units`: the quote's item keys (first line's unit each); `snapshots` / `cards` / `fresh` keyed the same."""
+    """`units`: the quote's item keys (first line's unit each); `snapshots` / `cards` (the quoting vendor's card per
+    item) / `fresh` keyed the same."""
     items: dict[str, ItemReference] = {}
     for key, unit in units.items():
-        snap = snapshots.get(key)
+        snap, card = snapshots.get(key), cards.get(key)
         item = (
-            from_snapshot(snap, fresh.get(key), min_samples)
+            from_snapshot(snap, card, fresh.get(key), min_samples)
             if snap
-            else from_estimate(unit, cards.get(key), fresh.get(key))
+            else from_estimate(unit, card, fresh.get(key))
         )
         if item is not None:
             items[key] = item
@@ -171,12 +178,15 @@ def _lump_reference(parts: Sequence[_Part], n: int) -> Reference | None:
     return Reference(unit=LUMP_SUM_UNIT, rate_card=sum(cards, Decimal(0)), market=summed)
 
 
-def plan_lump_sum(snapshots: Sequence[PriceSnapshot], *, quote_date: date, min_samples: int) -> ReferencePlan:
-    """One `job` reference summing every item of the case's snapshots."""
+def plan_lump_sum(
+    snapshots: Sequence[PriceSnapshot], cards: Mapping[str, Decimal | None], *, quote_date: date, min_samples: int
+) -> ReferencePlan:
+    """One `job` reference summing every item of the case's snapshots: the quoting vendor's card (`cards`, by item
+    key), else the snapshot's market."""
     if not snapshots:
         return ReferencePlan(SnapshotBasis.estimate_current_prices, quote_date, {})
     decided = min(s.as_of for s in snapshots)
-    parts = [_Part(s.item_key, _card(s.rate_card_amount), snapshot_market(s, min_samples)) for s in snapshots]
+    parts = [_Part(s.item_key, _card(cards.get(s.item_key)), snapshot_market(s, min_samples)) for s in snapshots]
     ref = _lump_reference(parts, min(s.sample_count for s in snapshots))
     if ref is None:
         return ReferencePlan(SnapshotBasis.decision_day, decided, {})
