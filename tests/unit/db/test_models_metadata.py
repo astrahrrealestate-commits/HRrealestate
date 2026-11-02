@@ -24,6 +24,8 @@ SPEC_TABLES = {
     "vendor_rates", "price_snapshots", "quotes", "quote_lines", "quote_reviews",
     # message RAG (migration 0024)
     "message_chunks", "message_index_state",
+    # due diligence lite (spec 2026-10-31)
+    "dd_reviews", "dd_review_documents", "dd_document_reads",
 }  # fmt: skip
 
 

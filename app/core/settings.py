@@ -93,6 +93,10 @@ class Settings(BaseSettings):
     finance_vat_rate: Decimal = Decimal("0.21")  # Dutch standard VAT, used to normalise incl/excl quotes
     finance_daily_lookup_cap: int = 40  # market price lookups per company per day
 
+    # Due diligence lite (spec 2026-10-31). A JSON file in the `Framework` shape replaces the default checklist.
+    dd_framework_path: Path | None = None
+    dd_max_documents: int = 30  # documents per review
+
     # Dashboard (owner interface, ADR 0006). `fake` accepts test tokens; prod refuses it.
     dashboard_auth_provider: Literal["fake", "google"] = "fake"
     dashboard_session_secret: SecretStr | None = None

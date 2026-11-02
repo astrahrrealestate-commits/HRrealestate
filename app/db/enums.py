@@ -181,6 +181,7 @@ class FeedKind(StrEnum):
     task = "task"
     agent_note = "agent_note"
     quote_review = "quote_review"
+    dd_report = "dd_report"
 
 
 class TurnStatus(StrEnum):
@@ -243,3 +244,12 @@ class QuoteStatus(StrEnum):
     received = "received"
     reviewed = "reviewed"
     unlinked = "unlinked"
+
+
+class DDReviewStatus(StrEnum):
+    """Due diligence review run: `pending` until the workflow starts, then `running`, then `done` or `failed`."""
+
+    pending = "pending"
+    running = "running"
+    done = "done"
+    failed = "failed"

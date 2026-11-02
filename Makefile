@@ -113,7 +113,7 @@ rag-eval: up-db ## ADR 0008: document RAG quality on the synthetic corpus, M10 b
 	$(UV) alembic upgrade head
 	$(UV) python -m evals.rag_eval
 
-eval: ## (M4) golden-set eval: make eval agent=understanding|linking|owner_qa|concierge|proposer|doc_reader|quote_reader|job_items version=v2
+eval: ## (M4) golden-set eval: make eval agent=understanding|linking|owner_qa|concierge|proposer|doc_reader|quote_reader|job_items|dd_reader version=v2
 	$(UV) python -m evals.run --agent $(agent) --version $(version)
 
 context-report: up-db ## (C1) context report: p50/p95 per stage, warm hit rate, cache hit ratio and tokens per turn
