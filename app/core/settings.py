@@ -106,6 +106,15 @@ class Settings(BaseSettings):
     # Exact SPA origins allowed cross-origin (comma-separated). Empty = no CORS (the SPA is served same-origin).
     dashboard_cors_origins: Annotated[list[str], NoDecode] = []
 
+    # BRIXX data mirror (read-only). `fake` = in-process fixtures; prod refuses it. The token is a per-user secret.
+    brixx_provider: Literal["fake", "api"] = "fake"
+    brixx_base_url: str = "https://mob.brixxonline.com/api/v1"
+    brixx_environment: str = "hrrealestate"
+    brixx_token: SecretStr | None = None
+    brixx_auth_scheme: Literal["raw", "bearer"] = "bearer"  # Authorization header: the bare token or `Bearer <token>`
+    brixx_sync_interval_minutes: PositiveInt = 15
+    brixx_timeout_sec: float = 60.0
+
     storage_backend: Literal["local", "memory", "s3"] = "local"
     storage_local_dir: Path = Path(".data/storage")
     dev_signing_dir: Path = Path(".data/dev-keys")  # simulator keys for fake Pub/Sub tokens

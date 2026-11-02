@@ -93,6 +93,8 @@ def test_prod_hides_docs_and_openapi(monkeypatch: pytest.MonkeyPatch, tmp_path: 
         drive_provider="google",
         drive_credentials_file=creds,
         price_source="competitors",
+        brixx_provider="api",
+        brixx_token="brixx-test",
         dashboard_auth_provider="google",
         dashboard_session_secret="x" * 32,
         google_oauth_client_id="c.apps.googleusercontent.com",

@@ -12,6 +12,10 @@ def production_problems(settings: Settings) -> list[str]:
         problems.append("whatsapp_provider is 'fake'")
     if settings.gmail_provider == "fake":
         problems.append("gmail_provider is 'fake'")
+    if settings.brixx_provider == "fake":
+        problems.append("brixx_provider is 'fake'")
+    elif not settings.brixx_token:
+        problems.append("brixx_token is not set")
     if settings.llm_model in ("fake", "test"):
         problems.append(f"llm_model is {settings.llm_model!r}")
     elif settings.llm_model.startswith("openai:") and not settings.openai_api_key:

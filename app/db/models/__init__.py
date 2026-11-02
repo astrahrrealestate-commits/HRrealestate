@@ -1,5 +1,6 @@
 """Importing this package registers every table on `Base.metadata`."""
 
+from app.db.models.brixx import BrixxSyncRun, BrixxSyncTableState
 from app.db.models.calendar import CalendarEventRow
 from app.db.models.dashboard import AgentConversation, AgentPageState, AgentTurn, OwnerFeed
 from app.db.models.diligence import DDDocumentRead, DDReview, DDReviewDocument
@@ -23,6 +24,8 @@ __all__ = [
     "AgentTurn",
     "Approval",
     "AttachmentRow",
+    "BrixxSyncRun",
+    "BrixxSyncTableState",
     "CalendarEventRow",
     "Case",
     "CaseEvent",

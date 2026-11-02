@@ -26,6 +26,8 @@ SPEC_TABLES = {
     "message_chunks", "message_index_state",
     # due diligence lite (spec 2026-10-31)
     "dd_reviews", "dd_review_documents", "dd_document_reads",
+    # BRIXX data mirror (sync bookkeeping; mirrored data itself lives in the `brixx` schema)
+    "brixx_sync_runs", "brixx_sync_table_state",
 }  # fmt: skip
 
 

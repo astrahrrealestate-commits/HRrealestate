@@ -78,3 +78,11 @@ class IgnoredMessageError(EstateOSError):
 
 class PushRejectedError(WebhookRejectedError):
     """A Pub/Sub push that failed OIDC verification or carried a malformed envelope."""
+
+
+class BrixxError(EstateOSError):
+    """A BRIXX API call failed or returned something unusable (transport, status, malformed body)."""
+
+
+class BrixxAuthError(BrixxError):
+    """BRIXX rejected the token (401/403). Retrying cannot help until the token is replaced."""
