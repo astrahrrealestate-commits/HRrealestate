@@ -112,6 +112,7 @@ class PreviewCardData(BaseModel):
     title: str | None = None
     subtitle: str | None = None
     badgeLabel: str | None = None
+    badgeColor: str | None = None
     amount: str | None = None
     status: str | None = None
     dueDate: str | None = None
@@ -1544,7 +1545,7 @@ def ask_agent(
                 id=preview_card.actionId or preview_card.caseId or "card-0",
                 type=preview_card.type,
                 badgeLabel=preview_card.badgeLabel or ("DRAFT" if preview_card.type == "draft_message" else "TICKET"),
-                badgeColor=preview_card.badgeColor or "orange",
+                badgeColor=getattr(preview_card, "badgeColor", None) or "orange",
                 title=preview_card.title or (preview_card.unitLabel or "Draft Message"),
                 subtitle=preview_card.subtitle,
                 body=preview_card.body,
