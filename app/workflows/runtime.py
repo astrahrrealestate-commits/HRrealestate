@@ -11,6 +11,7 @@ from app.core.settings import Settings
 from app.workflows import (
     actions,
     briefings,
+    brixx_sync,
     concierge,
     distiller,
     document_backfill,
@@ -33,6 +34,7 @@ from app.workflows import (
 _REGISTERED = (
     actions,
     briefings,
+    brixx_sync,
     concierge,
     distiller,
     document_backfill,
@@ -61,6 +63,7 @@ SCHEDULES: list[ScheduleInput] = [
     {"schedule_name": "pipeline.requeue", "workflow_fn": pipeline.requeue_failed, "schedule": "47 * * * *"},
     {"schedule_name": "sweep.stranded", "workflow_fn": sweeps.sweep_stranded, "schedule": "*/5 * * * *"},
     {"schedule_name": "briefing.ensure", "workflow_fn": briefings.ensure_briefings, "schedule": "5 * * * *"},
+    {"schedule_name": "brixx.sync_all", "workflow_fn": brixx_sync.sync_all, "schedule": "*/15 * * * *"},
     {"schedule_name": "outcomes.capture", "workflow_fn": quality.capture_cron, "schedule": "*/15 * * * *"},
     {"schedule_name": "drift.daily", "workflow_fn": quality.drift_cron, "schedule": "30 4 * * *"},
     {
