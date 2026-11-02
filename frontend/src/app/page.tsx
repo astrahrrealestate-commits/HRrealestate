@@ -347,7 +347,7 @@ export default function TodayPage() {
                   {briefingKind === "daily" ? todayFormatted : "WEEK 40 EXECUTIVE RECAP · Friday 16:00 CET"}
                 </span>
                 <h1 className="font-heading font-bold text-[28px] sm:text-[32px] text-[var(--ink)] tracking-tight leading-none mt-1">
-                  {briefingKind === "daily" ? "Good morning, Harjot" : "Weekly executive review, Harjot"}
+                  {briefingKind === "daily" ? "Good morning, Suryansh" : "Weekly executive review, Suryansh"}
                 </h1>
               </div>
 

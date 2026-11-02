@@ -43,6 +43,9 @@ def send_digest_email(deps: SenderDeps, company_id: UUID, key: str, kind: Kind, 
         if owner is None or not owner.email:
             log.info("digest.no_owner_email", company_id=str(company_id))
             return None
+        if owner.interactive_channel == InteractiveChannel.dashboard:
+            log.info("digest.skipped_dashboard_channel", company_id=str(company_id))
+            return None
 
         data = collect_digest_data(session, company_id, kind, now)
         if not data.has_items and not data.ignored_count:
@@ -119,6 +122,7 @@ def on_briefing(timer: ClaimedTimer) -> None:
             select(OwnerAccount).where(OwnerAccount.company_id == timer.company_id).order_by(OwnerAccount.created_at)
         )
         is_chat = owner is not None and owner.interactive_channel == InteractiveChannel.google_chat
+        is_dashboard = owner is not None and owner.interactive_channel == InteractiveChannel.dashboard
 
     if is_chat:
         send_digest_chat(get_sender_deps(), timer.company_id, f"briefing:{timer.id}", kind, now)
@@ -126,7 +130,8 @@ def on_briefing(timer: ClaimedTimer) -> None:
         text = briefing.compose(get_engine(), get_settings(), timer.company_id, kind, now)
         send_to_owner(get_sender_deps(), timer.company_id, f"briefing:{timer.id}", partial(_text, text))
 
-    send_digest_email(get_sender_deps(), timer.company_id, f"digest:{timer.id}", kind, now)
+    if not is_dashboard:
+        send_digest_email(get_sender_deps(), timer.company_id, f"digest:{timer.id}", kind, now)
 
 
 @DBOS.step(name="briefing.ensure_timers")
