@@ -35,9 +35,10 @@ log = get_logger(__name__)
 
 
 def ensure_simulation_allowed(settings: Settings) -> None:
-    """Never in prod; Gmail may be real (`gmail-pull` testing)."""
-    if settings.env == "prod":
-        raise UnsafeConfigurationError("the simulator only runs outside prod")
+    """Never in prod; WhatsApp is always simulated (owner taps). Gmail may be real (`gmail-pull` testing), then no
+    fake mail can be injected."""
+    if settings.env == "prod" or settings.whatsapp_provider != "fake":
+        raise UnsafeConfigurationError("the simulator only runs outside prod with a fake WhatsApp provider")
 
 
 class Simulator:

@@ -1,7 +1,6 @@
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.contracts import ConciergePlan, Intent, PlanStep
@@ -46,8 +45,10 @@ def test_long_concierge_answer_not_discarded():
     """Verify that legitimate CONCIERGE plan answers > 350 chars are not discarded by Groq."""
     long_answer = (
         "Here is the comprehensive status of your portfolio:\n"
-        "1. Keizersgracht 42-A: Maintenance inspection completed on schedule. Tenant reported satisfaction with pipe repair.\n"
-        "2. Singel 412: Inbound invoice received from KitchenTech B.V. for € 412,50, pending review in Financial Ledger.\n"
+        "1. Keizersgracht 42-A: Maintenance inspection completed on schedule. "
+        "Tenant reported satisfaction with pipe repair.\n"
+        "2. Singel 412: Inbound invoice received from KitchenTech B.V. for € 412,50, "
+        "pending review in Financial Ledger.\n"
         "3. Prinsengracht 100: Lease agreement active until December 2027. All rental payments up to date.\n"
         "All queues are functioning within normal operational parameters."
     )
@@ -368,14 +369,11 @@ def test_resolve_draft_card_fallback():
         assert "Beste bewoner" in card.body
 
 
-
-
-
-
 def test_resolve_draft_card_with_linked_message_recipient():
     """Verify that _resolve_draft_card dynamically pulls real recipient phone from linked message."""
     from app.api.agent.routes import _resolve_draft_card
     from app.db.models import Unit
+
     mock_engine = MagicMock()
     mock_sess = MagicMock()
 
@@ -399,14 +397,16 @@ def test_resolve_draft_card_with_linked_message_recipient():
     mock_sess.scalars.return_value.first.return_value = mock_case
     mock_sess.__enter__.return_value = mock_sess
 
-    with patch("app.api.agent.routes.Session", return_value=mock_sess):
-        with patch("app.api.agent.routes._find_case_recipient", return_value=("+31612345678", "whatsapp")):
-            card = _resolve_draft_card(mock_engine, allow_fallback=True)
-            assert card is not None
-            assert card.type == "draft_message"
-            assert card.recipient == "+31612345678"
-            assert card.channel == "whatsapp"
-            assert card.unitLabel == "Keizersgracht 42-A, Amsterdam"
+    with (
+        patch("app.api.agent.routes.Session", return_value=mock_sess),
+        patch("app.api.agent.routes._find_case_recipient", return_value=("+31612345678", "whatsapp")),
+    ):
+        card = _resolve_draft_card(mock_engine, allow_fallback=True)
+        assert card is not None
+        assert card.type == "draft_message"
+        assert card.recipient == "+31612345678"
+        assert card.channel == "whatsapp"
+        assert card.unitLabel == "Keizersgracht 42-A, Amsterdam"
 
 
 def test_priority_inquiry_matches_urgent_case_not_newsletter():
@@ -463,10 +463,15 @@ def test_priority_inquiry_matches_urgent_case_not_newsletter():
         patch("app.api.agent.routes.Session", return_value=mock_sess),
         patch("app.api.agent.routes.run_agent") as mock_run_agent,
         patch("app.api.agent.routes.run_plan", return_value=[]),
-        patch("app.api.agent.routes.assemble_answer", return_value="The urgent matter is the emergency water leak at Keizersgracht 42-A."),
+        patch(
+            "app.api.agent.routes.assemble_answer",
+            return_value="The urgent matter is the emergency water leak at Keizersgracht 42-A.",
+        ),
         TestClient(app) as client,
     ):
-        mock_run_agent.return_value.output = ConciergePlan(in_scope=False, steps=[], reply="The urgent matter is the emergency water leak at Keizersgracht 42-A.")
+        mock_run_agent.return_value.output = ConciergePlan(
+            in_scope=False, steps=[], reply="The urgent matter is the emergency water leak at Keizersgracht 42-A."
+        )
 
         res = client.post(URL, json={"query": "What should I do first?"})
         assert res.status_code == 200
@@ -505,7 +510,10 @@ def test_document_rag_returns_document_item_preview_card():
     with (
         patch("app.api.agent.routes.Session", return_value=mock_sess),
         patch("app.api.agent.routes.search_hybrid", return_value=[mock_hit]),
-        patch("app.api.agent.routes._generate_groq_answer", return_value="Verified lease agreement for Vipin Tyagi at Keizersgracht 42-A."),
+        patch(
+            "app.api.agent.routes._generate_groq_answer",
+            return_value="Verified lease agreement for Vipin Tyagi at Keizersgracht 42-A.",
+        ),
         TestClient(app) as client,
     ):
         res = client.post(URL, json={"query": "lease agreement for this case"})
@@ -518,6 +526,7 @@ def test_document_rag_returns_document_item_preview_card():
         assert "Keizersgracht" in card["title"]
         assert "drive.google.com" in card["targetUrl"]
         assert "whatsapp" not in (card.get("channel") or "")
+
 
 def test_standing_rule_creates_proposed_memory_with_action_card():
     """Verify Issue 1.9: standing rules create proposed memory items with approval action buttons."""
@@ -567,4 +576,3 @@ def test_task_reminder_not_saved_as_standing_rule():
         res = client.post(URL, json={"query": "Remember to call Vipin tomorrow morning"})
         assert res.status_code == 200
         mock_record.assert_not_called()
-

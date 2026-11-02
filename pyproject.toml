@@ -73,6 +73,17 @@ ignore = ["RUF001", "RUF002", "RUF003"]  # German text (ß, umlauts) in strings/
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106", "S311", "PT011"]
 "app/db/alembic/**" = ["ERA001"]
+# camelCase Pydantic fields are the frontend SPA's JSON wire format (frontend/src/lib/api.ts), not Python style
+"app/api/agent/routes.py" = ["N815"]
+"app/api/calendar/routes.py" = ["N815"]
+"app/api/dashboard/routes.py" = ["N815"]
+"app/api/maintenance/routes.py" = ["N815"]
+"app/api/properties/routes.py" = ["N815"]
+"app/api/tenants/routes.py" = ["N815"]
+# developer one-off scripts at the repo root report to the terminal; not application code
+"check_status.py" = ["T201"]
+"process_test_emails.py" = ["T201"]
+"verify_test_pipeline.py" = ["T201"]
 
 [tool.ruff.lint.pep8-naming]
 classmethod-decorators = ["sqlalchemy.orm.declared_attr", "declared_attr"]
@@ -139,7 +150,7 @@ layers = [
     "app.main | app.worker | app.dev",
     "app.api",
     "app.workflows",
-    "app.pipeline | app.owner | app.ingestion | app.directory | app.outcomes | app.sender",
+    "app.pipeline | app.owner | app.ingestion | app.directory | app.outcomes | app.sender | app.finance",
     "app.context",
     "app.db : app.llm : app.storage : app.channels",
     "app.contracts",
@@ -198,6 +209,12 @@ forbidden_modules = ["app.workflows", "app.sender"]
 name = "Rules engine is pure (no I/O layers)"
 type = "forbidden"
 source_modules = ["app.pipeline.rules"]
+forbidden_modules = ["app.db", "app.llm", "app.channels", "app.storage"]
+
+[[tool.importlinter.contracts]]
+name = "Finance review is pure (no I/O layers)"
+type = "forbidden"
+source_modules = ["app.finance.review", "app.finance.review_types", "app.finance.stats"]
 forbidden_modules = ["app.db", "app.llm", "app.channels", "app.storage"]
 
 # ---------------------------------------------------------------- pyright (IDE only; mypy is the gate)

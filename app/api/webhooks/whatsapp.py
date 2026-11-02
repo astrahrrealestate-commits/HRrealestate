@@ -68,23 +68,13 @@ async def receive(
 ) -> Response:
     body = await read_capped(request, MAX_WEBHOOK_BYTES)
     secret = _secret(settings.whatsapp_app_secret, DEV_APP_SECRET, settings)
-    
-    # Check if request comes via Hookdeck or dev environment
-    is_hookdeck = (
-        "x-hookdeck-event-id" in request.headers
-        or "x-hookdeck-signature" in request.headers
-        or settings.whatsapp_provider in ("hookdeck", "fake")
-    )
-    
-    if not is_hookdeck:
-        try:
-            scheme = signature_scheme(settings.whatsapp_provider)
-            verify_signature(body, request.headers.get(scheme.header), secret, scheme)
-        except WebhookRejectedError as exc:
-            raise HTTPException(status_code=401, detail="invalid signature") from exc
-    else:
-        log.info("whatsapp.webhook.hookdeck_received", bytes=len(body))
-
+    # Always verified, also behind a relay (Hookdeck forwards the provider's signature header unchanged): a request
+    # header is attacker-controlled and can never waive the check.
+    try:
+        scheme = signature_scheme(settings.whatsapp_provider)
+        verify_signature(body, request.headers.get(scheme.header), secret, scheme)
+    except WebhookRejectedError as exc:
+        raise HTTPException(status_code=401, detail="invalid signature") from exc
     await run_in_threadpool(_handle, engine, client, body)
     return Response(status_code=200)
 
@@ -108,22 +98,8 @@ def _accounts(session: Session, pnids: set[str]) -> dict[str, ChannelAccount]:
     for pnid in sorted(pnids):
         try:
             found[pnid] = resolve_channel_account(session, Channel.whatsapp, pnid)
-        except NotFoundError:
-            # Auto-link the incoming phone_number_id to the primary company if not yet registered
-            from app.db.models import Company
-            company = session.query(Company).first()
-            if company:
-                new_account = ChannelAccount(
-                    company_id=company.id,
-                    channel=Channel.whatsapp,
-                    address=pnid,
-                )
-                session.add(new_account)
-                session.flush()
-                found[pnid] = new_account
-                log.info("whatsapp.webhook.auto_registered_number", phone_number_id=pnid, company_id=str(company.id))
-            else:
-                log.warning("whatsapp.webhook.unknown_number", phone_number_id=pnid)
+        except NotFoundError:  # never auto-assigned to a company: a number belongs to one tenant (invariant 4)
+            log.warning("whatsapp.webhook.unknown_number", phone_number_id=pnid)
     return found
 
 

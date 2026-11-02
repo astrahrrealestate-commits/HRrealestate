@@ -22,11 +22,10 @@ from app.channels.calendar import (
     CalendarAttendee,
     CalendarEventCreate,
     FakeCalendarClient,
-    get_calendar_client,
 )
 from app.contracts import CaseState, Category, Urgency
 from app.core.settings import Settings
-from app.db.models import CalendarEventRow, Case, CaseEvent, Company, Unit
+from app.db.models import CalendarEventRow, Case, Company, Unit
 from app.llm.agents.calendar import (
     detect_lockbox_need,
     extract_time_window,
@@ -46,8 +45,10 @@ TEST_COMP_ID = UUID("00000000-0000-0000-0000-000000000001")
 @pytest.fixture(autouse=True)
 def force_fake_calendar():
     fake = FakeCalendarClient()
-    with patch("app.channels.calendar.get_calendar_client", return_value=fake), \
-         patch("app.api.calendar.routes.get_calendar_client", return_value=fake):
+    with (
+        patch("app.channels.calendar.get_calendar_client", return_value=fake),
+        patch("app.api.calendar.routes.get_calendar_client", return_value=fake),
+    ):
         yield fake
 
 
@@ -427,4 +428,3 @@ def test_super_agent_calendar_schedule_inquiry():
         assert "Plumbing Inspection" in data["answer"]
         assert "Keizersgracht 42-A" in data["answer"]
         assert any(b["label"] == "Open Calendar" for b in data["actions"])
-

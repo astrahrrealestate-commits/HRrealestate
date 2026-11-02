@@ -1,4 +1,3 @@
-from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -26,7 +25,7 @@ def test_round_trip_with_entities() -> None:
     e = Entities(
         people=["Tenant 1"],
         unit_refs=["Whg 3"],
-        dates=[date(2026, 1, 2), "nächste Woche"],
+        dates=["2026-01-02", "nächste Woche"],  # PR #15 contract: dates are the text the message used
         amounts=[Money(amount=Decimal("850.00"), currency="EUR")],
     )
     u = _u(entities=e)

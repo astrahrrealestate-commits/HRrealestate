@@ -180,6 +180,7 @@ class FeedKind(StrEnum):
     briefing = "briefing"
     task = "task"
     agent_note = "agent_note"
+    quote_review = "quote_review"
 
 
 class TurnStatus(StrEnum):
@@ -214,3 +215,24 @@ class MemoryOrigin(StrEnum):
     owner = "owner"
     distilled = "distilled"
     system = "system"
+
+
+class RateSource(StrEnum):
+    """Where an agreed rate came from."""
+
+    owner = "owner"
+    document = "document"
+    quote = "quote"
+
+
+class QuoteSource(StrEnum):
+    message = "message"
+    document = "document"
+
+
+class QuoteStatus(StrEnum):
+    """`unlinked` = a quote that arrived without a case; the owner links it before it is reviewed."""
+
+    received = "received"
+    reviewed = "reviewed"
+    unlinked = "unlinked"

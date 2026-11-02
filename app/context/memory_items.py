@@ -89,7 +89,7 @@ def record_owner_memory(
             existing.last_used_at = datetime.now(tz=UTC)
             session.flush()
             return existing, f"Remembered (updated evidence count: {existing.evidence_count})."
-        return existing, f"Rule is already proposed and pending activation."
+        return existing, "Rule is already proposed and pending activation."
 
     item = MemoryItem(
         id=new_id(),

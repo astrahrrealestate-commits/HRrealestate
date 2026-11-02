@@ -3,12 +3,11 @@
 Feeds portfolio directory, unit occupancy records, lockbox PINs, and address lookups to the Next.js frontend.
 """
 
-from typing import Annotated
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
-from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
 from app.core.logging import get_logger
@@ -21,8 +20,10 @@ log = get_logger(__name__)
 # Pydantic Models
 # ---------------------------------------------------------------------------
 
+
 class UnitItem(BaseModel):
     """Single property unit in the portfolio."""
+
     id: str
     label: str = Field(description="Unit identifier e.g. Pieter Floriszstraat 1 C")
     address: str
@@ -36,6 +37,7 @@ class UnitItem(BaseModel):
 
 class PropertiesResponse(BaseModel):
     """List of property units and aggregate summary counts."""
+
     totalUnits: int
     occupiedCount: int
     vacantCount: int
@@ -46,7 +48,7 @@ class PropertiesResponse(BaseModel):
 # Seed Data
 # ---------------------------------------------------------------------------
 
-DEFAULT_UNITS = [
+DEFAULT_UNITS: list[dict[str, Any]] = [
     {
         "id": "u-1",
         "label": "Pieter Floriszstraat 1 C",
@@ -109,11 +111,15 @@ DEFAULT_UNITS = [
 # API Routes
 # ---------------------------------------------------------------------------
 
+
 @router.get(
     "",
     response_model=PropertiesResponse,
     summary="Get Portfolio Properties & Units",
-    description="Retrieves the portfolio directory of property units with occupancy status, address, monthly rent, and current tenant associations.",
+    description=(
+        "Retrieves the portfolio directory of property units with occupancy status, address, monthly "
+        "rent, and current tenant associations."
+    ),
 )
 def get_properties(
     engine: Annotated[Engine, Depends(get_engine)],
@@ -125,7 +131,6 @@ def get_properties(
         units = [u for u in units if u["status"] == status]
 
     occupied = len([u for u in DEFAULT_UNITS if u["status"] == "occupied"])
-    vacant = len([u for u in DEFAULT_UNITS if u["status"] != "occupied"])
 
     return PropertiesResponse(
         totalUnits=110,

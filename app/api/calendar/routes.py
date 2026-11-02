@@ -6,19 +6,19 @@ and executing Harjot's 1-click confirmation to sync events to Google Calendar.
 
 from datetime import UTC, datetime
 from typing import Annotated, Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_engine, get_settings_dep
+from app.api.deps import get_engine
 from app.channels.calendar import CalendarAttendee, CalendarEventCreate, get_calendar_client
 from app.core.logging import get_logger
-from app.core.settings import Settings
 from app.db.enums import CaseEventKind
-from app.db.models import CalendarEventRow, Case, CaseEvent, Company, Unit
+from app.db.models import Case, CaseEvent, Company
+from app.db.models.calendar import CalendarEventRow
 from app.llm.agents.calendar import propose_calendar_event
 
 router = APIRouter(prefix="/api/calendar", tags=["calendar"])
@@ -73,8 +73,7 @@ def list_calendar_events(
     status: str | None = Query(default=None, description="proposed, confirmed, cancelled"),
     case_id: str | None = Query(default=None),
 ) -> dict[str, Any]:
-    """List calendar events from the database with live calendar sync."""
-    client = get_calendar_client()
+    """List calendar events from the database."""
     with Session(engine) as session:
         query = select(CalendarEventRow)
         if status:
@@ -252,7 +251,11 @@ def approve_calendar_event(
                 note_text = f"Visit scheduled on Google Calendar for {sched_stamp} ({evt.title})."
                 existing_sum = (case.summary or "").strip()
                 if "Visit scheduled on Google Calendar" not in existing_sum:
-                    case.summary = f"{existing_sum}\n\n[Calendar Scheduled: {note_text}]" if existing_sum else f"[Calendar Scheduled: {note_text}]"
+                    case.summary = (
+                        f"{existing_sum}\n\n[Calendar Scheduled: {note_text}]"
+                        if existing_sum
+                        else f"[Calendar Scheduled: {note_text}]"
+                    )
                     case.summary_version = (case.summary_version or 0) + 1
 
                 session.add(
@@ -260,7 +263,10 @@ def approve_calendar_event(
                         company_id=case.company_id,
                         case_id=case.id,
                         kind=CaseEventKind.note,
-                        note=f"Owner 1-click confirmed appointment: {evt.title} ({sched_stamp}). Google Event ID: {created_gcal.id}.",
+                        note=(
+                            f"Owner 1-click confirmed appointment: {evt.title} ({sched_stamp}). "
+                            f"Google Event ID: {created_gcal.id}."
+                        ),
                         actor="owner",
                     )
                 )
@@ -283,4 +289,3 @@ def approve_calendar_event(
             confirmedAt=evt.confirmed_at.isoformat() if evt.confirmed_at else None,
             htmlLink=created_gcal.html_link or f"https://calendar.google.com/calendar/event?eid={created_gcal.id}",
         )
-

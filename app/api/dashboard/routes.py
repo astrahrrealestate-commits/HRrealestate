@@ -24,8 +24,10 @@ log = get_logger(__name__)
 # Pydantic Response Models
 # ---------------------------------------------------------------------------
 
+
 class PulseMetricsResponse(BaseModel):
     """Executive pulse metrics for the 3 dashboard pillars and portfolio summary."""
+
     needsYouCount: int = Field(description="Total action items pending owner decision")
     emergencyCount: int = Field(description="Active emergency incidents requiring immediate dispatch")
     openRentTotalEur: float = Field(description="Total open rent balance for the current billing cycle")
@@ -41,6 +43,7 @@ class PulseMetricsResponse(BaseModel):
 
 class StalledWaitItem(BaseModel):
     """Single stalled item awaiting reply from a tenant, contractor, or utility."""
+
     id: str
     caseRef: str
     ticketNumber: str | None = None
@@ -55,12 +58,14 @@ class StalledWaitItem(BaseModel):
 
 class RadarResponse(BaseModel):
     """List of stalled items for the Unresponsive Radar card."""
+
     items: list[StalledWaitItem]
     total: int
 
 
 class ProspectiveInquiryItem(BaseModel):
     """Prospective tenant inquiry or viewing request lead."""
+
     id: str
     name: str
     contact: str
@@ -74,12 +79,14 @@ class ProspectiveInquiryItem(BaseModel):
 
 class InquiriesResponse(BaseModel):
     """List of prospective inquiries for the Today dashboard card."""
+
     inquiries: list[ProspectiveInquiryItem]
     total: int
 
 
 class AutonomousActionLogItem(BaseModel):
     """Record of an autonomous background action executed by EstateOS."""
+
     id: str
     timestamp: str
     actionText: str
@@ -89,6 +96,7 @@ class AutonomousActionLogItem(BaseModel):
 
 class LogsResponse(BaseModel):
     """List of autonomous operation logs for the dashboard audit trail card."""
+
     logs: list[AutonomousActionLogItem]
     total: int
 
@@ -97,7 +105,7 @@ class LogsResponse(BaseModel):
 # Default Seed Data (fallback when database tables are empty)
 # ---------------------------------------------------------------------------
 
-DEFAULT_PULSE = {
+DEFAULT_PULSE: dict[str, Any] = {
     "needsYouCount": 6,
     "emergencyCount": 1,
     "openRentTotalEur": 165734.99,
@@ -110,7 +118,7 @@ DEFAULT_PULSE = {
     "hoursSavedWeek": 8.5,
 }
 
-DEFAULT_RADAR_ITEMS = [
+DEFAULT_RADAR_ITEMS: list[dict[str, Any]] = [
     {
         "id": "wait-1",
         "caseRef": "#cs-0089",
@@ -149,7 +157,7 @@ DEFAULT_RADAR_ITEMS = [
     },
 ]
 
-DEFAULT_INQUIRIES = [
+DEFAULT_INQUIRIES: list[dict[str, Any]] = [
     {
         "id": "lead-1",
         "name": "Sanne Meijer",
@@ -185,7 +193,7 @@ DEFAULT_INQUIRIES = [
     },
 ]
 
-DEFAULT_LOGS = [
+DEFAULT_LOGS: list[dict[str, Any]] = [
     {
         "id": "log-1",
         "timestamp": "10:14 CET",
@@ -228,11 +236,15 @@ DEFAULT_LOGS = [
 # API Routes
 # ---------------------------------------------------------------------------
 
+
 @router.get(
     "/pulse",
     response_model=PulseMetricsResponse,
     summary="Get Executive Pulse Metrics",
-    description="Calculates portfolio pulse indicators across 3 core pillars: Pending Owner Actions (Needs You), Rent & Financial Aging, and Occupancy Status.",
+    description=(
+        "Calculates portfolio pulse indicators across 3 core pillars: Pending Owner Actions (Needs "
+        "You), Rent & Financial Aging, and Occupancy Status."
+    ),
 )
 def get_pulse_metrics(
     engine: Annotated[Engine, Depends(get_engine)],
@@ -240,16 +252,21 @@ def get_pulse_metrics(
     """Returns the executive pulse metrics for the top 3 dashboard cards."""
     try:
         with Session(engine) as session:
-            pending_approvals = session.scalar(
-                select(func.count(Approval.id)).where(Approval.status == "pending")
-            ) or DEFAULT_PULSE["needsYouCount"]
+            pending_approvals = (
+                session.scalar(select(func.count(Approval.id)).where(Approval.status == "pending"))
+                or DEFAULT_PULSE["needsYouCount"]
+            )
 
-            emergency_cases = session.scalar(
-                select(func.count(Case.id)).where(Case.urgency == "emergency", Case.state == "open")
-            ) or DEFAULT_PULSE["emergencyCount"]
+            emergency_cases = (
+                session.scalar(select(func.count(Case.id)).where(Case.urgency == "emergency", Case.state == "open"))
+                or DEFAULT_PULSE["emergencyCount"]
+            )
 
             total_units = session.scalar(select(func.count(Unit.id))) or DEFAULT_PULSE["totalUnits"]
-            active_leases = session.scalar(select(func.count(Lease.id)).where(Lease.valid_to.is_(None))) or DEFAULT_PULSE["occupiedUnits"]
+            active_leases = (
+                session.scalar(select(func.count(Lease.id)).where(Lease.valid_to.is_(None)))
+                or DEFAULT_PULSE["occupiedUnits"]
+            )
     except Exception as exc:
         log.warning("dashboard.pulse.db_fallback", error=str(exc))
         pending_approvals = DEFAULT_PULSE["needsYouCount"]
@@ -278,7 +295,9 @@ def get_pulse_metrics(
     "/radar",
     response_model=RadarResponse,
     summary="Get Unresponsive Cases Radar",
-    description="Lists stalled workflows and unanswered chasers from tenants and contractors exceeding SLA wait periods.",
+    description=(
+        "Lists stalled workflows and unanswered chasers from tenants and contractors exceeding SLA wait periods."
+    ),
 )
 def get_unresponsive_radar(
     engine: Annotated[Engine, Depends(get_engine)],
@@ -288,11 +307,7 @@ def get_unresponsive_radar(
     items: list[StalledWaitItem] = []
     try:
         with Session(engine) as session:
-            rows = session.scalars(
-                select(WaitRow)
-                .where(WaitRow.status == "waiting")
-                .limit(limit)
-            ).all()
+            rows = session.scalars(select(WaitRow).where(WaitRow.status == "waiting").limit(limit)).all()
 
             for r in rows:
                 items.append(
@@ -367,38 +382,40 @@ class BriefingResponse(BaseModel):
     description="Returns the structured executive briefing generated by the BRIEFING agent.",
 )
 def get_executive_briefing(
+    engine: Annotated[Engine, Depends(get_engine)],
     kind: str = Query(default="daily", description="daily or weekly"),
-    engine: Annotated[Engine, Depends(get_engine)] = None,
 ) -> BriefingResponse:
     now = datetime.now(UTC)
-    
+
     # Query live stats from PostgreSQL if engine is available
     urgent_count = 0
     pending_approvals = 0
     total_cases = 0
     top_urgent_title = "Pieter Floriszstraat 1 C"
     top_urgent_desc = "Short circuit reported in kitchen. FastFix on standby."
-    
+
     if engine:
         try:
             with Session(engine) as session:
-                from app.db.models import Case, Approval, ActionRow
-                from app.db.enums import CaseState, ApprovalStatus, ActionStatus
-                
-                urgent_cases = session.query(Case).filter(
-                    Case.urgency.in_(["emergency", "high"]),
-                    Case.state.in_(["open", "triaged", "in_progress", "waiting_on_third_party"])
-                ).all()
+                from app.db.enums import ApprovalStatus
+                from app.db.models import Approval, Case
+
+                urgent_cases = (
+                    session.query(Case)
+                    .filter(
+                        Case.urgency.in_(["emergency", "high"]),
+                        Case.state.in_(["open", "triaged", "in_progress", "waiting_on_third_party"]),
+                    )
+                    .all()
+                )
                 urgent_count = len(urgent_cases)
                 if urgent_cases:
                     c = urgent_cases[0]
                     top_urgent_title = c.summary or "Urgent maintenance request"
                     top_urgent_desc = f"Case state: {c.state.value}. Category: {c.category.value}."
 
-                pending_approvals = session.query(Approval).filter(
-                    Approval.status == ApprovalStatus.pending
-                ).count()
-                
+                pending_approvals = session.query(Approval).filter(Approval.status == ApprovalStatus.pending).count()
+
                 total_cases = session.query(Case).count()
         except Exception as e:
             log.warning("dashboard.briefing.db_fallback", error=str(e))
@@ -406,7 +423,10 @@ def get_executive_briefing(
     if kind == "weekly":
         return BriefingResponse(
             headline=f"Weekly Review: {total_cases} portfolio cases active; occupancy holding steady at 94.5%.",
-            summarySentence=f"Portfolio operations running smoothly. {pending_approvals} decisions taken, and {urgent_count} critical matters stabilized.",
+            summarySentence=(
+                f"Portfolio operations running smoothly. {pending_approvals} decisions taken, and {urgent_count} "
+                "critical matters stabilized."
+            ),
             sections=[
                 BriefingSection(
                     category="Maintenance",
@@ -430,7 +450,10 @@ def get_executive_briefing(
             generatedAt=now.isoformat(),
         )
 
-    headline_text = f"Morning Pulse: {urgent_count} matter(s) require attention; {pending_approvals} draft(s) awaiting 1-click review."
+    headline_text = (
+        f"Morning Pulse: {urgent_count} matter(s) require attention; {pending_approvals} draft(s) awaiting "
+        "1-click review."
+    )
     summary_text = f"{top_urgent_title}. {pending_approvals} AI replies ready in Inbox."
 
     return BriefingResponse(
@@ -458,4 +481,3 @@ def get_executive_briefing(
         ],
         generatedAt=now.isoformat(),
     )
-
