@@ -74,6 +74,7 @@ def test_system_column_types() -> None:
     assert table.c._synced_at.nullable is False
     assert table.c._deleted_at.nullable is True
     assert isinstance(table.c._extra.type, postgresql.JSONB)
+    assert table.c._extra.type.none_as_null is True
 
 
 def test_key_columns_are_bigint() -> None:
