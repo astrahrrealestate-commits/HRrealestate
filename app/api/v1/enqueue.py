@@ -8,12 +8,14 @@ from app.core.workflow_names import (
     BACKFILL_DOCUMENTS,
     CONCIERGE_QUEUE,
     CONCIERGE_TURN,
+    DD_REVIEW,
     DOCUMENTS_QUEUE,
     EXECUTE_ACTION,
     FILE_DOCUMENT,
     PIPELINE_QUEUE,
     REORG_PLAN,
     concierge_workflow_id,
+    dd_workflow_id,
     exec_workflow_id,
     reorg_workflow_id,
 )
@@ -47,6 +49,17 @@ def enqueue_reorg(client: WorkflowClient, company_id: UUID, plan_id: UUID) -> No
         "queue_partition_key": str(company_id),
     }
     client.enqueue(options, str(company_id), str(plan_id))
+
+
+def enqueue_dd_review(client: WorkflowClient, company_id: UUID, review_id: UUID, run_no: int) -> None:
+    """`dd:{review_id}:{run_no}` on the documents queue, after the review row committed."""
+    options = {
+        "queue_name": DOCUMENTS_QUEUE,
+        "workflow_name": DD_REVIEW,
+        "workflow_id": dd_workflow_id(review_id, run_no),
+        "queue_partition_key": str(company_id),
+    }
+    client.enqueue(options, str(company_id), str(review_id), run_no)
 
 
 def enqueue_backfill(client: WorkflowClient, company_id: UUID, hour: datetime) -> None:

@@ -77,7 +77,9 @@ def test_composite_concatenates_in_order() -> None:
 
 
 def _build(setting: Literal["fake", "competitors", "web"]) -> PriceSource:
-    settings = Settings(price_source=setting)
+    settings = Settings(  # type: ignore[call-arg]
+        database_url="postgresql+psycopg://u:p@localhost:1/db", price_source=setting, _env_file=None
+    )
     return build_price_source(settings, _no_session, uuid4(), None)
 
 

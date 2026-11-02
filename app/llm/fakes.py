@@ -7,6 +7,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from app.contracts import Category, Urgency
 from app.llm.fakes_concierge import fake_concierge
+from app.llm.fakes_diligence import fake_dd_reader
 from app.llm.fakes_finance import fake_job_items, fake_quote_reader
 from app.llm.fakes_owner_qa import fake_owner_qa
 from app.llm.fakes_proposer import fake_proposer
@@ -341,6 +342,8 @@ def model_for(agent_name: str) -> FunctionModel:
             args = _fake_doc_reader(user_text)
         elif agent_name == "doc_qa":
             args = _fake_doc_qa(user_text)
+        elif agent_name == "dd_reader":
+            args = fake_dd_reader(_block(user_text, "document"), _block(user_text, "file").removeprefix("filename: "))
         elif agent_name == "rag_plan":
             args = _fake_rag_plan(user_text)
         elif agent_name == "rag_rerank":

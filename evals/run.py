@@ -15,6 +15,7 @@ from pathlib import Path
 from app.core.settings import Settings
 from evals import (
     concierge_eval,
+    dd_reader_eval,
     doc_reader_eval,
     finance_eval,
     linking_eval,
@@ -31,6 +32,7 @@ RUNNERS: dict[str, Callable[[str, Settings], EvalResult]] = {
     "owner_qa": owner_qa_eval.run,
     "concierge": concierge_eval.run,
     "doc_reader": doc_reader_eval.run,
+    "dd_reader": dd_reader_eval.run,
     "proposer": proposer_eval.run,
     "quote_reader": finance_eval.run_quote_reader,
     "job_items": finance_eval.run_job_items,
