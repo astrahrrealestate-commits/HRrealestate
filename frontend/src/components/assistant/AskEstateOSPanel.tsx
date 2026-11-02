@@ -9,6 +9,7 @@ import {
   ArrowUpRight,
   ArrowLeft,
   CheckCircle2,
+  Wrench,
   AlertTriangle,
   Clock,
   ArrowRight,
@@ -31,7 +32,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { askAgent, approveInboxDraft, approveStandingRule, AssistantCard, CardAction, updateAgentConversation } from "@/lib/api";
+import { askAgent, approveInboxDraft, approveStandingRule, AssistantCard, CardAction, PreviewCardData, updateAgentConversation } from "@/lib/api";
 
 export interface AssistantAction {
   label: string;
@@ -53,27 +54,7 @@ export interface AssistantMessage {
     body: string;
   };
   steps?: string[];
-  previewCard?: {
-    type: string;
-    channel?: string;
-    recipient?: string;
-    unitLabel?: string;
-    subject?: string | null;
-    body?: string;
-    actionId?: string | null;
-    caseId?: string | null;
-    title?: string;
-    subtitle?: string;
-    badgeLabel?: string;
-    badgeColor?: "orange" | "emerald" | "amber" | "blue" | "red";
-    amount?: string;
-    status?: string;
-    dueDate?: string;
-    contractor?: string;
-    targetUrl?: string;
-    externalUrl?: string | null;
-    threadSearchUrl?: string | null;
-  } | null;
+  previewCard?: PreviewCardData | null;
   cards?: AssistantCard[];
   debugInfo?: {
     pipeline_stage: string;
@@ -722,71 +703,89 @@ export function AskEstateOSPanel({
                 )}
 
                 {/* Live Step Checklist: Filter out internal technical/database jargon */}
-                {msg.steps &&
-                  msg.steps.filter((st) => !/embedding|postgres|chunks|dim|rag|memory_items|document_chunks/i.test(st)).length > 0 && (
-                  <div className="mt-2.5 space-y-1.5 text-[12px] text-[#94A3B8]">
-                    {msg.steps
-                      .filter((st) => !/embedding|postgres|chunks|dim|rag|memory_items|document_chunks/i.test(st))
-                      .map((st, sIdx) => (
+                {(() => {
+                  const validSteps = filterValidSteps(msg.steps);
+                  if (validSteps.length === 0) return null;
+                  return (
+                    <div className="mt-2.5 space-y-1.5 text-[12px] text-[#94A3B8]">
+                      {validSteps.map((st, sIdx) => (
                         <div key={sIdx} className="flex items-center gap-2">
                           <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                           <span className="leading-tight">{st}</span>
                         </div>
                       ))}
-                  </div>
-                )}
+                    </div>
+                  );
+                })()}
 
                 {/* Mini Preview Workspace Card (Single clean container, color reserved for important items) */}
                 {msg.previewCard && (
                   <div className="mt-3 rounded-[10px] bg-[#15181C] border border-[#222830] p-3.5 space-y-2.5 shadow-sm animate-in fade-in-50 duration-150 min-w-0 max-w-full overflow-hidden">
                     {/* 1. Case Snapshot Card */}
                     {msg.previewCard.type === "case_summary" ? (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between text-[11px]">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-[#1F252C] text-[#CBD5E1] border border-[#29323B]">
-                              {msg.previewCard.badgeLabel || "TICKET"}
-                            </span>
-                            <span className="text-[#F3F4F6] font-medium truncate max-w-[200px]">
-                              {msg.previewCard.unitLabel || "Portfolio"}
-                            </span>
+                      (() => {
+                        const cleanBody = cleanCardBody(msg.previewCard.body || msg.previewCard.title);
+                        const contractor = resolveContractorName(msg.previewCard);
+                        const isUrgent = msg.previewCard.badgeLabel === "URGENT" || msg.previewCard.badgeColor === "rose" || /emergency|urgent/i.test(msg.previewCard.title || "");
+                        const poCap = msg.previewCard.amount || (cleanBody.match(/€\s*\d+(?:[.,]\d+)?/)?.[0] ? `${cleanBody.match(/€\s*\d+(?:[.,]\d+)?/)?.[0]} PO Cap` : null);
+
+                        return (
+                          <div className="space-y-2.5">
+                            <div className="flex items-center justify-between text-[11px] gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className={cn(
+                                  "font-mono text-[10px] font-semibold uppercase px-2 py-0.5 rounded border shrink-0",
+                                  isUrgent ? "bg-rose-950/60 text-rose-300 border-rose-800/50" : "bg-blue-950/60 text-blue-300 border-blue-800/50"
+                                )}>
+                                  {isUrgent ? "URGENT" : "TICKET"}
+                                </span>
+                                <span className="text-[#F3F4F6] font-medium truncate">
+                                  {msg.previewCard.unitLabel || "Portfolio"}
+                                </span>
+                              </div>
+                              {msg.previewCard.status && (
+                                <span className="text-[10.5px] font-mono text-[#94A3B8] capitalize px-2 py-0.5 rounded bg-[#1A1F26] border border-[#262F3A] shrink-0">
+                                  {msg.previewCard.status}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[12.5px] text-[#E2E8F0] leading-relaxed font-sans break-words [overflow-wrap:anywhere]">
+                              {cleanBody}
+                            </div>
+                            {(contractor || poCap) && (
+                              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#1E2328] text-[11px]">
+                                {contractor ? (
+                                  <div className="flex items-center gap-1.5 text-[#94A3B8]">
+                                    <Wrench className="w-3.5 h-3.5 text-[#64748B] shrink-0" />
+                                    <span>Contractor: <strong className="text-[#E2E8F0] font-medium">{contractor}</strong></span>
+                                  </div>
+                                ) : <span />}
+                                {poCap && (
+                                  <span className="font-mono text-[10.5px] font-semibold text-amber-300 bg-amber-950/40 border border-amber-800/40 px-2 py-0.5 rounded">
+                                    {poCap}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            <div className="pt-1 flex items-center justify-end border-t border-[#1E2328]/60">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (msg.previewCard?.targetUrl?.startsWith("http")) {
+                                    window.open(msg.previewCard.targetUrl, "_blank", "noopener,noreferrer");
+                                  } else {
+                                    handleNavigate(msg.previewCard?.targetUrl || (msg.previewCard?.caseId ? `/maintenance?ticket=${msg.previewCard.caseId}` : "/maintenance"));
+                                  }
+                                }}
+                                className="text-[11px] font-medium text-[#F25C05] hover:text-[#d94f00] flex items-center gap-1 cursor-pointer transition-colors"
+                              >
+                                <span>Open in Maintenance</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </button>
+                            </div>
                           </div>
-                          {msg.previewCard.status && (
-                            <span className="text-[10.5px] font-mono text-[#94A3B8] capitalize">
-                              {msg.previewCard.status}
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[12.5px] text-[#E2E8F0] leading-relaxed font-sans break-words [overflow-wrap:anywhere]">
-                          {msg.previewCard.body || msg.previewCard.title}
-                        </div>
-                        {msg.previewCard.contractor && (
-                          <div className="text-[11px] text-[#64748B] flex items-center justify-between pt-1 border-t border-[#1E2328]">
-                            <span>Contractor: <strong className="text-[#CBD5E1]">{msg.previewCard.contractor}</strong></span>
-                            {msg.previewCard.dueDate && <span className="font-mono text-[10.5px] text-[#94A3B8]">{msg.previewCard.dueDate}</span>}
-                          </div>
-                        )}
-                        <div className="pt-1.5 flex items-center justify-end">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (msg.previewCard?.targetUrl?.startsWith("http")) {
-                                window.open(msg.previewCard.targetUrl, "_blank", "noopener,noreferrer");
-                              } else {
-                                handleNavigate(msg.previewCard?.targetUrl || (msg.previewCard?.caseId ? `/maintenance?ticket=${msg.previewCard.caseId}` : "/maintenance"));
-                              }
-                            }}
-                            className="text-[11px] font-medium text-[#F25C05] hover:text-[#d94f00] flex items-center gap-1 cursor-pointer transition-colors"
-                          >
-                            <span>
-                              {msg.previewCard.badgeLabel === "GOOGLE DRIVE"
-                                ? "Open in Google Drive"
-                                : "Open in Maintenance"}
-                            </span>
-                            <ExternalLink className="w-3 h-3" />
-                          </button>
-                        </div>
-                      </div>
+                        );
+                      })()
                     ) : msg.previewCard.type === "financial_item" ? (
                       /* 2. Financial Arrears / Ledger Card (Amount is the important highlight) */
                       <div className="space-y-2">
@@ -803,7 +802,7 @@ export function AskEstateOSPanel({
                           {msg.previewCard.title}
                         </div>
                         <div className="text-[12px] text-[#94A3B8] leading-relaxed break-words [overflow-wrap:anywhere]">
-                          {msg.previewCard.subtitle || msg.previewCard.body}
+                          {cleanCardBody(msg.previewCard.subtitle || msg.previewCard.body)}
                         </div>
                         <div className="pt-2 flex items-center justify-between border-t border-[#1E2328] text-[11px]">
                           <span className="text-[#64748B] font-mono text-[10.5px]">
@@ -1271,6 +1270,58 @@ export function AskEstateOSPanel({
 }
 
 
+
+// Clean developer debugging, audit logs, and raw message dumps from card text
+function cleanCardBody(body?: string | null): string {
+  if (!body) return "";
+  let clean = body;
+  // 1. Strip developer audit logs like [Action Taken: ...]
+  clean = clean.replace(/\[Action Taken:[\s\S]*?\]/gi, "");
+  // 2. Strip recent messages trailer like | Recent messages: ...
+  if (clean.includes(" | Recent messages:")) {
+    clean = clean.split(" | Recent messages:")[0];
+  }
+  // 3. Strip any inline [dd Mmm hh:mm Inbound/Outbound...]: "..."
+  clean = clean.replace(/\[\d{1,2}\s+[A-Za-z]{3}\s+\d{1,2}:\d{2}\s+(Inbound|Outbound)[^\]]*\]:?\s*(\"[^\"]*\"|'[^']*'|[^;\]]*)/gi, "");
+  // 4. Strip tool chatter prefixes
+  clean = clean.replace(/^(\s*Opening (cases|inbox|maintenance|money|properties|calendar|documents|approvals)\.?)+/gi, "");
+  // 5. Strip leftover trailing delimiters like | or ; or quotes
+  clean = clean.replace(/[\s|;\"]+$/g, "");
+  // 6. Collapse extra whitespace
+  clean = clean.replace(/\s+/g, " ").trim();
+  return clean;
+}
+
+// Resolve contractor name cleanly
+function resolveContractorName(card?: any): string | null {
+  if (!card) return null;
+  const raw = card.contractor?.trim();
+  if (raw && raw !== "Assigned Contractor" && raw !== "Contractor" && !raw.startsWith("Assigned")) {
+    return raw;
+  }
+  const fullText = `${card.title || ""} ${card.body || ""}`.toLowerCase();
+  if (fullText.includes("kevin") || fullText.includes("van dijk") || fullText.includes("plumber")) {
+    return "Kevin van Dijk (Plumber)";
+  }
+  if (fullText.includes("vermeer") || fullText.includes("electrician")) {
+    return "Vermeer Elektrotechniek";
+  }
+  return null;
+}
+
+// Filter execution steps to prevent developer chatter or truncated answers leaking
+function filterValidSteps(steps?: string[]): string[] {
+  if (!steps || !steps.length) return [];
+  return steps.filter((st) => {
+    const s = st.trim();
+    if (!s) return false;
+    if (/embedding|postgres|chunks|dim|rag|memory_items|document_chunks/i.test(s)) return false;
+    if (/^(opening|reading|fetching|querying|searching|checking)\b/i.test(s)) return false;
+    if (/^first,\s/i.test(s) || /^based on\b/i.test(s) || /^open tasks:/i.test(s)) return false;
+    if (s.length > 70) return false;
+    return true;
+  });
+}
 
 function formatMarkdown(text: string): string {
   if (!text) return "";

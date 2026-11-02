@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useRef } from "react";
-import { prewarmAgentPage, AssistantCard, ConversationSummaryItem, getAgentConversations, getConversationDetail, updateAgentConversation } from "@/lib/api";
+import { prewarmAgentPage, AssistantCard, ConversationSummaryItem, getAgentConversations, getConversationDetail, updateAgentConversation, PreviewCardData } from "@/lib/api";
 
 export interface AssistantAction {
   label: string;
@@ -23,27 +23,7 @@ export interface AssistantMessage {
     body: string;
   };
   steps?: string[];
-  previewCard?: {
-    type: string;
-    channel?: string;
-    recipient?: string;
-    unitLabel?: string;
-    subject?: string | null;
-    body?: string;
-    actionId?: string | null;
-    caseId?: string | null;
-    title?: string;
-    subtitle?: string;
-    badgeLabel?: string;
-    badgeColor?: "orange" | "emerald" | "amber" | "blue" | "red";
-    amount?: string;
-    status?: string;
-    dueDate?: string;
-    contractor?: string;
-    targetUrl?: string;
-    externalUrl?: string | null;
-    threadSearchUrl?: string | null;
-  } | null;
+  previewCard?: PreviewCardData | null;
   cards?: AssistantCard[];
   debugInfo?: {
     pipeline_stage: string;
