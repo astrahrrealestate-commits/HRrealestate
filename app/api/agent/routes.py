@@ -980,10 +980,14 @@ def ask_agent(
                     break
 
         if matching_rule:
-            return AskAgentResponse(
-                answer=f"**Authoritative Standing Rule (T5 Memory):**\n\n• {matching_rule}",
-                suggestedAction="View Standing Rules in Settings",
-                actions=[
+            return _finish_agent_response(
+                engine=engine,
+                conv_id=conv_id,
+                req=req,
+                ans_text=f"**Authoritative Standing Rule (T5 Memory):**\n\n• {matching_rule}",
+                case_refs=[],
+                suggested_action="View Standing Rules in Settings",
+                action_buttons=[
                     ActionButtonData(
                         label="View Standing Rules in Settings",
                         actionType="navigate",
@@ -991,29 +995,61 @@ def ask_agent(
                         isPrimary=True,
                     )
                 ],
-                executedAt=now.isoformat(),
-                steps=["Retrieved active workspace rules"],
-                debugInfo=DebugInfo(pipeline_stage="memory_rule"),
+                step_descriptions=["Retrieved active workspace rules"],
+                preview_card=None,
+                cards_list=[],
+                pipeline_stage="memory_rule",
+                fallback_reason=None,
+                suggestions=["What should I do first?", "Who owes rent?", "Check calendar"],
+                now=now,
+                briefs=briefs,
             )
-
         # Specific Task Trigger: Calendar / Appointment / Visit inquiry or booking
         cal_pattern = r"\b(calendar|schedule|appointment|visit|afspraak|agenda|book|boeken|inplannen)\b"
         if re.search(cal_pattern, q_low):
             cal_ans, cal_card, cal_actions, cal_steps = _resolve_calendar_action(req.query, engine, company_id, briefs)
             if cal_ans:
-                return AskAgentResponse(
-                    answer=cal_ans,
-                    caseRefs=[str(b.case_id) for b in briefs] if briefs else [],
-                    suggestedAction=cal_actions[0].label if cal_actions else None,
-                    actions=cal_actions,
-                    executedAt=now.isoformat(),
-                    steps=cal_steps,
-                    previewCard=cal_card,
-                    debugInfo=DebugInfo(pipeline_stage="regex_calendar"),
+                cal_cards = []
+                if cal_card:
+                    cal_cards.append(
+                        AssistantCardData(
+                            id=cal_card.actionId or "cal-0",
+                            type="calendar_item",
+                            badgeLabel=cal_card.badgeLabel or "CALENDAR",
+                            badgeColor="emerald",
+                            title=cal_card.title or "Scheduled Appointment",
+                            subtitle=cal_card.subtitle,
+                            body=cal_card.body,
+                            unitLabel=cal_card.unitLabel,
+                            recipient=cal_card.recipient,
+                            dueDate=cal_card.dueDate,
+                            actions=[
+                                CardActionData(
+                                    label="Approve & Add to Calendar",
+                                    kind="api_call",
+                                    endpoint=f"/api/calendar/events/{cal_card.actionId}/approve" if cal_card.actionId else None,
+                                    variant="primary",
+                                )
+                            ] if cal_card.actionId else [],
+                        )
+                    )
+                return _finish_agent_response(
+                    engine=engine,
+                    conv_id=conv_id,
+                    req=req,
+                    ans_text=cal_ans,
+                    case_refs=[str(b.case_id) for b in briefs] if briefs else [],
+                    suggested_action=cal_actions[0].label if cal_actions else None,
+                    action_buttons=cal_actions,
+                    step_descriptions=cal_steps,
+                    preview_card=cal_card,
+                    cards_list=cal_cards,
+                    pipeline_stage="regex_calendar",
+                    fallback_reason=None,
+                    suggestions=["Check tomorrow's calendar", "View maintenance tickets", "Draft tenant update"],
+                    now=now,
+                    briefs=briefs,
                 )
-
-        # Specific Task Trigger: Document / Lease / Contract / Terms query
-        doc_pattern = r"\b(lease|agreement|contract|deposit|borg|document|pdf|clause|terms|notice period|sublet|huurovereenkomst)\b"
         is_contractor_inquiry = bool(re.search(r"\bcontractor(s)?\b", q_low))
         is_comm_inquiry = any(w in q_low for w in ["message", "messages", "reply", "email", "mail", "whatsapp"])
         is_doc_task = bool(re.search(doc_pattern, q_low)) and not is_contractor_inquiry and not is_comm_inquiry
