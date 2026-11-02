@@ -141,13 +141,15 @@ def _append_review(
     review_id: UUID | None = None,
 ) -> UUID:
     """The review row, its feed card (key `quote_review:{review_id}`) and the `reviewed` status, in the caller's
-    transaction."""
+    transaction. A review id already stored (a racing retry) writes nothing and returns that id."""
     review_id, result = review_id or new_id(), outcome.result
     report = build_report(quote_id=quote_id, review_id=review_id, facts=facts, outcome=outcome, plan=plan)
-    repo.insert_review(
+    if repo.insert_review(
         session, facts.company_id, quote_id=quote_id, snapshot_basis=plan.basis, verdict=result.verdict,
         overcharge=result.overcharge_total, late_days=result.late_days, report=report, review_id=review_id,
-    )  # fmt: skip
+    ) is None:  # fmt: skip
+        log.info("finance.quote.review_raced", quote_id=str(quote_id), review_id=str(review_id))
+        return review_id  # a concurrent retry stored this review, its card and the status: nothing more to write
     key = f"{FEED_KEY_PREFIX}{review_id}"
     feed.deliver_payload(session, facts.company_id, key, FeedKind.quote_review, quote_id, report)
     session.execute(
