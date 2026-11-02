@@ -667,8 +667,8 @@ def _generate_thread_title(query: str, ans: str, cases: list[CaseBrief]) -> str:
 
 
 def _finish_agent_response(
-    session: Session,
-    conv: AgentConversation,
+    engine: Engine,
+    conv_id: UUID,
     req: AskAgentRequest,
     ans_text: str,
     case_refs: list[str],
@@ -683,61 +683,72 @@ def _finish_agent_response(
     now: datetime,
     briefs: list[CaseBrief],
 ) -> AskAgentResponse:
-    if not conv.title or conv.title == "New Chat":
-        conv.title = _generate_thread_title(req.query, ans_text, briefs)
+    with Session(engine) as session:
+        conv = session.get(AgentConversation, conv_id)
+        if not conv:
+            company = session.scalars(select(Company).limit(1)).first()
+            company_id = company.id if company else UUID("00000000-0000-0000-0000-000000000001")
+            owner_acct = session.scalars(select(OwnerAccount).where(OwnerAccount.company_id == company_id).limit(1)).first()
+            owner_id = owner_acct.id if owner_acct else company_id
+            conv = AgentConversation(id=conv_id, company_id=company_id, owner_id=owner_id, title="New Chat")
+            session.add(conv)
+            session.flush()
 
-    current_focus = dict(conv.focus_state or {})
-    if preview_card:
-        if preview_card.caseId:
-            current_focus["case_id"] = str(preview_card.caseId)
-        if preview_card.unitLabel:
-            current_focus["unit_label"] = preview_card.unitLabel
-        if preview_card.recipient:
-            current_focus["recipient"] = preview_card.recipient
-        if preview_card.contractor:
-            current_focus["contractor"] = preview_card.contractor
-        if preview_card.actionId:
-            current_focus["last_action_id"] = preview_card.actionId
-        if preview_card.channel:
-            current_focus["channel"] = preview_card.channel
-    elif briefs:
-        current_focus["case_id"] = str(briefs[0].case_id)
-        current_focus["unit_label"] = briefs[0].label
+        if not conv.title or conv.title == "New Chat":
+            conv.title = _generate_thread_title(req.query, ans_text, briefs)
 
-    conv.focus_state = current_focus
-    conv.last_turn_at = now
+        current_focus = dict(conv.focus_state or {})
+        if preview_card:
+            if preview_card.caseId:
+                current_focus["case_id"] = str(preview_card.caseId)
+            if preview_card.unitLabel:
+                current_focus["unit_label"] = preview_card.unitLabel
+            if preview_card.recipient:
+                current_focus["recipient"] = preview_card.recipient
+            if preview_card.contractor:
+                current_focus["contractor"] = preview_card.contractor
+            if preview_card.actionId:
+                current_focus["last_action_id"] = preview_card.actionId
+            if preview_card.channel:
+                current_focus["channel"] = preview_card.channel
+        elif briefs:
+            current_focus["case_id"] = str(briefs[0].case_id)
+            current_focus["unit_label"] = briefs[0].label
 
-    user_turn = AgentTurn(
-        company_id=conv.company_id,
-        conversation_id=conv.id,
-        text=req.query,
-        status=TurnStatus.done,
-        answer=None,
-        page_context={"context": req.context},
-    )
-    session.add(user_turn)
-    session.flush()
+        conv.focus_state = current_focus
+        conv.last_turn_at = now
 
-    agent_turn = AgentTurn(
-        company_id=conv.company_id,
-        conversation_id=conv.id,
-        text=req.query,
-        status=TurnStatus.done,
-        answer=ans_text,
-        results={
-            "cards": [c.model_dump() for c in cards_list],
-            "previewCard": preview_card.model_dump() if preview_card else None,
-            "actions": [a.model_dump() for a in action_buttons],
-            "steps": step_descriptions,
-            "suggestedPrompts": suggestions,
-        },
-    )
-    session.add(agent_turn)
-    session.commit()
+        user_turn = AgentTurn(
+            company_id=conv.company_id,
+            conversation_id=conv.id,
+            text=req.query,
+            status=TurnStatus.done,
+            answer=None,
+            page_context={"context": req.context},
+        )
+        session.add(user_turn)
+
+        agent_turn = AgentTurn(
+            company_id=conv.company_id,
+            conversation_id=conv.id,
+            text=req.query,
+            status=TurnStatus.done,
+            answer=ans_text,
+            results={
+                "cards": [c.model_dump() for c in cards_list],
+                "previewCard": preview_card.model_dump() if preview_card else None,
+                "actions": [a.model_dump() for a in action_buttons],
+                "steps": step_descriptions,
+                "suggestedPrompts": suggestions,
+            },
+        )
+        session.add(agent_turn)
+        session.commit()
+        conv_title = conv.title or "New Chat"
 
     return AskAgentResponse(
-        conversation_id=str(conv.id),
-        conversation_title=conv.title or "New Chat",
+        conversation_id=str(conv_id),
+        conversation_title=conv_title,
         answer=ans_text,
         caseRefs=case_refs,
         suggestedAction=suggested_action,
@@ -789,7 +800,10 @@ def ask_agent(
                 focus_state={},
             )
             session.add(conv)
-            session.flush()
+            session.commit()
+            session.refresh(conv)
+
+        conv_id = conv.id
 
         # Natural language rule recording check (T5 Standing Rules - Issue 1.9)
         q_clean = req.query.strip().strip('"\'“”`')
@@ -1551,8 +1565,8 @@ def ask_agent(
         )
 
     return _finish_agent_response(
-        session=session,
-        conv=conv,
+        engine=engine,
+        conv_id=conv_id,
         req=req,
         ans_text=ans_text,
         case_refs=case_refs,
