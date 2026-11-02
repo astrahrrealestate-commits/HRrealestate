@@ -104,6 +104,19 @@ Evidence: G1 `make quick` "1444 passed" · integration "523 passed" with 2 failu
 - [ ] real-model run of `make rag-eval` (needs EMBEDDING_MODEL, LLM_MODEL and keys), tune `KEEP_RELEVANCE`/`RRF` weights on it; recreate the dev Postgres volume (the image changed from alpine to Debian); a retrieval eval on Harjot's own documents
 - [ ] sim-demo "lease question" scenario, live Drive check, real-model eval
 
+## M12 Due diligence lite (agent) — spec [2026-10-31-due-diligence-lite-design.md](superpowers/specs/2026-10-31-due-diligence-lite-design.md) · branch `m12-due-diligence-lite`
+Written without a brainstorm (user: "build the agent"); every call in the spec is marked **(my call)**. The client's own framework was not supplied: the default checklist `nl-residential-v1` is replaceable data (`dd_framework_path`).
+Evidence: G1 `make quick` "2225 passed", "Contracts: 8 kept, 0 broken.", "Success: no issues found in 336 source files" · G2 `make check` "675 passed" with 1 failure, `test_maintenance_ticket_full_history` (frontend mock-data endpoint, no diligence code; not run on the base commit) · migration 0023 round trip and drift pass (`test_migration_0023.py`, `test_migrations.py`) · `LLM_MODEL=fake make eval agent=dd_reader version=v1`: kind_accuracy 1.00, claim_recall 1.00, quote_precision 1.00, clean_rate 1.00 (**measures the deterministic fake, not a real model**) · G3 `estateos-reviewer`: 13 findings, all but #13 (noise) addressed in the follow-up commit.
+- [x] contracts `app/contracts/diligence.py`, `diligence_report.py`; pure engine `app/diligence/` (framework, checklist, compare, risks, verify, engine) behind an import-linter purity contract
+- [x] `dd_reader` agent (prompt `v1/dd_reader.md`, fake, golden set `evals/golden/dd_reader.yaml`), quote + value verification, kind keyword check
+- [x] migration 0023 (`dd_reviews`, `dd_review_documents`, `dd_document_reads`, feed kind `dd_report`), repo, service, DBOS workflow `dd:{review_id}:{run_no}` on the documents queue
+- [x] API `POST/GET /diligence/reviews`, `POST /diligence/reviews/{id}/rerun`, feed card; documented in `docs/dashboard-api.md`
+- [ ] real-model run of the dd_reader eval (needs LLM_MODEL and a key); tune the prompt and `KIND_KEYWORDS` on real Dutch documents (the keyword check may be too strict for unusual wording)
+- [ ] the client's own framework JSON (`dd_framework_path`); a fifth property kind for tenanted houses if wanted
+- [ ] Super Agent read intents (needs a concierge prompt version); dashboard UI for the report
+- [ ] follow-ups from review: medium document flags do not change the verdict (shown in `risks`); `compare` checks each claim against the reference only (non-transitive tolerance); no index on `dd_reviews.unit_id`
+- [ ] not run: `make smoke`, `make sim-demo` (no simulator scenario written for this agent), `make harness-test` fails on `test_allows_git_write_in_own_linked_worktree` (worktree guard, unrelated to this change)
+
 ## Review rounds (whole branch, 2026-10-08)
 - [x] round 1 (estateos-reviewer + peer): owner-step retries, pipeline failure handling (no silent drops, final failure → `other` case + alert), blocked approvals told + `resume` reruns, re-fired chase timers, blank/command edits, edit replay, task #refs, outbox per-item isolation + current owner number, payload recipient check, reply channel from the message, propose lock, timers queue, briefing lists stuck items, company_id scoping
 - [x] round 2 (peer): atomic send claim `pending → sending` (no double delivery, migration 0007), permanent failures tell Harjot, stranded-`pending` sweep with hour ids, lease renewal at handler start, refs-only done/snooze, thread's own Gmail mailbox for drafts, review-card retry, `<mode>` escaped; migration 0006 indexes + NULLS NOT DISTINCT waits

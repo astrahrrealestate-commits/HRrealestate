@@ -150,7 +150,7 @@ layers = [
     "app.main | app.worker | app.dev",
     "app.api",
     "app.workflows",
-    "app.pipeline | app.owner | app.ingestion | app.directory | app.outcomes | app.sender | app.finance",
+    "app.pipeline | app.owner | app.ingestion | app.directory | app.outcomes | app.sender | app.finance | app.diligence",
     "app.context",
     "app.db : app.llm : app.storage : app.channels",
     "app.contracts",
@@ -215,6 +215,16 @@ forbidden_modules = ["app.db", "app.llm", "app.channels", "app.storage"]
 name = "Finance review is pure (no I/O layers)"
 type = "forbidden"
 source_modules = ["app.finance.review", "app.finance.review_types", "app.finance.stats"]
+forbidden_modules = ["app.db", "app.llm", "app.channels", "app.storage"]
+
+[[tool.importlinter.contracts]]
+name = "Diligence screen is pure (no I/O layers)"
+type = "forbidden"
+source_modules = [
+    "app.diligence.checklist", "app.diligence.compare", "app.diligence.engine", "app.diligence.facts",
+    "app.diligence.framework", "app.diligence.inputs", "app.diligence.risks", "app.diligence.summary",
+    "app.diligence.verify",
+]
 forbidden_modules = ["app.db", "app.llm", "app.channels", "app.storage"]
 
 # ---------------------------------------------------------------- pyright (IDE only; mypy is the gate)

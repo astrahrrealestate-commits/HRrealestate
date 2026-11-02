@@ -22,6 +22,8 @@ SPEC_TABLES = {
     "calendar_events",
     # quote checker (spec 2026-10-31)
     "vendor_rates", "price_snapshots", "quotes", "quote_lines", "quote_reviews",
+    # due diligence lite (spec 2026-10-31)
+    "dd_reviews", "dd_review_documents", "dd_document_reads",
 }  # fmt: skip
 
 

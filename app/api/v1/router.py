@@ -7,6 +7,7 @@ from app.api.v1 import (
     auth,
     cases,
     decisions,
+    diligence,
     documents,
     events,
     finance,
@@ -30,3 +31,4 @@ api_v1_router.include_router(agent.router)
 api_v1_router.include_router(memory.router)
 api_v1_router.include_router(finance.router)
 api_v1_router.include_router(finance_rates.router)
+api_v1_router.include_router(diligence.router)

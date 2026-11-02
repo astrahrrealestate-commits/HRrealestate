@@ -87,7 +87,13 @@ def _build(
     engine: Engine | None = None,
     allowed: list[str] | None = None,
 ) -> PriceSource:
-    settings = Settings(price_source=setting, price_search_provider=provider, price_allowed_domains=allowed or [])
+    settings = Settings(  # type: ignore[call-arg]
+        database_url="postgresql+psycopg://u:p@localhost:1/db",
+        price_source=setting,
+        price_search_provider=provider,
+        price_allowed_domains=allowed or [],
+        _env_file=None,
+    )
     return build_price_source(settings, _no_session, uuid4(), None, engine=engine)
 
 

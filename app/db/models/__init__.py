@@ -2,6 +2,7 @@
 
 from app.db.models.calendar import CalendarEventRow
 from app.db.models.dashboard import AgentConversation, AgentPageState, AgentTurn, OwnerFeed
+from app.db.models.diligence import DDDocumentRead, DDReview, DDReviewDocument
 from app.db.models.directory import ChannelIdentity, DirectoryImport, Lease, LeaseParty, Person, PersonProfile, Unit
 from app.db.models.documents import DocumentChunk, DocumentLink, DriveReorgItem, DriveReorgPlan
 from app.db.models.finance import PriceSnapshot, QuoteLineRow, QuoteReview, QuoteRow, VendorRate
@@ -28,6 +29,9 @@ __all__ = [
     "ChannelAccount",
     "ChannelIdentity",
     "Company",
+    "DDDocumentRead",
+    "DDReview",
+    "DDReviewDocument",
     "DirectoryImport",
     "DocumentChunk",
     "DocumentLink",

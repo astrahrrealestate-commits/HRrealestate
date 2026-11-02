@@ -20,6 +20,7 @@ FILE_DOCUMENT = "documents.file_document"
 REORG_PLAN = "documents.reorg_plan"
 BACKFILL_DOCUMENTS = "documents.backfill"
 CONCIERGE_TURN = "concierge.turn"
+DD_REVIEW = "diligence.review"
 FINANCE_SNAPSHOT = "finance.snapshot"
 FINANCE_QUOTE = "finance.quote"
 FINANCE_RECHECK = "finance.recheck"
@@ -78,3 +79,8 @@ def stale_event_workflow_id(raw_event_id: object, now: object) -> str:
 
 
 DOC_SKIP = "skip"  # owner choice: do not file this attachment
+
+
+def dd_workflow_id(review_id: object, run_no: int) -> str:
+    """`dd:<review_id>:<run_no>`: one screening run; a rerun bumps `run_no`, a repeated enqueue is deduped."""
+    return f"dd:{review_id}:{run_no}"
