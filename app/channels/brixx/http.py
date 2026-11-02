@@ -1,5 +1,6 @@
 """BRIXX HTTP adapter (httpx). Read-only; no retries here (DBOS steps retry); the token never leaves the header."""
 
+import logging
 import re
 from typing import Literal, cast
 from urllib.parse import urlparse
@@ -14,6 +15,7 @@ from app.core.errors import BrixxAuthError, BrixxError
 
 _TABLE_NAME = re.compile(r"[A-Za-z0-9_]+")
 Json = dict[str, object]
+_QUIET_LOGGERS = ("httpx", "httpcore")
 
 
 def _as_dict(value: object, what: str) -> Json:
@@ -58,6 +60,8 @@ class HttpBrixxApi:
     ) -> None:
         if client is None and urlparse(base_url).scheme != "https":
             raise BrixxError("brixx_base_url must be https (the token travels in a header)")
+        for name in _QUIET_LOGGERS:  # their INFO request line carries the full URL incl. filter values (PII)
+            logging.getLogger(name).setLevel(logging.WARNING)
         self._base = base_url.rstrip("/")
         self._env = environment
         self._token = token
@@ -118,7 +122,9 @@ class HttpBrixxApi:
     ) -> BrixxPage:
         params = data_query_params(page, filters, order_by)
         body = _as_dict(self._json(f"bigdata/{self._env}/table/{self._segment(table)}", params), "data page")
-        rows = [normalise_row(_as_dict(r, "row")) for r in _as_list(body.get("data", []), "row list")]
+        if "data" not in body:
+            raise BrixxError("BRIXX data page has no data list")
+        rows = [normalise_row(_as_dict(r, "row")) for r in _as_list(body["data"], "row list")]
         meta = _as_dict(body.get("meta") or {}, "page meta")
         links = _as_dict(body.get("links") or {}, "page links")
         return BrixxPage(

@@ -1,3 +1,4 @@
+import logging
 from typing import Literal
 
 import httpx
@@ -146,3 +147,30 @@ def test_http_base_url_rejected_without_injected_client() -> None:
 def test_https_base_url_accepted_and_repr_hides_token() -> None:
     api = HttpBrixxApi(BASE, "hrrealestate", SecretStr(TOKEN), "bearer", 5.0)
     assert TOKEN not in repr(api)
+
+
+@respx.mock
+@pytest.mark.parametrize("body", [{}, {"error": "x"}, {"data": "nope"}])
+def test_data_page_without_data_list_raises(body: dict[str, object]) -> None:
+    respx.get(f"{BASE}/bigdata/hrrealestate/table/prg_relatie").respond(200, json=body)
+    with pytest.raises(BrixxError):
+        _api().fetch_page("PRG_RELATIE", page=1)
+
+
+@respx.mock
+def test_empty_data_list_is_a_legitimate_empty_page() -> None:
+    respx.get(f"{BASE}/bigdata/hrrealestate/table/prg_relatie").respond(200, json={"data": []})
+    page = _api().fetch_page("PRG_RELATIE", page=1)
+    assert page.rows == []
+    assert page.has_next is False
+
+
+@respx.mock
+def test_httpx_loggers_are_quiet_and_filter_values_not_logged(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+    api = HttpBrixxApi(BASE, "hrrealestate", SecretStr(TOKEN), "bearer", 5.0)
+    for name in ("httpx", "httpcore"):
+        assert logging.getLogger(name).getEffectiveLevel() >= logging.WARNING
+    respx.get(f"{BASE}/bigdata/hrrealestate/table/prg_relatie").respond(200, json={"data": []})
+    api.fetch_page("PRG_RELATIE", page=1, filters="[zoekid = 123456789]")
+    assert "123456789" not in caplog.text

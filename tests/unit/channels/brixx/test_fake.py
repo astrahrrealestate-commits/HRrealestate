@@ -69,3 +69,23 @@ def test_fake_download_document() -> None:
     assert api.download_document(7) == b"pdf"
     with pytest.raises(BrixxError):
         api.download_document(8)
+
+
+def test_fake_normalises_null_cells() -> None:
+    rows: list[dict[str, object]] = [{"PRG_RELATIEID": 1, "website": {}}]
+    api = FakeBrixxApi({"PRG_RELATIE": FakeTable(_info(), rows)})
+    assert api.fetch_page("PRG_RELATIE", page=1).rows == [{"PRG_RELATIEID": 1, "website": None}]
+
+
+@pytest.mark.parametrize(
+    "filters", ["[name = abc]", "[upddatetime < 2024-01-03]", "[upddatetime >= 2024-01-03] and [id = 1]"]
+)
+def test_fake_rejects_filter_it_cannot_evaluate(filters: str) -> None:
+    with pytest.raises(BrixxError):
+        _fake().fetch_page("PRG_RELATIE", page=1, filters=filters)
+
+
+@pytest.mark.parametrize("page", [0, -1])
+def test_fake_rejects_page_below_one(page: int) -> None:
+    with pytest.raises(BrixxError):
+        _fake().fetch_page("PRG_RELATIE", page=page)

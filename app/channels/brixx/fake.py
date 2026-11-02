@@ -5,9 +5,10 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
 from app.channels.brixx.models import BrixxPage, BrixxTable
+from app.channels.brixx.normalise import normalise_row
 from app.core.errors import BrixxError
 
-_UPD_FILTER = re.compile(r"\[upddatetime\s*>=\s*([^\]\s]+)\s*\]", re.IGNORECASE)
+_UPD_FILTER = re.compile(r"\[upddatetime >= (\d{4}-\d{2}-\d{2})\]", re.IGNORECASE)
 
 
 @dataclass
@@ -68,6 +69,8 @@ class FakeBrixxApi:
         self, table: str, *, page: int, filters: str | None = None, order_by: str | None = None
     ) -> BrixxPage:
         self.fetch_log.append((table, page, filters))
+        if page < 1:
+            raise BrixxError("BRIXX pages start at 1")
         failure = self._failures.get((table.upper(), page))
         if failure is not None:
             error, once = failure
@@ -78,7 +81,7 @@ class FakeBrixxApi:
         start = (page - 1) * self._page_size
         chunk = rows[start : start + self._page_size]
         return BrixxPage(
-            rows=[dict(r) for r in chunk],
+            rows=[normalise_row(r) for r in chunk],
             page=page,
             per_page=self._page_size,
             has_next=start + self._page_size < len(rows),
@@ -86,10 +89,12 @@ class FakeBrixxApi:
 
     @staticmethod
     def _filtered(rows: list[dict[str, object]], filters: str | None) -> list[dict[str, object]]:
-        match = _UPD_FILTER.search(filters or "")
+        if not filters:
+            return rows
+        match = _UPD_FILTER.fullmatch(filters.strip())
         since = _to_datetime(match.group(1)) if match else None
         if since is None:
-            return rows
+            raise BrixxError("fake supports only the filter [upddatetime >= yyyy-MM-dd]")
         return [r for r in rows if ((value := _to_datetime(_upddatetime(r))) is not None and value >= since)]
 
     def download_document(self, document_id: int) -> bytes:

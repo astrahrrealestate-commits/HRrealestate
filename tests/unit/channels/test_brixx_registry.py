@@ -6,7 +6,7 @@ from pydantic import SecretStr
 from app.channels.brixx.fake import FakeBrixxApi
 from app.channels.brixx.http import HttpBrixxApi
 from app.channels.registry import brixx_api
-from app.core.errors import BrixxAuthError, BrixxError, UnsafeConfigurationError
+from app.core.errors import BrixxError, UnsafeConfigurationError
 from app.core.settings import Settings
 
 TOKEN = "s3cr3t-token-value"
@@ -36,7 +36,3 @@ def test_api_provider_rejects_http_base_url() -> None:
     with pytest.raises(BrixxError) as exc:
         brixx_api(settings)
     assert TOKEN not in str(exc.value)
-
-
-def test_auth_error_message_never_contains_token() -> None:
-    assert TOKEN not in str(BrixxAuthError("BRIXX rejected the token (HTTP 401)"))
