@@ -110,11 +110,13 @@ def decide(session: Session, target: Target, choice: ButtonChoice, text: str | N
 
 def guard(session: Session, target: Target, at: datetime) -> dict[str, Any] | None:
     """Answers that need no decision: a repeated click on a decided approval, or a paused company (the action is
-    held; the sender re-checks the pause as well). None means go on and decide."""
+    held; the sender re-checks the pause as well). None means go on and decide: an approved action that was never
+    sent is queued again on a repeat click (same workflow id, DBOS dedupes, the sender re-checks everything)."""
     approval, action = target.approval, target.action
     if approval is None or action is None:
         return None
-    if approval.status is not ApprovalStatus.pending:
+    awaiting_send = approval.status is ApprovalStatus.approved and action.status is ActionStatus.approved
+    if approval.status is not ApprovalStatus.pending and not awaiting_send:  # awaiting_send: a repeat click re-queues
         return {
             "status": "already_decided",
             "approvalId": str(approval.id),
