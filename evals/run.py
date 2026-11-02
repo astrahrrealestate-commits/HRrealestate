@@ -1,4 +1,4 @@
-"""Golden-set eval runner: `make eval agent=<understanding|linking|owner_qa|concierge|proposer|doc_reader> version=vN`.
+"""Golden-set eval runner: `make eval agent=<name> version=vN`, name one of the keys of `RUNNERS` below.
 
 Runs each golden case through the agent's real spec, prompt file and `finalize`, on the model from `LLM_MODEL`
 (`fake` by default; `real_only` golden cases are skipped on the fake), without a database: evals record no
@@ -13,7 +13,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.core.settings import Settings
-from evals import concierge_eval, doc_reader_eval, linking_eval, owner_qa_eval, proposer_eval, understanding_eval
+from evals import (
+    concierge_eval,
+    doc_reader_eval,
+    finance_eval,
+    linking_eval,
+    owner_qa_eval,
+    proposer_eval,
+    understanding_eval,
+)
 from evals.common import EvalResult, eval_settings
 
 REPORTS = Path(__file__).parent / "reports"
@@ -24,6 +32,8 @@ RUNNERS: dict[str, Callable[[str, Settings], EvalResult]] = {
     "concierge": concierge_eval.run,
     "doc_reader": doc_reader_eval.run,
     "proposer": proposer_eval.run,
+    "quote_reader": finance_eval.run_quote_reader,
+    "job_items": finance_eval.run_job_items,
 }
 
 

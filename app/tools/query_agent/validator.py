@@ -67,7 +67,7 @@ def validate_and_wrap_sql(sql: str, max_limit: int = 50) -> str:
         exp.Into,
         exp.Lock,  # FOR UPDATE / FOR SHARE
     )
-    for node in tree.find_all(mutation_nodes):
+    for node in tree.find_all(*mutation_nodes):
         raise SQLSecurityError(f"Prohibited SQL operation detected: {type(node).__name__}")
 
     # 3. Check relations (Tables & Views)
@@ -85,11 +85,11 @@ def validate_and_wrap_sql(sql: str, max_limit: int = 50) -> str:
         if tbl_name not in ALL_ALLOWED_RELATIONS:
             raise SQLSecurityError(
                 f"Table or view '{table.name}' is not in the allowed relations list. "
-                f"Allowed views: {sorted(list(ALL_ALLOWED_RELATIONS))}"
+                f"Allowed views: {sorted(ALL_ALLOWED_RELATIONS)}"
             )
 
     # 4. Check functions
-    for func in tree.find_all((exp.Func, exp.Anonymous)):
+    for func in tree.find_all(exp.Func, exp.Anonymous):
         fname = _get_function_name(func)
         if not fname:
             continue
@@ -102,5 +102,5 @@ def validate_and_wrap_sql(sql: str, max_limit: int = 50) -> str:
     clean_sql = tree.sql(dialect="postgres", comments=False)
 
     # 6. Wrap in subquery limit to guarantee max row ceiling
-    wrapped_sql = f"SELECT * FROM ({clean_sql}) AS q LIMIT {max_limit};"
+    wrapped_sql = f"SELECT * FROM ({clean_sql}) AS q LIMIT {int(max_limit)};"  # noqa: S608 - AST-regenerated SQL
     return wrapped_sql

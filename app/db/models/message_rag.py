@@ -74,6 +74,7 @@ class MessageIndexState(Base):
     __tablename__ = "message_index_state"
     __table_args__ = (
         Index("ix_message_index_state_status", "status", "updated_at"),
+        Index("ix_message_index_state_company_status", "company_id", "status", "updated_at"),
     )
 
     message_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), primary_key=True)

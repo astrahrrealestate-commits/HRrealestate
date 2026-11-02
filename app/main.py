@@ -1,7 +1,9 @@
 """ASGI app factory. Run: `uvicorn app.main:create_app --factory`."""
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from dbos import DBOSClient
 from fastapi import FastAPI
@@ -10,7 +12,8 @@ from sqlalchemy import Engine
 
 import app
 from app.api import agent, calendar, dashboard, health, inbox, maintenance, properties, tenants
-from app.api.deps import WorkflowClient
+from app.api.deps import WorkflowClient, ingest_deps_for
+from app.api.inbox.routes import sync_gmail_accounts
 from app.api.v1 import auth as dashboard_auth
 from app.api.v1.ratelimit import RateLimiter
 from app.api.v1.router import api_v1_router
@@ -20,12 +23,34 @@ from app.api.webhooks import whatsapp as whatsapp_webhook
 from app.channels import registry
 from app.channels.gmail.push import PushVerifier
 from app.channels.google_chat.verifier import ChatVerifier
-from app.core.logging import configure_logging
+from app.core.logging import configure_logging, get_logger
 from app.core.settings import Settings, get_settings
 from app.core.startup import assert_production_safe
 from app.core.telemetry import init_telemetry
 from app.db.session import make_engine
 from app.storage.ports import ObjectStorage
+
+log = get_logger(__name__)
+LOCAL_SPA_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+
+def _cors_origins(settings: Settings) -> list[str]:
+    """The allowlist (DASHBOARD_CORS_ORIGINS); with none set, only the local SPA in dev. Never a wildcard: CORS with
+    credentials and `*` would let any site send the dashboard's CSRF header."""
+    if settings.dashboard_cors_origins:
+        return list(settings.dashboard_cors_origins)
+    return LOCAL_SPA_ORIGINS if settings.env == "dev" else []
+
+
+async def _auto_sync_loop(state: Any) -> None:
+    """Deps are built inside the loop: building storage at startup would block an app that never syncs."""
+    await asyncio.sleep(5)
+    while True:
+        try:
+            await asyncio.to_thread(sync_gmail_accounts, ingest_deps_for(state))
+        except Exception as exc:
+            log.warning("inbox.auto_sync_failed", error=type(exc).__name__)
+        await asyncio.sleep(30)
 
 
 def create_app(
@@ -57,22 +82,7 @@ def create_app(
         api.state.google_chat_verifier = google_chat_verifier or registry.google_chat_verifier(settings)
         api.state.id_token_verifier = id_token_verifier or dashboard_auth.dashboard_verifier(settings)
         # Automatic background polling for Gmail (every 30s)
-        sync_task = None
-        if settings.gmail_credentials_file:
-            import asyncio
-            from app.api.inbox.routes import sync_inbox
-
-            async def _auto_sync_loop() -> None:
-                await asyncio.sleep(5)
-                while True:
-                    try:
-                        await asyncio.to_thread(sync_inbox, resolved_engine)
-                    except Exception:
-                        pass
-                    await asyncio.sleep(30)
-
-            sync_task = asyncio.create_task(_auto_sync_loop())
-
+        sync_task = asyncio.create_task(_auto_sync_loop(api.state)) if settings.gmail_credentials_file else None
         yield
 
         if sync_task:
@@ -91,10 +101,9 @@ def create_app(
         redoc_url=None,
     )
     api.state.rate_limiter = RateLimiter()
-    cors_origins = list(settings.dashboard_cors_origins) if settings.dashboard_cors_origins else ["http://localhost:3000", "http://127.0.0.1:3000", "*"]
     api.add_middleware(
         CORSMiddleware,
-        allow_origins=cors_origins,
+        allow_origins=_cors_origins(settings),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

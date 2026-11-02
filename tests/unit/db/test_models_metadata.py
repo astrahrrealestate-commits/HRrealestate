@@ -18,6 +18,12 @@ SPEC_TABLES = {
     "document_chunks", "document_links", "drive_reorg_plans", "drive_reorg_items",
     # memory workspace (spec 2026-10-23)
     "person_profiles", "memory_items",
+    # calendar scheduling agent (PR #15; migration 0021_calendar_events)
+    "calendar_events",
+    # quote checker (spec 2026-10-31)
+    "vendor_rates", "price_snapshots", "quotes", "quote_lines", "quote_reviews",
+    # message RAG (migration 0024)
+    "message_chunks", "message_index_state",
 }  # fmt: skip
 
 
@@ -31,10 +37,14 @@ def test_exact_table_set() -> None:
     assert set(Base.metadata.tables) == SPEC_TABLES
 
 
+STATE_TABLES = {"message_index_state"}  # one row per message: keyed by `message_id`, `updated_at` instead of created_at
+
+
 def test_every_table_has_uuid_pk_and_created_at_and_domain_tables_are_company_scoped() -> None:
     for name, table in Base.metadata.tables.items():
-        assert [c.name for c in table.primary_key.columns] == ["id"], name
-        assert "created_at" in table.c, name
+        if name not in STATE_TABLES:
+            assert [c.name for c in table.primary_key.columns] == ["id"], name
+            assert "created_at" in table.c, name
         if name != "companies":
             assert "company_id" in table.c, name
             assert not table.c.company_id.nullable, name

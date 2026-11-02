@@ -27,4 +27,3 @@ __all__ = [
     "should_index_message",
     "should_start_new_chunk",
 ]
-

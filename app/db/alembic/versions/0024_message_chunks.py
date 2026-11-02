@@ -1,7 +1,7 @@
 """message_chunks and message_index_state for Message RAG
 
-Revision ID: 0023
-Revises: 0022
+Revision ID: 0024
+Revises: 0023
 Create Date: 2026-10-31 18:35:00
 """
 
@@ -12,8 +12,8 @@ from alembic import op
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0023"
-down_revision: str | None = "0022"
+revision: str = "0024"
+down_revision: str | None = "0023"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -151,4 +151,3 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_table("message_index_state")
     op.drop_table("message_chunks")
-

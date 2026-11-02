@@ -50,7 +50,13 @@ class Consent:
 
 
 def create_token_files(
-    consent: Consent, mailbox: str, out_dir: Path, *, drive: bool = False, reply_send: bool = False, calendar: bool = False
+    consent: Consent,
+    mailbox: str,
+    out_dir: Path,
+    *,
+    drive: bool = False,
+    reply_send: bool = False,
+    calendar: bool = False,
 ) -> list[Path]:
     """Consent once per purpose; write `gmail-<purpose>.json` (and `drive-file.json`) only after every check passed."""
     out_dir = out_dir.expanduser().resolve()
@@ -79,14 +85,14 @@ def _inside(path: Path, root: Path) -> bool:
 def _checked(consent: Consent, scopes: list[str], mailbox: str) -> Credentials:
     creds = consent.authorize(scopes)
     granted = set(creds.granted_scopes or [])
-    if not set(scopes).issubset(granted) and granted != set(scopes):
+    if granted != set(scopes):  # exactly the purpose's scopes: a broader token must never be written
         raise UnsafeConfigurationError(f"granted scopes {sorted(granted)} differ from requested {scopes}")
     if not creds.refresh_token:
         raise UnsafeConfigurationError(
             "no refresh token returned; revoke the app's access in the Google account, rerun"
         )
     actual = consent.profile_email(creds).lower()
-    if actual and actual != mailbox.lower():
+    if actual != mailbox.lower():  # an unreadable profile ("") is refused too
         raise UnsafeConfigurationError(f"signed in as {actual}, expected {mailbox.lower()}")
     return creds
 
@@ -122,7 +128,7 @@ def google_consent(client_file: Path) -> Consent:
                     clist = build("calendar", "v3", credentials=creds, cache_discovery=False).calendarList()
                     return str(clist.get(calendarId="primary").execute().get("id") or "")
                 except Exception:
-                    return "" 
+                    return ""
         if any("drive" in scope for scope in creds.granted_scopes or []):  # a Drive-only token cannot read Gmail
             about = build("drive", "v3", credentials=creds, cache_discovery=False).about()
             return str(about.get(fields="user(emailAddress)").execute()["user"]["emailAddress"])
@@ -151,7 +157,9 @@ def main(argv: list[str] | None = None) -> int:
     if "@" not in args.mailbox:  # fail before two browser consents, not after
         parser.error(f"--mailbox must be an email address, got {args.mailbox!r}")
     consent = google_consent(args.client.expanduser())
-    for path in create_token_files(consent, args.mailbox, args.out_dir, drive=args.drive, reply_send=args.reply_send, calendar=args.calendar):
+    for path in create_token_files(
+        consent, args.mailbox, args.out_dir, drive=args.drive, reply_send=args.reply_send, calendar=args.calendar
+    ):
         log.info("gmail.consent.written", path=str(path))
     return 0
 

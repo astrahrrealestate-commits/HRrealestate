@@ -64,7 +64,7 @@ def _call_groq_or_gemini(
             )
             if resp.status_code == 200:
                 data = resp.json()
-                return data["choices"][0]["message"]["content"]
+                return str(data["choices"][0]["message"]["content"])
         except Exception as exc:
             log.warning("query_agent.llm_call_failed", model=model, error=str(exc))
     return None
@@ -106,7 +106,7 @@ def propose_sql(
 def format_answer(question: str, rows: list[dict[str, Any]], row_count: int) -> str:
     """Formulates a factual, grounded summary directly from returned rows."""
     if row_count == 0:
-        return f"I queried your portfolio records for *\"{question}\"*, but found 0 matching entries."
+        return f'I queried your portfolio records for *"{question}"*, but found 0 matching entries.'
 
     if row_count == 1:
         row = rows[0]
@@ -117,9 +117,11 @@ def format_answer(question: str, rows: list[dict[str, Any]], row_count: int) -> 
             return f"**Result:** **{val}** ({clean_label})"
 
     # Multiple records: format as readable bullet points
-    lines = [f"Found **{row_count}** matching records for *\"{question}\"*:\n"]
+    lines = [f'Found **{row_count}** matching records for *"{question}"*:\n']
     for r in rows[:10]:
-        parts = [f"**{k.replace('_', ' ').capitalize()}**: {v}" for k, v in r.items() if v is not None and k != "company_id"]
+        parts = [
+            f"**{k.replace('_', ' ').capitalize()}**: {v}" for k, v in r.items() if v is not None and k != "company_id"
+        ]
         lines.append("• " + " | ".join(parts))
 
     if row_count > 10:
@@ -188,4 +190,3 @@ def run_query_agent(
         duration_ms=0.0,
         error=last_error,
     )
-

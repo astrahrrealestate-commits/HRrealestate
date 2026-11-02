@@ -44,6 +44,8 @@ def production_problems(settings: Settings) -> list[str]:
     ):
         if not getattr(settings, name):
             problems.append(f"{name} is not set")
+    if settings.price_source == "fake":
+        problems.append("price_source is 'fake'")
     if settings.dashboard_auth_provider == "fake":
         problems.append("dashboard_auth_provider is 'fake'")
     secret = settings.dashboard_session_secret

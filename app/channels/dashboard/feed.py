@@ -1,5 +1,6 @@
 """Insert owner-feed rows. The dashboard feed is DB-only: no window, outbox, Send row or provider call."""
 
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -67,10 +68,17 @@ def deliver(
     session: Session, company_id: UUID, key: str, kind: FeedKind, ref_id: UUID | None, message: OwnerMessage
 ) -> UUID:
     """Idempotent on (company, `key`): a replay inserts nothing and returns the existing row id."""
+    return deliver_payload(session, company_id, key, kind, ref_id, to_payload(message))
+
+
+def deliver_payload(
+    session: Session, company_id: UUID, key: str, kind: FeedKind, ref_id: UUID | None, payload: dict[str, Any]
+) -> UUID:
+    """`deliver` for a card whose JSON payload is built by its owner (e.g. a quote review), not an OwnerMessage."""
     stored = stored_key(company_id, key)
     session.execute(
         insert(OwnerFeed)
-        .values(company_id=company_id, idempotency_key=stored, kind=kind, ref_id=ref_id, payload=to_payload(message))
+        .values(company_id=company_id, idempotency_key=stored, kind=kind, ref_id=ref_id, payload=payload)
         .on_conflict_do_nothing(index_elements=["idempotency_key"])
     )
     return session.execute(

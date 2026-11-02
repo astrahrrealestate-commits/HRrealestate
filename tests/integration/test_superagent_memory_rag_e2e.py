@@ -17,12 +17,10 @@ from sqlalchemy.orm import Session
 from app.context.compiler import compile_concierge_context
 from app.context.memory_items import list_memory_items, record_owner_memory
 from app.contracts import Channel, Direction
-from app.contracts.concierge import ConciergePlan, Intent, PlanStep
 from app.contracts.page_context import PageContext, PageView
 from app.core.ids import new_id
 from app.core.settings import get_settings
 from app.db.enums import (
-    DocLinkKind,
     DocumentStatus,
     MemoryKind,
     MemoryScope,
@@ -31,10 +29,9 @@ from app.db.enums import (
     TurnStatus,
 )
 from app.db.models import Company, Person, PersonProfile, Unit
-from app.db.models.dashboard import AgentConversation, AgentPageState, AgentTurn
+from app.db.models.dashboard import AgentPageState, AgentTurn
 from app.db.models.documents import DocumentChunk
 from app.db.models.ingestion import AttachmentRow, MessageRow, RawEvent
-from app.db.models.memory import MemoryItem
 from app.db.models.tenancy import OwnerAccount
 from app.db.models.work import DocumentRow
 from app.db.session import make_engine
@@ -83,7 +80,7 @@ class TestSuperAgentCore:
     """Pillar 1: Super Agent Prompt & Plan Compilation."""
 
     def test_concierge_context_compilation_with_rules(self, test_company_and_owner):
-        company_id, _, _ = test_company_and_owner
+        _company_id, _, _ = test_company_and_owner
         preferences = [
             "Never approve contractor quotes above €650 without Harjot sign-off",
             "Emergency electrician priority vendor is Chahal Bouw",
@@ -126,7 +123,7 @@ class TestPagePreWarm:
     """Pillar 2: Page Pre-Warm State & Freshness."""
 
     def test_prewarm_stores_cached_facts(self, live_engine, test_company_and_owner):
-        company_id, owner_id, unit_id = test_company_and_owner
+        company_id, owner_id, _unit_id = test_company_and_owner
         page_ctx = PageContext(view=PageView.inbox)
 
         # Pre-warm the page
@@ -150,10 +147,10 @@ class TestMemoryManagement:
     """Pillar 3: 5-Tier Memory Persistence (T3 & T5)."""
 
     def test_record_and_list_standing_rule(self, live_engine, test_company_and_owner):
-        company_id, owner_id, _ = test_company_and_owner
+        company_id, _owner_id, _ = test_company_and_owner
 
         with Session(live_engine) as session, session.begin():
-            item, reason = record_owner_memory(
+            item, _reason = record_owner_memory(
                 session,
                 company_id=company_id,
                 text="Standard plumbing call-out cap is €350",
@@ -164,9 +161,7 @@ class TestMemoryManagement:
             assert item.status == MemoryStatus.active
 
         with Session(live_engine) as session:
-            active_rules = list_memory_items(
-                session, company_id=company_id, status=MemoryStatus.active
-            )
+            active_rules = list_memory_items(session, company_id=company_id, status=MemoryStatus.active)
             assert len(active_rules) >= 1
             assert any("€350" in r.text for r in active_rules)
 
@@ -194,9 +189,7 @@ class TestMemoryManagement:
             session.add(profile)
 
         with Session(live_engine) as session:
-            saved = session.scalars(
-                select(PersonProfile).where(PersonProfile.person_id == person_id)
-            ).first()
+            saved = session.scalars(select(PersonProfile).where(PersonProfile.person_id == person_id)).first()
             assert saved is not None
             assert saved.preferred_channel == "whatsapp"
             assert "Tuesdays" in saved.summary

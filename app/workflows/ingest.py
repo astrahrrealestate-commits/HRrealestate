@@ -6,11 +6,13 @@ from typing import Any
 from uuid import UUID
 
 from dbos import DBOS, SetWorkflowID
+from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
 from app.core.workflow_names import GMAIL_SYNC, PROCESS_EVENT
 from app.ingestion import gmail_sync as mailbox_sync
 from app.ingestion import process
+from app.pipeline import case_repo
 from app.workflows import owner_reply, pipeline, queues
 from app.workflows.deps import get_deps
 
@@ -29,7 +31,11 @@ _RETRY: dict[str, Any] = {
 
 @DBOS.step(name="ingest.persist_event", **_RETRY)
 def persist_step(raw_event_id: str) -> dict[str, Any]:
-    return asdict(process.persist_event(get_deps(), UUID(raw_event_id)))
+    persisted = process.persist_event(get_deps(), UUID(raw_event_id))
+    if persisted.message_id and persisted.route == "none":  # outbound mail: thread it onto its case (idempotent)
+        with Session(get_deps().engine) as session, session.begin():
+            case_repo.link_outbound_reply(session, UUID(persisted.message_id))
+    return asdict(persisted)
 
 
 @DBOS.step(name="ingest.mark_failed")

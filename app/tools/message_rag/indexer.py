@@ -4,17 +4,15 @@ Takes inbound and outbound messages, resolves metadata (person, unit, case),
 groups them into conversational chunks with advisory locking, and computes embeddings.
 """
 
-from datetime import datetime
-from typing import Any
 from uuid import UUID
 
 from sqlalchemy import Engine, select, text
 from sqlalchemy.orm import Session
 
+from app.contracts import Direction
 from app.core.ids import new_id
 from app.core.logging import get_logger
 from app.core.settings import Settings
-from app.contracts import Channel, Direction
 from app.db.enums import MessageIndexStatus
 from app.db.models import (
     Case,
@@ -228,17 +226,51 @@ def index_message(
                 open_chunk.is_open = False
                 session.flush()
                 chunk = _create_new_chunk(
-                    company_id, channel_str, thread_ref, msg, new_line,
-                    person_id, person_name, unit_id, unit_address, lease_id, case_id, case_summary, subject
+                    company_id,
+                    channel_str,
+                    thread_ref,
+                    msg,
+                    new_line,
+                    person_id,
+                    person_name,
+                    unit_id,
+                    unit_address,
+                    lease_id,
+                    case_id,
+                    case_summary,
+                    subject,
                 )
                 session.add(chunk)
             else:
                 chunk = open_chunk
-                _append_to_chunk(chunk, msg, new_line, person_id, person_name, unit_id, unit_address, lease_id, case_id, case_summary, subject)
+                _append_to_chunk(
+                    chunk,
+                    msg,
+                    new_line,
+                    person_id,
+                    person_name,
+                    unit_id,
+                    unit_address,
+                    lease_id,
+                    case_id,
+                    case_summary,
+                    subject,
+                )
         else:
             chunk = _create_new_chunk(
-                company_id, channel_str, thread_ref, msg, new_line,
-                person_id, person_name, unit_id, unit_address, lease_id, case_id, case_summary, subject
+                company_id,
+                channel_str,
+                thread_ref,
+                msg,
+                new_line,
+                person_id,
+                person_name,
+                unit_id,
+                unit_address,
+                lease_id,
+                case_id,
+                case_summary,
+                subject,
             )
             session.add(chunk)
 
@@ -272,7 +304,7 @@ def _create_new_chunk(
     context = format_context_header(channel, thread_ref, subject, person_name, unit_address, case_summary)
     content_hash = compute_content_hash(context, line)
 
-    is_outbound = (msg.direction is Direction.outbound)
+    is_outbound = msg.direction is Direction.outbound
     return MessageChunk(
         id=new_id(),
         company_id=company_id,
@@ -386,4 +418,3 @@ def _record_state(
         if error is not None:
             state.last_error = error
         state.attempts += 1
-

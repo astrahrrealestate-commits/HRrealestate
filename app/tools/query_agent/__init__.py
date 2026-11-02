@@ -12,4 +12,3 @@ __all__ = [
     "run_query_agent",
     "validate_and_wrap_sql",
 ]
-

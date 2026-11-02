@@ -20,7 +20,6 @@ from app.ingestion.process import is_transient
 from app.llm.calls import is_transient as llm_transient
 from app.pipeline.link import link_message
 from app.pipeline.propose import propose_for_message
-from app.tools.message_rag import index_message
 from app.pipeline.understand import (
     mark_pipeline_done,
     mark_pipeline_failed,
@@ -28,6 +27,7 @@ from app.pipeline.understand import (
     understand_message,
     understanding_is_final_failure,
 )
+from app.tools.message_rag import index_message
 from app.workflows import queues
 from app.workflows.deps import get_engine
 from app.workflows.documents import enqueue_filing

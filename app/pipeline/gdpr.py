@@ -18,7 +18,15 @@ from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
 from app.db.enums import MemoryScope, MemoryStatus
-from app.db.models import ChannelIdentity, MemoryItem, MessageChunk, MessageIndexState, MessageRow, Person, PersonProfile
+from app.db.models import (
+    ChannelIdentity,
+    MemoryItem,
+    MessageChunk,
+    MessageIndexState,
+    MessageRow,
+    Person,
+    PersonProfile,
+)
 
 log = get_logger(__name__)
 

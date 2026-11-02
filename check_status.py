@@ -1,6 +1,6 @@
 from app.core.settings import Settings
+from app.db.models import ActionRow, Case, MessageRow, RawEvent, UnderstandingRow
 from app.db.session import make_engine, session_factory
-from app.db.models import RawEvent, MessageRow, Case, ActionRow, UnderstandingRow
 
 settings = Settings()
 engine = make_engine(str(settings.database_url))
@@ -13,7 +13,7 @@ with Session() as s:
     actions = s.query(ActionRow).all()
     understandings = s.query(UnderstandingRow).all()
 
-    print(f"=== DATABASE STATUS ===")
+    print("=== DATABASE STATUS ===")
     print(f"Total RawEvents: {len(events)}")
     print(f"Total Messages: {len(messages)}")
     print(f"Total Cases: {len(cases)}")
@@ -24,7 +24,7 @@ with Session() as s:
     for m in messages[-5:]:
         subject = m.meta.get("subject", "No Subject") if isinstance(m.meta, dict) else "No Subject"
         print(f"- From: {m.sender_identity} | Subject: '{subject}' | Sent: {m.sent_at}")
-        preview = m.text.replace('\n', ' ')[:80] if m.text else ''
+        preview = m.text.replace("\n", " ")[:80] if m.text else ""
         print(f"  Preview: {preview}...")
 
     print("\n--- Last 3 Cases ---")

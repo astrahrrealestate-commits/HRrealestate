@@ -21,14 +21,20 @@ SETTINGS = Settings(
 # 1. AST VALIDATOR TESTS (VALID QUERIES)
 # ==============================================================================
 
+
 def test_valid_select_query_is_wrapped():
     sql = "SELECT unit_address, urgency FROM v_case_overview WHERE state = 'open'"
     wrapped = validate_and_wrap_sql(sql, max_limit=50)
-    assert wrapped.startswith("SELECT * FROM (SELECT unit_address, urgency FROM v_case_overview WHERE state = 'open') AS q LIMIT 50")
+    assert wrapped.startswith(
+        "SELECT * FROM (SELECT unit_address, urgency FROM v_case_overview WHERE state = 'open') AS q LIMIT 50"
+    )
 
 
 def test_valid_aggregate_functions_allowed():
-    sql = "SELECT count(*), lower(category), date_trunc('month', opened_at) FROM v_case_overview GROUP BY category, date_trunc('month', opened_at)"
+    sql = (
+        "SELECT count(*), lower(category), date_trunc('month', opened_at) FROM v_case_overview "
+        "GROUP BY category, date_trunc('month', opened_at)"
+    )
     wrapped = validate_and_wrap_sql(sql)
     assert "COUNT(*)" in wrapped
     assert "LOWER(category)" in wrapped
@@ -53,6 +59,7 @@ def test_query_strips_comments_and_normalizes():
 # ==============================================================================
 # 2. RED-TEAM SECURITY ATTACKS (MUST RAISE SQLSecurityError)
 # ==============================================================================
+
 
 def test_reject_insert_mutation():
     with pytest.raises(SQLSecurityError):
@@ -132,6 +139,7 @@ def test_reject_banned_dangerous_functions():
 # 3. EXECUTOR & RLS TESTS
 # ==============================================================================
 
+
 def test_executor_sets_parameterized_rls_config():
     mock_engine = MagicMock()
     mock_session = MagicMock()
@@ -159,6 +167,7 @@ def test_executor_sets_parameterized_rls_config():
 # ==============================================================================
 # 4. AGENT RETRY & FORMATTING TESTS
 # ==============================================================================
+
 
 def test_format_answer_empty_rows():
     ans = format_answer("Show arrears", [], 0)

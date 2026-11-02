@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.contracts import PlanStep
+from app.contracts import Channel, PlanStep
 from app.db.models import MessageRow
 from app.llm.agents.briefing import fallback_briefing, render_text
 from app.llm.agents.owner_qa import FALLBACK_ANSWER
@@ -133,7 +133,7 @@ def search_inbox(ctx: Ctx, step: PlanStep) -> StepResult:
                 {
                     "message_id": str(h.first_message_id),
                     "chunk_id": str(h.chunk_id),
-                    "thread_key": encode_thread_key(h.channel, h.thread_ref),
+                    "thread_key": encode_thread_key(Channel(h.channel), h.thread_ref),
                     "sent_at": h.last_sent_at.isoformat(),
                     "sender": h.person_name or "Tenant",
                     "property": h.unit_address or "",
@@ -146,8 +146,14 @@ def search_inbox(ctx: Ctx, step: PlanStep) -> StepResult:
             return StepResult(step.intent, True, summary, {"messages": rows, "chunks": rows}, "inbox")
 
         hits = session.execute(
-            select(MessageRow.id, MessageRow.channel, MessageRow.thread_ref, MessageRow.provider_msg_id,
-                   MessageRow.sent_at, MessageRow.text)
+            select(
+                MessageRow.id,
+                MessageRow.channel,
+                MessageRow.thread_ref,
+                MessageRow.provider_msg_id,
+                MessageRow.sent_at,
+                MessageRow.text,
+            )
             .where(MessageRow.company_id == ctx.company_id, MessageRow.text.icontains(query, autoescape=True))
             .order_by(MessageRow.sent_at.desc(), MessageRow.id.desc())
             .limit(MAX_HITS)
@@ -201,6 +207,7 @@ def open_view(ctx: Ctx, step: PlanStep) -> StepResult:
 def clarify(ctx: Ctx, step: PlanStep) -> StepResult:
     return StepResult(step.intent, True, safe_question(step.text or ""), None, None)
 
+
 def query_data(ctx: Ctx, step: PlanStep) -> StepResult:
     """Executes a natural language analytical/reporting query using the Custom Query Agent."""
     query = (step.text or ctx.question or "").strip()
@@ -223,4 +230,3 @@ def query_data(ctx: Ctx, step: PlanStep) -> StepResult:
         "duration_ms": response.duration_ms,
     }
     return StepResult(step.intent, response.ok, response.answer, data, None)
-

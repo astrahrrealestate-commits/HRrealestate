@@ -94,4 +94,3 @@ Output:
   "rationale": "Fetches active p1 tasks ordered by due date."
 }
 """
-

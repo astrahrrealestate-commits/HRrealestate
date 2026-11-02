@@ -28,12 +28,14 @@ from app.channels.whatsapp.media import WhatsAppMedia, WhatsAppMediaError
 from app.contracts import Channel, Direction, Message
 from app.core.errors import IgnoredMessageError, NotFoundError, UnroutableMessageError, UnsafeConfigurationError
 from app.core.logging import get_logger
+from app.core.settings import get_settings
 from app.core.workflow_names import requeue_workflow_id, stale_event_workflow_id
 from app.db.enums import RawEventStatus
 from app.db.models import MessageRow, OwnerAccount, RawEvent
 from app.ingestion.media import AttachmentInput, store_attachment
 from app.ingestion.repository import Enqueuer, mark_raw_event, save_message
 from app.storage.ports import ObjectStorage
+from app.tools.message_rag import index_message
 
 log = get_logger(__name__)
 REQUEUE_PREFIX = "requeue:"  # last_error marker for failures worth reprocessing (outlived retries, or a bug fixed)
@@ -90,33 +92,20 @@ def persist_event(deps: IngestDeps, raw_event_id: UUID) -> Persisted:
         message_id, _ = save_message(session, message, meta, attachments)
         mark_raw_event(session, company_id, raw_event_id, RawEventStatus.processed)
 
-        # If outbound message in a thread, link it to the matching case and resolve approval
-        if message.direction is Direction.outbound and message.thread_ref:
-            try:
-                from app.pipeline.case_repo import thread_case, link_message
-                from app.db.enums import LinkMethod, ApprovalStatus
-                from app.db.models import Approval, MessageRow
-                msg_row = session.get(MessageRow, message_id)
-                if msg_row:
-                    c_id = thread_case(session, company_id, msg_row)
-                    if c_id:
-                        link_message(session, company_id, c_id, message_id, LinkMethod.thread, 1.0)
-                        appr = session.query(Approval).filter(Approval.case_id == c_id, Approval.status == ApprovalStatus.pending).first()
-                        if appr:
-                            appr.status = ApprovalStatus.approved
-            except Exception as e:
-                log.warning("ingest.outbound_link_failed", error=str(e), message_id=str(message_id))
-
-        if message.direction is Direction.outbound:
-            try:
-                from app.core.settings import get_settings
-                from app.tools.message_rag import index_message
-                index_message(deps.engine, get_settings(), message_id)
-            except Exception as e:
-                log.warning("ingest.outbound_index_failed", error=str(e), message_id=str(message_id))
-
         route = _route(session, message)
+    _index_outbound(deps, message, message_id)
     return Persisted("processed", str(message_id), route)
+
+
+def _index_outbound(deps: IngestDeps, message: Message, message_id: UUID) -> None:
+    """Outbound mail and WhatsApp feed the Super Agent's message search. After commit, best effort: a failed embed must
+    never fail ingestion (the backfill job catches up)."""
+    if message.direction is not Direction.outbound:
+        return
+    try:
+        index_message(deps.engine, get_settings(), message_id)
+    except Exception as exc:  # search indexing is optional; ingestion has already committed
+        log.warning("ingest.outbound_index_failed", error=str(exc), message_id=str(message_id))
 
 
 def _runnable(raw: RawEvent) -> bool:
