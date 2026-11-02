@@ -6,6 +6,9 @@ from functools import lru_cache
 
 from googleapiclient.discovery import build
 
+from app.channels.brixx.fake import FakeBrixxApi
+from app.channels.brixx.http import HttpBrixxApi
+from app.channels.brixx.ports import BrixxApi
 from app.channels.gmail.fake import DirMailboxStore, FakeMailbox
 from app.channels.gmail.google import READ_SCOPES, GoogleMailbox
 from app.channels.gmail.ports import GmailMailbox
@@ -128,4 +131,19 @@ def google_chat_verifier(settings: Settings) -> ChatVerifier:
     return ChatVerifier(
         project_number=settings.google_chat_project_number,
         provider=settings.google_chat_provider,
+    )
+
+
+def brixx_api(settings: Settings) -> BrixxApi:
+    """BRIXX read API: in-process fake by default; the HTTP adapter needs a token (never logged)."""
+    if settings.brixx_provider == "fake":
+        return FakeBrixxApi({})
+    if settings.brixx_token is None:
+        raise UnsafeConfigurationError("brixx_provider 'api' needs brixx_token")
+    return HttpBrixxApi(
+        settings.brixx_base_url,
+        settings.brixx_environment,
+        settings.brixx_token,
+        settings.brixx_auth_scheme,
+        settings.brixx_timeout_sec,
     )

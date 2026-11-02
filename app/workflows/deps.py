@@ -6,6 +6,7 @@ from dbos import DBOSClient
 from sqlalchemy import Engine
 
 from app.channels import registry
+from app.channels.brixx.ports import BrixxApi
 from app.core.errors import UnsafeConfigurationError
 from app.core.settings import get_settings
 from app.db.session import make_engine
@@ -127,3 +128,21 @@ def get_embedder() -> TextEmbedder:
 def set_embedder(embedder: TextEmbedder | None) -> None:
     global _embedder_override
     _embedder_override = embedder
+
+
+_brixx_override: BrixxApi | None = None
+
+
+@lru_cache(maxsize=1)
+def _default_brixx() -> BrixxApi:
+    return registry.brixx_api(get_settings())
+
+
+def brixx_api() -> BrixxApi:
+    """The BRIXX read API for workflow steps (fake unless `brixx_provider=api`)."""
+    return _brixx_override if _brixx_override is not None else _default_brixx()
+
+
+def set_brixx_api(api: BrixxApi | None) -> None:
+    global _brixx_override
+    _brixx_override = api
