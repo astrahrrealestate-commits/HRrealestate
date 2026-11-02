@@ -3437,7 +3437,8 @@
           "briefing",
           "task",
           "agent_note",
-          "quote_review"
+          "quote_review",
+          "dd_report"
         ],
         "title": "FeedKind",
         "type": "string"
