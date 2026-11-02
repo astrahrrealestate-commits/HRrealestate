@@ -68,3 +68,16 @@ def plain_table_info() -> BrixxTable:
             BrixxField(2, "NAAM", "VARCHAR(50)", False, None, None),
         ),
     )
+
+
+def timestamp_only_table_info() -> BrixxTable:
+    """A table with upddatetime but no versienr."""
+    return BrixxTable(
+        "PRG_STAMP",
+        "ID",
+        (
+            BrixxField(1, "ID", "NUMBER", True, None, None),
+            BrixxField(2, "NAAM", "VARCHAR(50)", False, None, None),
+            BrixxField(3, "UPDDATETIME", "TIMESTAMP(6)", False, None, None),
+        ),
+    )

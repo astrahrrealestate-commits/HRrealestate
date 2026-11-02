@@ -14,7 +14,13 @@ from sqlalchemy.orm import Session
 from app.core.errors import BrixxError
 from app.directory.brixx import upsert as upsert_module
 from app.directory.brixx.upsert import UpsertResult, upsert_page
-from tests.integration.brixx_support import MirrorSchema, mirror_schema, plain_table_info, versioned_table_info
+from tests.integration.brixx_support import (
+    MirrorSchema,
+    mirror_schema,
+    plain_table_info,
+    timestamp_only_table_info,
+    versioned_table_info,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -39,7 +45,9 @@ def table(mirror: MirrorSchema) -> sa.Table:
     return mirror.create(versioned_table_info())
 
 
-def _row(pk: int, naam: str, version: int | None, upd: datetime | None = T0, **extra: object) -> dict[str, object]:
+def _row(
+    pk: int | str, naam: str, version: int | None, upd: datetime | None = T0, **extra: object
+) -> dict[str, object]:
     return {"ID": pk, "NAAM": naam, "VERSIENR": version, "UPDDATETIME": upd, **extra}
 
 
@@ -204,3 +212,87 @@ def test_row_without_primary_key_is_rejected(session: Session, table: sa.Table) 
 def test_empty_page_is_noop(session: Session, table: sa.Table) -> None:
     result = _write(session, table, uuid.uuid4(), [])
     assert result == UpsertResult(0, 0, frozenset())
+
+
+def test_incoming_null_version_never_beats_stored_version(session: Session, table: sa.Table) -> None:
+    company = uuid.uuid4()
+    _write(session, table, company, [_row(1, "v5", 5)])
+    result = _write(session, table, company, [_row(1, "unversioned", None)])
+    assert (result.written, result.skipped_older) == (0, 1)
+    assert _rows(session, table, company)[1].naam == "v5"
+
+
+def test_both_versions_null_falls_back_to_upddatetime(session: Session, table: sa.Table) -> None:
+    company = uuid.uuid4()
+    _write(session, table, company, [_row(1, "newer", None, T0)])
+    stale = _write(session, table, company, [_row(1, "stale", None, T0 - timedelta(minutes=1))])
+    assert (stale.written, stale.skipped_older) == (0, 1)
+    fresh = _write(session, table, company, [_row(1, "fresh", None, T0 + timedelta(minutes=1))])
+    assert (fresh.written, fresh.skipped_older) == (1, 0)
+    assert _rows(session, table, company)[1].naam == "fresh"
+
+
+def test_equal_version_incoming_null_upddatetime_is_skipped(session: Session, table: sa.Table) -> None:
+    company = uuid.uuid4()
+    _write(session, table, company, [_row(1, "stamped", 5, T0)])
+    result = _write(session, table, company, [_row(1, "unstamped", 5, None)])
+    assert (result.written, result.skipped_older) == (0, 1)
+    assert _rows(session, table, company)[1].naam == "stamped"
+
+
+def test_everything_null_overwrites(session: Session, table: sa.Table) -> None:
+    company = uuid.uuid4()
+    _write(session, table, company, [_row(1, "first", None, None)])
+    result = _write(session, table, company, [_row(1, "second", None, None)])
+    assert (result.written, result.skipped_older) == (1, 0)
+    assert _rows(session, table, company)[1].naam == "second"
+
+
+def test_timestamp_only_table_orders_by_upddatetime(mirror: MirrorSchema, session: Session) -> None:
+    stamp = mirror.create(timestamp_only_table_info())
+    info = timestamp_only_table_info()
+    company = uuid.uuid4()
+    upsert_page(session, stamp, info, company, [{"ID": 1, "NAAM": "now", "UPDDATETIME": T0}], SYNCED)
+    old = [{"ID": 1, "NAAM": "old", "UPDDATETIME": T0 - timedelta(hours=1)}]
+    stale = upsert_page(session, stamp, info, company, old, SYNCED)
+    new = [{"ID": 1, "NAAM": "newer", "UPDDATETIME": T0 + timedelta(hours=1)}]
+    fresh = upsert_page(session, stamp, info, company, new, SYNCED)
+    assert (stale.written, stale.skipped_older) == (0, 1)
+    assert (fresh.written, fresh.skipped_older) == (1, 0)
+    assert _rows(session, stamp, company)[1].naam == "newer"
+
+
+def test_mixed_page_skips_and_writes_per_row(session: Session, table: sa.Table) -> None:
+    company = uuid.uuid4()
+    _write(session, table, company, [_row(1, "one-v2", 2), _row(2, "two-v1", 1)])
+    result = _write(session, table, company, [_row(1, "one-v1", 1), _row(2, "two-v2", 2)])
+    rows = _rows(session, table, company)
+    assert (result.written, result.skipped_older) == (1, 1)
+    assert (rows[1].naam, rows[1].versienr) == ("one-v2", Decimal(2))
+    assert (rows[2].naam, rows[2].versienr) == ("two-v2", Decimal(2))
+
+
+def test_primary_key_int_and_string_collapse_in_page(session: Session, table: sa.Table) -> None:
+    company = uuid.uuid4()
+    result = _write(session, table, company, [_row(1, "int", 1), _row("1", "str", 2)])
+    assert (result.written, result.skipped_older) == (1, 1)
+    assert _rows(session, table, company)[1].naam == "str"
+
+
+def test_non_integer_primary_key_is_rejected_without_echoing_it(session: Session, table: sa.Table) -> None:
+    with pytest.raises(BrixxError) as raised:
+        _write(session, table, uuid.uuid4(), [{"ID": "SECRET-ZOEKID", "NAAM": "x", "VERSIENR": 1}])
+    assert "SECRET-ZOEKID" not in str(raised.value)
+    assert "PRG_DEMO" in str(raised.value)
+
+
+def test_naive_synced_at_is_rejected(session: Session, table: sa.Table) -> None:
+    with pytest.raises(BrixxError):
+        upsert_page(
+            session,
+            table,
+            versioned_table_info(),
+            uuid.uuid4(),
+            [_row(1, "A", 1)],
+            datetime.fromisoformat("2026-11-01T08:00:00"),
+        )
