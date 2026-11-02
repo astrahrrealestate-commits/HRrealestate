@@ -378,3 +378,11 @@ def test_verdict_is_monotonic_in_price(
     assert SEVERITY[verdict(base + step)] >= SEVERITY[verdict(base)]
     if basis is SnapshotBasis.estimate_current_prices:
         assert verdict(base) is verdict(base + step) is Verdict.needs_check
+
+
+def test_units_are_compared_normalised() -> None:
+    hourly = {ITEM: ref(rate_card="50", unit="hour")}
+
+    assert review_quote(quote(line("50.00", unit="uur"), refs=hourly), T).lines[0].status is LineStatus.ok
+    assert review_quote(quote(line("50.00", unit=" Uren "), refs=hourly), T).lines[0].status is LineStatus.ok
+    assert review_quote(quote(line("50.00", unit="dag"), refs=hourly), T).lines[0].status is LineStatus.no_reference

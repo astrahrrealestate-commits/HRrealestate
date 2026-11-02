@@ -102,7 +102,8 @@ def test_snapshot_replay_adds_no_rows(
     again = take_snapshot(migrated_engine, test_settings, source, seeded.action_id, today=DECIDED)
 
     assert len(first.written) == 2
-    assert (again.written, again.skipped_cap, again.skipped_no_data) == ([], 0, 0)
+    assert sorted(again.written) == sorted(first.written)  # a retry after a lost step result still reports them
+    assert (again.skipped_cap, again.skipped_no_data) == (0, 0)
     assert len(_snapshots(migrated_engine, seeded.company_id)) == 2
     with Session(migrated_engine) as s:
         calls = s.scalar(select(func.count(ModelCall.id)).where(ModelCall.company_id == seeded.company_id))

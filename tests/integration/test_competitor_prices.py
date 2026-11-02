@@ -151,3 +151,20 @@ def test_competitor_source_ignores_a_rate_whose_person_belongs_to_another_compan
 
 def _factory(engine: Engine) -> Callable[[], Session]:
     return lambda: Session(engine)
+
+
+def test_competitor_source_matches_units_normalised(migrated_engine: Engine, committed_company: Company) -> None:
+    cid = committed_company.id
+    with Session(migrated_engine) as s:
+        dutch, spaced, daily = _person(s, cid, "Dutch"), _person(s, cid, "Spaced"), _person(s, cid, "Daily")
+        _rate(s, cid, dutch, "45", unit="uur")
+        _rate(s, cid, spaced, "48", unit="Hour ")
+        _rate(s, cid, daily, "300", unit="dag")
+        _rate(s, cid, daily, "41", unit="uren", valid_from=date(2025, 6, 1))  # older version, but in hours
+        s.commit()
+    got = CompetitorRatesSource(_factory(migrated_engine), cid, None).lookup(ITEM, "hour", AS_OF)
+    assert [(o.amount, o.source, o.unit) for o in got] == [
+        (Decimal("41"), "competitor:Daily", "hour"),
+        (Decimal("45"), "competitor:Dutch", "hour"),
+        (Decimal("48"), "competitor:Spaced", "hour"),
+    ]

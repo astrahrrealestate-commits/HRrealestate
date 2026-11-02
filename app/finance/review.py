@@ -4,10 +4,11 @@
 Per line, per UNIT, against ONE reference: the rate card valid on the decision day if any, else the market average
 (both excl. VAT). Rate card: up to `ok_pct` over → `ok`, more → `above_agreed`. Market: up to `above_market_pct` over
 → `ok` (market averages are noisy), up to `well_above_pct` → `above_market`, more → `well_above_market`. Under
-`low_ratio` × reference → `suspiciously_low` (scope risk). No item reference, a different unit (per hour vs per job)
-or no rate card and no market → `no_reference`; a currency other than the reference's (compared case-insensitively)
-→ `currency_mismatch`, no maths. Uncompared lines carry `low_confidence` (it explains their `needs_check`) but only
-floor the verdict: they never cap a firm finding on another line.
+`low_ratio` × reference → `suspiciously_low` (scope risk). No item reference, a different unit (per hour vs per job;
+compared by `normalise_unit`, so `uur` = `hour`) or no rate card and no market → `no_reference`; a currency other
+than the reference's (compared case-insensitively) → `currency_mismatch`, no maths. Uncompared lines carry
+`low_confidence` (it explains their `needs_check`) but only floor the verdict: they never cap a firm finding on
+another line.
 
 VAT: the line's `vat_included`, else the quote's. Still unknown → the stated price is compared as if excl. VAT, the
 incl.-VAT reading is shown beside it, and the line is flagged.
@@ -24,6 +25,7 @@ from collections.abc import Sequence
 from decimal import ROUND_HALF_UP, Decimal
 
 from app.contracts.finance import LineStatus, SnapshotBasis, Verdict
+from app.core.property_terms import normalise_unit
 from app.finance.review_types import (
     SEVERITY,
     STATUS_VERDICT,
@@ -111,7 +113,7 @@ def _blocker(line: ReviewLine, quote: ReviewInput, ref: Reference | None) -> Lin
         return LineStatus.no_reference
     if (line.currency or quote.currency).strip().upper() != ref.currency.strip().upper():
         return LineStatus.currency_mismatch
-    if line.unit.strip().casefold() != ref.unit.strip().casefold():
+    if normalise_unit(line.unit) != normalise_unit(ref.unit):
         return LineStatus.no_reference
     return None
 

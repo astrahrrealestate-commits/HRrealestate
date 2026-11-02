@@ -3,9 +3,10 @@ on the case summary and its recent messages), the market price of each item on t
 rate card then; one immutable `price_snapshots` row per item (estimates are never stored, R4).
 
 The company comes from the action row, never from input. No session is held across the model call or the lookups.
-Replay-safe: an action that already has snapshot rows is not looked at again (no model call, no lookups), and rows
-are written in one transaction with ON CONFLICT DO NOTHING. Daily cap (R19): the company's snapshot rows dated today
-count as lookups; items past the cap are skipped and counted, as are items with no observations (no row).
+Replay-safe: an action that already has snapshot rows is not looked at again (no model call, no lookups): the replay
+returns those rows' ids as `written`, but `skipped_cap`/`skipped_no_data` of the first run are not recoverable and
+are 0. Rows are written in one transaction with ON CONFLICT DO NOTHING. Daily cap (R19): the company's snapshot rows
+dated today count as lookups; items past the cap are skipped and counted, as are items with no observations (no row).
 """
 
 from collections import Counter
@@ -78,11 +79,12 @@ def load_request(session: Session, action_id: UUID) -> SnapshotRequest:
     return SnapshotRequest(company_id=act.company_id, case_id=act.case_id, action_id=act.id, vendor_id=vendor)
 
 
-def _already_taken(session: Session, req: SnapshotRequest) -> bool:
+def _taken(session: Session, req: SnapshotRequest) -> list[UUID]:
+    """Ids of the snapshot rows this action already has (oldest first)."""
     q = select(PriceSnapshot.id).where(
         PriceSnapshot.company_id == req.company_id, PriceSnapshot.action_id == req.action_id
     )
-    return session.scalar(q.limit(1)) is not None
+    return list(session.scalars(q.order_by(PriceSnapshot.created_at, PriceSnapshot.id)))
 
 
 def _case_text(session: Session, req: SnapshotRequest) -> tuple[str, list[str]]:
@@ -182,9 +184,10 @@ def take_snapshot(
     the caller with the action's contractor excluded (`build_price_source(..., exclude_person_id=vendor)`)."""
     with Session(engine) as session:
         req = load_request(session, action_id)
-        if _already_taken(session, req):
-            log.info("finance.snapshot.replay", action_id=str(action_id))
-            return SnapshotOutcome(written=[], skipped_cap=0, skipped_no_data=0)
+        taken = _taken(session, req)
+        if taken:  # replay (e.g. the step result was lost after the commit): report the rows, do nothing new
+            log.info("finance.snapshot.replay", action_id=str(action_id), written=len(taken))
+            return SnapshotOutcome(written=taken, skipped_cap=0, skipped_no_data=0)
         summary, texts = _case_text(session, req)
         used = repo.lookups_today(session, req.company_id, today)
     ctx = CallContext(company_id=req.company_id, purpose=PURPOSE)

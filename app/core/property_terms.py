@@ -147,6 +147,8 @@ ITEM_TERMS: dict[str, tuple[str, ...]] = {
 }
 _FUZZY_CUTOFF = 90
 _SLUG_WORDS = 4
+ITEM_KEY_MAX = 100  # quote_lines.item_key / price_snapshots.item_key / vendor_rates.item_key: String(100)
+UNIT_MAX = 30  # the unit columns: String(30)
 _ALNUM = re.compile(r"[a-z0-9]+")
 
 
@@ -175,7 +177,8 @@ def _fuzzy_key(low: str) -> str | None:
 
 def normalise_item_key(description: str) -> str:
     """Stable key for a job line, so a Dutch and an English line for the same work meet (`Cv ketel onderhoud` and
-    `boiler service` are `boiler_service`). Known term, then a near-miss spelling, else a slug of up to 4 words."""
+    `boiler service` are `boiler_service`). Known term, then a near-miss spelling, else a slug of up to 4 words
+    and at most `ITEM_KEY_MAX` characters (whole words; a single longer word is cut)."""
     low = fold(description).strip()
     for pattern, key in _ITEM_PATTERNS:
         if pattern.search(low):
@@ -183,8 +186,17 @@ def normalise_item_key(description: str) -> str:
     fuzzy = _fuzzy_key(low)
     if fuzzy is not None:
         return fuzzy
-    words = [w for w in _ALNUM.findall(low) if w not in _STOPWORDS]
-    return "_".join(words[:_SLUG_WORDS]) or "other"
+    words = [w for w in _ALNUM.findall(low) if w not in _STOPWORDS][:_SLUG_WORDS]
+    return _bounded_slug(words) or "other"
+
+
+def _bounded_slug(words: list[str]) -> str:
+    slug = words[0][:ITEM_KEY_MAX] if words else ""
+    for word in words[1:]:
+        if len(slug) + 1 + len(word) > ITEM_KEY_MAX:
+            break
+        slug = f"{slug}_{word}"
+    return slug
 
 
 UNIT_TERMS: dict[str, tuple[str, ...]] = {
@@ -201,6 +213,6 @@ _UNIT_PREFIX = re.compile(r"^(?:per\s+|/\s*)")
 
 def normalise_unit(text: str) -> str:
     """Canonical unit (`hour`, `day`, `piece`, `m`, `m2`, `job`) for Dutch, English and symbol forms (`uur`, `m²`,
-    `per stuk`); unknown text is returned casefolded and stripped, so the same unknown unit still meets itself."""
+    `per stuk`); unknown text is returned casefolded, stripped and cut to `UNIT_MAX`, so it still meets itself."""
     low = " ".join(_UNIT_PREFIX.sub("", fold(text).strip().rstrip(".")).split())  # fold: `m²` → `m2`
-    return _UNIT_INDEX.get(low, text.strip().casefold())
+    return _UNIT_INDEX.get(low) or text.strip().casefold()[:UNIT_MAX].rstrip()
