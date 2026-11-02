@@ -18,6 +18,8 @@ SPEC_TABLES = {
     "document_chunks", "document_links", "drive_reorg_plans", "drive_reorg_items",
     # memory workspace (spec 2026-10-23)
     "person_profiles", "memory_items",
+    # BRIXX data mirror (sync bookkeeping; mirrored data itself lives in the `brixx` schema)
+    "brixx_sync_runs", "brixx_sync_table_state",
 }  # fmt: skip
 
 

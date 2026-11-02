@@ -214,3 +214,14 @@ class MemoryOrigin(StrEnum):
     owner = "owner"
     distilled = "distilled"
     system = "system"
+
+
+class BrixxRunKind(StrEnum):
+    incremental = "incremental"
+    reconcile = "reconcile"
+
+
+class BrixxRunStatus(StrEnum):
+    running = "running"
+    succeeded = "succeeded"
+    failed = "failed"
