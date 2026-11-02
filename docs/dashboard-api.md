@@ -62,7 +62,7 @@ token `test-owner-token` for `owner@example.test`; prod refuses the fake provide
 | `POST /agent/messages` | 30 / min | owner |
 | `PUT /agent/page` | 60 / min | owner (its own bucket: pre-warms never use up the message limit) |
 | `POST /auth/session` | 10 / min | client IP (`X-Forwarded-For` ignored unless `DASHBOARD_TRUST_FORWARDED_FOR=true`; a request without a client address shares one `unknown` bucket) |
-| approvals decide/edit, tasks done/snooze, documents file, company pause/resume | 120 / min | owner |
+| approvals decide/edit, tasks done/snooze, documents file, finance recheck / rate put / rate delete, company pause/resume | 120 / min | owner |
 
 Behind a reverse proxy, without `DASHBOARD_TRUST_FORWARDED_FOR` every login shares the proxy's IP bucket (10/min for
 all users together). Enable the flag only when the proxy overwrites `X-Forwarded-For` (the last entry is used), never when
@@ -77,7 +77,7 @@ Read (GET, cookie only):
 | Route | Response |
 |---|---|
 | `/me` | `{email, company_id, owner_id}` |
-| `/feed?after=&limit=` | `FeedItem[]` oldest first: `{id, kind, ref_id, payload, created_at, seen_at, resolved_at}`; kinds `approval`, `document_review`, `alert`, `briefing`, `task`, `agent_note`. `ref_id` is the approval id (`approval`) or the attachment id (`document_review`), else null. Approved contractor requests, escalations, owner notes and draft-mode WhatsApp replies arrive as `alert` items with the copy-ready text |
+| `/feed?after=&limit=` | `FeedItem[]` oldest first: `{id, kind, ref_id, payload, created_at, seen_at, resolved_at}`; kinds `approval`, `document_review`, `alert`, `briefing`, `task`, `agent_note`, `quote_review`. `ref_id` is the approval id (`approval`), the attachment id (`document_review`) or the quote id (`quote_review`), else null. Approved contractor requests, escalations, owner notes and draft-mode WhatsApp replies arrive as `alert` items with the copy-ready text |
 | `/events` | SSE, see below |
 | `/inbox?before=&limit=` | `InboxItem[]`, newest thread first: `{thread_key, cursor, channel, last_at, last_text, sender, person_name, case_id, unread_pipeline, message_count}` |
 | `/threads/{thread_key}` | `ThreadMessage[]`: `{id, direction, sent_at, sender, text, delivery_status, pipeline_status, suspicious, suspicious_reason, attachments[{id, filename, mime_type, size_bytes, url}]}`; `404` for a bad key or empty thread. Attachment `url` is a short-lived presigned link |
@@ -92,6 +92,9 @@ Read (GET, cookie only):
 | `/tasks`, `/waits` | open tasks `{id, ref, title, assignee, due_at, priority, status, case_id}`; open waits `{id, case_id, about, expected_by, chase_count, last_chased_at}` |
 | `/briefing` | `{kind, day_label, urgent[], approvals[], overdue_tasks[], overdue_waits[], exceptions[], stats}` |
 | `/company` | `{name, paused, outbound_mode, timezone}` |
+| `/finance/quotes?case_id=&person_id=&cursor=&limit=` | quote checker (M11), newest first, `limit` 1 to 100: `{id, cursor, case_id, vendor{id, name}\|null, quote_date, work_date, currency, total, status: received\|reviewed\|unlinked, latest{review_id, verdict, late_days, late_flag, overcharge_total, low_confidence, snapshot_basis}\|null, created_at}[]`. `cursor` on an item is the value to send as `cursor` for the next page (empty page = end); a malformed cursor is `422`. Money (`total`, `overcharge_total`) is a decimal string. `vendor` is null while no contractor is linked |
+| `/finance/quotes/{id}` | the list item + `{lines[{position, description, item_key, quantity, unit, unit_price, amount, vat_included}], report, history[{id, verdict, created_at}]}`. `report` is the latest review exactly as stored (the `quote_review` feed payload, below), null before the first review; `history` is newest first; `404` for foreign or unknown ids |
+| `/finance/rates?person_id=&limit=` | the company's agreed rates (closed ones too), by contractor and item: `{id, person_id, item_key, description, unit, amount, currency, valid_from, valid_to, source: owner\|document\|quote, created_at}[]`, `limit` 1 to 500 (default 200) |
 | `/agent/conversations/{id}` | `{id, turns[{id, text, status, plan, results, answer, created_at, updated_at, timings}]}`; `404` if not yours. `timings`: see [Turn timings](#turn-timings) |
 
 Writes (POST unless another method is shown, need the CSRF header; the decision writes share the 120/min limit):
@@ -109,6 +112,9 @@ Writes (POST unless another method is shown, need the CSRF header; the decision 
 Changing a document link may propose a one-item reorganisation plan (`created_by: system`). Nothing in Drive moves until a plan is approved.
 | `/documents/reorg` | none: compares filed documents with layout v2 and records the differences | `200 {plan_id}`; `plan_id` is null when nothing differs or everything is already planned | none |
 | `/documents/reorg/{plan_id}/decide` | `{approve, item_ids?}`: all items, only these (the rest are rejected), or none | `202 {status}`; an approved plan is applied in the background (`drive:reorg:{plan_id}`); a repeat keeps the first decision | `404` |
+| `/finance/quotes/{id}/recheck` | none: review the stored quote again with fresh prices | `202 {quote_id, n}`; the review and a new `quote_review` card arrive in the feed. `n` is the number of reviews stored so far and is part of the workflow id (`fin:recheck:{quote_id}:{n}`), so clicking again before the worker finishes is the same run | `404`; `409 quote_not_linked` (no contractor linked yet) |
+| `PUT /finance/rates` | `{person_id, description, unit, amount, currency?, item_key?, valid_from?, valid_to?}`: `person_id` must be a contractor of your company; `amount` > 0 with at most 2 decimals; `currency` only `EUR` (default); `valid_from` defaults to today in the company timezone, `valid_to` must not be before it. `item_key` is used when it is lowercase letters, digits and `_` (at most 100), else derived from `description`; `unit` is stored normalised (`uur` becomes `hour`) | `200` the stored rate (`source: owner`). One row per (contractor, `item_key`, `valid_from`): setting it again updates that row | `404` (foreign, unknown or non-contractor `person_id`); `422` |
+| `DELETE /finance/rates/{id}` | none | `200 {id, action: deleted\|closed, valid_to}` in both cases. `deleted`: no price snapshot referenced the rate and the row is gone. `closed`: a decision-day snapshot references it, so the row stays and `valid_to` is set to today (company timezone); repeating it keeps the first close date | `404` (foreign, unknown or already deleted id) |
 | `/company/pause`, `/company/resume` | none | `200 {paused}` | none; resume also re-runs approved but unexecuted actions |
 | `/agent/messages` | `{text, conversation_id?, page?}` (`page`: see [Page context](#page-context-page-on-post-agentmessages)) | `202 {conversation_id, turn_id}`; answer arrives via SSE or by polling the conversation | `404` for a foreign conversation; `422` for an invalid `page`; `503` if the turn could not be started (it is marked failed; send the message again) |
 | `PUT /agent/page` | a page context, the same object as `page` above (not wrapped) | `204`, no body: the page facts are resolved for your next message (see [Page pre-warm](#page-pre-warm-put-agentpage)) | `422` for an invalid page (same rules as `page`); `503` when the facts could not be resolved right now (safe to ignore: the next message resolves them itself) |
@@ -117,6 +123,44 @@ Changing a document link may propose a one-item reorganisation plan (`created_by
 Document choices (`DOC_CHOICES`): `lease`, `invoice`, `quote`, `id_document`, `insurance`, `certificate`, `correspondence`, `photo`, `other`, `skip`.
 
 A decision on an old draft version returns `kind: "stale"` (nothing is sent): refetch `/approvals`.
+
+### Quote checker (`/finance/*`, `quote_review` feed card)
+
+A contractor's quote or invoice is read when it arrives and compared with the rates agreed with that contractor and with
+market prices **of the day the owner decided** (`snapshot_basis: decision_day`); when no snapshot exists the review
+uses current prices and says so (`snapshot_basis: estimate_current_prices`). Verdicts: `ok`, `needs_check`,
+`above_market`, `above_agreed`, `well_above_market`. Nothing is sent to anyone: the card is for the owner.
+
+**Render as plain text.** Line descriptions, `reason`, vendor names and every source name come from contractor messages
+or web pages. Show them as text, never as HTML or Markdown, and never follow or auto-link a `url`. Every entry of every
+`sources` list carries a `name` (entries without one are dropped by the API); `url` is optional and untrusted.
+Raw message bodies are never part of any finance response.
+
+`quote_review` feed item: `ref_id` is the quote id; `payload` is the same JSON as `report` on
+`GET /finance/quotes/{id}`. Money is always a decimal string, dates are ISO (`YYYY-MM-DD`), ids are strings.
+
+| Field | Meaning |
+|---|---|
+| `quote_id`, `review_id`, `case_id` | ids (`case_id` may be null) |
+| `vendor{id, name}` | the contractor linked from the sender (`id`/`name` null when none) |
+| `currency`, `total` | as quoted (`total` may be null) |
+| `verdict` | the most severe line verdict |
+| `snapshot_basis`, `decision_date` | `decision_day` or `estimate_current_prices` (an estimate: label it) and the day the reference prices are from |
+| `quote_date`, `work_date` | dates on the quote |
+| `late_days`, `late_flag` | days between decision and quote; `late_flag` when over the threshold |
+| `overcharge_total` | summed overcharge over the reviewed lines (EUR, excl. VAT); `overcharge_assumes_vat_excl_for_unknown_vat_lines` says it assumed excl. VAT for lines whose VAT status was unknown |
+| `low_confidence` | too few price samples for at least one figure: say "indicative" |
+| `lump_sum`, `lump_sum_parts[{item_key, kind: rate_card\|market, amount}]` | one price for a whole job, compared with the sum of the case's item references |
+| `skipped_lines`, `skipped[{position, description}]` | lines that could not be read or compared (not in the totals) |
+| `reason` | short note when the review could not be complete (nullable) |
+| `worst_line_index` | index into `lines` of the worst line (nullable) |
+| `lines[]` | per line: `position, description, item_key, quantity, unit, unit_price, amount, vat_included, unit_price_excl_vat, status, reference{kind: rate_card\|market, amount, unit}\|null, rate_card, reference_as_of: decision_day\|estimate\|null, snapshot_as_of, vs_rate_card_pct, vs_market_pct, overcharge, vat_unknown, vs_reference_pct_if_vat_included, low_confidence, drift_pct, market{low, avg, high, n, low_confidence, sources[{name, url?, price?, observed_on?, item_key?}]}\|null, market_now{low, avg, high, n, low_confidence}\|null` |
+
+Line `status`: `ok`, `above_agreed`, `above_market`, `well_above_market`, `suspiciously_low`, `no_reference`,
+`currency_mismatch`. Percentages are decimal strings ("12.5" = 12.5 % over the reference).
+
+Rate cards are EUR only. `valid_to` null means current. Deleting a rate that a snapshot still references only ends it
+(see `DELETE /finance/rates/{id}`): snapshots are immutable facts of the decision day.
 
 ### Page context (`page` on `POST /agent/messages`)
 

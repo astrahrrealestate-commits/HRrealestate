@@ -8,19 +8,20 @@ Sessions are passed in; nothing here commits. Units are stored and compared norm
 from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.contracts.finance import PriceBasis
 from app.core.errors import NotFoundError
 from app.core.ids import new_id
 from app.core.property_terms import normalise_unit
-from app.db.enums import RateSource
+from app.db.enums import PersonKind, RateSource
 from app.db.models import ActionRow, Person, PriceSnapshot, VendorRate
 from app.finance.repo_quotes import (
     NewQuoteLine,
@@ -38,12 +39,16 @@ __all__ = [
     "insert_quote_lines",
     "insert_review",
     "insert_snapshot",
+    "is_contractor",
+    "list_rates",
     "lookups_today",
+    "remove_rate",
     "snapshot_for",
     "snapshots_for_case",
     "upsert_rate",
 ]
 
+MAX_RATES = 500
 _RATE_UPDATABLE = ("description", "unit", "amount", "currency", "valid_to", "source", "source_ref")
 
 
@@ -95,6 +100,53 @@ def upsert_rate(
         set_={name: insert.excluded[name] for name in _RATE_UPDATABLE},
     ).returning(VendorRate)
     return session.scalars(upsert, execution_options={"populate_existing": True}).one()
+
+
+def is_contractor(session: Session, company_id: UUID, person_id: UUID) -> bool:
+    """True when `person_id` is a contractor of this company (rates are only agreed with contractors)."""
+    found = session.scalar(
+        select(Person.id).where(
+            Person.company_id == company_id, Person.id == person_id, Person.kind == PersonKind.contractor
+        )
+    )
+    return found is not None
+
+
+def list_rates(
+    session: Session, company_id: UUID, *, person_id: UUID | None = None, limit: int = MAX_RATES
+) -> list[VendorRate]:
+    """The company's rate cards (closed ones too), by contractor and item, newest `valid_from` first."""
+    stmt = select(VendorRate).where(VendorRate.company_id == company_id)
+    if person_id is not None:
+        stmt = stmt.where(VendorRate.person_id == person_id)
+    order = (VendorRate.person_id, VendorRate.item_key, VendorRate.valid_from.desc(), VendorRate.id)
+    return list(session.scalars(stmt.order_by(*order).limit(max(1, min(limit, MAX_RATES)))))
+
+
+def remove_rate(
+    session: Session, company_id: UUID, rate_id: UUID, *, today: date
+) -> tuple[Literal["deleted", "closed"], date | None] | None:
+    """Delete the company's rate, or close it (`valid_to` = `today`) when a price snapshot points at it: snapshots are
+    immutable decision-day facts. Returns ("deleted", None) or ("closed", valid_to); None if it is not ours."""
+    rate = session.scalar(select(VendorRate).where(VendorRate.company_id == company_id, VendorRate.id == rate_id))
+    if rate is None:
+        return None
+    referenced = session.scalar(
+        select(PriceSnapshot.id)
+        .where(PriceSnapshot.company_id == company_id, PriceSnapshot.rate_card_id == rate_id)
+        .limit(1)
+    )
+    if referenced is None:
+        try:
+            with session.begin_nested():
+                session.delete(rate)
+            return "deleted", None
+        except IntegrityError:  # a snapshot started pointing at it since the check: close instead
+            session.refresh(rate)
+    if rate.valid_to is None or rate.valid_to > today:
+        rate.valid_to = max(today, rate.valid_from)
+        session.flush()
+    return "closed", rate.valid_to
 
 
 def snapshot_for(session: Session, company_id: UUID, case_id: UUID, item_key: str, on: date) -> PriceSnapshot | None:

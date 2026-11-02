@@ -11,10 +11,13 @@ from app.core.workflow_names import (
     DOCUMENTS_QUEUE,
     EXECUTE_ACTION,
     FILE_DOCUMENT,
+    FINANCE_QUEUE,
+    FINANCE_RECHECK,
     PIPELINE_QUEUE,
     REORG_PLAN,
     concierge_workflow_id,
     exec_workflow_id,
+    finance_recheck_workflow_id,
     reorg_workflow_id,
 )
 
@@ -69,3 +72,13 @@ def enqueue_turn(client: WorkflowClient, turn_id: UUID) -> None:
         "workflow_id": concierge_workflow_id(turn_id),
     }
     client.enqueue(options, str(turn_id))
+
+
+def enqueue_finance_recheck(client: WorkflowClient, quote_id: UUID, company_id: UUID, n: int) -> None:
+    """`fin:recheck:{quote_id}:{n}` on the finance queue: a repeated click with the same `n` is deduped by DBOS."""
+    options = {
+        "queue_name": FINANCE_QUEUE,
+        "workflow_name": FINANCE_RECHECK,
+        "workflow_id": finance_recheck_workflow_id(quote_id, n),
+    }
+    client.enqueue(options, str(quote_id), str(company_id), n)
