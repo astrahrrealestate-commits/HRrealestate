@@ -5,7 +5,9 @@ Per line, per UNIT, against ONE reference: the rate card valid on the decision d
 (both excl. VAT). Rate card: up to `ok_pct` over → `ok`, more → `above_agreed`. Market: up to `above_market_pct` over
 → `ok` (market averages are noisy), up to `well_above_pct` → `above_market`, more → `well_above_market`. Under
 `low_ratio` × reference → `suspiciously_low` (scope risk). No item reference, a different unit (per hour vs per job)
-or no rate card and no market → `no_reference`; a currency other than the reference's → `currency_mismatch`, no maths.
+or no rate card and no market → `no_reference`; a currency other than the reference's (compared case-insensitively)
+→ `currency_mismatch`, no maths. Uncompared lines carry `low_confidence` (it explains their `needs_check`) but only
+floor the verdict: they never cap a firm finding on another line.
 
 VAT: the line's `vat_included`, else the quote's. Still unknown → the stated price is compared as if excl. VAT, the
 incl.-VAT reading is shown beside it, and the line is flagged.
@@ -100,14 +102,14 @@ def _uncompared(line: ReviewLine, status: LineStatus) -> LineResult:
         overcharge=None,
         vat_unknown=False,
         vs_reference_pct_if_vat_included=None,
-        low_confidence=False,
+        low_confidence=True,  # nothing was compared: the flag explains the line's needs_check
     )
 
 
 def _blocker(line: ReviewLine, quote: ReviewInput, ref: Reference | None) -> LineStatus | None:
     if ref is None:
         return LineStatus.no_reference
-    if (line.currency or quote.currency) != ref.currency:
+    if (line.currency or quote.currency).strip().upper() != ref.currency.strip().upper():
         return LineStatus.currency_mismatch
     if line.unit.strip().casefold() != ref.unit.strip().casefold():
         return LineStatus.no_reference
@@ -167,7 +169,7 @@ def review_quote(quote: ReviewInput, thresholds: Thresholds) -> ReviewResult:
     lump_sum = quote.lump_sum or (len(quote.lines) == 1 and len(quote.references) > 1)
     results = [_review_line(line, quote, thresholds, lump_sum=lump_sum) for line in quote.lines]
     estimate = quote.snapshot_basis is SnapshotBasis.estimate_current_prices
-    low_confidence = estimate or any(r.low_confidence for r in results)
+    low_confidence = estimate or any(r.low_confidence and r.reference is not None for r in results)
     late_days = max(0, (quote.quote_date - quote.decision_date).days)
     return ReviewResult(
         lines=results,

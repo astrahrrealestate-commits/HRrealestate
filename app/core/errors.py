@@ -45,6 +45,10 @@ class PriceSourceNotConfiguredError(EstateOSError):
     """The configured market price source has no adapter wired up."""
 
 
+class SnapshotNotApplicableError(EstateOSError):
+    """A decision-day price snapshot was asked for an action that is not a request_contractor with a contractor."""
+
+
 class UnsafeConfigurationError(EstateOSError):
     """Settings that must never reach production (fake providers, local storage, missing webhook secrets)."""
 

@@ -92,6 +92,12 @@ class ReviewLine:
     item_key: str | None = None
     currency: str | None = None
 
+    def __post_init__(self) -> None:
+        if self.quantity <= 0:
+            raise ValueError("a quote line quantity must be positive")
+        if self.unit_price is not None and self.unit_price <= 0:
+            raise ValueError("a quote line unit price must be positive")
+
 
 @dataclass(frozen=True)
 class ReviewInput:

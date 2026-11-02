@@ -185,3 +185,22 @@ def normalise_item_key(description: str) -> str:
         return fuzzy
     words = [w for w in _ALNUM.findall(low) if w not in _STOPWORDS]
     return "_".join(words[:_SLUG_WORDS]) or "other"
+
+
+UNIT_TERMS: dict[str, tuple[str, ...]] = {
+    "hour": ("hour", "hours", "hr", "hrs", "h", "uur", "uren"),
+    "day": ("day", "days", "dag", "dagen"),
+    "piece": ("piece", "pieces", "pcs", "pc", "st", "stuk", "stuks"),
+    "m": ("m", "meter", "meters", "metre", "metres"),
+    "m2": ("m2", "sqm", "square meter", "square meters", "square metre", "square metres", "vierkante meter"),
+    "job": ("job", "jobs", "klus", "project", "lump sum", "all-in", "all in", "forfait", "post"),
+}
+_UNIT_INDEX = {term: unit for unit, terms in UNIT_TERMS.items() for term in terms}
+_UNIT_PREFIX = re.compile(r"^(?:per\s+|/\s*)")
+
+
+def normalise_unit(text: str) -> str:
+    """Canonical unit (`hour`, `day`, `piece`, `m`, `m2`, `job`) for Dutch, English and symbol forms (`uur`, `m²`,
+    `per stuk`); unknown text is returned casefolded and stripped, so the same unknown unit still meets itself."""
+    low = " ".join(_UNIT_PREFIX.sub("", fold(text).strip().rstrip(".")).split())  # fold: `m²` → `m2`
+    return _UNIT_INDEX.get(low, text.strip().casefold())

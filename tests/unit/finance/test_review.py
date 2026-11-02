@@ -303,6 +303,40 @@ def test_reference_rejects_non_positive_rate_card() -> None:
         Reference(unit="job", rate_card=Decimal(0))
 
 
+@pytest.mark.parametrize(("qty", "unit_price"), [("0", None), ("-1", "10"), ("1", "0"), ("2", "-5")])
+def test_review_line_rejects_non_positive_quantity_and_unit_price(qty: str, unit_price: str | None) -> None:
+    with pytest.raises(ValueError):
+        ReviewLine(
+            description="Ketel onderhoud",
+            quantity=Decimal(qty),
+            unit="job",
+            amount=Decimal(10),
+            unit_price=Decimal(unit_price) if unit_price is not None else None,
+        )
+
+
+def test_line_currency_is_compared_case_insensitively() -> None:
+    lower = review_quote(quote(line("100.00", currency="eur"), refs={ITEM: ref(rate_card="100")}), T)
+    mixed = review_quote(quote(line("100.00", currency=" Eur "), refs={ITEM: ref(rate_card="100")}), T)
+
+    assert lower.lines[0].status is mixed.lines[0].status is LineStatus.ok
+    assert lower.verdict is Verdict.ok
+
+
+def test_uncompared_lines_are_flagged_low_confidence_but_do_not_hide_a_firm_finding() -> None:
+    refs = {ITEM: ref(avg="100")}
+    no_ref = review_quote(quote(line("100.00", item="roof_repair"), refs=refs), T)
+    usd = review_quote(quote(line("100.00", currency="USD"), refs=refs), T)
+    mixed = review_quote(quote(line("200.00"), line("50.00", item="roof_repair"), refs=refs), T)
+
+    for result in (no_ref, usd):
+        assert result.lines[0].low_confidence is True  # explains the bare needs_check
+        assert result.verdict is Verdict.needs_check
+    assert mixed.lines[1].low_confidence is True
+    assert mixed.verdict is Verdict.well_above_market  # an unchecked line floors, it never caps a firm finding
+    assert mixed.low_confidence is False
+
+
 _REFERENCE = st.decimals(min_value=Decimal("1.00"), max_value=Decimal(5000), places=2)
 _STEP = st.decimals(min_value=Decimal(0), max_value=Decimal(5000), places=2)
 _RATIO = st.decimals(min_value=Decimal("0.51"), max_value=Decimal(3), places=2)
