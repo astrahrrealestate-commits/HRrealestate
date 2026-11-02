@@ -22,6 +22,7 @@ class Intent(StrEnum):
     pause = "pause"
     resume = "resume"
     draft_reply = "draft_reply"
+    show_drafts = "show_drafts"
     chase_now = "chase_now"
     file_document = "file_document"
     find_document = "find_document"
@@ -33,7 +34,7 @@ class Intent(StrEnum):
 
 class PlanStep(Contract):
     intent: Intent
-    case_id: UUID | None  # only for case_status, draft_reply, chase_now, open_view
+    case_id: UUID | None  # only for case_status, draft_reply, show_drafts, chase_now, open_view
     task_ref: Annotated[str, max_len(8)] | None  # 6-hex task ref
     text: Annotated[str, max_len(400)] | None  # query, task title, clarify question, snooze like "2d"
     view: Literal["inbox", "cases", "tasks", "approvals", "waiting"] | None

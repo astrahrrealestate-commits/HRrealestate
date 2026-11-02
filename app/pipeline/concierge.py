@@ -64,13 +64,14 @@ _USES_CASE = frozenset(
     {
         Intent.case_status,
         Intent.draft_reply,
+        Intent.show_drafts,
         Intent.chase_now,
         Intent.open_view,
         Intent.find_document,
         Intent.read_document,
     }
 )
-_NEEDS_CASE = frozenset({Intent.case_status, Intent.draft_reply, Intent.chase_now})
+_NEEDS_CASE = frozenset({Intent.case_status, Intent.draft_reply, Intent.show_drafts, Intent.chase_now})
 _NEEDS_TASK = frozenset({Intent.task_done, Intent.task_snooze})
 _NEEDS_TEXT = frozenset(
     {Intent.task_snooze, Intent.create_task, Intent.clarify, Intent.search_inbox, Intent.find_document, Intent.query_data}
@@ -95,6 +96,7 @@ _HANDLERS: dict[Intent, Handler] = {
     Intent.pause: concierge_writes.pause,
     Intent.resume: concierge_writes.resume,
     Intent.draft_reply: concierge_proposals.draft_reply,
+    Intent.show_drafts: concierge_proposals.show_drafts,
     Intent.chase_now: concierge_chase.chase_now,
 }
 

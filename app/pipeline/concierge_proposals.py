@@ -202,3 +202,54 @@ def _redrafted(step: PlanStep, result: redraft.Redraft, guidance: Guidance, head
     data = _data(step, [rev.approval_id], rev.draft_version, views, guidance, result.superseded)
     summary = drafted_summary(headline, views, details_removed=guidance.redacted)
     return StepResult(step.intent, True, summary, data, "approvals")
+
+
+def show_drafts(ctx: Ctx, step: PlanStep) -> StepResult:
+    """Finds pending reply_draft actions for the case so the frontend can render the in-chat draft card."""
+    if step.case_id is None:
+        return failed(step, NEED_DETAIL)
+    with Session(ctx.engine) as session:
+        message_id = _latest_inbound(session, ctx, step.case_id)
+        if message_id is None:
+            actions = list(
+                session.scalars(
+                    select(ActionRow).where(
+                        ActionRow.company_id == ctx.company_id,
+                        ActionRow.case_id == step.case_id,
+                    )
+                )
+            )
+        else:
+            actions = _message_actions(session, ctx, message_id)
+            if not actions:
+                actions = list(
+                    session.scalars(
+                        select(ActionRow).where(
+                            ActionRow.company_id == ctx.company_id,
+                            ActionRow.case_id == step.case_id,
+                        )
+                    )
+                )
+
+        pending_approvals = _pending_ids(session, ctx, actions)
+        reply = _reply_of(session, ctx, pending_approvals) if pending_approvals else None
+
+        if reply:
+            views = draft_views(reply[2], _source(ctx, message_id)) if message_id else []
+            data = {
+                "approval_ids": [str(reply[0])],
+                "case_id": str(step.case_id),
+                "draft_version": reply[1],
+                "drafts": views,
+            }
+            summary = drafted_summary("Here is the drafted reply waiting for your approval.", views, details_removed=False)
+            return StepResult(step.intent, True, summary, data, None)
+
+        if pending_approvals:
+            data = {
+                "approval_ids": [str(a) for a in pending_approvals],
+                "case_id": str(step.case_id),
+            }
+            return StepResult(step.intent, True, "Here is the pending notice for this case.", data, None)
+
+        return failed(step, "No pending draft found for this case. You can ask me to draft one.")

@@ -1410,7 +1410,7 @@ def ask_agent(
                 )
 
         # Check if a proposal was drafted
-        if r.intent in (Intent.draft_reply, Intent.chase_now) and r.data and "approval_ids" in r.data and not preview_card:
+        if r.intent in (Intent.draft_reply, Intent.show_drafts, Intent.chase_now) and r.data and "approval_ids" in r.data and not preview_card:
             approval_ids = r.data.get("approval_ids", [])
             preview_card = _resolve_draft_card(engine, approval_ids=approval_ids)
 
@@ -1533,7 +1533,10 @@ def ask_agent(
         not ans_text or any(k in ans_text.lower() for k in ["which", "are you", "can you", "sorry", "blocking sla", "details", "i only answer", "only answer", "send `help`"])
     ):
         target_name = preview_card.unitLabel or "Portfolio"
-        ans_text = f"I have prepared a draft reply for **{target_name}**. You can review the message and tap **Accept and send** below."
+        if plan and any(s.intent == Intent.show_drafts for s in plan.steps):
+            ans_text = f"Here is the draft reply waiting for **{target_name}**. You can review the message and tap **Accept and send** below."
+        else:
+            ans_text = f"I have prepared a draft reply for **{target_name}**. You can review the message and tap **Accept and send** below."
 
     # Filter out duplicate Approvals button if a draft card is already shown (draft card has Accept and send)
     if preview_card and preview_card.type == "draft_message":
