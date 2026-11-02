@@ -12,7 +12,8 @@ what is missing, what disagrees, what is risky.
 
 ## Goals
 1. **Missing documents.** Compare the documents of a review with a checklist for the property kind; each item is
-   `present`, `missing`, `stale` (present but out of date) or `unclear` (present, could not be read).
+   `present`, `missing`, `stale` (present but out of date) or `unclear` (a matching document was found but read with low confidence; a document that could not be read at all
+satisfies nothing and raises one `unreadable_documents` risk).
 2. **Mismatches.** Same fact, different value across documents (area, plot, year built, energy label, ownership type,
    ground-lease end, ground-lease fee, VvE contribution, price, address). A mismatch between a **brochure** (marketing)
    and a **legal** document is labelled `marketing_vs_legal` and ranked higher; the legal document is the reference.
@@ -47,8 +48,8 @@ POST /diligence/reviews ─► dd_reviews row (pending) + dd_review_documents �
    pure engine: checklist ─ mismatches ─ risks ─ verdict ─► report jsonb on dd_reviews (done)
    ─► owner_feed row kind dd_report
 ```
-Documents with no extracted text (scan not read, ID documents, over the caps) are `unclear`; ID documents are never
-sent to the model (ADR 0007).
+Documents with no extracted text (scan not read, over the caps), ID documents (ADR 0007) and documents the injection
+scan flagged as suspicious are never sent to the model; they appear as unreadable.
 
 ## Framework (the checklist is data) **(my call)**
 `app/diligence/framework.py`: `Framework(version, requirements, field_rules, authority)`. Default `nl-residential-v1`.
@@ -61,8 +62,9 @@ Default checklist (apartment): deed of title / purchase agreement (critical), Ka
 splitsingsakte + rules (critical), VvE annual budget/accounts (important), VvE meeting minutes <18 months
 (important), VvE multi-year maintenance plan (important), energy label <10 years (important), buyer's survey
 (nice), asbestos report if built before 1994 (important), ground-lease papers if leasehold (critical), brochure (nice).
-House: same minus the VvE items, plus building survey (important). Tenanted investment: adds lease agreements (critical)
-and rent roll (important).
+House: same minus the VvE items, plus building survey (important) and permits (nice). Tenanted investment: the
+apartment checklist plus lease agreements (critical) and rent roll (important) **(my call: a tenanted house is
+screened as `house` and the leases are added by hand until the owner asks for a fifth kind)**.
 
 ## Rules (code, defaults in the framework) **(my call)**
 - Field tolerance: areas 2 %, ground-lease fee 1 %, VvE contribution 5 %, price 0 %; year, label, ownership, ground-lease

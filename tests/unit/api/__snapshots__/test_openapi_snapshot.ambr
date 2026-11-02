@@ -759,6 +759,226 @@
           ]
         }
       },
+      "/api/v1/diligence/reviews": {
+        "get": {
+          "operationId": "list_all_api_v1_diligence_reviews_get",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "limit",
+              "required": false,
+              "schema": {
+                "default": 20,
+                "maximum": 50,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/ReviewOut"
+                    },
+                    "title": "Response List All Api V1 Diligence Reviews Get",
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "List All",
+          "tags": [
+            "diligence"
+          ]
+        },
+        "post": {
+          "description": "Start a screening. The review row is saved first, then the run is queued; poll `GET /reviews/{id}`.",
+          "operationId": "create_api_v1_diligence_reviews_post",
+          "parameters": [
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewIn"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "202": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/RunOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Create",
+          "tags": [
+            "diligence"
+          ]
+        }
+      },
+      "/api/v1/diligence/reviews/{review_id}": {
+        "get": {
+          "operationId": "read_api_v1_diligence_reviews__review_id__get",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "review_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Review Id",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ReviewDetailOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Read",
+          "tags": [
+            "diligence"
+          ]
+        }
+      },
+      "/api/v1/diligence/reviews/{review_id}/rerun": {
+        "post": {
+          "description": "Screen again (optionally with a different document set). Documents already read are not read again.",
+          "operationId": "rerun_api_v1_diligence_reviews__review_id__rerun_post",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "review_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Review Id",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RerunIn"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "202": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/RunOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Rerun",
+          "tags": [
+            "diligence"
+          ]
+        }
+      },
       "/api/v1/documents": {
         "get": {
           "operationId": "search_api_v1_documents_get",
@@ -2918,6 +3138,69 @@
         "title": "Channel",
         "type": "string"
       },
+      "ChecklistItem": {
+        "additionalProperties": false,
+        "properties": {
+          "document_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Document Ids",
+            "type": "array"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/RequirementSeverity"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChecklistStatus"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "severity",
+          "status",
+          "why",
+          "document_ids",
+          "note"
+        ],
+        "title": "ChecklistItem",
+        "type": "object"
+      },
+      "ChecklistStatus": {
+        "enum": [
+          "present",
+          "missing",
+          "stale",
+          "unclear"
+        ],
+        "title": "ChecklistStatus",
+        "type": "string"
+      },
       "CompanyOut": {
         "properties": {
           "name": {
@@ -2967,6 +3250,25 @@
         "title": "ConversationOut",
         "type": "object"
       },
+      "Coverage": {
+        "additionalProperties": false,
+        "properties": {
+          "applicable": {
+            "title": "Applicable",
+            "type": "integer"
+          },
+          "present": {
+            "title": "Present",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "present",
+          "applicable"
+        ],
+        "title": "Coverage",
+        "type": "object"
+      },
       "CreateMemoryIn": {
         "description": "Input payload to record an owner preference or standing rule.",
         "properties": {
@@ -3002,6 +3304,256 @@
         ],
         "title": "CreateMemoryIn",
         "type": "object"
+      },
+      "DDDocKind": {
+        "enum": [
+          "brochure",
+          "purchase_agreement",
+          "deed_of_title",
+          "kadaster_extract",
+          "vve_rules",
+          "vve_minutes",
+          "vve_budget",
+          "vve_maintenance_plan",
+          "ground_lease",
+          "energy_label",
+          "building_survey",
+          "asbestos_report",
+          "valuation",
+          "permit",
+          "insurance",
+          "lease_agreement",
+          "rent_roll",
+          "other"
+        ],
+        "title": "DDDocKind",
+        "type": "string"
+      },
+      "DDDocSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "claims": {
+            "title": "Claims",
+            "type": "integer"
+          },
+          "doc_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DDDocKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "document_id": {
+            "format": "uuid",
+            "title": "Document Id",
+            "type": "string"
+          },
+          "readable": {
+            "title": "Readable",
+            "type": "boolean"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "title",
+          "doc_kind",
+          "readable",
+          "claims"
+        ],
+        "title": "DDDocSummary",
+        "type": "object"
+      },
+      "DDField": {
+        "enum": [
+          "price",
+          "living_area_m2",
+          "plot_area_m2",
+          "year_built",
+          "energy_label",
+          "ownership_type",
+          "ground_lease_end",
+          "ground_lease_fee",
+          "vve_monthly_contribution",
+          "address",
+          "monthly_rent",
+          "tenancy_end",
+          "asbestos"
+        ],
+        "title": "DDField",
+        "type": "string"
+      },
+      "DDPropertyKind": {
+        "enum": [
+          "apartment",
+          "house",
+          "tenanted_investment"
+        ],
+        "title": "DDPropertyKind",
+        "type": "string"
+      },
+      "DDReport": {
+        "additionalProperties": false,
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "checklist": {
+            "items": {
+              "$ref": "#/components/schemas/ChecklistItem"
+            },
+            "title": "Checklist",
+            "type": "array"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/Coverage"
+          },
+          "disclaimer": {
+            "title": "Disclaimer",
+            "type": "string"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/DDDocSummary"
+            },
+            "title": "Documents",
+            "type": "array"
+          },
+          "framework_version": {
+            "title": "Framework Version",
+            "type": "string"
+          },
+          "mismatches": {
+            "items": {
+              "$ref": "#/components/schemas/Mismatch"
+            },
+            "title": "Mismatches",
+            "type": "array"
+          },
+          "property_kind": {
+            "$ref": "#/components/schemas/DDPropertyKind"
+          },
+          "risks": {
+            "items": {
+              "$ref": "#/components/schemas/DDRisk"
+            },
+            "title": "Risks",
+            "type": "array"
+          },
+          "unverified_claims": {
+            "minimum": 0.0,
+            "title": "Unverified Claims",
+            "type": "integer"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/DDVerdict"
+          }
+        },
+        "required": [
+          "framework_version",
+          "property_kind",
+          "as_of",
+          "verdict",
+          "coverage",
+          "checklist",
+          "mismatches",
+          "risks",
+          "documents",
+          "unverified_claims",
+          "disclaimer"
+        ],
+        "title": "DDReport",
+        "type": "object"
+      },
+      "DDReviewStatus": {
+        "description": "Due diligence review run: `pending` until the workflow starts, then `running`, then `done` or `failed`.",
+        "enum": [
+          "pending",
+          "running",
+          "done",
+          "failed"
+        ],
+        "title": "DDReviewStatus",
+        "type": "string"
+      },
+      "DDRisk": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "document_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Document Ids",
+            "type": "array"
+          },
+          "quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/DDSeverity"
+          },
+          "source": {
+            "enum": [
+              "rule",
+              "document"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "severity",
+          "summary",
+          "document_ids",
+          "source",
+          "quote"
+        ],
+        "title": "DDRisk",
+        "type": "object"
+      },
+      "DDSeverity": {
+        "enum": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "title": "DDSeverity",
+        "type": "string"
+      },
+      "DDVerdict": {
+        "enum": [
+          "clear_to_review",
+          "needs_documents",
+          "red_flags"
+        ],
+        "title": "DDVerdict",
+        "type": "string"
       },
       "DecideIn": {
         "properties": {
@@ -3735,6 +4287,82 @@
         "title": "MemoryStatus",
         "type": "string"
       },
+      "Mismatch": {
+        "additionalProperties": false,
+        "properties": {
+          "difference": {
+            "title": "Difference",
+            "type": "string"
+          },
+          "field": {
+            "$ref": "#/components/schemas/DDField"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/MismatchKind"
+          },
+          "other": {
+            "$ref": "#/components/schemas/MismatchSide"
+          },
+          "reference": {
+            "$ref": "#/components/schemas/MismatchSide"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/DDSeverity"
+          }
+        },
+        "required": [
+          "field",
+          "kind",
+          "severity",
+          "reference",
+          "other",
+          "difference"
+        ],
+        "title": "Mismatch",
+        "type": "object"
+      },
+      "MismatchKind": {
+        "enum": [
+          "marketing_vs_legal",
+          "inconsistent"
+        ],
+        "title": "MismatchKind",
+        "type": "string"
+      },
+      "MismatchSide": {
+        "additionalProperties": false,
+        "properties": {
+          "doc_kind": {
+            "$ref": "#/components/schemas/DDDocKind"
+          },
+          "document_id": {
+            "format": "uuid",
+            "title": "Document Id",
+            "type": "string"
+          },
+          "quote": {
+            "title": "Quote",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "title",
+          "doc_kind",
+          "value",
+          "quote"
+        ],
+        "title": "MismatchSide",
+        "type": "object"
+      },
       "OutboundMode": {
         "enum": [
           "draft",
@@ -4111,6 +4739,157 @@
         "title": "ReorgPlanStatus",
         "type": "string"
       },
+      "RequirementSeverity": {
+        "enum": [
+          "critical",
+          "important",
+          "nice"
+        ],
+        "title": "RequirementSeverity",
+        "type": "string"
+      },
+      "RerunIn": {
+        "properties": {
+          "document_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 200,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Ids"
+          }
+        },
+        "title": "RerunIn",
+        "type": "object"
+      },
+      "ReviewDetailOut": {
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "document_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Document Ids",
+            "type": "array"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "framework_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Framework Version"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "property_kind": {
+            "$ref": "#/components/schemas/DDPropertyKind"
+          },
+          "report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DDReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run_no": {
+            "title": "Run No",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DDReviewStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "unit_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Id"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DDVerdict"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "property_kind",
+          "unit_id",
+          "status",
+          "run_no",
+          "verdict",
+          "framework_version",
+          "error",
+          "document_ids",
+          "created_at",
+          "completed_at",
+          "report"
+        ],
+        "title": "ReviewDetailOut",
+        "type": "object"
+      },
       "ReviewDocumentOut": {
         "properties": {
           "attachment_id": {
@@ -4171,6 +4950,156 @@
         "title": "ReviewDocumentOut",
         "type": "object"
       },
+      "ReviewIn": {
+        "properties": {
+          "document_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Document Ids",
+            "type": "array"
+          },
+          "property_kind": {
+            "$ref": "#/components/schemas/DDPropertyKind"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "unit_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Id"
+          }
+        },
+        "required": [
+          "title",
+          "property_kind",
+          "document_ids"
+        ],
+        "title": "ReviewIn",
+        "type": "object"
+      },
+      "ReviewOut": {
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "document_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Document Ids",
+            "type": "array"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "framework_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Framework Version"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "property_kind": {
+            "$ref": "#/components/schemas/DDPropertyKind"
+          },
+          "run_no": {
+            "title": "Run No",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DDReviewStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "unit_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Id"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DDVerdict"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "property_kind",
+          "unit_id",
+          "status",
+          "run_no",
+          "verdict",
+          "framework_version",
+          "error",
+          "document_ids",
+          "created_at",
+          "completed_at"
+        ],
+        "title": "ReviewOut",
+        "type": "object"
+      },
       "RevisionOut": {
         "properties": {
           "action_id": {
@@ -4194,6 +5123,25 @@
           "approval_id"
         ],
         "title": "RevisionOut",
+        "type": "object"
+      },
+      "RunOut": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "run_no": {
+            "title": "Run No",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "run_no"
+        ],
+        "title": "RunOut",
         "type": "object"
       },
       "SessionRequest": {
