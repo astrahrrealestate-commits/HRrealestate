@@ -170,7 +170,7 @@ def test_injection_text_is_refused_and_changes_nothing(env: Env) -> None:
     assert _run_wf(turn_id) == "done"
     row = _row(env, turn_id)
     assert row.answer == REFUSAL_ANSWER
-    assert row.plan == {"in_scope": False, "steps": [], "reply": None}
+    assert row.plan == {"in_scope": False, "steps": [], "reply": None, "suggestions": []}
     assert [count(env.engine, m, env.cid) for m in (ActionRow, Approval, TaskRow, Send)] == before
     with Session(env.engine) as s:
         assert s.scalar(select(Company.paused).where(Company.id == env.cid)) is False
@@ -199,7 +199,7 @@ def test_stored_plan_is_executed_without_a_second_model_call(env: Env, test_sett
     concierge_turns.run_turn(env.engine, test_settings, turn_id)
     row = _row(env, turn_id)
     assert row.status is TurnStatus.done
-    assert row.plan == {**LIST_PLAN, "reply": None}  # a plan stored before `reply` existed gains it as null
+    assert row.plan == {**LIST_PLAN, "reply": None, "suggestions": []}  # plans stored before these fields gain them
     assert row.results is not None
     assert [r["intent"] for r in row.results] == ["list_tasks"]
     assert "Call plumber" in (row.answer or "")

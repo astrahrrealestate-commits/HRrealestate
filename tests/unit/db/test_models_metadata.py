@@ -106,5 +106,5 @@ def test_company_id_indexed_exactly_once_as_leading_column() -> None:
         ]
         usable = [i for i in leading if not isinstance(i, Index) or i.dialect_options["postgresql"]["where"] is None]
         assert len(usable) >= 1, f"{name}: company_id not leading any full index"
-        single = [i for i in table.indexes if i.columns.keys() == ["company_id"]]
+        single = [i for i in table.indexes if i.columns.keys() == ["company_id"] and len(i.expressions) == 1]
         assert not (single and len(usable) > 1), f"{name}: redundant single-column company_id index"

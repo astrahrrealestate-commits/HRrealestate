@@ -9,7 +9,7 @@ from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
@@ -127,6 +127,16 @@ class AuditEventItem(BaseModel):
     channel: str | None = None
     badge: str | None = None
     stateChange: str | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def type(self) -> str:
+        """The timeline vocabulary TicketHistoryModal filters and colours by (frontend `TimelineEvent.type`)."""
+        if self.category == "message":
+            return "inbound" if self.actorType in ("tenant", "contractor") else "dispatch"
+        if self.category == "contractor_po":
+            return "approval"
+        return "state_change" if self.stateChange else "triage"
 
 
 class TicketHistoryResponse(BaseModel):
