@@ -1050,6 +1050,8 @@ def ask_agent(
                     now=now,
                     briefs=briefs,
                 )
+        # Specific Task Trigger: Document / Lease / Contract / Terms query
+        doc_pattern = r"\b(lease|agreement|contract|deposit|borg|document|pdf|clause|terms|notice period|sublet|huurovereenkomst)\b"
         is_contractor_inquiry = bool(re.search(r"\bcontractor(s)?\b", q_low))
         is_comm_inquiry = any(w in q_low for w in ["message", "messages", "reply", "email", "mail", "whatsapp"])
         is_doc_task = bool(re.search(doc_pattern, q_low)) and not is_contractor_inquiry and not is_comm_inquiry
