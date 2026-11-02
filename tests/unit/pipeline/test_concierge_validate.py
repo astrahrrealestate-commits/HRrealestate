@@ -128,6 +128,7 @@ def test_at_most_four_steps_run(monkeypatch: pytest.MonkeyPatch, engine: Engine,
         step(Intent.create_task, text="   "),
         step(Intent.clarify),
         step(Intent.search_inbox),
+        step(Intent.query_data),
         step(Intent.open_view),
     ],
 )

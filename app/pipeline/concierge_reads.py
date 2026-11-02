@@ -110,30 +110,59 @@ def case_status(ctx: Ctx, step: PlanStep) -> StepResult:
 
 
 def search_inbox(ctx: Ctx, step: PlanStep) -> StepResult:
-    """Company-scoped, case-insensitive substring match over message text (the query is a bound parameter with LIKE
-    wildcards escaped), newest 10: thread keys and short snippets only, never full bodies."""
+    """Hybrid RAG and substring match over message text and conversation chunks."""
     query = normalise_query(step.text or "")
     if not query:
         return failed(step, NEED_DETAIL)
+
+    from app.llm.embeddings import build_embedder
+    from app.tools.message_rag import search_messages
+
+    embedder = build_embedder(ctx.settings)
     with Session(ctx.engine) as session:
+        chunk_hits = search_messages(
+            session,
+            ctx.company_id,
+            query=query,
+            embedder=embedder,
+            case_id=step.case_id,
+            limit=MAX_HITS,
+        )
+        if chunk_hits:
+            rows = [
+                {
+                    "message_id": str(h.first_message_id),
+                    "chunk_id": str(h.chunk_id),
+                    "thread_key": encode_thread_key(h.channel, h.thread_ref),
+                    "sent_at": h.last_sent_at.isoformat(),
+                    "sender": h.person_name or "Tenant",
+                    "property": h.unit_address or "",
+                    "snippet": " ".join(h.text.split())[:240],
+                    "score": round(h.score, 4),
+                }
+                for h in chunk_hits
+            ]
+            summary = f"Found {len(rows)} matching conversation(s)."
+            return StepResult(step.intent, True, summary, {"messages": rows, "chunks": rows}, "inbox")
+
         hits = session.execute(
             select(MessageRow.id, MessageRow.channel, MessageRow.thread_ref, MessageRow.provider_msg_id,
                    MessageRow.sent_at, MessageRow.text)
             .where(MessageRow.company_id == ctx.company_id, MessageRow.text.icontains(query, autoescape=True))
             .order_by(MessageRow.sent_at.desc(), MessageRow.id.desc())
             .limit(MAX_HITS)
-        ).all()  # fmt: skip
-    rows = [
-        {
-            "message_id": str(mid),
-            "thread_key": encode_thread_key(channel, thread_ref or provider_msg_id),
-            "sent_at": sent_at.isoformat(),
-            "snippet": " ".join(text.split())[:SNIPPET],
-        }
-        for mid, channel, thread_ref, provider_msg_id, sent_at, text in hits
-    ]
-    summary = f"Found {len(rows)} matching message(s)." if rows else "No messages match that search."
-    return StepResult(step.intent, True, summary, {"messages": rows}, "inbox")
+        ).all()
+        rows = [
+            {
+                "message_id": str(mid),
+                "thread_key": encode_thread_key(channel, thread_ref or provider_msg_id),
+                "sent_at": sent_at.isoformat(),
+                "snippet": " ".join(text.split())[:SNIPPET],
+            }
+            for mid, channel, thread_ref, provider_msg_id, sent_at, text in hits
+        ]
+        summary = f"Found {len(rows)} matching message(s)." if rows else "No messages match that search."
+        return StepResult(step.intent, True, summary, {"messages": rows}, "inbox")
 
 
 def briefing_now(ctx: Ctx, step: PlanStep) -> StepResult:
@@ -171,3 +200,27 @@ def open_view(ctx: Ctx, step: PlanStep) -> StepResult:
 
 def clarify(ctx: Ctx, step: PlanStep) -> StepResult:
     return StepResult(step.intent, True, safe_question(step.text or ""), None, None)
+
+def query_data(ctx: Ctx, step: PlanStep) -> StepResult:
+    """Executes a natural language analytical/reporting query using the Custom Query Agent."""
+    query = (step.text or ctx.question or "").strip()
+    if not query:
+        return failed(step, NEED_DETAIL)
+
+    from app.tools.query_agent.agent import run_query_agent
+
+    response = run_query_agent(
+        engine=ctx.engine,
+        settings=ctx.settings,
+        company_id=ctx.company_id,
+        question=query,
+    )
+
+    data = {
+        "sql": response.sql,
+        "rows": response.rows,
+        "row_count": response.row_count,
+        "duration_ms": response.duration_ms,
+    }
+    return StepResult(step.intent, response.ok, response.answer, data, None)
+

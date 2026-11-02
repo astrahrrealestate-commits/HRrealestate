@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useRef } from "react";
-import { prewarmAgentPage } from "@/lib/api";
+import { prewarmAgentPage, AssistantCard, ConversationSummaryItem, getAgentConversations, getConversationDetail, updateAgentConversation, PreviewCardData } from "@/lib/api";
 
 export interface AssistantAction {
   label: string;
@@ -23,30 +23,15 @@ export interface AssistantMessage {
     body: string;
   };
   steps?: string[];
-  previewCard?: {
-    type: string;
-    channel?: string;
-    recipient?: string;
-    unitLabel?: string;
-    subject?: string | null;
-    body?: string;
-    actionId?: string | null;
-    caseId?: string | null;
-    title?: string;
-    subtitle?: string;
-    badgeLabel?: string;
-    badgeColor?: "orange" | "emerald" | "amber" | "blue" | "red";
-    amount?: string;
-    status?: string;
-    dueDate?: string;
-    contractor?: string;
-    targetUrl?: string;
-  } | null;
+  previewCard?: PreviewCardData | null;
+  previewCards?: PreviewCardData[];
+  cards?: AssistantCard[];
   debugInfo?: {
     pipeline_stage: string;
     fallback_reason?: string | null;
   } | null;
   actions?: AssistantAction[];
+  suggestedPrompts?: string[];
 }
 
 export interface ActiveDrawerInfo {
@@ -70,6 +55,18 @@ interface SuperAgentContextType {
   clearMessages: () => void;
   activeDrawerInfo: ActiveDrawerInfo | null;
   setActiveDrawerInfo: (info: ActiveDrawerInfo | null) => void;
+  currentConversationId: string | null;
+  setCurrentConversationId: (id: string | null) => void;
+  conversationTitle: string;
+  setConversationTitle: (title: string) => void;
+  conversations: ConversationSummaryItem[];
+  refreshConversations: () => Promise<void>;
+  isHistoryOpen: boolean;
+  setIsHistoryOpen: (open: boolean) => void;
+  toggleHistoryOpen: () => void;
+  startNewChat: () => void;
+  selectConversation: (id: string) => Promise<void>;
+  isLoadingConversation: boolean;
 }
 
 const SuperAgentContext = createContext<SuperAgentContextType | null>(null);
@@ -100,7 +97,67 @@ export function SuperAgentProvider({ children }: { children: React.ReactNode }) 
   const [selectedContext, setSelectedContext] = useState<string>("The whole page");
   const [messages, setMessages] = useState<AssistantMessage[]>([DEFAULT_INITIAL_MESSAGE]);
   const [activeDrawerInfo, setActiveDrawerInfo] = useState<ActiveDrawerInfo | null>(null);
+  const [currentConversationId, setCurrentConversationIdState] = useState<string | null>(null);
+  const [conversationTitle, setConversationTitle] = useState<string>("New Chat");
+  const [conversations, setConversations] = useState<ConversationSummaryItem[]>([]);
+  const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
+  const [isLoadingConversation, setIsLoadingConversation] = useState<boolean>(false);
   const isInitialized = useRef<boolean>(false);
+
+  const setCurrentConversationId = (id: string | null) => {
+    setCurrentConversationIdState(id);
+    if (id) {
+      try { localStorage.setItem("estateos_superagent_conv_id", id); } catch {}
+    } else {
+      try { localStorage.removeItem("estateos_superagent_conv_id"); } catch {}
+    }
+  };
+
+  const refreshConversations = async () => {
+    const list = await getAgentConversations();
+    setConversations(list);
+  };
+
+  const startNewChat = () => {
+    setCurrentConversationId(null);
+    setConversationTitle("New Chat");
+    setMessages([DEFAULT_INITIAL_MESSAGE]);
+    setIsHistoryOpen(false);
+  };
+
+  const selectConversation = async (id: string) => {
+    setIsLoadingConversation(true);
+    try {
+      const detail = await getConversationDetail(id);
+      if (detail) {
+        setCurrentConversationId(detail.id);
+        setConversationTitle(detail.title || "Conversation");
+        if (detail.turns && detail.turns.length > 0) {
+          const parsedMsgs: AssistantMessage[] = detail.turns.map((t) => ({
+            id: t.id,
+            sender: t.sender,
+            timestamp: t.timestamp || "Just now",
+            text: t.text,
+            steps: t.steps,
+            previewCard: t.previewCard,
+            cards: t.cards,
+            actions: t.actions as any,
+            suggestedPrompts: t.suggestedPrompts,
+          }));
+          setMessages(parsedMsgs);
+        } else {
+          setMessages([DEFAULT_INITIAL_MESSAGE]);
+        }
+      }
+    } finally {
+      setIsLoadingConversation(false);
+      setIsHistoryOpen(false);
+    }
+  };
+
+  const toggleHistoryOpen = () => {
+    setIsHistoryOpen((prev) => !prev);
+  };
 
   // Load persistent open state, mode & messages across page navigations
   useEffect(() => {
@@ -115,27 +172,17 @@ export function SuperAgentProvider({ children }: { children: React.ReactNode }) 
       } else {
         setPanelModeState("center");
       }
-      const storedMsgs = sessionStorage.getItem(MESSAGES_KEY);
-      if (storedMsgs) {
-        const parsed = JSON.parse(storedMsgs);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setMessages(parsed);
-        }
+      const savedConvId = localStorage.getItem("estateos_superagent_conv_id");
+      if (savedConvId) {
+        selectConversation(savedConvId);
       }
+      refreshConversations();
     } catch {} finally {
       isInitialized.current = true;
     }
   }, []);
 
-  // Save messages in sessionStorage whenever they update (guarded against initial load race condition)
-  useEffect(() => {
-    if (!isInitialized.current) return;
-    try {
-      if (messages.length > 0) {
-        sessionStorage.setItem(MESSAGES_KEY, JSON.stringify(messages));
-      }
-    } catch {}
-  }, [messages]);
+// SessionStorage replaced by Postgres turn persistence
 
   // Debounced background pre-warming of open page facts (Task 4)
   useEffect(() => {
@@ -195,6 +242,18 @@ export function SuperAgentProvider({ children }: { children: React.ReactNode }) 
         clearMessages,
         activeDrawerInfo,
         setActiveDrawerInfo,
+        currentConversationId,
+        setCurrentConversationId,
+        conversationTitle,
+        setConversationTitle,
+        conversations,
+        refreshConversations,
+        isHistoryOpen,
+        setIsHistoryOpen,
+        toggleHistoryOpen,
+        startNewChat,
+        selectConversation,
+        isLoadingConversation,
       }}
     >
       {children}
@@ -222,6 +281,18 @@ export function useSuperAgent() {
       clearMessages: () => {},
       activeDrawerInfo: null,
       setActiveDrawerInfo: () => {},
+      currentConversationId: null,
+      setCurrentConversationId: () => {},
+      conversationTitle: "New Chat",
+      setConversationTitle: () => {},
+      conversations: [],
+      refreshConversations: async () => {},
+      isHistoryOpen: false,
+      setIsHistoryOpen: () => {},
+      toggleHistoryOpen: () => {},
+      startNewChat: () => {},
+      selectConversation: async () => {},
+      isLoadingConversation: false,
     };
   }
   return context;

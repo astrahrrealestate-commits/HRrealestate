@@ -20,6 +20,7 @@ from app.ingestion.process import is_transient
 from app.llm.calls import is_transient as llm_transient
 from app.pipeline.link import link_message
 from app.pipeline.propose import propose_for_message
+from app.tools.message_rag import index_message
 from app.pipeline.understand import (
     mark_pipeline_done,
     mark_pipeline_failed,
@@ -98,6 +99,15 @@ def resolve_step(message_id: str) -> None:
     resolve_message_sender(get_engine(), _as_uuid(message_id))
 
 
+@DBOS.step(name="pipeline.index_message", **_RETRY)
+def index_message_step(message_id: str) -> str:
+    try:
+        return index_message(get_engine(), get_settings(), _as_uuid(message_id))
+    except Exception as exc:
+        log.warning("pipeline.index_message_failed", error=str(exc), message_id=message_id)
+        return "failed"
+
+
 @DBOS.step(name="pipeline.link", **_RETRY)
 def link_step(message_id: str) -> str | None:
     result = link_message(get_engine(), get_settings(), _as_uuid(message_id))
@@ -148,6 +158,10 @@ def _after_understanding(message_id: str, final_failure: bool) -> bool:
         return False
     if final_failure:
         alert_unreadable_step(company_id, message_id)
+    try:
+        index_message_step(message_id)
+    except Exception as exc:
+        log.warning("pipeline.index_step_failed", error=str(exc), message_id=message_id)
     proposed = propose_step(message_id)
     for approval_id in proposed["approval_ids"]:
         send_card_step(company_id, approval_id)

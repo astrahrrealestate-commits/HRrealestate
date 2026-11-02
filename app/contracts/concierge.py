@@ -22,17 +22,19 @@ class Intent(StrEnum):
     pause = "pause"
     resume = "resume"
     draft_reply = "draft_reply"
+    show_drafts = "show_drafts"
     chase_now = "chase_now"
     file_document = "file_document"
     find_document = "find_document"
     read_document = "read_document"
+    query_data = "query_data"
     open_view = "open_view"
     clarify = "clarify"
 
 
 class PlanStep(Contract):
     intent: Intent
-    case_id: UUID | None  # only for case_status, draft_reply, chase_now, open_view
+    case_id: UUID | None  # only for case_status, draft_reply, show_drafts, chase_now, open_view
     task_ref: Annotated[str, max_len(8)] | None  # 6-hex task ref
     text: Annotated[str, max_len(400)] | None  # query, task title, clarify question, snooze like "2d"
     view: Literal["inbox", "cases", "tasks", "approvals", "waiting"] | None
@@ -48,3 +50,4 @@ class ConciergePlan(Contract):
     # concierge/v3: the planner's own answer to a page/chat question (one model call). Untrusted model text: the
     # executor screens it (scope, redaction, cap) before Harjot sees it and never reads ids from it. Null for actions.
     reply: Annotated[str, max_len(MAX_REPLY)] | None
+    suggestions: Annotated[list[str], Field(default_factory=list, max_length=3)]

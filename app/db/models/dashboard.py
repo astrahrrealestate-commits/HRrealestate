@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import ForeignKey, Index, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -31,11 +31,18 @@ class AgentConversation(Base, CompanyScoped):
     __tablename__ = "agent_conversations"
 
     owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("owner_accounts.id"))
+    title: Mapped[str] = mapped_column(String(255), default="New Chat", server_default="New Chat")
     summary: Mapped[str] = mapped_column(Text, default="", server_default="")
     summary_through: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("agent_turns.id", ondelete="SET NULL", use_alter=True)
     )
     summary_version: Mapped[int] = mapped_column(default=0, server_default="0")
+    last_turn_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), index=True
+    )
+    hidden_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None, nullable=True)
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    focus_state: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="'{}'::jsonb")
 
 
 class AgentTurn(Base, CompanyScoped):

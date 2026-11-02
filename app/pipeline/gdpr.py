@@ -13,12 +13,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
 from app.db.enums import MemoryScope, MemoryStatus
-from app.db.models import ChannelIdentity, MemoryItem, MessageRow, Person, PersonProfile
+from app.db.models import ChannelIdentity, MemoryItem, MessageChunk, MessageIndexState, MessageRow, Person, PersonProfile
 
 log = get_logger(__name__)
 
@@ -122,6 +122,24 @@ def erase_person(
         ci.identity = f"erased-{ci.id}@gdpr.local"
         ci.valid_to = today
     identities_cleared = len(cis)
+
+    # 5b. Remove message_chunks and indexing state for this person
+    session.execute(
+        delete(MessageChunk).where(
+            MessageChunk.company_id == company_id,
+            or_(
+                MessageChunk.person_id == person_id,
+                MessageChunk.participant_ids.contains([person_id]),
+            ),
+        )
+    )
+    if msg_ids:
+        session.execute(
+            delete(MessageIndexState).where(
+                MessageIndexState.company_id == company_id,
+                MessageIndexState.message_id.in_(msg_ids),
+            )
+        )
 
     # 6. Anonymize person directory entry
     person = session.scalar(

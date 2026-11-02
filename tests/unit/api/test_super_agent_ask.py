@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from app.contracts import ConciergePlan, Intent, PlanStep
+from app.contracts import ActionType, ConciergePlan, Intent, PlanStep
 from app.core.settings import Settings
 from app.db.models import ActionRow, Approval, Case, Company
 from app.main import create_app
@@ -180,6 +180,7 @@ def test_draft_card_uses_real_action_payload():
         id=act_id,
         company_id=comp_id,
         case_id=case_id,
+        type=ActionType.reply_draft,
         payload={
             "channel": "whatsapp",
             "to": "+31698765432",
@@ -330,83 +331,122 @@ def test_open_view_waiting_maps_to_dashboard_not_maintenance():
         assert nav_action["label"] == "View Waiting Radar on Dashboard"
 
 
-def test_resolve_draft_card_fallback():
-    """Verify that _resolve_draft_card properly returns a draft preview card using consolidated session (Issue #4)."""
+def test_resolve_draft_card_strict_reply_draft():
+    """Verify that _resolve_draft_card renders a draft_message card only for reply_draft actions with real recipient."""
     from app.api.agent.routes import _resolve_draft_card
-    from app.db.models import Unit
+    from app.contracts import ActionType
+    from app.db.enums import ApprovalStatus
+    from app.db.models import ActionRow, Approval, Case, Unit
 
     mock_engine = MagicMock()
     mock_sess = MagicMock()
 
+    test_approval_id = uuid4()
+    test_action_id = uuid4()
     test_case_id = uuid4()
     test_unit_id = uuid4()
-    mock_case = MagicMock()
+
+    mock_appr = MagicMock(spec=Approval)
+    mock_appr.id = test_approval_id
+    mock_appr.action_id = test_action_id
+    mock_appr.status = ApprovalStatus.pending
+
+    mock_act = MagicMock(spec=ActionRow)
+    mock_act.id = test_action_id
+    mock_act.case_id = test_case_id
+    mock_act.type = ActionType.reply_draft
+    mock_act.payload = {
+        "channel": "whatsapp",
+        "body": "Hi Vipin, our emergency plumber Kevin van Dijk is en route.",
+    }
+
+    mock_case = MagicMock(spec=Case)
     mock_case.id = test_case_id
     mock_case.unit_id = test_unit_id
 
-    mock_unit = MagicMock()
-    mock_unit.id = test_unit_id
-    mock_unit.address = "Herengracht 101, Amsterdam"
-
-    def mock_get(model, pk):
-        if model is Unit and pk == test_unit_id:
-            return mock_unit
-        return None
-
-    mock_sess.get.side_effect = mock_get
-    mock_sess.scalars.return_value.first.return_value = mock_case
-    mock_sess.__enter__.return_value = mock_sess
-
-    with patch("app.api.agent.routes.Session", return_value=mock_sess):
-        card = _resolve_draft_card(mock_engine, allow_fallback=True)
-        assert card is not None
-        assert card.type == "draft_message"
-        assert card.caseId == str(test_case_id)
-        assert card.unitLabel == "Herengracht 101, Amsterdam"
-        # Without any messages or channel identity in DB, recipient safely falls back to empty string
-        assert card.recipient == ""
-        assert "Beste bewoner" in card.body
-
-
-
-
-
-
-def test_resolve_draft_card_with_linked_message_recipient():
-    """Verify that _resolve_draft_card dynamically pulls real recipient phone from linked message."""
-    from app.api.agent.routes import _resolve_draft_card
-    from app.db.models import Unit
-    mock_engine = MagicMock()
-    mock_sess = MagicMock()
-
-    test_case_id = uuid4()
-    test_unit_id = uuid4()
-    mock_case = MagicMock()
-    mock_case.id = test_case_id
-    mock_case.unit_id = test_unit_id
-    mock_case.primary_person_id = None
-
-    mock_unit = MagicMock()
+    mock_unit = MagicMock(spec=Unit)
     mock_unit.id = test_unit_id
     mock_unit.address = "Keizersgracht 42-A, Amsterdam"
 
     def mock_get(model, pk):
+        if model is Approval and pk == test_approval_id:
+            return mock_appr
+        if model is ActionRow and pk == test_action_id:
+            return mock_act
+        if model is Case and pk == test_case_id:
+            return mock_case
         if model is Unit and pk == test_unit_id:
             return mock_unit
         return None
 
     mock_sess.get.side_effect = mock_get
-    mock_sess.scalars.return_value.first.return_value = mock_case
     mock_sess.__enter__.return_value = mock_sess
 
     with patch("app.api.agent.routes.Session", return_value=mock_sess):
-        with patch("app.api.agent.routes._find_case_recipient", return_value=("+31612345678", "whatsapp")):
-            card = _resolve_draft_card(mock_engine, allow_fallback=True)
+        with patch("app.api.agent.routes._find_case_recipient", return_value=("+31612345678", "whatsapp", None, None)):
+            card = _resolve_draft_card(mock_engine, approval_ids=[str(test_approval_id)])
             assert card is not None
             assert card.type == "draft_message"
             assert card.recipient == "+31612345678"
             assert card.channel == "whatsapp"
             assert card.unitLabel == "Keizersgracht 42-A, Amsterdam"
+            assert "Kevin van Dijk" in card.body
+
+
+def test_resolve_draft_card_renders_notice_for_notify_owner():
+    """Verify that notify_owner actions render as notice cards, never disguised as a draft message (WP2)."""
+    from app.api.agent.routes import _resolve_draft_card
+    from app.contracts import ActionType
+    from app.db.enums import ApprovalStatus
+    from app.db.models import ActionRow, Approval, Case, Unit
+
+    mock_engine = MagicMock()
+    mock_sess = MagicMock()
+
+    test_approval_id = uuid4()
+    test_action_id = uuid4()
+    test_case_id = uuid4()
+
+    mock_appr = MagicMock(spec=Approval)
+    mock_appr.id = test_approval_id
+    mock_appr.action_id = test_action_id
+    mock_appr.status = ApprovalStatus.pending
+
+    mock_act = MagicMock(spec=ActionRow)
+    mock_act.id = test_action_id
+    mock_act.case_id = test_case_id
+    mock_act.type = ActionType.notify_owner
+    mock_act.payload = {
+        "kind": "notify_owner",
+        "text": "EstateOS could not draft a reply for a new message on this case. Please look at it yourself.",
+    }
+
+    def mock_get(model, pk):
+        if model is Approval and pk == test_approval_id:
+            return mock_appr
+        if model is ActionRow and pk == test_action_id:
+            return mock_act
+        return None
+
+    mock_sess.get.side_effect = mock_get
+    mock_sess.__enter__.return_value = mock_sess
+
+    with patch("app.api.agent.routes.Session", return_value=mock_sess):
+        card = _resolve_draft_card(mock_engine, approval_ids=[str(test_approval_id)])
+        assert card is not None
+        assert card.type == "notice"
+        assert card.badgeLabel == "NOTICE"
+        assert "EstateOS could not draft a reply" in card.body
+        assert card.actionId == str(test_action_id)
+
+
+def test_resolve_draft_card_returns_none_without_approvals():
+    """Verify that without approval_ids, _resolve_draft_card returns None (no arbitrary fallback)."""
+    from app.api.agent.routes import _resolve_draft_card
+
+    mock_engine = MagicMock()
+    assert _resolve_draft_card(mock_engine, approval_ids=None) is None
+    assert _resolve_draft_card(mock_engine, approval_ids=[]) is None
 
 
 def test_priority_inquiry_matches_urgent_case_not_newsletter():

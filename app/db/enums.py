@@ -214,3 +214,10 @@ class MemoryOrigin(StrEnum):
     owner = "owner"
     distilled = "distilled"
     system = "system"
+
+
+class MessageIndexStatus(StrEnum):
+    pending = "pending"
+    indexed = "indexed"
+    skipped = "skipped"
+    failed = "failed"

@@ -34,7 +34,7 @@ QUOTE_STRIP_MAX_CHARS = 32_000  # worst case ~0.15 s per mail; longer texts stay
 QUOTE_STRIP_MAX_LINE = 500  # reply headers are short; long lines make the reply parser quadratic
 MAX_REFERENCES_CHARS = 16_000
 
-_REPLY_PARSER = EmailReplyParser(languages=["de", "en"])
+_REPLY_PARSER = EmailReplyParser(languages=["nl", "de", "en"])
 _CID_REF = re.compile(r"cid:([^\"'\s>)]+)", re.IGNORECASE)
 _FORWARD_MARKERS = re.compile(
     r"^-{3,}\s*(Forwarded message|Weitergeleitete Nachricht|Original-Nachricht)\s*-{3,}\s*$"
