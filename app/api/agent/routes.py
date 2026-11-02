@@ -18,10 +18,10 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_engine, get_settings_dep
 from app.context import memory_items
 from app.context.compiler import compile_concierge_context
-from app.contracts import ConciergePlan, Intent
+from app.contracts import ActionType, Channel, ConciergePlan, Direction, Intent
 from app.core.logging import get_logger
 from app.core.settings import Settings
-from app.db.enums import MemoryKind, MemoryScope, MemoryStatus, TurnStatus
+from app.db.enums import ActionStatus, ApprovalStatus, MemoryKind, MemoryScope, MemoryStatus, TurnStatus
 from app.channels.calendar import get_calendar_client
 from app.db.models import (
     ActionRow,
@@ -306,44 +306,61 @@ def _domain_fallback_answer(query: str, live_cases_text: str = "", is_error: boo
         return f"**EstateOS Live Status:**\n\n{live_cases_text or '• 0 open cases in database.'}"
 
 
-def _find_case_recipient(session: Session, target_case: Case) -> tuple[str, str, str | None]:
-    """Finds the true recipient (phone/email), channel, and thread_ref for a case from its linked messages or tenant identity."""
-    # 1. Check latest linked message for this case (prioritizing inbound to know who to reply to)
+def _find_case_recipient(session: Session, target_case: Case) -> tuple[str, str, str | None, str | None]:
+    """Finds the true recipient (phone/email), channel, thread_ref, and failure reason for a case.
+
+    Rules:
+    - Use the channel of the latest inbound message.
+    - Match active ChannelIdentity for target_case.primary_person_id (valid_to is None) on that channel.
+    - Never use an outbound message's sender as the recipient.
+    - If no recipient exists, return clear reason.
+    Returns: (recipient, channel, thread_ref, reason_if_missing)
+    """
     try:
         inbound_msg = session.scalars(
             select(MessageRow)
             .join(CaseLink, CaseLink.message_id == MessageRow.id)
-            .where(CaseLink.case_id == target_case.id, MessageRow.direction != Direction.outbound)
-            .order_by(MessageRow.sent_at.desc())
+            .where(
+                CaseLink.case_id == target_case.id,
+                MessageRow.direction == Direction.inbound,
+            )
+            .order_by(MessageRow.sent_at.desc(), MessageRow.id.desc())
             .limit(1)
         ).first()
 
-        latest_msg = inbound_msg or session.scalars(
-            select(MessageRow)
-            .join(CaseLink, CaseLink.message_id == MessageRow.id)
-            .where(CaseLink.case_id == target_case.id)
-            .order_by(MessageRow.sent_at.desc())
-            .limit(1)
-        ).first()
+        if inbound_msg:
+            ch_raw = inbound_msg.channel
+            chan_str = ch_raw.value if hasattr(ch_raw, "value") else str(ch_raw)
+            thread_ref = inbound_msg.thread_ref
 
-        if latest_msg:
-            ch_raw = getattr(latest_msg, "channel", Channel.whatsapp)
-            ch = str(ch_raw.value) if hasattr(ch_raw, "value") else str(ch_raw)
-            if hasattr(ch_raw, "_mock_name"):
-                ch = "whatsapp"
-            thread_ref = str(latest_msg.thread_ref) if getattr(latest_msg, "thread_ref", None) and not hasattr(latest_msg.thread_ref, "_mock_name") else None
-            # Sender identity holds the real phone (+31...) or email (name@...)
-            recip = str(latest_msg.sender_identity) if getattr(latest_msg, "sender_identity", None) and not hasattr(latest_msg.sender_identity, "_mock_name") else ""
-            if not recip and thread_ref and ("@" in thread_ref or thread_ref.startswith("+") or thread_ref.isdigit()):
-                recip = thread_ref
-            if recip:
-                return recip, ch, thread_ref
-    except Exception as err:
-        log.warning("api.superagent.find_case_msg_failed", error=str(err))
+            # Primary: person channel identity matching this inbound channel
+            if target_case.primary_person_id:
+                ident = session.scalars(
+                    select(ChannelIdentity)
+                    .where(
+                        ChannelIdentity.person_id == target_case.primary_person_id,
+                        ChannelIdentity.channel == ch_raw,
+                        ChannelIdentity.valid_to.is_(None),
+                    )
+                    .order_by(ChannelIdentity.created_at.desc())
+                    .limit(1)
+                ).first()
+                if ident and ident.identity:
+                    return str(ident.identity).strip(), chan_str, thread_ref, None
 
-    # 2. Check tenant channel identity via primary_person_id
-    if getattr(target_case, "primary_person_id", None) and not hasattr(target_case.primary_person_id, "_mock_name"):
-        try:
+            # Secondary fallback for inbound: sender_identity on the inbound message
+            if inbound_msg.sender_identity:
+                sender_id = str(inbound_msg.sender_identity).strip()
+                if chan_str == "gmail" and "@" in sender_id:
+                    return sender_id, chan_str, thread_ref, None
+                elif chan_str == "whatsapp" and re.sub(r"[^0-9]", "", sender_id):
+                    return sender_id, chan_str, thread_ref, None
+
+            reason = f"no_{chan_str}_on_file" if target_case.primary_person_id else "no_primary_person"
+            return "", chan_str, thread_ref, reason
+
+        # No inbound message found: inspect tenant identity directly
+        if target_case.primary_person_id:
             ident = session.scalars(
                 select(ChannelIdentity)
                 .where(
@@ -353,128 +370,107 @@ def _find_case_recipient(session: Session, target_case: Case) -> tuple[str, str,
                 .order_by(ChannelIdentity.created_at.desc())
                 .limit(1)
             ).first()
-            if ident and getattr(ident, "identity", None) and not hasattr(ident, "_mock_name"):
-                id_val = str(ident.identity) if not hasattr(ident.identity, "_mock_name") else ""
-                ch_raw = getattr(ident, "channel", Channel.whatsapp)
-                ch = str(ch_raw.value) if hasattr(ch_raw, "value") else str(ch_raw)
-                if hasattr(ch_raw, "_mock_name"):
-                    ch = "whatsapp"
-                if id_val:
-                    return id_val, ch, None
-        except Exception as err:
-            log.warning("api.superagent.find_person_ident_failed", error=str(err))
+            if ident and ident.identity:
+                ch_raw = ident.channel
+                chan_str = ch_raw.value if hasattr(ch_raw, "value") else str(ch_raw)
+                return str(ident.identity).strip(), chan_str, None, None
 
-    return "", "whatsapp", None
+        return "", "whatsapp", None, "no_inbound_or_identity"
+    except Exception as err:
+        log.warning("api.superagent.find_case_recipient_failed", error=str(err), exc_info=True)
+        return "", "whatsapp", None, "lookup_error"
 
 
 def _resolve_draft_card(
     engine: Engine,
     approval_ids: list[str] | None = None,
-    allow_fallback: bool = False,
     company_id: UUID | None = None,
 ) -> PreviewCardData | None:
-    """Consolidated helper to fetch draft message preview data in a single session scope."""
+    """Consolidated helper to fetch draft message or notice preview data in a single session scope."""
+    if not approval_ids:
+        return None
+
     with Session(engine) as session:
-        if approval_ids:
-            try:
-                appr = session.get(Approval, UUID(approval_ids[0])) if approval_ids else None
-                if appr:
-                    act = session.get(ActionRow, appr.action_id)
-                    if act and act.payload:
-                        payload = act.payload
-                        target_case = session.get(Case, act.case_id)
-                        unit = session.get(Unit, target_case.unit_id) if target_case and target_case.unit_id else None
-                        unit_label = unit.address if unit else "Portfolio Unit"
+        try:
+            appr = session.get(Approval, UUID(approval_ids[0])) if approval_ids else None
+            if not appr:
+                return None
 
-                        # Resolve recipient from action payload or real linked case message
-                        resolved_recipient = payload.get("to") or payload.get("recipient")
-                        channel = payload.get("channel", "whatsapp")
-                        resolved_thread_ref = None
-                        if target_case:
-                            recip_from_db, resolved_channel, resolved_thread_ref = _find_case_recipient(session, target_case)
-                            if not resolved_recipient and recip_from_db:
-                                resolved_recipient = recip_from_db
-                            if resolved_channel:
-                                channel = resolved_channel
+            act = session.get(ActionRow, appr.action_id)
+            if not act or not act.payload:
+                return None
 
-                        variants = payload.get("body_variants") or []
-                        extracted_body = (variants[0] if isinstance(variants, list) and variants else "") or payload.get("body") or payload.get("text") or ""
-                        draft_body = (
-                            extracted_body
-                            or "Beste bewoner,\n\nDank voor uw bericht. We hebben uw melding ontvangen en zijn direct bezig met de opvolging.\n\nMet vriendelijke groet,\nHarjot — EstateOS"
-                        )
+            payload = act.payload
+            target_case = session.get(Case, act.case_id) if act.case_id else None
+            unit = session.get(Unit, target_case.unit_id) if target_case and target_case.unit_id else None
+            unit_label = unit.address if unit else "Portfolio Unit"
+            case_id_str = str(act.case_id) if act.case_id else None
+            action_id_str = str(act.id)
+            appr_status_str = appr.status.value if hasattr(appr.status, "value") else str(appr.status)
 
-                        clean_phone = re.sub(r"[^0-9]", "", str(resolved_recipient or ""))
-                        chan_str = str(channel) if channel and not hasattr(channel, "_mock_name") else "whatsapp"
-                        ext_url = None
-                        thread_url = None
-                        if chan_str == "whatsapp" and clean_phone:
-                            ext_url = f"https://wa.me/{clean_phone}?text={quote_plus(draft_body)}"
-                            thread_url = f"https://wa.me/{clean_phone}"
-                        elif chan_str == "gmail" and resolved_recipient:
-                            subj_str = str(payload.get("subject") or "")
-                            ext_url = f"https://mail.google.com/mail/?view=cm&fs=1&to={quote_plus(str(resolved_recipient))}&su={quote_plus(subj_str)}&body={quote_plus(draft_body)}"
-                            if resolved_thread_ref:
-                                thread_url = f"https://mail.google.com/mail/u/0/#inbox/{resolved_thread_ref}"
-                            else:
-                                thread_url = f"https://mail.google.com/mail/u/0/#search/{quote_plus(str(resolved_recipient))}"
-
-                        return PreviewCardData(
-                            type="draft_message",
-                            channel=chan_str,
-                            recipient=str(resolved_recipient) if resolved_recipient and not hasattr(resolved_recipient, "_mock_name") else "",
-                            unitLabel=str(unit_label) if unit_label and not hasattr(unit_label, "_mock_name") else "Portfolio Unit",
-                            subject=str(payload.get("subject")) if payload.get("subject") and not hasattr(payload.get("subject"), "_mock_name") else None,
-                            body=str(draft_body) if draft_body and not hasattr(draft_body, "_mock_name") else "",
-                            actionId=str(act.id),
-                            caseId=str(act.case_id),
-                            externalUrl=ext_url,
-                            threadSearchUrl=thread_url,
-                        )
-            except Exception as e:
-                log.warning("api.superagent.resolve_draft_failed", error=str(e))
-
-        if allow_fallback:
-            query = select(Case).where(Case.state.in_(case_repo.OPEN_STATES))
-            if company_id:
-                query = query.where(Case.company_id == company_id)
-            target_case = session.scalars(query.order_by(Case.opened_at.desc()).limit(1)).first()
-            if target_case:
-                unit = session.get(Unit, target_case.unit_id) if target_case.unit_id else None
-                unit_label = unit.address if unit else "Portfolio Unit"
-                case_id = str(target_case.id)
-                body_text = "Beste bewoner,\n\nDank voor uw bericht. We hebben uw melding ontvangen en zijn direct bezig met de opvolging.\n\nMet vriendelijke groet,\nHarjot — EstateOS"
-
-                # Pull the real recipient phone/email for this case from DB
-                real_recipient, ch, thread_ref = _find_case_recipient(session, target_case)
-                chan_str = str(ch) if ch and not hasattr(ch, "_mock_name") else "whatsapp"
-                clean_phone = re.sub(r"[^0-9]", "", str(real_recipient or ""))
-                ext_url = None
-                thread_url = None
-                if chan_str == "whatsapp" and clean_phone:
-                    ext_url = f"https://wa.me/{clean_phone}?text={quote_plus(body_text)}"
-                    thread_url = f"https://wa.me/{clean_phone}"
-                elif chan_str == "gmail" and real_recipient:
-                    ext_url = f"https://mail.google.com/mail/?view=cm&fs=1&to={quote_plus(str(real_recipient))}&su={quote_plus('Maintenance Update')}&body={quote_plus(body_text)}"
-                    if thread_ref:
-                        thread_url = f"https://mail.google.com/mail/u/0/#inbox/{thread_ref}"
-                    else:
-                        thread_url = f"https://mail.google.com/mail/u/0/#search/{quote_plus(str(real_recipient))}"
-
+            # notify_owner and other non-reply_draft types render as a notice card, never as a draft
+            if act.type != ActionType.reply_draft:
+                notice_text = str(payload.get("text") or payload.get("summary") or "Action notice queued for owner review.")
                 return PreviewCardData(
-                    type="draft_message",
-                    channel=chan_str,
-                    recipient=str(real_recipient) if real_recipient and not hasattr(real_recipient, "_mock_name") else "",
-                    unitLabel=str(unit_label) if unit_label and not hasattr(unit_label, "_mock_name") else "Portfolio Unit",
-                    body=body_text,
-                    actionId=f"act-{case_id[:8]}",
-                    caseId=case_id,
-                    externalUrl=ext_url,
-                    threadSearchUrl=thread_url,
+                    type="notice",
+                    badgeLabel="NOTICE",
+                    badgeColor="amber",
+                    unitLabel=unit_label,
+                    title="Draft Generation Notice",
+                    body=notice_text,
+                    actionId=action_id_str,
+                    caseId=case_id_str,
+                    status=appr_status_str,
+                    targetUrl=f"/inbox?thread=case-{case_id_str}" if case_id_str else "/inbox",
                 )
-    return None
 
+            # Strict reply_draft cards
+            resolved_recipient = payload.get("to") or payload.get("recipient")
+            channel = payload.get("channel", "whatsapp")
+            resolved_thread_ref = None
 
+            if target_case:
+                recip_from_db, resolved_channel, resolved_thread_ref, _missing_reason = _find_case_recipient(session, target_case)
+                if not resolved_recipient and recip_from_db:
+                    resolved_recipient = recip_from_db
+                if resolved_channel:
+                    channel = resolved_channel
+
+            variants = payload.get("body_variants") or []
+            extracted_body = (variants[0] if isinstance(variants, list) and variants else "") or payload.get("body") or payload.get("text") or ""
+            draft_body = extracted_body.strip()
+
+            clean_phone = re.sub(r"[^0-9]", "", str(resolved_recipient or ""))
+            chan_str = str(channel.value if hasattr(channel, "value") else channel).lower()
+            ext_url = None
+            thread_url = None
+            if chan_str == "whatsapp" and clean_phone:
+                ext_url = f"https://wa.me/{clean_phone}?text={quote_plus(draft_body)}" if draft_body else f"https://wa.me/{clean_phone}"
+                thread_url = f"https://wa.me/{clean_phone}"
+            elif chan_str == "gmail" and resolved_recipient:
+                subj_str = str(payload.get("subject") or "Maintenance Update")
+                ext_url = f"https://mail.google.com/mail/?view=cm&fs=1&to={quote_plus(str(resolved_recipient))}&su={quote_plus(subj_str)}&body={quote_plus(draft_body)}"
+                if resolved_thread_ref:
+                    thread_url = f"https://mail.google.com/mail/u/0/#inbox/{resolved_thread_ref}"
+                else:
+                    thread_url = f"https://mail.google.com/mail/u/0/#search/{quote_plus(str(resolved_recipient))}"
+
+            return PreviewCardData(
+                type="draft_message",
+                channel=chan_str,
+                recipient=str(resolved_recipient or ""),
+                unitLabel=str(unit_label or "Portfolio Unit"),
+                subject=str(payload.get("subject")) if payload.get("subject") else None,
+                body=draft_body,
+                status=appr_status_str,
+                actionId=action_id_str,
+                caseId=case_id_str,
+                externalUrl=ext_url,
+                threadSearchUrl=thread_url,
+            )
+        except Exception as e:
+            log.warning("api.superagent.resolve_draft_failed", error=str(e), exc_info=True)
+            return None
 
 
 def _resolve_calendar_action(
@@ -1546,7 +1542,7 @@ def ask_agent(
     # Clean, professional execution steps
     has_dirty_step = any(
         any(p in s.lower() for p in ["opening ", "which", "not waiting", "based on active portfolio", "open tasks:", "are you", "can you", "what do you mean"])
-        or len(s) > 75
+        or (len(s) > 90 and not s.startswith("⚠️"))
         or s.lower().startswith("first,")
         for s in step_descriptions
     )
@@ -1605,15 +1601,16 @@ def ask_agent(
     if preview_card:
         card_actions: list[CardActionData] = []
         if preview_card.type == "draft_message":
-            card_actions.append(
-                CardActionData(
-                    label="Accept and send",
-                    kind="api_call",
-                    endpoint=f"/api/inbox/approvals/{preview_card.actionId}/decide" if preview_card.actionId else None,
-                    payload={"decision": "approved"},
-                    variant="primary",
+            if preview_card.status == "pending" or not preview_card.status:
+                card_actions.append(
+                    CardActionData(
+                        label="Accept and send",
+                        kind="api_call",
+                        endpoint=f"/api/inbox/approvals/{preview_card.actionId}/decide" if preview_card.actionId else None,
+                        payload={"decision": "approved"},
+                        variant="primary",
+                    )
                 )
-            )
             if preview_card.externalUrl:
                 label = "Open in WhatsApp" if preview_card.channel == "whatsapp" else "Open in Gmail"
                 card_actions.append(
@@ -1642,6 +1639,24 @@ def ask_agent(
                     variant="secondary",
                 )
             )
+        elif preview_card.type == "notice":
+            card_actions.append(
+                CardActionData(
+                    label="Review in Inbox",
+                    kind="navigate",
+                    targetUrl=preview_card.targetUrl or (f"/inbox?thread=case-{preview_card.caseId}" if preview_card.caseId else "/inbox"),
+                    variant="primary",
+                )
+            )
+            if preview_card.caseId:
+                card_actions.append(
+                    CardActionData(
+                        label="Retry draft",
+                        kind="query",
+                        payload={"query": f"draft a reply for case {preview_card.caseId}"},
+                        variant="secondary",
+                    )
+                )
         elif preview_card.type == "case_summary":
             card_actions.append(
                 CardActionData(

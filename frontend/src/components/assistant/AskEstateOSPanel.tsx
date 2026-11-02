@@ -997,8 +997,53 @@ export function AskEstateOSPanel({
                           )}
                         </div>
                       </div>
+                    ) : msg.previewCard.type === "notice" ? (
+                      /* 5. Notice / Alert Card (WP2: Failed draft / Groq timeout / Rate limit) */
+                      <div className="space-y-2.5">
+                        <div className="flex items-center justify-between text-[11px] text-[#94A3B8]">
+                          <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                            {msg.previewCard.badgeLabel || "NOTICE"}
+                          </span>
+                          <span className="text-[10.5px] font-mono text-[#64748B]">
+                            {msg.previewCard.unitLabel || "Action Required"}
+                          </span>
+                        </div>
+
+                        <div className="text-[13px] font-semibold text-[#F9FAFB]">
+                          {msg.previewCard.title || "Action Notice"}
+                        </div>
+
+                        <div className="p-2.5 rounded-[8px] bg-[#0E1113] border border-amber-500/20 text-[12px] text-[#E2E8F0] leading-relaxed font-sans break-words [overflow-wrap:anywhere]">
+                          {msg.previewCard.body}
+                        </div>
+
+                        <div className="pt-1 flex items-center justify-between gap-2 border-t border-[#1E2328]">
+                          <span className="text-[10px] font-mono text-[#64748B]">
+                            Status: {msg.previewCard.status || "Pending Review"}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            {msg.previewCard.caseId && (
+                              <button
+                                type="button"
+                                onClick={() => handleSendQuery(`draft a reply for case ${msg.previewCard?.caseId}`)}
+                                className="px-2.5 py-1 rounded-[6px] bg-[#181818] hover:bg-[#222222] border border-[#262626] text-[#FFFFFF] text-[11px] font-medium transition-colors cursor-pointer"
+                              >
+                                Retry Draft
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleNavigate(msg.previewCard?.targetUrl || `/inbox?thread=case-${msg.previewCard?.caseId || ""}`)}
+                              className="text-[11px] text-[#F25C05] hover:underline flex items-center gap-1 cursor-pointer font-medium"
+                            >
+                              <span>Open in Inbox</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     ) : (
-                      /* 5. Default: Message Draft Card (WhatsApp / Gmail) */
+                      /* 6. Message Draft Card (WhatsApp / Gmail) */
                       <div className="space-y-2.5">
                         <div className="flex items-center justify-between text-[11px] text-[#94A3B8]">
                           <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-[#1F252C] text-[#CBD5E1] border border-[#29323B]">
@@ -1008,13 +1053,15 @@ export function AskEstateOSPanel({
                             {msg.previewCard.recipient ? (
                               <span className="text-[#64748B]">{msg.previewCard.recipient}</span>
                             ) : (
-                              <span className="text-amber-400 font-sans text-[10px]">⚠️ No recipient phone on file</span>
+                              <span className="text-amber-400 font-sans text-[10px]">
+                                {msg.previewCard.channel?.toLowerCase() === "gmail" ? "⚠️ No recipient email on file" : "⚠️ No recipient phone on file"}
+                              </span>
                             )}
                           </span>
                         </div>
 
                         <div className="p-2.5 rounded-[8px] bg-[#0E1113] border border-[#1E2328] text-[12px] text-[#E2E8F0] italic whitespace-pre-line leading-relaxed font-sans break-words [overflow-wrap:anywhere]">
-                          "{msg.previewCard.body && msg.previewCard.body !== "--" ? msg.previewCard.body : "Beste bewoner,\n\nDank voor uw melding. We hebben uw bericht ontvangen en zijn direct bezig met de opvolging.\n\nMet vriendelijke groet,\nHarjot — EstateOS"}"
+                          "{msg.previewCard.body || "(Draft empty)"}"
                         </div>
 
                         <div className="pt-1 flex flex-wrap items-center justify-between gap-2">
@@ -1035,13 +1082,17 @@ export function AskEstateOSPanel({
                                   Retry
                                 </button>
                               </div>
+                            ) : msg.previewCard.status && msg.previewCard.status !== "pending" ? (
+                              <div className="flex items-center gap-1.5 text-[#94A3B8] text-[11.5px] font-medium py-1 capitalize">
+                                <span>Status: {msg.previewCard.status}</span>
+                              </div>
                             ) : (
                               <button
                                 type="button"
                                 onClick={() => handleApproveDraft(msg.id, msg.previewCard?.actionId, msg.previewCard?.caseId)}
                                 disabled={sendingCardId === msg.id || !msg.previewCard?.recipient}
                                 className="px-3 py-1.5 rounded-[7px] bg-[#F25C05] hover:bg-[#d94f00] text-[#0A0A0A] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                                title={!msg.previewCard?.recipient ? "Cannot dispatch: recipient phone is missing" : "Approve and send"}
+                                title={!msg.previewCard?.recipient ? "Cannot dispatch: recipient is missing" : "Approve and send"}
                               >
                                 {sendingCardId === msg.id ? (
                                   <>
