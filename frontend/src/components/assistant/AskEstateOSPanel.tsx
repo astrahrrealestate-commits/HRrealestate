@@ -1619,59 +1619,80 @@ function formatMarkdown(text: string, isDark: boolean = false): string {
     .replace(/^(Opening (cases|inbox|maintenance|money|properties|calendar|documents|approvals)\.?\s*)+/gi, "")
     .trim();
 
-  // 1. Markdown links: [Label](url) -> clean clickable anchor tag with break-all
+  // 1. Clean up excessively long database UUIDs: Case 01a18179-777e-7370-ac07-2a83c3dfddff -> Ticket #01a181
+  clean = clean.replace(/\b(?:case\s+)?([0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "#$1");
+
+  // 2. Markdown links: [Label](url) -> clean clickable anchor tag
   clean = clean.replace(
     /\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g,
-    '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-[#F25C05] hover:text-[#d94f00] underline font-medium inline-flex items-center gap-1 break-all">$1 ↗</a>'
+    '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-amber-600 hover:underline font-medium inline-flex items-center gap-1 break-all">$1 ↗</a>'
   );
 
-  // 2. Structured Headings: ### Header
-  clean = clean.replace(
-    /^###\s+(.*?)$/gm,
-    '<div class=\"text-[11.5px] font-semibold uppercase tracking-wider \" + (isDark ? \"text-[#94A3B8]\" : \"text-[#374151]\") + \" mt-3 mb-1.5 flex items-center gap-1.5\"><span class=\"w-1.5 h-1.5 rounded-full bg-[#F25C05] shrink-0\"></span><span>$1</span></div>'
-  );
-
-  // 3. Executive Callout Quotes: > ...
-  clean = clean.replace(
-    /^>\s+(.*?)$/gm,
-    '<div class=\"border-l-2 border-[#F25C05] \" + (isDark ? \"bg-[#F25C05]/10 text-[#F3F4F6]\" : \"bg-[#FFF1E7] text-[#0A0A0A]\") + \" px-3 py-2 rounded-r-[8px] my-2 text-[12.5px] leading-relaxed font-normal\">$1</div>'
-  );
-
-  // 4. Numbered Step Lists: 1. ...
-  clean = clean.replace(
-    /^(\d+)\.\s+(.*?)$/gm,
-    '<div class="flex items-start gap-2.5 my-1.5"><span class="flex items-center justify-center w-4 h-4 rounded-full \" + (isDark ? \"bg-[#20272F] text-[#94A3B8]\" : \"bg-[#E5E7EB] text-[#374151]\") + \" text-[10px] font-semibold shrink-0 mt-0.5">$1</span><span class="break-words min-w-0 flex-1">$2</span></div>'
-  );
-
-  // 5. Bullet list: • or -
-  clean = clean.replace(
-    /^([•\-])\s+(.*?)$/gm,
-    '<div class="flex items-start gap-2 my-1"><span class="text-[#F25C05] font-bold shrink-0">•</span><span class="break-words min-w-0 flex-1">$2</span></div>'
-  );
-
-  // 6. Currency amounts: €650 or € 650,00 -> monospace tabular-nums pill
-  clean = clean.replace(
-    /(€\s?\d+(?:[.,]\d+)?)/g,
-    '<span class=\"font-mono tabular-nums font-semibold \" + (isDark ? \"text-emerald-300 bg-emerald-500/15 border-emerald-500/30\" : \"text-emerald-800 bg-emerald-50 border-emerald-200\") + \" px-1.5 py-0.5 rounded border text-[12px] inline-block\">$1</span>'
-  );
-
-  // 7. Ticket references: #01a181 or case 01a181
+  // 3. Ticket references: #01a181 (BEFORE any HTML tags with hex colors are injected)
+  const ticketClass = isDark
+    ? "text-sky-300 bg-sky-500/15 border-sky-500/30"
+    : "text-sky-800 bg-sky-50 border-sky-200";
   clean = clean.replace(
     /(#[0-9a-f]{6,8})\b/gi,
-    '<span class=\"font-mono text-[11px] font-semibold \" + (isDark ? \"text-sky-300 bg-sky-500/15 border-sky-500/30\" : \"text-sky-800 bg-sky-50 border-sky-200\") + \" px-1.5 py-0.5 rounded border inline-block\">$1</span>'
+    `<span class="font-mono text-[11px] font-semibold ${ticketClass} px-1.5 py-0.5 rounded border inline-block">$1</span>`
   );
 
-  // 8. Inline backticks: `code`
+  // 4. Currency amounts: €650 or € 650,00 -> monospace tabular-nums pill
+  const currClass = isDark
+    ? "text-emerald-300 bg-emerald-500/15 border-emerald-500/30"
+    : "text-emerald-800 bg-emerald-50 border-emerald-200";
+  clean = clean.replace(
+    /(€\s?\d+(?:[.,]\d+)?)/g,
+    `<span class="font-mono tabular-nums font-semibold ${currClass} px-1.5 py-0.5 rounded border text-[12px] inline-block">$1</span>`
+  );
+
+  // 5. Inline backticks: `code`
+  const codeClass = isDark
+    ? "bg-[#181D22] text-[#E2E8F0] border-[#262F38]"
+    : "bg-[#F3F4F6] text-[#1F2937] border-[#E5E7EB]";
   clean = clean.replace(
     /`([^`]+)`/g,
-    '<code class=\"px-1.5 py-0.5 rounded \" + (isDark ? \"bg-[#181D22] text-[#E2E8F0] border-[#262F38]\" : \"bg-[#F3F4F6] text-[#1F2937] border-[#E5E7EB]\") + \" font-mono text-[12px] break-all border\">$1</code>'
+    `<code class="px-1.5 py-0.5 rounded font-mono text-[12px] break-all border ${codeClass}">$1</code>`
   );
 
-  // 9. Bold: **text**
-  clean = clean.replace(/\*\*(.*?)\*\*/g, `<strong class="${isDark ? "text-[#FFFFFF]" : "text-[#0A0A0A]"} font-semibold">$1</strong>`);
+  // 6. Bold: **text**
+  const boldClass = isDark ? "text-[#FFFFFF]" : "text-[#0A0A0A]";
+  clean = clean.replace(/\*\*(.*?)\*\*/g, `<strong class="${boldClass} font-semibold">$1</strong>`);
 
-  // 10. Italics: *text*
-  clean = clean.replace(/\*(.*?)\*/g, `<em class="${isDark ? "text-[#CCCCCC]" : "text-[#4B5563]"}">$1</em>`);
+  // 7. Italics: *text*
+  const italicClass = isDark ? "text-[#CCCCCC]" : "text-[#4B5563]";
+  clean = clean.replace(/\*(.*?)\*/g, `<em class="${italicClass}">$1</em>`);
+
+  // 8. Structured Headings: ### Header
+  const headingClass = isDark ? "text-[#94A3B8]" : "text-[#374151]";
+  clean = clean.replace(
+    /^###\s+(.*?)$/gm,
+    `<div class="text-[11.5px] font-semibold uppercase tracking-wider ${headingClass} mt-3 mb-1.5 flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span><span>$1</span></div>`
+  );
+
+  // 9. Executive Callout Quotes: > ...
+  const quoteClass = isDark
+    ? "border-amber-500 bg-amber-500/10 text-[#F3F4F6]"
+    : "border-amber-500 bg-amber-50 text-[#0A0A0A]";
+  clean = clean.replace(
+    /^>\s+(.*?)$/gm,
+    `<div class="border-l-2 ${quoteClass} px-3 py-2 rounded-r-[8px] my-2 text-[12.5px] leading-relaxed font-normal">$1</div>`
+  );
+
+  // 10. Numbered Step Lists: 1. ...
+  const numBadgeClass = isDark
+    ? "bg-[#20272F] text-[#94A3B8]"
+    : "bg-[#E5E7EB] text-[#374151]";
+  clean = clean.replace(
+    /^(\d+)\.\s+(.*?)$/gm,
+    `<div class="flex items-start gap-2.5 my-1.5"><span class="flex items-center justify-center w-4 h-4 rounded-full ${numBadgeClass} text-[10px] font-semibold shrink-0 mt-0.5">$1</span><span class="break-words min-w-0 flex-1">$2</span></div>`
+  );
+
+  // 11. Bullet list: • or - (Using CSS class text-amber-500 rather than hex literal so no regex ever collides)
+  clean = clean.replace(
+    /^([•\-])\s+(.*?)$/gm,
+    '<div class="flex items-start gap-2 my-1"><span class="text-amber-500 font-bold shrink-0">•</span><span class="break-words min-w-0 flex-1">$2</span></div>'
+  );
 
   return clean;
 }
