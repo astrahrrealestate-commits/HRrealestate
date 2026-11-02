@@ -57,6 +57,7 @@ export interface AssistantMessage {
   };
   steps?: string[];
   previewCard?: PreviewCardData | null;
+  previewCards?: PreviewCardData[];
   cards?: AssistantCard[];
   debugInfo?: {
     pipeline_stage: string;
@@ -299,6 +300,7 @@ export function AskEstateOSPanel({
         text: res.answer,
         steps: res.steps,
         previewCard: res.previewCard,
+        previewCards: res.previewCards || (res.previewCard ? [res.previewCard] : []),
         cards: res.cards,
         debugInfo: res.debugInfo,
         actions: parsedActions.length > 0 ? parsedActions : undefined,
@@ -886,21 +888,30 @@ export function AskEstateOSPanel({
                   );
                 })()}
 
-                {/* Mini Preview Workspace Card (Single clean container, color reserved for important items) */}
-                {msg.previewCard && (
-                  <div
-                    className={cn(
-                      "mt-3 rounded-[10px] border p-3.5 space-y-2.5 shadow-xs animate-in fade-in-50 duration-150 min-w-0 max-w-full overflow-hidden transition-colors",
-                      isDark ? "bg-[#15181C] border-[#222830]" : "bg-[#FBFBFA] border-[#E8E8E5]"
-                    )}
-                  >
+                {/* Mini Preview Workspace Cards (Smart limit up to 3 cards) */}
+                {(() => {
+                  const cardsToRender: PreviewCardData[] = (msg.previewCards && msg.previewCards.length > 0)
+                    ? msg.previewCards
+                    : (msg.previewCard ? [msg.previewCard] : []);
+                  if (cardsToRender.length === 0) return null;
+
+                  return (
+                    <div className="space-y-2.5 mt-3">
+                      {cardsToRender.map((pCard: PreviewCardData, cardIdx: number) => (
+                        <div
+                          key={pCard.actionId || pCard.caseId || `preview-${cardIdx}`}
+                          className={cn(
+                            "rounded-[10px] border p-3.5 space-y-2.5 shadow-xs animate-in fade-in-50 duration-150 min-w-0 max-w-full overflow-hidden transition-colors",
+                            isDark ? "bg-[#15181C] border-[#222830]" : "bg-[#FBFBFA] border-[#E8E8E5]"
+                          )}
+                        >
                     {/* 1. Case Snapshot Card */}
-                    {msg.previewCard.type === "case_summary" ? (
+                    {pCard.type === "case_summary" ? (
                       (() => {
-                        const cleanBody = cleanCardBody(msg.previewCard.body || msg.previewCard.title);
-                        const contractor = resolveContractorName(msg.previewCard);
-                        const isUrgent = msg.previewCard.badgeLabel === "URGENT" || msg.previewCard.badgeColor === "rose" || /emergency|urgent/i.test(msg.previewCard.title || "");
-                        const poCap = msg.previewCard.amount || (cleanBody.match(/€\s*\d+(?:[.,]\d+)?/)?.[0] ? `${cleanBody.match(/€\s*\d+(?:[.,]\d+)?/)?.[0]} PO Cap` : null);
+                        const cleanBody = cleanCardBody(pCard.body || pCard.title);
+                        const contractor = resolveContractorName(pCard);
+                        const isUrgent = pCard.badgeLabel === "URGENT" || pCard.badgeColor === "rose" || /emergency|urgent/i.test(pCard.title || "");
+                        const poCap = pCard.amount || (cleanBody.match(/€\s*\d+(?:[.,]\d+)?/)?.[0] ? `${cleanBody.match(/€\s*\d+(?:[.,]\d+)?/)?.[0]} PO Cap` : null);
 
                         return (
                           <div className="space-y-2.5">
@@ -919,15 +930,15 @@ export function AskEstateOSPanel({
                                   {isUrgent ? "URGENT" : "TICKET"}
                                 </span>
                                 <span className={cn("font-medium truncate", isDark ? "text-[#F3F4F6]" : "text-[#0A0A0A]")}>
-                                  {msg.previewCard.unitLabel || "Portfolio"}
+                                  {pCard.unitLabel || "Portfolio"}
                                 </span>
                               </div>
-                              {msg.previewCard.status && (
+                              {pCard.status && (
                                 <span className={cn(
                                   "text-[10.5px] font-mono capitalize px-2 py-0.5 rounded border shrink-0",
                                   isDark ? "bg-[#1A1F26] border-[#262F3A] text-[#94A3B8]" : "bg-[#FFFFFF] border-[#E8E8E5] text-[#4B5563]"
                                 )}>
-                                  {msg.previewCard.status}
+                                  {pCard.status}
                                 </span>
                               )}
                             </div>
@@ -956,10 +967,10 @@ export function AskEstateOSPanel({
                               <button
                                 type="button"
                                 onClick={() => {
-                                  if (msg.previewCard?.targetUrl?.startsWith("http")) {
-                                    window.open(msg.previewCard.targetUrl, "_blank", "noopener,noreferrer");
+                                  if (pCard?.targetUrl?.startsWith("http")) {
+                                    window.open(pCard.targetUrl, "_blank", "noopener,noreferrer");
                                   } else {
-                                    handleNavigate(msg.previewCard?.targetUrl || (msg.previewCard?.caseId ? `/maintenance?ticket=${msg.previewCard.caseId}` : "/maintenance"));
+                                    handleNavigate(pCard?.targetUrl || (pCard?.caseId ? `/maintenance?ticket=${pCard.caseId}` : "/maintenance"));
                                   }
                                 }}
                                 className="text-[11px] font-medium text-[#F25C05] hover:text-[#d94f00] flex items-center gap-1 cursor-pointer transition-colors"
@@ -971,7 +982,7 @@ export function AskEstateOSPanel({
                           </div>
                         );
                       })()
-                    ) : msg.previewCard.type === "financial_item" ? (
+                    ) : pCard.type === "financial_item" ? (
                       /* 2. Financial Arrears / Ledger Card (Amount is the important highlight) */
                       <div className="space-y-2">
                         <div className="flex items-center justify-between text-[11px]">
@@ -979,25 +990,25 @@ export function AskEstateOSPanel({
                             "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border",
                             isDark ? "bg-[#1F252C] text-[#CBD5E1] border-[#29323B]" : "bg-[#FFFFFF] text-[#4B5563] border-[#E8E8E5]"
                           )}>
-                            {msg.previewCard.badgeLabel || "ARREARS"}
+                            {pCard.badgeLabel || "ARREARS"}
                           </span>
                           <span className={cn("font-mono text-[14px] font-bold", isDark ? "text-rose-400" : "text-rose-600")}>
-                            {msg.previewCard.amount}
+                            {pCard.amount}
                           </span>
                         </div>
                         <div className={cn("text-[13px] font-semibold break-words", isDark ? "text-[#F9FAFB]" : "text-[#0A0A0A]")}>
-                          {msg.previewCard.title}
+                          {pCard.title}
                         </div>
                         <div className={cn("text-[12px] leading-relaxed break-words [overflow-wrap:anywhere]", isDark ? "text-[#94A3B8]" : "text-[#4B5563]")}>
-                          {cleanCardBody(msg.previewCard.subtitle || msg.previewCard.body)}
+                          {cleanCardBody(pCard.subtitle || pCard.body)}
                         </div>
                         <div className={cn("pt-2 flex items-center justify-between border-t text-[11px]", isDark ? "border-[#1E2328]" : "border-[#E8E8E5]")}>
                           <span className={cn("font-mono text-[10.5px]", isDark ? "text-[#64748B]" : "text-[#888888]")}>
-                            {msg.previewCard.dueDate ? `Due: ${msg.previewCard.dueDate}` : msg.previewCard.unitLabel}
+                            {pCard.dueDate ? `Due: ${pCard.dueDate}` : pCard.unitLabel}
                           </span>
                           <button
                             type="button"
-                            onClick={() => handleNavigate(msg.previewCard?.targetUrl || "/money")}
+                            onClick={() => handleNavigate(pCard?.targetUrl || "/money")}
                             className="font-medium text-[#F25C05] hover:text-[#d94f00] flex items-center gap-1 cursor-pointer transition-colors"
                           >
                             <span>Open in Money</span>
@@ -1005,56 +1016,56 @@ export function AskEstateOSPanel({
                           </button>
                         </div>
                       </div>
-                    ) : msg.previewCard.type === "calendar_item" ? (
+                    ) : pCard.type === "calendar_item" ? (
                       /* Calendar Appointment Proposal Card */
                       <div className="space-y-2.5">
                         <div className="flex items-center justify-between text-[11px]">
                           <div className="flex items-center gap-2">
                             <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-[#1F252C] text-[#CBD5E1] border border-[#29323B] flex items-center gap-1">
                               <Calendar className="w-3 h-3 text-[#F25C05]" />
-                              {msg.previewCard.badgeLabel || "GOOGLE CALENDAR"}
+                              {pCard.badgeLabel || "GOOGLE CALENDAR"}
                             </span>
                             <span className="text-[#F3F4F6] font-medium truncate max-w-[200px]">
-                              {msg.previewCard.unitLabel || "Portfolio Visit"}
+                              {pCard.unitLabel || "Portfolio Visit"}
                             </span>
                           </div>
                           <span
                             className={cn(
                               "text-[10.5px] font-mono capitalize",
-                              approvedCalendarIds.has(msg.id) || msg.previewCard.status === "confirmed"
+                              approvedCalendarIds.has(msg.id) || pCard.status === "confirmed"
                                 ? "text-emerald-400 font-semibold"
                                 : "text-amber-400"
                             )}
                           >
-                            {approvedCalendarIds.has(msg.id) || msg.previewCard.status === "confirmed" ? "Confirmed" : "Proposed"}
+                            {approvedCalendarIds.has(msg.id) || pCard.status === "confirmed" ? "Confirmed" : "Proposed"}
                           </span>
                         </div>
                         <div className="text-[13px] font-semibold text-[#F9FAFB]">
-                          {msg.previewCard.title}
+                          {pCard.title}
                         </div>
                         <div className="p-2.5 rounded-[8px] bg-[#0E1113] border border-[#1E2328] space-y-1.5 text-[12px] text-[#CBD5E1]">
                           <div className="flex items-center gap-1.5 text-[#E2E8F0]">
                             <Clock className="w-3.5 h-3.5 text-[#F25C05]" />
-                            <span className="font-medium">{msg.previewCard.dueDate || msg.previewCard.subtitle}</span>
+                            <span className="font-medium">{pCard.dueDate || pCard.subtitle}</span>
                           </div>
-                          {msg.previewCard.contractor && (
+                          {pCard.contractor && (
                             <div className="text-[#94A3B8] text-[11.5px]">
-                              Contractor: <span className="text-[#F1F5F9]">{msg.previewCard.contractor}</span>
+                              Contractor: <span className="text-[#F1F5F9]">{pCard.contractor}</span>
                             </div>
                           )}
-                          {msg.previewCard.body && (
+                          {pCard.body && (
                             <div className="text-[11.5px] text-[#94A3B8] whitespace-pre-line border-t border-[#1E2328] pt-1 mt-1">
-                              {msg.previewCard.body}
+                              {pCard.body}
                             </div>
                           )}
                         </div>
                         <div className="pt-1.5 flex items-center justify-between border-t border-[#1E2328]">
                           <span className="text-[10.5px] font-mono text-[#64748B]">
-                            {approvedCalendarIds.has(msg.id) || msg.previewCard.status === "confirmed"
+                            {approvedCalendarIds.has(msg.id) || pCard.status === "confirmed"
                               ? "Synced to Google Calendar"
                               : "Requires 1-click confirmation"}
                           </span>
-                          {approvedCalendarIds.has(msg.id) || msg.previewCard.status === "confirmed" ? (
+                          {approvedCalendarIds.has(msg.id) || pCard.status === "confirmed" ? (
                             <div className="flex items-center gap-1.5 text-emerald-400 text-[11.5px] font-semibold">
                               <CheckCircle2 className="w-4 h-4" />
                               <span>Added to Google Calendar</span>
@@ -1062,7 +1073,7 @@ export function AskEstateOSPanel({
                           ) : (
                             <button
                               type="button"
-                              onClick={() => handleApproveCalendar(msg.id, msg.previewCard?.actionId)}
+                              onClick={() => handleApproveCalendar(msg.id, pCard?.actionId)}
                               disabled={approvingCalendarId === msg.id}
                               className="px-3 py-1.5 rounded-[7px] bg-[#F25C05] hover:bg-[#d94f00] text-[#0A0A0A] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
                             >
@@ -1081,41 +1092,41 @@ export function AskEstateOSPanel({
                           )}
                         </div>
                       </div>
-                    ) : msg.previewCard.type === "document_item" ? (
+                    ) : pCard.type === "document_item" ? (
                       /* 3. Document / Google Drive Verified Match Card */
                       <div className="space-y-2">
                         <div className="flex items-center justify-between text-[11px]">
                           <div className="flex items-center gap-2">
                             <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-[#1F252C] text-[#CBD5E1] border border-[#29323B] flex items-center gap-1">
                               <FileText className="w-3 h-3 text-[#F25C05]" />
-                              {msg.previewCard.badgeLabel || "GOOGLE DRIVE"}
+                              {pCard.badgeLabel || "GOOGLE DRIVE"}
                             </span>
                             <span className="text-[#F3F4F6] font-medium truncate max-w-[200px]">
-                              {msg.previewCard.unitLabel || "Portfolio Document"}
+                              {pCard.unitLabel || "Portfolio Document"}
                             </span>
                           </div>
-                          {msg.previewCard.status && (
+                          {pCard.status && (
                             <span className="text-[10.5px] font-mono text-emerald-400">
-                              {msg.previewCard.status}
+                              {pCard.status}
                             </span>
                           )}
                         </div>
                         <div className="text-[13px] font-semibold text-[#F9FAFB]">
-                          {msg.previewCard.title}
+                          {pCard.title}
                         </div>
-                        {msg.previewCard.body && (
+                        {pCard.body && (
                           <div className="p-2.5 rounded-[8px] bg-[#0E1113] border border-[#1E2328] text-[12px] text-[#CBD5E1] font-sans leading-relaxed break-words [overflow-wrap:anywhere]">
-                            {msg.previewCard.body}
+                            {pCard.body}
                           </div>
                         )}
                         <div className="pt-1.5 flex items-center justify-end">
                           <button
                             type="button"
                             onClick={() => {
-                              if (msg.previewCard?.targetUrl?.startsWith("http")) {
-                                window.open(msg.previewCard.targetUrl, "_blank", "noopener,noreferrer");
+                              if (pCard?.targetUrl?.startsWith("http")) {
+                                window.open(pCard.targetUrl, "_blank", "noopener,noreferrer");
                               } else {
-                                handleNavigate(msg.previewCard?.targetUrl || "/documents");
+                                handleNavigate(pCard?.targetUrl || "/documents");
                               }
                             }}
                             className="text-[11px] font-medium text-[#F25C05] hover:text-[#d94f00] flex items-center gap-1 cursor-pointer transition-colors"
@@ -1125,39 +1136,39 @@ export function AskEstateOSPanel({
                           </button>
                         </div>
                       </div>
-                    ) : msg.previewCard.type === "memory_item" ? (
+                    ) : pCard.type === "memory_item" ? (
                       /* 4. Standing Rule / Policy Proposal Card */
                       <div className="space-y-2">
                         <div className="flex items-center justify-between text-[11px]">
                           <div className="flex items-center gap-2">
                             <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-[#1F252C] text-[#CBD5E1] border border-[#29323B] flex items-center gap-1">
                               <Sparkles className="w-3 h-3 text-[#F25C05]" />
-                              {msg.previewCard.badgeLabel || "POLICY PROPOSAL"}
+                              {pCard.badgeLabel || "POLICY PROPOSAL"}
                             </span>
                             <span className="text-[#F3F4F6] font-medium truncate max-w-[200px]">
-                              {msg.previewCard.unitLabel || "Company Portfolio"}
+                              {pCard.unitLabel || "Company Portfolio"}
                             </span>
                           </div>
                           <span className={cn(
                             "text-[10.5px] font-mono",
-                            approvedMemoryIds.has(msg.previewCard.actionId || "") ? "text-emerald-400" : "text-amber-400"
+                            approvedMemoryIds.has(pCard.actionId || "") ? "text-emerald-400" : "text-amber-400"
                           )}>
-                            {approvedMemoryIds.has(msg.previewCard.actionId || "") ? "Active Rule" : "Pending Activation"}
+                            {approvedMemoryIds.has(pCard.actionId || "") ? "Active Rule" : "Pending Activation"}
                           </span>
                         </div>
                         <div className="text-[13px] font-semibold text-[#F9FAFB]">
-                          {msg.previewCard.title || "Proposed Standing Rule"}
+                          {pCard.title || "Proposed Standing Rule"}
                         </div>
-                        {msg.previewCard.body && (
+                        {pCard.body && (
                           <div className="p-2.5 rounded-[8px] bg-[#0E1113] border border-[#1E2328] text-[12px] text-[#CBD5E1] font-sans leading-relaxed break-words [overflow-wrap:anywhere]">
-                            • {msg.previewCard.body}
+                            • {pCard.body}
                           </div>
                         )}
                         <div className="pt-1.5 flex items-center justify-between border-t border-[#1E2328]">
                           <span className="text-[10.5px] font-mono text-[#64748B]">
-                            {approvedMemoryIds.has(msg.previewCard.actionId || "") ? "Enforced across all workflows" : "Requires owner sign-off"}
+                            {approvedMemoryIds.has(pCard.actionId || "") ? "Enforced across all workflows" : "Requires owner sign-off"}
                           </span>
-                          {approvedMemoryIds.has(msg.previewCard.actionId || "") ? (
+                          {approvedMemoryIds.has(pCard.actionId || "") ? (
                             <div className="flex items-center gap-1.5 text-emerald-400 text-[11.5px] font-semibold">
                               <CheckCircle2 className="w-4 h-4" />
                               <span>Rule Activated</span>
@@ -1165,11 +1176,11 @@ export function AskEstateOSPanel({
                           ) : (
                             <button
                               type="button"
-                              onClick={() => handleApproveMemory(msg.previewCard?.actionId || msg.id, msg.previewCard?.actionId)}
-                              disabled={approvingMemoryId === (msg.previewCard?.actionId || msg.id)}
+                              onClick={() => handleApproveMemory(pCard?.actionId || msg.id, pCard?.actionId)}
+                              disabled={approvingMemoryId === (pCard?.actionId || msg.id)}
                               className="px-3 py-1.5 rounded-[7px] bg-[#F25C05] hover:bg-[#d94f00] text-[#0A0A0A] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
                             >
-                              {approvingMemoryId === (msg.previewCard?.actionId || msg.id) ? (
+                              {approvingMemoryId === (pCard?.actionId || msg.id) ? (
                                 <>
                                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                   <span>Activating...</span>
@@ -1184,7 +1195,7 @@ export function AskEstateOSPanel({
                           )}
                         </div>
                       </div>
-                    ) : msg.previewCard.type === "notice" ? (
+                    ) : pCard.type === "notice" ? (
                       /* 5. Notice / Alert Card (WP2: Failed draft / Groq timeout / Rate limit) */
                       <div className="space-y-2.5">
                         <div className="flex items-center justify-between text-[11px]">
@@ -1192,33 +1203,33 @@ export function AskEstateOSPanel({
                             "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border",
                             isDark ? "bg-amber-500/15 text-amber-400 border-amber-500/30" : "bg-amber-50 text-amber-800 border-amber-200"
                           )}>
-                            {msg.previewCard.badgeLabel || "NOTICE"}
+                            {pCard.badgeLabel || "NOTICE"}
                           </span>
                           <span className={cn("text-[10.5px] font-mono", isDark ? "text-[#64748B]" : "text-[#888888]")}>
-                            {msg.previewCard.unitLabel || "Action Required"}
+                            {pCard.unitLabel || "Action Required"}
                           </span>
                         </div>
 
                         <div className={cn("text-[13px] font-semibold", isDark ? "text-[#F9FAFB]" : "text-[#0A0A0A]")}>
-                          {msg.previewCard.title || "Action Notice"}
+                          {pCard.title || "Action Notice"}
                         </div>
 
                         <div className={cn(
                           "p-2.5 rounded-[8px] text-[12px] leading-relaxed font-sans break-words [overflow-wrap:anywhere] border",
                           isDark ? "bg-[#0E1113] border-amber-500/20 text-[#E2E8F0]" : "bg-[#FFFBEB] border-amber-200 text-[#78350F]"
                         )}>
-                          {msg.previewCard.body}
+                          {pCard.body}
                         </div>
 
                         <div className={cn("pt-1 flex items-center justify-between gap-2 border-t", isDark ? "border-[#1E2328]" : "border-[#E8E8E5]")}>
                           <span className={cn("text-[10px] font-mono", isDark ? "text-[#64748B]" : "text-[#888888]")}>
-                            Status: {msg.previewCard.status || "Pending Review"}
+                            Status: {pCard.status || "Pending Review"}
                           </span>
                           <div className="flex items-center gap-2">
-                            {msg.previewCard.caseId && (
+                            {pCard.caseId && (
                               <button
                                 type="button"
-                                onClick={() => handleSendQuery(`draft a reply for case ${msg.previewCard?.caseId}`)}
+                                onClick={() => handleSendQuery(`draft a reply for case ${pCard?.caseId}`)}
                                 className={cn(
                                   "px-2.5 py-1 rounded-[6px] border text-[11px] font-medium transition-colors cursor-pointer",
                                   isDark
@@ -1231,7 +1242,7 @@ export function AskEstateOSPanel({
                             )}
                             <button
                               type="button"
-                              onClick={() => handleNavigate(msg.previewCard?.targetUrl || `/inbox?thread=case-${msg.previewCard?.caseId || ""}`)}
+                              onClick={() => handleNavigate(pCard?.targetUrl || `/inbox?thread=case-${pCard?.caseId || ""}`)}
                               className="text-[11px] text-[#F25C05] hover:underline flex items-center gap-1 cursor-pointer font-medium"
                             >
                               <span>Open in Inbox</span>
@@ -1248,14 +1259,14 @@ export function AskEstateOSPanel({
                             "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border",
                             isDark ? "bg-[#1F252C] text-[#CBD5E1] border-[#29323B]" : "bg-[#FFFFFF] text-[#4B5563] border-[#E8E8E5]"
                           )}>
-                            Draft · {msg.previewCard.channel || "whatsapp"}
+                            Draft · {pCard.channel || "whatsapp"}
                           </span>
                           <span className="font-mono text-[10.5px]">
-                            {msg.previewCard.recipient ? (
-                              <span className={isDark ? "text-[#64748B]" : "text-[#6B7280]"}>{msg.previewCard.recipient}</span>
+                            {pCard.recipient ? (
+                              <span className={isDark ? "text-[#64748B]" : "text-[#6B7280]"}>{pCard.recipient}</span>
                             ) : (
                               <span className={cn("font-sans text-[10px] font-semibold", isDark ? "text-amber-400" : "text-amber-700")}>
-                                {msg.previewCard.channel?.toLowerCase() === "gmail" ? "⚠️ No recipient email on file" : "⚠️ No recipient phone on file"}
+                                {pCard.channel?.toLowerCase() === "gmail" ? "⚠️ No recipient email on file" : "⚠️ No recipient phone on file"}
                               </span>
                             )}
                           </span>
@@ -1265,7 +1276,7 @@ export function AskEstateOSPanel({
                           "p-2.5 rounded-[8px] border text-[12px] italic whitespace-pre-line leading-relaxed font-sans break-words [overflow-wrap:anywhere]",
                           isDark ? "bg-[#0E1113] border-[#1E2328] text-[#E2E8F0]" : "bg-[#FFFFFF] border-[#E8E8E5] text-[#111827]"
                         )}>
-                          "{msg.previewCard.body || "(Draft empty)"}"
+                          "{pCard.body || "(Draft empty)"}"
                         </div>
 
                         <div className="pt-1 flex flex-wrap items-center justify-between gap-2">
@@ -1273,30 +1284,30 @@ export function AskEstateOSPanel({
                             {sentCardIds.has(msg.id) ? (
                               <div className={cn("flex items-center gap-1.5 text-[11.5px] font-medium py-1", isDark ? "text-emerald-400" : "text-emerald-700")}>
                                 <Check className="w-4 h-4 stroke-[2.5]" />
-                                <span>Dispatched to {msg.previewCard.channel || "WhatsApp"}</span>
+                                <span>Dispatched to {pCard.channel || "WhatsApp"}</span>
                               </div>
                             ) : sendErrorCardIds.has(msg.id) ? (
                               <div className="flex items-center gap-2">
                                 <span className={cn("text-[11px]", isDark ? "text-rose-400" : "text-rose-600")}>Failed to dispatch draft.</span>
                                 <button
                                   type="button"
-                                  onClick={() => handleApproveDraft(msg.id, msg.previewCard?.actionId, msg.previewCard?.caseId)}
+                                  onClick={() => handleApproveDraft(msg.id, pCard?.actionId, pCard?.caseId)}
                                   className="text-[11px] text-[#F25C05] hover:underline cursor-pointer font-semibold"
                                 >
                                   Retry
                                 </button>
                               </div>
-                            ) : msg.previewCard.status && msg.previewCard.status !== "pending" ? (
+                            ) : pCard.status && pCard.status !== "pending" ? (
                               <div className={cn("flex items-center gap-1.5 text-[11.5px] font-medium py-1 capitalize", isDark ? "text-[#94A3B8]" : "text-[#6B7280]")}>
-                                <span>Status: {msg.previewCard.status}</span>
+                                <span>Status: {pCard.status}</span>
                               </div>
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => handleApproveDraft(msg.id, msg.previewCard?.actionId, msg.previewCard?.caseId)}
-                                disabled={sendingCardId === msg.id || !msg.previewCard?.recipient}
+                                onClick={() => handleApproveDraft(msg.id, pCard?.actionId, pCard?.caseId)}
+                                disabled={sendingCardId === msg.id || !pCard?.recipient}
                                 className="px-3 py-1.5 rounded-[7px] bg-[#F25C05] hover:bg-[#d94f00] text-[#FFFFFF] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                                title={!msg.previewCard?.recipient ? "Cannot dispatch: recipient is missing" : "Approve and send"}
+                                title={!pCard?.recipient ? "Cannot dispatch: recipient is missing" : "Approve and send"}
                               >
                                 {sendingCardId === msg.id ? (
                                   <>
@@ -1312,13 +1323,13 @@ export function AskEstateOSPanel({
                               </button>
                             )}
 
-                            {msg.previewCard.externalUrl && (
+                            {pCard.externalUrl && (
                               <button
                                 type="button"
-                                onClick={() => window.open(msg.previewCard?.externalUrl!, "_blank", "noopener,noreferrer")}
+                                onClick={() => window.open(pCard?.externalUrl!, "_blank", "noopener,noreferrer")}
                                 className={cn(
                                   "px-2.5 py-1.5 rounded-[7px] font-medium text-[11.5px] flex items-center gap-1.5 transition-all cursor-pointer border",
-                                  msg.previewCard.channel?.toLowerCase() === "whatsapp"
+                                  pCard.channel?.toLowerCase() === "whatsapp"
                                     ? isDark
                                       ? "bg-[#25D366]/15 hover:bg-[#25D366]/25 text-[#25D366] border-[#25D366]/30 shadow-sm"
                                       : "bg-[#25D366]/10 hover:bg-[#25D366]/20 text-[#128C7E] border-[#25D366]/30 shadow-xs"
@@ -1326,29 +1337,29 @@ export function AskEstateOSPanel({
                                       ? "bg-red-500/15 hover:bg-red-500/25 text-red-400 border-red-500/30 shadow-sm"
                                       : "bg-red-50 hover:bg-red-100 text-red-600 border-red-200 shadow-xs"
                                 )}
-                                title={`Open pre-filled draft in ${msg.previewCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}`}
+                                title={`Open pre-filled draft in ${pCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}`}
                               >
-                                {msg.previewCard.channel?.toLowerCase() === "whatsapp" ? (
+                                {pCard.channel?.toLowerCase() === "whatsapp" ? (
                                   <MessageSquare className="w-3.5 h-3.5" />
                                 ) : (
                                   <Mail className="w-3.5 h-3.5" />
                                 )}
-                                <span>Open in {msg.previewCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}</span>
+                                <span>Open in {pCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}</span>
                                 <ExternalLink className="w-3 h-3 opacity-70" />
                               </button>
                             )}
                           </div>
 
                           <div className="flex items-center gap-2.5">
-                            {msg.previewCard.threadSearchUrl && (
+                            {pCard.threadSearchUrl && (
                               <button
                                 type="button"
-                                onClick={() => window.open(msg.previewCard?.threadSearchUrl!, "_blank", "noopener,noreferrer")}
+                                onClick={() => window.open(pCard?.threadSearchUrl!, "_blank", "noopener,noreferrer")}
                                 className={cn(
                                   "text-[11px] flex items-center gap-1 transition-colors cursor-pointer",
                                   isDark ? "text-[#94A3B8] hover:text-[#E2E8F0]" : "text-[#6B7280] hover:text-[#0A0A0A]"
                                 )}
-                                title={`View thread history in ${msg.previewCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}`}
+                                title={`View thread history in ${pCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}`}
                               >
                                 <span>View Thread</span>
                                 <ExternalLink className="w-3 h-3" />
@@ -1358,8 +1369,8 @@ export function AskEstateOSPanel({
                             <button
                               type="button"
                               onClick={() => {
-                                const draftText = msg.previewCard?.body ? encodeURIComponent(msg.previewCard.body) : "";
-                                const baseTarget = msg.previewCard?.targetUrl || `/inbox?thread=case-${msg.previewCard?.caseId || ""}`;
+                                const draftText = pCard?.body ? encodeURIComponent(pCard.body) : "";
+                                const baseTarget = pCard?.targetUrl || `/inbox?thread=case-${pCard?.caseId || ""}`;
                                 const urlWithDraft = draftText && !baseTarget.includes("draft=")
                                   ? `${baseTarget}${baseTarget.includes("?") ? "&" : "?"}draft=${draftText}`
                                   : baseTarget;
@@ -1377,8 +1388,11 @@ export function AskEstateOSPanel({
                         </div>
                       </div>
                     )}
-                  </div>
-                )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
 
               </div>
 

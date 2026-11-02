@@ -144,6 +144,7 @@ class AskAgentResponse(BaseModel):
     executedAt: str
     steps: list[str] = Field(default_factory=list, description="Execution steps performed by agent")
     previewCard: PreviewCardData | None = None
+    previewCards: list[PreviewCardData] = Field(default_factory=list, description="Top preview cards up to limit of 3")
     cards: list[AssistantCardData] = Field(default_factory=list, description="Polymorphic assistant cards")
     debugInfo: DebugInfo | None = None
     suggestedPrompts: list[str] = Field(default_factory=list, description="Dynamic 3 workflow suggestion pills")
@@ -170,6 +171,7 @@ class TurnReplayItem(BaseModel):
     timestamp: str
     steps: list[str] = Field(default_factory=list)
     previewCard: PreviewCardData | None = None
+    previewCards: list[PreviewCardData] = Field(default_factory=list, description="Top preview cards up to limit of 3")
     cards: list[AssistantCardData] = Field(default_factory=list)
     actions: list[ActionButtonData] = Field(default_factory=list)
     suggestedPrompts: list[str] = Field(default_factory=list)
@@ -736,8 +738,10 @@ def _finish_agent_response(
     suggestions: list[str],
     now: datetime,
     briefs: list[CaseBrief],
+    preview_cards: list[PreviewCardData] | None = None,
 ) -> AskAgentResponse:
     ans_text = _clean_executive_answer(ans_text)
+    effective_preview_cards = preview_cards if (preview_cards is not None and len(preview_cards) > 0) else ([preview_card] if preview_card else [])
     with Session(engine) as session:
         conv = session.get(AgentConversation, conv_id)
         if not conv:
@@ -792,6 +796,7 @@ def _finish_agent_response(
             results={
                 "cards": [c.model_dump() for c in cards_list],
                 "previewCard": preview_card.model_dump() if preview_card else None,
+                "previewCards": [c.model_dump() for c in effective_preview_cards],
                 "actions": [a.model_dump() for a in action_buttons],
                 "steps": step_descriptions,
                 "suggestedPrompts": suggestions,
@@ -811,6 +816,7 @@ def _finish_agent_response(
         executedAt=now.isoformat(),
         steps=step_descriptions,
         previewCard=preview_card,
+        previewCards=effective_preview_cards,
         cards=cards_list,
         debugInfo=DebugInfo(pipeline_stage=pipeline_stage, fallback_reason=fallback_reason),
         suggestedPrompts=suggestions,
@@ -1442,63 +1448,68 @@ def ask_agent(
     if dropped_warnings and (not ans_text or ans_text.strip() in ["I need more detail", "Something went wrong with that step."]):
         ans_text = "**Action Notice:**\n\n" + "\n".join(dropped_warnings)
 
+    preview_cards_list: list[PreviewCardData] = []
+    if preview_card:
+        preview_cards_list.append(preview_card)
+
     # Populate dynamic navigation and micro-cards for priority/maintenance inquiries from real DB state
-    if any(k in q_low for k in ["priority", "first", "ticket", "maintenance", "repair"]):
-        # Match the case that was actually mentioned or recommended in the answer text, else fallback to highest urgency
-        matched_brief = None
-        ans_low = (ans_text or "").lower()
-        for b in briefs:
-            cid_str = str(b.case_id)
-            lbl_parts = [
-                w for w in (b.label or "").lower().replace("·", " ").replace("-", " ").split()
-                if len(w) > 3 and w not in ["maintenance", "case", "unit", "tenant", "portfolio"]
-            ]
-            summary_parts = [
-                w for w in (b.summary or "").lower().replace("·", " ").replace("-", " ").split()
-                if len(w) > 4 and w not in ["maintenance", "case", "contractor", "reported", "needs", "dispatched"]
-            ]
-            if cid_str in ans_low or any(w in ans_low for w in lbl_parts) or any(w in ans_low for w in summary_parts[:5]):
-                matched_brief = b
-                break
+    if any(k in q_low for k in ["priority", "first", "ticket", "maintenance", "repair", "urgent", "emergency"]):
+        if not preview_card and briefs:
+            # Smartly cap at top 3 cases ordered by priority
+            top_briefs = briefs[:3]
+            for b in top_briefs:
+                cid_str = str(b.case_id)
+                cid_short = cid_str[:6]
+                target_path = f"/maintenance?ticket={cid_str}"
+                clean_body = _clean_card_body(b.summary or "Active maintenance case in queue.")
 
-        top_brief = matched_brief or (briefs[0] if briefs else None)
-        if top_brief:
-            cid_str = str(top_brief.case_id)
-            cid_short = cid_str[:6]
-            target_path = f"/maintenance?ticket={cid_str}"
-
-            if not action_buttons:
-                action_buttons.append(
-                    ActionButtonData(
-                        label=f"Open Ticket #{cid_short} in Maintenance",
-                        actionType="navigate",
-                        payload=target_path,
-                        isPrimary=True,
-                    )
-                )
-            if not preview_card:
-                clean_body = _clean_card_body(top_brief.summary or "Active maintenance case in queue.")
                 contractor_name = None
-                s_low = (top_brief.summary or "").lower()
+                s_low = (b.summary or "").lower()
                 if "kevin" in s_low or "van dijk" in s_low or "plumber" in s_low:
                     contractor_name = "Kevin van Dijk (Plumber)"
-                elif "electrician" in s_low:
+                elif "electrician" in s_low or "vermeer" in s_low:
                     contractor_name = "Vermeer Elektrotechniek"
 
-                unit_lbl = top_brief.label.split("·")[1].strip() if "·" in top_brief.label else (top_brief.label or "Portfolio Unit")
-                preview_card = PreviewCardData(
+                unit_lbl = b.label.split("·")[1].strip() if "·" in b.label else (b.label or "Portfolio Unit")
+                is_emergency = (b.urgency or "").lower() in ("emergency", "high")
+
+                card = PreviewCardData(
                     type="case_summary",
-                    badgeLabel="URGENT" if top_brief.urgency in ("emergency", "high") else "TICKET",
-                    badgeColor="rose" if top_brief.urgency in ("emergency", "high") else "blue",
+                    badgeLabel="URGENT" if is_emergency else "TICKET",
+                    badgeColor="rose" if is_emergency else "blue",
                     unitLabel=unit_lbl,
                     title=f"Ticket #{cid_short} · {unit_lbl}",
                     body=clean_body,
                     contractor=contractor_name,
-                    status=top_brief.state.replace("_", " "),
+                    status=b.state.replace("_", " "),
                     caseId=cid_str,
                     targetUrl=target_path,
                 )
-        elif not action_buttons:
+                preview_cards_list.append(card)
+
+            if preview_cards_list:
+                preview_card = preview_cards_list[0]
+
+            if len(briefs) > 3:
+                action_buttons.append(
+                    ActionButtonData(
+                        label=f"View all {len(briefs)} cases in Maintenance",
+                        actionType="navigate",
+                        payload="/maintenance",
+                        isPrimary=False,
+                    )
+                )
+            elif top_briefs:
+                cid_short = str(top_briefs[0].case_id)[:6]
+                action_buttons.append(
+                    ActionButtonData(
+                        label=f"Open Ticket #{cid_short} in Maintenance",
+                        actionType="navigate",
+                        payload=f"/maintenance?ticket={top_briefs[0].case_id}",
+                        isPrimary=True,
+                    )
+                )
+        elif not action_buttons and not preview_cards_list:
             action_buttons.append(
                 ActionButtonData(
                     label="Open Maintenance",
@@ -1610,38 +1621,39 @@ def ask_agent(
         merged = suggestions + [p for p in fallback_pills if p not in suggestions]
         suggestions = merged[:3]
 
-    # Build polymorphic AssistantCardData list from preview_card
+    # Build polymorphic AssistantCardData list from preview_cards_list
     cards_list: list[AssistantCardData] = []
-    if preview_card:
+    target_cards = preview_cards_list if preview_cards_list else ([preview_card] if preview_card else [])
+    for p_card in target_cards:
         card_actions: list[CardActionData] = []
-        if preview_card.type == "draft_message":
-            if preview_card.status == "pending" or not preview_card.status:
+        if p_card.type == "draft_message":
+            if p_card.status == "pending" or not p_card.status:
                 card_actions.append(
                     CardActionData(
                         label="Accept and send",
                         kind="api_call",
-                        endpoint=f"/api/inbox/approvals/{preview_card.actionId}/decide" if preview_card.actionId else None,
+                        endpoint=f"/api/inbox/approvals/{p_card.actionId}/decide" if p_card.actionId else None,
                         payload={"decision": "approved"},
                         variant="primary",
                     )
                 )
-            if preview_card.externalUrl:
-                label = "Open in WhatsApp" if preview_card.channel == "whatsapp" else "Open in Gmail"
+            if p_card.externalUrl:
+                label = "Open in WhatsApp" if p_card.channel == "whatsapp" else "Open in Gmail"
                 card_actions.append(
                     CardActionData(
                         label=label,
                         kind="open_external",
-                        targetUrl=preview_card.externalUrl,
-                        variant="whatsapp" if preview_card.channel == "whatsapp" else "gmail",
+                        targetUrl=p_card.externalUrl,
+                        variant="whatsapp" if p_card.channel == "whatsapp" else "gmail",
                     )
                 )
-            if preview_card.threadSearchUrl:
-                label = "View Thread on WhatsApp" if preview_card.channel == "whatsapp" else "View Thread in Gmail"
+            if p_card.threadSearchUrl:
+                label = "View Thread on WhatsApp" if p_card.channel == "whatsapp" else "View Thread in Gmail"
                 card_actions.append(
                     CardActionData(
                         label=label,
                         kind="open_external",
-                        targetUrl=preview_card.threadSearchUrl,
+                        targetUrl=p_card.threadSearchUrl,
                         variant="secondary",
                     )
                 )
@@ -1649,69 +1661,69 @@ def ask_agent(
                 CardActionData(
                     label="Open in Inbox",
                     kind="navigate",
-                    targetUrl=preview_card.targetUrl or (f"/inbox?thread=case-{preview_card.caseId}" if preview_card.caseId else "/inbox"),
+                    targetUrl=p_card.targetUrl or (f"/inbox?thread=case-{p_card.caseId}" if p_card.caseId else "/inbox"),
                     variant="secondary",
                 )
             )
-        elif preview_card.type == "notice":
+        elif p_card.type == "notice":
             card_actions.append(
                 CardActionData(
                     label="Review in Inbox",
                     kind="navigate",
-                    targetUrl=preview_card.targetUrl or (f"/inbox?thread=case-{preview_card.caseId}" if preview_card.caseId else "/inbox"),
+                    targetUrl=p_card.targetUrl or (f"/inbox?thread=case-{p_card.caseId}" if p_card.caseId else "/inbox"),
                     variant="primary",
                 )
             )
-            if preview_card.caseId:
+            if p_card.caseId:
                 card_actions.append(
                     CardActionData(
                         label="Retry draft",
                         kind="query",
-                        payload={"query": f"draft a reply for case {preview_card.caseId}"},
+                        payload={"query": f"draft a reply for case {p_card.caseId}"},
                         variant="secondary",
                     )
                 )
-        elif preview_card.type == "case_summary":
+        elif p_card.type == "case_summary":
             card_actions.append(
                 CardActionData(
                     label="Open in Maintenance",
                     kind="navigate",
-                    targetUrl=preview_card.targetUrl or (f"/maintenance?ticket={preview_card.caseId}" if preview_card.caseId else "/maintenance"),
+                    targetUrl=p_card.targetUrl or (f"/maintenance?ticket={p_card.caseId}" if p_card.caseId else "/maintenance"),
                     variant="primary",
                 )
             )
-        elif preview_card.type == "calendar_item":
+        elif p_card.type == "calendar_item":
             card_actions.append(
                 CardActionData(
-                    label="Approve & Add to Calendar",
+                    label="Approve and Add to Calendar",
                     kind="api_call",
-                    endpoint=f"/api/calendar/events/{preview_card.actionId}/approve" if preview_card.actionId else None,
+                    endpoint=f"/api/calendar/events/{p_card.actionId}/approve" if p_card.actionId else None,
                     variant="primary",
                 )
             )
 
         cards_list.append(
             AssistantCardData(
-                id=preview_card.actionId or preview_card.caseId or "card-0",
-                type=preview_card.type,
-                badgeLabel=preview_card.badgeLabel or ("DRAFT" if preview_card.type == "draft_message" else "TICKET"),
-                badgeColor=getattr(preview_card, "badgeColor", None) or "orange",
-                title=preview_card.title or (preview_card.unitLabel or "Draft Message"),
-                subtitle=preview_card.subtitle,
-                body=preview_card.body,
-                amount=preview_card.amount,
-                contractor=preview_card.contractor,
-                dueDate=preview_card.dueDate,
-                status=preview_card.status,
-                unitLabel=preview_card.unitLabel,
-                recipient=preview_card.recipient,
-                channel=preview_card.channel,
+                id=p_card.actionId or p_card.caseId or f"card-{len(cards_list)}",
+                type=p_card.type,
+                badgeLabel=p_card.badgeLabel or ("DRAFT" if p_card.type == "draft_message" else "TICKET"),
+                badgeColor=getattr(p_card, "badgeColor", None) or "orange",
+                title=p_card.title or (p_card.unitLabel or "Draft Message"),
+                subtitle=p_card.subtitle,
+                body=p_card.body,
+                amount=p_card.amount,
+                contractor=p_card.contractor,
+                dueDate=p_card.dueDate,
+                status=p_card.status,
+                unitLabel=p_card.unitLabel,
+                recipient=p_card.recipient,
+                channel=p_card.channel,
                 actions=card_actions,
-                externalUrl=preview_card.externalUrl,
-                threadSearchUrl=preview_card.threadSearchUrl,
-                targetUrl=preview_card.targetUrl,
-                caseId=preview_card.caseId,
-                actionId=preview_card.actionId,
+                externalUrl=p_card.externalUrl,
+                threadSearchUrl=p_card.threadSearchUrl,
+                targetUrl=p_card.targetUrl,
+                caseId=p_card.caseId,
+                actionId=p_card.actionId,
             )
         )
 
@@ -1731,6 +1743,7 @@ def ask_agent(
         suggestions=suggestions,
         now=now,
         briefs=briefs,
+        preview_cards=preview_cards_list if preview_cards_list else ([preview_card] if preview_card else []),
     )
 
 

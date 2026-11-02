@@ -24,6 +24,7 @@ export interface AssistantMessage {
   };
   steps?: string[];
   previewCard?: PreviewCardData | null;
+  previewCards?: PreviewCardData[];
   cards?: AssistantCard[];
   debugInfo?: {
     pipeline_stage: string;

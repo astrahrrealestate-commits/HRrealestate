@@ -817,6 +817,7 @@ export interface AskAgentResponse {
   executedAt: string;
   steps?: string[];
   previewCard?: PreviewCardData | null;
+  previewCards?: PreviewCardData[];
   cards?: AssistantCard[];
   debugInfo?: DebugInfo | null;
   suggestedPrompts?: string[];
@@ -839,6 +840,7 @@ export interface TurnReplayItem {
   timestamp: string;
   steps?: string[];
   previewCard?: PreviewCardData | null;
+  previewCards?: PreviewCardData[];
   cards?: AssistantCard[];
   actions?: AskAgentAction[];
   suggestedPrompts?: string[];
