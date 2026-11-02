@@ -115,3 +115,4 @@ def test_decide_approval_held_when_company_paused(test_engine):
         assert res["status"] == "held"
         assert res["decision"] == "paused"
         assert mock_act.status == ActionStatus.paused
+

@@ -447,7 +447,7 @@ export function AskEstateOSPanel({
             </button>
 
             {/* AI Agent Icon */}
-            <div className="w-7 h-7 rounded-[8px] bg-[#161A1D] border border-[#252B32] flex items-center justify-center text-emerald-400 shadow-xs shrink-0">
+            <div className="w-7 h-7 rounded-[8px] bg-[#182026] border border-[#2A3540] flex items-center justify-center text-emerald-300 shadow-xs shrink-0">
               <Sparkles className="w-3.5 h-3.5" />
             </div>
 
@@ -488,7 +488,7 @@ export function AskEstateOSPanel({
 
               {/* Active Conversation Title */}
               {superAgent.conversationTitle && superAgent.conversationTitle !== "New Chat" && (
-                <span className="hidden md:inline-block text-[11.5px] font-medium text-emerald-400 bg-emerald-950/30 border border-emerald-800/40 px-2 py-0.5 rounded-[5px] truncate max-w-[140px]">
+                <span className="hidden md:inline-block text-[11.5px] font-medium text-emerald-300 bg-emerald-500/10 border border-emerald-500/25 px-2 py-0.5 rounded-[5px] truncate max-w-[140px]">
                   {superAgent.conversationTitle}
                 </span>
               )}
@@ -667,8 +667,8 @@ export function AskEstateOSPanel({
                 className={cn(
                   "p-3.5 sm:p-4 rounded-[14px] text-[13.5px] min-w-0 max-w-full break-words [overflow-wrap:anywhere]",
                   msg.sender === "user"
-                    ? "bg-[#1C2329] border border-[#28323B] text-[#F3F4F6] rounded-tr-none"
-                    : "bg-[#121518] border border-[#1E2328] text-[#E2E8F0] rounded-tl-none shadow-sm w-full"
+                    ? "bg-[#1F2730] border border-[#2D3945] text-[#F9FAFB] rounded-tr-none"
+                    : "bg-[#14171A] border border-[#222830] text-[#E5E7EB] rounded-tl-none shadow-sm w-full"
                 )}
               >
                 <div
@@ -710,7 +710,7 @@ export function AskEstateOSPanel({
                     <div className="mt-2.5 space-y-1.5 text-[12px] text-[#94A3B8]">
                       {validSteps.map((st, sIdx) => (
                         <div key={sIdx} className="flex items-center gap-2">
-                          <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <Check className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
                           <span className="leading-tight">{st}</span>
                         </div>
                       ))}
@@ -1414,13 +1414,13 @@ function formatMarkdown(text: string): string {
   // 6. Currency amounts: €650 or € 650,00 -> monospace tabular-nums pill
   clean = clean.replace(
     /(€\s?\d+(?:[.,]\d+)?)/g,
-    '<span class="font-mono tabular-nums font-semibold text-emerald-400 bg-emerald-950/40 px-1 py-0.5 rounded border border-emerald-800/40 text-[12px] inline-block">$1</span>'
+    '<span class="font-mono tabular-nums font-semibold text-emerald-300 bg-emerald-500/15 px-1.5 py-0.5 rounded border border-emerald-500/30 text-[12px] inline-block">$1</span>'
   );
 
   // 7. Ticket references: #01a181 or case 01a181
   clean = clean.replace(
     /(#[0-9a-f]{6,8})\b/gi,
-    '<span class="font-mono text-[11px] font-semibold text-blue-400 bg-blue-950/40 px-1.5 py-0.5 rounded border border-blue-800/40 inline-block">$1</span>'
+    '<span class="font-mono text-[11px] font-semibold text-sky-300 bg-sky-500/15 px-1.5 py-0.5 rounded border border-sky-500/30 inline-block">$1</span>'
   );
 
   // 8. Inline backticks: `code`
