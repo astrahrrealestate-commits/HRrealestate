@@ -22,6 +22,8 @@ REAL: dict[str, Any] = {
     "embedding_model": "openai:text-embedding-3-small",
     "openai_api_key": "sk-test",
     "drive_provider": "google",
+    "brixx_provider": "api",
+    "brixx_token": "brixx-test",
     "dashboard_auth_provider": "google",
     "dashboard_session_secret": "x" * 32,
     "google_oauth_client_id": "client.apps.googleusercontent.com",
