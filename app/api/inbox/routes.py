@@ -22,7 +22,7 @@ from app.core.ids import new_id
 from app.core.logging import get_logger
 from app.core.settings import get_settings
 from app.db.enums import ActionStatus, ApprovalStatus, CaseEventKind, LinkMethod, PersonKind, SendStatus
-from app.db.models import ActionRow, Approval, AttachmentRow, Case, CaseEvent, CaseLink, ChannelAccount, DocumentRow, GmailSyncState, MessageRow, Person, RawEvent, Send, UnderstandingRow, Unit
+from app.db.models import ActionRow, Approval, AttachmentRow, Case, CaseEvent, CaseLink, ChannelAccount, Company, DocumentRow, GmailSyncState, MessageRow, Person, RawEvent, Send, UnderstandingRow, Unit
 from app.sender.deps import _sender_settings
 from app.sender.gmail import build_gmail_drafts, build_gmail_sender
 from app.workflows.deps import get_deps
@@ -969,9 +969,29 @@ def decide_approval(
                 )
 
         if approval:
+            if approval.status != ApprovalStatus.pending:
+                return {
+                    "status": "already_decided",
+                    "approvalId": str(approval.id),
+                    "decision": str(approval.status.value if hasattr(approval.status, "value") else approval.status),
+                    "message": f"Approval {approval.id} has already been decided.",
+                    "executedAt": (approval.decided_at or datetime.now(UTC)).isoformat(),
+                }
             approval.status = ApprovalStatus.approved
             approval.choice = choice
             approval.decided_at = datetime.now(UTC)
+
+        if action and action.company_id:
+            company = session.get(Company, action.company_id)
+            if company and company.paused:
+                action.status = ActionStatus.paused
+                return {
+                    "status": "held",
+                    "approvalId": str(approval.id) if approval else str(action.id),
+                    "decision": "paused",
+                    "message": "Company communications are paused. Action held for review.",
+                    "executedAt": datetime.now(UTC).isoformat(),
+                }
 
         if action:
             action.status = ActionStatus.executed
@@ -1066,7 +1086,7 @@ def decide_approval(
                     )
                     drafts_client = build_gmail_drafts(settings, sender, owner_mailbox)
                     draft_req = DraftRequest(
-                        idempotency_key=f"appr-{action.id}-{datetime.now(UTC).timestamp()}",
+                        idempotency_key=f"appr-{action.id}-v{action.draft_version or 1}",
                         thread_id=gmail_thread_id,
                         to=target_msg.sender_identity,
                         subject=sub,
@@ -1173,7 +1193,13 @@ def decide_approval(
             if tenant_target and (getattr(tenant_target, "channel", None) == Channel.whatsapp or tenant_target.sender_identity.startswith("+") or tenant_target.sender_identity.replace(" ", "").isdigit()):
                 try:
                     token_val = sender.whatsapp_access_token.get_secret_value() if hasattr(sender.whatsapp_access_token, "get_secret_value") else str(sender.whatsapp_access_token)
-                    recipient = tenant_target.sender_identity
+                    from app.api.agent.routes import _find_case_recipient
+                    case_obj = session.get(Case, action.case_id) if action.case_id else None
+                    if case_obj:
+                        db_recip, db_chan, _, _ = _find_case_recipient(session, case_obj)
+                        recipient = db_recip or tenant_target.sender_identity
+                    else:
+                        recipient = tenant_target.sender_identity
                     
                     # 1. SendZen Dispatch (sz_live_ token or SendZen API)
                     if token_val.startswith("sz_live_"):
@@ -1295,7 +1321,7 @@ def decide_approval(
                             Send(
                                 company_id=action.company_id,
                                 action_id=action.id,
-                                idempotency_key=f"wa-{action.id}-{datetime.now(UTC).timestamp()}",
+                                idempotency_key=f"wa-{action.id}-v{action.draft_version or 1}",
                                 channel=Channel.whatsapp,
                                 target=recipient,
                                 provider_ref=whatsapp_message_id,
