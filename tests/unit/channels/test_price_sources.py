@@ -2,7 +2,7 @@
 
 from datetime import date
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 from unittest.mock import MagicMock
 from uuid import uuid4
 
@@ -81,19 +81,18 @@ def test_composite_concatenates_in_order() -> None:
     assert [o.amount for o in got] == [Decimal("1"), Decimal("2"), Decimal("3")]
 
 
+def _settings(**kw: Any) -> Settings:
+    """Environment-independent: explicit required fields, no `.env`."""
+    return Settings(database_url="postgresql+psycopg://u:p@localhost:1/db", _env_file=None, **kw)  # type: ignore[call-arg]
+
+
 def _build(
     setting: Literal["fake", "competitors", "web"],
     provider: Literal["none", "fake"] = "none",
     engine: Engine | None = None,
     allowed: list[str] | None = None,
 ) -> PriceSource:
-    settings = Settings(  # type: ignore[call-arg]
-        database_url="postgresql+psycopg://u:p@localhost:1/db",
-        price_source=setting,
-        price_search_provider=provider,
-        price_allowed_domains=allowed or [],
-        _env_file=None,
-    )
+    settings = _settings(price_source=setting, price_search_provider=provider, price_allowed_domains=allowed or [])
     return build_price_source(settings, _no_session, uuid4(), None, engine=engine)
 
 
@@ -138,5 +137,5 @@ def test_other_modes_ignore_the_search_provider_and_the_engine(setting: Literal[
 
 
 def test_registry_maps_the_provider_to_a_search_client() -> None:
-    assert isinstance(search_client(Settings(price_search_provider="fake")), FakeSearchClient)
-    assert isinstance(search_client(Settings(price_search_provider="none")), UnconfiguredSearchClient)
+    assert isinstance(search_client(_settings(price_search_provider="fake")), FakeSearchClient)
+    assert isinstance(search_client(_settings(price_search_provider="none")), UnconfiguredSearchClient)
