@@ -7,6 +7,7 @@ recipient and the idempotency key.
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -14,8 +15,8 @@ from sqlalchemy.orm import Session
 
 from app.contracts import ActionType, ButtonChoice, CaseState, Channel
 from app.core.logging import get_logger
-from app.db.enums import ApprovalStatus, CaseEventKind
-from app.db.models import ActionRow, Approval, Case, CaseEvent, MessageRow
+from app.db.enums import ActionStatus, ApprovalStatus, CaseEventKind
+from app.db.models import ActionRow, Approval, Case, CaseEvent, Company, MessageRow
 from app.pipeline import approvals, dashboard_decisions
 from app.pipeline.local_actions import LOCAL_TYPES
 
@@ -105,6 +106,33 @@ def decide(session: Session, target: Target, choice: ButtonChoice, text: str | N
         session, approval.company_id, approval_id, choice, at=at, confirm_suspicious=False
     )
     return Outcome(decision, action.type in LOCAL_TYPES)
+
+
+def guard(session: Session, target: Target, at: datetime) -> dict[str, Any] | None:
+    """Answers that need no decision: a repeated click on a decided approval, or a paused company (the action is
+    held; the sender re-checks the pause as well). None means go on and decide."""
+    approval, action = target.approval, target.action
+    if approval is None or action is None:
+        return None
+    if approval.status is not ApprovalStatus.pending:
+        return {
+            "status": "already_decided",
+            "approvalId": str(approval.id),
+            "decision": approval.status.value,
+            "message": f"Approval {approval.id} has already been decided.",
+            "executedAt": (approval.decided_at or at).isoformat(),
+        }
+    company = session.get(Company, action.company_id)
+    if company is not None and company.paused:
+        action.status = ActionStatus.paused
+        return {
+            "status": "held",
+            "approvalId": str(approval.id),
+            "decision": "paused",
+            "message": "Company communications are paused. Action held for review.",
+            "executedAt": at.isoformat(),
+        }
+    return None
 
 
 def remember_quote(session: Session, action: ActionRow, message_ref: str | None) -> None:

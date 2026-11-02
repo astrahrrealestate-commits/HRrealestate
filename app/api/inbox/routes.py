@@ -1052,6 +1052,9 @@ def decide_approval(
     try:
         with Session(engine) as session, session.begin():
             target = inbox_decide.resolve(session, approval_id)
+            early = inbox_decide.guard(session, target, now)
+            if early is not None:
+                return early
             outcome = inbox_decide.decide(session, target, choice, req.edited_text, now)
             approved = outcome.decision is None or outcome.decision.kind == "execute"
             if target.action is not None and approved:

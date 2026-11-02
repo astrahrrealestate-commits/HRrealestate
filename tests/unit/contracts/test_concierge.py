@@ -18,8 +18,9 @@ def test_valid_plan() -> None:
 
 
 def test_intent_list_is_exact() -> None:
-    assert len(Intent) == 19
+    assert len(Intent) == 20
     assert Intent.query_data in Intent
+    assert Intent.show_drafts in Intent
 
 
 def test_rejects_five_steps() -> None:

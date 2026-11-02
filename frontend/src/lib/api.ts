@@ -753,7 +753,7 @@ export interface AssistantCard {
   id: string;
   type: string;
   badgeLabel?: string;
-  badgeColor?: "orange" | "emerald" | "amber" | "blue" | "red";
+  badgeColor?: "orange" | "emerald" | "amber" | "blue" | "red" | "rose" | string;
   title?: string;
   subtitle?: string;
   body?: string;
@@ -785,7 +785,7 @@ export interface PreviewCardData {
   title?: string;
   subtitle?: string;
   badgeLabel?: string;
-  badgeColor?: "orange" | "emerald" | "amber" | "blue" | "red";
+  badgeColor?: "orange" | "emerald" | "amber" | "blue" | "red" | "rose" | string;
   amount?: string;
   status?: string;
   dueDate?: string;
@@ -817,6 +817,7 @@ export interface AskAgentResponse {
   executedAt: string;
   steps?: string[];
   previewCard?: PreviewCardData | null;
+  previewCards?: PreviewCardData[];
   cards?: AssistantCard[];
   debugInfo?: DebugInfo | null;
   suggestedPrompts?: string[];
@@ -839,6 +840,7 @@ export interface TurnReplayItem {
   timestamp: string;
   steps?: string[];
   previewCard?: PreviewCardData | null;
+  previewCards?: PreviewCardData[];
   cards?: AssistantCard[];
   actions?: AskAgentAction[];
   suggestedPrompts?: string[];
