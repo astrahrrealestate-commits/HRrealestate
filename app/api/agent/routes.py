@@ -1248,7 +1248,15 @@ def ask_agent(
     ans_text: str = ""
     try:
         if plan and plan.in_scope and plan.steps:
-            results = run_plan(engine, settings, company_id, plan, question=req.query, now=now, brief_cases=[b.case_id for b in briefs])
+            known_cases_list = [b.case_id for b in briefs]
+            if conv and conv.focus_state and conv.focus_state.get("case_id"):
+                try:
+                    f_cid = UUID(str(conv.focus_state["case_id"]))
+                    if f_cid not in known_cases_list:
+                        known_cases_list.append(f_cid)
+                except Exception:
+                    pass
+            results = run_plan(engine, settings, company_id, plan, question=req.query, now=now, brief_cases=known_cases_list)
             ans_text = assemble_answer(results)
         else:
             # Screened or direct command path via owner_commands
