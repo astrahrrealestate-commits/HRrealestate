@@ -91,3 +91,20 @@ def test_findings_are_ordered_high_severity_first() -> None:
     ]
     severities = [r.severity.value for r in screen(FW, DDPropertyKind.house, docs, TODAY, unverified=0).risks]
     assert severities == sorted(severities, key=["high", "medium", "low"].index)
+
+
+def test_feed_payload_is_compact_and_names_the_gaps() -> None:
+    from uuid import uuid4
+
+    from app.diligence.summary import feed_payload
+
+    docs = [d for d in _complete_house() if d.read and d.read.doc_kind is not K.kadaster_extract]
+    report = screen(FW, DDPropertyKind.house, docs, TODAY, unverified=2)
+    review_id = uuid4()
+    payload = feed_payload(review_id, "Kerkstraat 12", report)
+    assert payload["review_id"] == str(review_id)
+    assert payload["title"] == "Kerkstraat 12"
+    assert payload["verdict"] == "needs_documents"
+    assert payload["missing"] == ["Kadaster extract"]
+    assert payload["coverage"] == {"present": report.coverage.present, "applicable": report.coverage.applicable}
+    assert payload["counts"] == {"mismatches": 0, "high_risks": 0, "risks": 0}

@@ -222,7 +222,8 @@ name = "Diligence screen is pure (no I/O layers)"
 type = "forbidden"
 source_modules = [
     "app.diligence.checklist", "app.diligence.compare", "app.diligence.engine", "app.diligence.facts",
-    "app.diligence.framework", "app.diligence.inputs", "app.diligence.risks", "app.diligence.verify",
+    "app.diligence.framework", "app.diligence.inputs", "app.diligence.risks", "app.diligence.summary",
+    "app.diligence.verify",
 ]
 forbidden_modules = ["app.db", "app.llm", "app.channels", "app.storage"]
 
