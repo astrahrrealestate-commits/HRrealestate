@@ -1273,24 +1273,65 @@ export function AskEstateOSPanel({
 
 
 function formatMarkdown(text: string): string {
-  return text
-    // Markdown links: [Label](url) -> clean clickable anchor tag with break-all
-    .replace(
-      /\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-[#F25C05] hover:text-[#d94f00] underline font-medium inline-flex items-center gap-1 break-all">$1 ↗</a>'
-    )
-    // Inline backticks: `code`
-    .replace(
-      /`([^`]+)`/g,
-      '<code class="px-1.5 py-0.5 rounded bg-[#181D22] text-[#E2E8F0] font-mono text-[12px] break-all border border-[#262F38]">$1</code>'
-    )
-    // Bold: **text**
-    .replace(/\*\*(.*?)\*\*/g, '<strong class="text-[#FFFFFF] font-semibold">$1</strong>')
-    // Italics: *text*
-    .replace(/\*(.*?)\*/g, '<em class="text-[#CCCCCC]">$1</em>')
-    // Bullet list: • or -
-    .replace(
-      /^([•\-]) (.*?)$/gm,
-      '<div class="flex items-start gap-2 my-1"><span class="text-[#F25C05] font-bold shrink-0">•</span><span class="break-words min-w-0">$2</span></div>'
-    );
+  if (!text) return "";
+  let clean = text
+    // Strip leading tool chatter e.g. "Opening cases.", "Opening inbox."
+    .replace(/^(Opening (cases|inbox|maintenance|money|properties|calendar|documents|approvals)\.?\s*)+/gi, "")
+    .trim();
+
+  // 1. Markdown links: [Label](url) -> clean clickable anchor tag with break-all
+  clean = clean.replace(
+    /\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g,
+    '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-[#F25C05] hover:text-[#d94f00] underline font-medium inline-flex items-center gap-1 break-all">$1 ↗</a>'
+  );
+
+  // 2. Structured Headings: ### Header
+  clean = clean.replace(
+    /^###\s+(.*?)$/gm,
+    '<div class="text-[11.5px] font-semibold uppercase tracking-wider text-[#94A3B8] mt-3 mb-1.5 flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-[#F25C05] shrink-0"></span><span>$1</span></div>'
+  );
+
+  // 3. Executive Callout Quotes: > ...
+  clean = clean.replace(
+    /^>\s+(.*?)$/gm,
+    '<div class="border-l-2 border-[#F25C05] bg-[#F25C05]/10 px-3 py-2 rounded-r-[8px] my-2 text-[12.5px] text-[#F3F4F6] leading-relaxed font-normal">$1</div>'
+  );
+
+  // 4. Numbered Step Lists: 1. ...
+  clean = clean.replace(
+    /^(\d+)\.\s+(.*?)$/gm,
+    '<div class="flex items-start gap-2.5 my-1.5"><span class="flex items-center justify-center w-4 h-4 rounded-full bg-[#20272F] text-[10px] font-semibold text-[#94A3B8] shrink-0 mt-0.5">$1</span><span class="break-words min-w-0 flex-1">$2</span></div>'
+  );
+
+  // 5. Bullet list: • or -
+  clean = clean.replace(
+    /^([•\-])\s+(.*?)$/gm,
+    '<div class="flex items-start gap-2 my-1"><span class="text-[#F25C05] font-bold shrink-0">•</span><span class="break-words min-w-0 flex-1">$2</span></div>'
+  );
+
+  // 6. Currency amounts: €650 or € 650,00 -> monospace tabular-nums pill
+  clean = clean.replace(
+    /(€\s?\d+(?:[.,]\d+)?)/g,
+    '<span class="font-mono tabular-nums font-semibold text-emerald-400 bg-emerald-950/40 px-1 py-0.5 rounded border border-emerald-800/40 text-[12px] inline-block">$1</span>'
+  );
+
+  // 7. Ticket references: #01a181 or case 01a181
+  clean = clean.replace(
+    /(#[0-9a-f]{6,8})\b/gi,
+    '<span class="font-mono text-[11px] font-semibold text-blue-400 bg-blue-950/40 px-1.5 py-0.5 rounded border border-blue-800/40 inline-block">$1</span>'
+  );
+
+  // 8. Inline backticks: `code`
+  clean = clean.replace(
+    /`([^`]+)`/g,
+    '<code class="px-1.5 py-0.5 rounded bg-[#181D22] text-[#E2E8F0] font-mono text-[12px] break-all border border-[#262F38]">$1</code>'
+  );
+
+  // 9. Bold: **text**
+  clean = clean.replace(/\*\*(.*?)\*\*/g, '<strong class="text-[#FFFFFF] font-semibold">$1</strong>');
+
+  // 10. Italics: *text*
+  clean = clean.replace(/\*(.*?)\*/g, '<em class="text-[#CCCCCC]">$1</em>');
+
+  return clean;
 }

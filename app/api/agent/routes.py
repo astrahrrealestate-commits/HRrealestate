@@ -667,6 +667,31 @@ def _generate_thread_title(query: str, ans: str, cases: list[CaseBrief]) -> str:
     return " ".join(clean_words[:4]) or "Conversation"
 
 
+def _clean_executive_answer(text: str) -> str:
+    """Strip robotic tool-chatter prefixes and polish markdown scannability."""
+    if not text:
+        return ""
+    cleaned = re.sub(
+        r"^(Opening (cases|inbox|maintenance|money|properties|calendar|documents|approvals)\.?\s*)+",
+        "",
+        text.strip(),
+        flags=re.IGNORECASE,
+    ).strip()
+    cleaned = re.sub(
+        r"\bcase\s+([0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
+        r"Ticket #\1",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\bcase\s+([0-9a-f]{6,8})\b",
+        r"Ticket #\1",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    return cleaned
+
+
 def _finish_agent_response(
     engine: Engine,
     conv_id: UUID,
@@ -684,6 +709,7 @@ def _finish_agent_response(
     now: datetime,
     briefs: list[CaseBrief],
 ) -> AskAgentResponse:
+    ans_text = _clean_executive_answer(ans_text)
     with Session(engine) as session:
         conv = session.get(AgentConversation, conv_id)
         if not conv:
