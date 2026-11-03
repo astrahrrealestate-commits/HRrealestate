@@ -268,3 +268,44 @@ def test_empty_fake_is_a_quiet_no_op(env: Env) -> None:
 
     assert env.runs() == []
     assert env.states() == {}
+
+
+def test_table_without_a_mirror_table_is_skipped_as_drift_not_failure(env: Env) -> None:
+    env.install({"PRG_A": 3})
+    unmigrated = _info("PRG_NEW")  # BRIXX lists it, but no codegen revision has created its mirror table yet
+    tables = {"PRG_A": FakeTable(_info("PRG_A"), _rows(3)), "PRG_NEW": FakeTable(unmigrated, _rows(2))}
+    api = FakeBrixxApi(tables, page_size=2)
+    set_brixx_api(api)
+    env.api = api
+
+    brixx_sync.sync_all(SCHEDULED, None)
+
+    [run] = env.runs()
+    assert (run.status, run.error) == (BrixxRunStatus.succeeded, None)
+    states = env.states()
+    assert states["PRG_NEW"].drifted is True
+    assert states["PRG_NEW"].last_run_id is None  # skipped before any takeover
+    assert env.fetches("PRG_NEW") == []
+    assert states["PRG_A"].drifted is False
+    assert env.mirrored("PRG_A") == 3
+    assert "PRG_NEW" not in env.marked
+
+
+def test_live_column_the_mirror_lacks_lands_in_extra_and_flags_drift(env: Env) -> None:
+    narrow = _info("PRG_A")
+    env.tables["PRG_A"] = env.mirror.create(narrow)  # what the committed revision created
+    grown = BrixxTable("PRG_A", "ID", (*narrow.fields, BrixxField(5, "NIEUW", "VARCHAR(5)", False, None, None)))
+    rows = [{**row, "NIEUW": "x"} for row in _rows(2)]
+    api = FakeBrixxApi({"PRG_A": FakeTable(grown, rows)}, page_size=2)
+    set_brixx_api(api)
+    env.api = api
+
+    brixx_sync.sync_all(SCHEDULED, None)
+
+    [run] = env.runs()
+    assert run.status == BrixxRunStatus.succeeded
+    assert env.states()["PRG_A"].drifted is True
+    table = env.tables["PRG_A"]
+    with Session(env.mirror.engine) as s:
+        extras = list(s.scalars(sa.select(table.c._extra).where(table.c.company_id == env.company_id)))
+    assert extras == [{"nieuw": "x"}, {"nieuw": "x"}]
