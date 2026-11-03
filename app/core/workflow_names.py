@@ -24,6 +24,9 @@ CONCIERGE_TURN = "concierge.turn"
 DD_REVIEW = "diligence.review"
 BRIXX_SYNC_ALL = "brixx.sync_all"
 BRIXX_SYNC_TABLE = "brixx.sync_table"
+BRIXX_RECONCILE_ALL = "brixx.reconcile_all"
+BRIXX_RECONCILE_TABLE = "brixx.reconcile_table"
+BRIXX_MAP_DIRECTORY = "brixx.map_directory"
 FINANCE_SNAPSHOT = "finance.snapshot"
 FINANCE_QUOTE = "finance.quote"
 FINANCE_RECHECK = "finance.recheck"
@@ -43,6 +46,16 @@ def reorg_workflow_id(plan_id: object) -> str:
 def brixx_run_workflow_id(run_id: object, table: str) -> str:
     """`brixx:<run_id>:<table>`: the one sync of a table within a run; a repeated enqueue is deduplicated by DBOS."""
     return f"brixx:{run_id}:{table}"
+
+
+def brixx_reconcile_workflow_id(run_id: object, table: str) -> str:
+    """`brixxrec:<run_id>:<table>`: the one reconcile of a table within a reconcile run."""
+    return f"brixxrec:{run_id}:{table}"
+
+
+def brixx_map_workflow_id(run_id: object) -> str:
+    """`brixxmap:<run_id>`: the one directory mapping after a sync or reconcile run."""
+    return f"brixxmap:{run_id}"
 
 
 def concierge_workflow_id(turn_id: object) -> str:

@@ -16,7 +16,15 @@ class BrixxApi(Protocol):
     def describe_table(self, name: str) -> BrixxTable: ...
 
     def fetch_page(
-        self, table: str, *, page: int, filters: str | None = None, order_by: str | None = None
-    ) -> BrixxPage: ...
+        self,
+        table: str,
+        *,
+        page: int,
+        filters: str | None = None,
+        order_by: str | None = None,
+        fields: tuple[str, ...] | None = None,
+    ) -> BrixxPage:
+        """One page of rows. `fields` limits the columns (primary-key scans only; upserts need whole rows)."""
+        ...
 
     def download_document(self, document_id: int) -> bytes: ...

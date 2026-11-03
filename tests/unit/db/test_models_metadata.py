@@ -28,8 +28,8 @@ SPEC_TABLES = {
     "dd_reviews", "dd_review_documents", "dd_document_reads",
     # BRIXX data mirror (sync bookkeeping; mirrored data itself lives in the `brixx` schema)
     "brixx_sync_runs", "brixx_sync_table_state",
-    # BRIXX directory (spec 2026-11-03): GDPR tombstones
-    "brixx_erased_refs",
+    # BRIXX directory (spec 2026-11-03): GDPR tombstones, reconcile key staging
+    "brixx_erased_refs", "brixx_reconcile_seen",
 }  # fmt: skip
 
 

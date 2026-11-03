@@ -1,4 +1,4 @@
-"""In-memory BRIXX API for tests and dev: pages, a simple `upddatetime` filter, scripted failures."""
+"""In-memory BRIXX API for tests and dev: pages, `upddatetime` and keyset filters, projections, scripted failures."""
 
 import re
 from dataclasses import dataclass
@@ -11,6 +11,7 @@ from app.channels.brixx.normalise import normalise_row
 from app.core.errors import BrixxError
 
 _UPD_FILTER = re.compile(r"\[upddatetime >= (\d{4}-\d{2}-\d{2})\]", re.IGNORECASE)
+_KEYSET_FILTER = re.compile(r"\[([A-Za-z][A-Za-z0-9_]*) > (-?\d+)\]")
 
 
 @dataclass
@@ -49,6 +50,18 @@ def _upddatetime(row: dict[str, object]) -> object:
     return next((v for k, v in row.items() if k.lower() == "upddatetime"), None)
 
 
+def _projected(
+    table: FakeTable, rows: list[dict[str, object]], fields: tuple[str, ...] | None
+) -> list[dict[str, object]]:
+    """Keep only `fields` (case-insensitive, original key case), as BRIXX does for a `fields=` query."""
+    if not fields:
+        return rows
+    wanted = {f.lower() for f in fields}
+    if not wanted <= {f.name.lower() for f in table.info.fields}:
+        raise BrixxError(f"BRIXX table {table.info.name} has no such field to return")
+    return [{k: v for k, v in r.items() if k.lower() in wanted} for r in rows]
+
+
 class FakeBrixxApi:
     def __init__(
         self,
@@ -80,7 +93,13 @@ class FakeBrixxApi:
         return self._table(name).info
 
     def fetch_page(
-        self, table: str, *, page: int, filters: str | None = None, order_by: str | None = None
+        self,
+        table: str,
+        *,
+        page: int,
+        filters: str | None = None,
+        order_by: str | None = None,
+        fields: tuple[str, ...] | None = None,
     ) -> BrixxPage:
         self.fetch_log.append((table, page, filters))
         self.order_log.append(order_by)
@@ -95,7 +114,7 @@ class FakeBrixxApi:
         fake_table = self._table(table)
         rows = self._ordered(fake_table, self._filtered(fake_table.rows, filters), order_by)
         start = (page - 1) * self._page_size
-        chunk = rows[start : start + self._page_size]
+        chunk = _projected(fake_table, rows[start : start + self._page_size], fields)
         return BrixxPage(
             rows=[normalise_row(r) for r in chunk],
             page=page,
@@ -120,10 +139,14 @@ class FakeBrixxApi:
     def _filtered(rows: list[dict[str, object]], filters: str | None) -> list[dict[str, object]]:
         if not filters:
             return rows
+        keyset = _KEYSET_FILTER.fullmatch(filters.strip())
+        if keyset is not None and keyset.group(1).lower() != "upddatetime":
+            column, cursor = keyset.group(1).lower(), int(keyset.group(2))
+            return [r for r in rows if (value := _cell(r, column)) is not None and int(str(value)) > cursor]
         match = _UPD_FILTER.fullmatch(filters.strip())
         since = _to_datetime(match.group(1)) if match else None
         if since is None:
-            raise BrixxError("fake supports only the filter [upddatetime >= yyyy-MM-dd]")
+            raise BrixxError("fake supports only [upddatetime >= yyyy-MM-dd] or [<integer column> > n]")
         return [r for r in rows if ((value := _to_datetime(_upddatetime(r))) is not None and value >= since)]
 
     def download_document(self, document_id: int) -> bytes:

@@ -64,7 +64,7 @@ def upsert_page(
     extra_columns: set[str] = set()
     for raw in rows:
         values, extras = _split_row(raw, data_columns)
-        key = _primary_key(values.get(pk), info.name)
+        key = primary_key(values.get(pk), info.name)
         values[pk] = key
         extra_columns.update(extras)
         values["_extra"] = extras or None
@@ -76,7 +76,7 @@ def upsert_page(
     return UpsertResult(written, len(rows) - written, frozenset(extra_columns))
 
 
-def _primary_key(value: object, table_name: str) -> int:
+def primary_key(value: object, table_name: str) -> int:
     """BRIXX primary keys are integers; `1`, `"1"` and `1.0` are the same row. Never echoes the value."""
     if isinstance(value, bool) or value is None:
         raise BrixxError(f"row for BRIXX table {table_name!r} has a missing or invalid primary key")
