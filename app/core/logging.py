@@ -1,8 +1,10 @@
-"""structlog setup: JSON lines outside dev, pretty console in dev. Context binds via contextvars."""
+"""structlog setup: JSON lines outside dev, pretty console in dev. Context binds via contextvars; redaction last."""
 
 import logging
 
 import structlog
+
+from app.core.redaction import redact_event
 
 
 def configure_logging(env: str) -> None:
@@ -16,6 +18,7 @@ def configure_logging(env: str) -> None:
             structlog.processors.TimeStamper(fmt="iso", utc=True),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
+            redact_event,  # last before rendering: secrets, BRIXX personal columns and rows never leave
             renderer,
         ],
         wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
