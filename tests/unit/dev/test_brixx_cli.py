@@ -1,5 +1,6 @@
 """`python -m app.dev.brixx`: discover writes a metadata snapshot; failures are one clear line, never a traceback."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -101,3 +102,44 @@ def test_main_turns_brixx_errors_into_one_line(
     err = capsys.readouterr().err
     assert "ConnectTimeout" in err
     assert "Traceback" not in err
+
+
+EXAMPLE = Path(__file__).parents[2] / "fixtures" / "brixx" / "metadata_example"
+WHEN = datetime(2026, 11, 3, 9, 30, tzinfo=UTC)
+
+
+def _alembic_dir(root: Path) -> Path:
+    versions = root / "alembic" / "versions"
+    versions.mkdir(parents=True)
+    for rev, down in (("0001", None), ("0002", "0001")):
+        (versions / f"{rev}_x.py").write_text(f"revision = {rev!r}\ndown_revision = {down!r}\n", encoding="utf-8")
+    return root / "alembic"
+
+
+def test_codegen_writes_the_next_revision_then_reports_up_to_date(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    alembic = _alembic_dir(tmp_path)
+    assert cli.codegen(EXAMPLE, alembic, now=WHEN) == 0
+    written = alembic / "versions" / "0003_brixx_mirror.py"
+    source = written.read_text(encoding="utf-8")
+    assert 'down_revision: str | None = "0002"' in source
+    assert "op.create_table('prg_relatie'" in source
+    assert str(written) in capsys.readouterr().out
+
+    assert cli.codegen(EXAMPLE, alembic, now=WHEN) == 0  # same snapshot again: nothing new, no duplicate tables
+    assert "already match" in capsys.readouterr().out
+    assert sorted(p.name for p in (alembic / "versions").glob("*.py")) == ["0001_x.py", "0002_x.py", written.name]
+
+
+def test_codegen_refuses_two_heads(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    alembic = _alembic_dir(tmp_path)
+    (alembic / "versions" / "0003_y.py").write_text("revision = '0003'\ndown_revision = '0001'\n", encoding="utf-8")
+    assert cli.codegen(EXAMPLE, alembic, now=WHEN) == 1
+    assert "head" in capsys.readouterr().err
+    assert not list((alembic / "versions").glob("*brixx*"))
+
+
+def test_codegen_without_a_snapshot_says_to_discover_first(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.codegen(tmp_path / "none", _alembic_dir(tmp_path), now=WHEN) == 1
+    assert "discover" in capsys.readouterr().err
