@@ -1,0 +1,10 @@
+{
+  "environment": "example",
+  "format": 1,
+  "tables": [
+    "PRG_OBJECT",
+    "PRG_RELATIE",
+    "SYS_LAND",
+    "ZPRG_RELATIE"
+  ]
+}

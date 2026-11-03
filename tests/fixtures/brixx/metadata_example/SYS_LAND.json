@@ -1,0 +1,30 @@
+{
+  "fields": [
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 1,
+      "name": "SYS_LANDID",
+      "required": true,
+      "type": "NUMBER"
+    },
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 2,
+      "name": "CODE",
+      "required": true,
+      "type": "VARCHAR(3)"
+    },
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 3,
+      "name": "OMSCHRIJVING",
+      "required": false,
+      "type": "VARCHAR(60)"
+    }
+  ],
+  "name": "SYS_LAND",
+  "primary_key": "SYS_LANDID"
+}

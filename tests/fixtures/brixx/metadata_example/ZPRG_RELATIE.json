@@ -1,0 +1,62 @@
+{
+  "fields": [
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 1,
+      "name": "ZPRG_RELATIEID",
+      "required": true,
+      "type": "NUMBER"
+    },
+    {
+      "fk_field": "PRG_RELATIEID",
+      "fk_table": "PRG_RELATIE",
+      "id": 2,
+      "name": "PRG_RELATIEID",
+      "required": true,
+      "type": "NUMBER"
+    },
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 3,
+      "name": "NAAM",
+      "required": true,
+      "type": "VARCHAR(132)"
+    },
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 4,
+      "name": "VERSIENR",
+      "required": false,
+      "type": "NUMBER"
+    },
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 5,
+      "name": "NEWDATETIME",
+      "required": false,
+      "type": "TIMESTAMP(6)"
+    },
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 6,
+      "name": "UPDDATETIME",
+      "required": false,
+      "type": "TIMESTAMP(6)"
+    },
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 7,
+      "name": "INDVERWIJDERD",
+      "required": false,
+      "type": "NUMBER"
+    }
+  ],
+  "name": "ZPRG_RELATIE",
+  "primary_key": "ZPRG_RELATIEID"
+}
