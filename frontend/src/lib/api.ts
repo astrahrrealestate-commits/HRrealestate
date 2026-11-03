@@ -170,6 +170,7 @@ export async function getInboxThreads(
                   confidence: (t.aiConfidence || 95) / 100,
                   recommendedAction: t.aiSummary || "Review and approve staged draft reply.",
                   activeChannel: channel,
+                  persona: t.draftPersona || undefined,
                   whatsappDrafts: wDrafts,
                   gmailDrafts: gDrafts,
                   drafts: activeDrafts.length > 0 ? activeDrafts : (gDrafts.length > 0 ? gDrafts : wDrafts),
@@ -793,6 +794,8 @@ export interface PreviewCardData {
   targetUrl?: string;
   externalUrl?: string | null;
   threadSearchUrl?: string | null;
+  personaName?: string | null; // owner persona a draft_message was written in
+  personaVersion?: number | null;
 }
 
 export interface AskAgentAction {
@@ -1100,6 +1103,80 @@ export async function approveStandingRule(memoryId: string): Promise<boolean> {
 }
 
 // ---------------------------------------------------------------------------
+// Owner writing persona (/api/v1/persona): the markdown the draft agent writes in
+// ---------------------------------------------------------------------------
+
+export interface OwnerPersona {
+  name: string;
+  filename: string | null;
+  content: string;
+  version: number;
+  is_default: boolean;
+  updated_at: string;
+  max_chars: number;
+}
+
+const PERSONA_HEADERS = {
+  "Content-Type": "application/json",
+  Accept: "application/json",
+  "X-EstateOS-Client": "dashboard",
+};
+
+export async function getOwnerPersona(): Promise<OwnerPersona | null> {
+  await ensureAuthenticated();
+  try {
+    const res = await fetch(`${BACKEND_BASE_URL}/api/v1/persona`, {
+      headers: PERSONA_HEADERS,
+      credentials: "include",
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) return await res.json();
+  } catch (err) {
+    console.warn("Failed to fetch persona:", err);
+  }
+  return null;
+}
+
+/** Saves an edited or uploaded persona. Returns the stored persona, or an error message to show the owner. */
+export async function saveOwnerPersona(data: {
+  content: string;
+  name?: string;
+  filename?: string;
+}): Promise<{ persona: OwnerPersona } | { error: string }> {
+  await ensureAuthenticated();
+  try {
+    const res = await fetch(`${BACKEND_BASE_URL}/api/v1/persona`, {
+      method: "PUT",
+      headers: PERSONA_HEADERS,
+      credentials: "include",
+      body: JSON.stringify(data),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.ok) return { persona: await res.json() };
+    const body = await res.json().catch(() => null);
+    return { error: typeof body?.detail === "string" ? body.detail : "Could not save the persona." };
+  } catch {
+    return { error: "Backend unreachable. The persona was not saved." };
+  }
+}
+
+export async function resetOwnerPersona(): Promise<OwnerPersona | null> {
+  await ensureAuthenticated();
+  try {
+    const res = await fetch(`${BACKEND_BASE_URL}/api/v1/persona/reset`, {
+      method: "POST",
+      headers: PERSONA_HEADERS,
+      credentials: "include",
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) return await res.json();
+  } catch (err) {
+    console.warn("Failed to reset persona:", err);
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Page Pre-Warming Context Dispatcher (/api/v1/agent/page)
 // ---------------------------------------------------------------------------
 
@@ -1144,4 +1221,3 @@ export async function prewarmAgentPage(params: PrewarmPageParams): Promise<boole
     return false;
   }
 }
-

@@ -122,9 +122,14 @@ Changing a document link may propose a one-item reorganisation plan (`created_by
 | `/company/pause`, `/company/resume` | none | `200 {paused}` | none; resume also re-runs approved but unexecuted actions |
 | `/agent/messages` | `{text, conversation_id?, page?}` (`page`: see [Page context](#page-context-page-on-post-agentmessages)) | `202 {conversation_id, turn_id}`; answer arrives via SSE or by polling the conversation | `404` for a foreign conversation; `422` for an invalid `page`; `503` if the turn could not be started (it is marked failed; send the message again) |
 | `PUT /agent/page` | a page context, the same object as `page` above (not wrapped) | `204`, no body: the page facts are resolved for your next message (see [Page pre-warm](#page-pre-warm-put-agentpage)) | `422` for an invalid page (same rules as `page`); `503` when the facts could not be resolved right now (safe to ignore: the next message resolves them itself) |
+| `GET /persona` | none | `200 {name, filename, content, version, is_default, updated_at, max_chars}`: the writing persona (markdown) the draft agent writes in. Created from the bundled sample on first read | none |
+| `PUT /persona` | `{content, name?, filename?}`: `content` is the markdown (not blank, at most `max_chars` = 8000 characters) | `200` the stored persona; `version` goes up by one on every save. The next drafts use it and each tenant- or contractor-facing draft records `persona_name` and `persona_version` | `422` blank or too long |
+| `POST /persona/reset` | none | `200` the bundled sample persona again (`is_default: true`, `version` still goes up) | none |
 | `/auth/session` | `{id_token}` | see Auth | see Auth |
 
 Document choices (`DOC_CHOICES`): `lease`, `invoice`, `quote`, `id_document`, `insurance`, `certificate`, `correspondence`, `photo`, `other`, `skip`.
+
+The persona is style guidance only: it reaches the model inside a `<persona>` data block (prompt `proposer/v4`) and cannot change the draft rules, recipients or the approval step. `GET /api/inbox/threads` adds `draftPersona: {actingAs, name, version}` to a thread whose model draft was written in it (null for canned drafts); the dashboard shows it on the draft card as "Acting as Harjot".
 
 A decision on an old draft version returns `kind: "stale"` (nothing is sent): refetch `/approvals`.
 

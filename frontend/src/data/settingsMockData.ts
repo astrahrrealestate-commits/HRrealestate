@@ -124,6 +124,12 @@ export const SETTING_GROUPS: SettingGroup[] = [
     ],
   },
   {
+    id: "persona",
+    title: "Draft Persona",
+    description: "The writing persona (markdown) the draft agent uses when it replies as Harjot.",
+    settings: [],
+  },
+  {
     id: "memory-rules",
     title: "AI Standing Rules & Memory",
     description: "T5 standing memory rules, contractor ceilings, and tenant communication preferences.",

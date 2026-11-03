@@ -17,7 +17,15 @@ from sqlalchemy import Engine, select, text
 from sqlalchemy.orm import Session
 
 from app.context.person_profile import person_profile_line
-from app.contracts import Action, ActionType, Category, NotifyOwnerPayload, ReplyDraftPayload, Understanding
+from app.context.persona import get_persona_row, stamp_persona
+from app.contracts import (
+    Action,
+    ActionType,
+    Category,
+    NotifyOwnerPayload,
+    ReplyDraftPayload,
+    Understanding,
+)
 from app.core.errors import AgentFailedError
 from app.core.logging import get_logger
 from app.core.settings import Settings
@@ -35,7 +43,7 @@ from app.db.models import (
     WaitRow,
 )
 from app.llm.agents.doc_qa import Passage
-from app.llm.agents.proposer import Contractor, ProposerContext, proposer_prompt, proposer_spec
+from app.llm.agents.proposer import Contractor, Persona, ProposerContext, proposer_prompt, proposer_spec
 from app.llm.calls import CallContext, run_agent
 from app.llm.embeddings import TextEmbedder, build_embedder
 from app.pipeline import approvals, case_repo
@@ -109,6 +117,11 @@ def _case_documents(
     return tuple(replace(p, text=strip_risky(p.text)) for p in found)
 
 
+def _persona(session: Session, company_id: UUID) -> Persona:
+    row = get_persona_row(session, company_id)
+    return Persona(row.name, row.version, row.content)
+
+
 def _load(
     session: Session, msg: MessageRow, case: Case, und: Understanding, embedder: TextEmbedder | None = None,
     documents: bool = True,
@@ -135,6 +148,7 @@ def _load(
         else None
     )
     profile_line = person_profile_line(profile)
+    persona = _persona(session, msg.company_id)
     ctx = ProposerContext(
         case_id=case.id,
         channel=msg.channel,
@@ -148,6 +162,7 @@ def _load(
         mode="reply",
         excerpts=_case_documents(session, msg, case, embedder) if documents else (),
         person_profile=profile_line,
+        persona=persona,
     )
     return Loaded(ctx, msg.company_id, bool(company and company.paused))
 
@@ -222,6 +237,7 @@ def _persist(
             draft_version=1,
             status=_STATUS[decision.verdict],
         )
+        stamp_persona(row, a.payload, loaded.ctx.persona)
         session.add(row)
         session.flush()
         if key is not None and a.type is ActionType.reply_draft:

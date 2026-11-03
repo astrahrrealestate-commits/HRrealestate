@@ -14,6 +14,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_evals import Dataset
 
+from app.context.persona import DEFAULT_NAME, DEFAULT_PATH
 from app.contracts import (
     Category,
     Channel,
@@ -26,7 +27,7 @@ from app.contracts import (
     Urgency,
 )
 from app.core.settings import Settings
-from app.llm.agents.proposer import PROPOSER_GUIDED, ProposerContext, proposer_prompt
+from app.llm.agents.proposer import PROPOSER_GUIDED, Persona, ProposerContext, proposer_prompt
 from app.llm.prompts import load_prompt
 from app.pipeline.draft_guidance import guidance_for
 from app.pipeline.output_guard import unverified
@@ -74,11 +75,11 @@ def load(path: Path = GOLDEN_DIR / "proposer.yaml") -> Dataset[DraftInput, Draft
     return Dataset[DraftInput, DraftOutput, DraftLabel].from_file(path)
 
 
-def context(inputs: DraftInput, guidance: str | None) -> ProposerContext:
+def context(inputs: DraftInput, guidance: str | None, persona: Persona | None = None) -> ProposerContext:
     return ProposerContext(
         case_id=UUID(int=1), channel=inputs.channel, subject=None, message_text=inputs.message, understanding=_UND,
         case_state="open", case_summary=inputs.case_summary, waiting=(), contractors=(), mode="reply",
-        guidance=guidance, current_draft=tuple(inputs.current_draft),
+        guidance=guidance, current_draft=tuple(inputs.current_draft), persona=persona,
     )  # fmt: skip
 
 
@@ -129,11 +130,12 @@ def _problem(label: DraftLabel, inputs: DraftInput, out: DraftOutput) -> str | N
 
 def run(version: str, settings: Settings) -> EvalResult:
     loaded = load_prompt(PromptRef(name="proposer", version=version))
+    persona = None if version in ("v1", "v2", "v3") else Persona(DEFAULT_NAME, 1, DEFAULT_PATH.read_text("utf-8"))
     agent = spec_agent(settings, PROPOSER_GUIDED.name, Proposal, loaded)
 
     async def task(inputs: DraftInput) -> DraftOutput:
         guidance = guidance_for(inputs.guidance)  # the owner's own message
-        ctx = context(inputs, guidance.text)
+        ctx = context(inputs, guidance.text, persona)
         output = PROPOSER_GUIDED.finalize((await agent.run(proposer_prompt(ctx))).output, loaded)
         replies = [a.payload for a in output.actions if isinstance(a.payload, ReplyDraftPayload)]
         variants = list(replies[0].body_variants) if replies else []

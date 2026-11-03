@@ -614,6 +614,7 @@ export function InboxConversationView({
               thread.draftProposal?.gmailDrafts ||
               []
         }
+        draftPersona={isSent ? undefined : thread.draftProposal?.persona}
         detectedLanguage={thread.detectedLanguage || "Dutch (detected)"}
         channel={thread.channel}
         recipientPhone={thread.senderContact}

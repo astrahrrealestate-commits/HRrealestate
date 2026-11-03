@@ -10,6 +10,7 @@ from uuid import UUID
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
+from app.context.persona import load_persona, stamp_persona
 from app.contracts import (
     Action,
     ActionType,
@@ -27,7 +28,7 @@ from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import ActionStatus, ApprovalStatus, PersonKind, WaitStatus
 from app.db.models import ActionRow, Approval, Case, CaseLink, Company, MessageRow, Person, WaitRow
-from app.llm.agents.proposer import PROPOSER, ProposerContext, proposer_prompt
+from app.llm.agents.proposer import Persona, ProposerContext, proposer_prompt, proposer_spec
 from app.llm.calls import CallContext, run_agent
 from app.pipeline import approvals, case_repo, work_repo
 from app.pipeline.chasing import ChasePolicy, ChaseStep, add_business_days, next_step
@@ -93,7 +94,10 @@ def _latest_inbound(session: Session, case: Case) -> MessageRow | None:
     )
 
 
-def _tenant_chaser(engine: Engine, settings: Settings, case: Case, wait: WaitRow, msg: MessageRow | None) -> Action:
+def _tenant_chaser(
+    engine: Engine, settings: Settings, case: Case, wait: WaitRow, msg: MessageRow | None
+) -> tuple[Action, Persona | None]:
+    """The chaser and the persona it was written in (None for the template fallback, which uses no persona)."""
     channel = msg.channel if msg else Channel.whatsapp
     und = Understanding(
         category=case.category,
@@ -105,6 +109,7 @@ def _tenant_chaser(engine: Engine, settings: Settings, case: Case, wait: WaitRow
         confidence=1.0,
         prompt_version="understanding/v2",
     )
+    persona = load_persona(engine, case.company_id)
     ctx = ProposerContext(
         case_id=case.id,
         channel=channel,
@@ -116,21 +121,23 @@ def _tenant_chaser(engine: Engine, settings: Settings, case: Case, wait: WaitRow
         waiting=(wait.about,),
         contractors=(),
         mode="chase",
+        persona=persona,
     )
     try:
-        out = run_agent(engine, settings, PROPOSER, proposer_prompt(ctx), CallContext(case.company_id, "chaser"))
+        call = CallContext(case.company_id, "chaser")
+        out = run_agent(engine, settings, proposer_spec(ctx), proposer_prompt(ctx), call)
         reply = next(a for a in out.output.actions if a.type is ActionType.reply_draft)
         payload = reply.payload.model_copy(
             update={"channel": channel}
         )  # the channel comes from the case, not the model
-        return reply.model_copy(update={"case_id": case.id, "draft_version": 1, "payload": payload})
+        return reply.model_copy(update={"case_id": case.id, "draft_version": 1, "payload": payload}), persona
     except (AgentFailedError, StopIteration):
         log.warning("followups.chaser_fallback", wait_id=str(wait.id))
         variants = [v.format(about=wait.about) for v in TENANT_CHASE]
         subject = (
             f"Re: {msg.meta.get('subject')}" if msg and channel is Channel.gmail and msg.meta.get("subject") else None
         )
-        return Action.model_validate(
+        fallback = Action.model_validate(
             {
                 "type": "reply_draft",
                 "case_id": case.id,
@@ -145,6 +152,7 @@ def _tenant_chaser(engine: Engine, settings: Settings, case: Case, wait: WaitRow
                 "draft_version": 1,
             }
         )
+        return fallback, None
 
 
 def _contractor_chaser(session: Session, case: Case, wait: WaitRow) -> Action:
@@ -181,7 +189,9 @@ def _escalation(case: Case, wait: WaitRow, who: str) -> Action:
     )
 
 
-def _store(session: Session, company: Company, case: Case, action: Action, now: datetime) -> UUID | None:
+def _store(
+    session: Session, company: Company, case: Case, action: Action, now: datetime, persona: Persona | None = None
+) -> UUID | None:
     status = ActionStatus.paused if company.paused else ActionStatus.pending_approval
     row = ActionRow(
         company_id=company.id,
@@ -193,6 +203,7 @@ def _store(session: Session, company: Company, case: Case, action: Action, now: 
         draft_version=1,
         status=status,
     )
+    stamp_persona(row, action.payload, persona)
     session.add(row)
     session.flush()
     if company.paused:
@@ -275,20 +286,20 @@ def handle_wait_due(
         return None
     if decision is ChaseStep.chase:
         with Session(engine) as session:
-            action = (
-                _contractor_chaser(session, case, wait)
+            action, persona = (
+                (_contractor_chaser(session, case, wait), None)
                 if contractor
                 else _tenant_chaser(engine, settings, case, wait, msg)
             )
     else:
-        action = _escalation(case, wait, who)
+        action, persona = _escalation(case, wait, who), None
     with Session(engine) as session, session.begin():
         current = session.scalar(
             select(WaitRow).where(WaitRow.company_id == company_id, WaitRow.id == wait_id).with_for_update()
         )
         if current is None or current.chase_count != step or current.status is not wait.status:
             return None  # a concurrent run already handled this step
-        approval_id = _store(session, company, case, action, now)
+        approval_id = _store(session, company, case, action, now, persona)
         if decision is ChaseStep.chase:
             next_due = add_business_days(now, company.chase_after_days, company.timezone)
             work_repo.record_chase(session, company.id, wait_id, at=now, next_due=next_due)

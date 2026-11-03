@@ -123,6 +123,8 @@ class PreviewCardData(BaseModel):
     targetUrl: str | None = None
     externalUrl: str | None = None
     threadSearchUrl: str | None = None
+    personaName: str | None = Field(default=None, description="Owner persona the draft was written in")
+    personaVersion: int | None = None
 
 
 class ActionButtonData(BaseModel):
@@ -502,6 +504,8 @@ def _resolve_draft_card(
                 caseId=case_id_str,
                 externalUrl=ext_url,
                 threadSearchUrl=thread_url,
+                personaName=act.persona_name,
+                personaVersion=act.persona_version,
             )
         except Exception as e:
             log.warning("api.superagent.resolve_draft_failed", error=str(e), exc_info=True)

@@ -9,7 +9,7 @@ SPEC_TABLES = {
     "understandings", "cases", "case_links", "case_events", "actions", "action_revisions", "approvals", "sends",
     "timers", "outcomes", "model_calls",
     # phase 1 agents (spec 2026-10-07)
-    "tasks", "waits", "documents", "metric_snapshots", "owner_outbox",
+    "tasks", "waits", "documents", "metric_snapshots", "owner_outbox", "owner_personas",
     # dashboard (spec 2026-10-15)
     "owner_feed", "agent_conversations", "agent_turns",
     # live chat awareness (amendment 2026-10-22, Task 4: page pre-warm, one row per owner)

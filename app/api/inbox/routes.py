@@ -569,8 +569,15 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
         # Draft generation: Generate tailored English or Dutch replies for Gmail and WhatsApp
         gmail_drafts: list[dict[str, Any]] = []
         whatsapp_drafts: list[dict[str, Any]] = []
+        draft_persona: dict[str, Any] | None = None  # set only for model drafts written in the owner's persona
 
         if reply_action and reply_action.payload and not is_english:
+            if reply_action.persona_name:
+                draft_persona = {
+                    "actingAs": "Harjot",
+                    "name": reply_action.persona_name,
+                    "version": reply_action.persona_version,
+                }
             variants = reply_action.payload.get("body_variants") or []
             for idx, text in enumerate(variants, start=1):
                 gmail_drafts.append(
@@ -866,6 +873,7 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
                 "whatsappDrafts": []
                 if (status_str == "approved" or (msgs_data and msgs_data[-1].get("sender") == "owner"))
                 else whatsapp_drafts,
+                "draftPersona": draft_persona,
                 "attachments": all_thread_attachments,
                 "messages": msgs_data,
             }

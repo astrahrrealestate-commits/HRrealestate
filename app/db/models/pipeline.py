@@ -76,6 +76,8 @@ class ActionRow(Base, CompanyScoped):
     rationale: Mapped[str] = mapped_column(Text)
     context_ref: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(Uuid))
     draft_version: Mapped[int] = mapped_column(default=1, server_default="1")
+    persona_name: Mapped[str | None] = mapped_column(String(120))  # the owner persona a draft was written in
+    persona_version: Mapped[int | None]
     status: Mapped[ActionStatus] = mapped_column(
         str_enum(ActionStatus), default=ActionStatus.proposed, server_default=ActionStatus.proposed.value, index=True
     )
