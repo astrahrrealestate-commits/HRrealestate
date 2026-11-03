@@ -1,12 +1,9 @@
 """Unit tests for Message RAG gatekeeper, chunker, and search logic."""
 
 from datetime import UTC, datetime, timedelta
-from uuid import UUID, uuid4
-
-import pytest
+from uuid import uuid4
 
 from app.contracts import Channel, Direction
-from app.db.enums import CaseEventKind, MessageIndexStatus
 from app.db.models import MessageRow, UnderstandingRow
 from app.tools.message_rag.chunker import (
     compute_content_hash,
@@ -146,7 +143,8 @@ def test_chunker_format_message_line():
     assert "Sophie van Dijk" in line
     assert "inbound" in line
     assert "bathroom ceiling has a dark wet spot" in line
-    assert "[" in line and "]" in line
+    assert "[" in line
+    assert "]" in line
 
 
 def test_chunker_format_outbound_line():
@@ -221,4 +219,3 @@ def test_rrf_scoring_combines_ranks():
     assert scores[id2] > scores[id3]
     # id1 and id3 each appeared once at rank 1 and rank 2 respectively
     assert scores[id1] > scores[id3]
-

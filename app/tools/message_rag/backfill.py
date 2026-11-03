@@ -1,6 +1,7 @@
 """Backfill script to index existing messages into Message RAG."""
 
 from uuid import UUID
+
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
@@ -44,8 +45,7 @@ def backfill_messages(
 
 if __name__ == "__main__":
     from app.db.session import make_engine
+
     settings = get_settings()
     engine = make_engine(str(settings.database_url))
     backfill_messages(engine, settings)
-
-

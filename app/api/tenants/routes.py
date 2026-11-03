@@ -3,12 +3,11 @@
 Feeds active tenant directory, contact records, lease statuses, and payment arrears tracking to the Next.js frontend.
 """
 
-from typing import Annotated
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
-from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
 from app.core.logging import get_logger
@@ -21,8 +20,10 @@ log = get_logger(__name__)
 # Pydantic Models
 # ---------------------------------------------------------------------------
 
+
 class TenantItem(BaseModel):
     """Single tenant record with active lease and contact details."""
+
     id: str
     name: str
     phone: str
@@ -37,6 +38,7 @@ class TenantItem(BaseModel):
 
 class TenantsResponse(BaseModel):
     """List of active tenants and portfolio rent statistics."""
+
     totalTenants: int
     overdueCount: int
     tenants: list[TenantItem]
@@ -46,7 +48,7 @@ class TenantsResponse(BaseModel):
 # Seed Data
 # ---------------------------------------------------------------------------
 
-DEFAULT_TENANTS = [
+DEFAULT_TENANTS: list[dict[str, Any]] = [
     {
         "id": "p-1",
         "name": "Pieter Bakker",
@@ -114,11 +116,14 @@ DEFAULT_TENANTS = [
 # API Routes
 # ---------------------------------------------------------------------------
 
+
 @router.get(
     "",
     response_model=TenantsResponse,
     summary="Get Active Tenant Directory",
-    description="Retrieves the directory of active tenants with contact information, lease dates, and payment statuses.",
+    description=(
+        "Retrieves the directory of active tenants with contact information, lease dates, and payment statuses."
+    ),
 )
 def get_tenants(
     engine: Annotated[Engine, Depends(get_engine)],
@@ -149,5 +154,8 @@ def get_tenant_details(
     engine: Annotated[Engine, Depends(get_engine)],
 ) -> TenantItem:
     """Returns single tenant profile."""
-    tenant = next((t for t in DEFAULT_TENANTS if t["id"] == tenant_id or tenant_id.lower() in t["name"].lower()), DEFAULT_TENANTS[0])
+    tenant = next(
+        (t for t in DEFAULT_TENANTS if t["id"] == tenant_id or tenant_id.lower() in t["name"].lower()),
+        DEFAULT_TENANTS[0],
+    )
     return TenantItem(**tenant)

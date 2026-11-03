@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, Computed, ForeignKey, Index, Integer, String, Text, UniqueConstraint, Uuid, func
+from sqlalchemy import Boolean, Computed, ForeignKey, Index, Integer, String, Text, Uuid, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,7 +24,7 @@ class MessageChunk(Base, CompanyScoped):
     __tablename__ = "message_chunks"
     __company_id_leading_index__ = True
     __table_args__ = (
-        UniqueConstraint("company_id", "channel", "first_message_id", name="uq_message_chunks_thread_first_msg"),
+        Index("uq_message_chunks_thread_first_msg", "company_id", "channel", "first_message_id", unique=True),
         Index("ix_message_chunks_tsv", "tsv", postgresql_using="gin"),
         Index(
             "ix_message_chunks_embedding",
@@ -34,9 +34,9 @@ class MessageChunk(Base, CompanyScoped):
         ),
         Index("ix_message_chunks_case_ids", "case_ids", postgresql_using="gin"),
         Index("ix_message_chunks_participant_ids", "participant_ids", postgresql_using="gin"),
-        Index("ix_message_chunks_person_timeline", "company_id", "person_id", "last_sent_at"),
-        Index("ix_message_chunks_unit_timeline", "company_id", "unit_id", "last_sent_at"),
-        Index("ix_message_chunks_company_sent", "company_id", "last_sent_at"),
+        Index("ix_message_chunks_person_timeline", "company_id", "person_id", text("last_sent_at DESC")),
+        Index("ix_message_chunks_unit_timeline", "company_id", "unit_id", text("last_sent_at DESC")),
+        Index("ix_message_chunks_company_sent", "company_id", text("last_sent_at DESC")),
     )
 
     channel: Mapped[str] = mapped_column(String(32))
@@ -74,6 +74,7 @@ class MessageIndexState(Base):
     __tablename__ = "message_index_state"
     __table_args__ = (
         Index("ix_message_index_state_status", "status", "updated_at"),
+        Index("ix_message_index_state_company_status", "company_id", "status", "updated_at"),
     )
 
     message_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), primary_key=True)

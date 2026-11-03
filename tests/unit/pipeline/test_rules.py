@@ -19,6 +19,15 @@ def _action(kind: ActionType, **payload: object) -> Action:
         ActionType.update_case_state: {"new_state": "waiting_on_third_party"},
         ActionType.request_contractor: {"contractor_person_id": str(CONTRACTOR), "body_variants": ["A", "B"]},
         ActionType.escalate: {"reason": "Urgent"},
+        ActionType.calendar_event: {
+            "title": "Loodgieter",
+            "start_time": "2026-10-09T09:30:00+00:00",
+            "end_time": "2026-10-09T10:30:00+00:00",
+            "location": None,
+            "contractor_name": None,
+            "lockbox_code": None,
+            "notes": None,
+        },
     }
     body = {"kind": kind.value, **defaults[kind], **payload}
     return Action.model_validate(

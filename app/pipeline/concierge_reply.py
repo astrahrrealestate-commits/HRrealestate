@@ -8,7 +8,7 @@ The reply is untrusted model text (the model read tenant messages and the browse
   there is room; with no room the reply is dropped, so the stored plan never holds an unshown reply);
 - after `screen_reply`: control/format characters out, whitespace collapsed per line, at most `MAX_REPLY_LINES` lines,
   links, emails, phone numbers and IBANs redacted (`concierge_sanitize.redact_contact`; amounts are kept, prompt
-  concierge/v5 allows only those in the server data), capped at `MAX_REPLY`.
+  concierge/v5+ allows only those in the server data), capped at `MAX_REPLY`.
 Ids are never read from the reply (case refs are not taken from model text). A blank or missing reply means the
 `answer` step asks owner_qa as before (a second model call). Pure: no I/O.
 """

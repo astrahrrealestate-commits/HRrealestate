@@ -1,10 +1,11 @@
 import os
-import sys
+
 from dotenv import load_dotenv
 
 load_dotenv("d:/estateos/realestateos/.env")
 
 from sqlalchemy import create_engine, text
+
 
 def wipe():
     engine = create_engine(os.environ["DATABASE_URL"])
@@ -46,22 +47,30 @@ def wipe():
         print("[OK] Cleared all documents, messages, understandings, attachments, and raw events.")
 
         # 5. Delete test entities tagged with 'test_planner_eval'
-        conn.execute(text("""
-            DELETE FROM lease_parties 
+        conn.execute(
+            text("""
+            DELETE FROM lease_parties
             WHERE person_id IN (SELECT id FROM people WHERE brixx_ref = 'test_planner_eval')
-        """))
-        conn.execute(text("""
-            DELETE FROM leases 
+        """)
+        )
+        conn.execute(
+            text("""
+            DELETE FROM leases
             WHERE brixx_ref = 'test_planner_eval'
-        """))
-        conn.execute(text("""
-            DELETE FROM channel_identities 
+        """)
+        )
+        conn.execute(
+            text("""
+            DELETE FROM channel_identities
             WHERE person_id IN (SELECT id FROM people WHERE brixx_ref = 'test_planner_eval')
-        """))
-        conn.execute(text("""
-            DELETE FROM people 
+        """)
+        )
+        conn.execute(
+            text("""
+            DELETE FROM people
             WHERE brixx_ref = 'test_planner_eval'
-        """))
+        """)
+        )
         print("[OK] Cleared all temporary test-tagged people and leases.")
 
         print("\n--- Verification of Database State ---")
@@ -83,6 +92,7 @@ def wipe():
         print(f"Preserved units: {units_count} units")
         print(f"Preserved directory people: {people_count} people")
         print(f"Preserved owner accounts: {owner_count} owner")
+
 
 if __name__ == "__main__":
     wipe()

@@ -6,15 +6,15 @@ Validates:
 - show_drafts keeps the owner in chat rather than redirecting to inbox.
 """
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
-from datetime import datetime, UTC
+
 import pytest
 from sqlalchemy import create_engine
 
-from app.contracts import ActionType, Channel, Direction, Intent, PlanStep
-from app.db.enums import ActionStatus, ApprovalStatus
-from app.db.models import ActionRow, Approval, Case, CaseLink, Company, MessageRow
+from app.contracts import ActionType, Intent, PlanStep
+from app.db.models import ActionRow
 from app.pipeline import concierge_proposals as cp
 from app.pipeline.concierge_base import NEED_DETAIL, Ctx
 
@@ -62,18 +62,20 @@ def test_show_drafts_returns_pending_reply_draft(mock_ctx):
     # scalars for _message_actions and _pending_ids
     mock_sess.scalars.side_effect = [
         [mock_act],  # _message_actions
-        [appr_id],   # _pending_ids
+        [appr_id],  # _pending_ids
     ]
     # execute for _reply_of
     mock_sess.execute.return_value.first.return_value = (appr_id, 1, {"body_variants": ["Hi, plumber is on the way."]})
 
     mock_ctx.engine.connect = MagicMock()
-    with patch("app.pipeline.concierge_proposals.Session", return_value=mock_sess):
-        with patch("app.pipeline.concierge_proposals._source", return_value="whatsapp"):
-            step = PlanStep(intent=Intent.show_drafts, case_id=case_id, task_ref=None, text=None, view=None)
-            res = cp.show_drafts(mock_ctx, step)
-            assert res.ok
-            assert res.view is None  # CRITICAL: Must NOT redirect to inbox! Keeps user in chat!
-            assert res.data is not None
-            assert res.data["approval_ids"] == [str(appr_id)]
-            assert res.data["case_id"] == str(case_id)
+    with (
+        patch("app.pipeline.concierge_proposals.Session", return_value=mock_sess),
+        patch("app.pipeline.concierge_proposals._source", return_value="whatsapp"),
+    ):
+        step = PlanStep(intent=Intent.show_drafts, case_id=case_id, task_ref=None, text=None, view=None)
+        res = cp.show_drafts(mock_ctx, step)
+        assert res.ok
+        assert res.view is None  # CRITICAL: Must NOT redirect to inbox! Keeps user in chat!
+        assert res.data is not None
+        assert res.data["approval_ids"] == [str(appr_id)]
+        assert res.data["case_id"] == str(case_id)

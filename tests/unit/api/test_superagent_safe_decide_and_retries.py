@@ -6,17 +6,17 @@ Validates:
 - Idempotency keys are strictly deterministic (action_id + draft_version) without timestamps.
 """
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
-from datetime import datetime, UTC
+
 import pytest
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
 
 from app.api.inbox.routes import ApprovalDecideRequest, decide_approval
-from app.contracts import ActionType, ButtonChoice, Channel
+from app.contracts import ActionType, ButtonChoice
 from app.db.enums import ActionStatus, ApprovalStatus
-from app.db.models import ActionRow, Approval, Case, Company, Send
+from app.db.models import ActionRow, Approval, Company
 
 
 @pytest.fixture
@@ -115,4 +115,3 @@ def test_decide_approval_held_when_company_paused(test_engine):
         assert res["status"] == "held"
         assert res["decision"] == "paused"
         assert mock_act.status == ActionStatus.paused
-

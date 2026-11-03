@@ -62,6 +62,23 @@ def test_thread_case_finds_gmail_thread_but_not_closed_cases(db: Session, compan
     assert case_repo.thread_case(db, company.id, later) is None
 
 
+def test_outbound_reply_joins_its_threads_open_case_once(db: Session, company: Company) -> None:
+    """An owner reply sent straight from Gmail is linked to the case holding its thread (moved out of ingestion)."""
+    person = _person(db, company)
+    first = _msg(db, company, person, thread="gm-reply")
+    case_id = case_repo.create_case(db, company.id, person.id, Category.maintenance, Urgency.normal)
+    case_repo.link_message(db, company.id, case_id, first.id, LinkMethod.new_case, None)
+    reply = _msg(db, company, person, thread="gm-reply", at=NOW + timedelta(hours=1))
+    reply.direction = Direction.outbound
+    inbound = _msg(db, company, person, thread="gm-reply", at=NOW + timedelta(hours=2))
+    db.flush()
+    assert case_repo.link_outbound_reply(db, reply.id) == case_id
+    assert case_repo.link_outbound_reply(db, reply.id) == case_id  # a retried step links nothing twice
+    assert db.scalar(select(func.count()).select_from(CaseLink).where(CaseLink.message_id == reply.id)) == 1
+    assert case_repo.link_outbound_reply(db, inbound.id) is None  # inbound mail is the pipeline's job
+    assert case_repo.case_of_message(db, company.id, inbound.id) is None
+
+
 def test_whatsapp_thread_window_is_72_hours(db: Session, company: Company) -> None:
     person = _person(db, company)
     first = _msg(db, company, person, thread="+31612345678", channel=Channel.whatsapp)

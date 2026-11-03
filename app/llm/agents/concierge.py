@@ -11,7 +11,7 @@ from app.llm.render import data_block
 
 # v3 adds the plan's own `reply` (single-call answers), v4 the document intents, v5 lets `reply` carry amounts found in
 # `<data>`/`<page_facts>`; v1-v4 stay published and loadable (evals: version=vN).
-PROMPT_VERSION = "v5"
+PROMPT_VERSION = "v6"
 MAX_HISTORY = 12  # lines: `owner:` and `assistant:` for each of 6 turns
 MAX_HISTORY_LINE = 420  # an `owner: ` prefix plus 400 characters
 

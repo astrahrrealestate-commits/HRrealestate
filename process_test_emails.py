@@ -1,6 +1,6 @@
 import time
-from uuid import UUID
-from app.workflows.pipeline import understand_step, resolve_step, link_step, propose_step, done_step
+
+from app.workflows.pipeline import done_step, link_step, propose_step, resolve_step, understand_step
 
 items = [
     ("Maintenance Email (suryanshtyagi.work@gmail.com)", "01a1439e-7693-7e10-88d4-39ff002da5e9"),
@@ -9,10 +9,10 @@ items = [
 ]
 
 for label, mid in items:
-    print(f"\n==========================================")
+    print("\n==========================================")
     print(f"Processing {label}: {mid}")
-    print(f"==========================================")
-    
+    print("==========================================")
+
     # 1. UNDERSTANDING AGENT
     print("[1/4] Running UNDERSTANDING agent...")
     u_res = understand_step(mid)
@@ -22,7 +22,7 @@ for label, mid in items:
     # 2. RESOLVE SENDER (Directory)
     print("[2/4] Resolving sender identity...")
     resolve_step(mid)
-    
+
     # 3. LINKING (LINK_CHECK / CASE_SUMMARY AGENT)
     print("[3/4] Linking message to Case...")
     case_id = link_step(mid)

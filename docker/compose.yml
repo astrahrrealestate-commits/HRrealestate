@@ -10,16 +10,35 @@ x-app: &app
     - appdata:/app/.data  # local storage, fake mailboxes/media, dev keys: simulator, api and worker share it
     - ../app:/app/app:ro  # live code mount for hot development
     - ../.env:/app/.env:ro
-    - ${ESTATEOS_SECRETS_DIR:-C:/Users/ASUS/.estateos}:/secrets:ro  # Google token files
+    - ${ESTATEOS_SECRETS_DIR:-${HOME}/.estateos}:/secrets:ro  # Google token files
   env_file:
     - ../.env
   environment: &app-env
     ENV: dev
     DATABASE_URL: postgresql+psycopg://estateos:estateos@postgres:5432/estateos
-    GMAIL_CREDENTIALS_FILE: /secrets/gmail-read.json
-    GMAIL_SEND_CREDENTIALS_FILE: /secrets/gmail-compose.json
-    GMAIL_REPLY_SEND_CREDENTIALS_FILE: /secrets/gmail-reply-send.json
-    DRIVE_CREDENTIALS_FILE: /secrets/drive-file.json
+    SENTRY_DSN: ""
+    # Agents: Gemini 2.5 Flash
+    LLM_MODEL: ${LLM_MODEL:-google-gla:gemini-2.5-flash}
+    LLM_TIMEOUT_SEC: ${LLM_TIMEOUT_SEC:-60}
+    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    GROQ_API_KEY: ${GROQ_API_KEY:-}
+    LANGFUSE_HOST: ${LANGFUSE_HOST:-}
+    LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+    LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+    # Real Gmail provider with mounted credentials from env
+    GMAIL_PROVIDER: ${GMAIL_PROVIDER:-fake}
+    GMAIL_CREDENTIALS_FILE: ${GMAIL_CREDENTIALS_FILE:+/secrets/gmail-read.json}
+    GMAIL_SEND_CREDENTIALS_FILE: ${GMAIL_SEND_CREDENTIALS_FILE:+/secrets/gmail-compose.json}
+    GMAIL_REPLY_SEND_CREDENTIALS_FILE: ${GMAIL_REPLY_SEND_CREDENTIALS_FILE:+/secrets/gmail-reply-send.json}
+    GMAIL_PUBSUB_TOPIC: ${GMAIL_PUBSUB_TOPIC:-}
+    # WhatsApp Provider
+    WHATSAPP_PROVIDER: ${WHATSAPP_PROVIDER:-fake}
+    WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
+    WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+    WHATSAPP_API_BASE_URL: ${WHATSAPP_API_BASE_URL:-https://graph.facebook.com/v21.0}
+    DRIVE_PROVIDER: ${DRIVE_PROVIDER:-fake}
+    DRIVE_CREDENTIALS_FILE: ${DRIVE_CREDENTIALS_FILE:+/secrets/drive-file.json}
     # Dashboard API (dev stack only: the default secret is public, prod refuses the fake provider)
     DASHBOARD_AUTH_PROVIDER: ${DASHBOARD_AUTH_PROVIDER:-fake}
     DASHBOARD_SESSION_SECRET: ${DASHBOARD_SESSION_SECRET:-dev-only-session-secret-change-me-32-chars}
@@ -39,7 +58,7 @@ services:
       POSTGRES_USER: estateos
       POSTGRES_PASSWORD: estateos
       POSTGRES_DB: estateos
-    ports: ["127.0.0.1:5433:5432"]  # loopback only: dev credentials
+    ports: ["127.0.0.1:${PG_PORT:-5433}:5432"]  # loopback only: dev credentials
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U estateos -d estateos"]

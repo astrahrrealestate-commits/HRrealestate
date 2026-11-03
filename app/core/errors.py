@@ -37,8 +37,20 @@ class NotFoundError(EstateOSError):
     """A requested row does not exist (within the caller's company)."""
 
 
+class DiligenceRequestError(EstateOSError):
+    """A due diligence request the caller must fix (no documents, too many, review not restartable)."""
+
+
 class TenantMismatchError(EstateOSError):
     """A row belongs to a different company than the caller."""
+
+
+class PriceSourceNotConfiguredError(EstateOSError):
+    """The configured market price source has no adapter wired up."""
+
+
+class SnapshotNotApplicableError(EstateOSError):
+    """A decision-day price snapshot was asked for an action that is not a request_contractor with a contractor."""
 
 
 class UnsafeConfigurationError(EstateOSError):
@@ -66,3 +78,11 @@ class IgnoredMessageError(EstateOSError):
 
 class PushRejectedError(WebhookRejectedError):
     """A Pub/Sub push that failed OIDC verification or carried a malformed envelope."""
+
+
+class BrixxError(EstateOSError):
+    """A BRIXX API call failed or returned something unusable (transport, status, malformed body)."""
+
+
+class BrixxAuthError(BrixxError):
+    """BRIXX rejected the token (401/403). Retrying cannot help until the token is replaced."""

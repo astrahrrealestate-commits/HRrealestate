@@ -64,4 +64,3 @@ class CalendarClientProtocol(Protocol):
     def delete_event(self, event_id: str) -> bool:
         """Delete an event by its external calendar ID."""
         ...
-

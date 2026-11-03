@@ -81,6 +81,22 @@ class Settings(BaseSettings):
     calendar_provider: Literal["fake", "google"] = "fake"
     calendar_credentials_file: Path | None = None
 
+    # Quote checker (M11, spec 2026-10-31). Percent thresholds are over the reference price; `fake` = deterministic
+    # offline prices (tests, simulator); prod refuses it.
+    price_source: Literal["fake", "competitors", "web"] = "fake"
+    finance_ok_pct: Decimal = Decimal(5)  # up to this much over the reference is still ok
+    finance_above_market_pct: Decimal = Decimal(15)  # over this: above market
+    finance_well_above_pct: Decimal = Decimal(30)  # over this: well above market
+    finance_low_ratio: Decimal = Decimal("0.5")  # a line under this share of the reference is suspiciously low
+    finance_late_days: int = 7  # a quote this many days after the work counts as late
+    finance_min_samples: int = 3  # fewer market samples than this is not a reference
+    finance_vat_rate: Decimal = Decimal("0.21")  # Dutch standard VAT, used to normalise incl/excl quotes
+    finance_daily_lookup_cap: int = 40  # market price lookups per company per day
+
+    # Due diligence lite (spec 2026-10-31). A JSON file in the `Framework` shape replaces the default checklist.
+    dd_framework_path: Path | None = None
+    dd_max_documents: int = 30  # documents per review
+
     # Dashboard (owner interface, ADR 0006). `fake` accepts test tokens; prod refuses it.
     dashboard_auth_provider: Literal["fake", "google"] = "fake"
     dashboard_session_secret: SecretStr | None = None
@@ -89,6 +105,15 @@ class Settings(BaseSettings):
     google_oauth_client_id: str | None = None  # audience of the owner's Google ID token
     # Exact SPA origins allowed cross-origin (comma-separated). Empty = no CORS (the SPA is served same-origin).
     dashboard_cors_origins: Annotated[list[str], NoDecode] = []
+
+    # BRIXX data mirror (read-only). `fake` = in-process fixtures; prod refuses it. The token is a per-user secret.
+    brixx_provider: Literal["fake", "api"] = "fake"
+    brixx_base_url: str = "https://mob.brixxonline.com/api/v1"
+    brixx_environment: str = "hrrealestate"
+    brixx_token: SecretStr | None = None
+    brixx_auth_scheme: Literal["raw", "bearer"] = "bearer"  # Authorization header: the bare token or `Bearer <token>`
+    brixx_sync_interval_minutes: PositiveInt = 15
+    brixx_timeout_sec: float = 60.0
 
     storage_backend: Literal["local", "memory", "s3"] = "local"
     storage_local_dir: Path = Path(".data/storage")

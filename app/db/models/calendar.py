@@ -35,4 +35,3 @@ class CalendarEventRow(Base, CompanyScoped):
     lockbox_code: Mapped[str | None] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     confirmed_at: Mapped[datetime | None] = mapped_column(default=None)
-

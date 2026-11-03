@@ -1,10 +1,10 @@
 """Concierge plan: the Super Agent's structured output (spec §4). A plan is data; the executor validates every step."""
 
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
 from app.contracts.common import Contract, max_len
 
@@ -44,10 +44,18 @@ MAX_PLAN_STEPS = 4
 MAX_REPLY = 1200
 
 
+def _all_required(schema: dict[str, Any]) -> None:
+    """Strict structured output wants every property listed as required, `suggestions` (parsed with a default) too."""
+    schema["required"] = list(schema["properties"])
+
+
 class ConciergePlan(Contract):
+    model_config = ConfigDict(frozen=True, extra="forbid", json_schema_extra=_all_required)
+
     in_scope: bool  # False: out of scope or instruction-like; steps must then be empty
     steps: Annotated[list[PlanStep], Field(max_length=MAX_PLAN_STEPS)]
     # concierge/v3: the planner's own answer to a page/chat question (one model call). Untrusted model text: the
     # executor screens it (scope, redaction, cap) before Harjot sees it and never reads ids from it. Null for actions.
     reply: Annotated[str, max_len(MAX_REPLY)] | None
+    # concierge/v6: up to 3 short follow-up pills for the Super Agent UI; empty when none fit.
     suggestions: Annotated[list[str], Field(default_factory=list, max_length=3)]

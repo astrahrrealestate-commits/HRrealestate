@@ -154,7 +154,9 @@ def test_reply_send_refuses_extra_scopes_and_wrong_mailbox_writing_nothing(tmp_p
 def test_cli_passes_reply_send_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[bool] = []
 
-    def fake_create(_c: gc.Consent, _m: str, _o: Path, *, drive: bool = False, reply_send: bool = False) -> list[Path]:
+    def fake_create(
+        _c: gc.Consent, _m: str, _o: Path, *, drive: bool = False, reply_send: bool = False, calendar: bool = False
+    ) -> list[Path]:
         seen.append(reply_send)
         return []
 

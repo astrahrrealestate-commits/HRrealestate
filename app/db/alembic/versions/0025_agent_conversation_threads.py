@@ -1,7 +1,7 @@
 """agent_conversation threads, title, last_turn_at, hidden_at, pinned, focus_state
 
-Revision ID: 0024
-Revises: 0023
+Revision ID: 0025
+Revises: 0024
 Create Date: 2026-11-02 00:25:00
 """
 
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0024"
-down_revision: str | None = "0023"
+revision: str = "0025"
+down_revision: str | None = "0024"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -53,4 +53,3 @@ def downgrade() -> None:
     op.drop_column("agent_conversations", "hidden_at")
     op.drop_column("agent_conversations", "last_turn_at")
     op.drop_column("agent_conversations", "title")
-

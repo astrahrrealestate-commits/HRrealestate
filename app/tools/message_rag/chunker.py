@@ -4,14 +4,13 @@ import hashlib
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
-from uuid import UUID
 
 from app.contracts import Direction
 from app.db.models import MessageRow
 
 AMSTERDAM_TZ = ZoneInfo("Europe/Amsterdam")
-MAX_CHUNK_CHARS = 2400       # ~600 tokens
-TARGET_CHUNK_CHARS = 1600    # ~400 tokens
+MAX_CHUNK_CHARS = 2400  # ~600 tokens
+TARGET_CHUNK_CHARS = 1600  # ~400 tokens
 MAX_GAP = timedelta(hours=6)
 
 
@@ -27,13 +26,7 @@ def format_message_line(msg: MessageRow, person_name: str | None = None) -> str:
         sender = "Harjot (Owner)"
     else:
         meta: dict[str, Any] = msg.meta or {}
-        sender = (
-            person_name
-            or meta.get("from_name")
-            or meta.get("contact_name")
-            or msg.sender_identity
-            or "Tenant"
-        )
+        sender = person_name or meta.get("from_name") or meta.get("contact_name") or msg.sender_identity or "Tenant"
 
     # Clean multi-line whitespace
     clean_text = " ".join(msg.text.split()) if msg.text else "[no text]"
@@ -64,7 +57,7 @@ def format_context_header(
 
 def compute_content_hash(context: str | None, text: str) -> str:
     """Computes a sha256 fingerprint of the chunk contents to avoid redundant re-embeddings."""
-    payload = f"{context or ''}\n{text}".encode("utf-8")
+    payload = f"{context or ''}\n{text}".encode()
     return hashlib.sha256(payload).hexdigest()
 
 
@@ -80,7 +73,4 @@ def should_start_new_chunk(
         return True
     if (new_sent_at - last_sent_at) > MAX_GAP:
         return True
-    if (current_text_len + additional_text_len) > MAX_CHUNK_CHARS:
-        return True
-    return False
-
+    return (current_text_len + additional_text_len) > MAX_CHUNK_CHARS

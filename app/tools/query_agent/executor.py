@@ -53,7 +53,7 @@ def execute_readonly_query(
             duration_ms = (time.perf_counter() - start) * 1000
 
             # 3. Format as untrusted data dictionaries
-            formatted_rows = [dict(zip(cols, row)) for row in raw_rows]
+            formatted_rows = [dict(zip(cols, row, strict=True)) for row in raw_rows]
 
             log.info(
                 "query_agent.executed",
@@ -88,4 +88,3 @@ def execute_readonly_query(
             duration_ms=duration_ms,
             error=str(exc),
         )
-

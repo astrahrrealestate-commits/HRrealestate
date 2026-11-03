@@ -18,8 +18,9 @@ def test_valid_plan() -> None:
 
 
 def test_intent_list_is_exact() -> None:
-    assert len(Intent) == 19
+    assert len(Intent) == 20
     assert Intent.query_data in Intent
+    assert Intent.show_drafts in Intent
 
 
 def test_rejects_five_steps() -> None:
@@ -60,23 +61,27 @@ def test_reply_is_in_the_strict_schema_as_a_required_nullable_string() -> None:
     assert "reply" in schema["required"]
     assert {"type": "null"} in schema["properties"]["reply"]["anyOf"]
 
+
 def test_suggestions_defaults_to_empty_and_capped_at_three() -> None:
     plan = ConciergePlan.model_validate({"in_scope": True, "steps": [], "reply": None})
     assert plan.suggestions == []
 
-    plan_with_sugg = ConciergePlan.model_validate({
-        "in_scope": True,
-        "steps": [],
-        "reply": None,
-        "suggestions": ["Draft payment reminder", "Show lease PDF", "Open in Money"],
-    })
-    assert len(plan_with_sugg.suggestions) == 3
-
-    with pytest.raises(ValidationError):
-        ConciergePlan.model_validate({
+    plan_with_sugg = ConciergePlan.model_validate(
+        {
             "in_scope": True,
             "steps": [],
             "reply": None,
-            "suggestions": ["One", "Two", "Three", "Four"],
-        })
+            "suggestions": ["Draft payment reminder", "Show lease PDF", "Open in Money"],
+        }
+    )
+    assert len(plan_with_sugg.suggestions) == 3
 
+    with pytest.raises(ValidationError):
+        ConciergePlan.model_validate(
+            {
+                "in_scope": True,
+                "steps": [],
+                "reply": None,
+                "suggestions": ["One", "Two", "Three", "Four"],
+            }
+        )

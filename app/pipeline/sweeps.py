@@ -42,6 +42,7 @@ SWEEP_TYPES = frozenset(
         ActionType.notify_owner,
         ActionType.create_reminder,
         ActionType.update_case_state,
+        ActionType.calendar_event,  # decide enqueues exec for every type; the sender blocks what it cannot deliver
     }
 )
 Stranded = tuple[UUID, int, ActionType]

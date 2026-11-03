@@ -1,24 +1,24 @@
-import pytest
 from datetime import UTC, datetime
 from uuid import uuid4
 
 from app.api.agent.routes import (
-    _generate_thread_title,
-    ConversationSummaryItem,
-    ConversationListResponse,
-    ConversationDetailResponse,
-    TurnReplayItem,
-    UpdateConversationRequest,
     AssistantCardData,
     CardActionData,
-    PreviewCardData,
+    ConversationDetailResponse,
+    ConversationListResponse,
+    ConversationSummaryItem,
+    TurnReplayItem,
+    UpdateConversationRequest,
+    _generate_thread_title,
 )
 from app.llm.agents.owner_qa import CaseBrief
 
 
 def test_generate_thread_title_cases():
     # 1. Leak at Keizersgracht
-    brief = CaseBrief(case_id="case-1", label="Keizersgracht 42-A", state="open", urgency="emergency", summary="Pipe leak")
+    brief = CaseBrief(
+        case_id="case-1", label="Keizersgracht 42-A", state="open", urgency="emergency", summary="Pipe leak"
+    )
     title1 = _generate_thread_title("What is the status of the water leak?", "Kevin is working on it.", [brief])
     assert "Keizersgracht" in title1
     assert "Leak" in title1
@@ -52,7 +52,9 @@ def test_conversation_summary_schemas():
 
 
 def test_turn_replay_schema():
-    action = CardActionData(label="Open in WhatsApp", kind="open_external", targetUrl="https://wa.me/31612345678", variant="whatsapp")
+    action = CardActionData(
+        label="Open in WhatsApp", kind="open_external", targetUrl="https://wa.me/31612345678", variant="whatsapp"
+    )
     card = AssistantCardData(
         id="card-1",
         type="draft_message",
@@ -91,4 +93,3 @@ def test_update_conversation_schema():
     assert req.title == "Renamed Thread"
     assert req.pinned is True
     assert req.hidden is False
-

@@ -1,7 +1,7 @@
 """Unit tests for the concierge query_data intent and Custom Query Agent wiring."""
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from uuid import UUID
 
 from sqlalchemy import create_engine

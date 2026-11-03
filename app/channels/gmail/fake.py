@@ -4,6 +4,9 @@
 one mailbox across processes. `MemoryMailboxStore` is for tests.
 """
 
+import base64
+import json
+
 try:
     import fcntl
 except ImportError:

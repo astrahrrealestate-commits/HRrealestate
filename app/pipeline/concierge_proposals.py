@@ -242,7 +242,9 @@ def show_drafts(ctx: Ctx, step: PlanStep) -> StepResult:
                 "draft_version": reply[1],
                 "drafts": views,
             }
-            summary = drafted_summary("Here is the drafted reply waiting for your approval.", views, details_removed=False)
+            summary = drafted_summary(
+                "Here is the drafted reply waiting for your approval.", views, details_removed=False
+            )
             return StepResult(step.intent, True, summary, data, None)
 
         if pending_approvals:

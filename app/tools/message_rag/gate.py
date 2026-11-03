@@ -5,21 +5,24 @@ without making expensive embedding calls.
 """
 
 from typing import Any
-from app.contracts import Channel
-from app.db.enums import RawEventStatus
+
 from app.db.models import MessageRow, UnderstandingRow
 
-IGNORED_GMAIL_LABELS = frozenset({
-    "CATEGORY_PROMOTIONS",
-    "CATEGORY_SOCIAL",
-    "SPAM",
-    "TRASH",
-})
+IGNORED_GMAIL_LABELS = frozenset(
+    {
+        "CATEGORY_PROMOTIONS",
+        "CATEGORY_SOCIAL",
+        "SPAM",
+        "TRASH",
+    }
+)
 
-BOUNCE_SENDER_MARKERS = frozenset({
-    "mailer-daemon",
-    "postmaster",
-})
+BOUNCE_SENDER_MARKERS = frozenset(
+    {
+        "mailer-daemon",
+        "postmaster",
+    }
+)
 
 BOUNCE_SUBJECT_MARKERS = (
     "delivery status notification (failure)",
@@ -73,4 +76,3 @@ def should_index_message(
             return False, "whatsapp_status_receipt"
 
     return True, None
-

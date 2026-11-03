@@ -67,10 +67,10 @@ class CalendarEventPayload(Contract):
     title: NonBlankStr
     start_time: AwareDatetime
     end_time: AwareDatetime
-    location: str | None = None
-    contractor_name: str | None = None
-    lockbox_code: str | None = None
-    notes: str | None = None
+    location: str | None
+    contractor_name: str | None
+    lockbox_code: str | None
+    notes: str | None
 
 
 ActionPayload = Annotated[

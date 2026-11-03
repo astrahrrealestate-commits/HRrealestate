@@ -29,6 +29,10 @@ class OwnerFeed(Base, CompanyScoped):
 
 class AgentConversation(Base, CompanyScoped):
     __tablename__ = "agent_conversations"
+    __company_id_leading_index__ = True
+    __table_args__ = (
+        Index("ix_agent_conversations_company_owner_last_turn", "company_id", "owner_id", "last_turn_at"),
+    )
 
     owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("owner_accounts.id"))
     title: Mapped[str] = mapped_column(String(255), default="New Chat", server_default="New Chat")
@@ -38,7 +42,7 @@ class AgentConversation(Base, CompanyScoped):
     )
     summary_version: Mapped[int] = mapped_column(default=0, server_default="0")
     last_turn_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), index=True
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     hidden_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None, nullable=True)
     pinned: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")

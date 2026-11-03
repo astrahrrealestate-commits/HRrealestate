@@ -1,7 +1,7 @@
 """readonly_analytics: curated views with security_invoker = true and estateos_readonly role
 
-Revision ID: 0022
-Revises: 0021
+Revision ID: 0023
+Revises: 0022
 Create Date: 2026-10-31 16:15:00
 
 Creates curated views for the Custom Query Agent and configures the unprivileged role.
@@ -11,8 +11,8 @@ from collections.abc import Sequence
 
 from alembic import op
 
-revision: str = "0022"
-down_revision: str | None = "0021"
+revision: str = "0023"
+down_revision: str | None = "0022"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -40,7 +40,7 @@ def upgrade() -> None:
     # 1. Create Views WITH (security_invoker = true)
     op.execute("""
     CREATE OR REPLACE VIEW v_active_leases WITH (security_invoker = true) AS
-    SELECT 
+    SELECT
         l.company_id,
         l.id AS lease_id,
         u.address AS unit_address,
@@ -48,9 +48,9 @@ def upgrade() -> None:
         p.display_name AS tenant_name,
         l.valid_from,
         l.valid_to,
-        CASE 
-            WHEN CURRENT_DATE >= l.valid_from AND (l.valid_to IS NULL OR CURRENT_DATE <= l.valid_to) 
-            THEN true ELSE false 
+        CASE
+            WHEN CURRENT_DATE >= l.valid_from AND (l.valid_to IS NULL OR CURRENT_DATE <= l.valid_to)
+            THEN true ELSE false
         END AS is_active
     FROM leases l
     JOIN units u ON l.unit_id = u.id
@@ -60,7 +60,7 @@ def upgrade() -> None:
 
     op.execute("""
     CREATE OR REPLACE VIEW v_case_overview WITH (security_invoker = true) AS
-    SELECT 
+    SELECT
         c.company_id,
         c.id AS case_id,
         u.address AS unit_address,
@@ -77,7 +77,7 @@ def upgrade() -> None:
 
     op.execute("""
     CREATE OR REPLACE VIEW v_task_overview WITH (security_invoker = true) AS
-    SELECT 
+    SELECT
         t.company_id,
         t.id AS task_id,
         t.case_id,
@@ -92,7 +92,7 @@ def upgrade() -> None:
 
     op.execute("""
     CREATE OR REPLACE VIEW v_scheduled_visits WITH (security_invoker = true) AS
-    SELECT 
+    SELECT
         ce.company_id,
         ce.id AS event_id,
         ce.case_id,
@@ -108,7 +108,7 @@ def upgrade() -> None:
 
     op.execute("""
     CREATE OR REPLACE VIEW v_message_stats WITH (security_invoker = true) AS
-    SELECT 
+    SELECT
         m.company_id,
         m.channel,
         m.direction,
@@ -135,15 +135,15 @@ def upgrade() -> None:
     op.execute("ALTER ROLE estateos_readonly SET lock_timeout = '1000';")
 
     op.execute("GRANT USAGE ON SCHEMA public TO estateos_readonly;")
-    
+
     # Views grants
     op.execute("""
-    GRANT SELECT ON 
-        v_active_leases, 
-        v_case_overview, 
-        v_task_overview, 
-        v_scheduled_visits, 
-        v_message_stats 
+    GRANT SELECT ON
+        v_active_leases,
+        v_case_overview,
+        v_task_overview,
+        v_scheduled_visits,
+        v_message_stats
     TO estateos_readonly;
     """)
 

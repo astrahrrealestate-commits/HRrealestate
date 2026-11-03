@@ -1,9 +1,12 @@
 """Importing this package registers every table on `Base.metadata`."""
 
+from app.db.models.brixx import BrixxSyncRun, BrixxSyncTableState
 from app.db.models.calendar import CalendarEventRow
 from app.db.models.dashboard import AgentConversation, AgentPageState, AgentTurn, OwnerFeed
+from app.db.models.diligence import DDDocumentRead, DDReview, DDReviewDocument
 from app.db.models.directory import ChannelIdentity, DirectoryImport, Lease, LeaseParty, Person, PersonProfile, Unit
 from app.db.models.documents import DocumentChunk, DocumentLink, DriveReorgItem, DriveReorgPlan
+from app.db.models.finance import PriceSnapshot, QuoteLineRow, QuoteReview, QuoteRow, VendorRate
 from app.db.models.ingestion import AttachmentRow, MessageRow, RawEvent
 from app.db.models.memory import MemoryItem
 from app.db.models.message_rag import MessageChunk, MessageIndexState
@@ -21,12 +24,18 @@ __all__ = [
     "AgentTurn",
     "Approval",
     "AttachmentRow",
+    "BrixxSyncRun",
+    "BrixxSyncTableState",
+    "CalendarEventRow",
     "Case",
     "CaseEvent",
     "CaseLink",
     "ChannelAccount",
     "ChannelIdentity",
     "Company",
+    "DDDocumentRead",
+    "DDReview",
+    "DDReviewDocument",
     "DirectoryImport",
     "DocumentChunk",
     "DocumentLink",
@@ -48,11 +57,16 @@ __all__ = [
     "OwnerOutbox",
     "Person",
     "PersonProfile",
+    "PriceSnapshot",
+    "QuoteLineRow",
+    "QuoteReview",
+    "QuoteRow",
     "RawEvent",
     "Send",
     "TaskRow",
     "Timer",
     "UnderstandingRow",
     "Unit",
+    "VendorRate",
     "WaitRow",
 ]

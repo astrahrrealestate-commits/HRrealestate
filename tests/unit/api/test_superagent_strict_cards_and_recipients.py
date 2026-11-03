@@ -8,15 +8,14 @@ Validates:
 - No hardcoded Dutch fallbacks are generated.
 """
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
-from datetime import datetime, UTC
-import pytest
 
 from app.api.agent.routes import _find_case_recipient, _resolve_draft_card
 from app.contracts import ActionType, Channel, Direction
 from app.db.enums import ActionStatus, ApprovalStatus
-from app.db.models import ActionRow, Approval, Case, CaseLink, ChannelIdentity, Company, MessageRow, Person, Unit
+from app.db.models import ActionRow, Approval, Case, ChannelIdentity, MessageRow
 
 
 def test_find_case_recipient_inbound_whatsapp():
@@ -47,7 +46,7 @@ def test_find_case_recipient_inbound_whatsapp():
     # First query is MessageRow (inbound), second query is ChannelIdentity
     mock_sess.scalars.return_value.first.side_effect = [inbound_msg, ident]
 
-    recip, chan, thread_ref, reason = _find_case_recipient(mock_sess, case)
+    recip, chan, _thread_ref, reason = _find_case_recipient(mock_sess, case)
     assert recip == "+919456916996"
     assert chan == "whatsapp"
     assert reason is None
@@ -108,7 +107,7 @@ def test_find_case_recipient_never_uses_outbound_contractor_sender():
     # Inbound query returns None (only outbound exists), so it falls back to tenant identity directly
     mock_sess.scalars.return_value.first.side_effect = [None, tenant_ident]
 
-    recip, chan, thread_ref, reason = _find_case_recipient(mock_sess, case)
+    recip, chan, _thread_ref, reason = _find_case_recipient(mock_sess, case)
     assert recip == "+919456916996"
     assert chan == "whatsapp"
     assert reason is None

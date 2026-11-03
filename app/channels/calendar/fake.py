@@ -9,7 +9,6 @@ from typing import Any
 from uuid import uuid4
 
 from app.channels.calendar.ports import (
-    CalendarAttendee,
     CalendarClientProtocol,
     CalendarEvent,
     CalendarEventCreate,
@@ -133,4 +132,3 @@ class FakeCalendarClient(CalendarClientProtocol):
             )
             return True
         return False
-

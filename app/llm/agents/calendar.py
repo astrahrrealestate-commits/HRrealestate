@@ -3,12 +3,10 @@
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 from app.channels.calendar.ports import (
     CalendarAttendee,
     CalendarClientProtocol,
-    CalendarEventCreate,
     TimeSlot,
 )
 
@@ -82,7 +80,6 @@ def extract_time_window(text: str, reference_date: datetime | None = None) -> Ex
         )
 
     # 2. Specific hour like '15:00', '3 pm', '14:30', '9 am'
-    hour_match = re.search(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", t)
     target_hour = None
     target_min = 0
 
@@ -113,7 +110,7 @@ def extract_time_window(text: str, reference_date: datetime | None = None) -> Ex
         if m:
             h = int(m.group(1))
             m_min = int(m.group(2)) if m.group(2) else 0
-            meridiem = m.group(3).lower() if m.lastindex >= 3 and m.group(3) else None
+            meridiem = m.group(3).lower() if (m.lastindex or 0) >= 3 and m.group(3) else None
             if meridiem == "pm" and h < 12:
                 h += 12
             elif meridiem == "am" and h == 12:
@@ -200,7 +197,10 @@ def propose_calendar_event(
     conflict_reason: str | None = None
 
     if has_conflict:
-        conflict_reason = f"Slot collides with existing booking from {busy_slots[0].start_time.strftime('%H:%M')} to {busy_slots[0].end_time.strftime('%H:%M')}"
+        conflict_reason = (
+            f"Slot collides with existing booking from {busy_slots[0].start_time.strftime('%H:%M')} "
+            f"to {busy_slots[0].end_time.strftime('%H:%M')}"
+        )
         # Search next available slot 1 hour after collision
         alt_start = busy_slots[0].end_time + timedelta(minutes=30)
         alt_end = alt_start + timedelta(hours=1)
@@ -250,4 +250,3 @@ def propose_calendar_event(
         requires_lockbox=needs_lockbox,
         clarification_needed=tw.is_default_fallback,
     )
-

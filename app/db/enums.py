@@ -180,6 +180,8 @@ class FeedKind(StrEnum):
     briefing = "briefing"
     task = "task"
     agent_note = "agent_note"
+    quote_review = "quote_review"
+    dd_report = "dd_report"
 
 
 class TurnStatus(StrEnum):
@@ -220,4 +222,45 @@ class MessageIndexStatus(StrEnum):
     pending = "pending"
     indexed = "indexed"
     skipped = "skipped"
+    failed = "failed"
+
+
+class RateSource(StrEnum):
+    """Where an agreed rate came from."""
+
+    owner = "owner"
+    document = "document"
+    quote = "quote"
+
+
+class QuoteSource(StrEnum):
+    message = "message"
+    document = "document"
+
+
+class QuoteStatus(StrEnum):
+    """`unlinked` = a quote that arrived without a case; the owner links it before it is reviewed."""
+
+    received = "received"
+    reviewed = "reviewed"
+    unlinked = "unlinked"
+
+
+class DDReviewStatus(StrEnum):
+    """Due diligence review run: `pending` until the workflow starts, then `running`, then `done` or `failed`."""
+
+    pending = "pending"
+    running = "running"
+    done = "done"
+    failed = "failed"
+
+
+class BrixxRunKind(StrEnum):
+    incremental = "incremental"
+    reconcile = "reconcile"
+
+
+class BrixxRunStatus(StrEnum):
+    running = "running"
+    succeeded = "succeeded"
     failed = "failed"

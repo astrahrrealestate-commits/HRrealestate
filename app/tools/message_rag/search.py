@@ -1,18 +1,21 @@
 """Hybrid search (BM25 + pgvector HNSW) and thread context retrieval for Message RAG."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, Sequence
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.contracts import Channel, Direction
+from app.core.logging import get_logger
 from app.db.models import MessageChunk, MessageRow, Person, Unit
 from app.llm.embeddings import TextEmbedder
 from app.pipeline.document_search import to_tsquery
 from app.pipeline.rag_retrieval import rrf
+
+log = get_logger(__name__)
 
 RRF_K = 60
 WEIGHT_WORDS = 1.0
@@ -93,18 +96,13 @@ def search_messages(
     limit: int = 8,
 ) -> list[MessageChunkHit]:
     """Hybrid full-text and vector search across message_chunks using RRF fusion."""
-    conds = _filter_conditions(
-        company_id, person_id, unit_id, case_id, channel, direction, date_from, date_to
-    )
+    conds = _filter_conditions(company_id, person_id, unit_id, case_id, channel, direction, date_from, date_to)
 
     clean_q = query.strip()
     if not clean_q:
         # Date-only sort when no query text is provided
         chunks = session.scalars(
-            select(MessageChunk)
-            .where(*conds)
-            .order_by(MessageChunk.last_sent_at.desc())
-            .limit(limit)
+            select(MessageChunk).where(*conds).order_by(MessageChunk.last_sent_at.desc()).limit(limit)
         ).all()
         return [_load_hit(session, c, 1.0) for c in chunks]
 
@@ -130,8 +128,8 @@ def search_messages(
                 .limit(TOP_CANDIDATES)
             ).all()
             vector_ids = [r[0] for r in vec_rows]
-        except Exception:
-            pass  # Fall back to words-only on embedding failure
+        except Exception as exc:  # fall back to words-only on embedding failure
+            log.warning("message_rag.vector_search_failed", error=str(exc))
 
     # 3. RRF Fusion
     lists: list[tuple[float, Sequence[UUID]]] = []
@@ -238,17 +236,21 @@ def get_message_window(
     combined = [*before_rows, target, *after_rows]
     out: list[dict[str, Any]] = []
     for m in combined:
-        person_name = session.scalar(select(Person.display_name).where(Person.id == m.person_id)) if m.person_id else None
+        person_name = (
+            session.scalar(select(Person.display_name).where(Person.id == m.person_id)) if m.person_id else None
+        )
         meta = m.meta or {}
-        out.append({
-            "message_id": str(m.id),
-            "sent_at": m.sent_at.isoformat(),
-            "direction": m.direction.value if hasattr(m.direction, "value") else str(m.direction),
-            "channel": m.channel.value if hasattr(m.channel, "value") else str(m.channel),
-            "sender": person_name or meta.get("from_name") or m.sender_identity,
-            "text": m.text,
-            "subject": meta.get("subject"),
-        })
+        out.append(
+            {
+                "message_id": str(m.id),
+                "sent_at": m.sent_at.isoformat(),
+                "direction": m.direction.value if hasattr(m.direction, "value") else str(m.direction),
+                "channel": m.channel.value if hasattr(m.channel, "value") else str(m.channel),
+                "sender": person_name or meta.get("from_name") or m.sender_identity,
+                "text": m.text,
+                "subject": meta.get("subject"),
+            }
+        )
     return out
 
 
@@ -262,10 +264,7 @@ def get_thread_timeline(
 ) -> list[dict[str, Any]]:
     """Fast SQL chronological timeline of messages matching person, unit, or case."""
     stmt = (
-        select(MessageRow)
-        .where(MessageRow.company_id == company_id)
-        .order_by(MessageRow.sent_at.desc())
-        .limit(limit)
+        select(MessageRow).where(MessageRow.company_id == company_id).order_by(MessageRow.sent_at.desc()).limit(limit)
     )
     if person_id is not None:
         stmt = stmt.where(MessageRow.person_id == person_id)
@@ -282,4 +281,3 @@ def get_thread_timeline(
         }
         for m in rows
     ]
-

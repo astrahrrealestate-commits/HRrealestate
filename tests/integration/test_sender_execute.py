@@ -240,6 +240,16 @@ def test_no_action_type_ever_reaches_a_tenant(env: Env, kind: ActionType, channe
             "body_variants": ["A", "B"],
         },
         ActionType.escalate: {"kind": "escalate", "reason": "r"},
+        ActionType.calendar_event: {
+            "kind": "calendar_event",
+            "title": "Loodgieter",
+            "start_time": "2026-10-09T09:30:00+00:00",
+            "end_time": "2026-10-09T10:30:00+00:00",
+            "location": None,
+            "contractor_name": None,
+            "lockbox_code": None,
+            "notes": None,
+        },
     }
     execute_action(env.deps, _approved(env, kind, payloads[kind], ButtonChoice.ok), 1)
     assert {m.payload["to"] for m in env.wa.sent} <= {OWNER.removeprefix("+")}

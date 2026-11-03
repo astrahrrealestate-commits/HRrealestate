@@ -74,7 +74,14 @@ _USES_CASE = frozenset(
 _NEEDS_CASE = frozenset({Intent.case_status, Intent.draft_reply, Intent.show_drafts, Intent.chase_now})
 _NEEDS_TASK = frozenset({Intent.task_done, Intent.task_snooze})
 _NEEDS_TEXT = frozenset(
-    {Intent.task_snooze, Intent.create_task, Intent.clarify, Intent.search_inbox, Intent.find_document, Intent.query_data}
+    {
+        Intent.task_snooze,
+        Intent.create_task,
+        Intent.clarify,
+        Intent.search_inbox,
+        Intent.find_document,
+        Intent.query_data,
+    }
 )
 
 _HANDLERS: dict[Intent, Handler] = {
