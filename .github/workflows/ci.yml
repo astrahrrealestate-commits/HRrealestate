@@ -17,6 +17,7 @@ env:
   UV_FROZEN: "1"
   UV_VERSION: "0.12.5"  # keep equal to [tool.uv] required-version, pre-commit uv-pre-commit and docker uv stage
   PYTHON_VERSION: "3.12"
+  NODE_VERSION: "24"  # keep equal to the node stage in docker/web.Dockerfile
 
 # Actions are SHA-pinned (Dependabot github-actions updates them); the tag is in the trailing comment.
 jobs:
@@ -53,7 +54,8 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync
       - name: Pre-pull test images (keeps pulls out of pytest-timeout)
-        run: docker pull postgres:16-alpine && docker pull testcontainers/ryuk:0.8.1
+        # Same images as tests/integration/conftest.py and testcontainers' ryuk default (tests/unit/infra checks both)
+        run: docker pull pgvector/pgvector:0.8.2-pg16 && docker pull testcontainers/ryuk:0.8.1
       - name: All tests with coverage floor (unit + integration)
         run: make cov
 
@@ -90,6 +92,37 @@ jobs:
           context: .
           file: docker/Dockerfile
           push: false
+          load: true  # into the runner's docker for the CVE scan below
           tags: estateos:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Image CVE scan (Trivy; fails on HIGH/CRITICAL CVEs that have a fix, unfixed ones are listed only)
+        run: >-
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock
+          aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
+          image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress estateos:ci
+
+  frontend:
+    name: Frontend lint · build (Next.js dashboard)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+        # Advisory: the dashboard has 72 existing eslint errors (2026-11-03). Drop this line once `npm run lint` is
+        # clean so lint becomes a gate like the build below.
+        continue-on-error: true
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: https://ci.estateos.invalid  # baked into the bundle; the prod build uses the real origin
