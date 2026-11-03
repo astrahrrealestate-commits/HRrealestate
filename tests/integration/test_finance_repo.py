@@ -10,8 +10,9 @@ from sqlalchemy.orm import Session
 
 from app.contracts.finance import PriceBasis, SnapshotBasis, Verdict
 from app.core.errors import NotFoundError
+from app.core.ids import new_id
 from app.db.enums import QuoteSource, RateSource
-from app.db.models import Company, QuoteLineRow, VendorRate
+from app.db.models import Company, QuoteLineRow, QuoteReview, VendorRate
 from app.finance import repo
 from app.finance.stats import MarketStats
 from tests.integration.finance_support import Seeded, action, seed_case
@@ -127,6 +128,27 @@ def test_insert_quote_is_once_per_source_and_lines_and_reviews_are_scoped(db: Se
         quote(other)
     with pytest.raises(NotFoundError):
         repo.insert_quote_lines(db, other, quote_id=quote_id, lines=[line])
+
+
+def test_insert_review_with_a_known_id_writes_nothing(db: Session, company: Company) -> None:
+    seeded = seed_case(db, company.id)
+    quote_id = repo.insert_quote(
+        db, company.id, source=QuoteSource.message, source_id=seeded.message_id, quote_date=date(2026, 10, 30),
+        currency="EUR", case_id=seeded.case_id, person_id=seeded.vendor_id,
+    )  # fmt: skip
+    assert quote_id is not None
+    wanted = new_id()
+
+    def review(verdict: Verdict) -> UUID | None:
+        return repo.insert_review(
+            db, company.id, quote_id=quote_id, snapshot_basis=SnapshotBasis.decision_day, verdict=verdict,
+            overcharge=Decimal(0), late_days=0, report={"lines": []}, review_id=wanted,
+        )  # fmt: skip
+
+    assert review(Verdict.ok) == wanted
+    assert review(Verdict.well_above_market) is None  # a concurrent writer stored it first: no IntegrityError
+    stored = db.scalars(select(QuoteReview).where(QuoteReview.company_id == company.id)).all()
+    assert [(r.id, r.verdict) for r in stored] == [(wanted, Verdict.ok)]
 
 
 def new_company(db: Session) -> UUID:

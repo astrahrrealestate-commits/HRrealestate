@@ -84,6 +84,10 @@ class Settings(BaseSettings):
     # Quote checker (M11, spec 2026-10-31). Percent thresholds are over the reference price; `fake` = deterministic
     # offline prices (tests, simulator); prod refuses it.
     price_source: Literal["fake", "competitors", "web"] = "fake"
+    # Web prices (ADR 0009): which search API feeds `price_source=web`. `none` = not connected yet; `fake` = recorded
+    # pages (tests, simulator). A real provider adds one SearchClient implementation and one literal here.
+    price_search_provider: Literal["none", "fake"] = "none"
+    price_allowed_domains: Annotated[list[str], NoDecode] = []  # hosts web prices may come from; empty = any
     finance_ok_pct: Decimal = Decimal(5)  # up to this much over the reference is still ok
     finance_above_market_pct: Decimal = Decimal(15)  # over this: above market
     finance_well_above_pct: Decimal = Decimal(30)  # over this: well above market
@@ -138,6 +142,20 @@ class Settings(BaseSettings):
         if any("*" in origin for origin in origins):
             raise ValueError("DASHBOARD_CORS_ORIGINS must list exact origins, never '*'")
         return origins
+
+    @field_validator("price_allowed_domains", mode="before")
+    @classmethod
+    def _price_domains(cls, value: object) -> object:
+        """`a.example,b.example` or a list; lower-cased bare hosts, so a wildcard or a URL is refused."""
+        if value is None:  # `PRICE_ALLOWED_DOMAINS=` (empty means unset)
+            return []
+        items = value.split(",") if isinstance(value, str) else value
+        if not isinstance(items, list):
+            return value
+        domains = [str(item).strip().lower().rstrip("/") for item in items if str(item).strip()]
+        if any("*" in d or "://" in d for d in domains):
+            raise ValueError("PRICE_ALLOWED_DOMAINS must list bare hosts such as shop.example, no wildcard or scheme")
+        return domains
 
     @property
     def sqlalchemy_url(self) -> str:

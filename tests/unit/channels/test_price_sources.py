@@ -3,13 +3,18 @@
 from datetime import date
 from decimal import Decimal
 from typing import Literal
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from app.channels.prices.fake import FakePriceSource
 from app.channels.prices.ports import PriceObservation, PriceSource
+from app.channels.prices.search import FakeSearchClient, UnconfiguredSearchClient
+from app.channels.prices.web import WebPriceSource
+from app.channels.registry import search_client
 from app.core.errors import PriceSourceNotConfiguredError
 from app.core.settings import Settings
 from app.finance.competitors import CompetitorRatesSource
@@ -76,11 +81,20 @@ def test_composite_concatenates_in_order() -> None:
     assert [o.amount for o in got] == [Decimal("1"), Decimal("2"), Decimal("3")]
 
 
-def _build(setting: Literal["fake", "competitors", "web"]) -> PriceSource:
+def _build(
+    setting: Literal["fake", "competitors", "web"],
+    provider: Literal["none", "fake"] = "none",
+    engine: Engine | None = None,
+    allowed: list[str] | None = None,
+) -> PriceSource:
     settings = Settings(  # type: ignore[call-arg]
-        database_url="postgresql+psycopg://u:p@localhost:1/db", price_source=setting, _env_file=None
+        database_url="postgresql+psycopg://u:p@localhost:1/db",
+        price_source=setting,
+        price_search_provider=provider,
+        price_allowed_domains=allowed or [],
+        _env_file=None,
     )
-    return build_price_source(settings, _no_session, uuid4(), None)
+    return build_price_source(settings, _no_session, uuid4(), None, engine=engine)
 
 
 def test_build_fake_is_fake_plus_competitors() -> None:
@@ -96,6 +110,39 @@ def test_build_competitors_only() -> None:
     assert [type(s) for s in source.sources] == [CompetitorRatesSource]
 
 
-def test_build_web_is_not_configured_yet() -> None:
-    with pytest.raises(PriceSourceNotConfiguredError):
-        _build("web")
+def test_build_web_without_a_search_provider_names_the_setting() -> None:
+    with pytest.raises(PriceSourceNotConfiguredError, match="PRICE_SEARCH_PROVIDER"):
+        _build("web", "none", MagicMock())
+
+
+def test_build_web_with_the_fake_provider_is_web_plus_competitors() -> None:
+    source = _build("web", "fake", MagicMock(), allowed=["klusprijzen.example"])
+    assert isinstance(source, CompositePriceSource)
+    assert [type(s) for s in source.sources] == [WebPriceSource, CompetitorRatesSource]
+    web = source.sources[0]
+    assert isinstance(web, WebPriceSource)
+    assert isinstance(web.search, FakeSearchClient)
+    assert web.allowed_domains == ["klusprijzen.example"]
+
+
+def test_build_web_needs_an_engine_for_the_extractor() -> None:
+    with pytest.raises(PriceSourceNotConfiguredError, match="engine"):
+        _build("web", "fake", None)
+
+
+@pytest.mark.parametrize("setting", ["fake", "competitors"])
+def test_other_modes_ignore_the_search_provider_and_the_engine(setting: Literal["fake", "competitors"]) -> None:
+    source = _build(setting, "none", None)
+    assert isinstance(source, CompositePriceSource)
+    assert not any(isinstance(s, WebPriceSource) for s in source.sources)
+
+
+def _search_settings(provider: Literal["none", "fake"]) -> Settings:
+    return Settings(  # type: ignore[call-arg]
+        database_url="postgresql+psycopg://u:p@localhost:1/db", price_search_provider=provider, _env_file=None
+    )
+
+
+def test_registry_maps_the_provider_to_a_search_client() -> None:
+    assert isinstance(search_client(_search_settings("fake")), FakeSearchClient)
+    assert isinstance(search_client(_search_settings("none")), UnconfiguredSearchClient)

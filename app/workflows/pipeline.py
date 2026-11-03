@@ -31,6 +31,7 @@ from app.tools.message_rag import index_message
 from app.workflows import queues
 from app.workflows.deps import get_engine
 from app.workflows.documents import enqueue_filing
+from app.workflows.finance import quote_after_understanding
 from app.workflows.owner_notify import alert_exceptions_step, send_card_step, send_owner_message
 
 log = get_logger(__name__)
@@ -169,6 +170,7 @@ def _after_understanding(message_id: str, final_failure: bool) -> bool:
         alert_exceptions_step(company_id, message_id)
     for attachment_id in attachments_step(message_id):  # #9: file after linking (needs the case context)
         enqueue_filing(company_id, attachment_id)
+    quote_after_understanding(company_id, message_id)  # M11: a contractor's quote is reviewed; never fails the run
     return True
 
 

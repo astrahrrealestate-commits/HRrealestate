@@ -22,7 +22,7 @@ def _register(settings: Settings) -> dict[str, dict[str, Any]]:
 
 def test_every_named_queue_is_registered_at_boot() -> None:
     registered = _register(_settings())
-    assert set(registered) == {"pipeline", "gmail_sync", "timers", "documents", "concierge", "brixx"}
+    assert set(registered) == {"pipeline", "gmail_sync", "timers", "documents", "concierge", "brixx", "finance"}
     names = {v for k, v in vars(workflow_names).items() if k.endswith("_QUEUE")}
     assert names == set(registered)
 

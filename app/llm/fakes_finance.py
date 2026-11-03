@@ -1,4 +1,4 @@
-"""Deterministic stand-ins for the quote_reader and job_items models (offline tests, eval, simulation).
+"""Deterministic stand-ins for the quote_reader, job_items and price_extractor models (offline tests, eval, simulation).
 
 quote_reader reads the message, subject and attachment blocks line by line: an amount (`€ 120,00`, `EUR 99.50`,
 `120 euro`) makes a line, `2 uur` / `3 hours` / `x 2` give quantity and unit, `per uur` / `x 2` make the amount a unit
@@ -6,13 +6,16 @@ price, `excl. BTW` / `incl. VAT` wording sets the VAT flag. A `Totaal` line is t
 and no `Totaal` is a lump sum (total, no lines). Text with no amount, an invoice or a receipt is not a quote. Lines that
 read like instructions ("ignore previous", "approved", "market price") are skipped, so injected text changes nothing.
 job_items makes one item per sentence with a known maintenance term (`app.core.property_terms`), at most 10.
+price_extractor reads the `<document>` page sentence by sentence: a sentence with an amount that is about the wanted
+service (its key's term or words) is a price, its own text the evidence, `per uur` / `per m²` its unit (else `job`).
+Sentences that read like instructions or tell the reader which price to report are skipped.
 """
 
 import re
 from datetime import date, timedelta
 from decimal import Decimal
 
-from app.contracts.finance import MAX_JOB_ITEMS, MAX_QUANTITY, MAX_QUOTE_LINES
+from app.contracts.finance import MAX_EVIDENCE_CHARS, MAX_EXTRACTED_PRICES, MAX_JOB_ITEMS, MAX_QUANTITY, MAX_QUOTE_LINES
 from app.core.property_terms import ITEM_TERMS, normalise_item_key
 
 _AMOUNT = re.compile(
@@ -197,3 +200,45 @@ def fake_job_items(prompt: str) -> dict[str, object]:
                 {"description": sentence.strip()[:200], "quantity": f"{quantity or Decimal(1):.3f}", "unit": unit}
             )
     return {"items": items}
+
+
+_WANTED = re.compile(r"Service: (.*)\nUnit: (.*)")
+_ABBREVIATION = re.compile(r"\b(excl|incl|ex|inc)\.(?=\s)", re.IGNORECASE)
+_PRICE_ORDER = re.compile(r"\b(report|state|reply|respond|answer|output|set)\b[^.]*\bprice\b", re.IGNORECASE)
+_DOT = "\x00"
+
+
+def _page_sentences(text: str) -> list[str]:
+    """Sentences with `excl. BTW` / `incl. VAT` kept whole (the dot after the abbreviation does not end a sentence)."""
+    protected = _ABBREVIATION.sub(lambda m: m.group(1) + _DOT, text)
+    return [part.replace(_DOT, ".").strip() for part in _SENTENCES.split(protected) if part.strip()]
+
+
+def _about(sentence: str, item_key: str) -> bool:
+    words = [w for w in item_key.split("_") if len(w) >= 4]
+    return normalise_item_key(sentence) == item_key or any(w in sentence.lower() for w in words)
+
+
+def _extracted_price(sentence: str) -> dict[str, object]:
+    value, currency = _amounts(sentence)[0]
+    per = _PER_UNIT.search(_AMOUNT.sub(" ", sentence))
+    return {
+        "amount": _money(value, currency), "unit": _UNITS[per.group(1).lower()] if per else "job",
+        "vat_included": _vat(sentence), "evidence": sentence[:MAX_EVIDENCE_CHARS],
+    }  # fmt: skip
+
+
+def fake_price_extractor(prompt: str) -> dict[str, object]:
+    wanted = _WANTED.search((_blocks(prompt, "data") or [""])[0])
+    item_key = wanted.group(1).strip() if wanted else ""
+    page = "\n".join(_blocks(prompt, "document"))
+    prices = [
+        _extracted_price(sentence)
+        for sentence in _page_sentences(page)
+        if item_key
+        and _amounts(sentence)
+        and not _SKIP.search(sentence)
+        and not _PRICE_ORDER.search(sentence)
+        and _about(sentence, item_key)
+    ]
+    return {"prices": prices[:MAX_EXTRACTED_PRICES]}

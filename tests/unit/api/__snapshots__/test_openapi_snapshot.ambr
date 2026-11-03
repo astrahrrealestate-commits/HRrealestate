@@ -1804,6 +1804,392 @@
           ]
         }
       },
+      "/api/v1/finance/quotes": {
+        "get": {
+          "operationId": "list_quotes_api_v1_finance_quotes_get",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "case_id",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Case Id"
+              }
+            },
+            {
+              "in": "query",
+              "name": "person_id",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Person Id"
+              }
+            },
+            {
+              "in": "query",
+              "name": "cursor",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "maxLength": 100,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Cursor"
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "required": false,
+              "schema": {
+                "default": 50,
+                "maximum": 100,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/QuoteOut"
+                    },
+                    "title": "Response List Quotes Api V1 Finance Quotes Get",
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "List Quotes",
+          "tags": [
+            "finance"
+          ]
+        }
+      },
+      "/api/v1/finance/quotes/{quote_id}": {
+        "get": {
+          "operationId": "read_quote_api_v1_finance_quotes__quote_id__get",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "quote_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Quote Id",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/QuoteDetailOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Read Quote",
+          "tags": [
+            "finance"
+          ]
+        }
+      },
+      "/api/v1/finance/quotes/{quote_id}/recheck": {
+        "post": {
+          "description": "Review the stored quote again with fresh prices. `n` = reviews stored so far, so clicking again before the\nworker finishes is the same workflow id (deduped); after it finishes the next click is the next `n`.",
+          "operationId": "recheck_api_v1_finance_quotes__quote_id__recheck_post",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "quote_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Quote Id",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "responses": {
+            "202": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/RecheckOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Recheck",
+          "tags": [
+            "finance"
+          ]
+        }
+      },
+      "/api/v1/finance/rates": {
+        "get": {
+          "operationId": "list_rates_api_v1_finance_rates_get",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "person_id",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Person Id"
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "required": false,
+              "schema": {
+                "default": 200,
+                "maximum": 500,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/RateOut"
+                    },
+                    "title": "Response List Rates Api V1 Finance Rates Get",
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "List Rates",
+          "tags": [
+            "finance"
+          ]
+        },
+        "put": {
+          "operationId": "put_rate_api_v1_finance_rates_put",
+          "parameters": [
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateIn"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/RateOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Put Rate",
+          "tags": [
+            "finance"
+          ]
+        }
+      },
+      "/api/v1/finance/rates/{rate_id}": {
+        "delete": {
+          "description": "200 either way: `action` says whether the row was `deleted` or only `closed` (valid_to = today).",
+          "operationId": "delete_rate_api_v1_finance_rates__rate_id__delete",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "rate_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Rate Id",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/RateRemovedOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Delete Rate",
+          "tags": [
+            "finance"
+          ]
+        }
+      },
       "/api/v1/inbox": {
         "get": {
           "operationId": "get_inbox_api_v1_inbox_get",
@@ -4094,6 +4480,49 @@
         "title": "InboxItem",
         "type": "object"
       },
+      "LatestReviewOut": {
+        "properties": {
+          "late_days": {
+            "title": "Late Days",
+            "type": "integer"
+          },
+          "late_flag": {
+            "title": "Late Flag",
+            "type": "boolean"
+          },
+          "low_confidence": {
+            "title": "Low Confidence",
+            "type": "boolean"
+          },
+          "overcharge_total": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Overcharge Total",
+            "type": "string"
+          },
+          "review_id": {
+            "format": "uuid",
+            "title": "Review Id",
+            "type": "string"
+          },
+          "snapshot_basis": {
+            "$ref": "#/components/schemas/SnapshotBasis"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/Verdict"
+          }
+        },
+        "required": [
+          "review_id",
+          "verdict",
+          "late_days",
+          "late_flag",
+          "overcharge_total",
+          "low_confidence",
+          "snapshot_basis"
+        ],
+        "title": "LatestReviewOut",
+        "type": "object"
+      },
       "LinkIn": {
         "properties": {
           "kind": {
@@ -4718,6 +5147,535 @@
         "title": "PlanStatusOut",
         "type": "object"
       },
+      "QuoteDetailOut": {
+        "properties": {
+          "case_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "cursor": {
+            "title": "Cursor",
+            "type": "string"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewHistoryOut"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LatestReviewOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/QuoteLineOut"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "quote_date": {
+            "format": "date",
+            "title": "Quote Date",
+            "type": "string"
+          },
+          "report": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report"
+          },
+          "status": {
+            "$ref": "#/components/schemas/QuoteStatus"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          },
+          "vendor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VendorOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "work_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Date"
+          }
+        },
+        "required": [
+          "id",
+          "cursor",
+          "case_id",
+          "vendor",
+          "quote_date",
+          "work_date",
+          "currency",
+          "total",
+          "status",
+          "latest",
+          "created_at",
+          "lines",
+          "report",
+          "history"
+        ],
+        "title": "QuoteDetailOut",
+        "type": "object"
+      },
+      "QuoteLineOut": {
+        "properties": {
+          "amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "item_key": {
+            "title": "Item Key",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "unit_price": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Price"
+          },
+          "vat_included": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vat Included"
+          }
+        },
+        "required": [
+          "position",
+          "description",
+          "item_key",
+          "quantity",
+          "unit",
+          "unit_price",
+          "amount",
+          "vat_included"
+        ],
+        "title": "QuoteLineOut",
+        "type": "object"
+      },
+      "QuoteOut": {
+        "properties": {
+          "case_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "cursor": {
+            "title": "Cursor",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LatestReviewOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "quote_date": {
+            "format": "date",
+            "title": "Quote Date",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/QuoteStatus"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          },
+          "vendor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VendorOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "work_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Date"
+          }
+        },
+        "required": [
+          "id",
+          "cursor",
+          "case_id",
+          "vendor",
+          "quote_date",
+          "work_date",
+          "currency",
+          "total",
+          "status",
+          "latest",
+          "created_at"
+        ],
+        "title": "QuoteOut",
+        "type": "object"
+      },
+      "QuoteStatus": {
+        "description": "`unlinked` = a quote that arrived without a case; the owner links it before it is reviewed.",
+        "enum": [
+          "received",
+          "reviewed",
+          "unlinked"
+        ],
+        "title": "QuoteStatus",
+        "type": "string"
+      },
+      "RateIn": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Amount"
+          },
+          "currency": {
+            "const": "EUR",
+            "default": "EUR",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "item_key": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Key"
+          },
+          "person_id": {
+            "format": "uuid",
+            "title": "Person Id",
+            "type": "string"
+          },
+          "unit": {
+            "maxLength": 30,
+            "minLength": 1,
+            "title": "Unit",
+            "type": "string"
+          },
+          "valid_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid From"
+          },
+          "valid_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid To"
+          }
+        },
+        "required": [
+          "person_id",
+          "description",
+          "unit",
+          "amount"
+        ],
+        "title": "RateIn",
+        "type": "object"
+      },
+      "RateOut": {
+        "properties": {
+          "amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "item_key": {
+            "title": "Item Key",
+            "type": "string"
+          },
+          "person_id": {
+            "format": "uuid",
+            "title": "Person Id",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/RateSource"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "valid_from": {
+            "format": "date",
+            "title": "Valid From",
+            "type": "string"
+          },
+          "valid_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid To"
+          }
+        },
+        "required": [
+          "id",
+          "person_id",
+          "item_key",
+          "description",
+          "unit",
+          "amount",
+          "currency",
+          "valid_from",
+          "valid_to",
+          "source",
+          "created_at"
+        ],
+        "title": "RateOut",
+        "type": "object"
+      },
+      "RateRemovedOut": {
+        "properties": {
+          "action": {
+            "enum": [
+              "deleted",
+              "closed"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "valid_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid To"
+          }
+        },
+        "required": [
+          "id",
+          "action",
+          "valid_to"
+        ],
+        "title": "RateRemovedOut",
+        "type": "object"
+      },
+      "RateSource": {
+        "description": "Where an agreed rate came from.",
+        "enum": [
+          "owner",
+          "document",
+          "quote"
+        ],
+        "title": "RateSource",
+        "type": "string"
+      },
+      "RecheckOut": {
+        "properties": {
+          "n": {
+            "title": "N",
+            "type": "integer"
+          },
+          "quote_id": {
+            "format": "uuid",
+            "title": "Quote Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "quote_id",
+          "n"
+        ],
+        "title": "RecheckOut",
+        "type": "object"
+      },
       "ReorgItemStatus": {
         "enum": [
           "proposed",
@@ -4950,6 +5908,30 @@
         "title": "ReviewDocumentOut",
         "type": "object"
       },
+      "ReviewHistoryOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/Verdict"
+          }
+        },
+        "required": [
+          "id",
+          "verdict",
+          "created_at"
+        ],
+        "title": "ReviewHistoryOut",
+        "type": "object"
+      },
       "ReviewIn": {
         "properties": {
           "document_ids": {
@@ -5156,6 +6138,14 @@
         ],
         "title": "SessionRequest",
         "type": "object"
+      },
+      "SnapshotBasis": {
+        "enum": [
+          "decision_day",
+          "estimate_current_prices"
+        ],
+        "title": "SnapshotBasis",
+        "type": "string"
       },
       "SnoozeIn": {
         "properties": {
@@ -5546,6 +6536,36 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "VendorOut": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "VendorOut",
+        "type": "object"
+      },
+      "Verdict": {
+        "enum": [
+          "ok",
+          "needs_check",
+          "above_market",
+          "well_above_market",
+          "above_agreed"
+        ],
+        "title": "Verdict",
+        "type": "string"
       },
       "WaitOut": {
         "properties": {

@@ -21,3 +21,13 @@ only show today's prices, so history comes from our own dated snapshots (spec 20
 - No scraping code of our own beyond the adapter; retries and scheduling stay in DBOS.
 - Cost per snapshot = items × one lookup; bounded by a per-company daily lookup cap (setting, default 40).
 - Numbers are only as good as sources: `min_samples` (3) and outlier trimming guard it, low confidence is shown.
+
+## Implementation status (M11)
+Built and tested offline: the `SearchClient` port (`app/channels/prices/search.py`, with `FakeSearchClient` over
+recorded pages and `UnconfiguredSearchClient`), `WebPriceSource` (`app/channels/prices/web.py`: URL from the search
+hit, evidence must occur in the page, EUR only, unit must match, one observation per URL, domain allow-list) and the
+`price_extractor` agent (prompt `v1`, page text only as escaped data). Settings: `PRICE_SEARCH_PROVIDER` (`none` |
+`fake`) and `PRICE_ALLOWED_DOMAINS`; prod refuses `PRICE_SOURCE=web` while the provider is `none` or `fake`.
+Only a `SearchClient` implementation and its API key remain (Firecrawl, Tavily or Brave Search): one new class, one
+new `price_search_provider` literal and its case in `app/channels/registry.py:search_client`, then
+`make live-check k=prices`. Status stays `proposed` until the provider is picked.

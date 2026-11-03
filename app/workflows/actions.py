@@ -18,6 +18,7 @@ from app.pipeline import followups, local_actions
 from app.sender.execute import execute_action
 from app.sender.tenant_gate import blocked_key, blocked_text
 from app.workflows.deps import get_engine, get_sender_deps
+from app.workflows.finance import snapshot_after_approval
 from app.workflows.owner_notify import send_owner_message
 from app.workflows.retry import STEP_RETRY
 
@@ -88,6 +89,7 @@ def _send_or_tell(action_id: str, draft_version: int) -> list[str]:
 
 @DBOS.workflow(name=EXECUTE_ACTION)
 def execute_action_wf(action_id: str, draft_version: int, local: bool) -> str:
+    snapshot_after_approval(action_id)  # first: the approval fixes the decision day (R24), whatever happens next
     if local:
         outcome, reason = apply_local_step(action_id, draft_version), "company paused or approval no longer valid"
     else:

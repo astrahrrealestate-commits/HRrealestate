@@ -98,7 +98,7 @@ pending: ## pending approvals (dev company) with the tap to approve each
 approve: ## tap a pending approval as Harjot: make approve n=1 choice=d1
 	$(COMPOSE) exec -T api python -m app.dev.simulate approve --n "$(or $(n),1)" --choice "$(or $(choice),d1)"
 
-live-check: ## go-live gate: real WhatsApp/Gmail/S3 adapters (credentials: docs/go-live-channels.md); subset: k=gmail
+live-check: ## go-live gate: real WhatsApp/Gmail/S3/price-search adapters (credentials: docs/go-live-channels.md); subset: k=gmail or k=prices
 	$(UV) pytest tests/live --live -v $(if $(k),-k "$(k)")
 
 gmail-consent: ## Google token files (read + compose, drive=1 adds Drive, reply_send=1 adds the tenant-reply send token; every consent run re-consents the read and compose tokens too, so reply_send=1 is three tokens): make gmail-consent client=… mailbox=you@x out=~/.estateos
