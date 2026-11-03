@@ -62,152 +62,7 @@ export interface MaintenanceTicket {
   contractorDraft?: string;
 }
 
-const MOCK_MAINTENANCE_TICKETS: MaintenanceTicket[] = [
-  {
-    id: "m-1",
-    ticketNumber: "#005",
-    issueTitle: "Electricity short circuit in kitchen sockets",
-    unitLabel: "Pieter Floriszstraat 1 C",
-    tenantName: "Pieter Bakker",
-    tenantPhone: "+31 6 12 34 41 87",
-    category: "electrical",
-    contractorName: "Chahal Bouw",
-    contractorTrade: "Electrician",
-    urgency: "emergency",
-    status: "pending_approval",
-    slaRemaining: "38m SLA",
-    isOverdue: false,
-    poBudgetCap: "€ 650",
-    reportedAt: "Yesterday 22:10",
-    notes: "Fridge warming up after power tripped. Kevin assigned with 11:30 arrival window.",
-  },
-  {
-    id: "m-2",
-    ticketNumber: "#010",
-    issueTitle: "Washing machine siphon pipe burst and leaking",
-    unitLabel: "Dorpsstraat 54 E",
-    tenantName: "Rick de Boer",
-    tenantPhone: "+31 6 22 41 89 00",
-    category: "plumbing",
-    contractorName: "Vermeer Loodgieters",
-    contractorTrade: "Plumber",
-    urgency: "high",
-    status: "pending_approval",
-    slaRemaining: "1h 14m SLA",
-    isOverdue: false,
-    poBudgetCap: "€ 450",
-    reportedAt: "Today 07:45",
-    notes: "Water turned off at main valve. Tenant present after 17:00 for repair.",
-  },
-  {
-    id: "m-3",
-    ticketNumber: "#014",
-    issueTitle: "Central heating boiler error code F.22",
-    unitLabel: "Singel 412",
-    tenantName: "Marloes Jansen",
-    tenantPhone: "+31 6 44 22 88 19",
-    category: "heating",
-    contractorName: "Van Dijk CV & Verwarming",
-    contractorTrade: "Heating engineer",
-    urgency: "emergency",
-    status: "scheduled",
-    slaRemaining: "12m left",
-    isOverdue: true,
-    poBudgetCap: "€ 550",
-    reportedAt: "Yesterday 18:30",
-    notes: "Water pressure dropped to 0.4 bar. Radiator bleed and pump repressurization scheduled.",
-  },
-  {
-    id: "m-4",
-    ticketNumber: "#018",
-    issueTitle: "Stove ceramic cooktop burner failure",
-    unitLabel: "Prinses Marijkestraat 2 A",
-    tenantName: "Daan Vermeulen",
-    tenantPhone: "+31 6 98 76 54 32",
-    category: "appliance",
-    contractorName: "KeukenExpert Amsterdam",
-    contractorTrade: "Appliance specialist",
-    urgency: "normal",
-    status: "dispatched",
-    slaRemaining: "2 days",
-    isOverdue: false,
-    poBudgetCap: "€ 480",
-    reportedAt: "2 days ago",
-    notes: "Replacement induction relay approved and dispatched. Parts arriving Thursday.",
-  },
-  {
-    id: "m-5",
-    ticketNumber: "#021",
-    issueTitle: "Ground floor main hallway intercom buzzer faulty",
-    unitLabel: "Keizersgracht 42-46",
-    tenantName: "Multiple residents",
-    tenantPhone: "+31 20 000 0001",
-    category: "electrical",
-    contractorName: "Amstel Elektro",
-    contractorTrade: "Electrician",
-    urgency: "normal",
-    status: "dispatched",
-    slaRemaining: "3 days",
-    isOverdue: false,
-    poBudgetCap: "€ 320",
-    reportedAt: "3 days ago",
-    notes: "Audio buzzer unlinked from door release solenoid.",
-  },
-  {
-    id: "m-6",
-    ticketNumber: "#022",
-    issueTitle: "Radiator valve leaking slowly into drip tray",
-    unitLabel: "Herengracht 14 B",
-    tenantName: "Sophie van Dijk",
-    tenantPhone: "+31 6 33 22 11 00",
-    category: "heating",
-    contractorName: "Van Dijk CV & Verwarming",
-    contractorTrade: "Heating engineer",
-    urgency: "low",
-    status: "scheduled",
-    slaRemaining: "4 days",
-    isOverdue: false,
-    poBudgetCap: "€ 220",
-    reportedAt: "4 days ago",
-    notes: "Scheduled alongside routine boiler inspection on Friday morning.",
-  },
-  {
-    id: "m-7",
-    ticketNumber: "#025",
-    issueTitle: "Bathroom sink faucet cartridge replacement",
-    unitLabel: "Prinsengracht 118 B",
-    tenantName: "Lars de Wit",
-    tenantPhone: "+31 6 77 88 99 00",
-    category: "plumbing",
-    contractorName: "Vermeer Loodgieters",
-    contractorTrade: "Plumber",
-    urgency: "low",
-    status: "completed",
-    slaRemaining: "Completed",
-    isOverdue: false,
-    poBudgetCap: "€ 180",
-    reportedAt: "5 days ago",
-    notes: "Work completed and verified. Invoice matched PO budget cap.",
-  },
-  {
-    id: "m-8",
-    ticketNumber: "#027",
-    issueTitle: "Balcony door draught excluder strip replacement",
-    unitLabel: "Weteringschans 88",
-    tenantName: "Emma Visser",
-    tenantPhone: "+31 6 55 44 33 22",
-    category: "structural",
-    contractorName: "Chahal Bouw",
-    contractorTrade: "Carpenter",
-    urgency: "low",
-    status: "completed",
-    slaRemaining: "Completed",
-    isOverdue: false,
-    poBudgetCap: "€ 140",
-    reportedAt: "6 days ago",
-    notes: "Weatherstrip fitted. Tenant confirmed satisfaction via WhatsApp.",
-  },
-];
+const MOCK_MAINTENANCE_TICKETS: MaintenanceTicket[] = [];
 
 function findMatchingTicket(allTickets: MaintenanceTicket[], query: string): MaintenanceTicket | null {
   if (!query) return null;
@@ -338,9 +193,9 @@ function MaintenanceContent() {
     getMaintenanceTickets()
       .then((res) => {
         if (!isMounted) return;
-        if (res.isLive && res.tickets && res.tickets.length > 0) {
-          setTickets(res.tickets);
-          if (ticketParam) {
+        if (res.isLive) {
+          setTickets(res.tickets || []);
+          if (ticketParam && res.tickets && res.tickets.length > 0) {
             const m = findMatchingTicket(res.tickets, ticketParam);
             if (m) {
               setSelectedTicketId(m.id);
@@ -408,7 +263,7 @@ function MaintenanceContent() {
     );
 
     const parts: string[] = [];
-    const targetEmail = target.contractorEmail || "suryanshtyagi.work@gmail.com";
+    const targetEmail = target.contractorEmail || "planning@chahalbouw.nl";
     if (options.dispatchContractor) {
       parts.push(`Dispatching work order to ${target.contractorName} (${targetEmail})`);
     }
@@ -449,7 +304,7 @@ function MaintenanceContent() {
   };
 
   const handleOpenGmailToContractor = (ticket: MaintenanceTicket) => {
-    const email = ticket.contractorEmail || "suryanshtyagi.work@gmail.com";
+    const email = ticket.contractorEmail || "planning@chahalbouw.nl";
     const subject = `[Work Order] ${ticket.issueTitle} - ${ticket.unitLabel}`;
     const body = ticket.contractorDraft || `Hi ${ticket.contractorName}, emergency work order for ${ticket.unitLabel}: ${ticket.issueTitle}. Authorized budget cap: ${ticket.poBudgetCap}. Please confirm your earliest ETA.`;
     const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
@@ -538,12 +393,12 @@ function MaintenanceContent() {
   };
 
   return (
-    <div className="h-dvh bg-[var(--bg)] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
+    <div className="h-dvh bg-[#0D0F12] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
       {/* 1. Left Fixed Sidebar */}
       <Sidebar />
 
       {/* 2. Main Canvas */}
-      <div className="flex-1 flex flex-col min-w-0 h-dvh overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-dvh overflow-hidden bg-[#0D0F12]">
         {/* Top bar hidden on mobile when detail pane is open */}
         <div className={cn(isMobileDetailOpen ? "hidden md:block" : "block")}>
           <TopCommandBar
@@ -553,7 +408,7 @@ function MaintenanceContent() {
         </div>
 
         {/* 3. Maintenance Workspace: Full Width with Right Drawer UI */}
-        <div className="flex-1 flex flex-col min-h-0 h-[calc(100dvh-3.5rem)] relative overflow-hidden bg-[var(--pane)]">
+        <div className="flex-1 flex flex-col min-h-0 h-[calc(100dvh-3.5rem)] relative overflow-hidden bg-white rounded-tl-[24px] sm:rounded-tl-[28px] shadow-2xl">
           
           {/* Header + Controls + Table / Ticket Rows List */}
           <div className="h-full flex flex-col overflow-hidden bg-[var(--pane)]">
@@ -1045,7 +900,7 @@ function MaintenanceContent() {
                           </span>
                           <span className="inline-flex items-center gap-1 text-[11.5px] font-mono text-[var(--ink-2)] bg-[var(--pane)] px-2.5 py-1 rounded-md border border-[var(--line)]">
                             <Mail className="w-3 h-3 text-blue-600" />
-                            <span>{selectedTicket.contractorEmail || "suryanshtyagi.work@gmail.com"}</span>
+                            <span>{selectedTicket.contractorEmail || "planning@chahalbouw.nl"}</span>
                           </span>
                         </div>
                       </div>

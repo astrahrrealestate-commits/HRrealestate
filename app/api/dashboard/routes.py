@@ -118,118 +118,11 @@ DEFAULT_PULSE: dict[str, Any] = {
     "hoursSavedWeek": 8.5,
 }
 
-DEFAULT_RADAR_ITEMS: list[dict[str, Any]] = [
-    {
-        "id": "wait-1",
-        "caseRef": "#cs-0089",
-        "ticketNumber": "#005",
-        "unitLabel": "Keizersgracht 42-A",
-        "partyName": "FastFix Loodgieters",
-        "partyRole": "Contractor",
-        "issueSummary": "Radiator valve leak inspection quote",
-        "daysWaiting": 3,
-        "chasersSent": 1,
-        "proposedActionLabel": "Send WhatsApp nudge to FastFix",
-    },
-    {
-        "id": "wait-2",
-        "caseRef": "#cs-0072",
-        "ticketNumber": "#003",
-        "unitLabel": "Henry Dunantweg 5 F",
-        "partyName": "Lars van den Berg",
-        "partyRole": "Tenant",
-        "issueSummary": "Move-out pre-inspection date confirmation",
-        "daysWaiting": 2,
-        "chasersSent": 1,
-        "proposedActionLabel": "Send WhatsApp reminder to Lars",
-    },
-    {
-        "id": "wait-3",
-        "caseRef": "#cs-0068",
-        "ticketNumber": "#002",
-        "unitLabel": "Prinses Marijkestraat 2 A",
-        "partyName": "KitchenTech B.V.",
-        "partyRole": "Contractor",
-        "issueSummary": "Replacement ceramic hob parts delivery confirmation",
-        "daysWaiting": 4,
-        "chasersSent": 2,
-        "proposedActionLabel": "Follow up on supplier backorder",
-    },
-]
+DEFAULT_RADAR_ITEMS: list[dict[str, Any]] = []
 
-DEFAULT_INQUIRIES: list[dict[str, Any]] = [
-    {
-        "id": "lead-1",
-        "name": "Sanne Meijer",
-        "contact": "sanne.meijer@uva.nl",
-        "channel": "gmail",
-        "unit": "Pieter Floriszstraat 1 C",
-        "moveIn": "1 Nov 2026",
-        "request": "Viewing request · Thursday 15:00 slot",
-        "qualification": "3.2x income verified (UvA lecturer)",
-        "status": "AI draft ready",
-    },
-    {
-        "id": "lead-2",
-        "name": "Lucas van Dijk",
-        "contact": "+31 6 81 29 44 10",
-        "channel": "whatsapp",
-        "unit": "Singel 412 Studio",
-        "moveIn": "1 Nov 2026",
-        "request": "Studio availability & viewing inquiry",
-        "qualification": "Preliminary criteria met",
-        "status": "AI draft ready",
-    },
-    {
-        "id": "lead-3",
-        "name": "Elena Rostova",
-        "contact": "elena.rostova@booking.com",
-        "channel": "gmail",
-        "unit": "Keizersgracht 42-B",
-        "moveIn": "15 Nov 2026",
-        "request": "Income verification & expat registration query",
-        "qualification": "Booking.com Senior Software Engineer",
-        "status": "AI draft ready",
-    },
-]
+DEFAULT_INQUIRIES: list[dict[str, Any]] = []
 
-DEFAULT_LOGS: list[dict[str, Any]] = [
-    {
-        "id": "log-1",
-        "timestamp": "10:14 CET",
-        "actionText": "Logged automated bank settlement in owner ledger (€ 2.450,-)",
-        "entityRef": "Keizersgracht 42-A",
-        "tag": "Auto Reconcile",
-    },
-    {
-        "id": "log-2",
-        "timestamp": "09:42 CET",
-        "actionText": "Dispatched emergency work order PO-005 to Chahal Bouw with € 650 cap",
-        "entityRef": "Ticket #005",
-        "tag": "PO Authorized",
-    },
-    {
-        "id": "log-3",
-        "timestamp": "09:15 CET",
-        "actionText": "Classified and filed PDF inspection report to Google Drive /Maintenance/2026",
-        "entityRef": "Drive File #982",
-        "tag": "Drive Filing",
-    },
-    {
-        "id": "log-4",
-        "timestamp": "08:30 CET",
-        "actionText": "Executed automated 72h WhatsApp chaser for radiator quote",
-        "entityRef": "FastFix Loodgieters",
-        "tag": "Chaser Sent",
-    },
-    {
-        "id": "log-5",
-        "timestamp": "08:00 CET",
-        "actionText": "Executed daily rent reconciliation across 110 units (94.5% on-time)",
-        "entityRef": "ING API",
-        "tag": "Daily Audit",
-    },
-]
+DEFAULT_LOGS: list[dict[str, Any]] = []
 
 
 # ---------------------------------------------------------------------------
@@ -252,21 +145,17 @@ def get_pulse_metrics(
     """Returns the executive pulse metrics for the top 3 dashboard cards."""
     try:
         with Session(engine) as session:
-            pending_approvals = (
-                session.scalar(select(func.count(Approval.id)).where(Approval.status == "pending"))
-                or DEFAULT_PULSE["needsYouCount"]
-            )
+            count_app = session.scalar(select(func.count(Approval.id)).where(Approval.status == "pending"))
+            pending_approvals = count_app if count_app is not None else 0
 
-            emergency_cases = (
-                session.scalar(select(func.count(Case.id)).where(Case.urgency == "emergency", Case.state == "open"))
-                or DEFAULT_PULSE["emergencyCount"]
-            )
+            count_em = session.scalar(select(func.count(Case.id)).where(Case.urgency == "emergency", Case.state == "open"))
+            emergency_cases = count_em if count_em is not None else 0
 
-            total_units = session.scalar(select(func.count(Unit.id))) or DEFAULT_PULSE["totalUnits"]
-            active_leases = (
-                session.scalar(select(func.count(Lease.id)).where(Lease.valid_to.is_(None)))
-                or DEFAULT_PULSE["occupiedUnits"]
-            )
+            count_units = session.scalar(select(func.count(Unit.id)))
+            total_units = count_units if count_units is not None else 0
+
+            count_leases = session.scalar(select(func.count(Lease.id)).where(Lease.valid_to.is_(None)))
+            active_leases = count_leases if count_leases is not None else 0
     except Exception as exc:
         log.warning("dashboard.pulse.db_fallback", error=str(exc))
         pending_approvals = DEFAULT_PULSE["needsYouCount"]
@@ -279,14 +168,14 @@ def get_pulse_metrics(
     return PulseMetricsResponse(
         needsYouCount=pending_approvals,
         emergencyCount=emergency_cases,
-        openRentTotalEur=DEFAULT_PULSE["openRentTotalEur"],
-        overdueRentEur=DEFAULT_PULSE["overdueRentEur"],
-        overdueTenantsCount=DEFAULT_PULSE["overdueTenantsCount"],
+        openRentTotalEur=0.0,
+        overdueRentEur=0.0,
+        overdueTenantsCount=0,
         occupancyPercentage=occupancy_pct,
         totalUnits=total_units,
         occupiedUnits=active_leases,
-        autonomousActionsWeek=DEFAULT_PULSE["autonomousActionsWeek"],
-        hoursSavedWeek=DEFAULT_PULSE["hoursSavedWeek"],
+        autonomousActionsWeek=0,
+        hoursSavedWeek=0.0,
         syncedAt=datetime.now(UTC).isoformat(),
     )
 
@@ -326,8 +215,8 @@ def get_unresponsive_radar(
     except Exception as exc:
         log.warning("dashboard.radar.db_fallback", error=str(exc))
 
-    if not items:
-        items = [StalledWaitItem(**item) for item in DEFAULT_RADAR_ITEMS[:limit]]
+    # No mock fallback
+    pass
 
     return RadarResponse(items=items, total=len(items))
 
@@ -342,7 +231,7 @@ def get_prospective_inquiries(
     engine: Annotated[Engine, Depends(get_engine)],
 ) -> InquiriesResponse:
     """Returns prospective tenant leads for viewing scheduling."""
-    items = [ProspectiveInquiryItem(**inq) for inq in DEFAULT_INQUIRIES]
+    items = []
     return InquiriesResponse(inquiries=items, total=len(items))
 
 
@@ -357,7 +246,7 @@ def get_autonomous_logs(
     limit: int = Query(default=5, ge=1, le=20, description="Number of logs to return"),
 ) -> LogsResponse:
     """Returns autonomous operations audit trail."""
-    items = [AutonomousActionLogItem(**log_item) for log_item in DEFAULT_LOGS[:limit]]
+    items = []
     return LogsResponse(logs=items, total=len(items))
 
 

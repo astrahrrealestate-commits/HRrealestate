@@ -33,33 +33,48 @@ class ReplyDraftPayload(Contract):
     channel: Channel
     subject: str | None
     body_variants: DraftVariants
+    case_id: UUID | None = None
 
 
 class NotifyOwnerPayload(Contract):
     kind: Literal["notify_owner"]
-    text: NonBlankStr
+    text: str = ""
+    message: str | None = None
+    case_id: UUID | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_message(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "message" in data and not data.get("text"):
+                data["text"] = data["message"]
+        return data
 
 
 class CreateReminderPayload(Contract):
     kind: Literal["create_reminder"]
     due_at: AwareDatetime
     note: NonBlankStr
+    case_id: UUID | None = None
 
 
 class UpdateCaseStatePayload(Contract):
     kind: Literal["update_case_state"]
     new_state: CaseState
+    case_id: UUID | None = None
 
 
 class RequestContractorPayload(Contract):
     kind: Literal["request_contractor"]
     contractor_person_id: UUID
     body_variants: DraftVariants
+    case_id: UUID | None = None
 
 
 class EscalatePayload(Contract):
     kind: Literal["escalate"]
     reason: NonBlankStr
+    case_id: UUID | None = None
 
 
 class CalendarEventPayload(Contract):
@@ -71,6 +86,7 @@ class CalendarEventPayload(Contract):
     contractor_name: str | None
     lockbox_code: str | None
     notes: str | None
+    case_id: UUID | None = None
 
 
 ActionPayload = Annotated[
@@ -87,11 +103,11 @@ ActionPayload = Annotated[
 
 class Action(Contract):
     type: ActionType
-    case_id: UUID
+    case_id: UUID | None = None
     payload: ActionPayload
     rationale: NonBlankStr
-    context_ref: list[UUID]
-    draft_version: Annotated[int, Field(ge=1)]
+    context_ref: list[UUID] = Field(default_factory=list)
+    draft_version: Annotated[int, Field(ge=1)] = 1
 
     @model_validator(mode="before")
     @classmethod

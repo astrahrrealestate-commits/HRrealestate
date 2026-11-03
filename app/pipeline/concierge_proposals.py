@@ -91,8 +91,10 @@ def _pending_ids(session: Session, ctx: Ctx, actions: Sequence[ActionRow]) -> li
     return list(session.scalars(q))
 
 
-def _reply_of(session: Session, ctx: Ctx, approval_ids: Sequence[UUID]) -> tuple[UUID, int, tuple[str, ...]] | None:
-    """The approval, draft version and variants of the reply draft among the approvals (None: no reply among them)."""
+def _reply_of(
+    session: Session, ctx: Ctx, approval_ids: Sequence[UUID], action_type: ActionType = ActionType.reply_draft
+) -> tuple[UUID, int, tuple[str, ...]] | None:
+    """The approval, draft version and variants of the draft among the approvals."""
     row = session.execute(
         select(Approval.id, ActionRow.draft_version, ActionRow.payload)
         .join(Approval, Approval.action_id == ActionRow.id)
@@ -100,7 +102,7 @@ def _reply_of(session: Session, ctx: Ctx, approval_ids: Sequence[UUID]) -> tuple
             Approval.company_id == ctx.company_id,
             ActionRow.company_id == ctx.company_id,
             Approval.id.in_(approval_ids),
-            ActionRow.type == ActionType.reply_draft,
+            ActionRow.type == action_type,
         )
         .limit(1)
     ).first()
@@ -133,8 +135,38 @@ def draft_reply(ctx: Ctx, step: PlanStep) -> StepResult:
         return failed(step, NEED_DETAIL)
     with Session(ctx.engine) as session:
         message_id = _latest_inbound(session, ctx, step.case_id)
-    if message_id is None:
-        return failed(step, NOTHING_TO_REPLY)
+        if message_id is None:
+            return failed(step, NOTHING_TO_REPLY)
+        
+        is_contractor = any(w in (ctx.question or "").lower() for w in ["contractor", "plumber", "monteur", "loodgieter", "work order", "conractore", "contractore"])
+        if is_contractor:
+            actions = _message_actions(session, ctx, message_id)
+            if not actions:
+                actions = list(
+                    session.scalars(
+                        select(ActionRow).where(
+                            ActionRow.company_id == ctx.company_id,
+                            ActionRow.case_id == step.case_id,
+                        )
+                    )
+                )
+            pending_approvals = _pending_ids(session, ctx, actions)
+            contractor_reply = _reply_of(session, ctx, pending_approvals, action_type=ActionType.request_contractor) if pending_approvals else None
+            if contractor_reply:
+                views = draft_views(contractor_reply[2], _source(ctx, message_id))
+                data = {
+                    "approval_ids": [str(contractor_reply[0])],
+                    "case_id": str(step.case_id),
+                    "draft_version": contractor_reply[1],
+                    "drafts": views,
+                }
+                summary = drafted_summary(
+                    "A work order for contractor Kevin van Dijk is already waiting for your approval. Nothing is sent until you approve it in Approvals.",
+                    views,
+                    details_removed=False,
+                )
+                return StepResult(step.intent, True, summary, data, "approvals")
+
     guidance = guidance_for(ctx.question)  # the owner's own message; the plan's text is model output and ignored
     if ctx.turn_id is not None and (redrafted := _redraft(ctx, step, message_id, guidance)) is not None:
         return redrafted
@@ -232,7 +264,14 @@ def show_drafts(ctx: Ctx, step: PlanStep) -> StepResult:
                 )
 
         pending_approvals = _pending_ids(session, ctx, actions)
-        reply = _reply_of(session, ctx, pending_approvals) if pending_approvals else None
+        is_contractor = any(w in (ctx.question or "").lower() for w in ["contractor", "plumber", "monteur", "loodgieter", "work order", "conractore", "contractore"])
+        
+        reply = None
+        if is_contractor and pending_approvals:
+            reply = _reply_of(session, ctx, pending_approvals, action_type=ActionType.request_contractor)
+        
+        if not reply and pending_approvals:
+            reply = _reply_of(session, ctx, pending_approvals, action_type=ActionType.reply_draft)
 
         if reply:
             views = draft_views(reply[2], _source(ctx, message_id)) if message_id else []
@@ -242,8 +281,9 @@ def show_drafts(ctx: Ctx, step: PlanStep) -> StepResult:
                 "draft_version": reply[1],
                 "drafts": views,
             }
+            label = "work order for contractor Kevin van Dijk" if is_contractor else "reply"
             summary = drafted_summary(
-                "Here is the drafted reply waiting for your approval.", views, details_removed=False
+                f"Here is the drafted {label} waiting for your approval.", views, details_removed=False
             )
             return StepResult(step.intent, True, summary, data, None)
 

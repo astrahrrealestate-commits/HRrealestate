@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { SETTING_GROUPS, SettingGroup, SettingItem } from "@/data/settingsMockData";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import { MemoryRulesManager } from "@/components/settings/MemoryRulesManager";
+import { GoogleConnectCard } from "@/components/settings/GoogleConnectCard";
 
 function SettingsContent() {
   const router = useRouter();
@@ -96,16 +97,19 @@ function SettingsContent() {
   };
 
   return (
-    <div className="h-dvh bg-[var(--bg)] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
+    <div className="h-dvh bg-[#0D0F12] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
       {/* 1. Left Nav (Desktop Sidebar) */}
       <Sidebar />
 
       {/* 2. Main Content Canvas */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0D0F12]">
         <TopCommandBar
           pageTitle="Settings"
           hideSearch={true}
         />
+
+        {/* Curved White Main Content Canvas */}
+        <div className="flex-1 bg-white rounded-tl-[24px] sm:rounded-tl-[28px] overflow-hidden flex flex-col shadow-2xl relative">
 
         {/* ------------------------------------------------------------- */}
         {/* DESKTOP LAYOUT (>= 768px): Two Columns (Groups on Left, Rows on Right) */}
@@ -175,7 +179,9 @@ function SettingsContent() {
             {activeGroup.id === "memory-rules" ? (
               <MemoryRulesManager />
             ) : (
-              <div className="divide-y divide-[var(--line)] border border-[var(--line)] rounded-[var(--radius-pane)] bg-[var(--pane)] overflow-hidden shadow-2xs">
+              <div className="space-y-4">
+                {activeGroup.id === "channels" && <GoogleConnectCard />}
+                <div className="divide-y divide-[var(--line)] border border-[var(--line)] rounded-[var(--radius-pane)] bg-[var(--pane)] overflow-hidden shadow-2xs">
                 {activeGroup.settings.map((setting) => (
                   <div
                     key={setting.id}
@@ -216,6 +222,7 @@ function SettingsContent() {
                     </div>
                   </div>
                 ))}
+                </div>
               </div>
             )}
 
@@ -307,51 +314,55 @@ function SettingsContent() {
                   <MemoryRulesManager />
                 </div>
               ) : (
-                <div className="flex-1 overflow-y-auto divide-y divide-[var(--line)] bg-[var(--pane)]">
-                  {activeGroup.settings.map((setting) => (
-                    <div
-                      key={setting.id}
-                      className="p-4 flex items-center justify-between gap-3 min-h-[64px]"
-                    >
-                      <div className="min-w-0 flex-1 pr-2">
-                        <span className="font-semibold text-[14px] text-[var(--ink)] block leading-tight">
-                          {setting.title}
-                        </span>
-                        <p className="text-xs text-[var(--ink-3)] mt-1 leading-relaxed">
-                          {setting.description}
-                        </p>
-                      </div>
-
-                      <div className="shrink-0">
-                        {setting.valueType === "toggle" ? (
-                          <button
-                            onClick={() => handleToggle(activeGroup.id, setting.id)}
-                            className={cn(
-                              "w-11 h-6 rounded-full transition-colors relative cursor-pointer",
-                              setting.currentValue ? "bg-[var(--ink)]" : "bg-[var(--line)]"
-                            )}
-                            aria-label={setting.title}
-                          >
-                            <span
-                              className={cn(
-                                "w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform",
-                                setting.currentValue ? "right-0.5" : "left-0.5"
-                              )}
-                            />
-                          </button>
-                        ) : (
-                          <span className="font-mono text-xs px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--bg)] font-semibold text-[var(--ink)]">
-                            {setting.currentValue}
+                <div className="flex-1 overflow-y-auto bg-[var(--pane)] p-4 space-y-4">
+                  {activeGroup.id === "channels" && <GoogleConnectCard />}
+                  <div className="divide-y divide-[var(--line)] border border-[var(--line)] rounded-[var(--radius-pane)] bg-[var(--pane)] overflow-hidden">
+                    {activeGroup.settings.map((setting) => (
+                      <div
+                        key={setting.id}
+                        className="p-4 flex items-center justify-between gap-3 min-h-[64px]"
+                      >
+                        <div className="min-w-0 flex-1 pr-2">
+                          <span className="font-semibold text-[14px] text-[var(--ink)] block leading-tight">
+                            {setting.title}
                           </span>
-                        )}
+                          <p className="text-xs text-[var(--ink-3)] mt-1 leading-relaxed">
+                            {setting.description}
+                          </p>
+                        </div>
+
+                        <div className="shrink-0">
+                          {setting.valueType === "toggle" ? (
+                            <button
+                              onClick={() => handleToggle(activeGroup.id, setting.id)}
+                              className={cn(
+                                "w-11 h-6 rounded-full transition-colors relative cursor-pointer",
+                                setting.currentValue ? "bg-[var(--ink)]" : "bg-[var(--line)]"
+                              )}
+                              aria-label={setting.title}
+                            >
+                              <span
+                                className={cn(
+                                  "w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform",
+                                  setting.currentValue ? "right-0.5" : "left-0.5"
+                                )}
+                              />
+                            </button>
+                          ) : (
+                            <span className="font-mono text-xs px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--bg)] font-semibold text-[var(--ink)]">
+                              {setting.currentValue}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
           )}
 
+        </div>
         </div>
 
       </div>

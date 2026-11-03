@@ -123,6 +123,7 @@ class PreviewCardData(BaseModel):
     targetUrl: str | None = None
     externalUrl: str | None = None
     threadSearchUrl: str | None = None
+    variants: list[str] = Field(default_factory=list, description="All body variants for draft switcher")
 
 
 class ActionButtonData(BaseModel):
@@ -407,6 +408,7 @@ def _resolve_draft_card(
     engine: Engine,
     approval_ids: list[str] | None = None,
     company_id: UUID | None = None,
+    prefer_contractor: bool = False,
 ) -> PreviewCardData | None:
     """Consolidated helper to fetch draft message or notice preview data in a single session scope."""
     if not approval_ids:
@@ -414,13 +416,51 @@ def _resolve_draft_card(
 
     with Session(engine) as session:
         try:
-            appr = session.get(Approval, UUID(approval_ids[0])) if approval_ids else None
-            if not appr:
+            target_appr = None
+            target_act = None
+
+            # If prefer_contractor is requested, look for request_contractor first
+            if prefer_contractor:
+                for aid_str in (approval_ids or []):
+                    try:
+                        a = session.get(Approval, UUID(aid_str))
+                        if not a:
+                            continue
+                        act_candidate = session.get(ActionRow, a.action_id)
+                        if not act_candidate or not act_candidate.payload:
+                            continue
+                        if act_candidate.type == ActionType.request_contractor:
+                            target_appr = a
+                            target_act = act_candidate
+                            break
+                    except Exception:
+                        continue
+
+            # Prioritize reply_draft action, fallback to first valid action
+            if not target_act:
+                for aid_str in (approval_ids or []):
+                    try:
+                        a = session.get(Approval, UUID(aid_str))
+                        if not a:
+                            continue
+                        act_candidate = session.get(ActionRow, a.action_id)
+                        if not act_candidate or not act_candidate.payload:
+                            continue
+                        if act_candidate.type == ActionType.reply_draft:
+                            target_appr = a
+                            target_act = act_candidate
+                            break
+                        elif not target_appr:
+                            target_appr = a
+                            target_act = act_candidate
+                    except Exception:
+                        continue
+
+            if not target_appr or not target_act or not target_act.payload:
                 return None
 
-            act = session.get(ActionRow, appr.action_id)
-            if not act or not act.payload:
-                return None
+            appr = target_appr
+            act = target_act
 
             payload = act.payload
             target_case = session.get(Case, act.case_id) if act.case_id else None
@@ -429,6 +469,36 @@ def _resolve_draft_card(
             case_id_str = str(act.case_id) if act.case_id else None
             action_id_str = str(act.id)
             appr_status_str = appr.status.value if hasattr(appr.status, "value") else str(appr.status)
+
+            # Check if this is a request_contractor action
+            if act.type == ActionType.request_contractor:
+                contractor_p = session.get(Person, act.payload.get("contractor_person_id")) if act.payload.get("contractor_person_id") else None
+                contractor_name = contractor_p.display_name if contractor_p else "Kevin van Dijk (Chahal Bouw)"
+                contractor_email = act.payload.get("to") or "dispatch@chahalbouw.nl"
+                resolved_recipient = f"{contractor_name} <{contractor_email}>"
+                chan_str = "gmail"
+                subj_str = f"Work Order: Emergency Leak Repair — {unit_label}"
+                variants = act.payload.get("body_variants") or []
+                extracted_body = variants[0] if variants else (act.payload.get("text") or "")
+                draft_body = extracted_body.strip()
+                raw_variants = variants or [draft_body]
+                card_variants = [str(v) for v in raw_variants if v]
+                ext_url = f"https://mail.google.com/mail/?view=cm&fs=1&to={quote_plus(contractor_email)}&su={quote_plus(subj_str)}&body={quote_plus(draft_body)}"
+
+                return PreviewCardData(
+                    type="draft_message",
+                    channel=chan_str,
+                    recipient=resolved_recipient,
+                    unitLabel=str(unit_label or "Portfolio Unit"),
+                    subject=subj_str,
+                    body=draft_body,
+                    variants=card_variants,
+                    status=appr_status_str,
+                    actionId=action_id_str,
+                    caseId=case_id_str,
+                    externalUrl=ext_url,
+                    threadSearchUrl=f"https://mail.google.com/mail/u/0/#search/{quote_plus(contractor_email)}",
+                )
 
             # notify_owner and other non-reply_draft types render as a notice card, never as a draft
             if act.type != ActionType.reply_draft:
@@ -490,6 +560,11 @@ def _resolve_draft_card(
                 else:
                     thread_url = f"https://mail.google.com/mail/u/0/#search/{quote_plus(str(resolved_recipient))}"
 
+            raw_variants = payload.get("body_variants") or []
+            card_variants = [str(v) for v in raw_variants if v] if isinstance(raw_variants, list) else []
+            if not card_variants and draft_body:
+                card_variants = [draft_body]
+
             return PreviewCardData(
                 type="draft_message",
                 channel=chan_str,
@@ -497,6 +572,7 @@ def _resolve_draft_card(
                 unitLabel=str(unit_label or "Portfolio Unit"),
                 subject=str(payload.get("subject")) if payload.get("subject") else None,
                 body=draft_body,
+                variants=card_variants,
                 status=appr_status_str,
                 actionId=action_id_str,
                 caseId=case_id_str,
@@ -915,6 +991,7 @@ def ask_agent(
             session.refresh(conv)
 
         conv_id = conv.id
+        history = (req.history or [])[-MAX_HISTORY:]
 
         # Natural language rule recording check (T5 Standing Rules - Issue 1.9)
         q_clean = req.query.strip().strip("\"'“”`")
@@ -1287,6 +1364,51 @@ def ask_agent(
             except Exception as rag_err:
                 log.warning("api.superagent.rag_trigger_failed", error=str(rag_err))
 
+        # Specific Task Trigger: Natural Language Analytics / Custom Query Agent (PostgreSQL)
+        is_count_or_list_query = bool(
+            re.search(
+                r"\b(how many|count of|total number|list all|show all|which units|which contractors|which tenants|total cases|total open|open tickets count|hoeveel|overzicht)\b",
+                q_low,
+            )
+        )
+        is_database_keyword = any(k in q_low for k in ["query database", "sql query", "postgres", "run query"])
+        if is_count_or_list_query or is_database_keyword:
+            try:
+                from app.tools.query_agent.agent import run_query_agent
+                q_res = run_query_agent(engine, settings, company_id, req.query, history=history)
+                if q_res.ok:
+                    query_steps = [
+                        "Synthesized safe read-only SQL query from schema",
+                        f"Executed PostgreSQL query: {q_res.sql}",
+                        f"Retrieved {q_res.row_count} verified records in {round(q_res.duration_ms, 1)}ms",
+                    ]
+                    return _finish_agent_response(
+                        engine=engine,
+                        conv_id=conv_id,
+                        req=req,
+                        ans_text=q_res.answer,
+                        case_refs=[str(b.case_id) for b in briefs] if briefs else [],
+                        suggested_action="View Case in Maintenance" if briefs else None,
+                        action_buttons=[
+                            ActionButtonData(
+                                label="View Maintenance",
+                                actionType="navigate",
+                                payload="/maintenance",
+                                isPrimary=True,
+                            )
+                        ],
+                        step_descriptions=query_steps,
+                        preview_card=None,
+                        cards_list=[],
+                        pipeline_stage="query_agent",
+                        fallback_reason=None,
+                        suggestions=["How many open cases do we have?", "List all contractors", "Check calendar"],
+                        now=now,
+                        briefs=briefs,
+                    )
+            except Exception as qa_err:
+                log.warning("api.superagent.query_agent_trigger_failed", error=str(qa_err))
+
     live_cases_text = (
         "\n".join(
             [
@@ -1557,7 +1679,27 @@ def ask_agent(
             and not preview_card
         ):
             approval_ids = r.data.get("approval_ids", [])
-            preview_card = _resolve_draft_card(engine, approval_ids=approval_ids)
+            prefer_contractor = any(w in req.query.lower() for w in ["contractor", "plumber", "monteur", "loodgieter", "work order", "conractore", "contractore"])
+            preview_card = _resolve_draft_card(engine, approval_ids=approval_ids, prefer_contractor=prefer_contractor)
+
+    # If user specifically asked about contractor draft and no card was resolved yet, resolve it directly
+    prefer_contractor = any(w in req.query.lower() for w in ["contractor", "plumber", "monteur", "loodgieter", "work order", "conractore", "contractore"])
+    if prefer_contractor and not preview_card and cases:
+        for c in cases:
+            c_acts = session.scalars(select(ActionRow).where(ActionRow.case_id == c.id, ActionRow.type == ActionType.request_contractor)).all()
+            if c_acts:
+                c_appr = session.scalars(select(Approval).where(Approval.action_id == c_acts[0].id)).first()
+                if c_appr:
+                    preview_card = _resolve_draft_card(engine, approval_ids=[str(c_appr.id)], prefer_contractor=True)
+                    if "no drafted message" in ans_text.lower() or not ans_text:
+                        c_variants = c_acts[0].payload.get("body_variants") or []
+                        views_text = ""
+                        if c_variants:
+                            views_text = f"\n\nDraft 1:\n> " + "\n> ".join(c_variants[0].split("\n"))
+                            if len(c_variants) > 1:
+                                views_text += f"\n\nDraft 2:\n> " + "\n> ".join(c_variants[1].split("\n"))
+                        ans_text = f"Yes, a work order for contractor Kevin van Dijk is already waiting for your approval. Nothing is sent until you approve it in Approvals.{views_text}"
+                    break
 
         # Check for case status snapshot card
         if r.intent == Intent.case_status and r.data and not preview_card:

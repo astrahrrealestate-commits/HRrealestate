@@ -132,6 +132,7 @@ export function AskEstateOSPanel({
   const [sendErrorCardIds, setSendErrorCardIds] = useState<Set<string>>(new Set());
   const [executingActionKey, setExecutingActionKey] = useState<string | null>(null);
   const [completedActionKeys, setCompletedActionKeys] = useState<Set<string>>(new Set());
+  const [selectedDraftVariants, setSelectedDraftVariants] = useState<Record<string, number>>({});
 
   const handleUniversalCardAction = async (action: CardAction, cardId: string) => {
     const actionKey = `${cardId}-${action.label}`;
@@ -362,7 +363,13 @@ export function AskEstateOSPanel({
     }
   };
 
-  const handleApproveDraft = async (cardId: string, actionId?: string | null, caseId?: string | null) => {
+  const handleApproveDraft = async (
+    cardId: string,
+    actionId?: string | null,
+    caseId?: string | null,
+    customChoice: "d1" | "d2" | "d3" | "ok" = "d1",
+    editedText?: string
+  ) => {
     setSendingCardId(cardId);
     setSendErrorCardIds((prev) => {
       const next = new Set(prev);
@@ -375,7 +382,7 @@ export function AskEstateOSPanel({
         throw new Error("No approval action or ticket ID available for this draft.");
       }
       const cleanId = targetId.startsWith("case-") ? targetId.replace("case-", "") : targetId;
-      const res = await approveInboxDraft(cleanId, "d1");
+      const res = await approveInboxDraft(cleanId, customChoice, editedText);
       if (res && res.status === "rejected") {
         throw new Error(res.message || "Approval was rejected by server.");
       }
@@ -1253,140 +1260,189 @@ export function AskEstateOSPanel({
                       </div>
                     ) : (
                       /* 6. Message Draft Card (WhatsApp / Gmail) */
-                      <div className="space-y-2.5">
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span className={cn(
-                            "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border",
-                            isDark ? "bg-[#1F252C] text-[#CBD5E1] border-[#29323B]" : "bg-[#FFFFFF] text-[#4B5563] border-[#E8E8E5]"
-                          )}>
-                            Draft · {pCard.channel || "whatsapp"}
-                          </span>
-                          <span className="font-mono text-[10.5px]">
-                            {pCard.recipient ? (
-                              <span className={isDark ? "text-[#64748B]" : "text-[#6B7280]"}>{pCard.recipient}</span>
-                            ) : (
-                              <span className={cn("font-sans text-[10px] font-semibold", isDark ? "text-amber-400" : "text-amber-700")}>
-                                {pCard.channel?.toLowerCase() === "gmail" ? "⚠️ No recipient email on file" : "⚠️ No recipient phone on file"}
+                      (() => {
+                        const rawVariants = (pCard.variants && pCard.variants.length > 0)
+                          ? pCard.variants
+                          : (pCard.body ? [pCard.body] : []);
+                        const variantIndex = selectedDraftVariants[msg.id] ?? 0;
+                        const activeDraftBody = rawVariants[variantIndex] || pCard.body || "";
+                        const choiceKey = variantIndex === 0 ? "d1" : "d2";
+                        const cleanPhone = (pCard.recipient || "").replace(/[^0-9]/g, "");
+
+                        const dynamicExternalUrl = pCard.channel?.toLowerCase() === "whatsapp" && cleanPhone
+                          ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(activeDraftBody)}`
+                          : pCard.channel?.toLowerCase() === "gmail" && pCard.recipient
+                          ? `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(pCard.recipient)}&su=${encodeURIComponent(pCard.subject || "Maintenance Update")}&body=${encodeURIComponent(activeDraftBody)}`
+                          : pCard.externalUrl;
+
+                        return (
+                          <div className="space-y-2.5">
+                            <div className="flex items-center justify-between text-[11px] gap-2">
+                              <span className={cn(
+                                "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border shrink-0",
+                                isDark ? "bg-[#1F252C] text-[#CBD5E1] border-[#29323B]" : "bg-[#FFFFFF] text-[#4B5563] border-[#E8E8E5]"
+                              )}>
+                                Draft · {pCard.channel || "whatsapp"}
                               </span>
-                            )}
-                          </span>
-                        </div>
+                              <span className="font-mono text-[10.5px] truncate text-right">
+                                {pCard.recipient ? (
+                                  <span className={isDark ? "text-[#64748B]" : "text-[#6B7280]"}>{pCard.recipient}</span>
+                                ) : (
+                                  <span className={cn("font-sans text-[10px] font-semibold", isDark ? "text-amber-400" : "text-amber-700")}>
+                                    {pCard.channel?.toLowerCase() === "gmail" ? "⚠️ No recipient email on file" : "⚠️ No recipient phone on file"}
+                                  </span>
+                                )}
+                              </span>
+                            </div>
 
-                        <div className={cn(
-                          "p-2.5 rounded-[8px] border text-[12px] italic whitespace-pre-line leading-relaxed font-sans break-words [overflow-wrap:anywhere]",
-                          isDark ? "bg-[#0E1113] border-[#1E2328] text-[#E2E8F0]" : "bg-[#FFFFFF] border-[#E8E8E5] text-[#111827]"
-                        )}>
-                          "{pCard.body || "(Draft empty)"}"
-                        </div>
-
-                        <div className="pt-1 flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            {sentCardIds.has(msg.id) ? (
-                              <div className={cn("flex items-center gap-1.5 text-[11.5px] font-medium py-1", isDark ? "text-emerald-400" : "text-emerald-700")}>
-                                <Check className="w-4 h-4 stroke-[2.5]" />
-                                <span>Dispatched to {pCard.channel || "WhatsApp"}</span>
+                            {/* Multi-Draft Option Switcher */}
+                            {rawVariants.length > 1 && (
+                              <div className={cn(
+                                "flex items-center gap-1 p-1 rounded-[7px] border w-fit",
+                                isDark ? "bg-[#141920] border-[#222933]" : "bg-[#F3F4F6] border-[#E5E7EB]"
+                              )}>
+                                {rawVariants.map((_, vIdx) => {
+                                  const isSelected = (variantIndex === vIdx);
+                                  return (
+                                    <button
+                                      key={vIdx}
+                                      type="button"
+                                      onClick={() => setSelectedDraftVariants((prev) => ({ ...prev, [msg.id]: vIdx }))}
+                                      className={cn(
+                                        "px-2.5 py-1 text-[11px] rounded-[5px] transition-all cursor-pointer flex items-center gap-1.5",
+                                        isSelected
+                                          ? isDark
+                                            ? "bg-[#2A3441] text-[#FFFFFF] font-semibold shadow-xs"
+                                            : "bg-[#FFFFFF] text-[#0A0A0A] font-semibold shadow-xs"
+                                          : isDark
+                                            ? "text-[#94A3B8] hover:text-[#FFFFFF]"
+                                            : "text-[#6B7280] hover:text-[#0A0A0A]"
+                                      )}
+                                    >
+                                      <span>{vIdx === 0 ? "Option 1 (Recommended)" : "Option 2 (Alternative)"}</span>
+                                    </button>
+                                  );
+                                })}
                               </div>
-                            ) : sendErrorCardIds.has(msg.id) ? (
-                              <div className="flex items-center gap-2">
-                                <span className={cn("text-[11px]", isDark ? "text-rose-400" : "text-rose-600")}>Failed to dispatch draft.</span>
+                            )}
+
+                            <div className={cn(
+                              "p-2.5 rounded-[8px] border text-[12px] italic whitespace-pre-line leading-relaxed font-sans break-words [overflow-wrap:anywhere]",
+                              isDark ? "bg-[#0E1113] border-[#1E2328] text-[#E2E8F0]" : "bg-[#FFFFFF] border-[#E8E8E5] text-[#111827]"
+                            )}>
+                              "{activeDraftBody || "(Draft empty)"}"
+                            </div>
+
+                            <div className="pt-1 flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                {sentCardIds.has(msg.id) ? (
+                                  <div className={cn("flex items-center gap-1.5 text-[11.5px] font-medium py-1", isDark ? "text-emerald-400" : "text-emerald-700")}>
+                                    <Check className="w-4 h-4 stroke-[2.5]" />
+                                    <span>Dispatched to {pCard.channel || "WhatsApp"}</span>
+                                  </div>
+                                ) : sendErrorCardIds.has(msg.id) ? (
+                                  <div className="flex items-center gap-2">
+                                    <span className={cn("text-[11px]", isDark ? "text-rose-400" : "text-rose-600")}>Failed to dispatch draft.</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleApproveDraft(msg.id, pCard?.actionId, pCard?.caseId, choiceKey, activeDraftBody)}
+                                      className="text-[11px] text-[#F25C05] hover:underline cursor-pointer font-semibold"
+                                    >
+                                      Retry
+                                    </button>
+                                  </div>
+                                ) : pCard.status && pCard.status !== "pending" ? (
+                                  <div className={cn("flex items-center gap-1.5 text-[11.5px] font-medium py-1 capitalize", isDark ? "text-[#94A3B8]" : "text-[#6B7280]")}>
+                                    <span>Status: {pCard.status}</span>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleApproveDraft(msg.id, pCard?.actionId, pCard?.caseId, choiceKey, activeDraftBody)}
+                                    disabled={sendingCardId === msg.id || !pCard?.recipient}
+                                    className="px-3 py-1.5 rounded-[7px] bg-[#F25C05] hover:bg-[#d94f00] text-[#FFFFFF] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                    title={!pCard?.recipient ? "Cannot dispatch: recipient is missing" : "Approve and send"}
+                                  >
+                                    {sendingCardId === msg.id ? (
+                                      <>
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                        <span>Sending...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <SendHorizontal className="w-3.5 h-3.5" />
+                                        <span>Accept and send</span>
+                                      </>
+                                    )}
+                                  </button>
+                                )}
+
+                                {dynamicExternalUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() => window.open(dynamicExternalUrl, "_blank", "noopener,noreferrer")}
+                                    className={cn(
+                                      "px-2.5 py-1.5 rounded-[7px] font-medium text-[11.5px] flex items-center gap-1.5 transition-all cursor-pointer border",
+                                      pCard.channel?.toLowerCase() === "whatsapp"
+                                        ? isDark
+                                          ? "bg-[#25D366]/15 hover:bg-[#25D366]/25 text-[#25D366] border-[#25D366]/30 shadow-sm"
+                                          : "bg-[#25D366]/10 hover:bg-[#25D366]/20 text-[#128C7E] border-[#25D366]/30 shadow-xs"
+                                        : isDark
+                                          ? "bg-red-500/15 hover:bg-red-500/25 text-red-400 border-red-500/30 shadow-sm"
+                                          : "bg-red-50 hover:bg-red-100 text-red-600 border-red-200 shadow-xs"
+                                    )}
+                                    title={`Open pre-filled draft in ${pCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}`}
+                                  >
+                                    {pCard.channel?.toLowerCase() === "whatsapp" ? (
+                                      <MessageSquare className="w-3.5 h-3.5" />
+                                    ) : (
+                                      <Mail className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>Open in {pCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}</span>
+                                    <ExternalLink className="w-3 h-3 opacity-70" />
+                                  </button>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-2.5">
+                                {pCard.threadSearchUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() => window.open(pCard?.threadSearchUrl!, "_blank", "noopener,noreferrer")}
+                                    className={cn(
+                                      "text-[11px] flex items-center gap-1 transition-colors cursor-pointer",
+                                      isDark ? "text-[#94A3B8] hover:text-[#E2E8F0]" : "text-[#6B7280] hover:text-[#0A0A0A]"
+                                    )}
+                                    title={`View thread history in ${pCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}`}
+                                  >
+                                    <span>View Thread</span>
+                                    <ExternalLink className="w-3 h-3" />
+                                  </button>
+                                )}
+
                                 <button
                                   type="button"
-                                  onClick={() => handleApproveDraft(msg.id, pCard?.actionId, pCard?.caseId)}
-                                  className="text-[11px] text-[#F25C05] hover:underline cursor-pointer font-semibold"
+                                  onClick={() => {
+                                    const draftText = activeDraftBody ? encodeURIComponent(activeDraftBody) : "";
+                                    const baseTarget = pCard?.targetUrl || `/inbox?thread=case-${pCard?.caseId || ""}`;
+                                    const urlWithDraft = draftText && !baseTarget.includes("draft=")
+                                      ? `${baseTarget}${baseTarget.includes("?") ? "&" : "?"}draft=${draftText}`
+                                      : baseTarget;
+                                    handleNavigate(urlWithDraft);
+                                  }}
+                                  className={cn(
+                                    "text-[11px] flex items-center gap-1 transition-colors cursor-pointer",
+                                    isDark ? "text-[#888888] hover:text-[#FFFFFF]" : "text-[#6B7280] hover:text-[#0A0A0A]"
+                                  )}
                                 >
-                                  Retry
+                                  <span>Open in Inbox</span>
+                                  <ExternalLink className="w-3 h-3" />
                                 </button>
                               </div>
-                            ) : pCard.status && pCard.status !== "pending" ? (
-                              <div className={cn("flex items-center gap-1.5 text-[11.5px] font-medium py-1 capitalize", isDark ? "text-[#94A3B8]" : "text-[#6B7280]")}>
-                                <span>Status: {pCard.status}</span>
-                              </div>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleApproveDraft(msg.id, pCard?.actionId, pCard?.caseId)}
-                                disabled={sendingCardId === msg.id || !pCard?.recipient}
-                                className="px-3 py-1.5 rounded-[7px] bg-[#F25C05] hover:bg-[#d94f00] text-[#FFFFFF] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                                title={!pCard?.recipient ? "Cannot dispatch: recipient is missing" : "Approve and send"}
-                              >
-                                {sendingCardId === msg.id ? (
-                                  <>
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    <span>Sending...</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <SendHorizontal className="w-3.5 h-3.5" />
-                                    <span>Accept and send</span>
-                                  </>
-                                )}
-                              </button>
-                            )}
-
-                            {pCard.externalUrl && (
-                              <button
-                                type="button"
-                                onClick={() => window.open(pCard?.externalUrl!, "_blank", "noopener,noreferrer")}
-                                className={cn(
-                                  "px-2.5 py-1.5 rounded-[7px] font-medium text-[11.5px] flex items-center gap-1.5 transition-all cursor-pointer border",
-                                  pCard.channel?.toLowerCase() === "whatsapp"
-                                    ? isDark
-                                      ? "bg-[#25D366]/15 hover:bg-[#25D366]/25 text-[#25D366] border-[#25D366]/30 shadow-sm"
-                                      : "bg-[#25D366]/10 hover:bg-[#25D366]/20 text-[#128C7E] border-[#25D366]/30 shadow-xs"
-                                    : isDark
-                                      ? "bg-red-500/15 hover:bg-red-500/25 text-red-400 border-red-500/30 shadow-sm"
-                                      : "bg-red-50 hover:bg-red-100 text-red-600 border-red-200 shadow-xs"
-                                )}
-                                title={`Open pre-filled draft in ${pCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}`}
-                              >
-                                {pCard.channel?.toLowerCase() === "whatsapp" ? (
-                                  <MessageSquare className="w-3.5 h-3.5" />
-                                ) : (
-                                  <Mail className="w-3.5 h-3.5" />
-                                )}
-                                <span>Open in {pCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}</span>
-                                <ExternalLink className="w-3 h-3 opacity-70" />
-                              </button>
-                            )}
+                            </div>
                           </div>
-
-                          <div className="flex items-center gap-2.5">
-                            {pCard.threadSearchUrl && (
-                              <button
-                                type="button"
-                                onClick={() => window.open(pCard?.threadSearchUrl!, "_blank", "noopener,noreferrer")}
-                                className={cn(
-                                  "text-[11px] flex items-center gap-1 transition-colors cursor-pointer",
-                                  isDark ? "text-[#94A3B8] hover:text-[#E2E8F0]" : "text-[#6B7280] hover:text-[#0A0A0A]"
-                                )}
-                                title={`View thread history in ${pCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}`}
-                              >
-                                <span>View Thread</span>
-                                <ExternalLink className="w-3 h-3" />
-                              </button>
-                            )}
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const draftText = pCard?.body ? encodeURIComponent(pCard.body) : "";
-                                const baseTarget = pCard?.targetUrl || `/inbox?thread=case-${pCard?.caseId || ""}`;
-                                const urlWithDraft = draftText && !baseTarget.includes("draft=")
-                                  ? `${baseTarget}${baseTarget.includes("?") ? "&" : "?"}draft=${draftText}`
-                                  : baseTarget;
-                                handleNavigate(urlWithDraft);
-                              }}
-                              className={cn(
-                                "text-[11px] flex items-center gap-1 transition-colors cursor-pointer",
-                                isDark ? "text-[#888888] hover:text-[#FFFFFF]" : "text-[#6B7280] hover:text-[#0A0A0A]"
-                              )}
-                            >
-                              <span>Open in Inbox</span>
-                              <ExternalLink className="w-3 h-3" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+                        );
+                      })()
                     )}
                         </div>
                       ))}
@@ -1684,13 +1740,21 @@ function formatMarkdown(text: string, isDark: boolean = false): string {
     `<div class="text-[11.5px] font-semibold uppercase tracking-wider ${headingClass} mt-3 mb-1.5 flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span><span>$1</span></div>`
   );
 
-  // 9. Executive Callout Quotes: > ...
-  const quoteClass = isDark
-    ? "border-amber-500 bg-amber-500/10 text-[#F3F4F6]"
-    : "border-amber-500 bg-amber-50 text-[#0A0A0A]";
+  // 9. Executive Callout Quotes: Group contiguous blockquote lines into a single cohesive card
+  const quoteBoxClass = isDark
+    ? "border-amber-500/80 bg-amber-500/10 text-[#E2E8F0]"
+    : "border-amber-500/80 bg-amber-50/70 text-[#1E293B]";
   clean = clean.replace(
-    /^>\s+(.*?)$/gm,
-    `<div class="border-l-2 ${quoteClass} px-3 py-2 rounded-r-[8px] my-2 text-[12.5px] leading-relaxed font-normal">$1</div>`
+    /(?:^>[ \t]?[^\n]*(?:\r?\n|$))+/gm,
+    (block) => {
+      const lines = block
+        .trimEnd()
+        .split(/\r?\n/)
+        .map((l) => l.replace(/^>[ \t]?/, ""))
+        .join("\n")
+        .trim();
+      return `<div class="border-l-2 ${quoteBoxClass} px-3.5 py-2.5 rounded-r-[8px] my-2.5 text-[12.5px] leading-relaxed font-normal">\n${lines}\n</div>`;
+    }
   );
 
   // 10. Numbered Step Lists: 1. ...

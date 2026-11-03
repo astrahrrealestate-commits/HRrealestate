@@ -16,9 +16,9 @@ DEV_COMPANY = "EstateOS Dev Hausverwaltung"
 DEV_PNID = "100000000000001"
 DEV_BUSINESS_NUMBER = "4915550000999"
 DEV_MAILBOX = "hausverwaltung@example.test"
-DEV_OWNER_NAME = "Suryansh Tyagi"
+DEV_OWNER_NAME = "Harjot Singh"
 DEV_OWNER_E164 = "+4915550000100"
-DEV_OWNER_EMAIL = "tyagisurya.04@gmail.com"
+DEV_OWNER_EMAIL = ""
 
 
 @dataclass(frozen=True)

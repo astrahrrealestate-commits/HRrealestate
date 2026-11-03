@@ -50,11 +50,11 @@ export default function TodayPage() {
   const superAgent = useSuperAgent();
 
   // State
-  const [threads, setThreads] = useState<InboxThread[]>(MOCK_INBOX_THREADS);
+  const [threads, setThreads] = useState<InboxThread[]>([]);
   const [metrics, setMetrics] = useState<PulseMetrics>(INITIAL_METRICS);
-  const [radarItems, setRadarItems] = useState<StalledItem[]>(INITIAL_STALLED_ITEMS);
+  const [radarItems, setRadarItems] = useState<StalledItem[]>([]);
   const [inquiries, setInquiries] = useState<ProspectiveInquiry[]>([]);
-  const [logs, setLogs] = useState<AutonomousActionLog[]>(RECENT_AUTONOMOUS_LOGS);
+  const [logs, setLogs] = useState<AutonomousActionLog[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isAskAgentOpen, setIsAskAgentOpen] = useState(false);
   const [isEmergencyExpanded, setIsEmergencyExpanded] = useState<boolean>(true);
@@ -62,30 +62,30 @@ export default function TodayPage() {
   const [activeSection, setActiveSection] = useState<"all" | "urgent" | "needs_you" | "waiting" | "leads" | "overview">("all");
 
   // Maintenance in-place state
-  const DEFAULT_TICKET_005: MaintenanceTicket = useMemo(() => ({
-    id: "m-1",
-    ticketNumber: "#005",
-    issueTitle: "Electricity short circuit in kitchen sockets",
-    unitLabel: "Pieter Floriszstraat 1 C",
-    tenantName: "Pieter Bakker",
-    tenantPhone: "+31 6 12 34 41 87",
-    category: "electrical",
-    contractorName: "Chahal Bouw",
-    contractorTrade: "Electrician",
-    contractorPhone: "+31 6 88 12 34 56",
-    urgency: "emergency",
+  const DEFAULT_TICKET_TEMPLATE: MaintenanceTicket = useMemo(() => ({
+    id: "m-new",
+    ticketNumber: "#001",
+    issueTitle: "Maintenance Request",
+    unitLabel: "Unit",
+    tenantName: "Tenant",
+    tenantPhone: "",
+    category: "appliance",
+    contractorName: "Assigned Contractor",
+    contractorTrade: "Maintenance",
+    contractorPhone: "",
+    urgency: "normal",
     status: "pending_approval",
-    slaRemaining: "38m SLA",
+    slaRemaining: "4h SLA",
     isOverdue: false,
-    poBudgetCap: "€ 650",
-    reportedAt: "Yesterday 22:10",
-    notes: "Fridge warming up after power tripped. Monteur Kevin assigned with 11:30 arrival window.",
-    originalMessage: "Nog steeds geen stroom op de stopcontacten in de keuken sinds de kortsluiting. De koelkast begint warm te worden. Kan er vandaag iemand komen? Groet, Pieter",
-    contractorDraft: "Beste Kevin (Chahal Bouw), spoedmelding voor Pieter Floriszstraat 1 C: Storing in keukengroep / aardlek. Huurder Pieter Bakker (+31 6 12 34 41 87) is aanwezig. Geautoriseerd budgetplafond: € 650. Sleutelkast pincode: 4182. Gelieve ETA te bevestigen.",
-    tenantDraft: "Beste Pieter, we hebben je melding over de stroomstoring in de keuken ontvangen. Monteur Kevin van Chahal Bouw is zojuist geautoriseerd met een aankomsttijdstip rond 11:30. Houd de koelkast zo veel mogelijk gesloten om bederf te voorkomen. Met vriendelijke groet, Harjot",
+    poBudgetCap: "€ 350",
+    reportedAt: "Today",
+    notes: "",
+    originalMessage: "",
+    contractorDraft: "",
+    tenantDraft: "",
   }), []);
 
-  const [maintenanceTickets, setMaintenanceTickets] = useState<MaintenanceTicket[]>([DEFAULT_TICKET_005]);
+  const [maintenanceTickets, setMaintenanceTickets] = useState<MaintenanceTicket[]>([]);
   const [activeEditTicket, setActiveEditTicket] = useState<MaintenanceTicket | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
   const [tenantReplySentMap, setTenantReplySentMap] = useState<Record<string, boolean>>({});
@@ -100,8 +100,8 @@ export default function TodayPage() {
     // 1. Inbox threads (Single source of truth for Needs You and Urgent counts)
     getInboxThreads()
       .then(({ threads: live }) => {
-        if (isMounted && live && live.length > 0) {
-          setThreads(live);
+        if (isMounted) {
+          setThreads(live || []);
         }
       })
       .catch((err) => console.warn("Failed to load threads on Today:", err));
@@ -116,9 +116,9 @@ export default function TodayPage() {
       .then(([pRes, rRes, iRes, lRes]) => {
         if (!isMounted) return;
         if (pRes.isLive) setMetrics(pRes.metrics);
-        if (rRes.isLive && rRes.items.length > 0) setRadarItems(rRes.items);
-        if (iRes.isLive && iRes.inquiries.length > 0) setInquiries(iRes.inquiries);
-        if (lRes.isLive && lRes.logs.length > 0) setLogs(lRes.logs);
+        if (rRes.isLive) setRadarItems(rRes.items || []);
+        if (iRes.isLive) setInquiries(iRes.inquiries || []);
+        if (lRes.isLive) setLogs(lRes.logs || []);
       })
       .catch((err) => console.warn("Failed to load auxiliary dashboard data:", err));
 
@@ -126,8 +126,8 @@ export default function TodayPage() {
     getMaintenanceTickets()
       .then((mRes) => {
         if (!isMounted) return;
-        if (mRes.isLive && mRes.tickets.length > 0) {
-          setMaintenanceTickets(mRes.tickets);
+        if (mRes.isLive) {
+          setMaintenanceTickets(mRes.tickets || []);
         }
       })
       .catch((err) => console.warn("Failed to load maintenance tickets:", err));
@@ -326,18 +326,19 @@ export default function TodayPage() {
   }, [briefingKind]);
 
   return (
-    <div className="h-dvh bg-[var(--bg)] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
+    <div className="h-dvh bg-[#0D0F12] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
       {/* 1. Left Nav (Desktop Sidebar) */}
       <Sidebar pendingCount={currentNeedsYouCount} />
 
       {/* 2. Main Canvas */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0D0F12]">
         <TopCommandBar
-          pageTitle="Today"
+          pageTitle="Main Dashboard"
         />
 
-        {/* Scrollable Single-Column Briefing (Section 5.3) */}
-        <main className="flex-1 w-full max-w-[960px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-12 space-y-7 overflow-y-auto">
+        {/* Curved White Main Content Canvas */}
+        <div className="flex-1 bg-white rounded-tl-[24px] sm:rounded-tl-[28px] overflow-hidden flex flex-col shadow-2xl relative">
+          <main className="flex-1 w-full max-w-[960px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-12 space-y-7 overflow-y-auto">
           
           {/* Top Briefing Header with Daily / Weekly Switcher */}
           <div className="space-y-3">
@@ -347,7 +348,7 @@ export default function TodayPage() {
                   {briefingKind === "daily" ? todayFormatted : "WEEK 40 EXECUTIVE RECAP · Friday 16:00 CET"}
                 </span>
                 <h1 className="font-heading font-bold text-[28px] sm:text-[32px] text-[var(--ink)] tracking-tight leading-none mt-1">
-                  {briefingKind === "daily" ? "Good morning, Suryansh" : "Weekly executive review, Suryansh"}
+                  {briefingKind === "daily" ? "Good morning, Harjot" : "Weekly executive review, Harjot"}
                 </h1>
               </div>
 
@@ -628,13 +629,13 @@ export default function TodayPage() {
                 t.ticketNumber === ticketNum ||
                 t.ticketNumber === `#${ticketNum.replace("#", "")}`
             ) || {
-              ...DEFAULT_TICKET_005,
+              ...DEFAULT_TICKET_TEMPLATE,
               ticketNumber: ticketNum,
-              unitLabel: topUrgentThread.unitLabel || DEFAULT_TICKET_005.unitLabel,
-              tenantName: topUrgentThread.senderName || DEFAULT_TICKET_005.tenantName,
-              tenantPhone: topUrgentThread.senderContact || DEFAULT_TICKET_005.tenantPhone,
-              issueTitle: topUrgentThread.subject || topUrgentThread.latestSnippet || DEFAULT_TICKET_005.issueTitle,
-              originalMessage: topUrgentThread.latestSnippet || DEFAULT_TICKET_005.originalMessage,
+              unitLabel: topUrgentThread.unitLabel || DEFAULT_TICKET_TEMPLATE.unitLabel,
+              tenantName: topUrgentThread.senderName || DEFAULT_TICKET_TEMPLATE.tenantName,
+              tenantPhone: topUrgentThread.senderContact || DEFAULT_TICKET_TEMPLATE.tenantPhone,
+              issueTitle: topUrgentThread.subject || topUrgentThread.latestSnippet || DEFAULT_TICKET_TEMPLATE.issueTitle,
+              originalMessage: topUrgentThread.latestSnippet || DEFAULT_TICKET_TEMPLATE.originalMessage,
             };
 
             const tenantChannel: "whatsapp" | "gmail" = topUrgentThread.channel === "gmail" ? "gmail" : "whatsapp";
@@ -824,7 +825,15 @@ export default function TodayPage() {
                           {/* Expanded 6-row textarea with min-h-[145px] so full message is visible without scrolling */}
                           <textarea
                             rows={6}
-                            value={customTenantReplyText[ticket.ticketNumber] ?? ticket.tenantDraft ?? ""}
+                            value={
+                              customTenantReplyText[ticket.ticketNumber] ??
+                              ticket.tenantDraft ??
+                              (tenantChannel === "whatsapp"
+                                ? topUrgentThread.draftProposal?.whatsappDrafts?.[0]?.text
+                                : topUrgentThread.draftProposal?.gmailDrafts?.[0]?.text) ??
+                              topUrgentThread.draftProposal?.drafts?.[0]?.text ??
+                              ""
+                            }
                             onChange={(e) =>
                               setCustomTenantReplyText((prev) => ({
                                 ...prev,
@@ -1033,13 +1042,13 @@ export default function TodayPage() {
                         const mTicket = maintenanceTickets.find(
                           (mt) => mt.ticketNumber === t.ticketNumber || mt.ticketNumber === `#${t.ticketNumber?.replace('#', '')}`
                         ) || {
-                          ...DEFAULT_TICKET_005,
+                          ...DEFAULT_TICKET_TEMPLATE,
                           id: `m-${t.id}`,
                           ticketNumber: t.ticketNumber || `#0${t.id.replace(/\D/g, '').slice(-2) || '15'}`,
-                          unitLabel: t.unitLabel || DEFAULT_TICKET_005.unitLabel,
-                          tenantName: t.senderName || DEFAULT_TICKET_005.tenantName,
-                          tenantPhone: t.senderContact || DEFAULT_TICKET_005.tenantPhone,
-                          issueTitle: t.subject || t.latestSnippet || DEFAULT_TICKET_005.issueTitle,
+                          unitLabel: t.unitLabel || DEFAULT_TICKET_TEMPLATE.unitLabel,
+                          tenantName: t.senderName || DEFAULT_TICKET_TEMPLATE.tenantName,
+                          tenantPhone: t.senderContact || DEFAULT_TICKET_TEMPLATE.tenantPhone,
+                          issueTitle: t.subject || t.latestSnippet || DEFAULT_TICKET_TEMPLATE.issueTitle,
                         };
 
                         const tChannel = t.channel === "gmail" ? "gmail" : "whatsapp";
@@ -1376,6 +1385,7 @@ export default function TodayPage() {
           )}
 
         </main>
+        </div>
       </div>
 
       {/* Floating Toast */}

@@ -20,7 +20,7 @@ log = get_logger(__name__)
 
 
 class SQLQueryProposal(BaseModel):
-    sql: str = Field(description="Single PostgreSQL SELECT query over curated views")
+    sql: str = Field(description="Single PostgreSQL SELECT query over curated views or base tables")
     rationale: str = Field(description="Explanation of what the query calculates")
 
 
@@ -40,12 +40,12 @@ def _call_groq_or_gemini(
     settings: Settings,
     system_instruction: str = QUERY_AGENT_SYSTEM_PROMPT,
 ) -> str | None:
-    """Calls Groq or Gemini API with structured JSON output instructions."""
+    """Calls Groq API with structured JSON output instructions."""
     api_key = settings.groq_api_key.get_secret_value() if settings.groq_api_key else None
     if not api_key:
         return None
 
-    for model in ["openai/gpt-oss-120b", "llama-3.3-70b-versatile"]:
+    for model in ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]:
         try:
             resp = httpx.post(
                 "https://api.groq.com/openai/v1/chat/completions",
@@ -60,11 +60,12 @@ def _call_groq_or_gemini(
                     "temperature": 0.0,
                     "max_tokens": 500,
                 },
-                timeout=8.0,
+                timeout=12.0,
             )
             if resp.status_code == 200:
                 data = resp.json()
                 return str(data["choices"][0]["message"]["content"])
+            log.warning("query_agent.groq_status_not_200", model=model, status=resp.status_code, body=resp.text[:200])
         except Exception as exc:
             log.warning("query_agent.llm_call_failed", model=model, error=str(exc))
     return None
@@ -84,9 +85,12 @@ def propose_sql(
 
     if feedback_error:
         user_prompt += (
-            f"\n\nPrevious SQL query was rejected with error:\n{feedback_error}\n"
-            "Please fix the error and write a valid SELECT query referencing only the allowed views."
+            f"\n\nCRITICAL: The previous SQL query failed with error:\n{feedback_error}\n"
+            "Please fix this error and generate a corrected, valid PostgreSQL SELECT query referencing the database schema. "
+            "Output your answer as a JSON object with keys 'sql' and 'rationale'."
         )
+    else:
+        user_prompt += "\n\nRespond with a valid JSON object with keys 'sql' and 'rationale'."
 
     raw_output = _call_groq_or_gemini(user_prompt, settings)
     if not raw_output:
@@ -95,7 +99,7 @@ def propose_sql(
     try:
         data = json.loads(raw_output)
         return SQLQueryProposal(
-            sql=data.get("sql", "").strip().strip("`"),
+            sql=data.get("sql", "").strip().strip("`").rstrip(";"),
             rationale=data.get("rationale", ""),
         )
     except Exception as exc:
@@ -136,12 +140,12 @@ def run_query_agent(
     company_id: UUID,
     question: str,
     history: Sequence[str] | None = None,
-    max_retries: int = 2,
+    max_retries: int = 3,
 ) -> QueryAgentResponse:
     """End-to-end execution of the Custom Query Agent:
     1. Proposes SQL from natural language question.
-    2. Runs AST validation & limit wrapping.
-    3. Retries on security or SQL errors (up to max_retries).
+    2. Runs AST validation & limit wrapping (read-only enforcement).
+    3. Retries on security or SQL execution errors with feedback loop (up to max_retries).
     4. Executes with RLS company context.
     5. Formulates factual, grounded response.
     """
@@ -162,7 +166,7 @@ def run_query_agent(
             log.warning("query_agent.security_rejected", attempt=attempt, error=last_error, sql=last_sql)
             continue
 
-        # Execute safe query
+        # Execute safe query inside read-only company RLS transaction
         exec_res: QueryExecutionResult = execute_readonly_query(engine, company_id, wrapped_sql)
         if not exec_res.ok:
             last_error = exec_res.error

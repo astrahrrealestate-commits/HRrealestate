@@ -103,6 +103,8 @@ class Settings(BaseSettings):
     dashboard_session_ttl_min: int = 480
     dashboard_trust_forwarded_for: bool = False  # rate-limit login by X-Forwarded-For (only behind a trusted proxy)
     google_oauth_client_id: str | None = None  # audience of the owner's Google ID token
+    google_oauth_client_secret: SecretStr | None = None
+    google_oauth_redirect_uri: str | None = "http://localhost:8000/api/auth/google/callback"
     # Exact SPA origins allowed cross-origin (comma-separated). Empty = no CORS (the SPA is served same-origin).
     dashboard_cors_origins: Annotated[list[str], NoDecode] = []
 
