@@ -45,6 +45,13 @@ agent and open to reversal.
 15. **auto** - frontend/package-lock.json was out of sync with package.json (`npm ci`: Missing @emnapi/runtime,
     @emnapi/core); regenerated with `npm install --package-lock-only` (adds the WASM runtime entries, drops stale
     `peer` flags, no version changes).
+16. **auto** - Dependabot: merged #2 (checkout v7.0.1), #4 (build-push v7.4.0), #6 (setup-buildx v4.4.1; adjacent-line
+    conflict, kept both bumps), #17 (setup-uv v10.3.3), #12 (python 3.12-slim digest), #16 (pgvector 0.8.6 in compose).
+    They change no Python, so `make check` cannot see them; per merge I ran the two tests that read docker/ci files
+    (test_env_example, test_demo_dashboard_guard: 30 passed) plus a YAML parse, then full G1 once.
+    **Aborted #18** (docker uv 0.12.5 -> 0.13.6): pyproject `required-version = "==0.12.5"` ("same uv everywhere") would
+    make `uv sync` refuse to run in the image. Needs one coordinated bump of pyproject, .pre-commit-config, CI and the
+    Dockerfile.
 
 ## Environment (Windows dev machine, 2026-11-03)
 
