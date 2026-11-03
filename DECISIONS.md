@@ -30,8 +30,10 @@ agent and open to reversal.
 10. **auto** - Union-merged independent constant/function additions (workflow_names.py, registry.py, queues.py) from
     the index blobs; CRLF working copies make `git merge-file` treat every line as changed.
 11. **open, user** - `app/llm/prompts/v5/concierge.md` was edited after publication (PR #15, +2 maintenance
-    `open_view` lines; breaks invariant 9). The runtime uses v6, which lacks those lines. A test pins the edit until
-    the owner chooses: restore v5 and publish the guidance as v7, or accept the edit. Not changed.
+    `open_view` lines; breaks invariant 9). The runtime uses v6, which already carries that guidance
+    (v6/concierge.md:53 and :59), so no v7 is needed. Session estateos-69 relayed that the user chose to restore v5;
+    restoring it rewrites a published prompt past the edit guard, so it waits for the user's direct confirmation.
+    A test pins the edit until then.
 12. **auto** - Build order: build-plan's `Order:` line with M3 inserted after M2, other areas after their
     dependencies, M8 last. At most 4 builders per wave.
 13. **auto** - The edit guard matches repo-relative paths, so it does not protect files under `.claude/worktrees/`.
@@ -52,5 +54,5 @@ agent and open to reversal.
 - python3 3.12.14 (uv `--default`), Node 24.19.0 / npm 11.17.0 (PyPI `nodejs-wheel`), Git Bash via
   `CLAUDE_CODE_GIT_BASH_PATH`; `~/.local/bin` and Git `bin` are first on the user PATH.
 - Windows-only test failures (not code bugs on Linux): 0600 permissions and symlinks (gmail_consent, gmail push,
-  storage and mailbox contracts), CRLF prompt text (concierge v6 tests), `fcntl` in `app/channels/gmail/fake.py`
+  storage and mailbox contracts), CRLF prompt text (fixed in ec61950 via .gitattributes), `fcntl` in `app/channels/gmail/fake.py`
   (mypy, fixed in 310fbc7), time-bounded quote stripping, worker SIGTERM (TerminateProcess exits 1).
