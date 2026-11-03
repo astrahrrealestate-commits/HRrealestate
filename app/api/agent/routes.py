@@ -5,6 +5,7 @@ Executes multi-step plans (case status, drafting replies, task completions/snooz
 """
 
 import re
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 from urllib.parse import quote_plus
@@ -18,7 +19,10 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_engine, get_settings_dep
 from app.channels.calendar import get_calendar_client
 from app.context import memory_items
+from app.context.budget import clip
 from app.context.compiler import compile_concierge_context
+from app.context.selection import rank_cases
+from app.context.super_agent_prompt import build_super_agent_system_prompt
 from app.contracts import ActionType, ConciergePlan, Direction, Intent
 from app.core.logging import get_logger
 from app.core.settings import Settings
@@ -57,6 +61,8 @@ from app.pipeline.rag import search_hybrid
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 log = get_logger(__name__)
+
+GROQ_TURN_CHARS = 600  # one earlier chat turn sent to the direct-answer model
 
 
 class AskAgentRequest(BaseModel):
@@ -213,9 +219,11 @@ def _generate_groq_answer(
     history: list[str] | None = None,
     memory_rules: list[str] | None = None,
     page_facts: str | None = None,
-    live_cases: str | None = None,
+    cases: Sequence[CaseBrief] = (),
+    thread_summary: str = "",
+    focus_case_id: str | None = None,
 ) -> str | None:
-    """Generate dynamic, executive-grade responses using Groq Cloud Qwen model."""
+    """Generate dynamic, executive-grade responses using Groq Cloud Qwen model. The prompt is size-bounded."""
     groq_key = None
     if settings.groq_api_key:
         groq_key = settings.groq_api_key.get_secret_value()
@@ -230,33 +238,19 @@ def _generate_groq_answer(
     try:
         import httpx
 
-        system_prompt = (
-            "You are Super Agent, the elite AI executive copilot for EstateOS property management.\n"
-            "You directly assist Harjot (the property owner/manager) across his residential portfolio.\n\n"
-            "LIVE ESTATE & PORTFOLIO TRUTH:\n"
-            f"- Current Active Cases in DB:\n{live_cases or '• No open urgent cases in database.'}\n"
-            "- Portfolio Tenants & Units: Keizersgracht 42-A (Tenant: Vipin Tyagi).\n"
-            "- Approved Contractor: Kevin van Dijk (Plumber / leak specialist, Chahal Bouw).\n"
+        system_prompt = build_super_agent_system_prompt(
+            cases=cases,
+            query=query,
+            memory_rules=memory_rules or (),
+            page_facts=page_facts or "",
+            thread_summary=thread_summary,
+            focus_case_id=focus_case_id,
         )
-        if memory_rules:
-            system_prompt += "\nACTIVE OWNER STANDING RULES (T5 MEMORY):\n"
-            for rule in memory_rules:
-                system_prompt += f"- {rule}\n"
-        if page_facts:
-            system_prompt += f"\nOPEN PAGE REAL-TIME FACTS:\n{page_facts}\n"
-        system_prompt += (
-            "\nCRITICAL FORMATTING RULES:\n"
-            "- Be concise, direct, and executive. Limit your answer to 2-4 crisp bullet points or 1 short paragraph.\n"
-            "- Base your answers on the real active database cases and owner rules above.\n"
-            "- Never output raw timestamps, raw UUIDs, or debug text.\n"
-            "- Focus immediately on the specific answer, unit, or required action."
-        )
-
         messages = [{"role": "system", "content": system_prompt}]
         if history:
             for h in history[-4:]:
                 role = "user" if h.startswith("User:") else "assistant"
-                content = h.replace("User: ", "").replace("Assistant: ", "")
+                content = clip(h.replace("User: ", "").replace("Assistant: ", ""), GROQ_TURN_CHARS)
                 messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": query})
 
@@ -421,7 +415,7 @@ def _resolve_draft_card(
 
             # If prefer_contractor is requested, look for request_contractor first
             if prefer_contractor:
-                for aid_str in (approval_ids or []):
+                for aid_str in approval_ids or []:
                     try:
                         a = session.get(Approval, UUID(aid_str))
                         if not a:
@@ -433,12 +427,13 @@ def _resolve_draft_card(
                             target_appr = a
                             target_act = act_candidate
                             break
-                    except Exception:
+                    except Exception as skip_err:
+                        log.warning("api.superagent.draft_candidate_skipped", error=type(skip_err).__name__)
                         continue
 
             # Prioritize reply_draft action, fallback to first valid action
             if not target_act:
-                for aid_str in (approval_ids or []):
+                for aid_str in approval_ids or []:
                     try:
                         a = session.get(Approval, UUID(aid_str))
                         if not a:
@@ -453,7 +448,8 @@ def _resolve_draft_card(
                         elif not target_appr:
                             target_appr = a
                             target_act = act_candidate
-                    except Exception:
+                    except Exception as skip_err:
+                        log.warning("api.superagent.draft_candidate_skipped", error=type(skip_err).__name__)
                         continue
 
             if not target_appr or not target_act or not target_act.payload:
@@ -472,10 +468,14 @@ def _resolve_draft_card(
 
             # Check if this is a request_contractor action
             if act.type == ActionType.request_contractor:
-                contractor_p = session.get(Person, act.payload.get("contractor_person_id")) if act.payload.get("contractor_person_id") else None
+                contractor_p = (
+                    session.get(Person, act.payload.get("contractor_person_id"))
+                    if act.payload.get("contractor_person_id")
+                    else None
+                )
                 contractor_name = contractor_p.display_name if contractor_p else "Kevin van Dijk (Chahal Bouw)"
                 contractor_email = act.payload.get("to") or "dispatch@chahalbouw.nl"
-                resolved_recipient = f"{contractor_name} <{contractor_email}>"
+                contractor_recipient = f"{contractor_name} <{contractor_email}>"
                 chan_str = "gmail"
                 subj_str = f"Work Order: Emergency Leak Repair — {unit_label}"
                 variants = act.payload.get("body_variants") or []
@@ -483,12 +483,12 @@ def _resolve_draft_card(
                 draft_body = extracted_body.strip()
                 raw_variants = variants or [draft_body]
                 card_variants = [str(v) for v in raw_variants if v]
-                ext_url = f"https://mail.google.com/mail/?view=cm&fs=1&to={quote_plus(contractor_email)}&su={quote_plus(subj_str)}&body={quote_plus(draft_body)}"
+                contractor_url = f"https://mail.google.com/mail/?view=cm&fs=1&to={quote_plus(contractor_email)}&su={quote_plus(subj_str)}&body={quote_plus(draft_body)}"
 
                 return PreviewCardData(
                     type="draft_message",
                     channel=chan_str,
-                    recipient=resolved_recipient,
+                    recipient=contractor_recipient,
                     unitLabel=str(unit_label or "Portfolio Unit"),
                     subject=subj_str,
                     body=draft_body,
@@ -496,7 +496,7 @@ def _resolve_draft_card(
                     status=appr_status_str,
                     actionId=action_id_str,
                     caseId=case_id_str,
-                    externalUrl=ext_url,
+                    externalUrl=contractor_url,
                     threadSearchUrl=f"https://mail.google.com/mail/u/0/#search/{quote_plus(contractor_email)}",
                 )
 
@@ -1367,7 +1367,8 @@ def ask_agent(
         # Specific Task Trigger: Natural Language Analytics / Custom Query Agent (PostgreSQL)
         is_count_or_list_query = bool(
             re.search(
-                r"\b(how many|count of|total number|list all|show all|which units|which contractors|which tenants|total cases|total open|open tickets count|hoeveel|overzicht)\b",
+                r"\b(how many|count of|total number|list all|show all|which units|which contractors|which tenants"
+                r"|total cases|total open|open tickets count|hoeveel|overzicht)\b",
                 q_low,
             )
         )
@@ -1375,6 +1376,7 @@ def ask_agent(
         if is_count_or_list_query or is_database_keyword:
             try:
                 from app.tools.query_agent.agent import run_query_agent
+
                 q_res = run_query_agent(engine, settings, company_id, req.query, history=history)
                 if q_res.ok:
                     query_steps = [
@@ -1425,6 +1427,14 @@ def ask_agent(
 
     # Build prompt using context compiler with active memory rules and page facts
     history = (req.history or [])[-MAX_HISTORY:]
+    thread_summary = ""
+    focus_cid: str | None = None
+    try:
+        if conv:
+            thread_summary = conv.summary or ""
+            focus_cid = str((conv.focus_state or {}).get("case_id") or "") or None
+    except Exception as focus_err:  # a detached thread only costs the focus hint
+        log.warning("api.superagent.focus_read_failed", error=type(focus_err).__name__)
     try:
         # Inject active thread focus if available
         focus_text = ""
@@ -1447,12 +1457,18 @@ def ask_agent(
         compiled = compile_concierge_context(
             question=req.query,
             recent=history,
-            cases=briefs,
+            cases=rank_cases(briefs, req.query, focus_cid),
             open_tasks=tasks,
             page_facts_text=(page_facts_text or "") + focus_text,
             owner_preferences=approved_memories,
         )
         prompt = compiled.prompt_text
+        log.info(
+            "api.superagent.context",
+            prompt_chars=len(prompt),
+            open_cases=len(briefs),
+            dropped=list(compiled.dropped),
+        )
     except Exception:
         prompt = concierge_prompt(req.query, history, briefs, tasks)
 
@@ -1544,7 +1560,9 @@ def ask_agent(
             history=req.history,
             memory_rules=approved_memories,
             page_facts=page_facts_text,
-            live_cases=live_cases_text,
+            cases=briefs,
+            thread_summary=thread_summary,
+            focus_case_id=focus_cid,
         )
         ans_text = groq_resp or _domain_fallback_answer(req.query, live_cases_text=live_cases_text, is_error=llm_failed)
 
@@ -1679,14 +1697,22 @@ def ask_agent(
             and not preview_card
         ):
             approval_ids = r.data.get("approval_ids", [])
-            prefer_contractor = any(w in req.query.lower() for w in ["contractor", "plumber", "monteur", "loodgieter", "work order", "conractore", "contractore"])
+            prefer_contractor = any(
+                w in req.query.lower()
+                for w in ["contractor", "plumber", "monteur", "loodgieter", "work order", "conractore", "contractore"]
+            )
             preview_card = _resolve_draft_card(engine, approval_ids=approval_ids, prefer_contractor=prefer_contractor)
 
     # If user specifically asked about contractor draft and no card was resolved yet, resolve it directly
-    prefer_contractor = any(w in req.query.lower() for w in ["contractor", "plumber", "monteur", "loodgieter", "work order", "conractore", "contractore"])
+    prefer_contractor = any(
+        w in req.query.lower()
+        for w in ["contractor", "plumber", "monteur", "loodgieter", "work order", "conractore", "contractore"]
+    )
     if prefer_contractor and not preview_card and cases:
         for c in cases:
-            c_acts = session.scalars(select(ActionRow).where(ActionRow.case_id == c.id, ActionRow.type == ActionType.request_contractor)).all()
+            c_acts = session.scalars(
+                select(ActionRow).where(ActionRow.case_id == c.id, ActionRow.type == ActionType.request_contractor)
+            ).all()
             if c_acts:
                 c_appr = session.scalars(select(Approval).where(Approval.action_id == c_acts[0].id)).first()
                 if c_appr:
@@ -1695,10 +1721,13 @@ def ask_agent(
                         c_variants = c_acts[0].payload.get("body_variants") or []
                         views_text = ""
                         if c_variants:
-                            views_text = f"\n\nDraft 1:\n> " + "\n> ".join(c_variants[0].split("\n"))
+                            views_text = "\n\nDraft 1:\n> " + "\n> ".join(c_variants[0].split("\n"))
                             if len(c_variants) > 1:
-                                views_text += f"\n\nDraft 2:\n> " + "\n> ".join(c_variants[1].split("\n"))
-                        ans_text = f"Yes, a work order for contractor Kevin van Dijk is already waiting for your approval. Nothing is sent until you approve it in Approvals.{views_text}"
+                                views_text += "\n\nDraft 2:\n> " + "\n> ".join(c_variants[1].split("\n"))
+                        ans_text = (
+                            "Yes, a work order for contractor Kevin van Dijk is already waiting for your approval. "
+                            f"Nothing is sent until you approve it in Approvals.{views_text}"
+                        )
                     break
 
         # Check for case status snapshot card

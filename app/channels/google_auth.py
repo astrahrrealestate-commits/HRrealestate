@@ -27,7 +27,7 @@ UNIFIED_SCOPES = [
 ]
 
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
-TOKEN_URL = "https://oauth2.googleapis.com/token"
+TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 - a public endpoint, not a credential
 USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
 
 
@@ -69,9 +69,7 @@ async def exchange_code_for_tokens(settings: Settings, code: str) -> dict[str, A
     """Exchanges authorization code for tokens, retrieves user profile, and constructs credentials dict."""
     client_id = settings.google_oauth_client_id or ""
     client_secret = (
-        settings.google_oauth_client_secret.get_secret_value()
-        if settings.google_oauth_client_secret
-        else ""
+        settings.google_oauth_client_secret.get_secret_value() if settings.google_oauth_client_secret else ""
     )
     redirect_uri = settings.google_oauth_redirect_uri or "http://localhost:8000/api/auth/google/callback"
 
@@ -144,8 +142,9 @@ def load_owner_credentials(settings: Settings) -> dict[str, Any] | None:
     if not path.exists():
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        with open(path, encoding="utf-8") as f:
+            data: dict[str, Any] = json.load(f)
+            return data
     except Exception as exc:
         log.warning("google_auth.load_credentials_failed", error=str(exc))
         return None
@@ -177,4 +176,3 @@ def disconnect_owner(settings: Settings) -> bool:
             log.error("google_auth.disconnect_failed", error=str(exc))
             return False
     return True
-

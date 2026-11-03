@@ -275,11 +275,14 @@ def get_maintenance_tickets(
                     elif rp.get("body"):
                         tenant_draft = rp["body"]
 
+                clean_issue_title: str | None = None
                 if not tenant_draft:
+                    issue_ref = clean_issue_title.lower() if clean_issue_title else "maintenance request"
                     tenant_draft = (
                         f"Hi {tenant_name},\n\n"
-                        f"Thank you for reporting this issue ({clean_issue_title.lower() if 'clean_issue_title' in locals() else 'maintenance request'}). We have logged an emergency work order and "
-                        f"assigned our approved contractor, {contractor_name}. They will reach out shortly to coordinate access.\n\n"
+                        f"Thank you for reporting this issue ({issue_ref}). We have logged an emergency work order and "
+                        f"assigned our approved contractor, {contractor_name}. "
+                        "They will reach out shortly to coordinate access.\n\n"
                         f"Best regards,\nHarjot Singh — EstateOS"
                     )
 

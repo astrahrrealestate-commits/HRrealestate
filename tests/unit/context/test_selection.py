@@ -1,0 +1,60 @@
+"""Unit tests for relevance ranking and tiered rendering of open cases."""
+
+from uuid import UUID, uuid4
+
+from app.context.selection import DETAIL_CASES, rank_cases, render_case_lines
+from app.llm.agents.owner_qa import CaseBrief
+
+
+def _case(label: str, urgency: str = "normal", summary: str = "", case_id: UUID | None = None) -> CaseBrief:
+    return CaseBrief(case_id or uuid4(), label, "open", urgency, summary)
+
+
+def test_urgency_orders_cases_when_the_question_names_nothing() -> None:
+    low, emergency, high = _case("a", "low"), _case("b", "emergency"), _case("c", "high")
+    ranked = rank_cases([low, emergency, high], "what is going on?")
+    assert ranked == [emergency, high, low]
+
+
+def test_a_case_named_in_the_question_beats_urgency() -> None:
+    boiler = _case("Boiler broken · Keizersgracht 42-A", "low", "no hot water")
+    leak = _case("Leak · Prinsengracht 9", "emergency", "water on the floor")
+    ranked = rank_cases([leak, boiler], "status of the boiler at Keizersgracht?")
+    assert ranked[0] is boiler
+
+
+def test_the_ticket_id_prefix_in_the_question_matches() -> None:
+    target = _case("Door", "low", case_id=UUID("abcdef12-0000-0000-0000-000000000000"))
+    other = _case("Roof", "emergency")
+    assert rank_cases([other, target], "update on ticket #abcdef please")[0] is target
+
+
+def test_the_focus_case_comes_first() -> None:
+    focus = _case("Door", "low")
+    other = _case("Roof", "emergency")
+    assert rank_cases([other, focus], "what next?", focus_case_id=str(focus.case_id))[0] is focus
+
+
+def test_ranking_is_stable_for_equal_cases() -> None:
+    a, b, c = _case("same"), _case("same"), _case("same")
+    assert rank_cases([a, b, c], "x") == [a, b, c]
+
+
+def test_only_the_top_cases_carry_a_summary_and_every_case_stays_listed() -> None:
+    cases = [_case(f"Case {i}", summary=f"unique-summary-{i}") for i in range(DETAIL_CASES + 4)]
+    lines = render_case_lines(cases)
+    text = "\n".join(lines)
+    assert all(str(c.case_id) in text for c in cases)
+    assert f"unique-summary-{DETAIL_CASES - 1}" in text
+    assert f"unique-summary-{DETAIL_CASES}" not in text
+    assert "4 more cases" in text
+
+
+def test_summaries_are_clipped_and_whitespace_collapsed() -> None:
+    lines = render_case_lines([_case("Leak", summary="word   " * 300)])
+    assert len(lines[0]) < 600
+    assert "   " not in lines[0]
+
+
+def test_no_cases_renders_nothing() -> None:
+    assert render_case_lines([]) == []

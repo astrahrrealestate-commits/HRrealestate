@@ -148,7 +148,9 @@ def get_pulse_metrics(
             count_app = session.scalar(select(func.count(Approval.id)).where(Approval.status == "pending"))
             pending_approvals = count_app if count_app is not None else 0
 
-            count_em = session.scalar(select(func.count(Case.id)).where(Case.urgency == "emergency", Case.state == "open"))
+            count_em = session.scalar(
+                select(func.count(Case.id)).where(Case.urgency == "emergency", Case.state == "open")
+            )
             emergency_cases = count_em if count_em is not None else 0
 
             count_units = session.scalar(select(func.count(Unit.id)))
@@ -231,7 +233,7 @@ def get_prospective_inquiries(
     engine: Annotated[Engine, Depends(get_engine)],
 ) -> InquiriesResponse:
     """Returns prospective tenant leads for viewing scheduling."""
-    items = []
+    items: list[ProspectiveInquiryItem] = []
     return InquiriesResponse(inquiries=items, total=len(items))
 
 
@@ -246,7 +248,7 @@ def get_autonomous_logs(
     limit: int = Query(default=5, ge=1, le=20, description="Number of logs to return"),
 ) -> LogsResponse:
     """Returns autonomous operations audit trail."""
-    items = []
+    items: list[AutonomousActionLogItem] = []
     return LogsResponse(logs=items, total=len(items))
 
 
