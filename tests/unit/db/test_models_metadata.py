@@ -100,7 +100,7 @@ def test_company_id_indexed_exactly_once_as_leading_column() -> None:
     for name, table in Base.metadata.tables.items():
         if name == "companies":
             continue
-        leading = [i for i in table.indexes if i.columns.keys()[0] == "company_id"]
+        leading = [i for i in table.indexes if i.columns.keys()[:1] == ["company_id"]]  # expression-only: no columns
         leading += [
             u for u in table.constraints if isinstance(u, UniqueConstraint) and u.columns.keys()[0] == "company_id"
         ]

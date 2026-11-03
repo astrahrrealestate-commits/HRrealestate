@@ -68,6 +68,7 @@ class MessageRow(Base, CompanyScoped):
     )
     pipeline_error: Mapped[str | None] = mapped_column(Text)
     pipeline_attempts: Mapped[int] = mapped_column(default=0, server_default="0")
+    pipeline_done_at: Mapped[datetime | None]  # set once when every stage ran (drift: pipeline duration p95, 0030)
 
 
 class AttachmentRow(Base, CompanyScoped):
