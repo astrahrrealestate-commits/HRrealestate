@@ -49,7 +49,7 @@ def build_super_agent_system_prompt(
 ) -> str:
     """Intro, ranked case context, owner rules, page facts and thread summary, each capped, then the answer rules."""
     ranked = rank_cases(cases, query, focus_case_id)
-    case_text = "\n".join(render_case_lines(ranked)) or "no open cases in the database"
+    case_text = "\n".join(render_case_lines(ranked, max_chars=CASES_CHARS)) or "no open cases in the database"
     parts = [_INTRO, data_block("data", clip(case_text, CASES_CHARS))]
     rules = "\n".join(f"- {clip(' '.join(r.split()), RULE_CHARS)}" for r in list(memory_rules)[:MAX_RULES])
     if rules:
