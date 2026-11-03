@@ -1,6 +1,7 @@
 """Identity-first directory (spec phase-1 agents): a phone/email resolves to a person, created on first contact.
 
-The BRIXX importer (M3, deferred) later fills units/leases and upgrades `kind`; nothing here assumes BRIXX data.
+The BRIXX directory mapper (app/directory/brixx/people.py) later upgrades such a person in place (brixx_ref, name,
+`kind`) when a BRIXX relatie shares a current identity; nothing here assumes BRIXX data.
 """
 
 from datetime import date

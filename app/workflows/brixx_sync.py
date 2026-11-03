@@ -36,6 +36,7 @@ from app.directory.brixx.schema import build_table
 from app.directory.brixx.state import begin_table_run, get_or_create_table_state, mark_success
 from app.directory.brixx.sync import latest, sync_table_page
 from app.workflows import queues
+from app.workflows.brixx_map import map_after_run
 from app.workflows.deps import brixx_api, get_engine
 
 log = get_logger(__name__)
@@ -122,7 +123,7 @@ def finish_run_step(company_id: str, run_id: str, error: str | None) -> None:
 
 @DBOS.workflow(name=BRIXX_SYNC_ALL)
 def sync_all(scheduled_time: datetime, context: Any) -> None:
-    """Every 15 minutes: one run, one `brixx.sync_table` child per BRIXX table, then the run's final status."""
+    """Every 15 minutes: one run, one `brixx.sync_table` child per BRIXX table, the final status, then the mapper."""
     company_id = company_step()
     if company_id is None:
         log.info("brixx.sync_skipped", reason="no_company")
@@ -144,6 +145,7 @@ def sync_all(scheduled_time: datetime, context: Any) -> None:
             handles.append((table, queues.brixx_queue().enqueue(sync_table, run_id, table)))
     failures = [f"{table} ({outcome})" for table, outcome in ((t, collect(h)) for t, h in handles) if outcome != OK]
     finish_run_step(company_id, run_id, "tables failed: " + ", ".join(failures) if failures else None)
+    map_after_run(run_id)  # child `brixxmap:<run_id>`: mirror -> people/units/leases
 
 
 def collect(handle: Any) -> str:

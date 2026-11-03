@@ -11,6 +11,7 @@ from app.core.settings import Settings
 from app.workflows import (
     actions,
     briefings,
+    brixx_map,
     brixx_reconcile,
     brixx_sync,
     concierge,
@@ -37,6 +38,7 @@ from app.workflows import (
 _REGISTERED = (
     actions,
     briefings,
+    brixx_map,
     brixx_reconcile,
     brixx_sync,
     concierge,

@@ -1,7 +1,7 @@
 """Daily BRIXX reconcile: cron parent `brixx.reconcile_all` and one queued child per table, `brixx.reconcile_table`.
 
 The parent mirrors `brixx.sync_all`: first company, list tables, insert and commit a `reconcile` run, enqueue one
-child per table on the `brixx` queue, then record the run's final status. Ids are deterministic:
+child per table on the `brixx` queue, then record the run's final status and map the directory. Ids are deterministic:
 the run id is a uuid5 of company + cron day (UTC date of the tick), the child id is `brixxrec:<run_id>:<table>`. A child
 scans keyset pages of primary keys (one step each, staged in Postgres) and applies the result in one step; it never
 raises for a failed table, it returns `failed:<ErrorClass>`. Workflow bodies only sequence steps (no I/O, no clock).
@@ -23,6 +23,7 @@ from app.db.models.brixx import BrixxSyncRun
 from app.directory.brixx.reconcile import apply_reconcile, scan_page
 from app.directory.brixx.schema import build_table
 from app.workflows import queues
+from app.workflows.brixx_map import map_after_run
 from app.workflows.brixx_sync import (
     FAILED,
     OK,
@@ -64,7 +65,7 @@ def create_reconcile_run_step(company_id: str, scheduled_iso: str) -> str:
 
 @DBOS.workflow(name=BRIXX_RECONCILE_ALL)
 def reconcile_all(scheduled_time: datetime, context: Any) -> None:
-    """Daily: one reconcile run, one `brixx.reconcile_table` child per BRIXX table, then the final status."""
+    """Daily: one reconcile run, a `brixx.reconcile_table` child per BRIXX table, the final status, then the mapper."""
     company_id = company_step()
     if company_id is None:
         log.info("brixx.reconcile_skipped", reason="no_company")
@@ -86,6 +87,7 @@ def reconcile_all(scheduled_time: datetime, context: Any) -> None:
             handles.append((table, queues.brixx_queue().enqueue(reconcile_table, run_id, table)))
     failures = [f"{table} ({outcome})" for table, outcome in ((t, collect(h)) for t, h in handles) if outcome != OK]
     finish_run_step(company_id, run_id, "tables failed: " + ", ".join(failures) if failures else None)
+    map_after_run(run_id)  # soft-deleted rows end their people/units/leases
 
 
 @DBOS.step(name="brixx.reconcile_begin", **RETRY)

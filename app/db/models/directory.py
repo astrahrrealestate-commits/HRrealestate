@@ -1,4 +1,4 @@
-"""Directory imported from BRIXX: people, their channel identities, units, leases."""
+"""Directory filled from the BRIXX mirror (and identity-first contacts): people, channel identities, units, leases."""
 
 import uuid
 from datetime import datetime
@@ -10,6 +10,17 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.contracts import Channel
 from app.db.base import Base, CompanyScoped, Validity, str_enum
 from app.db.enums import ImportStatus, PersonKind
+
+
+def _brixx_ref_unique(table: str) -> Index:
+    """One row per BRIXX entity and company: backs the idempotent BRIXX directory mapper (migration 0032)."""
+    return Index(
+        f"uq_{table}_company_id_brixx_ref",
+        "company_id",
+        "brixx_ref",
+        unique=True,
+        postgresql_where=text("brixx_ref IS NOT NULL"),
+    )
 
 
 class DirectoryImport(Base, CompanyScoped):
@@ -25,7 +36,7 @@ class DirectoryImport(Base, CompanyScoped):
 class Person(Base, CompanyScoped, Validity):
     __tablename__ = "people"
     __company_id_leading_index__ = True
-    __table_args__ = (Index(None, "company_id", "brixx_ref"),)
+    __table_args__ = (Index(None, "company_id", "brixx_ref"), _brixx_ref_unique("people"))
 
     kind: Mapped[PersonKind] = mapped_column(str_enum(PersonKind))
     display_name: Mapped[str] = mapped_column(String(200))
@@ -57,7 +68,7 @@ class ChannelIdentity(Base, CompanyScoped, Validity):
 class Unit(Base, CompanyScoped, Validity):
     __tablename__ = "units"
     __company_id_leading_index__ = True
-    __table_args__ = (Index(None, "company_id", "brixx_ref"),)
+    __table_args__ = (Index(None, "company_id", "brixx_ref"), _brixx_ref_unique("units"))
 
     label: Mapped[str] = mapped_column(String(100))
     address: Mapped[str | None] = mapped_column(String(300))
@@ -67,6 +78,7 @@ class Unit(Base, CompanyScoped, Validity):
 
 class Lease(Base, CompanyScoped, Validity):
     __tablename__ = "leases"
+    __table_args__ = (_brixx_ref_unique("leases"),)
 
     unit_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("units.id"), index=True)
     brixx_ref: Mapped[str | None] = mapped_column(String(64))
