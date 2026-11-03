@@ -14,15 +14,24 @@ At most `Settings.concierge_worker_concurrency` turns run at once per worker (ea
 from dbos import DBOS, Queue
 
 from app.core.settings import Settings
-from app.core.workflow_names import CONCIERGE_QUEUE, DOCUMENTS_QUEUE, GMAIL_SYNC_QUEUE, PIPELINE_QUEUE, TIMERS_QUEUE
+from app.core.workflow_names import (
+    BRIXX_QUEUE,
+    CONCIERGE_QUEUE,
+    DOCUMENTS_QUEUE,
+    GMAIL_SYNC_QUEUE,
+    PIPELINE_QUEUE,
+    TIMERS_QUEUE,
+)
 
 __all__ = [
+    "BRIXX_QUEUE",
     "CONCIERGE_POLL_SECONDS",
     "CONCIERGE_QUEUE",
     "DOCUMENTS_QUEUE",
     "GMAIL_SYNC_QUEUE",
     "PIPELINE_QUEUE",
     "PIPELINE_WORKER_CONCURRENCY",
+    "brixx_queue",
     "concierge_queue",
     "documents_queue",
     "gmail_sync_queue",
@@ -43,6 +52,7 @@ def register_queues(settings: Settings) -> None:
     _handles[GMAIL_SYNC_QUEUE] = DBOS.register_queue(GMAIL_SYNC_QUEUE, concurrency=1)
     _handles[TIMERS_QUEUE] = DBOS.register_queue(TIMERS_QUEUE, worker_concurrency=2)
     _handles[DOCUMENTS_QUEUE] = DBOS.register_queue(DOCUMENTS_QUEUE, partition_concurrency=1)
+    _handles[BRIXX_QUEUE] = DBOS.register_queue(BRIXX_QUEUE, worker_concurrency=2)  # two tables at a time per worker
     _handles[CONCIERGE_QUEUE] = DBOS.register_queue(
         CONCIERGE_QUEUE,
         worker_concurrency=settings.concierge_worker_concurrency,
@@ -75,3 +85,7 @@ def timers_queue() -> Queue:
 
 def concierge_queue() -> Queue:
     return _handle(CONCIERGE_QUEUE)
+
+
+def brixx_queue() -> Queue:
+    return _handle(BRIXX_QUEUE)

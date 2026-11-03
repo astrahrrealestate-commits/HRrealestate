@@ -89,3 +89,23 @@ def test_fake_rejects_filter_it_cannot_evaluate(filters: str) -> None:
 def test_fake_rejects_page_below_one(page: int) -> None:
     with pytest.raises(BrixxError):
         _fake().fetch_page("PRG_RELATIE", page=page)
+
+
+def test_fake_orders_numerically_by_column_and_records_it() -> None:
+    rows: list[dict[str, object]] = [{"PRG_RELATIEID": i} for i in (10, 9, 100, 2)]
+    api = FakeBrixxApi({"PRG_RELATIE": FakeTable(_info(), rows)}, page_size=10)
+    page = api.fetch_page("PRG_RELATIE", page=1, order_by="prg_relatieid")
+    assert [r["PRG_RELATIEID"] for r in page.rows] == [2, 9, 10, 100]
+    assert api.order_log == ["prg_relatieid"]
+
+
+def test_fake_without_order_keeps_insertion_order() -> None:
+    rows: list[dict[str, object]] = [{"PRG_RELATIEID": i} for i in (3, 1, 2)]
+    api = FakeBrixxApi({"PRG_RELATIE": FakeTable(_info(), rows)}, page_size=10)
+    assert [r["PRG_RELATIEID"] for r in api.fetch_page("PRG_RELATIE", page=1).rows] == [3, 1, 2]
+    assert api.order_log == [None]
+
+
+def test_fake_rejects_unknown_order_column() -> None:
+    with pytest.raises(BrixxError):
+        _fake().fetch_page("PRG_RELATIE", page=1, order_by="nope")

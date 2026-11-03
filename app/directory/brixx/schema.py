@@ -88,7 +88,7 @@ def _system_columns() -> list[sa.Column[Any]]:
     return [
         sa.Column("_synced_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("_deleted_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("_extra", JSONB(), nullable=True),
+        sa.Column("_extra", JSONB(none_as_null=True), nullable=True),
     ]
 
 

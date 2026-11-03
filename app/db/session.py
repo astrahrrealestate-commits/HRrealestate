@@ -11,6 +11,7 @@ def make_engine(url: str) -> Engine:
     return create_engine(
         url,
         pool_pre_ping=True,
+        hide_parameters=True,  # DBAPIError text would otherwise carry tenant row values into DBOS and Sentry
         pool_timeout=POOL_TIMEOUT_SEC,
         connect_args={"connect_timeout": CONNECT_TIMEOUT_SEC},
     )

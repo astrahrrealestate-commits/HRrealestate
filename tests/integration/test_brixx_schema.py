@@ -10,19 +10,16 @@ import sqlalchemy as sa
 from sqlalchemy.engine import Engine
 
 from app.channels.brixx.models import BrixxField, BrixxTable
-from app.directory.brixx.schema import MIRROR_SCHEMA, build_table
+from tests.integration.brixx_support import MirrorSchema, mirror_schema
 
 
 @pytest.fixture
-def mirror_schema(migrated_engine: Engine) -> Iterator[None]:
-    with migrated_engine.begin() as conn:
-        conn.execute(sa.text(f"CREATE SCHEMA IF NOT EXISTS {MIRROR_SCHEMA}"))
-    yield
-    with migrated_engine.begin() as conn:
-        conn.execute(sa.text(f"DROP SCHEMA IF EXISTS {MIRROR_SCHEMA} CASCADE"))
+def mirror(migrated_engine: Engine) -> Iterator[MirrorSchema]:
+    with mirror_schema(migrated_engine) as schema:
+        yield schema
 
 
-def test_create_all_insert_and_read_back(migrated_engine: Engine, mirror_schema: None) -> None:
+def test_create_all_insert_and_read_back(mirror: MirrorSchema) -> None:
     info = BrixxTable(
         "PRG_RELATIE",
         "PRG_RELATIEID",
@@ -35,12 +32,10 @@ def test_create_all_insert_and_read_back(migrated_engine: Engine, mirror_schema:
             BrixxField(6, "UPDDATETIME", "TIMESTAMP(6)", False, None, None),
         ),
     )
-    metadata = sa.MetaData()
-    table = build_table(info, metadata)
-    metadata.create_all(migrated_engine)
+    table = mirror.create(info)
     company_id = uuid.uuid4()
     updated = datetime(2026, 10, 31, 12, 0, tzinfo=UTC)
-    with migrated_engine.begin() as conn:
+    with mirror.engine.begin() as conn:
         conn.execute(
             sa.insert(table).values(
                 company_id=company_id,
@@ -60,6 +55,6 @@ def test_create_all_insert_and_read_back(migrated_engine: Engine, mirror_schema:
     assert row._deleted_at is None
     assert row._synced_at is not None
     assert row._extra == {"x": 1}
-    with migrated_engine.connect() as conn:
-        indexes = {i["name"] for i in sa.inspect(conn).get_indexes("prg_relatie", schema=MIRROR_SCHEMA)}
+    with mirror.engine.connect() as conn:
+        indexes = {i["name"] for i in sa.inspect(conn).get_indexes("prg_relatie", schema=mirror.name)}
     assert indexes == {"ix_prg_relatie_objectid", "ix_prg_relatie_upddatetime"}
