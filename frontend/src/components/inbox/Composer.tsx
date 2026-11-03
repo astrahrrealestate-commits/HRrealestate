@@ -1,15 +1,18 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Sparkles, Check, RotateCcw, Send, MessageSquare, Mail, Maximize2, X, ExternalLink, Loader2 } from "lucide-react";
+import { Sparkles, Check, RotateCcw, Send, MessageSquare, Mail, Maximize2, X, ExternalLink, Loader2, UserRound } from "lucide-react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { DraftOption } from "@/types/dashboard";
+import { DraftPersona } from "@/types/inbox";
 import { createGmailDraft } from "@/lib/api";
 
 export interface ComposerProps {
   draftText?: string;
   drafts?: DraftOption[];
+  draftPersona?: DraftPersona; // set when the drafts were written in the owner's persona
   detectedLanguage?: string;
   channel?: "whatsapp" | "gmail" | string;
   recipientPhone?: string;
@@ -39,6 +42,7 @@ export interface ComposerProps {
 export function Composer({
   draftText = "",
   drafts = [],
+  draftPersona,
   detectedLanguage = "Dutch (detected)",
   channel = "whatsapp",
   recipientPhone,
@@ -238,6 +242,19 @@ export function Composer({
                   <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
                   <span>AI drafts:</span>
                 </span>
+                {draftPersona && (
+                  <Link
+                    href="/settings?group=persona"
+                    title={`Drafted using the persona file "${draftPersona.name}" (version ${draftPersona.version}). Click to view or edit it.`}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--accent-ink)] bg-[var(--selected)] border border-[var(--line)] px-2 py-0.5 rounded hover:bg-[var(--pane)]"
+                  >
+                    <UserRound className="w-3 h-3" />
+                    <span>Acting as {draftPersona.actingAs}</span>
+                    <span className="font-normal text-[var(--ink-3)]">
+                      · {draftPersona.name} v{draftPersona.version}
+                    </span>
+                  </Link>
+                )}
                 <div className="flex items-center gap-1 bg-[var(--bg)] p-0.5 rounded-[var(--radius-ctl)] border border-[var(--line)]">
                   {drafts.map((d, idx) => {
                     const isSelected = selectedDraftId === (d.id || `d${idx + 1}`) || content.trim() === d.text.trim();

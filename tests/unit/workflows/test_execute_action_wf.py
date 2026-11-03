@@ -19,12 +19,15 @@ class _ExhaustedError(Exception):
     pass
 
 
-def _run(send: MagicMock, workflow_id: str = "exec:a:1") -> tuple[MagicMock, MagicMock]:
+def _run(
+    send: MagicMock, workflow_id: str = "exec:a:1", snapshot: MagicMock | None = None
+) -> tuple[MagicMock, MagicMock]:
     tell, after = MagicMock(), MagicMock()
     with (
         patch.object(actions, "send_step", send),
         patch.object(actions, "tell_blocked_step", tell),
         patch.object(actions, "after_execute_step", after),
+        patch.object(actions, "snapshot_after_approval", snapshot or MagicMock()),
         patch.object(actions, "DBOS", MagicMock(workflow_id=workflow_id)),
     ):
         WF("a", 1, False)
@@ -32,17 +35,19 @@ def _run(send: MagicMock, workflow_id: str = "exec:a:1") -> tuple[MagicMock, Mag
 
 
 def test_exhausted_send_retries_tell_the_owner_and_reraise() -> None:
-    tell, after = MagicMock(), MagicMock()
+    tell, after, snapshot = MagicMock(), MagicMock(), MagicMock()
     with (
         patch.object(actions, "send_step", MagicMock(side_effect=_ExhaustedError("429 x6"))),
         patch.object(actions, "tell_blocked_step", tell),
         patch.object(actions, "after_execute_step", after),
+        patch.object(actions, "snapshot_after_approval", snapshot),
         patch.object(actions, "DBOS", MagicMock(workflow_id="exec:a:1")),
         pytest.raises(_ExhaustedError),
     ):
         WF("a", 1, False)
     tell.assert_called_once_with("a", 1, actions.EXHAUSTED)
     after.assert_not_called()
+    snapshot.assert_called_once_with("a")  # the approval, not the delivery, triggers the snapshot (R24)
     assert "429" not in actions.EXHAUSTED  # no provider/exception text reaches the owner
 
 
@@ -56,6 +61,23 @@ def test_returned_outcomes_are_handled_as_before(outcome: str, told: bool, after
     assert after.called is after_called
     if told:
         tell.assert_called_once_with("a", 1, "why")
+
+
+@pytest.mark.parametrize("outcome", ["sent", "already", "blocked", "failed", "in_progress"])
+def test_every_execution_outcome_runs_the_snapshot_hook_once(outcome: str) -> None:
+    snapshot = MagicMock()
+    _run(MagicMock(return_value=[outcome, "why"]), snapshot=snapshot)
+    snapshot.assert_called_once_with("a")
+
+
+def test_a_local_execution_runs_the_snapshot_hook_too() -> None:
+    snapshot = MagicMock()
+    with (
+        patch.object(actions, "apply_local_step", MagicMock(return_value="applied")),
+        patch.object(actions, "snapshot_after_approval", snapshot),
+    ):
+        WF("a", 1, True)
+    snapshot.assert_called_once_with("a")
 
 
 def test_a_resume_run_tells_under_the_action_version_not_its_workflow_id() -> None:

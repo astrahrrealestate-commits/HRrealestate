@@ -17,12 +17,14 @@ import {
   ShieldCheck,
   Settings as SettingsIcon,
   BrainCircuit,
+  UserRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SETTING_GROUPS, SettingGroup, SettingItem } from "@/data/settingsMockData";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import { MemoryRulesManager } from "@/components/settings/MemoryRulesManager";
 import { GoogleConnectCard } from "@/components/settings/GoogleConnectCard";
+import { PersonaEditor } from "@/components/settings/PersonaEditor";
 
 function SettingsContent() {
   const router = useRouter();
@@ -89,6 +91,8 @@ function SettingsContent() {
         return Sparkles;
       case "memory-rules":
         return BrainCircuit;
+      case "persona":
+        return UserRound;
       case "channels":
         return Radio;
       default:
@@ -115,7 +119,7 @@ function SettingsContent() {
         {/* DESKTOP LAYOUT (>= 768px): Two Columns (Groups on Left, Rows on Right) */}
         {/* ------------------------------------------------------------- */}
         <div className="hidden md:flex flex-1 overflow-hidden">
-          
+
           {/* Column 1: Groups List (280px) */}
           <div className="w-[280px] shrink-0 border-r border-[var(--line)] bg-[var(--pane)] flex flex-col">
             <div className="p-4 border-b border-[var(--line)]">
@@ -164,7 +168,7 @@ function SettingsContent() {
 
           {/* Column 2: Full-width Settings Rows (flex-1) */}
           <div className="flex-1 bg-[var(--pane)] flex flex-col overflow-y-auto p-8 max-w-4xl space-y-6">
-            
+
             {/* Group Header */}
             <div className="border-b border-[var(--line)] pb-5">
               <h2 className="text-[22px] font-heading font-bold text-[var(--ink)] tracking-tight">
@@ -176,7 +180,9 @@ function SettingsContent() {
             </div>
 
             {/* Full-width Setting Rows (or Memory Rules Manager) */}
-            {activeGroup.id === "memory-rules" ? (
+            {activeGroup.id === "persona" ? (
+              <PersonaEditor />
+            ) : activeGroup.id === "memory-rules" ? (
               <MemoryRulesManager />
             ) : (
               <div className="space-y-4">
@@ -309,7 +315,11 @@ function SettingsContent() {
               </div>
 
               {/* Group Full-width Rows (or Memory Rules Manager) */}
-              {activeGroup.id === "memory-rules" ? (
+              {activeGroup.id === "persona" ? (
+                <div className="p-4">
+                  <PersonaEditor />
+                </div>
+              ) : activeGroup.id === "memory-rules" ? (
                 <div className="p-4">
                   <MemoryRulesManager />
                 </div>

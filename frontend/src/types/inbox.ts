@@ -42,6 +42,12 @@ export interface ThreadMessage {
   }>;
 }
 
+export interface DraftPersona {
+  actingAs: string; // "Harjot"
+  name: string; // persona file name shown to the owner
+  version: number;
+}
+
 export interface DualChannelDrafts {
   whatsappDrafts: DraftOption[];
   gmailDrafts: DraftOption[];
@@ -82,6 +88,7 @@ export interface InboxThread {
   messages: ThreadMessage[];
   inResponseToSnippet?: string; // What message the draft is answering
   draftProposal?: {
+    persona?: DraftPersona; // the owner persona the drafts were written in (absent for canned drafts)
     confidence: number;
     recommendedAction: string;
     activeChannel: ChannelType;

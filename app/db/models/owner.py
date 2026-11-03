@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import ForeignKey, Index, String, Text, text
+from sqlalchemy import ForeignKey, Index, String, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.contracts import ButtonChoice, Channel
@@ -77,3 +77,19 @@ class OwnerOutbox(Base, CompanyScoped):
     status: Mapped[OutboxStatus] = mapped_column(
         str_enum(OutboxStatus), default=OutboxStatus.queued, server_default=OutboxStatus.queued.value
     )
+
+
+class OwnerPersona(Base, CompanyScoped):
+    """The owner's writing persona (a markdown file) the proposer drafts in. One row per company; `version` goes up on
+    every edit or upload so each draft can say which persona it was written with (`actions.persona_version`)."""
+
+    __tablename__ = "owner_personas"
+    __company_id_leading_index__ = True  # the unique constraint on company_id is the index
+    __table_args__ = (UniqueConstraint("company_id"),)
+
+    name: Mapped[str] = mapped_column(String(120))
+    filename: Mapped[str | None] = mapped_column(String(255))
+    content: Mapped[str] = mapped_column(Text)
+    version: Mapped[int] = mapped_column(default=1, server_default="1")
+    is_default: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now())

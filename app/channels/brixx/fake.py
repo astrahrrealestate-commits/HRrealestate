@@ -3,6 +3,8 @@
 import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from decimal import Decimal
+from typing import Any
 
 from app.channels.brixx.models import BrixxPage, BrixxTable
 from app.channels.brixx.normalise import normalise_row
@@ -32,6 +34,17 @@ def _to_datetime(value: object) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
+def _cell(row: dict[str, object], column: str) -> object:
+    return next((v for k, v in row.items() if k.lower() == column), None)
+
+
+def _sort_key(value: object, *, numeric: bool) -> tuple[bool, Any]:
+    """NULLs last; numbers compare as numbers, anything else as text."""
+    if value is None:
+        return (True, 0)
+    return (False, value if numeric else str(value))
+
+
 def _upddatetime(row: dict[str, object]) -> object:
     return next((v for k, v in row.items() if k.lower() == "upddatetime"), None)
 
@@ -48,6 +61,7 @@ class FakeBrixxApi:
         self._documents = documents or {}
         self._failures: dict[tuple[str, int], tuple[BrixxError, bool]] = {}
         self.fetch_log: list[tuple[str, int, str | None]] = []
+        self.order_log: list[str | None] = []  # `order_by` of each fetch, parallel to `fetch_log`
 
     def fail_on(self, table: str, page: int, error: BrixxError, *, once: bool = True) -> None:
         """Raise `error` when `page` of `table` is fetched (once by default, so a retry succeeds)."""
@@ -69,6 +83,7 @@ class FakeBrixxApi:
         self, table: str, *, page: int, filters: str | None = None, order_by: str | None = None
     ) -> BrixxPage:
         self.fetch_log.append((table, page, filters))
+        self.order_log.append(order_by)
         if page < 1:
             raise BrixxError("BRIXX pages start at 1")
         failure = self._failures.get((table.upper(), page))
@@ -77,7 +92,8 @@ class FakeBrixxApi:
             if once:
                 del self._failures[(table.upper(), page)]
             raise error
-        rows = self._filtered(self._table(table).rows, filters)
+        fake_table = self._table(table)
+        rows = self._ordered(fake_table, self._filtered(fake_table.rows, filters), order_by)
         start = (page - 1) * self._page_size
         chunk = rows[start : start + self._page_size]
         return BrixxPage(
@@ -86,6 +102,19 @@ class FakeBrixxApi:
             per_page=self._page_size,
             has_next=start + self._page_size < len(rows),
         )
+
+    @staticmethod
+    def _ordered(table: FakeTable, rows: list[dict[str, object]], order_by: str | None) -> list[dict[str, object]]:
+        """Sort by `order_by` (case-insensitive column of the table; numeric when every value is a number)."""
+        if order_by is None:
+            return rows
+        column = order_by.strip().lower()
+        if column not in {f.name.lower() for f in table.info.fields}:
+            raise BrixxError(f"BRIXX table {table.info.name} has no column to order by")
+        values = [_cell(r, column) for r in rows]
+        numeric = all(isinstance(v, int | float | Decimal) and not isinstance(v, bool) for v in values if v is not None)
+        order = sorted(range(len(rows)), key=lambda i: _sort_key(values[i], numeric=numeric))
+        return [rows[i] for i in order]
 
     @staticmethod
     def _filtered(rows: list[dict[str, object]], filters: str | None) -> list[dict[str, object]]:

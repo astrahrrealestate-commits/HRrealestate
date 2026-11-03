@@ -1,0 +1,3 @@
+# Published prompts are hashed byte-for-byte (model_calls.prompt_sha256): LF on every OS, so a Windows checkout
+# with core.autocrlf hashes them exactly like Linux.
+app/llm/prompts/** text eol=lf

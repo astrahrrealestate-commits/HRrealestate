@@ -24,7 +24,7 @@ class DDReview(Base, CompanyScoped):
 
     title: Mapped[str] = mapped_column(String(200))
     property_kind: Mapped[DDPropertyKind] = mapped_column(str_enum(DDPropertyKind))
-    unit_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("units.id"))
+    unit_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("units.id"), index=True)  # 0030
     status: Mapped[DDReviewStatus] = mapped_column(
         str_enum(DDReviewStatus), default=DDReviewStatus.pending, server_default=DDReviewStatus.pending.value
     )

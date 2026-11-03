@@ -360,6 +360,8 @@ def test_resolve_draft_card_strict_reply_draft():
         "channel": "whatsapp",
         "body": "Hi Vipin, our emergency plumber Kevin van Dijk is en route.",
     }
+    mock_act.persona_name = "Harjot v2"
+    mock_act.persona_version = 2
 
     mock_case = MagicMock(spec=Case)
     mock_case.id = test_case_id
@@ -393,6 +395,7 @@ def test_resolve_draft_card_strict_reply_draft():
         assert card.recipient == "+31612345678"
         assert card.channel == "whatsapp"
         assert card.unitLabel == "Keizersgracht 42-A, Amsterdam"
+        assert (card.personaName, card.personaVersion) == ("Harjot v2", 2)
         assert "Kevin van Dijk" in card.body
 
 

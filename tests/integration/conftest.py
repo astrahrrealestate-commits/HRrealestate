@@ -3,13 +3,15 @@
 import os
 import time
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import Engine
+from sqlalchemy import Engine, create_engine, make_url, text
 from sqlalchemy.orm import Session
 from testcontainers.community.postgres import PostgresContainer
 
@@ -32,14 +34,35 @@ def alembic_config(url: str) -> Config:
     return cfg
 
 
+@contextmanager
+def _throwaway_database() -> Iterator[str]:
+    """One Postgres 16 + pgvector database for the session: a testcontainer, or, when `ESTATEOS_TEST_PG_ADMIN_URL`
+    names an existing server (machines without Docker), a fresh database on it that is dropped afterwards."""
+    admin_url = os.environ.get("ESTATEOS_TEST_PG_ADMIN_URL")
+    if not admin_url:
+        with PostgresContainer("pgvector/pgvector:0.8.2-pg16", driver="psycopg") as pg:
+            yield pg.get_connection_url()
+        return
+    admin = make_url(admin_url)
+    name = f"estateos_test_{uuid4().hex[:12]}"
+    engine = create_engine(admin, isolation_level="AUTOCOMMIT")
+    with engine.connect() as conn:
+        conn.execute(text(f'CREATE DATABASE "{name}"'))
+    try:
+        yield admin.set(database=name).render_as_string(hide_password=False)
+    finally:
+        with engine.connect() as conn:
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+        engine.dispose()
+
+
 @pytest.fixture(scope="session")
 def pg_url() -> Iterator[str]:
     """Also exported as DATABASE_URL, so code reading `get_settings()` (workflow steps) uses the test database and
     never a developer `.env`."""
     from app.core.settings import get_settings
 
-    with PostgresContainer("pgvector/pgvector:0.8.2-pg16", driver="psycopg") as pg:
-        url = pg.get_connection_url()
+    with _throwaway_database() as url:
         previous = os.environ.get("DATABASE_URL")
         os.environ["DATABASE_URL"] = url
         get_settings.cache_clear()

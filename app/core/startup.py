@@ -50,6 +50,9 @@ def production_problems(settings: Settings) -> list[str]:
             problems.append(f"{name} is not set")
     if settings.price_source == "fake":
         problems.append("price_source is 'fake'")
+    if settings.price_source == "web" and settings.price_search_provider in ("none", "fake"):
+        provider = settings.price_search_provider
+        problems.append(f"price_search_provider is {provider!r} (price_source 'web' needs a real search provider)")
     if settings.dashboard_auth_provider == "fake":
         problems.append("dashboard_auth_provider is 'fake'")
     secret = settings.dashboard_session_secret

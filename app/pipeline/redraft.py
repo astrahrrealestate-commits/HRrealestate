@@ -23,6 +23,7 @@ from uuid import UUID
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
+from app.context.persona import stamp_persona
 from app.contracts import ActionType
 from app.core.errors import AgentFailedError
 from app.core.settings import Settings
@@ -185,6 +186,7 @@ def _insert_reply(session: Session, req: Request, loaded: propose.Loaded, decisi
         payload=payload.model_dump(mode="json"), rationale=decision.action.rationale, context_ref=[req.message_id],
         draft_version=1, status=ActionStatus.pending_approval,
     )  # fmt: skip
+    stamp_persona(row, payload, loaded.ctx.persona)
     session.add(row)
     session.flush()
     propose.record_draft(session, req.company_id, row, req.key)
@@ -219,7 +221,14 @@ def _supersede_in(
 ) -> Redraft:
     urgency = loaded.ctx.understanding.urgency
     revision = supersede_draft(
-        session, req.company_id, approval_id, list(variants), editor=req.key, urgency=urgency, now=req.now
+        session,
+        req.company_id,
+        approval_id,
+        list(variants),
+        editor=req.key,
+        urgency=urgency,
+        now=req.now,
+        persona=loaded.ctx.persona,
     )
     if revision is None:
         return Redraft(None, (), loaded.source, NOT_LIVE)

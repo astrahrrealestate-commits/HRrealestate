@@ -85,3 +85,13 @@ Full detail and the per-layer test matrix: [docs/dev-pipeline.md](docs/dev-pipel
 - **Stop (G1):** ruff → mypy → import-linter → unit on changed Python; a failure blocks finishing.
 - **Permissions:** `.env`/key files unreadable; Gmail MCP send/reply/forward/trash denied.
 If a guard blocks you, follow its message. If you think the guard is wrong, ask the user.
+
+## Autonomy rules (apply only during /autoship)
+- Never ask the user questions or wait for approval. Pick the safest reasonable option and log it in DECISIONS.md.
+- Hooks and invariants still apply. Never work around a guard block: log it and take another path.
+- Never force-push, rewrite history, commit on main, or delete remote branches. main moves only by fast-forward in release.md after every gate is green.
+- Never skip, delete, or weaken tests to get green.
+- No stubs, placeholders, or TODOs in shipped code. Fakes live in tests, behind adapter interfaces.
+- Never claim something works without running it and quoting the result line. A check that couldn't run is a failure.
+- State lives in BUILD_STATUS.md, DECISIONS.md and FINAL_REPORT.md. Re-read them at the start of every pass.
+- If a step fails 3 times the same way, try a different approach, log it, and move on.

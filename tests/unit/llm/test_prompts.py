@@ -23,3 +23,12 @@ def test_missing_prompt_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     prompts.load_prompt.cache_clear()
     with pytest.raises(PromptNotFoundError):
         prompts.load_prompt(PromptRef(name="nope", version="v9"))
+
+
+def test_published_prompts_hash_the_same_on_every_checkout() -> None:
+    """model_calls.prompt_sha256 must not depend on the OS: a CRLF checkout (core.autocrlf on Windows) would hash
+    a published prompt differently from Linux. `.gitattributes` pins prompts to LF."""
+    published = sorted(prompts.PROMPTS_DIR.glob("v*/*.md"))
+    assert published
+    with_cr = [p.relative_to(prompts.PROMPTS_DIR).as_posix() for p in published if b"\r" in p.read_bytes()]
+    assert with_cr == []

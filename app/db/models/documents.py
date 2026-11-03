@@ -81,7 +81,7 @@ class DriveReorgItem(Base, CompanyScoped):
     __table_args__ = (UniqueConstraint("plan_id", "document_id"), Index(None, "company_id", "plan_id"))
 
     plan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("drive_reorg_plans.id", ondelete="CASCADE"))
-    document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id"))
+    document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id"), index=True)  # 0030
     from_folder: Mapped[str] = mapped_column(String(255))
     to_folder: Mapped[str] = mapped_column(String(255))
     from_name: Mapped[str] = mapped_column(String(255))

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, time
 from typing import Any
 
-from sqlalchemy import ForeignKey, String, UniqueConstraint, false, text
+from sqlalchemy import ForeignKey, Index, String, UniqueConstraint, false, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.contracts import Channel, InteractiveChannel, OutboundMode
@@ -33,7 +33,16 @@ class ChannelAccount(Base, CompanyScoped):
     """A provider endpoint we receive on: a WhatsApp phone_number_id or a Gmail mailbox."""
 
     __tablename__ = "channel_accounts"
-    __table_args__ = (UniqueConstraint("channel", "address"),)
+    __table_args__ = (
+        UniqueConstraint("channel", "address"),
+        # Gmail addresses are case-insensitive (lookups use lower()); one mailbox is one account whatever its case.
+        Index(
+            "uq_channel_accounts_gmail_address_lower",
+            func.lower(text("address")),
+            unique=True,
+            postgresql_where=text("channel = 'gmail'"),
+        ),
+    )
 
     channel: Mapped[Channel] = mapped_column(str_enum(Channel))
     address: Mapped[str] = mapped_column(String(320))

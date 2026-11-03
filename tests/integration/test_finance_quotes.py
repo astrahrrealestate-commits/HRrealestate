@@ -26,7 +26,7 @@ from app.db.models import (
     QuoteReview,
     QuoteRow,
 )
-from app.finance import repo
+from app.finance import quotes, repo
 from app.finance.quotes import PURPOSE, recheck_quote, review_message
 from app.finance.stats import MarketStats
 from tests.integration.conftest import purge_company
@@ -435,6 +435,25 @@ def test_recheck_with_the_same_review_id_is_retry_safe(
     assert first == again == wanted
     review, card = _review(migrated_engine, wanted)
     assert (review.report["review_id"], card.ref_id) == (str(wanted), quote.id)
+    assert _count(migrated_engine, QuoteReview, seeded.company_id) == 2
+    assert _count(migrated_engine, OwnerFeed, seeded.company_id) == 2
+
+
+def test_recheck_racing_on_the_same_review_id_returns_it_and_writes_nothing(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seeded = _seed(migrated_engine, committed_company)
+    _snapshot(migrated_engine, seeded)
+    _run(migrated_engine, test_settings, _quote_message(migrated_engine, seeded))
+    quote = _quote(migrated_engine, seeded.company_id)
+    wanted = new_id()
+    assert _recheck(migrated_engine, test_settings, quote.id, seeded.company_id, review_id=wanted) == wanted
+    # the other run committed after this one's exists check: it reaches the insert with a stored id
+    monkeypatch.setattr(quotes, "_review_exists", lambda *a: False)
+
+    again = _recheck(migrated_engine, test_settings, quote.id, seeded.company_id, review_id=wanted)
+
+    assert again == wanted
     assert _count(migrated_engine, QuoteReview, seeded.company_id) == 2
     assert _count(migrated_engine, OwnerFeed, seeded.company_id) == 2
 

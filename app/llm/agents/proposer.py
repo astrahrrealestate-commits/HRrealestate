@@ -7,6 +7,9 @@ An owner-requested draft (Super Agent `draft_reply`, amendment 2026-10-22) adds 
 `<owner_guidance>` block and the draft it replaces as `<current_draft>`; only such a call uses prompt `proposer/v2`.
 Every inbound-message and chase proposal keeps `proposer/v1` and a byte-identical prompt, except one that has passages
 of the case's own documents in view (ADR 0008): that adds an `<excerpts>` block and uses `proposer/v3`.
+A call that carries the owner's persona (his writing-style markdown, added as a `<persona>` block) uses `proposer/v4`,
+which handles every mode above. Production always loads the persona, so v1 to v3 stay published (immutable) and are
+used only by calls built without one (tests, evals of older versions).
 """
 
 from collections.abc import Sequence
@@ -19,6 +22,17 @@ from app.llm.agents.doc_qa import MAX_EXCERPT, Passage, entry_text
 from app.llm.calls import AgentSpec
 from app.llm.prompts import LoadedPrompt
 from app.llm.render import data_block, escape
+
+MAX_PERSONA_CHARS = 8000  # the persona markdown's limit (a data block holds at most this many characters)
+
+
+@dataclass(frozen=True)
+class Persona:
+    """The owner's writing persona as the draft agent sees it; `name` and `version` are stamped on the drafts."""
+
+    name: str
+    version: int
+    text: str
 
 
 @dataclass(frozen=True)
@@ -44,6 +58,7 @@ class ProposerContext:
     guidance: str | None = None  # the owner's sanitised wording (owner-requested drafts only)
     current_draft: Sequence[str] = ()  # the variants of the draft being replaced (owner-requested drafts only)
     person_profile: str | None = None
+    persona: Persona | None = None  # the owner's writing persona (v4 prompt)
 
     @property
     def guided(self) -> bool:
@@ -63,13 +78,18 @@ PROPOSER_DOCS = AgentSpec(  # an inbound-message proposal with passages of the c
 PROPOSER_GUIDED = AgentSpec(
     name="proposer", prompt=PromptRef(name="proposer", version="v2"), output_type=Proposal, finalize=_unchanged
 )
+PROPOSER_PERSONA = AgentSpec(
+    name="proposer", prompt=PromptRef(name="proposer", version="v4"), output_type=Proposal, finalize=_unchanged
+)
 MAX_GUIDANCE = 400  # the planner's `text` limit
 MAX_CURRENT_VARIANT = 1500
 
 
 def proposer_spec(ctx: ProposerContext) -> AgentSpec[Proposal]:
-    """v2 only for an owner-requested draft (guidance or a draft to replace); v3 when the case's own documents are in
-    view (ADR 0008); v1 for everything else."""
+    """v4 whenever the owner's persona is given; otherwise v2 only for an owner-requested draft (guidance or a draft to
+    replace), v3 when the case's own documents are in view (ADR 0008), v1 for everything else."""
+    if ctx.persona is not None:
+        return PROPOSER_PERSONA
     if ctx.guided:
         return PROPOSER_GUIDED
     return PROPOSER_DOCS if ctx.excerpts else PROPOSER
@@ -92,12 +112,14 @@ def proposer_prompt(ctx: ProposerContext) -> str:
         f"category: {u.category.value}\nurgency: {u.urgency.value}\n</case>"
     )
     profile_block = [data_block("person_profile", ctx.person_profile)] if ctx.person_profile else []
+    persona_block = [data_block("persona", ctx.persona.text, MAX_PERSONA_CHARS)] if ctx.persona else []
     data = f"Subject: {ctx.subject or '-'}\nIntent: {u.intent}\nCase summary: {ctx.case_summary or 'none'}"
     waiting = data_block("waiting", "\n".join(ctx.waiting) or "none")
     return "\n".join(
         [
             f"<mode>{ctx.mode}</mode>",
             case,
+            *persona_block,
             *profile_block,
             data_block("data", data),
             waiting,

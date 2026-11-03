@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.contracts import Urgency
 from app.db.enums import ActionStatus, ApprovalStatus
 from app.db.models import ActionRow, Approval
+from app.llm.agents.proposer import Persona
 from app.pipeline import approvals
 from app.pipeline.approvals import EDIT_WINDOW, NewRevision
 
@@ -57,6 +58,7 @@ def supersede_draft(
     editor: str,
     urgency: Urgency,
     now: datetime,
+    persona: Persona | None = None,
 ) -> NewRevision | None:
     """Exactly once: the approval expires and the action gets a new version and approval (`approvals.revise`).
     `editor` is the caller's deterministic key: a retry returns the revision it wrote. None when the draft is no
@@ -68,4 +70,6 @@ def supersede_draft(
         return approvals.replayed_edit(session, company_id, editor)
     approval, action = live
     approval.status = ApprovalStatus.expired
-    return approvals.revise(session, company_id, action, variants, editor=editor, urgency=urgency, now=now)
+    return approvals.revise(
+        session, company_id, action, variants, editor=editor, urgency=urgency, now=now, persona=persona
+    )

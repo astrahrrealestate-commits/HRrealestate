@@ -18,6 +18,7 @@ from app.contracts import ActionType, ButtonChoice, Urgency
 from app.core.errors import NotFoundError
 from app.db.enums import ActionStatus, ApprovalStatus, SendStatus, TaskPriority
 from app.db.models import ActionRevision, ActionRow, Approval, Send
+from app.llm.agents.proposer import Persona
 from app.pipeline import work_repo
 
 EDIT_WINDOW = timedelta(hours=24)
@@ -206,12 +207,16 @@ def revise(
     editor: str,
     urgency: Urgency,
     now: datetime,
+    persona: Persona | None = None,
 ) -> NewRevision:
     """The revision path (owner edit, owner-requested redraft): `draft_version + 1` with new variants (channel and
-    subject stay the action's own), an ActionRevision row keyed by `editor`, and a new pending approval."""
+    subject stay the action's own), an ActionRevision row keyed by `editor`, and a new pending approval.
+    `persona` is the one a redraft was written in; an owner's own edit passes none, so the draft stops claiming one."""
     payload: dict[str, Any] = {**action.payload, "body_variants": variants}
     action.draft_version += 1
     action.payload = payload
+    action.persona_name = persona.name if persona else None
+    action.persona_version = persona.version if persona else None
     session.add(
         ActionRevision(
             company_id=company_id,

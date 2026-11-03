@@ -31,6 +31,7 @@ import {
   Trash2,
   Sun,
   Moon,
+  UserRound,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -912,6 +913,16 @@ export function AskEstateOSPanel({
                             isDark ? "bg-[#15181C] border-[#222830]" : "bg-[#FBFBFA] border-[#E8E8E5]"
                           )}
                         >
+                    {pCard.type === "draft_message" && pCard.personaName && (
+                      <div
+                        className={cn("flex items-center gap-1.5 text-[10.5px] font-medium", isDark ? "text-[#94A3B8]" : "text-[#6B7280]")}
+                        title={`Drafted using the persona file "${pCard.personaName}" (version ${pCard.personaVersion ?? 1})`}
+                      >
+                        <UserRound className="w-3 h-3 shrink-0" />
+                        <span>Acting as Harjot</span>
+                        <span className="font-normal opacity-80 truncate">· {pCard.personaName} v{pCard.personaVersion ?? 1}</span>
+                      </div>
+                    )}
                     {/* 1. Case Snapshot Card */}
                     {pCard.type === "case_summary" ? (
                       (() => {

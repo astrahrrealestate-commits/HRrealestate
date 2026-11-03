@@ -10,6 +10,7 @@ class Fake(BaseSettings):
     gmail_credentials_file: str | None = None
     gmail_reply_send_credentials_file: str | None = None
     whatsapp_media_tokens: dict[str, SecretStr] = {}
+    price_search_provider: str = "none"
 
 
 def test_missing_lists_unset_names_sorted_once() -> None:
@@ -37,6 +38,13 @@ def test_settings_values_count_even_without_environment() -> None:
 def test_provider_left_on_fake_is_missing() -> None:
     assert missing(["WHATSAPP_PROVIDER"], configured_from({}, Fake())) == ["WHATSAPP_PROVIDER"]
     assert missing(["WHATSAPP_PROVIDER"], configured_from({}, Fake(whatsapp_provider="360dialog"))) == []
+
+
+def test_search_provider_left_on_none_or_fake_is_missing() -> None:
+    for unset in ("none", "fake"):
+        got = missing(["PRICE_SEARCH_PROVIDER"], configured_from({}, Fake(price_search_provider=unset)))
+        assert got == ["PRICE_SEARCH_PROVIDER"]
+    assert missing(["PRICE_SEARCH_PROVIDER"], configured_from({}, Fake(price_search_provider="tavily"))) == []
 
 
 def test_outbound_lists_the_reply_send_token_and_mailbox_when_missing() -> None:

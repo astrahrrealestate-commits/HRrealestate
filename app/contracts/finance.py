@@ -1,6 +1,6 @@
 """Quote Checker contracts (M11): what the quote reader extracts, the job it is checked against, and the verdict
-vocabularies. `ExtractedQuote` and `JobItems` are LLM `output_type`s, so they follow the strict-schema rules in
-`common.py` (no defaults, no length keywords on strings).
+vocabularies. `ExtractedQuote`, `JobItems` and `ExtractedPrices` are LLM `output_type`s, so they follow the
+strict-schema rules in `common.py` (no defaults, no length keywords on strings).
 """
 
 from datetime import date
@@ -14,6 +14,8 @@ from app.contracts.common import Contract, Money, NonBlankStr, max_len
 
 MAX_QUOTE_LINES = 40
 MAX_JOB_ITEMS = 10
+MAX_EXTRACTED_PRICES = 10
+MAX_EVIDENCE_CHARS = 300
 MAX_QUANTITY = Decimal(100000)
 
 Quantity = Annotated[
@@ -94,3 +96,19 @@ class JobItems(Contract):
     """What the job is, in priceable lines, for a cost estimate or a quote check."""
 
     items: Annotated[list[JobItem], Field(max_length=MAX_JOB_ITEMS)]
+
+
+class ExtractedPrice(Contract):
+    """One price a web page states for the wanted service. `amount` carries the page's currency (the source keeps
+    EUR only); `evidence` is a short snippet copied from the page, checked against it before the price is used."""
+
+    amount: PositiveMoney
+    unit: Annotated[str, max_len(30)]
+    vat_included: bool | None
+    evidence: Annotated[NonBlankStr, max_len(MAX_EVIDENCE_CHARS)]
+
+
+class ExtractedPrices(Contract):
+    """Output of the price_extractor agent for one page; empty when the page states no matching price."""
+
+    prices: Annotated[list[ExtractedPrice], Field(max_length=MAX_EXTRACTED_PRICES)]
