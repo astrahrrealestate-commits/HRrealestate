@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     agent,
     auth,
+    brixx,
     cases,
     decisions,
     diligence,
@@ -32,3 +33,4 @@ api_v1_router.include_router(memory.router)
 api_v1_router.include_router(finance.router)
 api_v1_router.include_router(finance_rates.router)
 api_v1_router.include_router(diligence.router)
+api_v1_router.include_router(brixx.router)
