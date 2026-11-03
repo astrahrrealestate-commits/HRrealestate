@@ -1,4 +1,5 @@
 from app.core.settings import Settings
+from app.workflows import brixx_documents, runtime
 from app.workflows.runtime import SCHEDULES, dbos_config
 
 
@@ -11,3 +12,7 @@ def test_dbos_config_does_not_pin_application_version() -> None:
 def test_schedule_names_unique() -> None:
     names = [s["schedule_name"] for s in SCHEDULES]
     assert len(names) == len(set(names))
+
+
+def test_document_download_workflows_are_registered_at_launch() -> None:
+    assert brixx_documents in runtime._REGISTERED
