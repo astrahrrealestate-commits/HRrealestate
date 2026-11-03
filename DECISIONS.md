@@ -36,6 +36,13 @@ agent and open to reversal.
     dependencies, M8 last. At most 4 builders per wave.
 13. **auto** - The edit guard matches repo-relative paths, so it does not protect files under `.claude/worktrees/`.
     build.md adds a mechanical check (migrations/prompts/fixtures only added, no skip/xfail) on every builder branch.
+14. **auto** - Integration tests can run without Docker: `ESTATEOS_TEST_PG_ADMIN_URL` (opt-in, unset by default) makes
+    the session fixture create and drop a throwaway database on an existing Postgres 16 + pgvector server instead of
+    a testcontainer. On this machine that server is pgserver (PyPI; Postgres 16.2, pgvector 0.6.2; the migrations only
+    need `vector(n)` + HNSW). testcontainers stays the default and the CI path.
+15. **auto** - frontend/package-lock.json was out of sync with package.json (`npm ci`: Missing @emnapi/runtime,
+    @emnapi/core); regenerated with `npm install --package-lock-only` (adds the WASM runtime entries, drops stale
+    `peer` flags, no version changes).
 
 ## Environment (Windows dev machine, 2026-11-03)
 
@@ -46,4 +53,4 @@ agent and open to reversal.
   `CLAUDE_CODE_GIT_BASH_PATH`; `~/.local/bin` and Git `bin` are first on the user PATH.
 - Windows-only test failures (not code bugs on Linux): 0600 permissions and symlinks (gmail_consent, gmail push,
   storage and mailbox contracts), CRLF prompt text (concierge v6 tests), `fcntl` in `app/channels/gmail/fake.py`
-  (mypy), time-bounded quote stripping.
+  (mypy, fixed in 310fbc7), time-bounded quote stripping, worker SIGTERM (TerminateProcess exits 1).
