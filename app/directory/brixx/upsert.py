@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.channels.brixx.models import BrixxTable
 from app.channels.brixx.normalise import normalise_row
 from app.core.errors import BrixxError
+from app.db.brixx_erasure import without_erased
 from app.directory.brixx.schema import INCREMENTAL_COLUMN, SYSTEM_COLUMNS
 
 log = structlog.get_logger()
@@ -52,7 +53,8 @@ def upsert_page(
 
     Precondition: every row carries every mirror column (full replacement; never fetch with a `fields=` projection),
     because absent columns are written as NULL. `skipped_older` counts rows not written: in-page duplicates that a
-    higher version superseded, plus rows a newer stored row beat. Nothing is committed here.
+    higher version superseded, rows a newer stored row beat, and rows of a GDPR-erased relatie (never written back).
+    Nothing is committed here.
     """
     if synced_at.utcoffset() is None:
         raise BrixxError("synced_at must be timezone-aware")
@@ -68,7 +70,8 @@ def upsert_page(
         values["_extra"] = extras or None
         current = records.get(key)
         records[key] = values if current is None or _supersedes(values, current) else current
-    written = _write_chunks(session, table, pk, company_id, list(records.values()), synced_at)
+    kept = without_erased(session, info.name, company_id, list(records.values()))  # GDPR tombstones
+    written = _write_chunks(session, table, pk, company_id, kept, synced_at)
     log.info("brixx.upsert", table=table.name, rows=len(rows), written=written, extra_columns=len(extra_columns))
     return UpsertResult(written, len(rows) - written, frozenset(extra_columns))
 

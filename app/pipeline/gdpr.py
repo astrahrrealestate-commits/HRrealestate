@@ -6,6 +6,8 @@ Cascades tenant erasure across:
 3. `messages` (text and sender_identity redacted).
 4. `channel_identities` (identity scrubbed, valid_to set).
 5. `people` (display_name set to [Erased Person], valid_to set).
+6. BRIXX mirror: a person with a numeric `brixx_ref` gets a `brixx_erased_refs` tombstone and their mirror rows
+   (`brixx.prg_relatie`, `brixx.zprg_relatie`) are deleted, so a re-sync never resurrects them.
 Strictly company-scoped (invariant 4).
 """
 
@@ -17,6 +19,7 @@ from sqlalchemy import delete, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
+from app.db.brixx_erasure import purge_brixx_relatie, relatie_id
 from app.db.enums import MemoryScope, MemoryStatus
 from app.db.models import (
     ChannelIdentity,
@@ -40,6 +43,7 @@ class ErasureReport:
     messages_redacted: int
     identities_cleared: int
     person_anonymized: bool
+    brixx_rows_purged: int
 
 
 def erase_person(
@@ -157,7 +161,11 @@ def erase_person(
         )
     )
     person_anonymized = False
+    brixx_rows_purged = 0
     if person is not None:
+        relatie = relatie_id(person.brixx_ref)
+        if relatie is not None:
+            brixx_rows_purged = purge_brixx_relatie(session, company_id, relatie)
         person.display_name = "[Erased Person]"
         person.trade = None
         person.brixx_ref = None
@@ -174,6 +182,7 @@ def erase_person(
         messages_redacted=messages_redacted,
         identities_cleared=identities_cleared,
         person_anonymized=person_anonymized,
+        brixx_rows_purged=brixx_rows_purged,
     )
     log.info(
         "gdpr.person_erased",
@@ -181,5 +190,6 @@ def erase_person(
         person_id=str(person_id),
         memories_retired=memories_retired,
         messages_redacted=messages_redacted,
+        brixx_rows_purged=brixx_rows_purged,
     )
     return report
