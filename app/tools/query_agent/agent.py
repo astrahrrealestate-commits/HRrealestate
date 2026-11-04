@@ -10,8 +10,11 @@ import httpx
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
+from app.contracts import PromptRef
+from app.core.errors import AgentFailedError
 from app.core.logging import get_logger
 from app.core.settings import Settings
+from app.llm.calls import AgentSpec, CallContext, run_agent
 from app.tools.query_agent.executor import QueryExecutionResult, execute_readonly_query
 from app.tools.query_agent.prompt import QUERY_AGENT_SYSTEM_PROMPT
 from app.tools.query_agent.validator import SQLSecurityError, validate_and_wrap_sql
@@ -71,13 +74,38 @@ def _call_groq_or_gemini(
     return None
 
 
+QUERY_AGENT = AgentSpec(
+    name="query_agent",
+    prompt=PromptRef(name="query_agent", version="v1"),
+    output_type=SQLQueryProposal,
+    finalize=lambda output, _loaded: output,
+)
+
+
+def _propose_with_configured_llm(
+    user_prompt: str, engine: Engine, settings: Settings, company_id: UUID
+) -> SQLQueryProposal | None:
+    """The project's own LLM layer (configured model, versioned prompt, one `model_calls` row per call)."""
+    try:
+        ctx = CallContext(company_id=company_id, purpose="query_agent")
+        return run_agent(engine, settings, QUERY_AGENT, user_prompt, ctx).output
+    except AgentFailedError as exc:
+        log.warning("query_agent.llm_failed", error=str(exc))
+        return None
+
+
 def propose_sql(
     question: str,
     settings: Settings,
     history: Sequence[str] | None = None,
     feedback_error: str | None = None,
+    *,
+    engine: Engine | None = None,
+    company_id: UUID | None = None,
 ) -> SQLQueryProposal | None:
-    """Generates an SQL proposal from natural language, with optional error-feedback correction."""
+    """Generates an SQL proposal from natural language, with optional error-feedback correction.
+
+    Groq answers when a key is configured; otherwise (or when it fails) the configured LLM does."""
     user_prompt = f"User Question: {question}"
     if history:
         recent_turns = "\n".join(history[-4:])
@@ -86,7 +114,8 @@ def propose_sql(
     if feedback_error:
         user_prompt += (
             f"\n\nCRITICAL: The previous SQL query failed with error:\n{feedback_error}\n"
-            "Please fix this error and generate a corrected, valid PostgreSQL SELECT query referencing the database schema. "
+            "Please fix this error and generate a corrected, valid PostgreSQL SELECT query referencing the database "
+            "schema. "
             "Output your answer as a JSON object with keys 'sql' and 'rationale'."
         )
     else:
@@ -94,7 +123,12 @@ def propose_sql(
 
     raw_output = _call_groq_or_gemini(user_prompt, settings)
     if not raw_output:
-        return None
+        if engine is None or company_id is None or settings.llm_model == "fake":
+            return None
+        proposal = _propose_with_configured_llm(user_prompt, engine, settings, company_id)
+        if proposal is None:
+            return None
+        return SQLQueryProposal(sql=proposal.sql.strip().strip("`").rstrip(";"), rationale=proposal.rationale)
 
     try:
         data = json.loads(raw_output)
@@ -153,7 +187,9 @@ def run_query_agent(
     last_sql: str | None = None
 
     for attempt in range(max_retries + 1):
-        proposal = propose_sql(question, settings, history=history, feedback_error=last_error)
+        proposal = propose_sql(
+            question, settings, history=history, feedback_error=last_error, engine=engine, company_id=company_id
+        )
         if not proposal or not proposal.sql:
             last_error = "Could not generate SQL proposal"
             continue
