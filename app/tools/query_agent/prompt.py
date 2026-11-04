@@ -107,6 +107,8 @@ Always output your response as a valid JSON object with keys "sql" and "rational
 4. Remember: In `cases`, the column is `state`, NOT `status`. In `actions`, the column is `status`.
 5. Use standard analytical functions: COUNT(*), SUM(...), AVG(...), LOWER(...), DATE_TRUNC('month', ...), COALESCE(...).
 6. Do NOT include trailing semicolons or markdown code block fences in the sql field.
+7. `people.kind` is NOT reliable for people who wrote in: an unknown sender is stored as kind 'other'. The tenant of a case is
+   `cases.primary_person_id`: to list tenants or reporters of cases, join `people` through it and do NOT filter `people.kind = 'tenant'`.
 
 ### FEW-SHOT EXAMPLES:
 

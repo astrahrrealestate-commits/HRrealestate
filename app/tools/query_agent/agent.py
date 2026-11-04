@@ -76,7 +76,7 @@ def _call_groq_or_gemini(
 
 QUERY_AGENT = AgentSpec(
     name="query_agent",
-    prompt=PromptRef(name="query_agent", version="v1"),
+    prompt=PromptRef(name="query_agent", version="v2"),
     output_type=SQLQueryProposal,
     finalize=lambda output, _loaded: output,
 )
