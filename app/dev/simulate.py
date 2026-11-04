@@ -52,14 +52,26 @@ class Simulator:
         """The API client (cookies persist), for scenarios that call the v1 routes."""
         return self._http
 
-    def whatsapp(self, sender_e164: str, text: str, *, name: str = "Mieter", image: fx.Attachment | None = None) -> str:
+    def whatsapp(
+        self,
+        sender_e164: str,
+        text: str,
+        *,
+        name: str = "Mieter",
+        image: fx.Attachment | None = None,
+        document: fx.Attachment | None = None,
+    ) -> str:
         wamid, now = f"wamid.SIM{uuid4().hex.upper()}", datetime.now(UTC)
-        if image is None:
+        file = image or document
+        if file is None:
             message = fx.wa_text(wamid, text, now)
         else:
-            media_id, blob = f"SIM{uuid4().hex}", MediaBlob(image.data, image.mime_type)
+            media_id, blob = f"SIM{uuid4().hex}", MediaBlob(file.data, file.mime_type)
             registry.fake_whatsapp_media(self._settings).put(media_id, blob)
-            message = fx.wa_image(wamid, media_id, blob.sha256, text or None, now)
+            if document is not None:
+                message = fx.wa_document(wamid, media_id, blob.sha256, file.mime_type, file.filename, text or None, now)
+            else:
+                message = fx.wa_image(wamid, media_id, blob.sha256, text or None, now)
         self._post_whatsapp(fx.wa_webhook(pnid=fx.DEV_PNID, sender_e164=sender_e164, name=name, message=message))
         return wamid
 
@@ -154,6 +166,8 @@ def _parser() -> argparse.ArgumentParser:
     approve = sub.add_parser("approve", help="tap a pending approval as Harjot (simulated WhatsApp)")
     approve.add_argument("--n", type=int, default=1, help="row number from `pending` (1 = newest)")
     approve.add_argument("--choice", default="d1", choices=["ok", "d1", "d2", "d3", "rej"])
+    tour = sub.add_parser("tour", help="mock portfolio + one scripted day so every agent runs (needs the live stack)")
+    tour.add_argument("--timeout", type=float, default=120.0)
     demo = sub.add_parser("demo", help="seed, run the parity and dashboard scenarios and assert the stored rows (G5)")
     demo.add_argument("--timeout", type=float, default=60.0)
     return parser
@@ -180,6 +194,10 @@ def _run(args: argparse.Namespace, sim: Simulator, engine: Engine, settings: Set
 
     if args.command == "demo":
         return run_demo(sim, engine, settings, timeout=args.timeout)
+    if args.command == "tour":
+        from app.dev.mock_tour import run_tour
+
+        return run_tour(sim, engine, settings, timeout=args.timeout)
     if args.command in ("gmail-pull", "pending", "approve"):
         return _run_real_gmail(args, sim, engine, settings)
     if args.command == "seed":

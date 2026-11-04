@@ -300,31 +300,41 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
         whatsapp_drafts: list[dict[str, Any]] = []
         draft_persona: dict[str, Any] | None = None  # set only for model drafts written in the owner's persona
 
-        ai_variants = (
-            reply_action.payload.get("body_variants") if reply_action and reply_action.payload else None
-        ) or []
-        if reply_action and ai_variants:  # the agent's own draft, in whatever language and channel it wrote it
+        if reply_action and reply_action.payload:  # the agent's own draft, shown on both tabs
             if reply_action.persona_name:
                 draft_persona = {
                     "actingAs": "Harjot",
                     "name": reply_action.persona_name,
                     "version": reply_action.persona_version,
                 }
-            ai_channel = "whatsapp" if reply_action.payload.get("channel") == "whatsapp" else "gmail"
-            prefix = "wd" if ai_channel == "whatsapp" else "gd"
-            target = whatsapp_drafts if ai_channel == "whatsapp" else gmail_drafts
-            for idx, text in enumerate(ai_variants, start=1):
-                target.append(
+            variants = reply_action.payload.get("body_variants") or []
+            if not variants and reply_action.payload.get("text"):
+                variants = [reply_action.payload["text"]]
+            elif not variants and reply_action.payload.get("body"):
+                variants = [reply_action.payload["body"]]
+
+            for idx, text in enumerate(variants, start=1):
+                gmail_drafts.append(
                     {
-                        "id": f"{prefix}{idx}",
+                        "id": f"gd{idx}",
                         "label": f"Draft {idx} (Recommended)" if idx == 1 else f"Draft {idx} (Alternative)",
-                        "channel": ai_channel,
+                        "channel": "gmail",
                         "text": text,
                         "englishMeaning": "AI-generated draft reply to tenant",
                         "confidence": 98 if idx == 1 else 95,
                     }
                 )
-        else:
+                whatsapp_drafts.append(
+                    {
+                        "id": f"wd{idx}",
+                        "label": f"WhatsApp {idx} (Quick Confirmation)" if idx == 1 else f"WhatsApp {idx} (Detailed)",
+                        "channel": "whatsapp",
+                        "text": text if len(text) < 160 else text.split("\n\n")[0],
+                        "confidence": 98 if idx == 1 else 95,
+                    }
+                )
+
+        if not gmail_drafts:
             # No agent draft yet: neutral acknowledgements only. They state no fact, date, amount or commitment.
             d1_en = (
                 f"Dear {sender_name},\n\nThank you for your message. We have received it and will get back to you "
