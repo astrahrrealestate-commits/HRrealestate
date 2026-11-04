@@ -407,8 +407,9 @@ function MaintenanceContent() {
           />
         </div>
 
-        {/* 3. Maintenance Workspace: Full Width with Right Drawer UI */}
-        <div className="flex-1 flex flex-col min-h-0 h-[calc(100dvh-3.5rem)] relative overflow-hidden bg-white rounded-tl-[24px] sm:rounded-tl-[28px] shadow-2xl">
+        {/* WORKSPACE ROW with 40% Super Agent */}
+        <div className="flex-1 flex flex-row overflow-hidden min-h-0 w-full relative">
+          <div className="flex-1 m-0 mr-[10px] mb-[10px] bg-white rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden relative">
           
           {/* Header + Controls + Table / Ticket Rows List */}
           <div className="h-full flex flex-col overflow-hidden bg-[var(--pane)]">
@@ -1009,6 +1010,20 @@ function MaintenanceContent() {
               </aside>
             </>
           )}
+          </div>
+
+          {/* Ask EstateOS Panel (40% width on right side) */}
+          <AskEstateOSPanel
+            currentPageName="Maintenance"
+            selectedContext={
+              selectedTicket
+                ? `Ticket ${selectedTicket.ticketNumber} · ${selectedTicket.issueTitle} (${selectedTicket.unitLabel})`
+                : "Active Maintenance Work Orders"
+            }
+            onActionTriggered={(actionType) => {
+              showToast(`Action dispatched: ${actionType}`);
+            }}
+          />
         </div>
       </div>
 
@@ -1036,23 +1051,12 @@ function MaintenanceContent() {
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 bg-[#0A0A0A] text-[#FFFFFF] text-[13px] font-semibold px-4 py-2.5 rounded-[12px] shadow-lg flex items-center gap-2.5 animate-in fade-in slide-in-from-bottom-2 duration-150">
-          <Check className="w-4 h-4 text-[#F25C05]" />
+          <Check className="w-4 h-4 text-[#1a73e8]" />
           <span>{toastMessage}</span>
         </div>
       )}
 
-      {/* Ask EstateOS Panel */}
-      <AskEstateOSPanel
-        currentPageName="Maintenance"
-        selectedContext={
-          selectedTicket
-            ? `Ticket ${selectedTicket.ticketNumber} · ${selectedTicket.issueTitle} (${selectedTicket.unitLabel})`
-            : "Active Maintenance Work Orders"
-        }
-        onActionTriggered={(actionType) => {
-          showToast(`Action dispatched: ${actionType}`);
-        }}
-      />
+
 
       {/* Mobile Bottom Tab Bar (Hidden on mobile when ticket detail is open) */}
       <MobileTabBar

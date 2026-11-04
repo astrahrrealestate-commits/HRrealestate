@@ -1,19 +1,12 @@
 import type { Metadata, Viewport } from "next";
-import { Hanken_Grotesk, Bricolage_Grotesque, IBM_Plex_Mono } from "next/font/google";
+import { DM_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { SuperAgentProvider } from "@/context/SuperAgentContext";
 
-const hankenGrotesk = Hanken_Grotesk({
-  variable: "--font-hanken",
+const dmSans = DM_Sans({
+  variable: "--font-dm-sans",
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
-  display: "swap",
-});
-
-const bricolageGrotesque = Bricolage_Grotesque({
-  variable: "--font-bricolage",
-  subsets: ["latin"],
-  weight: ["700"],
   display: "swap",
 });
 
@@ -43,7 +36,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${hankenGrotesk.variable} ${bricolageGrotesque.variable} ${ibmPlexMono.variable} h-full antialiased`}
+      className={`${dmSans.variable} ${ibmPlexMono.variable} h-full antialiased`}
     >
       <body className="min-h-dvh flex flex-col font-sans bg-[var(--bg)] text-[var(--ink)]">
         <SuperAgentProvider>{children}</SuperAgentProvider>

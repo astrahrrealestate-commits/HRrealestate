@@ -21,7 +21,7 @@ export function AutonomousLogCard({
       <div>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2.5">
-            <span className="text-[#F25C05] text-[15px] leading-none font-bold">✦</span>
+            <span className="text-[#1a73e8] text-[15px] leading-none font-bold">✦</span>
             <div>
               <h3 className="text-[15px] font-semibold text-[#0A0A0A] leading-none">
                 Auto-handled this week

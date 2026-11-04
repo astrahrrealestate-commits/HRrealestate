@@ -22,8 +22,6 @@ import {
   Loader2,
   Maximize2,
   Minimize2,
-  PanelRight,
-  Layout,
   FileText,
   History,
   Plus,
@@ -32,6 +30,12 @@ import {
   Sun,
   Moon,
   UserRound,
+  ArrowUp,
+  Mic,
+  ThumbsUp,
+  ThumbsDown,
+  MoreVertical,
+  List,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -99,6 +103,7 @@ export function AskEstateOSPanel({
   const [inputQuery, setInputQuery] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [showFewerSuggestions, setShowFewerSuggestions] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
 
   useEffect(() => {
@@ -175,7 +180,7 @@ export function AskEstateOSPanel({
   const setMessages = superAgent.setMessages;
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Keyboard shortcut listener: Ctrl+J to toggle, Esc to close
   useEffect(() => {
@@ -220,6 +225,15 @@ export function AskEstateOSPanel({
         "Summarize unread emails",
         "Explain leak ticket",
         "Draft work order",
+        "Which emails urgent",
+      ];
+    }
+    if (currentPageName.toLowerCase().includes("contact")) {
+      return [
+        "Generate reply for latest email",
+        "Summarise unread messages",
+        "Draft WhatsApp update",
+        "Check lease renewal & rent status",
       ];
     }
     if (currentPageName.toLowerCase().includes("money")) {
@@ -397,16 +411,21 @@ export function AskEstateOSPanel({
   };
 
   const handleNavigate = (url: string) => {
+    // Disambiguate /messages -> /inbox so code never breaks
+    let target = url;
+    if (target === "/messages" || target.startsWith("/messages?")) {
+      target = target.replace("/messages", "/inbox");
+    }
     // Only yield/close if in center modal mode OR if navigating to an item that opens a right drawer
-    const opensDrawer = url.includes("ticket=") || url.includes("invoice=") || url.includes("tx=") || url.includes("thread=");
+    const opensDrawer = target.includes("ticket=") || target.includes("invoice=") || target.includes("tx=") || target.includes("thread=");
     if (panelMode === "center" || opensDrawer) {
       onClose();
     }
     // Perform client-side Next.js navigation without hard-reloading the browser or wiping state
-    router.push(url);
+    router.push(target);
     // Dispatch instant sync event for same-page transitions
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("estateos:navigate", { detail: { url } }));
+      window.dispatchEvent(new CustomEvent("estateos:navigate", { detail: { url: target } }));
     }
   };
 
@@ -448,11 +467,11 @@ export function AskEstateOSPanel({
 
   return (
     <>
-      {/* Backdrop: Shown in Center mode (40%) and Fullscreen mode */}
-      {(panelMode === "center" || isFullScreen) && (
+      {/* Backdrop: Only shown in Fullscreen mode */}
+      {isFullScreen && (
         <div
           onClick={onClose}
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px] transition-opacity duration-200 animate-in fade-in"
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px] transition-opacity duration-200"
         />
       )}
 
@@ -462,17 +481,12 @@ export function AskEstateOSPanel({
           3. Fullscreen Mode: expanded modal
       */}
       <aside
+        id="aiSidePanel"
         className={cn(
-          "shadow-2xl flex flex-col justify-between font-sans transition-colors duration-150",
-          isDark
-            ? "bg-[#0E1113] text-[#F3F4F6] border-[#22282E]"
-            : "bg-[#FFFFFF] text-[#0A0A0A] border-[#E8E8E5]",
-
+          "bg-white flex flex-col justify-between font-sans shrink-0 overflow-hidden relative transition-all duration-300",
           isFullScreen
-            ? "fixed inset-2 md:inset-6 z-50 rounded-[18px] border overflow-hidden transition-all duration-200 animate-in zoom-in-95"
-            : panelMode === "center"
-            ? "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[95vw] sm:w-[85vw] md:w-[40vw] md:min-w-[500px] md:max-w-[720px] h-[82vh] max-h-[850px] rounded-[18px] border overflow-hidden transition-all duration-200 animate-in zoom-in-95"
-            : "fixed inset-0 z-50 md:sticky md:top-0 md:right-0 md:z-30 w-full md:w-[32vw] md:min-w-[360px] md:max-w-[520px] h-dvh md:h-screen md:border-l flex-shrink-0 overflow-hidden transition-all duration-200 animate-in slide-in-from-right-4"
+            ? "fixed inset-2 md:inset-6 z-50 rounded-[18px] border border-[#27272a] shadow-2xl"
+            : "fixed inset-0 z-50 md:relative md:inset-auto md:z-10 w-full md:w-[40%] md:min-w-[400px] md:max-w-[640px] m-0 md:mr-[10px] md:mb-[10px] h-full rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)]"
         )}
       >
         {/* 1. Header Bar with Integrated Context Tag (No extra box bar needed) */}
@@ -500,13 +514,11 @@ export function AskEstateOSPanel({
             {/* AI Agent Icon */}
             <div
               className={cn(
-                "w-7 h-7 rounded-[8px] border flex items-center justify-center shadow-xs shrink-0",
-                isDark
-                  ? "bg-[#182026] border-[#2A3540] text-emerald-300"
-                  : "bg-[#FFF1E7] border-[#F25C05]/30 text-[#F25C05]"
+                "w-7 h-7 rounded-full flex items-center justify-center shrink-0",
+                isDark ? "bg-[#1a73e8]/20 text-[#60a5fa]" : "bg-[#eff6ff] text-[#1a73e8]"
               )}
             >
-              <Sparkles className="w-3.5 h-3.5" />
+              <Sparkles className="w-4 h-4 text-[#1a73e8] animate-ai-star" />
             </div>
 
             {/* Title & Page Context */}
@@ -538,8 +550,8 @@ export function AskEstateOSPanel({
                   "w-7 h-7 rounded-[7px] border flex items-center justify-center transition-colors cursor-pointer shrink-0 ml-1",
                   superAgent.isHistoryOpen
                     ? isDark
-                      ? "bg-[#1E2328] border-[#F25C05]/50 text-white"
-                      : "bg-[#FFF1E7] border-[#F25C05] text-[#F25C05]"
+                      ? "bg-[#1E2328] border-[#1a73e8]/50 text-white"
+                      : "bg-[#eff6ff] border-[#1a73e8] text-[#1a73e8]"
                     : isDark
                       ? "bg-[#14181B] hover:bg-[#1C2227] border-[#20262B] text-[#94A3B8] hover:text-[#FFFFFF]"
                       : "bg-[#F6F6F4] hover:bg-[#EBEBE8] border-[#E8E8E5] text-[#444444] hover:text-[#0A0A0A]"
@@ -561,7 +573,7 @@ export function AskEstateOSPanel({
                 )}
                 title="Start a new conversation thread"
               >
-                <Plus className="w-3 h-3 text-[#F25C05]" />
+                <Plus className="w-3 h-3 text-[#1a73e8]" />
                 <span>New Chat</span>
               </button>
 
@@ -590,39 +602,17 @@ export function AskEstateOSPanel({
                 className={cn(
                   "hidden sm:inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold border rounded-[7px] transition-colors cursor-pointer shrink-0",
                   isDark
-                    ? "text-[#F25C05] bg-[#161A1D] hover:bg-[#20262B] border-[#252B32]"
-                    : "text-[#B93C00] bg-[#FFF1E7] hover:bg-[#FFE5D4] border-[#F25C05]/30"
+                    ? "text-[#1a73e8] bg-[#161A1D] hover:bg-[#20262B] border-[#252B32]"
+                    : "text-[#1557b0] bg-[#eff6ff] hover:bg-[#dbeafe] border-[#1a73e8]/30"
                 )}
                 title={`Switch back to ${activeDrawerInfo.kind} ${activeDrawerInfo.title}`}
               >
-                <ArrowLeft className="w-3 h-3 text-[#F25C05]" />
+                <ArrowLeft className="w-3 h-3 text-[#1a73e8]" />
                 <span>Back to {activeDrawerInfo.kind} {activeDrawerInfo.title}</span>
               </button>
             )}
 
-            {/* Mode Switcher: Center (40%) <-> Dock (30%) */}
-            <button
-              onClick={togglePanelMode}
-              className={cn(
-                "hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-[7px] border text-[11px] transition-colors cursor-pointer",
-                isDark
-                  ? "bg-[#14181B] hover:bg-[#1C2227] border-[#20262B] text-[#94A3B8] hover:text-[#FFFFFF]"
-                  : "bg-[#F6F6F4] hover:bg-[#EBEBE8] border-[#E8E8E5] text-[#444444] hover:text-[#0A0A0A]"
-              )}
-              title={panelMode === "center" ? "Dock to right side (30%)" : "Float in center (40%)"}
-            >
-              {panelMode === "center" ? (
-                <>
-                  <PanelRight className="w-3.5 h-3.5" />
-                  <span>Dock 30%</span>
-                </>
-              ) : (
-                <>
-                  <Layout className="w-3.5 h-3.5" />
-                  <span>Center 40%</span>
-                </>
-              )}
-            </button>
+
 
             {/* Fullscreen / Restore Toggle Button */}
             <button
@@ -707,7 +697,7 @@ export function AskEstateOSPanel({
                   )}
                   title="Start a new conversation"
                 >
-                  <Plus className="w-3 h-3 text-[#F25C05]" />
+                  <Plus className="w-3 h-3 text-[#1a73e8]" />
                   <span>New</span>
                 </button>
               </div>
@@ -739,8 +729,8 @@ export function AskEstateOSPanel({
                                 "group p-2 rounded-[8px] transition-all cursor-pointer flex items-center justify-between gap-1.5 text-left",
                                 isActive
                                   ? isDark
-                                    ? "bg-[#161B20] text-white border-l-2 border-[#F25C05]"
-                                    : "bg-[#FFFFFF] text-[#0A0A0A] border-l-2 border-[#F25C05] shadow-xs border-y border-r border-[#E8E8E5]"
+                                    ? "bg-[#161B20] text-white border-l-2 border-[#1a73e8]"
+                                    : "bg-[#FFFFFF] text-[#0A0A0A] border-l-2 border-[#1a73e8] shadow-xs border-y border-r border-[#E8E8E5]"
                                   : isDark
                                     ? "hover:bg-[#13161A] text-[#94A3B8] hover:text-[#E2E8F0]"
                                     : "hover:bg-[#F0F0EE] text-[#444444] hover:text-[#0A0A0A]"
@@ -765,7 +755,7 @@ export function AskEstateOSPanel({
                                   }}
                                   className={cn("p-1 transition-colors", isDark ? "hover:text-white" : "hover:text-[#0A0A0A]")}
                                 >
-                                  <Pin className={cn("w-3 h-3", conv.pinned ? "text-[#F25C05] fill-[#F25C05]" : isDark ? "text-[#64748B]" : "text-[#9CA3AF]")} />
+                                  <Pin className={cn("w-3 h-3", conv.pinned ? "text-[#1a73e8] fill-[#1a73e8]" : isDark ? "text-[#64748B]" : "text-[#9CA3AF]")} />
                                 </button>
                                 <button
                                   type="button"
@@ -865,7 +855,7 @@ export function AskEstateOSPanel({
                         <span
                           className={cn(
                             "font-medium truncate",
-                            fact.isAlert ? "text-[#F25C05]" : isDark ? "text-[#E2E8F0]" : "text-[#0A0A0A]"
+                            fact.isAlert ? "text-[#1a73e8]" : isDark ? "text-[#E2E8F0]" : "text-[#0A0A0A]"
                           )}
                         >
                           {fact.value}
@@ -991,7 +981,7 @@ export function AskEstateOSPanel({
                                     handleNavigate(pCard?.targetUrl || (pCard?.caseId ? `/maintenance?ticket=${pCard.caseId}` : "/maintenance"));
                                   }
                                 }}
-                                className="text-[11px] font-medium text-[#F25C05] hover:text-[#d94f00] flex items-center gap-1 cursor-pointer transition-colors"
+                                className="text-[11px] font-medium text-[#1a73e8] hover:text-[#1557b0] flex items-center gap-1 cursor-pointer transition-colors"
                               >
                                 <span>Open in Maintenance</span>
                                 <ExternalLink className="w-3 h-3" />
@@ -1027,7 +1017,7 @@ export function AskEstateOSPanel({
                           <button
                             type="button"
                             onClick={() => handleNavigate(pCard?.targetUrl || "/money")}
-                            className="font-medium text-[#F25C05] hover:text-[#d94f00] flex items-center gap-1 cursor-pointer transition-colors"
+                            className="font-medium text-[#1a73e8] hover:text-[#1557b0] flex items-center gap-1 cursor-pointer transition-colors"
                           >
                             <span>Open in Money</span>
                             <ExternalLink className="w-3 h-3" />
@@ -1040,7 +1030,7 @@ export function AskEstateOSPanel({
                         <div className="flex items-center justify-between text-[11px]">
                           <div className="flex items-center gap-2">
                             <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-[#1F252C] text-[#CBD5E1] border border-[#29323B] flex items-center gap-1">
-                              <Calendar className="w-3 h-3 text-[#F25C05]" />
+                              <Calendar className="w-3 h-3 text-[#1a73e8]" />
                               {pCard.badgeLabel || "GOOGLE CALENDAR"}
                             </span>
                             <span className="text-[#F3F4F6] font-medium truncate max-w-[200px]">
@@ -1063,7 +1053,7 @@ export function AskEstateOSPanel({
                         </div>
                         <div className="p-2.5 rounded-[8px] bg-[#0E1113] border border-[#1E2328] space-y-1.5 text-[12px] text-[#CBD5E1]">
                           <div className="flex items-center gap-1.5 text-[#E2E8F0]">
-                            <Clock className="w-3.5 h-3.5 text-[#F25C05]" />
+                            <Clock className="w-3.5 h-3.5 text-[#1a73e8]" />
                             <span className="font-medium">{pCard.dueDate || pCard.subtitle}</span>
                           </div>
                           {pCard.contractor && (
@@ -1093,7 +1083,7 @@ export function AskEstateOSPanel({
                               type="button"
                               onClick={() => handleApproveCalendar(msg.id, pCard?.actionId)}
                               disabled={approvingCalendarId === msg.id}
-                              className="px-3 py-1.5 rounded-[7px] bg-[#F25C05] hover:bg-[#d94f00] text-[#0A0A0A] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                              className="px-3 py-1.5 rounded-[7px] bg-[#1a73e8] hover:bg-[#1557b0] text-[#0A0A0A] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
                             >
                               {approvingCalendarId === msg.id ? (
                                 <>
@@ -1116,7 +1106,7 @@ export function AskEstateOSPanel({
                         <div className="flex items-center justify-between text-[11px]">
                           <div className="flex items-center gap-2">
                             <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-[#1F252C] text-[#CBD5E1] border border-[#29323B] flex items-center gap-1">
-                              <FileText className="w-3 h-3 text-[#F25C05]" />
+                              <FileText className="w-3 h-3 text-[#1a73e8]" />
                               {pCard.badgeLabel || "GOOGLE DRIVE"}
                             </span>
                             <span className="text-[#F3F4F6] font-medium truncate max-w-[200px]">
@@ -1147,7 +1137,7 @@ export function AskEstateOSPanel({
                                 handleNavigate(pCard?.targetUrl || "/documents");
                               }
                             }}
-                            className="text-[11px] font-medium text-[#F25C05] hover:text-[#d94f00] flex items-center gap-1 cursor-pointer transition-colors"
+                            className="text-[11px] font-medium text-[#1a73e8] hover:text-[#1557b0] flex items-center gap-1 cursor-pointer transition-colors"
                           >
                             <span>Open in Google Drive</span>
                             <ExternalLink className="w-3 h-3" />
@@ -1160,7 +1150,7 @@ export function AskEstateOSPanel({
                         <div className="flex items-center justify-between text-[11px]">
                           <div className="flex items-center gap-2">
                             <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-[#1F252C] text-[#CBD5E1] border border-[#29323B] flex items-center gap-1">
-                              <Sparkles className="w-3 h-3 text-[#F25C05]" />
+                              <Sparkles className="w-3 h-3 text-[#1a73e8]" />
                               {pCard.badgeLabel || "POLICY PROPOSAL"}
                             </span>
                             <span className="text-[#F3F4F6] font-medium truncate max-w-[200px]">
@@ -1196,7 +1186,7 @@ export function AskEstateOSPanel({
                               type="button"
                               onClick={() => handleApproveMemory(pCard?.actionId || msg.id, pCard?.actionId)}
                               disabled={approvingMemoryId === (pCard?.actionId || msg.id)}
-                              className="px-3 py-1.5 rounded-[7px] bg-[#F25C05] hover:bg-[#d94f00] text-[#0A0A0A] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                              className="px-3 py-1.5 rounded-[7px] bg-[#1a73e8] hover:bg-[#1557b0] text-[#0A0A0A] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
                             >
                               {approvingMemoryId === (pCard?.actionId || msg.id) ? (
                                 <>
@@ -1261,7 +1251,7 @@ export function AskEstateOSPanel({
                             <button
                               type="button"
                               onClick={() => handleNavigate(pCard?.targetUrl || `/inbox?thread=case-${pCard?.caseId || ""}`)}
-                              className="text-[11px] text-[#F25C05] hover:underline flex items-center gap-1 cursor-pointer font-medium"
+                              className="text-[11px] text-[#1a73e8] hover:underline flex items-center gap-1 cursor-pointer font-medium"
                             >
                               <span>Open in Inbox</span>
                               <ExternalLink className="w-3 h-3" />
@@ -1357,7 +1347,7 @@ export function AskEstateOSPanel({
                                     <button
                                       type="button"
                                       onClick={() => handleApproveDraft(msg.id, pCard?.actionId, pCard?.caseId, choiceKey, activeDraftBody)}
-                                      className="text-[11px] text-[#F25C05] hover:underline cursor-pointer font-semibold"
+                                      className="text-[11px] text-[#1a73e8] hover:underline cursor-pointer font-semibold"
                                     >
                                       Retry
                                     </button>
@@ -1371,7 +1361,7 @@ export function AskEstateOSPanel({
                                     type="button"
                                     onClick={() => handleApproveDraft(msg.id, pCard?.actionId, pCard?.caseId, choiceKey, activeDraftBody)}
                                     disabled={sendingCardId === msg.id || !pCard?.recipient}
-                                    className="px-3 py-1.5 rounded-[7px] bg-[#F25C05] hover:bg-[#d94f00] text-[#FFFFFF] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                    className="px-3 py-1.5 rounded-[7px] bg-[#1a73e8] hover:bg-[#1557b0] text-[#FFFFFF] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                     title={!pCard?.recipient ? "Cannot dispatch: recipient is missing" : "Approve and send"}
                                   >
                                     {sendingCardId === msg.id ? (
@@ -1507,7 +1497,7 @@ export function AskEstateOSPanel({
                           className={cn(
                             "px-3 py-1.5 rounded-[8px] text-[12px] font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50",
                             act.isPrimary
-                              ? "bg-[#F25C05] hover:bg-[#d94f00] text-[#FFFFFF]"
+                              ? "bg-[#1a73e8] hover:bg-[#1557b0] text-[#FFFFFF]"
                               : isDark
                                 ? "bg-[#181818] hover:bg-[#222222] border border-[#262626] text-[#FFFFFF]"
                                 : "bg-[#FFFFFF] hover:bg-[#F0F0EE] border border-[#E8E8E5] text-[#0A0A0A]"
@@ -1558,78 +1548,94 @@ export function AskEstateOSPanel({
               "flex items-center gap-1.5 p-3 rounded-[12px] border w-fit",
               isDark ? "bg-[#14181B] border-[#20262B] text-[#888888]" : "bg-[#FFFFFF] border-[#E8E8E5] text-[#6B7280] shadow-xs"
             )}>
-              <div className="w-1.5 h-1.5 rounded-full bg-[#F25C05] animate-bounce" />
-              <div className="w-1.5 h-1.5 rounded-full bg-[#F25C05] animate-bounce [animation-delay:0.15s]" />
-              <div className="w-1.5 h-1.5 rounded-full bg-[#F25C05] animate-bounce [animation-delay:0.3s]" />
+              <div className="w-1.5 h-1.5 rounded-full bg-[#1a73e8] animate-bounce" />
+              <div className="w-1.5 h-1.5 rounded-full bg-[#1a73e8] animate-bounce [animation-delay:0.15s]" />
+              <div className="w-1.5 h-1.5 rounded-full bg-[#1a73e8] animate-bounce [animation-delay:0.3s]" />
             </div>
           )}
 
           <div ref={messagesEndRef} />
         </div>
 
-        {/* 3. Suggested Chips: Streamlined minimal pills, no heavy container */}
+        {/* 4. Prompt Capsule Bar Footer: Google Gemini inspired */}
         <div className={cn(
-          "px-4 sm:px-5 py-2 border-t flex-shrink-0 transition-colors",
-          isDark ? "border-[#1A1F24] bg-[#0E1113]" : "border-[#E8E8E5] bg-[#FFFFFF]"
-        )}>
-          <div className="flex flex-wrap gap-1.5">
-            {suggestedChips.slice(0, 3).map((chip: string, idx: number) => (
-              <button
-                key={idx}
-                onClick={() => handleSendQuery(chip)}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1 rounded-full border text-[11px] transition-colors cursor-pointer",
-                  isDark
-                    ? "bg-[#14181B] hover:bg-[#1C2227] border-[#20262B] hover:border-[#334155] text-[#94A3B8] hover:text-[#FFFFFF]"
-                    : "bg-[#F6F6F4] hover:bg-[#EBEBE8] border-[#E8E8E5] text-[#374151] hover:text-[#0A0A0A]"
-                )}
-              >
-                <span>{chip}</span>
-                <ArrowUpRight className={cn("w-3 h-3", isDark ? "text-[#64748B]" : "text-[#9CA3AF]")} />
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* 4. Input Field Row: Sleek and flat */}
-        <div className={cn(
-          "p-3.5 sm:p-4 border-t flex-shrink-0 transition-colors",
+          "p-3 sm:p-3.5 border-t flex-shrink-0 transition-colors",
           isDark ? "border-[#1A1F24] bg-[#0B0D0E]" : "border-[#E8E8E5] bg-[#FFFFFF]"
         )}>
-          <div className="max-w-[760px] mx-auto w-full space-y-1.5">
+          <div className="max-w-[760px] mx-auto w-full">
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 handleSendQuery(inputQuery);
               }}
-              className="relative flex items-center"
+              className={cn(
+                "border-[1.5px] rounded-[20px] p-2.5 pb-2 flex flex-col gap-1.5 transition-all shadow-2xs",
+                isDark
+                  ? "bg-[#14181C] border-[#222830] focus-within:border-[#1a73e8] focus-within:bg-[#181D22]"
+                  : "bg-[#f8fafd] border-[#dce2ea] focus-within:border-[#1a73e8] focus-within:bg-white"
+              )}
             >
-              <input
+              <textarea
                 ref={inputRef}
-                type="text"
+                rows={1}
                 value={inputQuery}
                 onChange={(e) => setInputQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendQuery(inputQuery);
+                  }
+                }}
                 placeholder="Ask Super Agent across portfolio, maintenance, arrears..."
                 className={cn(
-                  "w-full h-10 pl-3.5 pr-11 rounded-[10px] border text-[13px] transition-colors focus:outline-none",
+                  "w-full text-[13px] bg-transparent outline-none resize-none leading-relaxed",
                   isDark
-                    ? "bg-[#14181C] border-[#222830] text-[#FFFFFF] placeholder:text-[#64748B] focus:border-[#4B5563]"
-                    : "bg-[#F6F6F4] border-[#E8E8E5] text-[#0A0A0A] placeholder:text-[#9CA3AF] focus:border-[#0A0A0A]"
+                    ? "text-[#FFFFFF] placeholder:text-[#64748B]"
+                    : "text-[#1f1f1f] placeholder:text-[#444746]"
                 )}
               />
-              <button
-                type="submit"
-                disabled={!inputQuery.trim() || isTyping}
-                className="absolute right-1.5 w-7 h-7 rounded-[7px] bg-[#F25C05] hover:bg-[#d94f00] disabled:opacity-30 text-[#FFFFFF] flex items-center justify-center transition-colors cursor-pointer"
-                title="Send query"
-              >
-                <Send className="w-3.5 h-3.5 stroke-[2.4]" />
-              </button>
-            </form>
 
-            <p className={cn("text-[10px] text-center leading-tight", isDark ? "text-[#475569]" : "text-[#9CA3AF]")}>
-              Autonomous planning with explicit confirmation before dispatch.
-            </p>
+              <div className="flex items-center justify-between pt-0.5">
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    className={cn(
+                      "w-[26px] h-[26px] rounded-full flex items-center justify-center transition-colors cursor-pointer",
+                      isDark ? "text-[#94a3b8] hover:bg-[#20262B]" : "text-[#444746] hover:bg-[#e8eaed]"
+                    )}
+                    title="Add attachment"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    className={cn(
+                      "w-[26px] h-[26px] rounded-full flex items-center justify-center transition-colors cursor-pointer text-[#1a73e8]",
+                      isDark ? "hover:bg-[#20262B]" : "hover:bg-[#e8eaed]"
+                    )}
+                    title="Voice input"
+                  >
+                    <Mic className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={!inputQuery.trim() || isTyping}
+                  className={cn(
+                    "w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0",
+                    inputQuery.trim()
+                      ? "bg-[#1a73e8] hover:bg-[#1557b0] text-white shadow-[0_2px_6px_rgba(26,115,232,0.3)] hover:scale-105 active:scale-95"
+                      : isDark
+                      ? "bg-[#1c2227] text-[#64748b] cursor-not-allowed opacity-60"
+                      : "bg-[#e8eaed] text-[#5f6368] cursor-not-allowed opacity-70"
+                  )}
+                  title="Send query"
+                >
+                  <ArrowUp className="w-3.5 h-3.5 stroke-[2.5]" />
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       </div>

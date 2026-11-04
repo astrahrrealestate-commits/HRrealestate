@@ -112,8 +112,9 @@ function SettingsContent() {
           hideSearch={true}
         />
 
-        {/* Curved White Main Content Canvas */}
-        <div className="flex-1 bg-white rounded-tl-[24px] sm:rounded-tl-[28px] overflow-hidden flex flex-col shadow-2xl relative">
+        {/* WORKSPACE ROW with 40% Super Agent */}
+        <div className="flex-1 flex flex-row overflow-hidden min-h-0 w-full relative">
+          <div className="flex-1 m-0 mr-[10px] mb-[10px] bg-white rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden relative">
 
         {/* ------------------------------------------------------------- */}
         {/* DESKTOP LAYOUT (>= 768px): Two Columns (Groups on Left, Rows on Right) */}
@@ -373,18 +374,20 @@ function SettingsContent() {
           )}
 
         </div>
-        </div>
+          </div>
 
+          {/* Ask EstateOS Side Panel (40% width on right side) */}
+          <AskEstateOSPanel
+            currentPageName="Settings"
+            selectedContext={`Settings Section: ${activeGroup.title}`}
+          />
+        </div>
       </div>
 
       {/* 3. Mobile Bottom Tab Bar */}
       <MobileTabBar />
 
-      {/* 4. Ask EstateOS Side Panel */}
-      <AskEstateOSPanel
-        currentPageName="Settings"
-        selectedContext={`Settings Section: ${activeGroup.title}`}
-      />
+
     </div>
   );
 }

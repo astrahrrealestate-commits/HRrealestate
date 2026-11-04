@@ -223,8 +223,9 @@ function MoneyContent() {
           hideSearch={true}
         />
 
-        {/* Curved White Main Content Canvas */}
-        <div className="flex-1 bg-white rounded-tl-[24px] sm:rounded-tl-[28px] overflow-hidden flex flex-col shadow-2xl relative">
+        {/* WORKSPACE ROW with 40% Super Agent */}
+        <div className="flex-1 flex flex-row overflow-hidden min-h-0 w-full relative">
+          <div className="flex-1 m-0 mr-[10px] mb-[10px] bg-white rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden relative">
 
         {/* Scrollable Container */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6 max-w-6xl w-full mx-auto pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-12">
@@ -524,8 +525,18 @@ function MoneyContent() {
           </div>
 
         </main>
-        </div>
+          </div>
 
+          {/* Ask EstateOS Side Panel (40% width on right side) */}
+          <AskEstateOSPanel
+            currentPageName="Money"
+            selectedContext={
+              selectedTx
+                ? `Ledger Item: ${selectedTx.reference} - ${selectedTx.counterparty} (€ ${selectedTx.amountEur})`
+                : "Portfolio Ledger & Arrears"
+            }
+          />
+        </div>
       </div>
 
       {/* 3. Mobile Bottom Tab Bar */}
@@ -540,15 +551,7 @@ function MoneyContent() {
         }}
       />
 
-      {/* 5. Ask EstateOS Side Panel */}
-      <AskEstateOSPanel
-        currentPageName="Money"
-        selectedContext={
-          selectedTx
-            ? `Ledger Item: ${selectedTx.reference} - ${selectedTx.counterparty} (€ ${selectedTx.amountEur})`
-            : "Portfolio Ledger & Arrears"
-        }
-      />
+
     </div>
   );
 }

@@ -22,8 +22,8 @@ export function Pill({
 }: PillProps) {
   const variantStyles: Record<PillVariant, string> = {
     default: "bg-[#F0F0EE] text-[#444444]",
-    needs_you: "bg-[#FFF1E7] text-[#B93C00] ring-1 ring-inset ring-[#F25C05]",
-    urgent: "bg-[#F25C05] text-[#0A0A0A]",
+    needs_you: "bg-[#eff6ff] text-[#1557b0] ring-1 ring-inset ring-[#1a73e8]",
+    urgent: "bg-[#1a73e8] text-[#0A0A0A]",
     outline: "bg-transparent ring-1 ring-inset ring-[#D2D2CE] text-[#444444]",
   };
 
@@ -40,7 +40,7 @@ export function Pill({
         <span
           className={cn(
             "w-2 h-2 rounded-full flex-shrink-0",
-            dot === "orange" || variant === "needs_you" ? "bg-[#F25C05]" : "bg-[#0A0A0A]"
+            dot === "orange" || variant === "needs_you" ? "bg-[#1a73e8]" : "bg-[#0A0A0A]"
           )}
         />
       )}

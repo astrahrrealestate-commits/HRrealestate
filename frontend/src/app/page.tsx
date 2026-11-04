@@ -336,9 +336,10 @@ export default function TodayPage() {
           pageTitle="Main Dashboard"
         />
 
-        {/* Curved White Main Content Canvas */}
-        <div className="flex-1 bg-white rounded-tl-[24px] sm:rounded-tl-[28px] overflow-hidden flex flex-col shadow-2xl relative">
-          <main className="flex-1 w-full max-w-[960px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-12 space-y-7 overflow-y-auto">
+        {/* WORKSPACE ROW with 40% Super Agent */}
+        <div className="flex-1 flex flex-row overflow-hidden min-h-0 w-full relative">
+          <div className="flex-1 m-0 mr-[10px] mb-[10px] bg-white rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden relative">
+            <main className="flex-1 w-full max-w-[960px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-12 space-y-7 overflow-y-auto">
           
           {/* Top Briefing Header with Daily / Weekly Switcher */}
           <div className="space-y-3">
@@ -1385,29 +1386,32 @@ export default function TodayPage() {
           )}
 
         </main>
+          </div>
+
+          {/* Ask EstateOS Panel (40% width on right side) */}
+          <AskEstateOSPanel
+            currentPageName="Today"
+            selectedContext={`Today Briefing · ${currentNeedsYouCount} need you · ${currentUrgentCount} urgent`}
+            onActionTriggered={(actionType) => {
+              if (actionType === "approve_queue_item") {
+                router.push("/inbox");
+              } else {
+                showToast(`Action dispatched from Assistant: ${actionType}`);
+              }
+            }}
+          />
         </div>
       </div>
 
       {/* Floating Toast */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 bg-[#0A0A0A] text-[#FFFFFF] text-[13px] font-semibold px-4 py-2.5 rounded-[12px] shadow-lg flex items-center gap-2.5 animate-in fade-in slide-in-from-bottom-2 duration-150">
-          <Check className="w-4 h-4 text-[#F25C05]" />
+          <Check className="w-4 h-4 text-[#1a73e8]" />
           <span>{toastMessage}</span>
         </div>
       )}
 
-      {/* Ask EstateOS Panel */}
-      <AskEstateOSPanel
-        currentPageName="Today"
-        selectedContext={`Today Briefing · ${currentNeedsYouCount} need you · ${currentUrgentCount} urgent`}
-        onActionTriggered={(actionType) => {
-          if (actionType === "approve_queue_item") {
-            router.push("/inbox");
-          } else {
-            showToast(`Action dispatched from Assistant: ${actionType}`);
-          }
-        }}
-      />
+
 
       {/* Mobile Bottom Tab Bar */}
       <MobileTabBar pendingCount={currentNeedsYouCount} />

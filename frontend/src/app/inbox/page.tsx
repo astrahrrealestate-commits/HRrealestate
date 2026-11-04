@@ -998,7 +998,10 @@ function InboxContent() {
 
         {/* 3. Omnichannel Inbox Workspace (Section 5.2: 2-column layout inside shell) */}
 
-        <div className="lg:grid lg:grid-cols-[300px_1fr] xl:grid-cols-[340px_1fr] flex-1 min-h-0 overflow-hidden bg-white rounded-tl-[24px] sm:rounded-tl-[28px] shadow-2xl">
+        {/* WORKSPACE ROW with 40% Super Agent */}
+        <div className="flex-1 flex flex-row overflow-hidden min-h-0 w-full relative">
+          <div className="flex-1 m-0 mr-[10px] mb-[10px] bg-white rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex overflow-hidden relative">
+            <div className="lg:grid lg:grid-cols-[300px_1fr] xl:grid-cols-[340px_1fr] flex-1 min-h-0 overflow-hidden bg-white">
 
           {/* Left Column: 6 Controls FilterBar + Grouped Thread List */}
 
@@ -1111,9 +1114,30 @@ function InboxContent() {
             />
 
           </div>
+            </div>
+          </div>
 
+          {/* Ask EstateOS Assistant (40% width on right side) */}
+          <AskEstateOSPanel
+            currentPageName="Inbox"
+            selectedContext={
+              activeThread
+                ? `${activeThread.subject || activeThread.latestSnippet} · ${activeThread.unitLabel}`
+                : "All Communications"
+            }
+            onActionTriggered={(actionType) => {
+              if (actionType === "approve_queue_item" && activeThread) {
+                handleApproveDraft(
+                  activeThread.id,
+                  activeThread.draftProposal?.drafts[0]?.text || "",
+                  activeThread.channel === "whatsapp" ? "whatsapp" : "gmail"
+                );
+              } else {
+                showToast(`Action dispatched from Assistant: ${actionType}`);
+              }
+            }}
+          />
         </div>
-
       </div>
 
 
@@ -1124,7 +1148,7 @@ function InboxContent() {
 
         <div className="fixed bottom-6 right-6 z-50 bg-[#0A0A0A] text-[#FFFFFF] text-[13px] font-semibold px-4 py-2.5 rounded-[12px] shadow-lg flex items-center gap-2.5 animate-in fade-in slide-in-from-bottom-2 duration-150">
 
-          <Check className="w-4 h-4 text-[#F25C05]" />
+          <Check className="w-4 h-4 text-[#1a73e8]" />
 
           <span>{toastMessage}</span>
 
@@ -1134,45 +1158,7 @@ function InboxContent() {
 
 
 
-      {/* Ask EstateOS Assistant */}
 
-      <AskEstateOSPanel
-
-        currentPageName="Inbox"
-
-        selectedContext={
-
-          activeThread
-
-            ? `${activeThread.subject || activeThread.latestSnippet} · ${activeThread.unitLabel}`
-
-            : "All Communications"
-
-        }
-
-        onActionTriggered={(actionType) => {
-
-          if (actionType === "approve_queue_item" && activeThread) {
-
-            handleApproveDraft(
-
-              activeThread.id,
-
-              activeThread.draftProposal?.drafts[0]?.text || "",
-
-              activeThread.channel === "whatsapp" ? "whatsapp" : "gmail"
-
-            );
-
-          } else {
-
-            showToast(`Action dispatched from Assistant: ${actionType}`);
-
-          }
-
-        }}
-
-      />
 
 
 

@@ -37,8 +37,8 @@ export function FinancialAgingCard({
       label: "90+ days",
       amount: 10000.0,
       percentage: 6.1,
-      barColor: "bg-[#F25C05]",
-      dotColor: "bg-[#F25C05]",
+      barColor: "bg-[#1a73e8]",
+      dotColor: "bg-[#1a73e8]",
       description: "Formal legal review zone",
     },
   ];

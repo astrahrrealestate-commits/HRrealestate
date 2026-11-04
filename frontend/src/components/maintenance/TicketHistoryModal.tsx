@@ -349,7 +349,7 @@ export function TicketHistoryModal({
                       ev.type === "approval"
                         ? "border-[#0A0A0A] text-[#0A0A0A]"
                         : ev.type === "inbound"
-                        ? "border-[#F25C05] text-[#F25C05]"
+                        ? "border-[#1a73e8] text-[#1a73e8]"
                         : ev.type === "invoice"
                         ? "border-[#0A0A0A] bg-[#F0F0EE] text-[#0A0A0A]"
                         : "border-[#D2D2CE] text-[#666666]"
@@ -358,7 +358,7 @@ export function TicketHistoryModal({
                     <div
                       className={cn(
                         "w-2 h-2 rounded-full",
-                        ev.type === "inbound" ? "bg-[#F25C05]" : "bg-[#0A0A0A]"
+                        ev.type === "inbound" ? "bg-[#1a73e8]" : "bg-[#0A0A0A]"
                       )}
                     />
                   </div>

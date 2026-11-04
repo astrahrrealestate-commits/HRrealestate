@@ -13,6 +13,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 export function Button({
   variant = "ghost",
   size = "default",
+  type = "button",
   icon,
   className,
   children,
@@ -20,7 +21,7 @@ export function Button({
   ...props
 }: ButtonProps) {
   const variantStyles = {
-    // Primary (orange, max one per view): Section 6.3
+    // Primary: Section 6.3
     primary:
       "bg-[var(--accent)] hover:brightness-95 text-[#0A0A0A] font-semibold rounded-[var(--radius-ctl)] shadow-xs active:scale-[0.99]",
     // Ghost (everything else): Section 6.3
@@ -45,8 +46,10 @@ export function Button({
 
   return (
     <button
+      type={type}
+      suppressHydrationWarning
       className={cn(
-        "inline-flex items-center justify-center font-semibold transition-all select-none cursor-pointer disabled:opacity-50 disabled:pointer-events-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F25C05] focus-visible:ring-offset-2",
+        "inline-flex items-center justify-center font-semibold transition-all select-none cursor-pointer disabled:opacity-50 disabled:pointer-events-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8] focus-visible:ring-offset-2",
         variantStyles[variant],
         sizeStyles[size],
         className

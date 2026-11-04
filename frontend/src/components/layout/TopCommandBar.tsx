@@ -67,7 +67,7 @@ export function TopCommandBar({
             title="Sync mailbox with Gmail & WhatsApp"
           >
             <RotateCw
-              className={cn("w-3.5 h-3.5 text-zinc-400", isSyncing && "animate-spin text-orange-400")}
+              className={cn("w-3.5 h-3.5 text-zinc-400", isSyncing && "animate-spin text-[#1a73e8]")}
             />
             <span className="hidden sm:inline">Sync</span>
           </button>
@@ -79,11 +79,11 @@ export function TopCommandBar({
           onClick={onAskAgent || superAgent.toggleOpen}
           className={cn(
             "inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 text-white text-[12.5px] font-medium transition-all cursor-pointer shadow-xs active:scale-[0.98] select-none",
-            superAgent.isOpen && "border-orange-500 text-white bg-orange-500/20"
+            superAgent.isOpen ? "bg-[#1a73e8] text-white border-transparent shadow-[0_0_12px_rgba(26,115,232,0.4)]" : "border-white/10 bg-white/5 hover:bg-white/10 text-white"
           )}
           title="Super Agent Core (Ctrl+J)"
         >
-          <Sparkles className="w-3.5 h-3.5 text-orange-400 shrink-0" strokeWidth={2.25} />
+          <Sparkles className={cn("w-3.5 h-3.5 text-[#1a73e8] shrink-0", superAgent.isOpen && "text-white animate-ai-star")} strokeWidth={2.25} />
           <span className="leading-none hidden sm:inline">Super Agent</span>
           <span className="text-[9.5px] font-mono uppercase px-1.5 py-0.5 rounded-full bg-white/10 text-zinc-300 font-semibold leading-none">
             Core
