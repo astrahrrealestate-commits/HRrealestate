@@ -131,7 +131,7 @@ def _problem(label: DraftLabel, inputs: DraftInput, out: DraftOutput) -> str | N
 def run(version: str, settings: Settings) -> EvalResult:
     loaded = load_prompt(PromptRef(name="proposer", version=version))
     persona = None if version in ("v1", "v2", "v3") else Persona(DEFAULT_NAME, 1, DEFAULT_PATH.read_text("utf-8"))
-    agent = spec_agent(settings, PROPOSER_GUIDED.name, Proposal, loaded)
+    agent = spec_agent(settings, PROPOSER_GUIDED.name, Proposal, loaded, gemini_prompted=True)
 
     async def task(inputs: DraftInput) -> DraftOutput:
         guidance = guidance_for(inputs.guidance)  # the owner's own message

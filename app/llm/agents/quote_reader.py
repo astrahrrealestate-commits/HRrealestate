@@ -26,6 +26,7 @@ QUOTE_READER = AgentSpec(
     prompt=PromptRef(name="quote_reader", version="v1"),
     output_type=ExtractedQuote,
     finalize=_unchanged,
+    gemini_prompted=True,
 )
 
 

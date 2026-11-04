@@ -72,7 +72,7 @@ def _flags(label: QuoteLabel, out: ExtractedQuote) -> dict[str, bool]:
 
 def run_quote_reader(version: str, settings: Settings) -> EvalResult:
     loaded = load_prompt(PromptRef(name="quote_reader", version=version))
-    agent = spec_agent(settings, QUOTE_READER.name, ExtractedQuote, loaded)
+    agent = spec_agent(settings, QUOTE_READER.name, ExtractedQuote, loaded, gemini_prompted=True)
 
     async def task(inputs: QuoteIn) -> ExtractedQuote:
         prompt = quote_reader_prompt(inputs.subject, inputs.text, inputs.attachments, inputs.received_on)
