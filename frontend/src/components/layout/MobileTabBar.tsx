@@ -55,7 +55,7 @@ export function MobileTabBar({ pendingCount, threads, className }: MobileTabBarP
   const moreItems = [
     { label: "Tenants", href: "/tenants", icon: Users },
     { label: "Contacts", href: "/contacts", icon: Contact },
-    { label: "Money", href: "/money", icon: Coins },
+    // { label: "Money", href: "/money", icon: Coins },
     // Hidden from navigation:
     // { label: "Reports", href: "/reports", icon: BarChart3 },
     // { label: "Settings", href: "/settings", icon: Settings },

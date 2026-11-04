@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { ConnectionsModal } from "@/components/connections/ConnectionsModal";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -10,16 +10,14 @@ import {
   Building2,
   Users,
   Contact,
-  Coins,
   Wrench,
   LayoutGrid,
-  Search,
   BookOpen,
-  PanelLeft,
   ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { needsYouCount, ThreadCountTarget } from "@/lib/selectors";
+import { getInboxThreads } from "@/lib/api";
 
 interface NavItem {
   label: string;
@@ -36,30 +34,50 @@ interface SidebarProps {
 export function Sidebar({ pendingCount, threads }: SidebarProps) {
   const pathname = usePathname() || "/";
   const [isConnectionsOpen, setIsConnectionsOpen] = useState(false);
+  const [liveCount, setLiveCount] = useState<number | null>(null);
+
+  // When not provided by parent page, query live inbox threads once
+  useEffect(() => {
+    if (pendingCount !== undefined || threads !== undefined) return;
+    let isMounted = true;
+    getInboxThreads()
+      .then(({ threads: liveThreads }) => {
+        if (isMounted && Array.isArray(liveThreads)) {
+          setLiveCount(needsYouCount(liveThreads));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, [pendingCount, threads]);
 
   // Single source of truth for nav count
   const effectiveCount =
     pendingCount !== undefined
       ? pendingCount
-      : needsYouCount(threads || []);
+      : threads !== undefined
+      ? needsYouCount(threads)
+      : liveCount !== null
+      ? liveCount
+      : 0;
 
   const navigationItems: NavItem[] = [
     {
       label: "Dashboard",
       href: "/",
       icon: Home,
-      badge: effectiveCount > 0 ? `(${effectiveCount} Today)` : "(3 Today)",
+      badge: effectiveCount > 0 ? `(${effectiveCount} Today)` : undefined,
     },
     {
       label: "Messages",
       href: "/inbox",
       icon: Inbox,
-      badge: effectiveCount > 0 ? `(${effectiveCount})` : "(14)",
+      badge: effectiveCount > 0 ? `(${effectiveCount})` : undefined,
     },
     { label: "Properties", href: "/properties", icon: Building2 },
     { label: "Tenants", href: "/tenants", icon: Users },
     { label: "Contacts", href: "/contacts", icon: Contact },
-    { label: "Money", href: "/money", icon: Coins },
     { label: "Maintenance", href: "/maintenance", icon: Wrench },
   ];
 
@@ -77,27 +95,6 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
               EstateOS
             </span>
           </Link>
-
-          <button
-            type="button"
-            className="hidden xl:flex text-zinc-500 hover:text-zinc-300 p-1 rounded-md transition-colors"
-            title="Toggle Sidebar"
-          >
-            <PanelLeft className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Search Bar (Visible on full sidebar) */}
-        <div className="px-3 pt-3 pb-1 hidden xl:block">
-          <div className="flex items-center justify-between w-full h-8 px-2.5 rounded-lg bg-white/5 border border-white/10 text-zinc-400 text-xs">
-            <div className="flex items-center gap-2 min-w-0">
-              <Search className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-              <span className="text-zinc-500 truncate text-[12px]">Search...</span>
-            </div>
-            <kbd className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/10 border border-white/10 text-zinc-400">
-              ⌘K
-            </kbd>
-          </div>
         </div>
 
         {/* Section Label: WORKSPACE */}
