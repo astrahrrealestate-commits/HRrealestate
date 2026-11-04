@@ -324,68 +324,18 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
                         "confidence": 98 if idx == 1 else 95,
                     }
                 )
-
-        if not gmail_drafts:
-            # Contextual drafts based on category and language
-            if case.category.value == "payment":
-                d1_en = (
-                    f"Dear {sender_name},\n\nThank you for reaching out. We have noted your October rent payment. "
-                    "Once our bank statement reconciles, we will issue your payment receipt.\n\nBest regards,\nHarjot "
-                    "Singh\nEstateOS Management"
-                )
-                d2_en = (
-                    f"Hi {sender_name},\n\nPayment received with thanks! The receipt has been generated and filed "
-                    "under your tenant ledger.\n\nKind regards,\nHarjot"
-                )
-                d1_wa = f"Hi {sender_name}, thank you for confirming your rent payment! Receipt will follow shortly."
-                d2_wa = f"Hello {sender_name}, we've verified your payment. Thank you!"
-            elif case.category.value == "lease":
-                d1_en = (
-                    f"Dear {sender_name},\n\nWe acknowledge receipt of your notice regarding the termination of "
-                    "your lease agreement for December 31, 2026. We will schedule a pre-inspection walkthrough "
-                    "shortly.\n\nBest regards,\nHarjot Singh\nEstateOS Management"
-                )
-                d2_en = (
-                    f"Dear {sender_name},\n\nThank you for informing us. Your notice to end the lease on December "
-                    "31, 2026 has been logged. Our property coordinator will reach out next week with the key handover "
-                    "protocol.\n\nKind regards,\nHarjot"
-                )
-                d1_wa = (
-                    f"Hi {sender_name}, we've received your lease termination notice. We'll contact you soon to "
-                    "plan the inspection."
-                )
-                d2_wa = f"Dear {sender_name}, your lease move-out notice has been officially recorded."
-            elif case.category.value == "maintenance":
-                issue_snippet = (case.summary.split(".")[0] if case.summary else "maintenance issue").strip()
-                d1_en = (
-                    f"Hi {sender_name},\n\nThank you for reporting this issue ({issue_snippet}). We have logged "
-                    "an emergency work order and notified our approved contractor. They will contact you shortly "
-                    "to confirm the visit time.\n\nBest regards,\nHarjot Singh"
-                )
-                d2_en = (
-                    f"Hi {sender_name},\n\nWe received your request regarding: {issue_snippet}. Our team is reviewing "
-                    "this with priority and dispatching assistance.\n\nBest regards,\nHarjot"
-                )
-                d1_wa = (
-                    f"Hi {sender_name}, we have logged your report regarding {issue_snippet}. An approved contractor "
-                    "will reach out shortly to schedule the visit."
-                )
-                d2_wa = (
-                    f"Hi {sender_name}, we received your emergency report. A contractor has been alerted and will "
-                    "coordinate with you directly."
-                )
-            else:
-                d1_en = (
-                    f"Dear {sender_name},\n\nThank you for your message. We have received your inquiry and are "
-                    "reviewing "
-                    "it.\n\nBest regards,\nHarjot Singh"
-                )
-                d2_en = (
-                    f"Hello {sender_name},\n\nThanks for reaching out. We will get back to you with an update as "
-                    "soon as possible.\n\nKind regards,\nHarjot"
-                )
-                d1_wa = f"Hi {sender_name}, we have received your message and will reply shortly."
-                d2_wa = f"Hello {sender_name}, thank you for contacting EstateOS. Reviewing your request now."
+        else:
+            # No agent draft yet: neutral acknowledgements only. They state no fact, date, amount or commitment.
+            d1_en = (
+                f"Dear {sender_name},\n\nThank you for your message. We have received it and will get back to you "
+                "shortly.\n\nBest regards,\nHarjot"
+            )
+            d2_en = (
+                f"Hello {sender_name},\n\nThanks for reaching out. I am looking into this and will follow up as soon "
+                "as I can.\n\nKind regards,\nHarjot"
+            )
+            d1_wa = f"Hi {sender_name}, thank you for your message. We have received it and will reply shortly."
+            d2_wa = f"Hello {sender_name}, thanks for reaching out. I am looking into this and will get back to you."
 
             gmail_drafts = [
                 {"id": "gd1", "label": "Draft 1 (Recommended)", "channel": "gmail", "text": d1_en, "confidence": 98},
