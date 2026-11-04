@@ -13,7 +13,6 @@ import {
   Coins,
   Wrench,
   LayoutGrid,
-  Search,
   BookOpen,
   PanelLeft,
   ChevronDown,
@@ -107,19 +106,6 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
           >
             <PanelLeft className="w-4 h-4" />
           </button>
-        </div>
-
-        {/* Search Bar (Visible on full sidebar) */}
-        <div className="px-3 pt-3 pb-1 hidden xl:block">
-          <div className="flex items-center justify-between w-full h-8 px-2.5 rounded-lg bg-white/5 border border-white/10 text-zinc-400 text-xs">
-            <div className="flex items-center gap-2 min-w-0">
-              <Search className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-              <span className="text-zinc-500 truncate text-[12px]">Search...</span>
-            </div>
-            <kbd className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/10 border border-white/10 text-zinc-400">
-              ⌘K
-            </kbd>
-          </div>
         </div>
 
         {/* Section Label: WORKSPACE */}

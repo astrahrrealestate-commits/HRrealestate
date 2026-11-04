@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   LayoutGrid,
   X,
@@ -9,12 +9,6 @@ import {
   Loader2,
   LogOut,
 } from "lucide-react";
-import {
-  getGoogleAuthStatus,
-  getGoogleAuthUrl,
-  disconnectGoogleAccount,
-  GoogleAuthStatus,
-} from "@/lib/api";
 
 interface ConnectionsModalProps {
   isOpen: boolean;
@@ -22,61 +16,24 @@ interface ConnectionsModalProps {
 }
 
 export function ConnectionsModal({ isOpen, onClose }: ConnectionsModalProps) {
-  const [googleStatus, setGoogleStatus] = useState<GoogleAuthStatus | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [actionLoading, setActionLoading] = useState<boolean>(false);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const [waLoading, setWaLoading] = useState<boolean>(false);
+  const [isWaConnected, setIsWaConnected] = useState<boolean>(false);
 
-  const fetchStatus = async () => {
-    try {
-      setLoading(true);
-      const status = await getGoogleAuthStatus();
-      setGoogleStatus(status);
-    } catch (err) {
-      console.warn("Failed to fetch Google auth status in modal:", err);
-    } finally {
-      setLoading(false);
-    }
+  const handleConnectWhatsApp = () => {
+    setWaLoading(true);
+    setTimeout(() => {
+      setWaLoading(false);
+      setIsWaConnected(true);
+    }, 600);
   };
 
-  useEffect(() => {
-    if (isOpen) {
-      fetchStatus();
-    }
-  }, [isOpen]);
-
-  const handleConnectGoogle = async () => {
-    try {
-      setActionLoading(true);
-      const authUrl = await getGoogleAuthUrl();
-      if (authUrl) {
-        window.location.href = authUrl;
-      }
-    } catch (err) {
-      console.error("Failed to initiate Google OAuth:", err);
-      setActionLoading(false);
-    }
-  };
-
-  const handleDisconnectGoogle = async () => {
-    try {
-      setActionLoading(true);
-      const success = await disconnectGoogleAccount();
-      if (success) {
-        await fetchStatus();
-      }
-    } catch (err) {
-      console.error("Failed to disconnect Google:", err);
-    } finally {
-      setActionLoading(false);
-      setActiveMenu(null);
-    }
+  const handleDisconnectWhatsApp = () => {
+    setIsWaConnected(false);
+    setActiveMenu(null);
   };
 
   if (!isOpen) return null;
-
-  const isGoogleConnected = Boolean(googleStatus?.connected);
-  const googleEmail = googleStatus?.email || "";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -113,7 +70,7 @@ export function ConnectionsModal({ isOpen, onClose }: ConnectionsModalProps) {
 
         {/* Connections List */}
         <div className="mt-5 space-y-0 divide-y divide-zinc-100 dark:divide-zinc-800/80">
-          {/* 1. Gmail */}
+          {/* 1. Gmail - Connected */}
           <div className="py-3.5 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3.5 min-w-0">
               {/* Gmail Icon */}
@@ -132,68 +89,39 @@ export function ConnectionsModal({ isOpen, onClose }: ConnectionsModalProps) {
                 <div className="text-[12px] text-zinc-500 dark:text-zinc-400 truncate">
                   Tenant inquiries, service notices & statements
                 </div>
-                {loading ? (
-                  <div className="text-[11.5px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
-                    Checking connection...
-                  </div>
-                ) : isGoogleConnected ? (
-                  <div className="text-[11.5px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
-                    {googleEmail} · Synced 2m ago
-                  </div>
-                ) : (
-                  <div className="text-[11.5px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
-                    Note: No mailbox connected · Connect your Google account to enable triage
-                  </div>
-                )}
+                <div className="text-[11.5px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
+                  arthur.estateos@gmail.com · Synced 2m ago
+                </div>
               </div>
             </div>
 
             {/* Status / Action */}
             <div className="relative shrink-0 flex items-center gap-1.5">
-              {loading ? (
-                <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
-              ) : isGoogleConnected ? (
-                <>
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-normal text-zinc-600 dark:text-zinc-300 bg-zinc-100/90 dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/60">
-                    <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
-                    Connected
-                  </span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-normal text-zinc-600 dark:text-zinc-300 bg-zinc-100/90 dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/60">
+                <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
+                Connected
+              </span>
+              <button
+                onClick={() => setActiveMenu(activeMenu === "gmail" ? null : "gmail")}
+                className="p-1 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors cursor-pointer"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+              {activeMenu === "gmail" && (
+                <div className="absolute right-0 top-full mt-1 w-36 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-lg py-1 z-20">
                   <button
-                    onClick={() => setActiveMenu(activeMenu === "gmail" ? null : "gmail")}
-                    className="p-1 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors cursor-pointer"
+                    onClick={() => setActiveMenu(null)}
+                    className="w-full px-3 py-1.5 text-left text-[12px] font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 flex items-center gap-2 cursor-pointer"
                   >
-                    <MoreVertical className="w-4 h-4" />
+                    <LogOut className="w-3.5 h-3.5" />
+                    Disconnect
                   </button>
-                  {activeMenu === "gmail" && (
-                    <div className="absolute right-0 top-full mt-1 w-36 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-lg py-1 z-20">
-                      <button
-                        onClick={handleDisconnectGoogle}
-                        disabled={actionLoading}
-                        className="w-full px-3 py-1.5 text-left text-[12px] font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 flex items-center gap-2 cursor-pointer"
-                      >
-                        <LogOut className="w-3.5 h-3.5" />
-                        Disconnect
-                      </button>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <button
-                  onClick={handleConnectGoogle}
-                  disabled={actionLoading}
-                  className="px-4 py-1.5 rounded-lg text-[12.5px] font-medium bg-black dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-white transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
-                >
-                  {actionLoading ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-white dark:text-zinc-900" />
-                  ) : (
-                    "Connect"
-                  )}
-                </button>
+                </div>
               )}
             </div>
           </div>
 
-          {/* 2. WhatsApp Business */}
+          {/* 2. WhatsApp Business - Not Connected */}
           <div className="py-3.5 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3.5 min-w-0">
               <div className="w-10 h-10 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 shadow-2xs flex items-center justify-center shrink-0">
@@ -221,25 +149,53 @@ export function ConnectionsModal({ isOpen, onClose }: ConnectionsModalProps) {
                   Instant tenant dispatch & messaging
                 </div>
                 <div className="text-[11.5px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
-                  +31 6 3648 40587 (Desk) · Synced 1m ago
+                  {isWaConnected ? "+31 6 3648 40587 (Desk) · Synced live" : "+31 6 3648 40587 · Not connected"}
                 </div>
               </div>
             </div>
 
-            <div className="shrink-0 flex items-center gap-1.5">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-normal text-zinc-600 dark:text-zinc-300 bg-zinc-100/90 dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/60">
-                <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
-                Connected
-              </span>
-              <button
-                className="p-1 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors cursor-pointer"
-              >
-                <MoreVertical className="w-4 h-4" />
-              </button>
+            <div className="relative shrink-0 flex items-center gap-1.5">
+              {isWaConnected ? (
+                <>
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-normal text-zinc-600 dark:text-zinc-300 bg-zinc-100/90 dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/60">
+                    <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
+                    Connected
+                  </span>
+                  <button
+                    onClick={() => setActiveMenu(activeMenu === "wa" ? null : "wa")}
+                    className="p-1 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors cursor-pointer"
+                  >
+                    <MoreVertical className="w-4 h-4" />
+                  </button>
+                  {activeMenu === "wa" && (
+                    <div className="absolute right-0 top-full mt-1 w-36 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-lg py-1 z-20">
+                      <button
+                        onClick={handleDisconnectWhatsApp}
+                        className="w-full px-3 py-1.5 text-left text-[12px] font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 flex items-center gap-2 cursor-pointer"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        Disconnect
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <button
+                  onClick={handleConnectWhatsApp}
+                  disabled={waLoading}
+                  className="px-4 py-1.5 rounded-lg text-[12.5px] font-medium bg-black dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-white transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                >
+                  {waLoading ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-white dark:text-zinc-900" />
+                  ) : (
+                    "Connect"
+                  )}
+                </button>
+              )}
             </div>
           </div>
 
-          {/* 3. Google Drive */}
+          {/* 3. Google Drive - Connected */}
           <div className="py-3.5 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3.5 min-w-0">
               <div className="w-10 h-10 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 shadow-2xs flex items-center justify-center shrink-0">
@@ -256,44 +212,38 @@ export function ConnectionsModal({ isOpen, onClose }: ConnectionsModalProps) {
                 <div className="text-[12px] text-zinc-500 dark:text-zinc-400 truncate">
                   Tenancy leases, compliance documents & inspection photos
                 </div>
-                {loading ? (
-                  <div className="text-[11.5px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
-                    Checking connection...
-                  </div>
-                ) : isGoogleConnected ? (
-                  <div className="text-[11.5px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
-                    {googleEmail} · Document storage active
-                  </div>
-                ) : (
-                  <div className="text-[11.5px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
-                    Note: Automated lease filing & media vault
-                  </div>
-                )}
+                <div className="text-[11.5px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
+                  arthur.estateos@gmail.com · Document storage active
+                </div>
               </div>
             </div>
 
-            <div className="shrink-0 flex items-center gap-1.5">
-              {loading ? (
-                <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
-              ) : isGoogleConnected ? (
-                <>
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-normal text-zinc-600 dark:text-zinc-300 bg-zinc-100/90 dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/60">
-                    <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
-                    Connected
-                  </span>
-                  <button className="p-1 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors cursor-pointer">
-                    <MoreVertical className="w-4 h-4" />
+            <div className="relative shrink-0 flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-normal text-zinc-600 dark:text-zinc-300 bg-zinc-100/90 dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/60">
+                <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
+                Connected
+              </span>
+              <button
+                onClick={() => setActiveMenu(activeMenu === "drive" ? null : "drive")}
+                className="p-1 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors cursor-pointer"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+              {activeMenu === "drive" && (
+                <div className="absolute right-0 top-full mt-1 w-36 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-lg py-1 z-20">
+                  <button
+                    onClick={() => setActiveMenu(null)}
+                    className="w-full px-3 py-1.5 text-left text-[12px] font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 flex items-center gap-2 cursor-pointer"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    Disconnect
                   </button>
-                </>
-              ) : (
-                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[12px] font-normal text-zinc-500 dark:text-zinc-400 bg-zinc-100/90 dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/60">
-                  Coming Soon
-                </span>
+                </div>
               )}
             </div>
           </div>
 
-          {/* 4. Google Calendar */}
+          {/* 4. Google Calendar - Connected */}
           <div className="py-3.5 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3.5 min-w-0">
               <div className="w-10 h-10 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 shadow-2xs flex items-center justify-center shrink-0">
@@ -311,44 +261,38 @@ export function ConnectionsModal({ isOpen, onClose }: ConnectionsModalProps) {
                 <div className="text-[12px] text-zinc-500 dark:text-zinc-400 truncate">
                   Scheduled viewings, maintenance callouts & lease renewals
                 </div>
-                {loading ? (
-                  <div className="text-[11.5px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
-                    Checking connection...
-                  </div>
-                ) : isGoogleConnected ? (
-                  <div className="text-[11.5px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
-                    {googleEmail} · Synced 5m ago
-                  </div>
-                ) : (
-                  <div className="text-[11.5px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
-                    Note: Automated viewing scheduling & dispatch
-                  </div>
-                )}
+                <div className="text-[11.5px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
+                  arthur.pendelton@estateos.internal · Synced 5m ago
+                </div>
               </div>
             </div>
 
-            <div className="shrink-0 flex items-center gap-1.5">
-              {loading ? (
-                <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
-              ) : isGoogleConnected ? (
-                <>
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-normal text-zinc-600 dark:text-zinc-300 bg-zinc-100/90 dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/60">
-                    <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
-                    Connected
-                  </span>
-                  <button className="p-1 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors cursor-pointer">
-                    <MoreVertical className="w-4 h-4" />
+            <div className="relative shrink-0 flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-normal text-zinc-600 dark:text-zinc-300 bg-zinc-100/90 dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/60">
+                <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
+                Connected
+              </span>
+              <button
+                onClick={() => setActiveMenu(activeMenu === "cal" ? null : "cal")}
+                className="p-1 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors cursor-pointer"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+              {activeMenu === "cal" && (
+                <div className="absolute right-0 top-full mt-1 w-36 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-lg py-1 z-20">
+                  <button
+                    onClick={() => setActiveMenu(null)}
+                    className="w-full px-3 py-1.5 text-left text-[12px] font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 flex items-center gap-2 cursor-pointer"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    Disconnect
                   </button>
-                </>
-              ) : (
-                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[12px] font-normal text-zinc-500 dark:text-zinc-400 bg-zinc-100/90 dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/60">
-                  Coming Soon
-                </span>
+                </div>
               )}
             </div>
           </div>
 
-          {/* 5. BRIXX */}
+          {/* 5. BRIXX - Connected */}
           <div className="py-3.5 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3.5 min-w-0">
               <div className="w-10 h-10 rounded-xl bg-sky-500 shadow-2xs flex items-center justify-center shrink-0">
@@ -367,15 +311,33 @@ export function ConnectionsModal({ isOpen, onClose }: ConnectionsModalProps) {
                   Financial modeling, cash flow ledger & property forecasting
                 </div>
                 <div className="text-[11.5px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
-                  Financial modeling · Not connected
+                  Financial modeling ledger · Synced live
                 </div>
               </div>
             </div>
 
-            <div className="shrink-0">
-              <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[12px] font-normal text-zinc-500 dark:text-zinc-400 bg-zinc-100/90 dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/60">
-                Coming Soon
+            <div className="relative shrink-0 flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-normal text-zinc-600 dark:text-zinc-300 bg-zinc-100/90 dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/60">
+                <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
+                Connected
               </span>
+              <button
+                onClick={() => setActiveMenu(activeMenu === "brixx" ? null : "brixx")}
+                className="p-1 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors cursor-pointer"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+              {activeMenu === "brixx" && (
+                <div className="absolute right-0 top-full mt-1 w-36 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-lg py-1 z-20">
+                  <button
+                    onClick={() => setActiveMenu(null)}
+                    className="w-full px-3 py-1.5 text-left text-[12px] font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 flex items-center gap-2 cursor-pointer"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    Disconnect
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
