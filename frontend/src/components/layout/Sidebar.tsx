@@ -10,7 +10,6 @@ import {
   Building2,
   Users,
   Contact,
-  Coins,
   Wrench,
   LayoutGrid,
   BookOpen,
@@ -79,7 +78,6 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
     { label: "Properties", href: "/properties", icon: Building2 },
     { label: "Tenants", href: "/tenants", icon: Users },
     { label: "Contacts", href: "/contacts", icon: Contact },
-    { label: "Money", href: "/money", icon: Coins },
     { label: "Maintenance", href: "/maintenance", icon: Wrench },
   ];
 
