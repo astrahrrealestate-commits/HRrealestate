@@ -14,7 +14,6 @@ import {
   Wrench,
   LayoutGrid,
   BookOpen,
-  PanelLeft,
   ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -98,14 +97,6 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
               EstateOS
             </span>
           </Link>
-
-          <button
-            type="button"
-            className="hidden xl:flex text-zinc-500 hover:text-zinc-300 p-1 rounded-md transition-colors"
-            title="Toggle Sidebar"
-          >
-            <PanelLeft className="w-4 h-4" />
-          </button>
         </div>
 
         {/* Section Label: WORKSPACE */}
