@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { ConnectionsModal } from "@/components/connections/ConnectionsModal";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -15,6 +16,7 @@ import {
   BarChart3,
   Settings,
   ShieldCheck,
+  LayoutGrid,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -30,12 +32,13 @@ interface MobileTabBarProps {
 export function MobileTabBar({ pendingCount, threads, className }: MobileTabBarProps) {
   const pathname = usePathname() || "/";
   const [isMoreOpen, setIsMoreOpen] = useState(false);
+  const [isConnectionsOpen, setIsConnectionsOpen] = useState(false);
 
   // Section 6.4: Single source of truth for nav count
   const effectiveCount =
     pendingCount !== undefined
       ? pendingCount
-      : needsYouCount(threads || MOCK_INBOX_THREADS);
+      : needsYouCount(threads || []);
 
   const mainTabs = [
     { label: "Today", href: "/", icon: Home },
@@ -53,9 +56,10 @@ export function MobileTabBar({ pendingCount, threads, className }: MobileTabBarP
     { label: "Tenants", href: "/tenants", icon: Users },
     { label: "Contacts", href: "/contacts", icon: Contact },
     { label: "Money", href: "/money", icon: Coins },
-    { label: "Reports", href: "/reports", icon: BarChart3 },
-    { label: "Settings", href: "/settings", icon: Settings },
-    { label: "Admin", href: "/admin", icon: ShieldCheck },
+    // Hidden from navigation:
+    // { label: "Reports", href: "/reports", icon: BarChart3 },
+    // { label: "Settings", href: "/settings", icon: Settings },
+    // { label: "Admin", href: "/admin", icon: ShieldCheck },
   ];
 
   const isMoreActive = moreItems.some((item) => pathname.startsWith(item.href));
@@ -141,6 +145,22 @@ export function MobileTabBar({ pendingCount, threads, className }: MobileTabBarP
 
             {/* Grid of items */}
             <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMoreOpen(false);
+                  setIsConnectionsOpen(true);
+                }}
+                className="flex items-center gap-3 p-3 rounded-[var(--radius-ctl)] border border-[var(--line)] bg-[var(--pane)] text-[var(--ink-2)] hover:bg-[var(--selected)] transition-colors text-left cursor-pointer col-span-2"
+              >
+                <LayoutGrid className="w-4 h-4 text-emerald-600" strokeWidth={1.75} />
+                <div className="flex items-center justify-between flex-1">
+                  <span className="text-[13px] font-medium text-[var(--ink)]">Connections</span>
+                  <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                    Active
+                  </span>
+                </div>
+              </button>
               {moreItems.map((item) => {
                 const isActive = pathname.startsWith(item.href);
                 const Icon = item.icon;
@@ -171,6 +191,7 @@ export function MobileTabBar({ pendingCount, threads, className }: MobileTabBarP
           </div>
         </div>
       )}
+      <ConnectionsModal isOpen={isConnectionsOpen} onClose={() => setIsConnectionsOpen(false)} />
     </>
   );
 }

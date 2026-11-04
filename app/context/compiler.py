@@ -6,6 +6,8 @@ Assembles budgeted, escaped prompt blocks for agents. For concierge, byte-identi
 import hashlib
 from collections.abc import Sequence
 
+from app.context.budget import fit_to_budget
+from app.context.selection import render_case_lines
 from app.context.spec import (
     BRIEFING_SPEC,
     CASE_SUMMARY_SPEC,
@@ -38,26 +40,33 @@ def compile_concierge_context(
     owner_preferences: Sequence[str] = (),
     spec: ContextSpec = CONCIERGE_SPEC,
 ) -> CompiledContext:
-    """Compile concierge context blocks.
+    """Compile concierge context blocks, each slice fitted to the spec's budgets.
 
-    When owner_preferences is empty, output prompt_text is byte-identical to concierge_prompt.
+    The first DETAIL_CASES cases carry a summary and the rest are index lines, so pass them most relevant first
+    (`selection.rank_cases`). When the prompt is under budget, there are at most DETAIL_CASES cases and
+    owner_preferences is empty, prompt_text is byte-identical to concierge_prompt.
     """
-    lines = [
-        f"case: {c.case_id} | {c.label} | {c.state} | {c.urgency}\n  {' '.join(c.summary.split())[:400]}" for c in cases
-    ]
     tasks = [f"task: {t}" for t in open_tasks]
-    data_content = "\n".join([*lines, *tasks]) or "no open cases or tasks"
-    history_content = (
-        "\n".join(" ".join(r.split())[:MAX_HISTORY_LINE] for r in recent[-MAX_HISTORY:]) or "no earlier messages"
+    history_lines = (" ".join(r.split())[:MAX_HISTORY_LINE] for r in recent[-MAX_HISTORY:])
+    fitted, dropped = fit_to_budget(
+        spec,
+        {
+            "data": "\n".join([*render_case_lines(cases), *tasks]) or "no open cases or tasks",
+            "history": "\n".join(history_lines) or "no earlier messages",
+            "page_facts": page_facts_text,
+            "page_snapshot": snapshot,
+            "page_filters": filters,
+            "message": question,
+        },
     )
 
-    data_b = data_block("data", data_content)
+    data_b = data_block("data", fitted["data"])
     pref_b = (
         [data_block("owner_preferences", "\n".join(f"- {p}" for p in owner_preferences))] if owner_preferences else []
     )
-    history_b = data_block("history", history_content)
-    page_bs = page_blocks(page_facts_text, snapshot, filters)
-    message_b = data_block("message", question)
+    history_b = data_block("history", fitted["history"])
+    page_bs = page_blocks(fitted["page_facts"], fitted["page_snapshot"], fitted["page_filters"])
+    message_b = data_block("message", fitted["message"])
 
     blocks = (data_b, *pref_b, history_b, *page_bs, message_b)
     # Prefix hash covers stable parts (stability <= 2: data_block and owner preferences)
@@ -68,7 +77,7 @@ def compile_concierge_context(
         blocks=blocks,
         prefix_hash=prefix_hash,
         aliases={},
-        dropped=(),
+        dropped=dropped,
     )
 
 

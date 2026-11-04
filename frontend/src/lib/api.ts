@@ -794,6 +794,7 @@ export interface PreviewCardData {
   targetUrl?: string;
   externalUrl?: string | null;
   threadSearchUrl?: string | null;
+  variants?: string[];
   personaName?: string | null; // owner persona a draft_message was written in
   personaVersion?: number | null;
 }
@@ -1218,6 +1219,64 @@ export async function prewarmAgentPage(params: PrewarmPageParams): Promise<boole
     });
     return res.ok;
   } catch {
+    return false;
+  }
+}
+
+
+
+export interface GoogleAuthStatus {
+  connected: boolean;
+  email?: string;
+  name?: string;
+  picture?: string;
+  scopes?: string[];
+  connected_at?: string;
+}
+
+export async function getGoogleAuthStatus(): Promise<GoogleAuthStatus> {
+  try {
+    const res = await fetch(`${BACKEND_BASE_URL}/api/auth/google/status`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn("Failed to fetch Google auth status:", err);
+  }
+  return { connected: false };
+}
+
+export async function getGoogleAuthUrl(): Promise<string | null> {
+  try {
+    const res = await fetch(`${BACKEND_BASE_URL}/api/auth/google/url`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.url || null;
+    }
+  } catch (err) {
+    console.warn("Failed to fetch Google auth URL:", err);
+  }
+  return null;
+}
+
+export async function disconnectGoogleAccount(): Promise<boolean> {
+  try {
+    const res = await fetch(`${BACKEND_BASE_URL}/api/auth/google/disconnect`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(5000),
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn("Failed to disconnect Google account:", err);
     return false;
   }
 }

@@ -202,3 +202,46 @@ def test_run_query_agent_retries_on_security_error_and_succeeds():
         assert resp.row_count == 1
         assert "Leak" in resp.answer
         mock_exec.assert_called_once()
+
+
+def test_propose_sql_uses_the_configured_llm_when_groq_has_no_key():
+    from app.llm.calls import CallResult
+    from app.tools.query_agent.agent import propose_sql
+
+    settings = SETTINGS.model_copy(update={"llm_model": "google-gla:gemini-2.5-flash", "groq_api_key": None})
+    proposal = SQLQueryProposal(sql="SELECT * FROM v_active_leases;", rationale="leases")
+    with patch("app.tools.query_agent.agent.run_agent", return_value=CallResult(proposal, uuid4())) as run:
+        got = propose_sql("List active leases", settings, engine=MagicMock(), company_id=uuid4())
+    assert got is not None
+    assert got.sql == "SELECT * FROM v_active_leases"
+    assert run.call_args.args[2].prompt.name == "query_agent"
+
+
+def test_propose_sql_without_groq_or_engine_returns_none():
+    from app.tools.query_agent.agent import propose_sql
+
+    assert propose_sql("List active leases", SETTINGS) is None
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT a FROM v_active_leases WHERE is_active = TRUE AND end_date < '2028-01-01'",
+        "SELECT a FROM v_active_leases WHERE x = 1 OR y = 2",
+        "SELECT CASE WHEN a > 1 THEN 'x' ELSE 'y' END FROM v_case_overview",
+        "SELECT a FROM v_case_overview WHERE created_at > CURRENT_DATE - INTERVAL '30 days'",
+        "SELECT a FROM v_case_overview WHERE created_at > NOW() - INTERVAL '30 days'",
+        "SELECT EXTRACT(YEAR FROM end_date) FROM v_active_leases",
+    ],
+)
+def test_common_operators_and_keywords_are_not_rejected_as_functions(sql: str):
+    assert "LIMIT 50" in validate_and_wrap_sql(sql, max_limit=50)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    ["SELECT pg_sleep(5) FROM v_case_overview", "SELECT a FROM v_case_overview WHERE x = 1 AND pg_sleep(1) IS NULL"],
+)
+def test_banned_functions_stay_rejected_inside_an_and(sql: str):
+    with pytest.raises(SQLSecurityError):
+        validate_and_wrap_sql(sql, max_limit=50)

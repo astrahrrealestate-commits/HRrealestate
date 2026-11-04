@@ -59,278 +59,7 @@ class ApprovalDecideRequest(BaseModel):
 
 
 # Rich default seeds so the frontend displays complete live data even before first email webhook arrives
-DEFAULT_SEEDED_THREADS: list[dict[str, Any]] = [
-    {
-        "id": "thread-1",
-        "caseId": "00000000-0000-0000-0000-000000000001",
-        "approvalId": "00000000-0000-0000-0000-000000000101",
-        "audience": "tenants",
-        "category": "maintenance",
-        "urgency": "emergency",
-        "unit": "Pieter Floriszstraat 1 C",
-        "title": "Kitchen sockets short circuit · Fridge warming up",
-        "lastMessageSnippet": (
-            "Nog steeds geen stroom op de stopcontacten in de keuken sinds de kortsluiting. De koelkast "
-            "begint warm te worden. Kan er vandaag iemand komen? Groet, Pieter"
-        ),
-        "timestamp": "Today 08:15",
-        "channel": "gmail",
-        "channelBadge": "Gmail · Today 08:15",
-        "sourceIdentifier": "Gmail · pieter.bakker@gmail.com",
-        "subject": "Urgent: Short circuit in kitchen - Pieter Floriszstraat 1 C",
-        "sender": {
-            "name": "Pieter Bakker",
-            "contact": "pieter.bakker@gmail.com",
-            "role": "Tenant",
-            "unit": "Pieter Floriszstraat 1 C",
-        },
-        "aiSummary": (
-            "Kitchen circuit breaker tripped after appliance short circuit. Food in refrigerator is warming "
-            "up. Urgent repair needed today."
-        ),
-        "aiConfidence": 93,
-        "detectedLanguage": "nl",
-        "activeChannel": "gmail",
-        "gmailDrafts": [
-            {
-                "id": "d1",
-                "label": "Draft 1 (Action & Arrival)",
-                "channel": "gmail",
-                "text": (
-                    "Beste Pieter, we hebben spoedmelding #005 aangemaakt. Elektricien Kevin van Chahal Bouw arriveert "
-                    "vandaag tussen 11:30 en 12:30. Houd de koelkast zo veel mogelijk gesloten om bederf te voorkomen. "
-                    "Met vriendelijke groet, H R Real Estate"
-                ),
-                "englishMeaning": (
-                    "Dear Pieter, we created emergency ticket #005. Electrician Kevin from Chahal Bouw will arrive "
-                    "today between 11:30 and 12:30. Please keep the fridge closed. Regards, H R Real Estate"
-                ),
-                "arrivalTime": "Today between 11:30 - 12:30",
-                "contractorName": "Chahal Bouw Electricians",
-                "confidence": 93,
-            },
-            {
-                "id": "d2",
-                "label": "Draft 2 (Lockbox Instructions)",
-                "channel": "gmail",
-                "text": (
-                    "Beste Pieter, monteur Kevin kan via de sleutelkluis (code: 4182) naar binnen als u niet thuis "
-                    "bent. Kunt u bevestigen of dit akkoord is? Met vriendelijke groet, H R Real Estate"
-                ),
-                "englishMeaning": (
-                    "Dear Pieter, technician Kevin can enter via lockbox (code: 4182) if you are not home. Can "
-                    "you confirm if this is okay? Regards, H R Real Estate"
-                ),
-                "arrivalTime": "Today 11:30 via Lockbox #4182",
-                "contractorName": "Chahal Bouw Electricians",
-                "confidence": 88,
-            },
-        ],
-        "whatsappDrafts": [],
-        "messages": [
-            {
-                "id": "msg-1",
-                "sender": "Pieter Bakker",
-                "timestamp": "08:15",
-                "content": (
-                    "Nog steeds geen stroom op de stopcontacten in de keuken sinds de kortsluiting. De koelkast "
-                    "begint warm te worden. Kan er vandaag iemand komen? Groet, Pieter"
-                ),
-                "isIncoming": True,
-                "channel": "gmail",
-                "subject": "Urgent: Short circuit in kitchen - Pieter Floriszstraat 1 C",
-            }
-        ],
-    },
-    {
-        "id": "thread-2",
-        "caseId": "00000000-0000-0000-0000-000000000002",
-        "approvalId": "00000000-0000-0000-0000-000000000102",
-        "audience": "contractors",
-        "contractorCategory": "contractor_repairs",
-        "category": "contractor_dispatch",
-        "urgency": "emergency",
-        "unit": "Pieter Floriszstraat 1 C",
-        "title": "Chahal Bouw · Emergency Electrician Dispatch",
-        "lastMessageSnippet": (
-            "✦ Emergency Dispatch: Approve € 650,- PO budget cap & lockbox code #4182 for Pieter Floriszstraat 1 C."
-        ),
-        "timestamp": "Today 08:20",
-        "channel": "gmail",
-        "channelBadge": "Gmail · Today 08:20",
-        "sourceIdentifier": "Gmail · dispatch@chahalbouw.nl",
-        "subject": "Work Order #005 - Emergency Power Restoration Pieter Floriszstraat 1 C",
-        "sender": {
-            "name": "Chahal Bouw (Kevin)",
-            "contact": "dispatch@chahalbouw.nl",
-            "role": "Contractor (Electrician)",
-            "unit": "Pieter Floriszstraat 1 C",
-        },
-        "aiSummary": (
-            "Emergency work order for electrician dispatch. PO budget capped at € 650,- excl BTW. Lockbox "
-            "#4182 authorized."
-        ),
-        "aiConfidence": 98,
-        "detectedLanguage": "nl",
-        "activeChannel": "gmail",
-        "gmailDrafts": [
-            {
-                "id": "d1",
-                "label": "Draft 1 (Dispatch Approval & PO)",
-                "channel": "gmail",
-                "text": (
-                    "Beste Chahal Bouw, hierbij de formele spoedopdracht voor ticket #005 op Pieter Floriszstraat "
-                    "1 C. Geautoriseerd PO-budget: € 650,- excl. BTW. Sleutelkluiscode: 4182. Verwachte aankomst: "
-                    "11:30."
-                ),
-                "englishMeaning": (
-                    "Dear Chahal Bouw, here is the formal emergency dispatch for ticket #005. Authorized PO budget: "
-                    "€ 650,- excl VAT. Lockbox code: 4182. Expected arrival: 11:30."
-                ),
-                "arrivalTime": "Today 11:30",
-                "contractorName": "Chahal Bouw Electricians",
-                "confidence": 98,
-            }
-        ],
-        "whatsappDrafts": [],
-        "messages": [
-            {
-                "id": "msg-2",
-                "sender": "EstateOS System",
-                "timestamp": "08:20",
-                "content": (
-                    "✦ Prepared Emergency Work Order for Chahal Bouw Electrician. Pre-authorized budget: € 650,-. "
-                    "Key lockbox: #4182."
-                ),
-                "isIncoming": False,
-                "channel": "gmail",
-                "subject": "Work Order #005 - Emergency Power Restoration",
-            }
-        ],
-    },
-    {
-        "id": "thread-3",
-        "caseId": "00000000-0000-0000-0000-000000000003",
-        "approvalId": "00000000-0000-0000-0000-000000000103",
-        "audience": "tenants",
-        "category": "maintenance",
-        "urgency": "normal",
-        "unit": "Dorpsstraat 54 E",
-        "title": "Washing machine siphon burst · Water leaking into closet",
-        "lastMessageSnippet": (
-            "Goedemorgen, onze wasmachine lekt sinds gisteravond water. We hebben de kraan dichtgedraaid..."
-        ),
-        "timestamp": "Today 07:42",
-        "channel": "whatsapp",
-        "channelBadge": "WhatsApp · Today 07:42",
-        "sourceIdentifier": "WhatsApp · +31 6 ·· ·· 22 41",
-        "sender": {
-            "name": "Rick de Boer",
-            "contact": "+31 6 22 41 89 00",
-            "role": "Tenant",
-            "unit": "Dorpsstraat 54 E",
-        },
-        "aiSummary": (
-            "Washing machine drain hose/siphon leaked. Supply valve closed by tenant. Tenant present today after 17:00."
-        ),
-        "aiConfidence": 98,
-        "detectedLanguage": "nl",
-        "activeChannel": "whatsapp",
-        "whatsappDrafts": [
-            {
-                "id": "d1",
-                "label": "Draft 1 (Appointment Confirmation)",
-                "channel": "whatsapp",
-                "text": (
-                    "Beste Rick, bedankt voor het melden. Ticket #010 is aangemaakt. Loodgieter van Chahal Bouw "
-                    "belt u vandaag om een afspraak te plannen na 17:00."
-                ),
-                "englishMeaning": (
-                    "Dear Rick, thank you for reporting. Ticket #010 is created. Plumber from Chahal Bouw will "
-                    "call you to schedule after 17:00."
-                ),
-                "confidence": 98,
-            }
-        ],
-        "gmailDrafts": [],
-        "messages": [
-            {
-                "id": "msg-3",
-                "sender": "Rick de Boer",
-                "timestamp": "07:42",
-                "content": (
-                    "Goedemorgen, onze wasmachine lekt sinds gisteravond water. We hebben de kraan dichtgedraaid. "
-                    "Vanaf 17:00 zijn we thuis."
-                ),
-                "isIncoming": True,
-                "channel": "whatsapp",
-            }
-        ],
-    },
-    {
-        "id": "thread-4",
-        "caseId": "00000000-0000-0000-0000-000000000004",
-        "approvalId": "00000000-0000-0000-0000-000000000104",
-        "audience": "contractors",
-        "contractorCategory": "contractor_money",
-        "category": "contractor_invoice",
-        "urgency": "normal",
-        "unit": "Singel 412, Unit 2B",
-        "title": "KitchenTech B.V. · Invoice #INV-2026-881 Approval",
-        "lastMessageSnippet": (
-            "Attached invoice #INV-2026-881 for emergency leak fix on Singel 412. Amount: € 412,50 incl. BTW."
-        ),
-        "timestamp": "Today 08:35",
-        "channel": "gmail",
-        "channelBadge": "Gmail · Today 08:35",
-        "sourceIdentifier": "Gmail · facturen@kitchentech.nl",
-        "subject": "Factuur #INV-2026-881 reparatie Singel 412 - KitchenTech B.V.",
-        "sender": {
-            "name": "KitchenTech B.V. (Boekhouding)",
-            "contact": "facturen@kitchentech.nl",
-            "role": "Contractor (Invoicing)",
-            "unit": "Singel 412, Unit 2B",
-        },
-        "aiSummary": (
-            "Contractor submitted invoice #INV-2026-881 (€ 412,50 incl. BTW) for emergency leak fix. Matched "
-            "to PO #PO-4091. Within budget."
-        ),
-        "aiConfidence": 96,
-        "detectedLanguage": "nl",
-        "activeChannel": "gmail",
-        "gmailDrafts": [
-            {
-                "id": "d1",
-                "label": "Draft 1 (Approve Invoice & Schedule Payment)",
-                "channel": "gmail",
-                "text": (
-                    "Beste KitchenTech facturatie, factuur #INV-2026-881 (€ 412,50) is goedgekeurd en gematcht "
-                    "met werkorder #PO-4091. De betaling is ingepland voor de eerstvolgende betaalronde van vrijdag."
-                ),
-                "englishMeaning": (
-                    "Dear KitchenTech billing, invoice #INV-2026-881 (€ 412,50) is approved and matched with work "
-                    "order #PO-4091. Payment scheduled for Friday."
-                ),
-                "confidence": 96,
-            }
-        ],
-        "whatsappDrafts": [],
-        "messages": [
-            {
-                "id": "msg-4",
-                "sender": "KitchenTech B.V.",
-                "timestamp": "08:35",
-                "content": (
-                    "Geachte heer/mevrouw, hierbij treft u factuur INV-2026-881 voor de uitgevoerde lekkagereparatie "
-                    "op Singel 412. Totaalbedrag € 412,50 incl. BTW. Betalingstermijn 14 dagen."
-                ),
-                "isIncoming": True,
-                "channel": "gmail",
-                "subject": "Factuur #INV-2026-881 reparatie Singel 412",
-            }
-        ],
-    },
-]
+DEFAULT_SEEDED_THREADS: list[dict[str, Any]] = []
 
 
 def _build_live_threads(session: Session) -> list[dict[str, Any]]:
@@ -462,7 +191,7 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
             ).lower()
 
             portfolio_units = [
-                ("Keizersgracht 42-A", ["keizersgracht", "vipin", "suryansh", "anouk", "de vries"]),
+                ("Keizersgracht 42-A", ["keizersgracht", "vipin", "anouk", "de vries"]),
                 (
                     "Pieter Floriszstraat 1 C",
                     [
@@ -566,36 +295,46 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
         if und_entities.get("people"):
             custom_facts.append({"label": "People", "value": ", ".join(und_entities["people"]), "checked": True})
 
-        # Draft generation: Generate tailored English or Dutch replies for Gmail and WhatsApp
+        # Draft generation: Generate tailored replies for Gmail and WhatsApp
         gmail_drafts: list[dict[str, Any]] = []
         whatsapp_drafts: list[dict[str, Any]] = []
         draft_persona: dict[str, Any] | None = None  # set only for model drafts written in the owner's persona
 
-        ai_variants = (
-            reply_action.payload.get("body_variants") if reply_action and reply_action.payload else None
-        ) or []
-        if reply_action and ai_variants:  # the agent's own draft, in whatever language and channel it wrote it
+        if reply_action and reply_action.payload:  # the agent's own draft, shown on both tabs
             if reply_action.persona_name:
                 draft_persona = {
                     "actingAs": "Harjot",
                     "name": reply_action.persona_name,
                     "version": reply_action.persona_version,
                 }
-            ai_channel = "whatsapp" if reply_action.payload.get("channel") == "whatsapp" else "gmail"
-            prefix = "wd" if ai_channel == "whatsapp" else "gd"
-            target = whatsapp_drafts if ai_channel == "whatsapp" else gmail_drafts
-            for idx, text in enumerate(ai_variants, start=1):
-                target.append(
+            variants = reply_action.payload.get("body_variants") or []
+            if not variants and reply_action.payload.get("text"):
+                variants = [reply_action.payload["text"]]
+            elif not variants and reply_action.payload.get("body"):
+                variants = [reply_action.payload["body"]]
+
+            for idx, text in enumerate(variants, start=1):
+                gmail_drafts.append(
                     {
-                        "id": f"{prefix}{idx}",
+                        "id": f"gd{idx}",
                         "label": f"Draft {idx} (Recommended)" if idx == 1 else f"Draft {idx} (Alternative)",
-                        "channel": ai_channel,
+                        "channel": "gmail",
                         "text": text,
                         "englishMeaning": "AI-generated draft reply to tenant",
-                        "confidence": 95,
+                        "confidence": 98 if idx == 1 else 95,
                     }
                 )
-        else:
+                whatsapp_drafts.append(
+                    {
+                        "id": f"wd{idx}",
+                        "label": f"WhatsApp {idx} (Quick Confirmation)" if idx == 1 else f"WhatsApp {idx} (Detailed)",
+                        "channel": "whatsapp",
+                        "text": text if len(text) < 160 else text.split("\n\n")[0],
+                        "confidence": 98 if idx == 1 else 95,
+                    }
+                )
+
+        if not gmail_drafts:
             # No agent draft yet: neutral acknowledgements only. They state no fact, date, amount or commitment.
             d1_en = (
                 f"Dear {sender_name},\n\nThank you for your message. We have received it and will get back to you "
@@ -855,7 +594,7 @@ def get_inbox_threads(
         live_threads = _build_live_threads(session)
 
     # Merge live threads with default seeded threads (live threads first)
-    threads = live_threads + list(DEFAULT_SEEDED_THREADS)
+    threads = list(live_threads)
 
     # Safe parameter normalization (handles both FastAPI dependency injection and direct calls)
     chan = channel if isinstance(channel, str) else getattr(channel, "default", "all")

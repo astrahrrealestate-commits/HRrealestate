@@ -254,16 +254,19 @@ function PropertiesContent() {
   const isMobileComplexList = !isMobileComplexScreen && !isMobileUnitScreen;
 
   return (
-    <div className="h-dvh bg-[var(--bg)] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
+    <div className="h-dvh bg-[#0D0F12] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
       {/* 1. Left Nav (Desktop Sidebar) */}
       <Sidebar />
 
       {/* 2. Main Content Canvas */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0D0F12]">
         <TopCommandBar
           pageTitle="Properties"
           hideSearch={true}
         />
+
+        {/* Curved White Main Content Canvas */}
+        <div className="flex-1 bg-white rounded-tl-[24px] sm:rounded-tl-[28px] overflow-hidden flex flex-col shadow-2xl relative">
 
         {/* ------------------------------------------------------------- */}
         {/* DESKTOP LAYOUT (>= 768px): 3 Columns                         */}
@@ -988,6 +991,7 @@ function PropertiesContent() {
             </div>
           )}
 
+        </div>
         </div>
 
       </div>

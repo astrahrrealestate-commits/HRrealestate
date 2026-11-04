@@ -165,222 +165,9 @@ class ApproveDispatchResponse(BaseModel):
 # Seed Data
 # ---------------------------------------------------------------------------
 
-DEFAULT_TICKETS: list[dict[str, Any]] = [
-    {
-        "id": "m-1",
-        "ticketNumber": "#005",
-        "issueTitle": "Electricity short circuit in kitchen sockets",
-        "unitLabel": "Pieter Floriszstraat 1 C",
-        "tenantName": "Pieter Bakker",
-        "tenantPhone": "+31 6 12 34 41 87",
-        "category": "electrical",
-        "contractorName": "Chahal Bouw",
-        "contractorTrade": "Electrician",
-        "contractorPhone": "+31 6 88 12 34 56",
-        "urgency": "emergency",
-        "status": "pending_approval",
-        "slaRemaining": "38m SLA",
-        "isOverdue": False,
-        "poBudgetCap": "€ 650",
-        "reportedAt": "Yesterday 22:10",
-        "notes": "Fridge warming up after power tripped. Monteur Kevin assigned with 11:30 arrival window.",
-        "originalMessage": (
-            "Nog steeds geen stroom op de stopcontacten in de keuken sinds de kortsluiting. De koelkast "
-            "begint warm te worden. Kan er vandaag iemand komen? Groet, Pieter"
-        ),
-        "contractorDraft": (
-            "Beste Kevin (Chahal Bouw), spoedmelding voor Pieter Floriszstraat 1 C: Storing in keukengroep "
-            "/ aardlek. Huurder Pieter Bakker (+31 6 12 34 41 87) is aanwezig. Geautoriseerd budgetplafond: "
-            "€ 650. Sleutelkast pincode: 4182. Gelieve ETA te bevestigen."
-        ),
-        "tenantDraft": (
-            "Beste Pieter, we hebben je melding over de stroomstoring in de keuken ontvangen. Monteur Kevin "
-            "van Chahal Bouw is zojuist geautoriseerd met een aankomsttijdstip rond 11:30. Houd de koelkast "
-            "zo veel mogelijk gesloten om bederf te voorkomen. Met vriendelijke groet, Harjot"
-        ),
-    },
-    {
-        "id": "m-2",
-        "ticketNumber": "#010",
-        "issueTitle": "Washing machine siphon pipe burst and leaking",
-        "unitLabel": "Dorpsstraat 54 E",
-        "tenantName": "Rick de Boer",
-        "tenantPhone": "+31 6 22 41 89 00",
-        "category": "plumbing",
-        "contractorName": "Vermeer Loodgieters",
-        "contractorTrade": "Plumber",
-        "contractorPhone": "+31 6 77 99 88 11",
-        "urgency": "high",
-        "status": "pending_approval",
-        "slaRemaining": "1h 14m SLA",
-        "isOverdue": False,
-        "poBudgetCap": "€ 450",
-        "reportedAt": "Today 07:45",
-        "notes": "Water turned off at main valve. Tenant present after 17:00 for repair.",
-        "originalMessage": (
-            "De afvoerpijp van de wasmachine is gescheurd en lekt water over de vloer. Ik heb de hoofdkraan "
-            "dichtgedraaid. Ik ben na 17:00 thuis voor herstel."
-        ),
-        "contractorDraft": (
-            "Beste Vermeer Loodgieters, reparatieverzoek voor Dorpsstraat 54 E: Gescheurde sifon / afvoerpijp "
-            "wasmachine. Huurder Rick de Boer (+31 6 22 41 89 00) is na 17:00 aanwezig. Geautoriseerd budgetplafond: "
-            "€ 450. Gelieve beschikbaarheid te bevestigen."
-        ),
-        "tenantDraft": (
-            "Beste Rick, dank voor het direct dichtdraaien van de hoofdkraan. We hebben loodgieter Vermeer "
-            "gecontacteerd voor reparatie na 17:00 vandaag. Met vriendelijke groet, Harjot"
-        ),
-    },
-    {
-        "id": "m-3",
-        "ticketNumber": "#014",
-        "issueTitle": "Central heating boiler error code F.22",
-        "unitLabel": "Singel 412",
-        "tenantName": "Marloes Jansen",
-        "tenantPhone": "+31 6 44 22 88 19",
-        "category": "heating",
-        "contractorName": "Van Dijk CV & Verwarming",
-        "contractorTrade": "Heating engineer",
-        "contractorPhone": "+31 6 33 44 55 66",
-        "urgency": "emergency",
-        "status": "scheduled",
-        "slaRemaining": "Overdue 12m",
-        "isOverdue": True,
-        "poBudgetCap": "€ 550",
-        "reportedAt": "Yesterday 18:30",
-        "notes": "Water pressure dropped to 0.4 bar. Radiator bleed and pump repressurization scheduled.",
-        "originalMessage": "CV-ketel geeft foutcode F.22 en er is geen warm water meer. Druk staat op 0.4 bar.",
-        "contractorDraft": (
-            "Beste Van Dijk CV, ketelstoring Singel 412: Foutcode F.22, drukverlies. Huurder Marloes Jansen "
-            "(+31 6 44 22 88 19). Budget: € 550. Spoed."
-        ),
-        "tenantDraft": (
-            "Beste Marloes, monteur van Van Dijk CV is onderweg voor hervullen en ontluchten van de ketel. "
-            "Met vriendelijke groet, Harjot"
-        ),
-    },
-    {
-        "id": "m-4",
-        "ticketNumber": "#018",
-        "issueTitle": "Stove ceramic cooktop burner failure",
-        "unitLabel": "Prinses Marijkestraat 2 A",
-        "tenantName": "Daan Vermeulen",
-        "tenantPhone": "+31 6 98 76 54 32",
-        "category": "appliance",
-        "contractorName": "KeukenExpert Amsterdam",
-        "contractorTrade": "Appliance specialist",
-        "contractorPhone": "+31 6 11 22 33 44",
-        "urgency": "normal",
-        "status": "completed",
-        "slaRemaining": "Resolved",
-        "isOverdue": False,
-        "poBudgetCap": "€ 480",
-        "reportedAt": "12 Oct 14:15",
-        "notes": "Ceramic element replaced. Tenant tested hob and signed digital completion slip.",
-        "originalMessage": "De keramische kookplaat linksvoor wordt niet meer heet.",
-        "contractorDraft": "KeukenExpert: vervanging keramisch verwarmingselement Prinses Marijkestraat 2 A afgerond.",
-        "tenantDraft": (
-            "Beste Daan, fijn dat de kookplaat weer naar behoren functioneert! Met vriendelijke groet, Harjot"
-        ),
-    },
-    {
-        "id": "m-5",
-        "ticketNumber": "#022",
-        "issueTitle": "Rapid bathroom water leak",
-        "unitLabel": "Keizersgracht 42-A",
-        "tenantName": "Vipin Tyagi",
-        "tenantPhone": "+91 94569 16996",
-        "category": "plumbing",
-        "contractorName": "Chahal Bouw (Kevin)",
-        "contractorTrade": "Plumber & Emergency repairs",
-        "contractorPhone": "+31 6 88 12 34 56",
-        "urgency": "emergency",
-        "status": "pending_approval",
-        "slaRemaining": "45m SLA",
-        "isOverdue": False,
-        "poBudgetCap": "€ 650",
-        "reportedAt": "Today 12:00",
-        "notes": "Emergency water leak reported. Resident available for immediate dispatch.",
-        "originalMessage": "Water is leaking rapidly from the bathroom. Need someone immediately.",
-        "contractorDraft": (
-            "Beste Chahal Bouw (Kevin), spoedmelding Keizersgracht 42-A: Ernstige lekkage badkamer. Huurder "
-            "Vipin Tyagi. Geautoriseerd PO budget: € 650,-. Gelieve ETA te bevestigen."
-        ),
-        "tenantDraft": (
-            "Hi Vipin, we marked this as emergency ticket #022. Contractor Kevin from Chahal Bouw has been "
-            "authorized with PO cap €650 and will arrive shortly. Emergency desk: +31 20 555 0199."
-        ),
-    },
-]
+DEFAULT_TICKETS: list[dict[str, Any]] = []
 
-DEFAULT_HISTORY_EVENTS_005: list[dict[str, Any]] = [
-    {
-        "id": "ev-1",
-        "timestamp": "Today 08:15",
-        "category": "message",
-        "actor": "Pieter Bakker (Tenant)",
-        "actorType": "tenant",
-        "channel": "WhatsApp",
-        "title": "Tenant reported power failure on kitchen circuit",
-        "description": (
-            "Nog steeds geen stroom op de stopcontacten in de keuken sinds de kortsluiting. De koelkast "
-            "begint warm te worden. Kan er vandaag iemand komen? Groet, Pieter"
-        ),
-        "stateChange": "none → open",
-    },
-    {
-        "id": "ev-2",
-        "timestamp": "Today 08:16",
-        "category": "audit",
-        "actor": "EstateOS System",
-        "actorType": "system",
-        "title": "AI Triage & SLA countdown initialized",
-        "description": (
-            "Category Electrical › Kitchen circuit failure. Urgency classified as Emergency. 4h SLA countdown "
-            "timer active."
-        ),
-        "badge": "4h SLA Activated",
-    },
-    {
-        "id": "ev-3",
-        "timestamp": "Today 08:20",
-        "category": "contractor_po",
-        "actor": "Harjot Singh (Owner)",
-        "actorType": "owner",
-        "channel": "Email / WhatsApp",
-        "title": "PO budget cap authorized & contractor dispatched",
-        "description": (
-            "Chahal Bouw Electricians notified for 11:30 arrival window. Key lockbox PIN 4182 provided. "
-            "Budget ceiling set at € 650.00."
-        ),
-        "badge": "€ 650.00 Cap",
-        "stateChange": "open → waiting_on_third_party",
-    },
-    {
-        "id": "ev-4",
-        "timestamp": "Today 08:22",
-        "category": "message",
-        "actor": "Chahal Bouw Electricians (Contractor)",
-        "actorType": "contractor",
-        "channel": "WhatsApp",
-        "title": "Contractor acknowledged dispatch & ETA confirmed",
-        "description": "Akkoord voor 11:30. Monteur Kevin is onderweg met vervangende aardlekautomaten.",
-        "badge": "ETA: 11:30 CET",
-    },
-    {
-        "id": "ev-5",
-        "timestamp": "Today 08:25",
-        "category": "message",
-        "actor": "EstateOS (Auto-Reply)",
-        "actorType": "system",
-        "channel": "WhatsApp",
-        "title": "Confirmation sent to tenant Pieter Bakker",
-        "description": (
-            "Beste Pieter, monteur Kevin arriveert rond 11:30. Houd de koelkast zo veel mogelijk gesloten "
-            "om bederf te voorkomen."
-        ),
-    },
-]
+DEFAULT_HISTORY_EVENTS_005: list[dict[str, Any]] = []
 
 
 # ---------------------------------------------------------------------------
@@ -476,6 +263,29 @@ def get_maintenance_tickets(
                         f"Best regards,\nHarjot Singh — EstateOS"
                     )
 
+                reply_action = next((a for a in actions if a.type == ActionType.reply_draft), None)
+                tenant_draft = ""
+                if reply_action and reply_action.payload:
+                    rp = reply_action.payload
+                    r_variants = rp.get("body_variants") or []
+                    if r_variants:
+                        tenant_draft = r_variants[0]
+                    elif rp.get("text"):
+                        tenant_draft = rp["text"]
+                    elif rp.get("body"):
+                        tenant_draft = rp["body"]
+
+                clean_issue_title: str | None = None
+                if not tenant_draft:
+                    issue_ref = clean_issue_title.lower() if clean_issue_title else "maintenance request"
+                    tenant_draft = (
+                        f"Hi {tenant_name},\n\n"
+                        f"Thank you for reporting this issue ({issue_ref}). We have logged an emergency work order and "
+                        f"assigned our approved contractor, {contractor_name}. "
+                        "They will reach out shortly to coordinate access.\n\n"
+                        f"Best regards,\nHarjot Singh — EstateOS"
+                    )
+
                 links = session.query(CaseLink).filter(CaseLink.case_id == case.id).all()
                 msg_ids = [link.message_id for link in links]
                 orig_msg = (
@@ -565,12 +375,13 @@ def get_maintenance_tickets(
                         "notes": case.summary,
                         "originalMessage": orig_msg.text if orig_msg else case.summary,
                         "contractorDraft": contractor_draft,
+                        "tenantDraft": tenant_draft,
                     }
                 )
     except Exception as exc:
         log.warning("maintenance.live_tickets_failed", error=str(exc))
 
-    all_tickets = live_tickets + list(DEFAULT_TICKETS)
+    all_tickets = list(live_tickets)
     tickets = list(all_tickets)
 
     if urgency != "all":
@@ -585,7 +396,7 @@ def get_maintenance_tickets(
         emergencyCount=len([t for t in all_tickets if t["urgency"] == "emergency"]),
         dispatchedCount=len([t for t in all_tickets if t["status"] == "dispatched"]),
         overdueCount=len([t for t in all_tickets if t.get("isOverdue")]),
-        totalPoBudgetEur=2150.00,
+        totalPoBudgetEur=0.0 if not all_tickets else 2150.00,
     )
 
     return MaintenanceTicketsResponse(

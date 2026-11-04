@@ -62,16 +62,19 @@ function AdminContent() {
   };
 
   return (
-    <div className="h-dvh bg-[var(--bg)] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
+    <div className="h-dvh bg-[#0D0F12] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
       {/* 1. Left Nav (Desktop Sidebar) */}
       <Sidebar />
 
       {/* 2. Main Content Canvas */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0D0F12]">
         <TopCommandBar
           pageTitle="Admin"
           hideSearch={true}
         />
+
+        {/* Curved White Main Content Canvas */}
+        <div className="flex-1 bg-white rounded-tl-[24px] sm:rounded-tl-[28px] overflow-hidden flex flex-col shadow-2xl relative">
 
         {/* Scrollable Container */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6 max-w-6xl w-full mx-auto pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-12">
@@ -221,6 +224,7 @@ function AdminContent() {
           </div>
 
         </main>
+        </div>
 
       </div>
 

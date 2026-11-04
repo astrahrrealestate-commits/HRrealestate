@@ -88,7 +88,7 @@ export const SETTING_GROUPS: SettingGroup[] = [
       {
         id: "s-gmail-sync",
         title: "Google Workspace Gmail Push Notifications",
-        description: "OAuth 2.0 connected & synced to tyagisurya.04@gmail.com.",
+        description: "Connect Harjot's Google account to enable real-time message ingestion.",
         valueType: "toggle",
         currentValue: true,
       },

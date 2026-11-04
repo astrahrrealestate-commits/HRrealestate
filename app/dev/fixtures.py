@@ -16,9 +16,9 @@ DEV_COMPANY = "EstateOS Dev Hausverwaltung"
 DEV_PNID = "100000000000001"
 DEV_BUSINESS_NUMBER = "4915550000999"
 DEV_MAILBOX = "hausverwaltung@example.test"
-DEV_OWNER_NAME = "Suryansh Tyagi"
+DEV_OWNER_NAME = "Harjot Singh"
 DEV_OWNER_E164 = "+4915550000100"
-DEV_OWNER_EMAIL = "tyagisurya.04@gmail.com"
+DEV_OWNER_EMAIL = ""
 
 
 @dataclass(frozen=True)
@@ -59,6 +59,13 @@ def wa_text(wamid: str, text: str, at: datetime, reply_to: str | None = None) ->
 def wa_image(wamid: str, media_id: str, sha256: str, caption: str | None, at: datetime) -> dict[str, Any]:
     image = {"mime_type": "image/jpeg", "sha256": sha256, "id": media_id}
     return {**_base(wamid, at, "image", None), "image": {**image, **({"caption": caption} if caption else {})}}
+
+
+def wa_document(
+    wamid: str, media_id: str, sha256: str, mime_type: str, filename: str, caption: str | None, at: datetime
+) -> dict[str, Any]:
+    document = {"mime_type": mime_type, "sha256": sha256, "id": media_id, "filename": filename}
+    return {**_base(wamid, at, "document", None), "document": {**document, **({"caption": caption} if caption else {})}}
 
 
 def wa_button(wamid: str, button_id: str, title: str, at: datetime, reply_to: str) -> dict[str, Any]:

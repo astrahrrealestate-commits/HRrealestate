@@ -18,6 +18,8 @@ ALLOWED_BASE_TABLES = frozenset(
         "people",
         "leases",
         "lease_parties",
+        "actions",
+        "case_links",
         "tasks",
         "calendar_events",
         "messages",
@@ -45,6 +47,18 @@ ALLOWED_FUNCTIONS = frozenset(
         "abs",
         "nullif",
         "concat",
+        "length",
+        "trim",
+        "split_part",
+        "substring",
+        # sqlglot parses these operators and keywords as function nodes; they run nothing
+        "and",
+        "or",
+        "case",
+        "if",
+        "extract",
+        "current_date",
+        "current_timestamp",
     }
 )
 

@@ -10,8 +10,11 @@ import httpx
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
+from app.contracts import PromptRef
+from app.core.errors import AgentFailedError
 from app.core.logging import get_logger
 from app.core.settings import Settings
+from app.llm.calls import AgentSpec, CallContext, run_agent
 from app.tools.query_agent.executor import QueryExecutionResult, execute_readonly_query
 from app.tools.query_agent.prompt import QUERY_AGENT_SYSTEM_PROMPT
 from app.tools.query_agent.validator import SQLSecurityError, validate_and_wrap_sql
@@ -20,7 +23,7 @@ log = get_logger(__name__)
 
 
 class SQLQueryProposal(BaseModel):
-    sql: str = Field(description="Single PostgreSQL SELECT query over curated views")
+    sql: str = Field(description="Single PostgreSQL SELECT query over curated views or base tables")
     rationale: str = Field(description="Explanation of what the query calculates")
 
 
@@ -40,12 +43,12 @@ def _call_groq_or_gemini(
     settings: Settings,
     system_instruction: str = QUERY_AGENT_SYSTEM_PROMPT,
 ) -> str | None:
-    """Calls Groq or Gemini API with structured JSON output instructions."""
+    """Calls Groq API with structured JSON output instructions."""
     api_key = settings.groq_api_key.get_secret_value() if settings.groq_api_key else None
     if not api_key:
         return None
 
-    for model in ["openai/gpt-oss-120b", "llama-3.3-70b-versatile"]:
+    for model in ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]:
         try:
             resp = httpx.post(
                 "https://api.groq.com/openai/v1/chat/completions",
@@ -60,14 +63,35 @@ def _call_groq_or_gemini(
                     "temperature": 0.0,
                     "max_tokens": 500,
                 },
-                timeout=8.0,
+                timeout=12.0,
             )
             if resp.status_code == 200:
                 data = resp.json()
                 return str(data["choices"][0]["message"]["content"])
+            log.warning("query_agent.groq_status_not_200", model=model, status=resp.status_code, body=resp.text[:200])
         except Exception as exc:
             log.warning("query_agent.llm_call_failed", model=model, error=str(exc))
     return None
+
+
+QUERY_AGENT = AgentSpec(
+    name="query_agent",
+    prompt=PromptRef(name="query_agent", version="v2"),
+    output_type=SQLQueryProposal,
+    finalize=lambda output, _loaded: output,
+)
+
+
+def _propose_with_configured_llm(
+    user_prompt: str, engine: Engine, settings: Settings, company_id: UUID
+) -> SQLQueryProposal | None:
+    """The project's own LLM layer (configured model, versioned prompt, one `model_calls` row per call)."""
+    try:
+        ctx = CallContext(company_id=company_id, purpose="query_agent")
+        return run_agent(engine, settings, QUERY_AGENT, user_prompt, ctx).output
+    except AgentFailedError as exc:
+        log.warning("query_agent.llm_failed", error=str(exc))
+        return None
 
 
 def propose_sql(
@@ -75,8 +99,13 @@ def propose_sql(
     settings: Settings,
     history: Sequence[str] | None = None,
     feedback_error: str | None = None,
+    *,
+    engine: Engine | None = None,
+    company_id: UUID | None = None,
 ) -> SQLQueryProposal | None:
-    """Generates an SQL proposal from natural language, with optional error-feedback correction."""
+    """Generates an SQL proposal from natural language, with optional error-feedback correction.
+
+    Groq answers when a key is configured; otherwise (or when it fails) the configured LLM does."""
     user_prompt = f"User Question: {question}"
     if history:
         recent_turns = "\n".join(history[-4:])
@@ -84,18 +113,27 @@ def propose_sql(
 
     if feedback_error:
         user_prompt += (
-            f"\n\nPrevious SQL query was rejected with error:\n{feedback_error}\n"
-            "Please fix the error and write a valid SELECT query referencing only the allowed views."
+            f"\n\nCRITICAL: The previous SQL query failed with error:\n{feedback_error}\n"
+            "Please fix this error and generate a corrected, valid PostgreSQL SELECT query referencing the database "
+            "schema. "
+            "Output your answer as a JSON object with keys 'sql' and 'rationale'."
         )
+    else:
+        user_prompt += "\n\nRespond with a valid JSON object with keys 'sql' and 'rationale'."
 
     raw_output = _call_groq_or_gemini(user_prompt, settings)
     if not raw_output:
-        return None
+        if engine is None or company_id is None or settings.llm_model == "fake":
+            return None
+        proposal = _propose_with_configured_llm(user_prompt, engine, settings, company_id)
+        if proposal is None:
+            return None
+        return SQLQueryProposal(sql=proposal.sql.strip().strip("`").rstrip(";"), rationale=proposal.rationale)
 
     try:
         data = json.loads(raw_output)
         return SQLQueryProposal(
-            sql=data.get("sql", "").strip().strip("`"),
+            sql=data.get("sql", "").strip().strip("`").rstrip(";"),
             rationale=data.get("rationale", ""),
         )
     except Exception as exc:
@@ -136,12 +174,12 @@ def run_query_agent(
     company_id: UUID,
     question: str,
     history: Sequence[str] | None = None,
-    max_retries: int = 2,
+    max_retries: int = 3,
 ) -> QueryAgentResponse:
     """End-to-end execution of the Custom Query Agent:
     1. Proposes SQL from natural language question.
-    2. Runs AST validation & limit wrapping.
-    3. Retries on security or SQL errors (up to max_retries).
+    2. Runs AST validation & limit wrapping (read-only enforcement).
+    3. Retries on security or SQL execution errors with feedback loop (up to max_retries).
     4. Executes with RLS company context.
     5. Formulates factual, grounded response.
     """
@@ -149,7 +187,9 @@ def run_query_agent(
     last_sql: str | None = None
 
     for attempt in range(max_retries + 1):
-        proposal = propose_sql(question, settings, history=history, feedback_error=last_error)
+        proposal = propose_sql(
+            question, settings, history=history, feedback_error=last_error, engine=engine, company_id=company_id
+        )
         if not proposal or not proposal.sql:
             last_error = "Could not generate SQL proposal"
             continue
@@ -162,7 +202,7 @@ def run_query_agent(
             log.warning("query_agent.security_rejected", attempt=attempt, error=last_error, sql=last_sql)
             continue
 
-        # Execute safe query
+        # Execute safe query inside read-only company RLS transaction
         exec_res: QueryExecutionResult = execute_readonly_query(engine, company_id, wrapped_sql)
         if not exec_res.ok:
             last_error = exec_res.error
