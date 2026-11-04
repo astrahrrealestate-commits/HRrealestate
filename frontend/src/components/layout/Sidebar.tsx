@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { ConnectionsModal } from "@/components/connections/ConnectionsModal";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { needsYouCount, ThreadCountTarget } from "@/lib/selectors";
+import { getInboxThreads } from "@/lib/api";
 
 interface NavItem {
   label: string;
@@ -36,25 +37,46 @@ interface SidebarProps {
 export function Sidebar({ pendingCount, threads }: SidebarProps) {
   const pathname = usePathname() || "/";
   const [isConnectionsOpen, setIsConnectionsOpen] = useState(false);
+  const [liveCount, setLiveCount] = useState<number | null>(null);
+
+  // When not provided by parent page, query live inbox threads once
+  useEffect(() => {
+    if (pendingCount !== undefined || threads !== undefined) return;
+    let isMounted = true;
+    getInboxThreads()
+      .then(({ threads: liveThreads }) => {
+        if (isMounted && Array.isArray(liveThreads)) {
+          setLiveCount(needsYouCount(liveThreads));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, [pendingCount, threads]);
 
   // Single source of truth for nav count
   const effectiveCount =
     pendingCount !== undefined
       ? pendingCount
-      : needsYouCount(threads || []);
+      : threads !== undefined
+      ? needsYouCount(threads)
+      : liveCount !== null
+      ? liveCount
+      : 0;
 
   const navigationItems: NavItem[] = [
     {
       label: "Dashboard",
       href: "/",
       icon: Home,
-      badge: effectiveCount > 0 ? `(${effectiveCount} Today)` : "(3 Today)",
+      badge: effectiveCount > 0 ? `(${effectiveCount} Today)` : undefined,
     },
     {
       label: "Messages",
       href: "/inbox",
       icon: Inbox,
-      badge: effectiveCount > 0 ? `(${effectiveCount})` : "(14)",
+      badge: effectiveCount > 0 ? `(${effectiveCount})` : undefined,
     },
     { label: "Properties", href: "/properties", icon: Building2 },
     { label: "Tenants", href: "/tenants", icon: Users },
