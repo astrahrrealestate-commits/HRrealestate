@@ -221,3 +221,27 @@ def test_propose_sql_without_groq_or_engine_returns_none():
     from app.tools.query_agent.agent import propose_sql
 
     assert propose_sql("List active leases", SETTINGS) is None
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT a FROM v_active_leases WHERE is_active = TRUE AND end_date < '2028-01-01'",
+        "SELECT a FROM v_active_leases WHERE x = 1 OR y = 2",
+        "SELECT CASE WHEN a > 1 THEN 'x' ELSE 'y' END FROM v_case_overview",
+        "SELECT a FROM v_case_overview WHERE created_at > CURRENT_DATE - INTERVAL '30 days'",
+        "SELECT a FROM v_case_overview WHERE created_at > NOW() - INTERVAL '30 days'",
+        "SELECT EXTRACT(YEAR FROM end_date) FROM v_active_leases",
+    ],
+)
+def test_common_operators_and_keywords_are_not_rejected_as_functions(sql: str):
+    assert "LIMIT 50" in validate_and_wrap_sql(sql, max_limit=50)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    ["SELECT pg_sleep(5) FROM v_case_overview", "SELECT a FROM v_case_overview WHERE x = 1 AND pg_sleep(1) IS NULL"],
+)
+def test_banned_functions_stay_rejected_inside_an_and(sql: str):
+    with pytest.raises(SQLSecurityError):
+        validate_and_wrap_sql(sql, max_limit=50)
