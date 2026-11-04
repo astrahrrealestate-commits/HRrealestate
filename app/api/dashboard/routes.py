@@ -13,6 +13,7 @@ from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
+from app.contracts import CaseState
 from app.core.logging import get_logger
 from app.db.models import Approval, Case, Lease, Unit, WaitRow
 
@@ -295,7 +296,7 @@ def get_executive_briefing(
                     session.query(Case)
                     .filter(
                         Case.urgency.in_(["emergency", "high"]),
-                        Case.state.in_(["open", "triaged", "in_progress", "waiting_on_third_party"]),
+                        Case.state.in_([CaseState.open, CaseState.waiting_on_owner, CaseState.waiting_on_third_party]),
                     )
                     .all()
                 )

@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 from app.core.settings import Settings
 from app.llm.calls import AGENT_RETRIES
 from app.llm.prompts import LoadedPrompt
-from app.llm.runtime import build_model
+from app.llm.runtime import build_model, output_for
 
 
 @dataclass(frozen=True)
@@ -33,11 +33,12 @@ def eval_settings() -> Settings:
 
 
 def spec_agent[T: BaseModel](
-    settings: Settings, agent_name: str, output_type: type[T], loaded: LoadedPrompt
+    settings: Settings, agent_name: str, output_type: type[T], loaded: LoadedPrompt, *, gemini_prompted: bool = False
 ) -> Agent[None, T]:
     """Same model, instructions and retries as `app.llm.calls.run_agent`, minus the model_calls row."""
     model = build_model(settings, agent_name)
-    return Agent(model, output_type=output_type, instructions=loaded.text, retries=AGENT_RETRIES)
+    out = output_for(settings, output_type, gemini_prompted=gemini_prompted)
+    return Agent(model, output_type=out, instructions=loaded.text, retries=AGENT_RETRIES)
 
 
 def cell(text: str, limit: int = 60) -> str:

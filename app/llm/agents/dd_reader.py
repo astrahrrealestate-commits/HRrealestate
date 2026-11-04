@@ -19,7 +19,11 @@ def _unchanged(output: DDDocRead, _loaded: LoadedPrompt) -> DDDocRead:
 
 
 DD_READER = AgentSpec(
-    name="dd_reader", prompt=PromptRef(name="dd_reader", version="v1"), output_type=DDDocRead, finalize=_unchanged
+    name="dd_reader",
+    prompt=PromptRef(name="dd_reader", version="v1"),
+    output_type=DDDocRead,
+    finalize=_unchanged,
+    gemini_prompted=True,
 )
 
 

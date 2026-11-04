@@ -190,3 +190,23 @@ def test_only_tenant_facing_drafts_are_stamped() -> None:
         reply, ReplyDraftPayload(kind="reply_draft", channel="gmail", subject=None, body_variants=["a", "b"]), persona
     )
     assert (notice.persona_name, reply.persona_name, reply.persona_version) == (None, "P", 4)
+
+
+def test_inbox_shows_the_agents_draft_even_for_an_english_message(
+    client: TestClient,
+    migrated_engine: Engine,
+    committed_company: Company,
+    test_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.db.models import MessageRow
+
+    cid = committed_company.id
+    _drafted(client, migrated_engine, cid, test_settings, monkeypatch)
+    with Session(migrated_engine) as s, s.begin():
+        msg = s.scalars(select(MessageRow).where(MessageRow.company_id == cid)).one()
+        msg.text = "There is a water leak in the kitchen, please send someone today"
+    threads = client.get("/api/inbox/threads").json()["threads"]
+    [mine] = [t for t in threads if t.get("draftPersona")]
+    assert [d["text"] for d in mine["gmailDrafts"]] == ["A", "B"]  # not a canned English template
+    assert mine["draftPersona"]["actingAs"] == "Harjot"

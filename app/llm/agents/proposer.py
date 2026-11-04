@@ -70,16 +70,32 @@ def _unchanged(output: Proposal, _loaded: LoadedPrompt) -> Proposal:
 
 
 PROPOSER = AgentSpec(
-    name="proposer", prompt=PromptRef(name="proposer", version="v1"), output_type=Proposal, finalize=_unchanged
+    name="proposer",
+    prompt=PromptRef(name="proposer", version="v1"),
+    output_type=Proposal,
+    finalize=_unchanged,
+    gemini_prompted=True,
 )
 PROPOSER_DOCS = AgentSpec(  # an inbound-message proposal with passages of the case's own documents in view
-    name="proposer", prompt=PromptRef(name="proposer", version="v3"), output_type=Proposal, finalize=_unchanged
+    name="proposer",
+    prompt=PromptRef(name="proposer", version="v3"),
+    output_type=Proposal,
+    finalize=_unchanged,
+    gemini_prompted=True,
 )
 PROPOSER_GUIDED = AgentSpec(
-    name="proposer", prompt=PromptRef(name="proposer", version="v2"), output_type=Proposal, finalize=_unchanged
+    name="proposer",
+    prompt=PromptRef(name="proposer", version="v2"),
+    output_type=Proposal,
+    finalize=_unchanged,
+    gemini_prompted=True,
 )
 PROPOSER_PERSONA = AgentSpec(
-    name="proposer", prompt=PromptRef(name="proposer", version="v4"), output_type=Proposal, finalize=_unchanged
+    name="proposer",
+    prompt=PromptRef(name="proposer", version="v4"),
+    output_type=Proposal,
+    finalize=_unchanged,
+    gemini_prompted=True,
 )
 MAX_GUIDANCE = 400  # the planner's `text` limit
 MAX_CURRENT_VARIANT = 1500

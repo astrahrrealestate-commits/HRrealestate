@@ -28,7 +28,7 @@ from app.core.settings import Settings
 from app.db.models import ModelCall
 from app.llm.budget import check_budget
 from app.llm.prompts import LoadedPrompt, load_prompt
-from app.llm.runtime import build_model
+from app.llm.runtime import build_model, output_for
 
 AGENT_RETRIES = 2  # re-asks on contract validation failure, inside one run
 
@@ -53,6 +53,9 @@ class AgentSpec[T]:
     output_type: type[T]
     finalize: Callable[[T, LoadedPrompt], T]
     redact_output: bool = False  # the output is document text stored elsewhere: `model_calls` keeps only its size
+    gemini_prompted: bool = (
+        False  # schema too nested for Gemini's tool mode: prompt for JSON instead (runtime.output_for)
+    )
 
 
 def is_transient(exc: BaseException) -> bool:
@@ -106,7 +109,10 @@ def run_agent[T: BaseModel](
     loaded = load_prompt(spec.prompt)
     check_budget(engine, settings, ctx.company_id, ctx.purpose)
     agent = Agent(
-        build_model(settings, spec.name), output_type=spec.output_type, instructions=loaded.text, retries=AGENT_RETRIES
+        build_model(settings, spec.name),
+        output_type=output_for(settings, spec.output_type, gemini_prompted=spec.gemini_prompted),
+        instructions=loaded.text,
+        retries=AGENT_RETRIES,
     )
     row = _row(spec, loaded, settings, ctx, user_prompt)
     started = time.perf_counter()
