@@ -54,6 +54,13 @@ ENV_READ = re.compile(
 # lines); every read of the file stays blocked by ENV_READ / ENV_INPUT.
 ENV_WRITE = re.compile(r"(?<!>)>\|?\s*['\"]?(\S*/)?\.env(\.(?!example\b)\w+)?(?=[\s;&|)'\"`]|$)")
 ENV_INPUT = re.compile(r"<\s*['\"]?(\S*/)?\.env(\.(?!example\b)\w+)?(?=[\s;&|)'\"`]|$)")
+# User decision 2026-11-04: one setting may be copied between env files without ever being shown, so `grep` of a quoted
+# pattern from one `.env` whose entire output is appended (`>>`) to another `.env` is allowed. Anything else that reads
+# the file (a pipe, a second command, output to stdout or to a non-`.env` file) stays blocked.
+ENV_COPY_LINE = re.compile(
+    r"(?<![\w-])grep\s+(?:-[a-zA-Z]+\s+)*(?:'[^'\n]*'|\"[^\"\n$`]*\")\s+(?:\S*/)?\.env\s*>>\s*(?:\S*/)?\.env"
+    r"(?=\s*(?:$|[;&]))"
+)
 FILE_WRITING_OPENER = re.compile(r"^\s*(cat\b[^\n|;&]*>|tee\b)")
 
 
@@ -112,7 +119,7 @@ def main() -> None:
     for pattern, reason in DENY:
         if pattern.search(command):
             pre_tool_decision("deny", reason)
-    visible = _strip_written_heredocs(command)
+    visible = ENV_COPY_LINE.sub("", _strip_written_heredocs(command))
     if ENV_READ.search(visible) or ENV_WRITE.search(visible) or ENV_INPUT.search(visible):
         pre_tool_decision("deny", ENV_READ_REASON)
     reason = outside_repo_git_write(command, data.get("cwd"))

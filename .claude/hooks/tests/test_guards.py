@@ -112,6 +112,21 @@ class BashGuard(unittest.TestCase):
         ]:
             self.assertEqual(bash(cmd), "deny", cmd)
 
+    def test_env_one_setting_copy_is_allowed_but_not_shown(self) -> None:
+        """User decision 2026-11-04: grep one setting from an env file straight into another, output never shown."""
+        self.assertIsNone(bash("grep -E '^GEMINI_API_KEY=.' .env >> wt/.env"))
+        self.assertIsNone(bash("printf 'A=1\\n' >> wt/.env; grep '^K=' ../.env >> wt/.env"))
+        for cmd in [
+            "grep -E '^K=' .env",
+            "grep -E '^K=' .env | cat",
+            "grep -E '^K=' .env >> out.txt",
+            "grep -E '^K=' .env >> wt/.env; cat .env",
+            "grep -E '^K=' .env >> wt/.env | cat",
+            "grep -E '^K=' .env >> wt/.env && cat wt/.env",
+            "grep -E $(cat .env) .env >> wt/.env",
+        ]:
+            self.assertEqual(bash(cmd), "deny", cmd)
+
     def test_env_bypasses_denied(self) -> None:
         for cmd in [
             "cat >x .env",
