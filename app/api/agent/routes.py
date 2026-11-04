@@ -1046,8 +1046,8 @@ def ask_agent(
                 if item is not None and item.status == MemoryStatus.active:
                     return AskAgentResponse(
                         answer=(
-                            "This standing rule is already active in your company settings:\\n\\n"
-                            f'• **"{item.text}"**\\n\\nAll '
+                            "This standing rule is already active in your company settings:\n\n"
+                            f'• **"{item.text}"**\n\nAll '
                             "agents and automated workflows already enforce it."
                         ),
                         suggestedAction="View Standing Rules in Settings",
@@ -1068,8 +1068,8 @@ def ask_agent(
                     rule_id = str(item.id)
                     return AskAgentResponse(
                         answer=(
-                            f"I have drafted a new proposed standing rule for your company:\\n\\n"
-                            f'• **"{item.text}"**\\n\\n'
+                            f"I have drafted a new proposed standing rule for your company:\n\n"
+                            f'• **"{item.text}"**\n\n'
                             f"Would you like to activate this policy across your portfolio?"
                         ),
                         suggestedAction="Activate Standing Rule",

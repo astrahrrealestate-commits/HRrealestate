@@ -64,7 +64,7 @@ def _problems(label: DocLabel, out: DDDocRead, text: str) -> list[str]:
 
 def run(version: str, settings: Settings) -> EvalResult:
     loaded = load_prompt(PromptRef(name="dd_reader", version=version))
-    agent = spec_agent(settings, DD_READER.name, DDDocRead, loaded)
+    agent = spec_agent(settings, DD_READER.name, DDDocRead, loaded, gemini_prompted=True)
 
     async def task(inputs: DocIn) -> DDDocRead:
         return DD_READER.finalize((await agent.run(dd_reader_prompt(inputs.filename, inputs.text))).output, loaded)

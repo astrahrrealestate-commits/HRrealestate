@@ -23,9 +23,10 @@ def _unchanged(output: ExtractedQuote, _loaded: LoadedPrompt) -> ExtractedQuote:
 
 QUOTE_READER = AgentSpec(
     name="quote_reader",
-    prompt=PromptRef(name="quote_reader", version="v1"),
+    prompt=PromptRef(name="quote_reader", version="v2"),
     output_type=ExtractedQuote,
     finalize=_unchanged,
+    gemini_prompted=True,
 )
 
 

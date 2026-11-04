@@ -1,8 +1,9 @@
 """Model factory and agent tracing (Pydantic AI OpenTelemetry spans → Langfuse OTLP endpoint, EU cloud)."""
 
 import base64
+from typing import Any
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, PromptedOutput
 from pydantic_ai.models import Model
 from pydantic_ai.models.instrumented import InstrumentationSettings
 
@@ -35,6 +36,15 @@ def build_model(settings: Settings, agent_name: str) -> Model | str:
         key = settings.groq_api_key.get_secret_value() if settings.groq_api_key else None
         return OpenAIChatModel(name, provider=OpenAIProvider(base_url="https://api.groq.com/openai/v1", api_key=key))
     return settings.llm_model
+
+
+def output_for[T](settings: Settings, output_type: type[T], *, gemini_prompted: bool = False) -> Any:
+    """The agent's `output_type`. Gemini rejects a deeply nested schema as a tool ("too many states for serving"); an
+    agent flagged `gemini_prompted` gets the schema in its prompt and the JSON validated afterwards instead. Every
+    other provider keeps the strict tool schema."""
+    if gemini_prompted and settings.llm_model.startswith("google-gla:"):
+        return PromptedOutput(output_type)
+    return output_type
 
 
 def instrument_agents(settings: Settings) -> bool:

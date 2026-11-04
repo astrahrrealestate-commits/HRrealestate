@@ -10,7 +10,7 @@ NEXT_REV = $(shell printf '%04d' $$(( $$(ls app/db/alembic/versions/[0-9]*.py 2>
 
 .PHONY: help setup gmail-consent up up-db down logs ps migrate migration migrate-roundtrip alembic-check \
         fmt lint type boundaries test-unit test-int test cov quick check smoke audit eval \
-        workflows harness-test clean sim-demo rag-eval live-check gmail-pull pending approve context-report
+        workflows harness-test clean sim-demo sim-agents rag-eval live-check gmail-pull pending approve context-report
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -88,6 +88,9 @@ smoke: up ## G5: stack up, api ready, worker executing, logs clean
 
 sim-demo: up ## G5: simulate WhatsApp + Gmail through the stack, assert rows; then a dashboard scenario (needs DASHBOARD_SESSION_SECRET, compose has a dev default; skipped if unset; temporarily sets outbound_mode=send + dashboard owner, restored after)
 	$(COMPOSE) exec -T api python -m app.dev.simulate demo
+
+sim-agents: up ## mock portfolio + one scripted day: every agent runs, dashboard fills; prints calls per agent (drafts only, nothing leaves the machine)
+	$(COMPOSE) exec -T api python -m app.dev.simulate tour
 
 gmail-pull: ## real Gmail test: sync NEW mail now, no Pub/Sub (backfill=1 also reads the last day): make gmail-pull mailbox=you@gmail.com
 	$(COMPOSE) exec -T api python -m app.dev.simulate gmail-pull --mailbox "$(mailbox)" $(if $(backfill),--backfill)

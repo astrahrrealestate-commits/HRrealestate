@@ -61,6 +61,13 @@ def wa_image(wamid: str, media_id: str, sha256: str, caption: str | None, at: da
     return {**_base(wamid, at, "image", None), "image": {**image, **({"caption": caption} if caption else {})}}
 
 
+def wa_document(
+    wamid: str, media_id: str, sha256: str, mime_type: str, filename: str, caption: str | None, at: datetime
+) -> dict[str, Any]:
+    document = {"mime_type": mime_type, "sha256": sha256, "id": media_id, "filename": filename}
+    return {**_base(wamid, at, "document", None), "document": {**document, **({"caption": caption} if caption else {})}}
+
+
 def wa_button(wamid: str, button_id: str, title: str, at: datetime, reply_to: str) -> dict[str, Any]:
     reply = {"type": "button_reply", "button_reply": {"id": button_id, "title": title}}
     return {**_base(wamid, at, "interactive", reply_to), "interactive": reply}
