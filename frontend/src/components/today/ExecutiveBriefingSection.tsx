@@ -79,7 +79,7 @@ export function ExecutiveBriefingSection({
       {/* Main AI Summary Sentence (with Spark ✦) */}
       <div className="flex items-start justify-between gap-4 max-w-4xl">
         <p className="text-[14px] text-[#444444] leading-relaxed flex items-start gap-2">
-          <span className="text-[#F25C05] text-[15px] leading-none mt-0.5 flex-shrink-0 font-bold">
+          <span className="text-[#1a73e8] text-[15px] leading-none mt-0.5 flex-shrink-0 font-bold">
             ✦
           </span>
           <span>
@@ -124,7 +124,7 @@ export function ExecutiveBriefingSection({
           {/* Card Header */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#E8E8E5]">
             <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-[8px] bg-[#FFF1E7] border border-[#F7C3A0] flex items-center justify-center text-[#F25C05] text-[13px] font-bold">
+              <div className="w-7 h-7 rounded-[8px] bg-[#eff6ff] border border-[#bfdbfe] flex items-center justify-center text-[#1a73e8] text-[13px] font-bold">
                 ✦
               </div>
               <div>
@@ -178,7 +178,7 @@ export function ExecutiveBriefingSection({
                           className={cn(
                             "rounded-[14px] p-4 text-[13px] transition-all border shadow-2xs",
                             isUrgentItem
-                              ? "bg-[#FFFFFF] border-[#F7C3A0] border-l-[4px] border-l-[#F25C05]"
+                              ? "bg-[#FFFFFF] border-[#bfdbfe] border-l-[4px] border-l-[#1a73e8]"
                               : "bg-[#FFFFFF] border-[#E8E8E5] hover:border-[#D2D2CE]"
                           )}
                         >

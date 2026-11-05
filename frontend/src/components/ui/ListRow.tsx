@@ -33,7 +33,7 @@ export function ListRow({
       className={cn(
         "grid grid-cols-[36px_1fr_auto] gap-[12px] p-[14px_16px] min-h-[44px] cursor-pointer transition-colors border-t border-[#E8E8E5] first:border-t-0 select-none",
         isSelected
-          ? "bg-[#FFF1E7]"
+          ? "bg-[#eff6ff]"
           : "bg-transparent hover:bg-[#F0F0EE]",
         className
       )}
@@ -44,7 +44,7 @@ export function ListRow({
         className={cn(
           "w-9 h-9 rounded-full flex items-center justify-center transition-colors flex-shrink-0 mt-0.5",
           isSelected
-            ? "bg-[#F25C05] text-[#0A0A0A]"
+            ? "bg-[#1a73e8] text-[#0A0A0A]"
             : "bg-[#F0F0EE] text-[#444444]"
         )}
       >
@@ -68,9 +68,9 @@ export function ListRow({
         {actionLine && (
           <div className="flex items-center gap-1.5 text-[13px] text-[#444444] mt-0.5 truncate">
             {actionIcon ? (
-              <span className="text-[#B93C00] flex-shrink-0">{actionIcon}</span>
+              <span className="text-[#1557b0] flex-shrink-0">{actionIcon}</span>
             ) : (
-              <span className="text-[#B93C00] text-[14px] leading-none flex-shrink-0">✦</span>
+              <span className="text-[#1557b0] text-[14px] leading-none flex-shrink-0">✦</span>
             )}
             <span className="truncate">{actionLine}</span>
           </div>

@@ -203,7 +203,7 @@ export function GoogleConnectCard() {
                   className="w-9 h-9 rounded-full border border-[#E5E5E5] dark:border-[#2E2E2E]"
                 />
               ) : (
-                <div className="w-9 h-9 rounded-full bg-[#F25C05]/10 text-[#F25C05] font-semibold text-[13px] flex items-center justify-center border border-[#F25C05]/20">
+                <div className="w-9 h-9 rounded-full bg-[#1a73e8]/10 text-[#1a73e8] font-semibold text-[13px] flex items-center justify-center border border-[#1a73e8]/20">
                   {status.name ? status.name.charAt(0).toUpperCase() : "H"}
                 </div>
               )}

@@ -14,6 +14,32 @@ const nextConfig: NextConfig = {
       },
     },
   },
+  async redirects() {
+    return [
+      {
+        source: "/messages",
+        destination: "/inbox",
+        permanent: true,
+      },
+      {
+        source: "/messages/:path*",
+        destination: "/inbox/:path*",
+        permanent: true,
+      },
+    ];
+  },
+  async rewrites() {
+    return [
+      {
+        source: "/messages",
+        destination: "/inbox",
+      },
+      {
+        source: "/messages/:path*",
+        destination: "/inbox/:path*",
+      },
+    ];
+  },
 };
 
 export default nextConfig;

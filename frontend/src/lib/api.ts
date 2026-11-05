@@ -185,21 +185,8 @@ export async function getInboxThreads(
     // Backend offline / network error -> gracefully fall back to local seed data
   }
 
-  // Filter local mock data by parameters
-  let filtered = [...MOCK_INBOX_THREADS];
-  if (params.audience === "tenants") {
-    filtered = filtered.filter((t) => t.recipientRole === "tenant");
-  } else if (params.audience === "contractors") {
-    filtered = filtered.filter((t) => t.recipientRole === "contractor");
-  }
-
-  if (params.category === "contractor_repairs") {
-    filtered = filtered.filter((t) => t.category === "contractor_repairs" || t.category === "maintenance");
-  } else if (params.category === "contractor_money") {
-    filtered = filtered.filter((t) => t.category === "contractor_invoices" || t.category === "payment");
-  }
-
-  return { threads: filtered, isLive: false };
+  // Only use database threads (no mock/seed fallback)
+  return { threads: [], isLive: false };
 }
 
 /**
@@ -1279,4 +1266,177 @@ export async function disconnectGoogleAccount(): Promise<boolean> {
     console.warn("Failed to disconnect Google account:", err);
     return false;
   }
+}
+
+
+// ---------------------------------------------------------------------------
+// Contact Live Communications
+// ---------------------------------------------------------------------------
+
+export interface ContactCommunicationsData {
+  contact_id: string;
+  email?: string;
+  phone?: string;
+  emails: any[];
+  whatsapp_messages: any[];
+  suggested_whatsapp_drafts?: any[];
+  source: "live_db" | "seeded_fallback";
+}
+
+/**
+ * Retrieves all directory contacts directly from the database.
+ * GET /api/contacts
+ */
+export async function getContactsList(audience: "all" | "tenant" | "contractor" = "all"): Promise<any[]> {
+  try {
+    const res = await fetch(`${BACKEND_BASE_URL}/api/contacts?audience=${audience}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        return data;
+      }
+    }
+  } catch {
+    // Backend offline / network error
+  }
+  return [];
+}
+
+export async function getContactCommunications(
+  contactId: string,
+  email?: string,
+  phone?: string
+): Promise<ContactCommunicationsData | null> {
+  try {
+    const params = new URLSearchParams();
+    if (email) params.append("email", email);
+    if (phone) params.append("phone", phone);
+
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    const res = await fetch(
+      `${BACKEND_BASE_URL}/api/contacts/${encodeURIComponent(contactId)}/communications${qs}`,
+      {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(5000),
+      }
+    );
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch {
+    // Backend API offline / unreachable -> cleanly fall back to local seed data
+  }
+  return null;
+}
+
+export async function sendContactWhatsAppMessage(
+  contactId: string,
+  text: string
+): Promise<any | null> {
+  try {
+    const res = await fetch(
+      `${BACKEND_BASE_URL}/api/contacts/${encodeURIComponent(contactId)}/whatsapp/send`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ text }),
+        signal: AbortSignal.timeout(5000),
+      }
+    );
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch {
+    // Backend offline / network error
+  }
+  return null;
+}
+
+
+export interface DraftVariant {
+  id: string;
+  label: string;
+  body: string;
+}
+
+export async function generateEmailDrafts(
+  contactId: string,
+  messageId: string,
+  guidance?: string
+): Promise<DraftVariant[] | null> {
+  try {
+    const res = await fetch(
+      `${BACKEND_BASE_URL}/api/contacts/${encodeURIComponent(contactId)}/messages/${encodeURIComponent(messageId)}/generate-drafts`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ guidance }),
+        signal: AbortSignal.timeout(6000),
+      }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      return data.drafts || null;
+    }
+  } catch {
+    // Graceful offline fallback
+  }
+  return null;
+}
+
+export async function sendEmailReply(
+  contactId: string,
+  messageId: string,
+  subject: string,
+  body: string,
+  choice: string = "d1"
+): Promise<{ success: boolean; message_id: string; sent_at: string } | null> {
+  try {
+    const res = await fetch(
+      `${BACKEND_BASE_URL}/api/contacts/${encodeURIComponent(contactId)}/messages/${encodeURIComponent(messageId)}/reply-mail`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ subject, body, choice }),
+        signal: AbortSignal.timeout(6000),
+      }
+    );
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch {
+    // Offline / fallback
+  }
+  return null;
+}
+
+export async function generateWhatsAppDrafts(
+  contactId: string
+): Promise<DraftVariant[] | null> {
+  try {
+    const res = await fetch(
+      `${BACKEND_BASE_URL}/api/contacts/${encodeURIComponent(contactId)}/whatsapp/generate-drafts`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({}),
+        signal: AbortSignal.timeout(6000),
+      }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      return data.drafts || null;
+    }
+  } catch {
+    // Offline / fallback
+  }
+  return null;
 }

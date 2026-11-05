@@ -18,7 +18,7 @@ export function EmergencyBanner({
   if (!emergencyItem) return null;
 
   return (
-    <div className="mb-6 rounded-[18px] border border-[#F25C05] bg-white p-4 transition-all">
+    <div className="mb-6 rounded-[18px] border border-[#1a73e8] bg-white p-4 transition-all">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         {/* Left Side: Critical Badge & Details */}
         <div className="flex items-start gap-3">

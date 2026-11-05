@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap');
 @import "tailwindcss";
 @theme {
   --color-bg: var(--bg);
@@ -23,8 +24,8 @@
     --ink: #0A0A0A;
     --ink-2: #444444;
     --ink-3: #6B6B6B;
-    --accent: #F25C05;      /* fills, dots, sparkle */
-    --accent-ink: #B93C00;  /* orange text */
+    --accent: #1a73e8;      /* fills, dots, sparkle - Super Agent Blue */
+    --accent-ink: #1557b0;  /* blue text */
     --radius-pane: 12px;
     --radius-ctl: 8px;
 
@@ -34,7 +35,7 @@
     --line-2: #D2D2CE;
     --orange: var(--accent);
     --orange-ink: var(--accent-ink);
-    --tint: #FFF1E7;
+    --tint: #eff6ff;
     --btn-bg: #0A0A0A;
     --btn-fg: #FFFFFF;
     --r-sm: var(--radius-ctl);
@@ -45,7 +46,7 @@
   body {
     background-color: var(--bg);
     color: var(--ink);
-    font-family: var(--font-hanken), "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family: var(--font-dm-sans), "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 14px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
@@ -55,7 +56,7 @@
   }
 
   h1, h2, h3, .font-heading {
-    font-family: var(--font-bricolage), "Bricolage Grotesque", -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: var(--font-dm-sans), "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
     letter-spacing: -0.02em;
     font-weight: 700;
   }
@@ -87,4 +88,33 @@
 /* Tabular figures for monetary & numeric data */
 .tabular-nums {
   font-variant-numeric: tabular-nums;
+}
+
+/* Super Agent & WhatsApp Animations */
+@keyframes aiStarPulse {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.14); }
+}
+
+@keyframes waSparklePulse {
+  0%, 100% { opacity: 0.9; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.18); }
+}
+
+@keyframes waVoicePulse {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.18); }
+}
+
+@keyframes aiVoicePulse {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.18); }
+}
+
+.animate-ai-star {
+  animation: aiStarPulse 2.5s ease-in-out infinite;
+}
+
+.animate-wa-sparkle {
+  animation: waSparklePulse 2s infinite ease-in-out;
 }

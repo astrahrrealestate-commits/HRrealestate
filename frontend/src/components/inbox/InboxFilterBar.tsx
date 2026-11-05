@@ -197,7 +197,7 @@ export function InboxFilterBar({
             className={cn(
               "px-2.5 py-1 rounded-full text-[12px] font-semibold transition-all cursor-pointer flex items-center gap-1.5",
               urgentOnly
-                ? "bg-[#F25C05] text-[#0A0A0A]"
+                ? "bg-[#1a73e8] text-[#0A0A0A]"
                 : "bg-[#F0F0EE] text-[#444444] hover:text-[#0A0A0A]"
             )}
           >

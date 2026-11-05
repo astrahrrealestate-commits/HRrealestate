@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import Engine
 
 import app
-from app.api import agent, calendar, dashboard, health, inbox, maintenance, properties, tenants
+from app.api import agent, calendar, contacts, dashboard, health, inbox, maintenance, properties, tenants
 from app.api.deps import WorkflowClient, ingest_deps_for
 from app.api.inbox.routes import sync_gmail_accounts
 from app.api.v1 import auth as dashboard_auth
@@ -119,7 +119,8 @@ def create_app(
     api.include_router(inbox.router)
     api.include_router(maintenance.router)
     api.include_router(properties.router)
-    api.include_router(tenants.router)
+    api.include_router(tenants.router)
+    api.include_router(contacts.router)
     api.include_router(whatsapp_webhook.router)
     api.include_router(whatsapp_webhook.router, prefix="/api")
     api.include_router(gmail_webhook.router)

@@ -70,19 +70,20 @@ function ReportsContent() {
   };
 
   return (
-    <div className="h-dvh bg-[#0D0F12] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
+    <div className="h-dvh bg-[#1B1B1B] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
       {/* 1. Left Nav (Desktop Sidebar) */}
       <Sidebar />
 
       {/* 2. Main Content Canvas */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0D0F12]">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#1B1B1B]">
         <TopCommandBar
           pageTitle="Reports"
           hideSearch={true}
         />
 
-        {/* Curved White Main Content Canvas */}
-        <div className="flex-1 bg-white rounded-tl-[24px] sm:rounded-tl-[28px] overflow-hidden flex flex-col shadow-2xl relative">
+        {/* WORKSPACE ROW with 40% Super Agent */}
+        <div className="flex-1 flex flex-row overflow-hidden min-h-0 w-full relative">
+          <div className="flex-1 m-0 mr-[10px] mb-[10px] bg-white rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden relative">
 
         {/* Scrollable Container */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl w-full mx-auto pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-12">
@@ -264,8 +265,14 @@ function ReportsContent() {
           </div>
 
         </main>
-        </div>
+          </div>
 
+          {/* Ask EstateOS Side Panel (40% width on right side) */}
+          <AskEstateOSPanel
+            currentPageName="Reports"
+            selectedContext={`Report: ${activeReport.name} (${activeReport.period})`}
+          />
+        </div>
       </div>
 
       {/* 3. Mobile Bottom Tab Bar */}
@@ -279,11 +286,7 @@ function ReportsContent() {
         onSelectReport={(rep) => setSelectedReportId(rep.id)}
       />
 
-      {/* 5. Ask EstateOS Side Panel */}
-      <AskEstateOSPanel
-        currentPageName="Reports"
-        selectedContext={`Report: ${activeReport.name} (${activeReport.period})`}
-      />
+
     </div>
   );
 }

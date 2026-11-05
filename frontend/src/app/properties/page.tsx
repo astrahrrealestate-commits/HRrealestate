@@ -254,19 +254,20 @@ function PropertiesContent() {
   const isMobileComplexList = !isMobileComplexScreen && !isMobileUnitScreen;
 
   return (
-    <div className="h-dvh bg-[#0D0F12] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
+    <div className="h-dvh bg-[#1B1B1B] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
       {/* 1. Left Nav (Desktop Sidebar) */}
       <Sidebar />
 
       {/* 2. Main Content Canvas */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0D0F12]">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#1B1B1B]">
         <TopCommandBar
           pageTitle="Properties"
           hideSearch={true}
         />
 
-        {/* Curved White Main Content Canvas */}
-        <div className="flex-1 bg-white rounded-tl-[24px] sm:rounded-tl-[28px] overflow-hidden flex flex-col shadow-2xl relative">
+        {/* WORKSPACE ROW with 40% Super Agent */}
+        <div className="flex-1 flex flex-row overflow-hidden min-h-0 w-full relative">
+          <div className="flex-1 m-0 mr-[10px] mb-[10px] bg-white rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden relative">
 
         {/* ------------------------------------------------------------- */}
         {/* DESKTOP LAYOUT (>= 768px): 3 Columns                         */}
@@ -992,22 +993,24 @@ function PropertiesContent() {
           )}
 
         </div>
-        </div>
+          </div>
 
+          {/* Ask EstateOS Side Panel (40% width on right side) */}
+          <AskEstateOSPanel
+            currentPageName="Properties"
+            selectedContext={
+              activeUnit
+                ? `Unit ${activeUnit.unitNumber} (${activeComplex.name}) - ${activeUnit.fullAddress}`
+                : activeComplex.name
+            }
+          />
+        </div>
       </div>
 
       {/* 3. Mobile Bottom Tab Bar (Section 5.1 & 5.6) - Hidden on full Unit Screen detail so actions sit at the bottom */}
       {!isMobileUnitScreen && <MobileTabBar />}
 
-      {/* 4. Ask EstateOS Side Panel (Desktop 30vw side panel / Mobile full-screen) */}
-      <AskEstateOSPanel
-        currentPageName="Properties"
-        selectedContext={
-          activeUnit
-            ? `Unit ${activeUnit.unitNumber} (${activeComplex.name}) - ${activeUnit.fullAddress}`
-            : activeComplex.name
-        }
-      />
+
     </div>
   );
 }

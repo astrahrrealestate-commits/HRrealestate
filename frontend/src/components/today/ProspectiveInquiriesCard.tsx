@@ -69,7 +69,7 @@ export function ProspectiveInquiriesCard({ inquiries, onReviewInquiries }: Prosp
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-full bg-[#F0F0EE] flex items-center justify-center text-[#0A0A0A]">
-              <UserPlus className="w-4 h-4 text-[#F25C05]" />
+              <UserPlus className="w-4 h-4 text-[#1a73e8]" />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -148,7 +148,7 @@ export function ProspectiveInquiriesCard({ inquiries, onReviewInquiries }: Prosp
       {/* Action Footer */}
       <div className="pt-3 mt-4 border-t border-[#E8E8E5] flex items-center justify-between text-xs">
         <span className="text-[#444444] text-[12.5px] flex items-center gap-1.5">
-          <Calendar className="w-3.5 h-3.5 text-[#F25C05]" />
+          <Calendar className="w-3.5 h-3.5 text-[#1a73e8]" />
           <span>Next viewing: Thursday 15:00 · Automated confirmations queued</span>
         </span>
 

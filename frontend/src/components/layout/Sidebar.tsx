@@ -82,11 +82,11 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
   ];
 
   return (
-    <aside className="hidden md:flex flex-col justify-between select-none h-dvh sticky top-0 md:w-[72px] xl:w-[240px] flex-shrink-0 border-r border-white/5 bg-[#0D0F12] transition-all z-20">
+    <aside className="hidden md:flex flex-col justify-between select-none h-dvh sticky top-0 md:w-[72px] xl:w-[240px] flex-shrink-0 border-r border-[#27272a] bg-[#1B1B1B] transition-all z-20">
       {/* Top Header & Navigation */}
       <div className="flex flex-col">
         {/* Brand Logo Header (h-14 aligned with TopCommandBar) */}
-        <div className="h-14 px-4 xl:px-4 flex items-center justify-between border-b border-white/5">
+        <div className="h-[48px] px-4 xl:px-4 flex items-center justify-between border-b border-[#27272a]">
           <Link href="/" className="flex items-center gap-2.5 group">
             <div className="w-7 h-7 rounded-lg bg-white/10 border border-white/15 flex items-center justify-center text-white shadow-xs flex-shrink-0">
               <Home className="w-4 h-4 stroke-[2.25]" />
@@ -137,7 +137,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
                     />
                     {/* Compact badge dot for icon nav (md only) */}
                     {item.badge !== undefined && (
-                      <span className="xl:hidden absolute -top-1 -right-1.5 w-2 h-2 rounded-full bg-[var(--accent)] ring-2 ring-[#0D0F12]" />
+                      <span className="xl:hidden absolute -top-1 -right-1.5 w-2 h-2 rounded-full bg-[var(--accent)] ring-2 ring-[#1B1B1B]" />
                     )}
                   </div>
                   <span className="hidden xl:inline truncate">{item.label}</span>

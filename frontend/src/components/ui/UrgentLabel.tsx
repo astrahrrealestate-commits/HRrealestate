@@ -10,7 +10,7 @@ interface UrgentLabelProps {
 
 /**
  * Section 3.2:
- * Urgent is the word "Urgent" in --accent-ink (#B93C00), 12px, font-semibold, no fill, no pill.
+ * Urgent is the word "Urgent" in --accent-ink (#1557b0), 12px, font-semibold, no fill, no pill.
  */
 export function UrgentLabel({ className, children = "Urgent" }: UrgentLabelProps) {
   return (

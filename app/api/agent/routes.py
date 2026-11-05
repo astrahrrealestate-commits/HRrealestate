@@ -1617,12 +1617,12 @@ def ask_agent(
                 else:
                     view_label = "Open in Maintenance"
                     view_path = "/maintenance"
-            elif v_low in ("inbox", "approvals"):
+            elif v_low in ("inbox", "approvals", "messages", "message", "mail", "emails", "communication"):
                 if case_ref:
-                    view_label = f"Open Thread #{case_ref[:6]} in Inbox"
+                    view_label = f"Open Thread #{case_ref[:6]} in Messages"
                     view_path = f"/inbox?thread=case-{case_ref}"
                 else:
-                    view_label = "Open in Inbox"
+                    view_label = "Open Messages"
                     view_path = "/inbox"
             elif v_low in ("tasks", "dashboard", "home"):
                 # Disambiguate 'tasks' - quote / PO approvals live in Maintenance, communication drafts live in Inbox
@@ -1921,7 +1921,7 @@ def ask_agent(
             step_descriptions = ["Scanned portfolio payment ledger", "Checked active tenant balances"]
         elif any(k in q_low for k in ["task", "todo", "waiting"]):
             step_descriptions = ["Fetched pending action approvals", "Ranked tasks by operational SLA"]
-        elif any(k in q_low for k in ["inbox", "message"]):
+        elif any(k in q_low for k in ["inbox", "message", "messages", "email", "emails", "mail", "whatsapp"]):
             step_descriptions = ["Scanned recent communications", "Checked urgent tenant inquiries"]
         elif any(k in q_low for k in ["contractor", "job", "pending"]):
             step_descriptions = ["Queried active contractor dispatch schedule"]
