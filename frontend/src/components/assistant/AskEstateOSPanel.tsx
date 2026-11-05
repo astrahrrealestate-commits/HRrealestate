@@ -4,7 +4,6 @@ import React, { useState, useEffect, useRef } from "react";
 import {
   Calendar,
   Sparkles,
-  X,
   Send,
   ArrowUpRight,
   ArrowLeft,
@@ -466,13 +465,7 @@ export function AskEstateOSPanel({
 
   return (
     <>
-      {/* Backdrop: Only shown in Fullscreen mode */}
-      {isFullScreen && (
-        <div
-          onClick={onClose}
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px] transition-opacity duration-200"
-        />
-      )}
+      
 
       {/* Main Assistant Panel:
           1. Center Mode (40% default): floating centered modal spotlight
@@ -484,18 +477,19 @@ export function AskEstateOSPanel({
         className={cn(
           "bg-white flex flex-col justify-between font-sans shrink-0 overflow-hidden relative transition-all duration-300",
           isFullScreen
-            ? "fixed inset-2 md:inset-6 z-50 rounded-[18px] border border-[#27272a] shadow-2xl"
-            : "fixed inset-0 z-50 md:relative md:inset-auto md:z-10 w-full md:w-[40%] md:min-w-[400px] md:max-w-[640px] m-0 md:mr-[10px] md:mb-[10px] h-full md:h-[calc(100%-10px)] rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)]"
+            ? "absolute inset-0 z-30 m-0 mr-[10px] mb-[10px] h-[calc(100%-10px)] rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)] animate-in fade-in duration-200"
+            : "fixed inset-0 z-50 md:relative md:inset-auto md:z-10 w-full md:w-[420px] xl:w-[450px] shrink-0 m-0 md:mr-[10px] md:mb-[10px] h-full md:h-[calc(100%-10px)] rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)]"
         )}
       >
-        {/* 1. Header Bar with Integrated Context Tag (No extra box bar needed) */}
+        {/* 1. Header Bar with Clean Icon Controls (No Text Clutter, No Overlap) */}
         <div
           className={cn(
-            "h-[48px] px-4 sm:px-5 border-b flex items-center justify-between flex-shrink-0 transition-colors",
+            "h-[48px] px-3 sm:px-4 border-b flex items-center justify-between flex-shrink-0 transition-colors",
             isDark ? "bg-[#0E1113] border-[#1A1F24]" : "bg-[#FFFFFF] border-[#E8E8E5]"
           )}
         >
-          <div className="flex items-center gap-2.5 min-w-0">
+          {/* Left: Mobile Back Button + Sparkles Icon */}
+          <div className="flex items-center gap-2 shrink-0">
             {/* Mobile Back Button */}
             <button
               onClick={onClose}
@@ -510,119 +504,85 @@ export function AskEstateOSPanel({
               <ArrowLeft className="w-5 h-5 stroke-[2]" />
             </button>
 
-            {/* AI Agent Icon */}
+            {/* AI Sparkles Icon */}
             <div
               className={cn(
                 "w-7 h-7 rounded-full flex items-center justify-center shrink-0",
                 isDark ? "bg-[#1a73e8]/20 text-[#60a5fa]" : "bg-[#eff6ff] text-[#1a73e8]"
               )}
+              title="Super Agent"
             >
               <Sparkles className="w-4 h-4 text-[#1a73e8] animate-ai-star" />
             </div>
-
-            {/* Title & Page Context */}
-            <div className="flex items-center gap-2 min-w-0">
-              <span
-                className={cn(
-                  "font-heading font-semibold text-[14px] tracking-tight shrink-0",
-                  isDark ? "text-[#F9FAFB]" : "text-[#0A0A0A]"
-                )}
-              >
-                Super Agent
-              </span>
-              <span
-                className={cn(
-                  "text-[10px] font-mono uppercase px-1.5 py-0.5 rounded-[5px] shrink-0 border",
-                  isDark
-                    ? "bg-[#161A1D] text-[#94A3B8] border-[#252B32]"
-                    : "bg-[#F6F6F4] text-[#6B7280] border-[#E8E8E5]"
-                )}
-              >
-                Concierge
-              </span>
-
-              {/* History Button */}
-              <button
-                type="button"
-                onClick={superAgent.toggleHistoryOpen}
-                className={cn(
-                  "w-7 h-7 rounded-[7px] border flex items-center justify-center transition-colors cursor-pointer shrink-0 ml-1",
-                  superAgent.isHistoryOpen
-                    ? isDark
-                      ? "bg-[#1E2328] border-[#1a73e8]/50 text-white"
-                      : "bg-[#eff6ff] border-[#1a73e8] text-[#1a73e8]"
-                    : isDark
-                      ? "bg-[#14181B] hover:bg-[#1C2227] border-[#20262B] text-[#94A3B8] hover:text-[#FFFFFF]"
-                      : "bg-[#F6F6F4] hover:bg-[#EBEBE8] border-[#E8E8E5] text-[#444444] hover:text-[#0A0A0A]"
-                )}
-                title="Toggle Conversation History"
-              >
-                <History className="w-3.5 h-3.5" />
-              </button>
-
-              {/* New Chat Button */}
-              <button
-                type="button"
-                onClick={superAgent.startNewChat}
-                className={cn(
-                  "hidden sm:flex items-center gap-1 px-2 py-1 rounded-[6px] border text-[11px] font-medium transition-colors cursor-pointer shrink-0",
-                  isDark
-                    ? "bg-[#14181B] hover:bg-[#1C2227] border-[#20262B] text-[#CBD5E1] hover:text-white"
-                    : "bg-[#F6F6F4] hover:bg-[#EBEBE8] border-[#E8E8E5] text-[#222222] hover:text-[#0A0A0A]"
-                )}
-                title="Start a new conversation thread"
-              >
-                <Plus className="w-3 h-3 text-[#1a73e8]" />
-                <span>New Chat</span>
-              </button>
-
-              {/* Active Conversation Title */}
-              {superAgent.conversationTitle && superAgent.conversationTitle !== "New Chat" && (
-                <span
-                  className={cn(
-                    "hidden md:inline-block text-[11.5px] font-medium px-2 py-0.5 rounded-[5px] truncate max-w-[140px] border",
-                    isDark
-                      ? "text-emerald-300 bg-emerald-500/10 border-emerald-500/25"
-                      : "text-emerald-700 bg-emerald-50 border-emerald-200 font-semibold"
-                  )}
-                >
-                  {superAgent.conversationTitle}
-                </span>
-              )}
-            </div>
           </div>
 
+          {/* Right: Icon-only Controls (New Chat, History, Fullscreen, Theme) */}
           <div className="flex items-center gap-1.5 shrink-0">
-            {/* Quick Toggle to Active Item Drawer (Unified Right Rail) */}
+            {/* Quick Toggle to Active Item Drawer */}
             {activeDrawerInfo && (
               <button
                 type="button"
                 onClick={onClose}
                 className={cn(
-                  "hidden sm:inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold border rounded-[7px] transition-colors cursor-pointer shrink-0",
+                  "hidden sm:inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold border rounded-[7px] transition-colors cursor-pointer shrink-0",
                   isDark
                     ? "text-[#1a73e8] bg-[#161A1D] hover:bg-[#20262B] border-[#252B32]"
                     : "text-[#1557b0] bg-[#eff6ff] hover:bg-[#dbeafe] border-[#1a73e8]/30"
                 )}
-                title={`Switch back to ${activeDrawerInfo.kind} ${activeDrawerInfo.title}`}
+                title={`Back to ${activeDrawerInfo.kind} ${activeDrawerInfo.title}`}
               >
                 <ArrowLeft className="w-3 h-3 text-[#1a73e8]" />
-                <span>Back to {activeDrawerInfo.kind} {activeDrawerInfo.title}</span>
               </button>
             )}
 
+            {/* New Chat Button */}
+            <button
+              type="button"
+              onClick={superAgent.startNewChat}
+              className={cn(
+                "w-7 h-7 rounded-[7px] border flex items-center justify-center transition-colors cursor-pointer shrink-0",
+                isDark
+                  ? "bg-[#14181B] hover:bg-[#1C2227] border-[#20262B] text-[#CBD5E1] hover:text-white"
+                  : "bg-[#F6F6F4] hover:bg-[#EBEBE8] border-[#E8E8E5] text-[#222222] hover:text-[#0A0A0A]"
+              )}
+              title="New Chat"
+              aria-label="New Chat"
+            >
+              <Plus className="w-3.5 h-3.5 text-[#1a73e8]" />
+            </button>
 
+            {/* History Toggle Button */}
+            <button
+              type="button"
+              onClick={superAgent.toggleHistoryOpen}
+              className={cn(
+                "w-7 h-7 rounded-[7px] border flex items-center justify-center transition-colors cursor-pointer shrink-0",
+                superAgent.isHistoryOpen
+                  ? isDark
+                    ? "bg-[#1E2328] border-[#1a73e8]/50 text-white"
+                    : "bg-[#eff6ff] border-[#1a73e8] text-[#1a73e8]"
+                  : isDark
+                    ? "bg-[#14181B] hover:bg-[#1C2227] border-[#20262B] text-[#94A3B8] hover:text-[#FFFFFF]"
+                    : "bg-[#F6F6F4] hover:bg-[#EBEBE8] border-[#E8E8E5] text-[#444444] hover:text-[#0A0A0A]"
+              )}
+              title="Conversation History"
+              aria-label="Conversation History"
+            >
+              <History className="w-3.5 h-3.5" />
+            </button>
 
             {/* Fullscreen / Restore Toggle Button */}
             <button
+              type="button"
               onClick={() => setIsFullScreen((prev) => !prev)}
               className={cn(
-                "hidden md:flex w-8 h-8 rounded-[7px] border items-center justify-center transition-colors cursor-pointer",
+                "hidden md:flex w-7 h-7 rounded-[7px] border items-center justify-center transition-colors cursor-pointer shrink-0",
                 isDark
                   ? "bg-[#14181B] hover:bg-[#1C2227] border-[#20262B] text-[#94A3B8] hover:text-[#FFFFFF]"
                   : "bg-[#F6F6F4] hover:bg-[#EBEBE8] border-[#E8E8E5] text-[#444444] hover:text-[#0A0A0A]"
               )}
-              title={isFullScreen ? "Restore Window" : "Expand to Full Screen"}
+              title={isFullScreen ? "Shrink to side panel" : "Full Screen"}
+              aria-label={isFullScreen ? "Shrink to side panel" : "Full Screen"}
             >
               {isFullScreen ? (
                 <Minimize2 className="w-3.5 h-3.5" />
@@ -633,30 +593,18 @@ export function AskEstateOSPanel({
 
             {/* Theme Toggle: Light / Dark Mode */}
             <button
+              type="button"
               onClick={toggleTheme}
               className={cn(
-                "w-8 h-8 rounded-[7px] border flex items-center justify-center transition-colors cursor-pointer",
+                "w-7 h-7 rounded-[7px] border flex items-center justify-center transition-colors cursor-pointer shrink-0",
                 isDark
                   ? "bg-[#14181B] hover:bg-[#1C2227] border-[#20262B] text-amber-300 hover:text-amber-200"
                   : "bg-[#F6F6F4] hover:bg-[#EBEBE8] border-[#E8E8E5] text-[#6B7280] hover:text-[#0A0A0A]"
               )}
               title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+              aria-label={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
             >
               {isDark ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
-            </button>
-
-            {/* Close Button */}
-            <button
-              onClick={onClose}
-              className={cn(
-                "w-8 h-8 rounded-[7px] border flex items-center justify-center transition-colors cursor-pointer",
-                isDark
-                  ? "bg-[#14181B] hover:bg-[#1C2227] border-[#20262B] text-[#94A3B8] hover:text-[#FFFFFF]"
-                  : "bg-[#F6F6F4] hover:bg-[#EBEBE8] border-[#E8E8E5] text-[#444444] hover:text-[#0A0A0A]"
-              )}
-              title="Close (Esc)"
-            >
-              <X className="w-4 h-4 stroke-[2]" />
             </button>
           </div>
         </div>
@@ -788,37 +736,43 @@ export function AskEstateOSPanel({
             {/* 2. Scrollable Message Thread */}
             <div
               className={cn(
-                "flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-5 space-y-4 text-[13.5px] leading-relaxed min-w-0 w-full transition-colors",
-                isDark ? "bg-[#0E1113]" : "bg-[#F6F6F4]"
+                "flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-5 text-[13.5px] leading-relaxed min-w-0 w-full transition-colors",
+                isDark ? "bg-[#0E1113]" : "bg-[#FFFFFF]"
               )}
             >
+              <div className="max-w-[760px] mx-auto w-full space-y-4">
           {messages.map((msg) => (
             <div
               key={msg.id}
               className={cn(
-                "flex flex-col gap-1 max-w-[96%] min-w-0",
-                msg.sender === "user" ? "ml-auto items-end" : "mr-auto items-start w-full"
+                "flex flex-col gap-1 min-w-0",
+                msg.sender === "user" ? "ml-auto items-end max-w-[85%] sm:max-w-[75%]" : "mr-auto items-start w-full max-w-full"
               )}
             >
-              {/* Message Bubble: Clean border, no bulky shadow */}
-              <div
-                className={cn(
-                  "p-3.5 sm:p-4 rounded-[14px] text-[13.5px] min-w-0 max-w-full break-words [overflow-wrap:anywhere]",
-                  msg.sender === "user"
-                    ? isDark
-                      ? "bg-[#1F2730] border border-[#2D3945] text-[#F9FAFB] rounded-tr-none"
-                      : "bg-[#0A0A0A] border border-[#0A0A0A] text-[#FFFFFF] rounded-tr-none"
-                    : isDark
-                      ? "bg-[#14171A] border border-[#222830] text-[#E5E7EB] rounded-tl-none shadow-sm w-full"
-                      : "bg-[#FFFFFF] border border-[#E8E8E5] text-[#0A0A0A] rounded-tl-none shadow-xs w-full"
-                )}
-              >
+              {msg.sender === "user" ? (
+                /* User Chat Bubble: Modern pill capsule */
                 <div
-                  className="whitespace-pre-line leading-relaxed break-words [overflow-wrap:anywhere] min-w-0 max-w-full"
-                  dangerouslySetInnerHTML={{
-                    __html: formatMarkdown(msg.text, isDark),
-                  }}
-                />
+                  className={cn(
+                    "px-4 py-2.5 rounded-[20px] text-[13.5px] leading-relaxed break-words [overflow-wrap:anywhere]",
+                    isDark
+                      ? "bg-[#20272E] border border-[#2E3742] text-[#F9FAFB]"
+                      : "bg-[#F3F4F6] border border-[#E5E7EB] text-[#111827]"
+                  )}
+                >
+                  <p className="whitespace-pre-line leading-relaxed">{msg.text}</p>
+                </div>
+              ) : (
+                /* Assistant Message: Clean unboxed canvas (text flows freely, cards remain intact below) */
+                <div className="w-full space-y-3 min-w-0 text-[13.5px] leading-relaxed">
+                  <div
+                    className={cn(
+                      "whitespace-pre-line leading-relaxed break-words [overflow-wrap:anywhere] min-w-0 max-w-full",
+                      isDark ? "text-[#E5E7EB]" : "text-[#111827]"
+                    )}
+                    dangerouslySetInnerHTML={{
+                      __html: formatMarkdown(msg.text, isDark),
+                    }}
+                  />
 
                 {/* Read citation: subtle inline text */}
                 {msg.readSource && (
@@ -1450,7 +1404,8 @@ export function AskEstateOSPanel({
                   );
                 })()}
 
-              </div>
+                </div>
+              )}
 
               {/* Action Buttons for Assistant Proposals (Filtered to prevent duplicates) */}
               {msg.actions && msg.actions.length > 0 && (
@@ -1543,25 +1498,45 @@ export function AskEstateOSPanel({
 
           {/* Animated 3-dot Typing Indicator */}
           {isTyping && (
-            <div className={cn(
-              "flex items-center gap-1.5 p-3 rounded-[12px] border w-fit",
-              isDark ? "bg-[#14181B] border-[#20262B] text-[#888888]" : "bg-[#FFFFFF] border-[#E8E8E5] text-[#6B7280] shadow-xs"
-            )}>
-              <div className="w-1.5 h-1.5 rounded-full bg-[#1a73e8] animate-bounce" />
-              <div className="w-1.5 h-1.5 rounded-full bg-[#1a73e8] animate-bounce [animation-delay:0.15s]" />
-              <div className="w-1.5 h-1.5 rounded-full bg-[#1a73e8] animate-bounce [animation-delay:0.3s]" />
+            <div className="flex items-center gap-1.5 py-2 px-1 w-fit">
+              <div className="w-2 h-2 rounded-full bg-[#1a73e8] animate-bounce" />
+              <div className="w-2 h-2 rounded-full bg-[#1a73e8] animate-bounce [animation-delay:0.15s]" />
+              <div className="w-2 h-2 rounded-full bg-[#1a73e8] animate-bounce [animation-delay:0.3s]" />
             </div>
           )}
 
           <div ref={messagesEndRef} />
+              </div>
         </div>
 
-        {/* 4. Prompt Capsule Bar Footer: Google Gemini inspired */}
-        <div className={cn(
-          "p-3 sm:p-3.5 border-t flex-shrink-0 transition-colors",
-          isDark ? "border-[#1A1F24] bg-[#0B0D0E]" : "border-[#E8E8E5] bg-[#FFFFFF]"
-        )}>
-          <div className="max-w-[760px] mx-auto w-full">
+        {/* 4. Floating Prompt Bar Footer (No hard border line, symmetrical spacing) */}
+        <div
+          className={cn(
+            "px-4 sm:px-6 pt-1 flex-shrink-0 transition-colors bg-transparent",
+            isFullScreen ? "pb-6 sm:pb-7" : "pb-3.5 sm:pb-4"
+          )}
+        >
+          <div className="max-w-[760px] mx-auto w-full space-y-2.5">
+            {/* Dynamic Next Step Suggestion Pills (Simple Plain Text, No Arrow) */}
+            {suggestedChips.length > 0 && !isTyping && (
+              <div className="flex items-center gap-2 overflow-x-auto pb-0.5 scrollbar-none no-scrollbar">
+                {suggestedChips.slice(0, 3).map((chip: string, idx: number) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleSendQuery(chip)}
+                    className={cn(
+                      "px-3.5 py-1 rounded-full border text-[12px] font-normal transition-all whitespace-nowrap cursor-pointer shrink-0 shadow-2xs hover:scale-[1.02] active:scale-[0.98]",
+                      isDark
+                        ? "bg-[#14181C] hover:bg-[#1E242B] border-[#222830] text-[#94a3b8] hover:text-white hover:border-[#1a73e8]/40"
+                        : "bg-[#F8FAFD] hover:bg-[#eff6ff] border-[#DCE2EA] text-[#444746] hover:text-[#1a73e8] hover:border-[#1a73e8]/40"
+                    )}
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
+            )}
             <form
               onSubmit={(e) => {
                 e.preventDefault();

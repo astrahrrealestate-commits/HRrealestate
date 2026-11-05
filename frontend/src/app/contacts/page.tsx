@@ -29,7 +29,6 @@ import {
 import { cn } from "@/lib/utils";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import {
-  MOCK_CONTACTS,
   ContactItem,
   ContactEmailItem,
   ContactWhatsAppMessage,
@@ -100,20 +99,26 @@ function ContactsContent() {
   const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Live Contacts loaded from database
+  // Live Contacts loaded from database (strictly real data only)
   const [dbContacts, setDbContacts] = useState<ContactItem[]>([]);
-  const allAvailableContacts = dbContacts.length > 0 ? dbContacts : MOCK_CONTACTS;
+  const [isLoadingContacts, setIsLoadingContacts] = useState<boolean>(true);
+  const allAvailableContacts = dbContacts;
 
   const [selectedContactId, setSelectedContactId] = useState<string>(
-    contactParam || MOCK_CONTACTS[0]?.id || ""
+    contactParam || ""
   );
 
   useEffect(() => {
     let isMounted = true;
     async function loadContacts() {
-      const list = await getContactsList(filterAudience);
-      if (isMounted && list && list.length > 0) {
-        setDbContacts(list);
+      setIsLoadingContacts(true);
+      try {
+        const list = await getContactsList(filterAudience);
+        if (isMounted && list) {
+          setDbContacts(list);
+        }
+      } finally {
+        if (isMounted) setIsLoadingContacts(false);
       }
     }
     loadContacts();
@@ -137,15 +142,19 @@ function ContactsContent() {
   // Open email thread item inside Gmail-style
   const [openEmailId, setOpenEmailId] = useState<string | null>(null);
 
-  // Sync state if URL changes
+  // Sync state if URL changes or database contacts finish loading
   useEffect(() => {
+    if (allAvailableContacts.length === 0) return;
     if (contactParam && allAvailableContacts.some((c) => c.id === contactParam)) {
       setSelectedContactId(contactParam);
+    } else if (!allAvailableContacts.some((c) => c.id === selectedContactId)) {
+      setSelectedContactId(allAvailableContacts[0].id);
     }
-  }, [contactParam]);
+  }, [contactParam, allAvailableContacts]);
 
   // Derived active contact
   const activeContact = useMemo(() => {
+    if (allAvailableContacts.length === 0) return null;
     return (
       allAvailableContacts.find((c) => c.id === selectedContactId) ||
       allAvailableContacts[0]
@@ -218,6 +227,7 @@ function ContactsContent() {
   };
 
   const handleGenerateEmailDrafts = async (email: ContactEmailItem) => {
+    if (!activeContact) return;
     setIsGeneratingEmailDraft((prev) => ({ ...prev, [email.id]: true }));
     try {
       const generated = await generateEmailDrafts(activeContact.id, email.id);
@@ -236,6 +246,7 @@ function ContactsContent() {
   };
 
   const handleSendEmailReply = async (email: ContactEmailItem) => {
+    if (!activeContact) return;
     const textToSend =
       emailDraftCustomText[email.id] !== undefined
         ? emailDraftCustomText[email.id]
@@ -279,6 +290,7 @@ function ContactsContent() {
   };
 
   const handleGenerateWhatsAppDrafts = async () => {
+    if (!activeContact) return;
     setIsGeneratingWhatsAppDrafts(true);
     try {
       const generated = await generateWhatsAppDrafts(activeContact.id);
@@ -293,6 +305,7 @@ function ContactsContent() {
   };
 
   const handleSendWhatsApp = async () => {
+    if (!activeContact) return;
     if (!whatsappInput.trim() || isSendingWhatsApp) return;
     const textToSend = whatsappInput.trim();
     setWhatsappInput("");
@@ -328,7 +341,7 @@ function ContactsContent() {
     }
   };
 
-  // Filtered contacts in the left 220px list
+  // Filtered contacts in the left 220px list (re-evaluates when allAvailableContacts loads)
   const filteredContacts = useMemo(() => {
     return allAvailableContacts.filter((contact) => {
       if (filterAudience === "tenant" && contact.category !== "tenant") return false;
@@ -343,7 +356,7 @@ function ContactsContent() {
       }
       return true;
     });
-  }, [filterAudience, searchQuery]);
+  }, [allAvailableContacts, filterAudience, searchQuery]);
 
   // Filtered emails for the active contact
   const filteredEmails = useMemo(() => {
@@ -514,6 +527,14 @@ function ContactsContent() {
 
               {/* Contact items scroll */}
               <div className="flex-1 overflow-y-auto py-1.5">
+                {isLoadingContacts && allAvailableContacts.length === 0 && (
+                  <div className="p-3 space-y-2">
+                    {[1, 2, 3, 4].map((i) => (
+                      <div key={i} className="h-9 bg-zinc-200/50 animate-pulse rounded-[6px]" />
+                    ))}
+                  </div>
+                )}
+
                 {filteredContacts.map((contact) => {
                   const isSelected = contact.id === activeContact?.id;
                   const initials = getInitials(contact.name);
@@ -538,24 +559,31 @@ function ContactsContent() {
                         {initials}
                       </div>
 
-                      {/* Name */}
-                      <span
-                        className={cn(
-                          "text-[13px] truncate flex-1",
-                          isSelected
-                            ? "text-[#0f172a] font-bold"
-                            : "text-[#475569] hover:text-[#0f172a]"
+                      {/* Name & Trade/Unit */}
+                      <div className="flex-1 min-w-0 flex flex-col">
+                        <span
+                          className={cn(
+                            "text-[13px] truncate leading-tight",
+                            isSelected
+                              ? "text-[#0f172a] font-bold"
+                              : "text-[#475569] hover:text-[#0f172a]"
+                          )}
+                        >
+                          {contact.name}
+                        </span>
+                        {contact.tradeOrRole && (
+                          <span className="text-[10.5px] text-[#94a3b8] truncate font-medium mt-0.5">
+                            {contact.tradeOrRole}
+                          </span>
                         )}
-                      >
-                        {contact.name}
-                      </span>
+                      </div>
                     </div>
                   );
                 })}
 
-                {filteredContacts.length === 0 && (
+                {!isLoadingContacts && filteredContacts.length === 0 && (
                   <div className="text-center py-12 text-[#94a3b8] text-xs">
-                    No contacts found.
+                    No contacts found in database.
                   </div>
                 )}
               </div>
@@ -580,6 +608,18 @@ function ContactsContent() {
                 </button>
               </div>
 
+              {!activeContact ? (
+                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-[#94a3b8] text-sm bg-white">
+                  {isLoadingContacts ? (
+                    <div className="flex items-center gap-2 text-xs text-[#64748b]">
+                      <RotateCw className="w-4 h-4 animate-spin text-[#1a73e8]" />
+                      <span>Loading database directory...</span>
+                    </div>
+                  ) : (
+                    <p>No contact selected or directory is empty.</p>
+                  )}
+                </div>
+              ) : (
               <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
                 {/* Profile Card (Matching subtle blue #f0f5fb for top and expanded body) */}
                 <div className="bg-[#f0f5fb] border-b border-[#e1e7f0] transition-colors">
@@ -1366,6 +1406,7 @@ function ContactsContent() {
                   </div>
                 )}
               </div>
+              )}
 
 
             </div>
