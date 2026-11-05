@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import {

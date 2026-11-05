@@ -31,7 +31,6 @@ import {
   Moon,
   UserRound,
   ArrowUp,
-  Mic,
   ThumbsUp,
   ThumbsDown,
   MoreVertical,
@@ -486,13 +485,13 @@ export function AskEstateOSPanel({
           "bg-white flex flex-col justify-between font-sans shrink-0 overflow-hidden relative transition-all duration-300",
           isFullScreen
             ? "fixed inset-2 md:inset-6 z-50 rounded-[18px] border border-[#27272a] shadow-2xl"
-            : "fixed inset-0 z-50 md:relative md:inset-auto md:z-10 w-full md:w-[40%] md:min-w-[400px] md:max-w-[640px] m-0 md:mr-[10px] md:mb-[10px] h-full rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)]"
+            : "fixed inset-0 z-50 md:relative md:inset-auto md:z-10 w-full md:w-[40%] md:min-w-[400px] md:max-w-[640px] m-0 md:mr-[10px] md:mb-[10px] h-full md:h-[calc(100%-10px)] rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)]"
         )}
       >
         {/* 1. Header Bar with Integrated Context Tag (No extra box bar needed) */}
         <div
           className={cn(
-            "h-14 px-4 sm:px-5 border-b flex items-center justify-between flex-shrink-0 transition-colors",
+            "h-[48px] px-4 sm:px-5 border-b flex items-center justify-between flex-shrink-0 transition-colors",
             isDark ? "bg-[#0E1113] border-[#1A1F24]" : "bg-[#FFFFFF] border-[#E8E8E5]"
           )}
         >
@@ -1595,30 +1594,7 @@ export function AskEstateOSPanel({
                 )}
               />
 
-              <div className="flex items-center justify-between pt-0.5">
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    className={cn(
-                      "w-[26px] h-[26px] rounded-full flex items-center justify-center transition-colors cursor-pointer",
-                      isDark ? "text-[#94a3b8] hover:bg-[#20262B]" : "text-[#444746] hover:bg-[#e8eaed]"
-                    )}
-                    title="Add attachment"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    className={cn(
-                      "w-[26px] h-[26px] rounded-full flex items-center justify-center transition-colors cursor-pointer text-[#1a73e8]",
-                      isDark ? "hover:bg-[#20262B]" : "hover:bg-[#e8eaed]"
-                    )}
-                    title="Voice input"
-                  >
-                    <Mic className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
+              <div className="flex items-center justify-end pt-0.5">
                 <button
                   type="submit"
                   disabled={!inputQuery.trim() || isTyping}
@@ -1791,3 +1767,4 @@ function formatMarkdown(text: string, isDark: boolean = false): string {
 
   return clean;
 }
+
