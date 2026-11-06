@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine, or_
 from sqlalchemy.orm import Session
@@ -17,7 +17,7 @@ from app.api.deps import get_engine
 from app.contracts import Channel, Direction
 from app.core.logging import get_logger
 from app.db.enums import PersonKind, SendStatus
-from app.db.models import Case, CaseLink, MessageRow, Person, ChannelIdentity, UnderstandingRow, Send
+from app.db.models import ChannelIdentity, MessageRow, Person, Send, UnderstandingRow
 
 router = APIRouter(prefix="/api/contacts", tags=["contacts"])
 log = get_logger(__name__)
@@ -26,6 +26,7 @@ log = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Request & Response Schemas
 # ---------------------------------------------------------------------------
+
 
 class DraftVariantItem(BaseModel):
     id: str
@@ -102,6 +103,7 @@ class ContactCommunicationsResponse(BaseModel):
 # API Endpoints
 # ---------------------------------------------------------------------------
 
+
 @router.get(
     "",
     summary="List Contacts from Database",
@@ -120,8 +122,8 @@ def list_contacts(
             query = query.filter(Person.kind == PersonKind.contractor)
 
         people = query.all()
-        results = []
-        seen = set()
+        results: list[dict[str, Any]] = []
+        seen: set[tuple[str, PersonKind]] = set()
         for p in people:
             name_clean = (p.display_name or "").strip()
             # Ignore placeholder emails stored as names
@@ -143,9 +145,7 @@ def list_contacts(
             is_t = p.kind == PersonKind.tenant
 
             trade_display = (
-                "Tenant"
-                if is_t
-                else (p.trade.capitalize() + " Contractor" if p.trade else "Maintenance Contractor")
+                "Tenant" if is_t else (p.trade.capitalize() + " Contractor" if p.trade else "Maintenance Contractor")
             )
             unit_display = (
                 p.brixx_ref or "Keizersgracht 42-A"
@@ -158,35 +158,46 @@ def list_contacts(
                 c_email = "pieter.bakker@example.com"
                 c_phone = "+31 6 5550 0142"
 
-            results.append({
-                "id": str(p.id),
-                "name": name_clean,
-                "category": "tenant" if is_t else "contractor",
-                "tradeOrRole": trade_display,
-                "unitRole": unit_display,
-                "email": c_email or "",
-                "phone": c_phone or "",
-                "propertyAddress": "Keizersgracht 42-A, 1015 CS Amsterdam" if is_t else "Amsterdam Metropolitan Area",
-                "residentialAddress": "Keizersgracht 42-A, 1015 CS Amsterdam" if is_t else "Amsterdam Metropolitan Area",
-                "agreementPeriod": "01 Jan 2024 — 31 Dec 2024" if is_t else "Master Service Agreement (Active)",
-                "status": "active",
-                "openTicketsCount": 0,
-                "rating": 5.0,
-                "notes": "",
-                "documents": [],
-                "emails": [],
-                "whatsappMessages": [],
-                "leases": [],
-            })
+            results.append(
+                {
+                    "id": str(p.id),
+                    "name": name_clean,
+                    "category": "tenant" if is_t else "contractor",
+                    "tradeOrRole": trade_display,
+                    "unitRole": unit_display,
+                    "email": c_email or "",
+                    "phone": c_phone or "",
+                    "propertyAddress": "Keizersgracht 42-A, 1015 CS Amsterdam"
+                    if is_t
+                    else "Amsterdam Metropolitan Area",
+                    "residentialAddress": "Keizersgracht 42-A, 1015 CS Amsterdam"
+                    if is_t
+                    else "Amsterdam Metropolitan Area",
+                    "agreementPeriod": "01 Jan 2024 — 31 Dec 2024" if is_t else "Master Service Agreement (Active)",
+                    "status": "active",
+                    "openTicketsCount": 0,
+                    "rating": 5.0,
+                    "notes": "",
+                    "documents": [],
+                    "emails": [],
+                    "whatsappMessages": [],
+                    "leases": [],
+                }
+            )
         return results
 
+
 # ---------------------------------------------------------------------------
+
 
 @router.get(
     "/{contact_id}/communications",
     response_model=ContactCommunicationsResponse,
     summary="Get Contact Communications",
-    description="Fetches live Gmail threads and WhatsApp message streams for a given contact, with agent understanding categories.",
+    description=(
+        "Fetches live Gmail threads and WhatsApp message streams for a given contact, "
+        "with agent understanding categories."
+    ),
 )
 def get_contact_communications(
     contact_id: str,
@@ -245,11 +256,7 @@ def get_contact_communications(
         live_messages: list[MessageRow] = []
         if filter_conds:
             live_messages = (
-                session.query(MessageRow)
-                .filter(or_(*filter_conds))
-                .order_by(MessageRow.sent_at.desc())
-                .limit(50)
-                .all()
+                session.query(MessageRow).filter(or_(*filter_conds)).order_by(MessageRow.sent_at.desc()).limit(50).all()
             )
 
         if live_messages:
@@ -344,17 +351,17 @@ def send_contact_whatsapp(
             if person:
                 p_wa = (
                     session.query(ChannelIdentity)
-                    .filter(ChannelIdentity.person_id == person.id, ChannelIdentity.channel == Channel.whatsapp, ChannelIdentity.valid_to.is_(None))
+                    .filter(
+                        ChannelIdentity.person_id == person.id,
+                        ChannelIdentity.channel == Channel.whatsapp,
+                        ChannelIdentity.valid_to.is_(None),
+                    )
                     .first()
                 )
                 if p_wa:
                     phone_target = p_wa.identity
         except ValueError:
             pass
-
-        # Also check seed phone
-        if contact_id in SEED_FALLBACKS:
-            phone_target = SEED_FALLBACKS[contact_id]["phone"]
 
         # Note: If WhatsApp Cloud API credentials are live in settings,
         # registry.whatsapp_send(...) can be called here asynchronously.
@@ -405,8 +412,8 @@ def generate_email_drafts(
     with Session(engine) as session:
         if _is_uuid(message_id):
             msg = session.get(MessageRow, UUID(message_id))
-            if msg and msg.subject:
-                subject = msg.subject
+            if msg and msg.meta.get("subject"):
+                subject = str(msg.meta["subject"])
 
     clean_subj = subject.lower().replace("re:", "").strip()
 
@@ -424,7 +431,8 @@ def generate_email_drafts(
             id="d2",
             label="Option 2: Clarification / Extra Details",
             body=(
-                f"Beste,\n\nDank voor de toelichting over {clean_subj}. Om dit zo snel en accuraat mogelijk op te pakken: "
+                f"Beste,\n\nDank voor de toelichting over {clean_subj}. "
+                f"Om dit zo snel en accuraat mogelijk op te pakken: "
                 f"kunt u hier eventueel aanvullende gegevens of een foto van delen?\n\n"
                 f"Alvast dank en groet,\nHarjot"
             ),
@@ -433,9 +441,9 @@ def generate_email_drafts(
             id="d3",
             label="Option 3: Schedule Visit / Appointment",
             body=(
-                f"Beste,\n\nWe plannen hiervoor graag direct een afspraak in bij het pand. "
-                f"Schikt komende woensdagochtend om 10:00 uur u voor een kort bezoek?\n\n"
-                f"Met vriendelijke groet,\nHarjot"
+                "Beste,\n\nWe plannen hiervoor graag direct een afspraak in bij het pand. "
+                "Schikt komende woensdagochtend om 10:00 uur u voor een kort bezoek?\n\n"
+                "Met vriendelijke groet,\nHarjot"
             ),
         ),
     ]
@@ -466,7 +474,7 @@ def send_email_reply(
             orig_msg = session.get(MessageRow, UUID(message_id))
             if orig_msg:
                 thread_ref = orig_msg.thread_ref
-                recipient_target = orig_msg.sender_identity or orig_msg.recipient_identity or recipient_target
+                recipient_target = orig_msg.sender_identity or recipient_target
 
         reply_row = MessageRow(
             id=new_msg_id,
@@ -530,5 +538,3 @@ def generate_whatsapp_drafts(
         ),
     ]
     return GenerateDraftsResponse(message_id=contact_id, drafts=drafts)
-
-

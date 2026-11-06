@@ -4,7 +4,8 @@ import app.db.models  # noqa: F401  (registers tables)
 from app.db.base import Base
 
 SPEC_TABLES = {
-    "companies", "channel_accounts", "owner_accounts", "gmail_sync_state", "directory_imports", "people",
+    "companies", "channel_accounts", "owner_accounts", "gmail_sync_state", "allowed_users",
+    "directory_imports", "people",
     "channel_identities", "units", "leases", "lease_parties", "raw_events", "messages", "attachments",
     "understandings", "cases", "case_links", "case_events", "actions", "action_revisions", "approvals", "sends",
     "timers", "outcomes", "model_calls",

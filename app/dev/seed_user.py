@@ -1,8 +1,9 @@
 """CLI utility and helper to manage the allowed users whitelist in PostgreSQL."""
 
 import argparse
-import sys
+from typing import Any
 from uuid import uuid4
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -29,9 +30,7 @@ def add_allowed_user(email: str, name: str = "", role: str = "manager", invited_
             print("Error: No company found in database. Run dev seed first.")
             return False
 
-        existing = session.scalars(
-            select(AllowedUser).where(AllowedUser.email == clean_email)
-        ).first()
+        existing = session.scalars(select(AllowedUser).where(AllowedUser.email == clean_email)).first()
 
         if existing:
             existing.is_active = True
@@ -54,7 +53,7 @@ def add_allowed_user(email: str, name: str = "", role: str = "manager", invited_
     return True
 
 
-def list_allowed_users() -> list[dict]:
+def list_allowed_users() -> list[dict[str, Any]]:
     """Returns all whitelisted users."""
     settings = get_settings()
     engine = make_engine(str(settings.database_url))
@@ -109,4 +108,3 @@ if __name__ == "__main__":
                 if u:
                     session.delete(u)
                     print(f"Removed '{rm}' from allowed users.")
-
