@@ -4,27 +4,68 @@ SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 .DEFAULT_GOAL := help
 
-COMPOSE := docker compose -f docker/compose.yml $(if $(wildcard .env),--env-file .env)  # agent settings reach the containers
+COMPOSE = docker compose -f docker/compose.yml $$([ -f .env ] && echo --env-file .env)  # agent settings reach the containers; checked when the recipe runs, so a .env made by `make env` counts
 UV      := uv run --frozen
 NEXT_REV = $(shell printf '%04d' $$(( $$(ls app/db/alembic/versions/[0-9]*.py 2>/dev/null | wc -l) + 1 )))
 
-.PHONY: help setup gmail-consent up up-db down logs ps migrate migration migrate-roundtrip alembic-check \
+.PHONY: help all start doctor env seed stop reset requirements frontend frontend-install frontend-build \
+        setup gmail-consent up up-db down logs ps migrate migration migrate-roundtrip alembic-check \
         fmt lint type boundaries test-unit test-int test cov quick check smoke audit eval \
         workflows harness-test clean sim-demo sim-agents rag-eval live-check gmail-pull pending approve context-report
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-18s %s\n", $$1, $$2}'
 
-# ---- environment -------------------------------------------------------------
-setup: ## install deps, pre-commit hooks, .env
+# ---- run it (fresh clone) ----------------------------------------------------
+# Needs only Docker, make, curl and Node 20.9+. uv is for contributors (setup, tests, lint).
+all: doctor env up seed frontend-install ## fresh clone: check tools, create config, start backend, seed owner, install dashboard deps
+	@echo
+	@echo "Backend is up: http://localhost:$${API_PORT:-8000}. Now run: make frontend   (dashboard on http://localhost:3000)"
+
+start: ## backend + seed + dashboard in one go (same as ./start.sh)
+	./start.sh
+
+doctor: ## check required tools, versions, free ports and disk
+	./scripts/doctor.sh
+
+env: ## create .env and frontend/.env.local from the examples if missing
+	@[ -f .env ] || { cp .env.example .env && echo "created .env from .env.example (fake LLM and channels: runs offline)"; }
+	@[ -f frontend/.env.local ] || { cp frontend/.env.example frontend/.env.local && echo "created frontend/.env.local"; }
+	@mkdir -p "$${ESTATEOS_SECRETS_DIR:-$${HOME}/.estateos}"
+
+seed: ## create the dev company, channel accounts and owner (idempotent; the dashboard logs in as this owner)
+	$(COMPOSE) exec -T api python -m app.dev.simulate seed
+
+stop: down ## stop the backend stack (data kept)
+
+reset: ## DESTROY local database and app data: make reset CONFIRM=yes
+	@[ "$(CONFIRM)" = "yes" ] || { echo 'this deletes the Postgres volume and local storage. Re-run: make reset CONFIRM=yes'; exit 2; }
+	$(COMPOSE) down -v
+
+frontend/node_modules/.package-lock.json: frontend/package-lock.json
+	cd frontend && npm ci --no-audit --no-fund
+
+frontend-install: frontend/node_modules/.package-lock.json ## install dashboard deps (only when package-lock.json changed)
+
+frontend: env frontend-install ## dashboard dev server on http://localhost:3000 (needs the backend: make up seed)
+	cd frontend && npm run dev -- --port 3000
+
+frontend-build: frontend-install ## production build of the dashboard (type-check included)
+	cd frontend && npm run build
+
+requirements: ## regenerate requirements.txt / requirements-dev.txt for pip users from uv.lock (uv.lock stays the source of truth)
+	uv export --frozen --no-hashes --no-dev --no-emit-project -o requirements.txt
+	uv export --frozen --no-hashes --only-dev --no-emit-project -o requirements-dev.txt
+
+# ---- contributor setup -------------------------------------------------------
+setup: env ## contributors: python env (uv sync), pre-commit hooks, .env
 	uv sync --frozen
 	$(UV) pre-commit install
-	@[ -f .env ] || { cp .env.example .env && echo "created .env from .env.example — fill secrets"; }
 
-up: ## dev stack: postgres, migrate, api, worker
+up: env ## dev stack: postgres, migrate, api, worker
 	$(COMPOSE) up -d --build --wait
 
-up-db: ## only postgres (for alembic / manual runs; tests use testcontainers)
+up-db: env ## only postgres (for alembic / manual runs; tests use testcontainers)
 	$(COMPOSE) up -d --wait postgres
 
 down: ## stop stack (keeps volumes)
