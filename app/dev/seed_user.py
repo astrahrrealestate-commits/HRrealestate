@@ -95,4 +95,9 @@ if __name__ == "__main__":
         print("Seeding default allowed users...")
         add_allowed_user("harjot@estateos.internal", name="Harjot Singh", role="owner")
         add_allowed_user("vipint9902@gmail.com", name="Vipin Tyagi", role="owner")
+        add_allowed_user("tyagisurya.04@gmail.com", name="Surya Tyagi", role="owner")
+        add_allowed_user("chandan.p@fwc.co.in", name="Chandan P", role="manager")
+        add_allowed_user("aditya@seedicon.com", name="Aditya", role="manager")
+        add_allowed_user("sambit.b@fwc.co.in", name="Sambit B", role="manager")
+        add_allowed_user("avinash.p@fwc.co.in", name="Avinash P", role="manager")
 

@@ -1,14 +1,14 @@
 """Idempotent dev tenant: one company with a WhatsApp number, a Gmail mailbox and owner Harjot (simulator + demo)."""
 
 from dataclasses import dataclass
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.contracts import Channel
 from app.core.errors import UnsafeConfigurationError
-from app.db.models import ChannelAccount, Company, OwnerAccount
+from app.db.models import AllowedUser, ChannelAccount, Company, OwnerAccount
 from app.dev import fixtures as fx
 
 
@@ -46,6 +46,32 @@ def seed_dev_tenant(
                     company_id=company_id, display_name=fx.DEV_OWNER_NAME, whatsapp_e164=owner_e164, email=owner_email
                 ),
             )
+
+        # Seed authorized users for platform login
+        default_allowed = [
+            ("harjot@estateos.internal", "Harjot Singh", "owner"),
+            ("vipint9902@gmail.com", "Vipin Tyagi", "owner"),
+            ("tyagisurya.04@gmail.com", "Surya Tyagi", "owner"),
+            ("chandan.p@fwc.co.in", "Chandan P", "manager"),
+            ("aditya@seedicon.com", "Aditya", "manager"),
+            ("sambit.b@fwc.co.in", "Sambit B", "manager"),
+            ("avinash.p@fwc.co.in", "Avinash P", "manager"),
+        ]
+        for u_email, u_name, u_role in default_allowed:
+            exists = session.scalar(select(AllowedUser).where(AllowedUser.email == u_email))
+            if not exists:
+                session.add(
+                    AllowedUser(
+                        id=uuid4(),
+                        company_id=company_id,
+                        email=u_email,
+                        display_name=u_name,
+                        role=u_role,
+                        is_active=True,
+                        invited_by="system",
+                    )
+                )
+
         return DevTenant(company_id, wa.id, gm.id)
 
 
