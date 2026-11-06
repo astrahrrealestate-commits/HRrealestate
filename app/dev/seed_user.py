@@ -94,10 +94,19 @@ if __name__ == "__main__":
         # Default seed run
         print("Seeding default allowed users...")
         add_allowed_user("harjot@estateos.internal", name="Harjot Singh", role="owner")
-        add_allowed_user("vipint9902@gmail.com", name="Vipin Tyagi", role="owner")
         add_allowed_user("tyagisurya.04@gmail.com", name="Surya Tyagi", role="owner")
-        add_allowed_user("chandan.p@fwc.co.in", name="Chandan P", role="manager")
-        add_allowed_user("aditya@seedicon.com", name="Aditya", role="manager")
-        add_allowed_user("sambit.b@fwc.co.in", name="Sambit B", role="manager")
-        add_allowed_user("avinash.p@fwc.co.in", name="Avinash P", role="manager")
+        add_allowed_user("chandan.p@fwc.co.in", name="Chandan P", role="owner")
+        add_allowed_user("aditya@seedicon.com", name="Aditya", role="owner")
+        add_allowed_user("sambit.b@fwc.co.in", name="Sambit B", role="owner")
+        add_allowed_user("avinash.p@fwc.co.in", name="Avinash P", role="owner")
+
+        # Cleanup removed users
+        settings = get_settings()
+        engine = make_engine(str(settings.database_url))
+        with Session(engine) as session, session.begin():
+            for rm in ["vipint9902@gmail.com", "suryanstyagi.work@gmail.com"]:
+                u = session.scalar(select(AllowedUser).where(AllowedUser.email == rm))
+                if u:
+                    session.delete(u)
+                    print(f"Removed '{rm}' from allowed users.")
 

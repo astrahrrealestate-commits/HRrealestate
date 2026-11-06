@@ -47,19 +47,21 @@ def seed_dev_tenant(
                 ),
             )
 
-        # Seed authorized users for platform login
+        # Seed authorized users for platform login (all active staff set as owner)
         default_allowed = [
             ("harjot@estateos.internal", "Harjot Singh", "owner"),
-            ("vipint9902@gmail.com", "Vipin Tyagi", "owner"),
             ("tyagisurya.04@gmail.com", "Surya Tyagi", "owner"),
-            ("chandan.p@fwc.co.in", "Chandan P", "manager"),
-            ("aditya@seedicon.com", "Aditya", "manager"),
-            ("sambit.b@fwc.co.in", "Sambit B", "manager"),
-            ("avinash.p@fwc.co.in", "Avinash P", "manager"),
+            ("chandan.p@fwc.co.in", "Chandan P", "owner"),
+            ("aditya@seedicon.com", "Aditya", "owner"),
+            ("sambit.b@fwc.co.in", "Sambit B", "owner"),
+            ("avinash.p@fwc.co.in", "Avinash P", "owner"),
         ]
         for u_email, u_name, u_role in default_allowed:
-            exists = session.scalar(select(AllowedUser).where(AllowedUser.email == u_email))
-            if not exists:
+            existing = session.scalar(select(AllowedUser).where(AllowedUser.email == u_email))
+            if existing:
+                existing.role = u_role
+                existing.is_active = True
+            else:
                 session.add(
                     AllowedUser(
                         id=uuid4(),
@@ -71,6 +73,12 @@ def seed_dev_tenant(
                         invited_by="system",
                     )
                 )
+
+        # Remove non-staff accounts from login whitelist if previously seeded
+        for removed_email in ["vipint9902@gmail.com", "suryanstyagi.work@gmail.com"]:
+            to_remove = session.scalar(select(AllowedUser).where(AllowedUser.email == removed_email))
+            if to_remove:
+                session.delete(to_remove)
 
         return DevTenant(company_id, wa.id, gm.id)
 
