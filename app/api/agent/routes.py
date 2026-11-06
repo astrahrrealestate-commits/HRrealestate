@@ -63,6 +63,7 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 log = get_logger(__name__)
 
 GROQ_TURN_CHARS = 600  # one earlier chat turn sent to the direct-answer model
+GROQ_MAX_TOKENS = 700  # room for a conversational answer; the prompt, not the cap, keeps simple lookups short
 
 
 class AskAgentRequest(BaseModel):
@@ -266,7 +267,7 @@ def _generate_groq_answer(
                         "model": model,
                         "messages": messages,
                         "temperature": 0.2,
-                        "max_tokens": 300,
+                        "max_tokens": GROQ_MAX_TOKENS,
                     },
                     timeout=10.0,
                 )
