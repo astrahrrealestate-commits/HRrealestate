@@ -58,6 +58,7 @@ from app.pipeline.concierge_outcome import assemble_answer, task_brief
 from app.pipeline.document_search import DocFilter
 from app.pipeline.rag import search_hybrid
 from app.superagent.chat import chat_answer
+from app.superagent.research import ResearchResult, run_research
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 log = get_logger(__name__)
@@ -213,28 +214,49 @@ def _case_label(session: Session, case: Case) -> str:
     return f"{name} · {addr} ({case.category.value})"
 
 
+def _system_prompt(
+    query: str,
+    *,
+    memory_rules: Sequence[str] = (),
+    page_facts: str = "",
+    cases: Sequence[CaseBrief] = (),
+    thread_summary: str = "",
+    focus_case_id: str | None = None,
+) -> str:
+    return build_super_agent_system_prompt(
+        cases=cases,
+        query=query,
+        memory_rules=memory_rules,
+        page_facts=page_facts,
+        thread_summary=thread_summary,
+        focus_case_id=focus_case_id,
+    )
+
+
 def _generate_chat_answer(
     query: str,
     settings: Settings,
     engine: Engine,
     company_id: UUID,
+    system_prompt: str,
     history: list[str] | None = None,
-    memory_rules: list[str] | None = None,
-    page_facts: str | None = None,
-    cases: Sequence[CaseBrief] = (),
-    thread_summary: str = "",
-    focus_case_id: str | None = None,
 ) -> str | None:
     """The direct answer on the configured model (Gemini via Pydantic AI); None means use the deterministic fallback."""
-    system_prompt = build_super_agent_system_prompt(
-        cases=cases,
-        query=query,
-        memory_rules=memory_rules or (),
-        page_facts=page_facts or "",
-        thread_summary=thread_summary,
-        focus_case_id=focus_case_id,
-    )
     return chat_answer(engine, settings, company_id, system_prompt, history or [], query)
+
+
+def _research_answer(
+    query: str,
+    settings: Settings,
+    engine: Engine,
+    company_id: UUID,
+    system_prompt: str,
+    history: list[str] | None = None,
+) -> ResearchResult | None:
+    """The answer from the read-only research loop (database, messages, documents); None means use the chat answer."""
+    return run_research(
+        engine, settings, company_id, system_prompt, history or [], query, embedder=build_embedder(settings)
+    )
 
 
 def _domain_fallback_answer(query: str, live_cases_text: str = "", is_error: bool = False) -> str:
@@ -1259,7 +1281,7 @@ def ask_agent(
                             settings,
                             engine,
                             company_id,
-                            page_facts=doc_context,
+                            _system_prompt(req.query, page_facts=doc_context),
                         )
 
                         if chat_doc_ans:
@@ -1510,25 +1532,28 @@ def ask_agent(
             ]
         )
     )
+    research_steps: tuple[str, ...] = ()
     if needs_fallback:
         pipeline_stage = "domain_fallback"
         fallback_reason = fallback_reason or "Empty or placeholder response"
-        chat_resp = _generate_chat_answer(
+        system_prompt = _system_prompt(
             req.query,
-            settings,
-            engine,
-            company_id,
-            history=req.history,
             memory_rules=approved_memories,
             page_facts=page_facts_text,
             cases=briefs,
             thread_summary=thread_summary,
             focus_case_id=focus_cid,
         )
+        researched = _research_answer(req.query, settings, engine, company_id, system_prompt, req.history)
+        if researched is not None:
+            research_steps = researched.steps
+            chat_resp: str | None = researched.answer
+        else:
+            chat_resp = _generate_chat_answer(req.query, settings, engine, company_id, system_prompt, req.history)
         ans_text = chat_resp or _domain_fallback_answer(req.query, live_cases_text=live_cases_text, is_error=llm_failed)
 
     # 3. Build step badge labels and inspect any generated proposal cards / actions
-    step_descriptions: list[str] = []
+    step_descriptions: list[str] = list(research_steps)
     dropped_warnings: list[str] = []
     preview_card = None
     action_buttons: list[ActionButtonData] = []

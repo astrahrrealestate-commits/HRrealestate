@@ -30,7 +30,7 @@ def _echo(seen: dict[str, Any]) -> FunctionModel:
 def recorded(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     rows: list[Any] = []
     monkeypatch.setattr(chat, "check_budget", lambda *a, **k: None)
-    monkeypatch.setattr(chat, "_record", lambda _engine, row: rows.append(row))
+    monkeypatch.setattr(chat, "record_call", lambda _engine, row: rows.append(row))
     return rows
 
 

@@ -55,6 +55,15 @@ Tier 1 (greeting, simple lookup) is the planner's own `reply` (already one call)
 - Live step labels (`steps?: string[]` in `SuperAgentContext.tsx`) come from the stored tool trace: tool name and
   counts only, never message bodies.
 
+### 4.1 Status of the first cut (`app/superagent/research.py`)
+Built: `query_database`, `search_communications`, `search_documents`; 3-call cap; escaped data blocks; deps-only
+`company_id`; a failing lookup becomes a result the model explains; one `model_calls` row per run including failures;
+step chips from tool name and counts. Wired into `/api/agent/ask` for questions the regex gates and the planner do not
+claim (the fallback branch).
+Deferred: `get_case` (cases are already in the system prompt's ranked brief); a wall-clock deadline across tool calls
+(only per-request timeouts today); storing the loop result on the turn so a retry reuses it (needs the DBOS turn
+adapter, slice 1b: `ask_agent` is not a DBOS step today).
+
 ## 5. Rent / arrears views
 Source of truth is BRIXX (invoices, payment rules, arrears), mirrored by the unmerged `m-brixx-mirror` work. The mirror
 spec (§ "BRIXX lookup") already plans curated views. Order of work: merge the mirror mapper, add

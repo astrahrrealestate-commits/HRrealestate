@@ -35,9 +35,18 @@ MAX_HISTORY_TURNS = 4
 TURN_CHARS = 600
 
 
-def _record(engine: Engine, row: ModelCall) -> None:
+def record_call(engine: Engine, row: ModelCall) -> None:
     with Session(engine, expire_on_commit=False) as session, session.begin():
         session.add(row)
+
+
+def new_call(settings: Settings, company_id: UUID, agent: str, system_prompt: str, query: str) -> ModelCall:
+    """The audit row of one call of a code-defined prompt (`prompt_version` `code`, hash of the exact system text)."""
+    return ModelCall(
+        id=new_id(), company_id=company_id, purpose=CONCIERGE_PURPOSE, prompt_name=agent,
+        prompt_version=PROMPT_VERSION, prompt_sha256=hashlib.sha256(system_prompt.encode()).hexdigest(),
+        model=settings.llm_model, input={"prompt": query},
+    )  # fmt: skip
 
 
 def history_messages(lines: Sequence[str]) -> list[ModelMessage]:
@@ -65,11 +74,7 @@ def chat_answer(
         check_budget(engine, settings, company_id, CONCIERGE_PURPOSE)
     except BudgetExceededError:
         return None
-    row = ModelCall(
-        id=new_id(), company_id=company_id, purpose=CONCIERGE_PURPOSE, prompt_name=AGENT_NAME,
-        prompt_version=PROMPT_VERSION, prompt_sha256=hashlib.sha256(system_prompt.encode()).hexdigest(),
-        model=settings.llm_model, input={"prompt": query},
-    )  # fmt: skip
+    row = new_call(settings, company_id, AGENT_NAME, system_prompt, query)
     started = time.perf_counter()
     try:
         result = Agent(build_model(settings, AGENT_NAME), instructions=system_prompt).run_sync(
@@ -80,11 +85,11 @@ def chat_answer(
     except Exception as exc:  # a provider problem degrades to the caller's fallback, never to a 500
         row.latency_ms = int((time.perf_counter() - started) * 1000)
         row.error = f"{type(exc).__name__}: {exc}"[:2000]
-        _record(engine, row)
+        record_call(engine, row)
         log.warning("superagent.chat_failed", company_id=str(company_id), error=type(exc).__name__)
         return None
     row.latency_ms = int((time.perf_counter() - started) * 1000)
     row.output = {"chars": len(result.output)}
     row.tokens_in, row.tokens_out = result.usage.input_tokens, result.usage.output_tokens
-    _record(engine, row)
+    record_call(engine, row)
     return result.output.strip() or None
