@@ -50,6 +50,7 @@ def get_credentials_path(settings: Settings) -> Path:
 def get_authorization_url(settings: Settings, state: str = "estateos_owner_auth") -> str:
     """Generates the Google OAuth 2.0 authorization URL requesting permanent offline access."""
     import os
+
     client_id = (settings.google_oauth_client_id or os.environ.get("GOOGLE_OAUTH_CLIENT_ID") or "").strip()
     if not client_id:
         client_id = "placeholder_client_id"
@@ -71,6 +72,7 @@ def get_authorization_url(settings: Settings, state: str = "estateos_owner_auth"
 async def exchange_code_for_tokens(settings: Settings, code: str) -> dict[str, Any]:
     """Exchanges authorization code for tokens, retrieves user profile, and constructs credentials dict."""
     import os
+
     client_id = (settings.google_oauth_client_id or os.environ.get("GOOGLE_OAUTH_CLIENT_ID") or "").strip()
     client_secret = (
         settings.google_oauth_client_secret.get_secret_value()

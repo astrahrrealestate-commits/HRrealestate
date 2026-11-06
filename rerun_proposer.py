@@ -1,17 +1,18 @@
-import os
-import uuid
 import time
+import uuid
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from app.db.models import ActionRow
+
 from app.core.settings import get_settings
+from app.db.models import ActionRow
+from app.pipeline.propose import _persist, _prepare, _run_proposer
 from app.workflows.deps import get_engine
-from app.pipeline.propose import _prepare, _run_proposer, _persist
 
 msg_id = uuid.UUID("c5505255-4256-4976-b5ae-f035cf5df0b7")
 engine = get_engine()
@@ -35,12 +36,12 @@ loaded = _prepare(engine, msg_id, replay=False)
 actions = None
 for attempt in range(3):
     try:
-        print(f"\n[Attempt {attempt+1}] Running Proposer Agent with Groq LLM...")
+        print(f"\n[Attempt {attempt + 1}] Running Proposer Agent with Groq LLM...")
         actions = _run_proposer(engine, settings, loaded)
         print(f"-> SUCCESS! Generated {len(actions)} actions.")
         break
     except Exception as e:
-        print(f"-> Attempt {attempt+1} failed: {e}. Waiting 10s...")
+        print(f"-> Attempt {attempt + 1} failed: {e}. Waiting 10s...")
         time.sleep(10)
 
 if not actions:

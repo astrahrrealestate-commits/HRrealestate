@@ -88,7 +88,9 @@ ignore = ["RUF001", "RUF002", "RUF003"]  # German text (ß, umlauts) in strings/
 "app/dev/seed_user.py" = ["T201"]
 # developer one-off scripts at the repo root report to the terminal; not application code
 "check_status.py" = ["T201"]
-"process_test_emails.py" = ["T201"]
+"process_test_emails.py" = ["T201", "E402"]
+"ingest_vipin_email.py" = ["T201", "E402", "E501"]
+"rerun_proposer.py" = ["T201", "E402", "S608"]
 "seed_test_urgent_scenario.py" = ["T201", "E402", "E501", "S608"]
 "cleanup_test_urgent_scenario.py" = ["T201", "E402", "E501", "S608"]
 "wipe_maintenance_and_agent_data.py" = ["T201", "E402", "E501", "S608"]

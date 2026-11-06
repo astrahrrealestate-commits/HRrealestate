@@ -18,11 +18,11 @@ from app.db.models.work import DocumentRow, TaskRow, WaitRow
 
 __all__ = [
     "ActionRevision",
-    "AllowedUser",
     "ActionRow",
     "AgentConversation",
     "AgentPageState",
     "AgentTurn",
+    "AllowedUser",
     "Approval",
     "AttachmentRow",
     "BrixxSyncRun",

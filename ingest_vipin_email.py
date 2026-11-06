@@ -1,7 +1,7 @@
-import os
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 # Ensure .env is loaded
@@ -9,12 +9,12 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
+
 from app.contracts import Channel, Direction
 from app.core.settings import get_settings
 from app.db.enums import PipelineStatus, RawEventStatus
-from app.db.models import RawEvent, MessageRow
-from app.workflows.pipeline import understand_step, resolve_step, link_step, propose_step, done_step
-from app.tools.message_rag import index_message
+from app.db.models import MessageRow, RawEvent
+from app.workflows.pipeline import done_step, link_step, propose_step, resolve_step, understand_step
 
 COMPANY_ID = uuid.UUID("01a1341b-2e4e-7073-b44e-40a7bc9e8e2a")
 
@@ -109,6 +109,7 @@ print("   -> Pipeline marked done.")
 # 5. MESSAGE RAG INDEXING
 print("\n[5/5] Indexing email text into Message RAG...")
 from app.workflows.pipeline import index_message_step
+
 rag_status = index_message_step(mid_str)
 print(f"   -> Message RAG status: {rag_status}")
 
