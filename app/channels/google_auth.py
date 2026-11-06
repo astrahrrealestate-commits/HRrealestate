@@ -49,7 +49,10 @@ def get_credentials_path(settings: Settings) -> Path:
 
 def get_authorization_url(settings: Settings, state: str = "estateos_owner_auth") -> str:
     """Generates the Google OAuth 2.0 authorization URL requesting permanent offline access."""
-    client_id = settings.google_oauth_client_id or "placeholder_client_id"
+    import os
+    client_id = (settings.google_oauth_client_id or os.environ.get("GOOGLE_OAUTH_CLIENT_ID") or "").strip()
+    if not client_id:
+        client_id = "placeholder_client_id"
     redirect_uri = settings.google_oauth_redirect_uri or "http://localhost:8000/api/auth/google/callback"
 
     params = {
@@ -67,10 +70,13 @@ def get_authorization_url(settings: Settings, state: str = "estateos_owner_auth"
 
 async def exchange_code_for_tokens(settings: Settings, code: str) -> dict[str, Any]:
     """Exchanges authorization code for tokens, retrieves user profile, and constructs credentials dict."""
-    client_id = settings.google_oauth_client_id or ""
+    import os
+    client_id = (settings.google_oauth_client_id or os.environ.get("GOOGLE_OAUTH_CLIENT_ID") or "").strip()
     client_secret = (
-        settings.google_oauth_client_secret.get_secret_value() if settings.google_oauth_client_secret else ""
-    )
+        settings.google_oauth_client_secret.get_secret_value()
+        if settings.google_oauth_client_secret
+        else os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
+    ).strip()
     redirect_uri = settings.google_oauth_redirect_uri or "http://localhost:8000/api/auth/google/callback"
 
     async with httpx.AsyncClient(timeout=15.0) as client:

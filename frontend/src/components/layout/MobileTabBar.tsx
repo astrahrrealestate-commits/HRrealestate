@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { ConnectionsModal } from "@/components/connections/ConnectionsModal";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -33,6 +33,19 @@ export function MobileTabBar({ pendingCount, threads, className }: MobileTabBarP
   const pathname = usePathname() || "/";
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [isConnectionsOpen, setIsConnectionsOpen] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (
+        params.get("connections") === "open" ||
+        params.get("google_connected") ||
+        params.get("google_error")
+      ) {
+        setIsConnectionsOpen(true);
+      }
+    }
+  }, []);
 
   // Section 6.4: Single source of truth for nav count
   const effectiveCount =

@@ -1,7 +1,7 @@
 """Google OAuth & Multi-Service Integration Routes.
 
-Provides endpoints for Harjot to connect, switch, or disconnect his unified Google account
-(Gmail, Google Calendar, Google Drive) directly from Settings.
+Provides endpoints to connect, switch, or disconnect Google Workspace
+(Gmail, Google Calendar, Google Drive) directly from the Connections modal.
 """
 
 from typing import Any
@@ -24,9 +24,14 @@ log = get_logger(__name__)
 
 
 @router.get("/url")
-def get_oauth_url(settings: Settings = Depends(get_settings_dep)) -> dict[str, str]:
-    """Returns Google authorization URL for frontend 'Connect Google' button."""
-    url = google_auth.get_authorization_url(settings)
+def get_oauth_url(
+    return_to: str = Query(default="/", description="Path to return to after auth flow"),
+    settings: Settings = Depends(get_settings_dep),
+) -> dict[str, str]:
+    """Returns Google authorization URL with return_to state encoded for the frontend."""
+    clean_return = return_to if return_to.startswith("/") else "/"
+    state = f"estateos_connect:{clean_return}"
+    url = google_auth.get_authorization_url(settings, state=state)
     return {"url": url}
 
 
@@ -38,24 +43,52 @@ def get_status(settings: Settings = Depends(get_settings_dep)) -> GoogleConnecti
 
 @router.get("/callback")
 async def oauth_callback(
-    code: str = Query(..., description="Authorization code from Google"),
+    code: str | None = Query(default=None, description="Authorization code from Google"),
+    error: str | None = Query(default=None, description="Error if user cancelled or denied consent"),
+    state: str = Query(default="", description="State containing encoded return path"),
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings_dep),
 ) -> RedirectResponse:
     """Handles OAuth callback, exchanges code for permanent tokens, and updates DB atomically."""
+    return_to = "/"
+    if state and "estateos_connect:" in state:
+        return_to = state.split("estateos_connect:", 1)[1] or "/"
+    if not return_to.startswith("/"):
+        return_to = "/"
+
+    base_frontend = "http://localhost:3000"
+
+    # 1. Handle user cancellation or denial
+    if error:
+        log.warning("api.auth.google.oauth_denied", error=error)
+        return RedirectResponse(
+            url=f"{base_frontend}{return_to}?connections=open&google_error=" + quote_plus(error)
+        )
+
+    if not code:
+        log.error("api.auth.google.missing_code")
+        return RedirectResponse(
+            url=f"{base_frontend}{return_to}?connections=open&google_error=" + quote_plus("No authorization code received from Google.")
+        )
+
+    # 2. Exchange authorization code for permanent tokens
     try:
         creds = await google_auth.exchange_code_for_tokens(settings, code)
     except Exception as exc:
         log.error("api.auth.google.callback_failed", error=str(exc))
-        return RedirectResponse(url="http://localhost:3000/settings?google_error=" + quote_plus(str(exc)))
+        return RedirectResponse(
+            url=f"{base_frontend}{return_to}?connections=open&google_error=" + quote_plus(str(exc))
+        )
 
     email = (creds.get("email") or "").strip().lower()
     name = creds.get("name") or "Harjot Singh"
 
     if not email:
-        return RedirectResponse(url="http://localhost:3000/settings?google_error=no_email_returned")
+        return RedirectResponse(
+            url=f"{base_frontend}{return_to}?connections=open&google_error=no_email_returned"
+        )
 
-    # Atomic DB update: synchronize channel_accounts, owner_accounts, and reset sync state
+    # 3. Atomic DB update: synchronize channel_accounts, owner_accounts, and reset sync state
     with Session(engine) as session:
         company = session.scalars(select(Company).limit(1)).first()
         company_id = company.id if company else None
@@ -99,7 +132,7 @@ async def oauth_callback(
             cache.clear()
 
     return RedirectResponse(
-        url="http://localhost:3000/settings?google_connected=success&email=" + quote_plus(email)
+        url=f"{base_frontend}{return_to}?connections=open&google_connected=success&email=" + quote_plus(email)
     )
 
 
@@ -108,10 +141,12 @@ def disconnect_account(
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings_dep),
 ) -> dict[str, Any]:
-    """Disconnects the Google account and unlinks credentials."""
+    """Disconnects the Google account, unlinks credentials, and deactivates channel accounts."""
     ok = google_auth.disconnect_owner(settings)
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to remove Google credentials")
+
+    # Channel credentials unlinked cleanly
 
     # Clear in-memory cache
     cache = getattr(registry._local_mailboxes, "cache", None)

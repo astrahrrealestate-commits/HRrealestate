@@ -55,8 +55,8 @@ class Settings(BaseSettings):
     # Owner channel: approved WhatsApp template that reopens the 24-hour window ("{{1}} items need you").
     owner_template_name: str = "estateos_pending"
     owner_template_language: str = "en"
-    owner_email: str = ""
-    owner_phone: str = ""
+    owner_email: str | None = ""
+    owner_phone: str | None = ""
     # Send mode (companies.outbound_mode=send): tenant replies per company per rolling hour; at the cap → blocked.
     tenant_sends_per_hour: int = 30
 

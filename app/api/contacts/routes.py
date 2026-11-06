@@ -261,15 +261,13 @@ def get_contact_communications(
                 sent_time_str = msg.sent_at.strftime("%H:%M") if msg.sent_at else "12:00"
                 sent_date_str = msg.sent_at.strftime("%d %b %Y") if msg.sent_at else "Today"
 
-                # Look for linked Case and UnderstandingRow
+                # Look for UnderstandingRow
                 category: str | None = None
-                case_link = session.query(CaseLink).filter(CaseLink.message_id == msg.id).first()
-                if case_link:
-                    und = session.query(UnderstandingRow).filter(UnderstandingRow.case_id == case_link.case_id).first()
-                    if und and und.category:
-                        category = und.category.value if hasattr(und.category, "value") else str(und.category)
+                und = session.query(UnderstandingRow).filter(UnderstandingRow.message_id == msg.id).first()
+                if und and und.category:
+                    category = und.category.value if hasattr(und.category, "value") else str(und.category)
 
-                msg_subj = (msg.meta.get("subject") if isinstance(msg.meta, dict) else None) or "(No Subject)"
+                msg_subj = getattr(msg, "subject", None) or "(No Subject)"
                 msg_body = msg.text or ""
 
                 if msg.channel == Channel.gmail:

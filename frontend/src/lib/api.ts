@@ -198,7 +198,7 @@ export async function syncGmailInbox(): Promise<{ synced: boolean; newMessages: 
     const res = await fetch(`${BACKEND_BASE_URL}/api/inbox/sync`, {
       method: "POST",
       headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(60000),
     });
     if (res.ok) {
       return await res.json();
@@ -1237,9 +1237,10 @@ export async function getGoogleAuthStatus(): Promise<GoogleAuthStatus> {
   return { connected: false };
 }
 
-export async function getGoogleAuthUrl(): Promise<string | null> {
+export async function getGoogleAuthUrl(returnTo: string = "/"): Promise<string | null> {
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/auth/google/url`, {
+    const query = returnTo ? `?return_to=${encodeURIComponent(returnTo)}` : "";
+    const res = await fetch(`${BACKEND_BASE_URL}/api/auth/google/url${query}`, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(5000),

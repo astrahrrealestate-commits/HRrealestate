@@ -14,10 +14,12 @@ import {
   LayoutGrid,
   BookOpen,
   ChevronDown,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { needsYouCount, ThreadCountTarget } from "@/lib/selectors";
 import { getInboxThreads } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 
 interface NavItem {
   label: string;
@@ -34,6 +36,31 @@ interface SidebarProps {
 export function Sidebar({ pendingCount, threads }: SidebarProps) {
   const pathname = usePathname() || "/";
   const [isConnectionsOpen, setIsConnectionsOpen] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+
+  // Auto-open Connections modal if returning from OAuth
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (
+        params.get("connections") === "open" ||
+        params.get("google_connected") ||
+        params.get("google_error")
+      ) {
+        setIsConnectionsOpen(true);
+      }
+    }
+  }, []);
+  const { user, logout } = useAuth();
+
+  const displayName = user?.name || "Harjot Singh";
+  const displayEmail = user?.email || "harjot@estateos.internal";
+  const userInitials = displayName
+    .split(/\s+/)
+    .map((n) => n[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
   const [liveCount, setLiveCount] = useState<number | null>(null);
 
   // When not provided by parent page, query live inbox threads once
@@ -196,22 +223,51 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
           </button>
         </div>
 
-        {/* User Profile */}
-        <div className="p-2.5 xl:p-3 border-t border-white/5 flex items-center justify-between gap-2.5 bg-white/[0.02]">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-7 h-7 xl:w-8 xl:h-8 rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center text-[11px] font-bold text-zinc-200 flex-shrink-0">
-              HS
+        {/* User Profile & Logout Popover */}
+        <div className="relative border-t border-white/5">
+          {isUserMenuOpen && (
+            <div className="absolute bottom-full left-2 right-2 mb-2 p-2 rounded-xl bg-[#14171A] border border-[#27272a] shadow-xl z-50 animate-in fade-in slide-in-from-bottom-2 duration-150">
+              <div className="px-2 py-1.5 border-b border-[#222830] mb-1">
+                <span className="text-xs font-semibold text-white block truncate">{displayName}</span>
+                <span className="text-[11px] text-[#94a3b8] block truncate font-mono">{displayEmail}</span>
+                <span className="inline-block mt-1 px-1.5 py-0.2 rounded text-[9.5px] uppercase font-bold tracking-wider bg-[#1a73e8]/20 text-[#60a5fa] border border-[#1a73e8]/30">
+                  {user?.role || "Owner"}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsUserMenuOpen(false);
+                  logout();
+                }}
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 transition-colors cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Log out</span>
+              </button>
             </div>
-            <div className="hidden xl:flex flex-col min-w-0">
-              <span className="text-[13px] font-semibold text-white truncate leading-tight">
-                Harjot Singh
-              </span>
-              <span className="text-[11px] text-zinc-400 truncate leading-tight mt-0.5">
-                harjot@estateos.internal
-              </span>
+          )}
+
+          <div
+            onClick={() => setIsUserMenuOpen((prev) => !prev)}
+            className="p-2.5 xl:p-3 flex items-center justify-between gap-2.5 bg-white/[0.02] hover:bg-white/[0.06] transition-colors cursor-pointer select-none"
+            title="User Profile & Sign Out"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 xl:w-8 xl:h-8 rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center text-[11px] font-bold text-zinc-200 flex-shrink-0">
+                {userInitials}
+              </div>
+              <div className="hidden xl:flex flex-col min-w-0">
+                <span className="text-[13px] font-semibold text-white truncate leading-tight">
+                  {displayName}
+                </span>
+                <span className="text-[11px] text-zinc-400 truncate leading-tight mt-0.5">
+                  {displayEmail}
+                </span>
+              </div>
             </div>
+            <ChevronDown className={cn("hidden xl:block w-3.5 h-3.5 text-zinc-500 flex-shrink-0 transition-transform", isUserMenuOpen && "rotate-180 text-white")} />
           </div>
-          <ChevronDown className="hidden xl:block w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
         </div>
       </div>
       <ConnectionsModal isOpen={isConnectionsOpen} onClose={() => setIsConnectionsOpen(false)} />

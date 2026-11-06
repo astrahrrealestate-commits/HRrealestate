@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { DM_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { SuperAgentProvider } from "@/context/SuperAgentContext";
+import { AuthProvider } from "@/context/AuthContext";
 
 const dmSans = DM_Sans({
   variable: "--font-dm-sans",
@@ -39,7 +40,9 @@ export default function RootLayout({
       className={`${dmSans.variable} ${ibmPlexMono.variable} h-full antialiased`}
     >
       <body className="min-h-dvh flex flex-col font-sans bg-[var(--bg)] text-[var(--ink)]">
-        <SuperAgentProvider>{children}</SuperAgentProvider>
+        <AuthProvider>
+          <SuperAgentProvider>{children}</SuperAgentProvider>
+        </AuthProvider>
       </body>
     </html>
   );

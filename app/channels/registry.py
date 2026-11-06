@@ -142,7 +142,7 @@ def gmail_mailbox(settings: Settings, address: str) -> GmailMailbox:
 
     from google.oauth2.credentials import Credentials
 
-    creds = Credentials.from_authorized_user_file(str(cred_file), READ_SCOPES)
+    creds = Credentials.from_authorized_user_file(str(cred_file))
 
     mailbox = GoogleMailbox(build("gmail", "v1", credentials=creds, cache_discovery=False), addr)
 
