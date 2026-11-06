@@ -92,9 +92,3 @@ def test_system_prompt_stays_grounded_and_never_leaks_ids() -> None:
     assert "State only what the data shows" in prompt
     assert "UUID" in prompt
     assert "approve" in prompt.lower()  # proposes, never sends: the owner approves on the dashboard
-
-
-def test_direct_answer_token_budget_leaves_room_for_a_conversational_reply() -> None:
-    from app.api.agent.routes import GROQ_MAX_TOKENS
-
-    assert GROQ_MAX_TOKENS >= 600

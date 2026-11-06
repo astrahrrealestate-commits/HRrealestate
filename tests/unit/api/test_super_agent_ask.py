@@ -76,7 +76,7 @@ def test_long_concierge_answer_not_discarded():
         patch("app.api.agent.routes.run_agent") as mock_run_agent,
         patch("app.api.agent.routes.run_plan", return_value=[mock_result]),
         patch("app.api.agent.routes.assemble_answer", return_value=long_answer),
-        patch("app.api.agent.routes._generate_groq_answer") as mock_groq,
+        patch("app.api.agent.routes._generate_chat_answer") as mock_chat,
         TestClient(app) as client,
     ):
         mock_run_agent.return_value.output = fake_plan
@@ -85,7 +85,7 @@ def test_long_concierge_answer_not_discarded():
         assert res.status_code == 200
         data = res.json()
         assert data["answer"] == long_answer
-        mock_groq.assert_not_called()
+        mock_chat.assert_not_called()
 
 
 def test_short_concierge_answer_not_discarded():
@@ -115,7 +115,7 @@ def test_short_concierge_answer_not_discarded():
         patch("app.api.agent.routes.run_agent") as mock_run_agent,
         patch("app.api.agent.routes.run_plan", return_value=[mock_result]),
         patch("app.api.agent.routes.assemble_answer", return_value=short_answer),
-        patch("app.api.agent.routes._generate_groq_answer") as mock_groq,
+        patch("app.api.agent.routes._generate_chat_answer") as mock_chat,
         TestClient(app) as client,
     ):
         mock_run_agent.return_value.output = fake_plan
@@ -124,7 +124,7 @@ def test_short_concierge_answer_not_discarded():
         assert res.status_code == 200
         data = res.json()
         assert data["answer"] == short_answer
-        mock_groq.assert_not_called()
+        mock_chat.assert_not_called()
 
 
 def test_empty_db_no_fictional_ticket_005():
@@ -557,7 +557,7 @@ def test_document_rag_returns_document_item_preview_card():
         patch("app.api.agent.routes.Session", return_value=mock_sess),
         patch("app.api.agent.routes.search_hybrid", return_value=[mock_hit]),
         patch(
-            "app.api.agent.routes._generate_groq_answer",
+            "app.api.agent.routes._generate_chat_answer",
             return_value="Verified lease agreement for Vipin Tyagi at Keizersgracht 42-A.",
         ),
         TestClient(app) as client,
