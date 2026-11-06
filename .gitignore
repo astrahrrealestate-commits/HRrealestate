@@ -47,3 +47,7 @@ frontend/.env*.local
 # autoship loop marker and the separate nested clone
 .claude/DONE
 /realestateos/
+
+# test distribution bundles
+*.tar
+/compose.test.yml
