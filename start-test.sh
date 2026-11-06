@@ -22,4 +22,4 @@ if [ ! -f "$COMPOSE_FILE" ] && [ -f "docker/compose.test.yml" ]; then
 fi
 
 echo "[2/2] Launching EstateOS containers..."
-docker compose -f "$COMPOSE_FILE" up
+docker compose -f "$COMPOSE_FILE" up --force-recreate
