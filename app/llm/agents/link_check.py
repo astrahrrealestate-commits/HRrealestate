@@ -30,6 +30,7 @@ LINK_CHECK = AgentSpec(
     prompt=PromptRef(name="link_check", version="v2"),
     output_type=LinkDecision,
     finalize=_unchanged,
+    thinking=False,
 )
 
 

@@ -17,6 +17,7 @@ UNDERSTANDING = AgentSpec(
     prompt=PromptRef(name="understanding", version="v2"),
     output_type=Understanding,
     finalize=_stamp_prompt_version,
+    thinking="minimal",
 )
 
 

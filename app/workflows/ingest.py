@@ -127,5 +127,25 @@ def gmail_backfill(scheduled_time: datetime, context: Any) -> None:
             queues.gmail_sync_queue().enqueue(gmail_sync, account_id, history)
 
 
+@DBOS.workflow(name="gmail.poll")
+def gmail_poll(scheduled_time: datetime, context: Any) -> None:
+    """Every minute: ask each mailbox for its current history id and sync when it moved. Covers a setup without
+    Pub/Sub (local, or a push that never arrived) so new mail shows up within about a minute instead of the hourly
+    backfill. The id carries the history id, so an unchanged mailbox enqueues nothing and a push for the same
+    state dedupes against it."""
+    for account_id, address, _company in accounts_step():
+        try:
+            history = current_history_step(address)
+        except Exception as exc:
+            log.error("gmail.poll_failed", account_id=account_id, error=type(exc).__name__)
+            continue
+        with SetWorkflowID(poll_workflow_id(account_id, history)):
+            queues.gmail_sync_queue().enqueue(gmail_sync, account_id, history)
+
+
+def poll_workflow_id(account_id: str, history: int) -> str:
+    return f"gpoll:{account_id}:{history}"
+
+
 def backfill_workflow_id(account_id: str, scheduled_time: datetime) -> str:
     return f"gbackfill:{account_id}:{scheduled_time:%Y%m%d%H}"

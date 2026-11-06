@@ -18,6 +18,7 @@ CASE_SUMMARY = AgentSpec(
     prompt=PromptRef(name="case_summary", version="v2"),
     output_type=CaseSummary,
     finalize=_unchanged,
+    thinking=False,
 )
 
 

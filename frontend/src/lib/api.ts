@@ -6,7 +6,6 @@
 
 import { InboxThread } from "@/types/inbox";
 import { PulseMetrics, AutonomousActionLog } from "@/types/dashboard";
-import { MOCK_INBOX_THREADS } from "@/data/inboxMockData";
 import { INITIAL_METRICS, RECENT_AUTONOMOUS_LOGS } from "@/data/mockData";
 import { StalledItem, INITIAL_STALLED_ITEMS } from "@/components/today/UnresponsiveRadarCard";
 import { getContactDisplayName, getSnippet, getUnifiedThreadId } from "@/lib/selectors";
@@ -84,7 +83,7 @@ export async function getInboxThreads(
 
     if (res.ok) {
       const data = await res.json();
-      if (Array.isArray(data.threads) && data.threads.length > 0) {
+      if (Array.isArray(data.threads)) {
         const liveThreads: InboxThread[] = data.threads.map((t: any) => {
           const channel = (t.channel === "whatsapp" || t.channel === "gmail") ? t.channel : "gmail";
           const gDrafts = Array.isArray(t.gmailDrafts) ? t.gmailDrafts : [];
@@ -182,10 +181,10 @@ export async function getInboxThreads(
       }
     }
   } catch {
-    // Backend offline / network error -> gracefully fall back to local seed data
+    // Backend offline / network error
   }
 
-  // Only use database threads (no mock/seed fallback)
+  // Backend unreachable: show nothing rather than seed threads that look like the owner's mail.
   return { threads: [], isLive: false };
 }
 
