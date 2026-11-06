@@ -1,22 +1,7 @@
 import type { Metadata, Viewport } from "next";
-import { DM_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { SuperAgentProvider } from "@/context/SuperAgentContext";
 import { AuthProvider } from "@/context/AuthContext";
-
-const dmSans = DM_Sans({
-  variable: "--font-dm-sans",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  display: "swap",
-});
-
-const ibmPlexMono = IBM_Plex_Mono({
-  variable: "--font-mono",
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: "EstateOS | AI Property Management",
@@ -35,10 +20,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html
-      lang="en"
-      className={`${dmSans.variable} ${ibmPlexMono.variable} h-full antialiased`}
-    >
+    <html lang="en" className="h-full antialiased">
       <body className="min-h-dvh flex flex-col font-sans bg-[var(--bg)] text-[var(--ink)]">
         <AuthProvider>
           <SuperAgentProvider>{children}</SuperAgentProvider>
