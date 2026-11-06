@@ -23,3 +23,4 @@ fi
 
 echo "[2/2] Launching EstateOS containers..."
 docker compose -f "$COMPOSE_FILE" up
+

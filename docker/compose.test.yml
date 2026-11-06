@@ -55,7 +55,7 @@ services:
 
   seed:
     <<: *app
-    command: ["python", "-m", "app.dev.seed_user"]
+    command: ["python", "-m", "app.dev.simulate", "seed"]
     restart: "no"
     depends_on:
       migrate: {condition: service_completed_successfully}
