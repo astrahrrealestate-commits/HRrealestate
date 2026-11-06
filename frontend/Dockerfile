@@ -16,3 +16,4 @@ ENV HOSTNAME="0.0.0.0"
 EXPOSE 3000
 
 CMD ["npm", "run", "dev", "--", "-H", "0.0.0.0"]
+
