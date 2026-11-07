@@ -64,6 +64,17 @@ Deferred: `get_case` (cases are already in the system prompt's ranked brief); a 
 (only per-request timeouts today); storing the loop result on the turn so a retry reuses it (needs the DBOS turn
 adapter, slice 1b: `ask_agent` is not a DBOS step today).
 
+### 4.2 Status of the turn-pipeline hook (slice 3)
+`ConciergePlan.needs_research` (additive, default false) lets an answer-only plan ask for the loop instead of writing a
+`reply`. `concierge_reply.prepare_plan` honours the flag only beside read steps (`answer`, `open_view`) without a usable
+reply, and appends the `answer` step it needs. The `answer` step calls an injected `Researcher`
+(`concierge_base.Researcher`); `app/superagent/turn.py::make_researcher` builds it from `run_research` and the
+`concierge.run_turn` DBOS step passes it down, so `app.pipeline` never imports the loop (`app.superagent` is its own
+layer between `app.workflows` and `app.pipeline`). The loop's text is screened like a reply; an empty loop falls back to
+`owner_qa`. Step labels ride in `StepResult.data["steps"]`.
+Deferred: conversation history is not passed to the loop on this path (the planner already saw it); a retried turn that
+crashed between the loop and storing its results repeats the (read-only) loop.
+
 ## 5. Rent / arrears views
 Source of truth is BRIXX (invoices, payment rules, arrears), mirrored by the unmerged `m-brixx-mirror` work. The mirror
 spec (§ "BRIXX lookup") already plans curated views. Order of work: merge the mirror mapper, add

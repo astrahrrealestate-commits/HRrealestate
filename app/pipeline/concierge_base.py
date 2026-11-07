@@ -33,6 +33,20 @@ class StepResult:
 
 
 @dataclass(frozen=True)
+class Researched:
+    """What the read-only research loop (`app.superagent`) hands back: untrusted model text, plus step labels that carry
+    tool names and counts only."""
+
+    answer: str
+    steps: tuple[str, ...] = ()
+
+
+# (company_id, the owner's question, the turn's page) -> the loop's answer, or None when it has none (fake model,
+# spent budget, failure). Injected by the workflow so the pipeline never imports the loop (layering, invariant 7).
+Researcher = Callable[[UUID, str, PagePrompt], Researched | None]
+
+
+@dataclass(frozen=True)
 class Ctx:
     engine: Engine
     settings: Settings
@@ -46,6 +60,8 @@ class Ctx:
     step_index: int = 0
     reply: str | None = None  # the plan's own answer (concierge/v3): the `answer` step screens and shows it
     timer: TurnTimer = field(default_factory=TurnTimer)  # the turn's stage clock (answer_ms of an owner_qa call)
+    needs_research: bool = False  # concierge/v7: the `answer` step asks the research loop (read-only plans only)
+    research: Researcher | None = None
 
 
 Handler = Callable[[Ctx, PlanStep], StepResult]

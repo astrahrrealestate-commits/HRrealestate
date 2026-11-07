@@ -13,6 +13,7 @@ from app.core.settings import get_settings
 from app.core.workflow_names import CONCIERGE_TURN
 from app.pipeline import concierge_turns
 from app.pipeline.concierge import is_transient
+from app.superagent.turn import make_researcher
 from app.workflows import queues
 from app.workflows.actions import execute_action_wf
 from app.workflows.deps import get_engine
@@ -33,7 +34,8 @@ TURN_RETRY = {**STEP_RETRY, "should_retry": turn_retryable}
 
 @DBOS.step(name="concierge.run_turn", **TURN_RETRY)
 def run_turn_step(turn_id: str) -> None:
-    concierge_turns.run_turn(get_engine(), get_settings(), UUID(turn_id))
+    engine, settings = get_engine(), get_settings()
+    concierge_turns.run_turn(engine, settings, UUID(turn_id), research=make_researcher(engine, settings))
 
 
 @DBOS.step(name="concierge.fail_turn", **STEP_RETRY)

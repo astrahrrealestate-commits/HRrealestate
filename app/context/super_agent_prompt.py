@@ -44,17 +44,21 @@ _RULES = (
 
 def build_super_agent_system_prompt(
     *,
-    cases: Sequence[CaseBrief],
+    cases: Sequence[CaseBrief] | None,
     query: str,
     memory_rules: Sequence[str] = (),
     page_facts: str = "",
     thread_summary: str = "",
     focus_case_id: UUID | str | None = None,
 ) -> str:
-    """Intro, ranked case context, owner rules, page facts and thread summary, each capped, then the answer rules."""
-    ranked = rank_cases(cases, query, focus_case_id)
-    case_text = "\n".join(render_case_lines(ranked, max_chars=CASES_CHARS)) or "no open cases in the database"
-    parts = [_INTRO, data_block("data", clip(case_text, CASES_CHARS))]
+    """Intro, ranked case context, owner rules, page facts and thread summary, each capped, then the answer rules.
+    `cases=None` leaves the case block out (the caller has no case list and the model has tools to look cases up);
+    an empty list states that the database has none."""
+    parts = [_INTRO]
+    if cases is not None:
+        ranked = rank_cases(cases, query, focus_case_id)
+        case_text = "\n".join(render_case_lines(ranked, max_chars=CASES_CHARS)) or "no open cases in the database"
+        parts.append(data_block("data", clip(case_text, CASES_CHARS)))
     rules = "\n".join(f"- {clip(' '.join(r.split()), RULE_CHARS)}" for r in list(memory_rules)[:MAX_RULES])
     if rules:
         parts.append(data_block("owner_preferences", clip(rules, RULES_CHARS)))

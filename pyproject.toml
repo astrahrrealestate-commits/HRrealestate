@@ -161,6 +161,7 @@ layers = [
     "app.main | app.worker | app.dev",
     "app.api",
     "app.workflows",
+    "app.superagent",
     "app.pipeline | app.owner | app.ingestion | app.directory | app.outcomes | app.sender | app.finance | app.diligence",
     "app.context",
     "app.db : app.llm : app.storage : app.channels",

@@ -59,3 +59,7 @@ class ConciergePlan(Contract):
     reply: Annotated[str, max_len(MAX_REPLY)] | None
     # concierge/v6: up to 3 short follow-up pills for the Super Agent UI; empty when none fit.
     suggestions: Annotated[list[str], Field(default_factory=list, max_length=3)]
+    # concierge/v7: an answer-only plan whose question needs a lookup beyond the prompt's blocks asks the executor for
+    # the read-only research loop instead of a `reply`. Model output: honoured only beside read steps, see
+    # `concierge_reply.prepare_plan`. Default false so plans stored by earlier prompt versions still validate.
+    needs_research: Annotated[bool, Field(default_factory=bool)]  # no `default` keyword: strict schemas forbid it

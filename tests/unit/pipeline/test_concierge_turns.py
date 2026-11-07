@@ -79,7 +79,16 @@ def test_question_plans_once_runs_the_plan_and_stores_it(io: dict[str, MagicMock
         "brief_cases": [],
         "turn_id": start.turn_id,  # keys an owner-requested redraft
         "timer": ANY,  # the turn's stage clock (answer_ms of an owner_qa call)
+        "research": None,  # no researcher injected: a needs_research plan falls back to owner_qa
     }
+
+
+def test_the_injected_researcher_reaches_the_executor(io: dict[str, MagicMock]) -> None:
+    def researcher(*_: object) -> None:
+        return None
+
+    ct._outcome(MagicMock(), MagicMock(), _start("who mentioned the roof?"), research=researcher)
+    assert io["plan"].call_args.kwargs["research"] is researcher
 
 
 def test_budget_spent_answers_the_limit_text(io: dict[str, MagicMock]) -> None:

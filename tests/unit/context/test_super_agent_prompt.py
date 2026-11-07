@@ -1,6 +1,6 @@
 """Unit tests for the bounded Super Agent system prompt (Groq path) and the compiler's budget enforcement."""
 
-from uuid import uuid4
+from uuid import UUID
 
 from app.context.compiler import compile_concierge_context
 from app.context.super_agent_prompt import MAX_SYSTEM_CHARS, build_super_agent_system_prompt
@@ -8,7 +8,9 @@ from app.llm.agents.owner_qa import CaseBrief
 
 
 def _cases(n: int) -> list[CaseBrief]:
-    return [CaseBrief(uuid4(), f"Case {i} · Unit {i}", "open", "normal", f"problem {i} " * 80) for i in range(n)]
+    return [
+        CaseBrief(UUID(int=i + 1), f"Case {i} · Unit {i}", "open", "normal", f"problem {i} " * 80) for i in range(n)
+    ]
 
 
 def test_system_prompt_is_bounded_however_much_context_exists() -> None:
@@ -32,7 +34,7 @@ def test_system_prompt_invents_no_portfolio_facts() -> None:
 
 def test_system_prompt_puts_the_asked_about_case_in_detail() -> None:
     cases = _cases(30)
-    wanted = CaseBrief(uuid4(), "Boiler · Keizersgracht 42-A", "open", "low", "boiler lockout code E5")
+    wanted = CaseBrief(UUID(int=999), "Boiler · Keizersgracht 42-A", "open", "low", "boiler lockout code E5")
     prompt = build_super_agent_system_prompt(cases=[*cases, wanted], query="what is wrong with the boiler?")
     assert "boiler lockout code E5" in prompt
 
@@ -92,3 +94,11 @@ def test_system_prompt_stays_grounded_and_never_leaks_ids() -> None:
     assert "State only what the data shows" in prompt
     assert "UUID" in prompt
     assert "approve" in prompt.lower()  # proposes, never sends: the owner approves on the dashboard
+
+
+def test_cases_none_leaves_the_case_block_out_while_an_empty_list_states_there_are_none() -> None:
+    unknown = build_super_agent_system_prompt(cases=None, query="q")
+    none_open = build_super_agent_system_prompt(cases=[], query="q")
+    assert "no open cases" not in unknown.lower()
+    assert "<data>" not in unknown
+    assert "no open cases" in none_open.lower()

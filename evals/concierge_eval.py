@@ -58,6 +58,7 @@ class Label(BaseModel):
     expect_reply: bool = False  # v3+: the plan answers in `reply` (one model call)
     reply_mentions_any: list[str] = Field(default_factory=list)  # the reply uses the page: one of these must appear
     reply_never_mentions: list[str] = Field(default_factory=list)  # never in the reply (hostile text, contact details)
+    expect_research: bool = False  # v7+: an open question that asks for the research loop (`needs_research`, no reply)
 
 
 def load(path: Path = GOLDEN_DIR / "concierge.yaml") -> Dataset[Question, ConciergePlan, Label]:
@@ -65,11 +66,20 @@ def load(path: Path = GOLDEN_DIR / "concierge.yaml") -> Dataset[Question, Concie
 
 
 REPLY_FROM = 3  # the first concierge prompt version with `reply`
+RESEARCH_FROM = 7  # the first concierge prompt version with `needs_research`
+
+
+def _at_least(version: str, first: int) -> bool:
+    found = re.fullmatch(r"v(\d+)", version)
+    return found is not None and int(found.group(1)) >= first
 
 
 def scores_reply(version: str) -> bool:
-    found = re.fullmatch(r"v(\d+)", version)
-    return found is not None and int(found.group(1)) >= REPLY_FROM
+    return _at_least(version, REPLY_FROM)
+
+
+def scores_research(version: str) -> bool:
+    return _at_least(version, RESEARCH_FROM)
 
 
 def plan_texts(plan: ConciergePlan) -> list[str]:
@@ -114,8 +124,16 @@ def _reply_ok(label: Label, plan: ConciergePlan) -> bool:
     return bool(reply) and (not label.reply_mentions_any or any(w in reply for w in label.reply_mentions_any))
 
 
-def score_plans(pairs: Sequence[tuple[Label, ConciergePlan]], *, replies: bool = False) -> dict[str, float]:
-    """`replies`: also score `reply_rate` over the `expect_reply` cases (prompt v3+)."""
+def _research_ok(plan: ConciergePlan) -> bool:
+    return plan.needs_research and not plan.reply
+
+
+def score_plans(
+    pairs: Sequence[tuple[Label, ConciergePlan]], *, replies: bool = False, research: bool = False
+) -> dict[str, float]:
+    """`replies`: also score `reply_rate` over the `expect_reply` cases (prompt v3+). `research`: also score
+    `research_recall` (the open questions ask for the loop with no reply) and `research_false_rate` (every other case
+    must not), prompt v7+."""
     n = len(pairs) or 1
     scores = {
         "intent_sequence_match": sum(_matches(g, p) for g, p in pairs) / n,
@@ -126,6 +144,11 @@ def score_plans(pairs: Sequence[tuple[Label, ConciergePlan]], *, replies: bool =
     if replies:
         expecting = [(g, p) for g, p in pairs if g.expect_reply]
         scores["reply_rate"] = sum(_reply_ok(g, p) for g, p in expecting) / (len(expecting) or 1)
+    if research:
+        asking = [(g, p) for g, p in pairs if g.expect_research]
+        others = [(g, p) for g, p in pairs if not g.expect_research]
+        scores["research_recall"] = sum(_research_ok(p) for _, p in asking) / (len(asking) or 1)
+        scores["research_false_rate"] = sum(p.needs_research for _, p in others) / (len(others) or 1)
     return scores
 
 
@@ -142,12 +165,14 @@ def _miss(name: str, text: str, label: Label, plan: ConciergePlan) -> str:
     """Flags only: never the reply text (it may quote page text)."""
     want = f"in_scope={label.expected_in_scope} {[i.value for i in label.expected_intents]}"
     got = f"in_scope={plan.in_scope} {[s.intent.value for s in plan.steps]} reply={bool(plan.reply)}"
+    got += f" research={plan.needs_research}"
     return f"| {name} | {want} | {got} | {cell(text)} |"
 
 
-def _missed(label: Label, plan: ConciergePlan, replies: bool) -> bool:
+def _missed(label: Label, plan: ConciergePlan, replies: bool, research: bool = False) -> bool:
     wrong = not _matches(label, plan) or not _scope_ok(label, plan) or _forbidden(label, plan)
-    return wrong or not plan_is_clean(plan) or (replies and not _reply_ok(label, plan))
+    wrong_research = research and label.expect_research != plan.needs_research
+    return wrong or wrong_research or not plan_is_clean(plan) or (replies and not _reply_ok(label, plan))
 
 
 def run(version: str, settings: Settings) -> EvalResult:
@@ -166,6 +191,7 @@ def run(version: str, settings: Settings) -> EvalResult:
     if report.failures:
         raise SystemExit(crash_message(report.failures))
     done = [(c.name, c.inputs, c.metadata, c.output) for c in report.cases if c.metadata is not None]
-    replies = scores_reply(version)
-    misses = [_miss(name, i.text, g, o) for name, i, g, o in done if _missed(g, o, replies)]
-    return EvalResult(score_plans([(g, o) for _, _, g, o in done], replies=replies), misses, MISS_HEADER, loaded)
+    replies, research = scores_reply(version), scores_research(version)
+    misses = [_miss(name, i.text, g, o) for name, i, g, o in done if _missed(g, o, replies, research)]
+    scores = score_plans([(g, o) for _, _, g, o in done], replies=replies, research=research)
+    return EvalResult(scores, misses, MISS_HEADER, loaded)

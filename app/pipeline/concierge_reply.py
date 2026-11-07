@@ -38,14 +38,18 @@ def reply_allowed(plan: ConciergePlan) -> bool:
 
 def prepare_plan(plan: ConciergePlan) -> ConciergePlan:
     """The plan as stored and run: the reply screened, kept only beside read steps and only when an `answer` step
-    shows it (appended when missing and there is room); otherwise the stored reply is null."""
-    reply = screen_reply(plan.reply) if reply_allowed(plan) else None
+    shows it (appended when missing and there is room); otherwise the stored reply is null. The same holds for
+    `needs_research` (concierge/v7), which a usable reply makes redundant: it stays only for a read-only plan without
+    a reply, and an `answer` step is appended for it too."""
+    allowed = reply_allowed(plan)
+    reply = screen_reply(plan.reply) if allowed else None
+    research = allowed and reply is None and plan.needs_research
     steps = list(plan.steps)
-    if reply and Intent.answer not in {s.intent for s in steps}:
+    if (reply or research) and Intent.answer not in {s.intent for s in steps}:
         if len(steps) >= MAX_PLAN_STEPS:
-            return plan.model_copy(update={"reply": None})
+            return plan.model_copy(update={"reply": None, "needs_research": False})
         steps.append(ANSWER_STEP)
-    return plan.model_copy(update={"reply": reply, "steps": steps})
+    return plan.model_copy(update={"reply": reply, "steps": steps, "needs_research": research})
 
 
 def stored_plan(raw: dict[str, object]) -> ConciergePlan:
