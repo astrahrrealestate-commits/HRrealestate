@@ -40,6 +40,7 @@ from app.llm.budget import CONCIERGE_PURPOSE
 from app.llm.calls import CallContext, run_agent
 from app.pipeline import concierge_page, owner_commands, page_state, read_turns, turn_timings
 from app.pipeline.concierge import run_plan
+from app.pipeline.concierge_base import Researcher
 from app.pipeline.concierge_brief import Brief, load_brief
 from app.pipeline.concierge_brief import brief_case_ids as _brief_case_ids
 from app.pipeline.concierge_outcome import (
@@ -260,7 +261,13 @@ def _planned(
     return plan, [b.case_id for b in brief[0]]
 
 
-def _outcome(engine: Engine, settings: Settings, start: TurnStart, timer: TurnTimer | None = None) -> Outcome:
+def _outcome(
+    engine: Engine,
+    settings: Settings,
+    start: TurnStart,
+    timer: TurnTimer | None = None,
+    research: Researcher | None = None,
+) -> Outcome:
     timer = timer or TurnTimer()
     if start.results is not None:  # executed by an earlier attempt: finish, never execute twice
         return Outcome(stored_answer(start.results), start.plan, start.results, PROMPT_REF)
@@ -280,23 +287,30 @@ def _outcome(engine: Engine, settings: Settings, start: TurnStart, timer: TurnTi
     with timer.measure(EXECUTOR):
         results = run_plan(
             engine, settings, start.company_id, plan, question=start.text, now=start.at, page=page,
-            brief_cases=brief_cases, turn_id=start.turn_id, timer=timer,
+            brief_cases=brief_cases, turn_id=start.turn_id, timer=timer, research=research,
         )  # fmt: skip
     stored = [result_json(r) for r in results]
     _update(engine, start.company_id, start.turn_id, {"results": stored}, timings=timer.snapshot())
     return Outcome(assemble_answer(results), plan.model_dump(mode="json"), stored, PROMPT_REF)
 
 
-def run_turn(engine: Engine, settings: Settings, turn_id: UUID, *, clock: Clock = time.monotonic) -> None:
+def run_turn(
+    engine: Engine,
+    settings: Settings,
+    turn_id: UUID,
+    *,
+    clock: Clock = time.monotonic,
+    research: Researcher | None = None,
+) -> None:
     """All I/O of a turn (called from the DBOS step). Transient errors propagate so the step retries; any other
     error fails the turn with a fixed apology. Safe to re-run: a done or failed turn is skipped. `clock` times the
-    stages (injected in tests)."""
+    stages (injected in tests). `research` is the read-only research loop for plans that set `needs_research`."""
     timer = TurnTimer(clock)
     start = _start(engine, turn_id)
     if start is None:
         return
     try:
-        outcome = _outcome(engine, settings, start, timer)
+        outcome = _outcome(engine, settings, start, timer, research)
     except Exception as exc:
         if fallback_for(exc) is Fallback.retry:
             raise

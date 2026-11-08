@@ -1,7 +1,7 @@
-import os
 import sys
 import time
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 # Ensure .env is always loaded from realestateos root regardless of where python is invoked
@@ -9,15 +9,14 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from app.workflows.deps import get_engine
+
 from app.db.models.ingestion import MessageRow
+from app.workflows.deps import get_engine
 from app.workflows.pipeline import done_step, link_step, propose_step, resolve_step, understand_step
 
 engine = get_engine()
 with Session(engine) as session:
-    pending_messages = session.scalars(
-        select(MessageRow).where(MessageRow.pipeline_status == "pending")
-    ).all()
+    pending_messages = session.scalars(select(MessageRow).where(MessageRow.pipeline_status == "pending")).all()
 
 if not pending_messages:
     print("\n[!] No pending messages found in the database.")

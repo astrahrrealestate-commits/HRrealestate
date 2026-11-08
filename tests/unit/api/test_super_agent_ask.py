@@ -76,7 +76,7 @@ def test_long_concierge_answer_not_discarded():
         patch("app.api.agent.routes.run_agent") as mock_run_agent,
         patch("app.api.agent.routes.run_plan", return_value=[mock_result]),
         patch("app.api.agent.routes.assemble_answer", return_value=long_answer),
-        patch("app.api.agent.routes._generate_groq_answer") as mock_groq,
+        patch("app.api.agent.routes._generate_chat_answer") as mock_chat,
         TestClient(app) as client,
     ):
         mock_run_agent.return_value.output = fake_plan
@@ -85,7 +85,7 @@ def test_long_concierge_answer_not_discarded():
         assert res.status_code == 200
         data = res.json()
         assert data["answer"] == long_answer
-        mock_groq.assert_not_called()
+        mock_chat.assert_not_called()
 
 
 def test_short_concierge_answer_not_discarded():
@@ -115,7 +115,7 @@ def test_short_concierge_answer_not_discarded():
         patch("app.api.agent.routes.run_agent") as mock_run_agent,
         patch("app.api.agent.routes.run_plan", return_value=[mock_result]),
         patch("app.api.agent.routes.assemble_answer", return_value=short_answer),
-        patch("app.api.agent.routes._generate_groq_answer") as mock_groq,
+        patch("app.api.agent.routes._generate_chat_answer") as mock_chat,
         TestClient(app) as client,
     ):
         mock_run_agent.return_value.output = fake_plan
@@ -124,7 +124,7 @@ def test_short_concierge_answer_not_discarded():
         assert res.status_code == 200
         data = res.json()
         assert data["answer"] == short_answer
-        mock_groq.assert_not_called()
+        mock_chat.assert_not_called()
 
 
 def test_empty_db_no_fictional_ticket_005():
@@ -557,7 +557,7 @@ def test_document_rag_returns_document_item_preview_card():
         patch("app.api.agent.routes.Session", return_value=mock_sess),
         patch("app.api.agent.routes.search_hybrid", return_value=[mock_hit]),
         patch(
-            "app.api.agent.routes._generate_groq_answer",
+            "app.api.agent.routes._generate_chat_answer",
             return_value="Verified lease agreement for Vipin Tyagi at Keizersgracht 42-A.",
         ),
         TestClient(app) as client,
@@ -622,3 +622,42 @@ def test_task_reminder_not_saved_as_standing_rule():
         res = client.post(URL, json={"query": "Remember to call Vipin tomorrow morning"})
         assert res.status_code == 200
         mock_record.assert_not_called()
+
+
+def test_open_question_is_answered_by_the_research_loop_with_its_step_chips():
+    from app.superagent.research import ResearchResult
+
+    app = create_app(SETTINGS, engine=MagicMock())
+    found = ResearchResult(
+        "Two units are vacant; Pieter says the boiler is still broken.", ("Checked the database (2 rows)",)
+    )
+    with (
+        patch("app.api.agent.routes.Session", return_value=create_mock_session()),
+        patch("app.api.agent.routes.run_agent", side_effect=Exception("offline")),
+        patch("app.api.agent.routes.fake_concierge", return_value={"in_scope": False, "steps": [], "reply": None}),
+        patch("app.api.agent.routes._research_answer", return_value=found) as mock_research,
+        patch("app.api.agent.routes._generate_chat_answer") as mock_chat,
+        TestClient(app) as client,
+    ):
+        res = client.post(URL, json={"query": "which units are vacant and is anyone complaining?"})
+    assert res.status_code == 200
+    data = res.json()
+    assert "Two units are vacant" in data["answer"]
+    assert "Checked the database (2 rows)" in data["steps"]
+    mock_research.assert_called_once()
+    mock_chat.assert_not_called()
+
+
+def test_open_question_falls_back_to_the_plain_chat_answer_when_research_returns_nothing():
+    app = create_app(SETTINGS, engine=MagicMock())
+    with (
+        patch("app.api.agent.routes.Session", return_value=create_mock_session()),
+        patch("app.api.agent.routes.run_agent", side_effect=Exception("offline")),
+        patch("app.api.agent.routes.fake_concierge", return_value={"in_scope": False, "steps": [], "reply": None}),
+        patch("app.api.agent.routes._research_answer", return_value=None),
+        patch("app.api.agent.routes._generate_chat_answer", return_value="Hi Harjot, all quiet today."),
+        TestClient(app) as client,
+    ):
+        res = client.post(URL, json={"query": "hey, how is it going?"})
+    assert res.status_code == 200
+    assert "all quiet today" in res.json()["answer"]

@@ -26,9 +26,10 @@ MAX_SUMMARY = 400
 
 def answer(ctx: Ctx, step: PlanStep) -> StepResult:
     """The plan's own screened `reply` when it has one (one model call for the turn; the plan was in scope, or the
-    executor would not run). Otherwise the owner's own question goes to `owner_qa` (scope guard, refusal and budget
-    fallbacks included) with the turn's stored page facts and snapshot. At most once per plan: a later `answer` step
-    reuses the first result."""
+    executor would not run). Next, when the plan asked for research (concierge/v7), the read-only research loop; its
+    text is screened like a reply. Otherwise the owner's own question goes to `owner_qa` (scope guard, refusal and
+    budget fallbacks included) with the turn's stored page facts and snapshot. At most once per plan: a later
+    `answer` step reuses the first result."""
     if "answer" not in ctx.memo:
         reply = screen_reply(ctx.reply)
         if reply is not None:
@@ -36,8 +37,19 @@ def answer(ctx: Ctx, step: PlanStep) -> StepResult:
             ctx.memo["answer"] = StepResult(step.intent, True, reply, None, None)
         else:
             with ctx.timer.measure(ANSWER):
-                ctx.memo["answer"] = _owner_qa_answer(ctx, step)
+                ctx.memo["answer"] = _researched_answer(ctx, step) or _owner_qa_answer(ctx, step)
     return ctx.memo["answer"]
+
+
+def _researched_answer(ctx: Ctx, step: PlanStep) -> StepResult | None:
+    if not ctx.needs_research or ctx.research is None:
+        return None
+    found = ctx.research(ctx.company_id, ctx.question, ctx.page)
+    text = screen_reply(found.answer) if found is not None else None
+    if found is None or text is None:
+        return None
+    log.info("concierge.researched_reply", company_id=str(ctx.company_id), steps=len(found.steps))
+    return StepResult(step.intent, True, text, {"steps": list(found.steps)} if found.steps else None, None)
 
 
 def _owner_qa_answer(ctx: Ctx, step: PlanStep) -> StepResult:

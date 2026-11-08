@@ -1,9 +1,9 @@
 """Dedicated Platform Login & Whitelist Authentication Routes for EstateOS."""
 
 from datetime import UTC, datetime
-from typing import Annotated, Any
+from typing import Annotated
 from urllib.parse import quote_plus, urlencode
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/auth", tags=["platform_auth"])
 log = get_logger(__name__)
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
-GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 - a public endpoint URL, not a secret
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 
 LOGIN_SCOPES = [
@@ -41,14 +41,15 @@ class AuthMeResponse(BaseModel):
 
 
 @router.get("/login/google/url", summary="Get Google Login Authorization URL")
-def get_login_url(settings: Settings = Depends(get_settings_dep)) -> dict[str, str]:
+def get_login_url(settings: Annotated[Settings, Depends(get_settings_dep)]) -> dict[str, str]:
     """Generates the Google OAuth 2.0 authorization URL for platform sign-in."""
     import os
+
     client_id = (settings.google_oauth_client_id or os.environ.get("GOOGLE_OAUTH_CLIENT_ID") or "").strip()
     if not client_id or client_id == "placeholder_client_id":
         raise HTTPException(
             status_code=500,
-            detail="GOOGLE_OAUTH_CLIENT_ID is not configured in .env. Please check realestateos/.env and restart the backend server."
+            detail="GOOGLE_OAUTH_CLIENT_ID is not configured. Check the environment and restart the backend server.",
         )
     # Port 8000 for FastAPI callback
     redirect_uri = "http://localhost:8000/api/auth/login/google/callback"
@@ -68,10 +69,10 @@ def get_login_url(settings: Settings = Depends(get_settings_dep)) -> dict[str, s
 
 @router.get("/login/google/callback", summary="Google Login OAuth Callback")
 async def login_callback(
+    engine: Annotated[Engine, Depends(get_engine)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
     code: str = Query(..., description="Authorization code from Google"),
     state: str = Query(default="", description="CSRF state token"),
-    engine: Engine = Depends(get_engine),
-    settings: Settings = Depends(get_settings_dep),
 ) -> RedirectResponse:
     """Exchanges Google authorization code for identity tokens, verifies database whitelist, and mints session."""
     client_id = settings.google_oauth_client_id
@@ -92,7 +93,9 @@ async def login_callback(
                 data={
                     "code": code,
                     "client_id": client_id,
-                    "client_secret": client_secret.get_secret_value() if hasattr(client_secret, "get_secret_value") else str(client_secret),
+                    "client_secret": client_secret.get_secret_value()
+                    if hasattr(client_secret, "get_secret_value")
+                    else str(client_secret),
                     "redirect_uri": redirect_uri,
                     "grant_type": "authorization_code",
                 },
@@ -143,22 +146,16 @@ async def login_callback(
 
         if not allowed:
             log.warning("auth.login.access_denied_not_whitelisted", email=email)
-            return RedirectResponse(
-                url=f"http://localhost:3000/login?error=access_denied&email={quote_plus(email)}"
-            )
+            return RedirectResponse(url=f"http://localhost:3000/login?error=access_denied&email={quote_plus(email)}")
 
         # 4. Resolve or update OwnerAccount
         company = session.scalars(select(Company).limit(1)).first()
         company_id = company.id if company else allowed.company_id
 
-        owner = session.scalars(
-            select(OwnerAccount).where(func.lower(OwnerAccount.email) == email)
-        ).first()
+        owner = session.scalars(select(OwnerAccount).where(func.lower(OwnerAccount.email) == email)).first()
 
         if not owner:
-            owner = session.scalars(
-                select(OwnerAccount).where(OwnerAccount.company_id == company_id).limit(1)
-            ).first()
+            owner = session.scalars(select(OwnerAccount).where(OwnerAccount.company_id == company_id).limit(1)).first()
 
         if not owner:
             owner = OwnerAccount(
@@ -201,9 +198,9 @@ async def login_callback(
 
 @router.get("/me", response_model=AuthMeResponse, summary="Get Current Authenticated User")
 def get_current_user_profile(
+    engine: Annotated[Engine, Depends(get_engine)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
     request: Request,
-    engine: Engine = Depends(get_engine),
-    settings: Settings = Depends(get_settings_dep),
 ) -> AuthMeResponse:
     """Returns current active user session profile from signed cookie."""
     token = request.cookies.get(COOKIE)
@@ -243,7 +240,7 @@ def get_current_user_profile(
 
 
 @router.post("/logout", summary="Log Out & Clear Session")
-def logout(response: Response, settings: Settings = Depends(get_settings_dep)) -> dict[str, bool]:
+def logout(response: Response, settings: Annotated[Settings, Depends(get_settings_dep)]) -> dict[str, bool]:
     """Clears the session cookie."""
     response.delete_cookie(
         key=COOKIE,
@@ -253,4 +250,3 @@ def logout(response: Response, settings: Settings = Depends(get_settings_dep)) -
         path="/",
     )
     return {"success": True}
-

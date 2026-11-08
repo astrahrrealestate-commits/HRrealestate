@@ -39,6 +39,7 @@ PROPOSER_FAILED = "I could not draft a reply. A notice is waiting in Approvals s
 DRAFTED = f"Reply drafted. {READY}"
 REDRAFTED = f"New draft ready: it replaces the one that was waiting for your approval. {READY}"
 FRESH_DRAFT = f"The earlier reply on that case was already decided, so I drafted a new one. {READY}"
+_CONTRACTOR_WORDS = ("contractor", "plumber", "monteur", "loodgieter", "work order", "conractore", "contractore")
 NOT_REDRAFTED = "I did not create a new draft ({reason}). Nothing was changed."
 OTHER_WAITING = (
     "No reply draft is waiting for that case; another proposal for it (such as an escalation) is in Approvals."
@@ -137,8 +138,8 @@ def draft_reply(ctx: Ctx, step: PlanStep) -> StepResult:
         message_id = _latest_inbound(session, ctx, step.case_id)
         if message_id is None:
             return failed(step, NOTHING_TO_REPLY)
-        
-        is_contractor = any(w in (ctx.question or "").lower() for w in ["contractor", "plumber", "monteur", "loodgieter", "work order", "conractore", "contractore"])
+
+        is_contractor = any(w in (ctx.question or "").lower() for w in _CONTRACTOR_WORDS)
         if is_contractor:
             actions = _message_actions(session, ctx, message_id)
             if not actions:
@@ -151,7 +152,11 @@ def draft_reply(ctx: Ctx, step: PlanStep) -> StepResult:
                     )
                 )
             pending_approvals = _pending_ids(session, ctx, actions)
-            contractor_reply = _reply_of(session, ctx, pending_approvals, action_type=ActionType.request_contractor) if pending_approvals else None
+            contractor_reply = (
+                _reply_of(session, ctx, pending_approvals, action_type=ActionType.request_contractor)
+                if pending_approvals
+                else None
+            )
             if contractor_reply:
                 views = draft_views(contractor_reply[2], _source(ctx, message_id))
                 data = {
@@ -161,7 +166,8 @@ def draft_reply(ctx: Ctx, step: PlanStep) -> StepResult:
                     "drafts": views,
                 }
                 summary = drafted_summary(
-                    "A work order for contractor Kevin van Dijk is already waiting for your approval. Nothing is sent until you approve it in Approvals.",
+                    "A work order for contractor Kevin van Dijk is already waiting for your approval. "
+                    "Nothing is sent until you approve it in Approvals.",
                     views,
                     details_removed=False,
                 )
@@ -264,12 +270,12 @@ def show_drafts(ctx: Ctx, step: PlanStep) -> StepResult:
                 )
 
         pending_approvals = _pending_ids(session, ctx, actions)
-        is_contractor = any(w in (ctx.question or "").lower() for w in ["contractor", "plumber", "monteur", "loodgieter", "work order", "conractore", "contractore"])
-        
+        is_contractor = any(w in (ctx.question or "").lower() for w in _CONTRACTOR_WORDS)
+
         reply = None
         if is_contractor and pending_approvals:
             reply = _reply_of(session, ctx, pending_approvals, action_type=ActionType.request_contractor)
-        
+
         if not reply and pending_approvals:
             reply = _reply_of(session, ctx, pending_approvals, action_type=ActionType.reply_draft)
 

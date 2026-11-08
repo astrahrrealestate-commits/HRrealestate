@@ -70,15 +70,14 @@ class GmailSyncState(Base, CompanyScoped):
     history_id: Mapped[str | None] = mapped_column(String(32))  # Gmail historyId is an unsigned 64-bit string
     watch_expires_at: Mapped[datetime | None]
 
-class AllowedUser(Base, CompanyScoped, CreatedAtMixin):
+
+class AllowedUser(Base, CompanyScoped):
     """Whitelist of authorized users permitted to log in to EstateOS."""
 
     __tablename__ = "allowed_users"
-    __company_id_leading_index__ = True
 
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(200))
     role: Mapped[str] = mapped_column(String(50), default="manager", server_default="manager")
     is_active: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
     invited_by: Mapped[str | None] = mapped_column(String(320))
-

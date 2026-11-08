@@ -108,7 +108,7 @@ def test_question_plans_once_and_stores_plan_and_results(env: Env) -> None:
     assert row.results is not None
     assert [r["intent"] for r in row.results] == [s["intent"] for s in row.plan["steps"]]
     assert row.answer
-    assert row.prompt_ref == "concierge/v6"
+    assert row.prompt_ref == "concierge/v7"
     assert row.error is None
     timings = row.timings or {}
     assert {"queue_wait_ms", "planner_ms", "executor_ms", "total_ms", "attempts"} <= set(timings)
@@ -170,7 +170,7 @@ def test_injection_text_is_refused_and_changes_nothing(env: Env) -> None:
     assert _run_wf(turn_id) == "done"
     row = _row(env, turn_id)
     assert row.answer == REFUSAL_ANSWER
-    assert row.plan == {"in_scope": False, "steps": [], "reply": None, "suggestions": []}
+    assert row.plan == {"in_scope": False, "steps": [], "reply": None, "suggestions": [], "needs_research": False}
     assert [count(env.engine, m, env.cid) for m in (ActionRow, Approval, TaskRow, Send)] == before
     with Session(env.engine) as s:
         assert s.scalar(select(Company.paused).where(Company.id == env.cid)) is False
@@ -199,7 +199,12 @@ def test_stored_plan_is_executed_without_a_second_model_call(env: Env, test_sett
     concierge_turns.run_turn(env.engine, test_settings, turn_id)
     row = _row(env, turn_id)
     assert row.status is TurnStatus.done
-    assert row.plan == {**LIST_PLAN, "reply": None, "suggestions": []}  # plans stored before these fields gain them
+    assert row.plan == {
+        **LIST_PLAN,
+        "reply": None,
+        "suggestions": [],
+        "needs_research": False,
+    }  # older plans gain new fields
     assert row.results is not None
     assert [r["intent"] for r in row.results] == ["list_tasks"]
     assert "Call plumber" in (row.answer or "")
@@ -268,10 +273,12 @@ def test_each_status_change_moves_updated_at(env: Env, test_settings: Settings) 
     seen: list[tuple[TurnStatus, Any]] = []
     real = concierge_turns._outcome
 
-    def spy(engine: Engine, settings: Settings, start: concierge_turns.TurnStart, timer: Any = None) -> Any:
+    def spy(
+        engine: Engine, settings: Settings, start: concierge_turns.TurnStart, timer: Any = None, research: Any = None
+    ) -> Any:
         mid = _row(env, turn_id)  # committed by _start
         seen.append((mid.status, mid.updated_at))
-        return real(engine, settings, start, timer)
+        return real(engine, settings, start, timer, research)
 
     with patch("app.pipeline.concierge_turns._outcome", side_effect=spy):
         concierge_turns.run_turn(env.engine, test_settings, turn_id)

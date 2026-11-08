@@ -14,6 +14,7 @@ from evals.concierge_eval import Label, load, plan_is_clean, runnable, score_pla
 
 MIN_GROUPS = {
     "read": 8, "task": 6, "pause": 4, "reply": 5, "clarify": 4, "out_of_scope": 4, "page": 12, "documents": 7,
+    "research": 3, "chat": 2,
 }  # fmt: skip
 
 
@@ -134,6 +135,32 @@ def test_reply_scoring_checks_presence_page_use_leaks_and_contact_details() -> N
 
 def test_reply_is_scored_from_prompt_v3() -> None:
     assert [concierge_eval.scores_reply(v) for v in ("v1", "v2", "v3", "v10", "x")] == [False, False, True, True, False]
+
+
+def test_research_is_scored_from_prompt_v7() -> None:
+    assert [concierge_eval.scores_research(v) for v in ("v6", "v7", "v10", "x")] == [False, True, True, False]
+
+
+def test_research_scoring_wants_the_loop_for_open_questions_and_never_for_the_rest() -> None:
+    ask = Label(group="research", expected_in_scope=True, expected_intents=[Intent.answer], expect_research=True)
+    chat = Label(group="chat", expected_in_scope=True, expected_intents=[Intent.answer])
+    asked = _plan(Intent.answer).model_copy(update={"needs_research": True})
+    plain = _plan(Intent.answer)
+    scores = score_plans([(ask, asked), (chat, plain)], research=True)
+    assert (scores["research_recall"], scores["research_false_rate"]) == (1.0, 0.0)
+    scores = score_plans([(ask, plain), (chat, asked)], research=True)
+    assert (scores["research_recall"], scores["research_false_rate"]) == (0.0, 1.0)
+    answered = asked.model_copy(update={"reply": "Roof leak mentioned twice."})  # a reply instead of the loop
+    assert score_plans([(ask, answered)], research=True)["research_recall"] == 0.0
+    assert "research_recall" not in score_plans([(ask, asked)])
+
+
+def test_golden_set_holds_open_questions_and_plain_chat() -> None:
+    labels = _labels()
+    assert sum(label.expect_research for label in labels) >= 3
+    chat = [label for label in labels if label.group == "chat"]
+    assert len(chat) >= 2
+    assert not any(label.expect_research for label in chat)  # a greeting is answered, never researched
 
 
 def test_fake_run_skips_real_only_cases_and_real_model_keeps_them() -> None:

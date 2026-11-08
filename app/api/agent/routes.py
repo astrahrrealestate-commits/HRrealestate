@@ -19,7 +19,6 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_engine, get_settings_dep
 from app.channels.calendar import get_calendar_client
 from app.context import memory_items
-from app.context.budget import clip
 from app.context.compiler import compile_concierge_context
 from app.context.selection import rank_cases
 from app.context.super_agent_prompt import build_super_agent_system_prompt
@@ -58,11 +57,11 @@ from app.pipeline.concierge import StepResult, run_plan
 from app.pipeline.concierge_outcome import assemble_answer, task_brief
 from app.pipeline.document_search import DocFilter
 from app.pipeline.rag import search_hybrid
+from app.superagent.chat import chat_answer
+from app.superagent.research import ResearchResult, run_research
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 log = get_logger(__name__)
-
-GROQ_TURN_CHARS = 600  # one earlier chat turn sent to the direct-answer model
 
 
 class AskAgentRequest(BaseModel):
@@ -215,73 +214,49 @@ def _case_label(session: Session, case: Case) -> str:
     return f"{name} · {addr} ({case.category.value})"
 
 
-def _generate_groq_answer(
+def _system_prompt(
     query: str,
-    settings: Settings,
-    history: list[str] | None = None,
-    memory_rules: list[str] | None = None,
-    page_facts: str | None = None,
+    *,
+    memory_rules: Sequence[str] = (),
+    page_facts: str = "",
     cases: Sequence[CaseBrief] = (),
     thread_summary: str = "",
     focus_case_id: str | None = None,
+) -> str:
+    return build_super_agent_system_prompt(
+        cases=cases,
+        query=query,
+        memory_rules=memory_rules,
+        page_facts=page_facts,
+        thread_summary=thread_summary,
+        focus_case_id=focus_case_id,
+    )
+
+
+def _generate_chat_answer(
+    query: str,
+    settings: Settings,
+    engine: Engine,
+    company_id: UUID,
+    system_prompt: str,
+    history: list[str] | None = None,
 ) -> str | None:
-    """Generate dynamic, executive-grade responses using Groq Cloud Qwen model. The prompt is size-bounded."""
-    groq_key = None
-    if settings.groq_api_key:
-        groq_key = settings.groq_api_key.get_secret_value()
-    if not groq_key:
-        import os
+    """The direct answer on the configured model (Gemini via Pydantic AI); None means use the deterministic fallback."""
+    return chat_answer(engine, settings, company_id, system_prompt, history or [], query)
 
-        groq_key = os.environ.get("GROQ_API_KEY")
 
-    if not groq_key:
-        return None
-
-    try:
-        import httpx
-
-        system_prompt = build_super_agent_system_prompt(
-            cases=cases,
-            query=query,
-            memory_rules=memory_rules or (),
-            page_facts=page_facts or "",
-            thread_summary=thread_summary,
-            focus_case_id=focus_case_id,
-        )
-        messages = [{"role": "system", "content": system_prompt}]
-        if history:
-            for h in history[-4:]:
-                role = "user" if h.startswith("User:") else "assistant"
-                content = clip(h.replace("User: ", "").replace("Assistant: ", ""), GROQ_TURN_CHARS)
-                messages.append({"role": role, "content": content})
-        messages.append({"role": "user", "content": query})
-
-        # Try Groq models: GPT-OSS 120B / 20B first as requested, then Llama 3.3
-        for model in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "llama-3.3-70b-versatile"]:
-            try:
-                resp = httpx.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
-                    json={
-                        "model": model,
-                        "messages": messages,
-                        "temperature": 0.2,
-                        "max_tokens": 300,
-                    },
-                    timeout=10.0,
-                )
-                if resp.status_code == 200:
-                    content = resp.json()["choices"][0]["message"]["content"]
-                    ans = content.strip() if isinstance(content, str) else ""
-                    if ans:
-                        return ans
-            except Exception as model_err:  # try the next model
-                log.warning("api.superagent.groq_model_failed", error=type(model_err).__name__)
-                continue
-    except Exception as g_err:
-        log.warning("api.superagent.groq_failed", error=str(g_err))
-
-    return None
+def _research_answer(
+    query: str,
+    settings: Settings,
+    engine: Engine,
+    company_id: UUID,
+    system_prompt: str,
+    history: list[str] | None = None,
+) -> ResearchResult | None:
+    """The answer from the read-only research loop (database, messages, documents); None means use the chat answer."""
+    return run_research(
+        engine, settings, company_id, system_prompt, history or [], query, embedder=build_embedder(settings)
+    )
 
 
 def _domain_fallback_answer(query: str, live_cases_text: str = "", is_error: bool = False) -> str:
@@ -1297,18 +1272,20 @@ def ask_agent(
                             f"Matched Document: {matched_doc.title} ({matched_doc.doc_type})\n"
                             f"Full Verified Document Content:\n{doc_full_text}"
                         )
-                        groq_doc_ans = _generate_groq_answer(
+                        chat_doc_ans = _generate_chat_answer(
                             (
                                 "Answer this user query directly and concisely in 1-2 bullet points based on the "
                                 "document: "
                                 f"'{req.query}'. Keep the answer short and executive."
                             ),
                             settings,
-                            page_facts=doc_context,
+                            engine,
+                            company_id,
+                            _system_prompt(req.query, page_facts=doc_context),
                         )
 
-                        if groq_doc_ans:
-                            doc_ans = f"**Document Intelligence (Verified RAG):**\n\n{groq_doc_ans}\n\n"
+                        if chat_doc_ans:
+                            doc_ans = f"**Document Intelligence (Verified RAG):**\n\n{chat_doc_ans}\n\n"
                         else:
                             doc_ans = (
                                 f"**Document Intelligence (Verified RAG):**\n\n"
@@ -1555,23 +1532,28 @@ def ask_agent(
             ]
         )
     )
+    research_steps: tuple[str, ...] = ()
     if needs_fallback:
         pipeline_stage = "domain_fallback"
         fallback_reason = fallback_reason or "Empty or placeholder response"
-        groq_resp = _generate_groq_answer(
+        system_prompt = _system_prompt(
             req.query,
-            settings,
-            history=req.history,
             memory_rules=approved_memories,
             page_facts=page_facts_text,
             cases=briefs,
             thread_summary=thread_summary,
             focus_case_id=focus_cid,
         )
-        ans_text = groq_resp or _domain_fallback_answer(req.query, live_cases_text=live_cases_text, is_error=llm_failed)
+        researched = _research_answer(req.query, settings, engine, company_id, system_prompt, req.history)
+        if researched is not None:
+            research_steps = researched.steps
+            chat_resp: str | None = researched.answer
+        else:
+            chat_resp = _generate_chat_answer(req.query, settings, engine, company_id, system_prompt, req.history)
+        ans_text = chat_resp or _domain_fallback_answer(req.query, live_cases_text=live_cases_text, is_error=llm_failed)
 
     # 3. Build step badge labels and inspect any generated proposal cards / actions
-    step_descriptions: list[str] = []
+    step_descriptions: list[str] = list(research_steps)
     dropped_warnings: list[str] = []
     preview_card = None
     action_buttons: list[ActionButtonData] = []
