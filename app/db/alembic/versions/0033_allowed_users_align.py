@@ -22,8 +22,8 @@ FK = "fk_allowed_users_company_id_companies"
 
 
 def upgrade() -> None:
-    op.drop_constraint("uq_allowed_users_email", TABLE, type_="unique")
-    op.drop_constraint(FK, TABLE, type_="foreignkey")
+    op.execute("ALTER TABLE allowed_users DROP CONSTRAINT IF EXISTS uq_allowed_users_email")
+    op.execute(f"ALTER TABLE allowed_users DROP CONSTRAINT IF EXISTS {FK}")
     op.create_foreign_key(FK, TABLE, "companies", ["company_id"], ["id"], ondelete="RESTRICT")
 
 

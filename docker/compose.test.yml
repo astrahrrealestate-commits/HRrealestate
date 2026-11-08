@@ -13,7 +13,7 @@ x-app: &app
     ENV: dev
     DATABASE_URL: postgresql+psycopg://estateos:estateos@postgres:5432/estateos
     SENTRY_DSN: ""
-    LLM_MODEL: groq:openai/gpt-oss-120b
+    LLM_MODEL: google-gla:gemini-2.5-flash
     LLM_TIMEOUT_SEC: 30
     OPENAI_API_KEY: ""
     GEMINI_API_KEY: "***REMOVED-GEMINI-KEY***"
