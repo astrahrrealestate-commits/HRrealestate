@@ -18,9 +18,9 @@ line). `/ship` runs this pipeline for one task.
 | REFACTOR | clean up; no behaviour change | ruff (post-edit hook) | tests still pass |
 | **G1 quick** | `make quick`: ruff, format, mypy, import-linter, unit tests | stop hook enforces | all green |
 | **G2 full** | `make check`: + integration (testcontainers PG, DBOS), migration round-trip, drift | `/check full`, `test-runner` agent | all green; required when DB/workflows/adapters/API touched |
-| **G3 review** | invariants + correctness | `estateos-reviewer` agent (`/code-review` for large diffs) | `VERDICT: ship` |
+| **G3 review** | invariants + correctness; abuse paths | `estateos-reviewer` agent (`/code-review` for large diffs); plus `estateos-security` when the diff touches `app/api`, `sender`, `channels`, `llm`, auth, prompts or external input | `VERDICT: ship` (and `VERDICT: pass` from security when required) |
 | Commit | conventional commit on milestone branch | pre-commit: ruff, gitleaks, import-linter, mypy, unit | hooks pass (never `--no-verify`) |
-| **G4 CI** | GitHub Actions: lint, types, boundaries, unit, integration, migrations, pip-audit, docker build; evals if prompts/contracts changed | GH Actions | green before merge |
+| **G4 CI** | GitHub Actions: lint, types, boundaries, unit, integration, migrations, pip-audit, gitleaks, docker build, frontend typecheck + build; CodeQL and dependency-review once `GHAS_ENABLED`; evals if prompts/contracts changed | GH Actions; the single required check is `ci-success` | `ci-success` green before merge |
 | **G5 milestone** | `make smoke` + every "Done when" clause demonstrated | `/milestone close` | reviewer `ship` + evidence quoted in PROGRESS |
 
 ## Test strategy per layer
@@ -42,6 +42,22 @@ line). `/ship` runs this pipeline for one task.
 **Never:** network in tests (pytest-socket), SQLite in place of Postgres, skipped or xfailed tests to get green,
 mocking the unit under test.
 
+## Test rules (learned the hard way; see `reports/`)
+1. **A green test is not evidence until you have seen it red.** Writing it first (RED) covers new code. For any test
+   guarding a security property, a redaction path or a bug fix, also mutate the code deliberately, watch the test fail,
+   restore the file byte-identically and watch it pass; record both counts. Calling a FastAPI route function directly
+   and omitting a `Query(...)` argument passes the sentinel, not `None`; use `TestClient`.
+2. **Deterministic test data.** No `uuid4()`, `random` or wall-clock values in anything a test asserts about; use
+   `UUID(int=n)`, fixed instants and seeded generators. A test that fails once and passes on rerun is a defect to fix
+   now (find the nondeterminism), never a rerun.
+3. **Spies and fakes accept what the real function accepts.** When you add a parameter, grep for `patch(` and
+   `monkeypatch.setattr` on that function and update the fakes. Code that swallows exceptions turns a signature
+   mismatch into a failure several layers away.
+4. **A bug fix ships a regression test** that failed before the fix.
+5. **Model-dependent assertions test structure, not prose.** Quality lives in the eval, not in pytest.
+6. **A version bump is a search, not an edit.** Moving a prompt, contract or schema version: grep the old version
+   string in `tests/`, `docs/` and `evals/` before running the gate (`/new-prompt-version` has the list).
+
 ## Definition of done (per task)
 - [ ] Test written first and seen failing
 - [ ] G1 green (G2 when the layer requires it), result line quoted
@@ -49,6 +65,7 @@ mocking the unit under test.
 - [ ] No TODOs without an issue link; no commented-out code; no `print`
 - [ ] Docs touched if behaviour or contract changed (spec / HLD / ADR)
 - [ ] PROGRESS.md item ticked with evidence
+- [ ] Slice or milestone end: `/retro` written to `reports/` and each lesson turned into an artifact
 
 ## Open gate notes
 - **G2 outstanding for dashboard tasks 1-9** (D1-D3): written while Docker was down, so their integration tests
