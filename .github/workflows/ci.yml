@@ -93,3 +93,48 @@ jobs:
           tags: estateos:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  frontend:
+    name: Frontend typecheck · build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run build
+      # Advisory until the existing backlog clears (87 errors, 178 warnings on 2026-11-08); then drop continue-on-error.
+      - name: ESLint (advisory)
+        run: npm run lint
+        continue-on-error: true
+
+  # The one required check for branch protection: green only when every job above is green (a skipped or cancelled
+  # job fails it, so a job can never be quietly dropped from the gate).
+  ci-success:
+    name: ci-success
+    if: always()
+    needs: [quality, integration, security, image, frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Every job must have succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "job results: $RESULTS"
+          for result in $RESULTS; do
+            if [ "$result" != "success" ]; then
+              echo "::error::a required job finished as '$result'"
+              exit 1
+            fi
+          done
