@@ -105,46 +105,6 @@ export function AskEstateOSPanel({
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [showFewerSuggestions, setShowFewerSuggestions] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
-  const [isListening, setIsListening] = useState(false);
-  const recognitionRef = useRef<any>(null);
-
-  const toggleVoice = () => {
-    if (typeof window === "undefined") return;
-    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRec) {
-      alert("Voice input is not supported in this browser. Please use Chrome, Safari, or Edge.");
-      return;
-    }
-
-    if (isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
-      return;
-    }
-
-    try {
-      const rec = new SpeechRec();
-      rec.continuous = false;
-      rec.interimResults = true;
-      rec.lang = "en-US";
-
-      rec.onstart = () => setIsListening(true);
-      rec.onresult = (event: any) => {
-        const transcript = Array.from(event.results)
-          .map((r: any) => r[0].transcript)
-          .join("");
-        setInputQuery(transcript);
-      };
-      rec.onerror = () => setIsListening(false);
-      rec.onend = () => setIsListening(false);
-
-      recognitionRef.current = rec;
-      rec.start();
-    } catch (err) {
-      console.warn("Speech recognition error:", err);
-      setIsListening(false);
-    }
-  };
 
   useEffect(() => {
     try {
@@ -168,6 +128,41 @@ export function AskEstateOSPanel({
   };
 
   const isDark = theme === "dark";
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+  const toggleVoiceInput = () => {
+    if (typeof window === "undefined") return;
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRec) {
+      alert("Speech recognition is not supported in this browser.");
+      return;
+    }
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+    try {
+      const recognition = new SpeechRec();
+      recognition.lang = "en-US";
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.onstart = () => setIsListening(true);
+      recognition.onresult = (event: any) => {
+        const transcript = Array.from(event.results)
+          .map((r: any) => r[0].transcript)
+          .join("");
+        setInputQuery(transcript);
+      };
+      recognition.onend = () => setIsListening(false);
+      recognition.onerror = () => setIsListening(false);
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch {
+      setIsListening(false);
+    }
+  };
 
   const [sendingCardId, setSendingCardId] = useState<string | null>(null);
   const [approvingCalendarId, setApprovingCalendarId] = useState<string | null>(null);
@@ -517,48 +512,53 @@ export function AskEstateOSPanel({
       <aside
         id="aiSidePanel"
         className={cn(
-          "flex flex-col justify-between font-sans shrink-0 overflow-hidden relative transition-all duration-300",
-          // Mobile: Native full-screen app takeover with the exact Aurora wallpaper background
-          "fixed inset-0 z-50 w-full h-[100dvh] max-h-[100dvh] bg-[#050811] bg-[url('/assets/superagent-mobile-bg.jpg')] bg-cover bg-top bg-no-repeat",
-          // Desktop: Clean side panel or center modal
+          "bg-white flex flex-col justify-between font-sans shrink-0 overflow-hidden relative transition-all duration-300",
           isFullScreen
-            ? "md:absolute md:inset-0 md:z-30 md:m-0 md:mr-[10px] md:mb-[10px] md:h-[calc(100%-10px)] md:rounded-[14px] md:border md:border-[#27272a] md:shadow-[0_2px_8px_rgba(0,0,0,0.2)] md:animate-in md:fade-in md:duration-200 md:bg-white md:dark:bg-[#0E1113]"
-            : "md:relative md:inset-auto md:z-10 md:w-[420px] xl:md:w-[450px] md:shrink-0 md:m-0 md:mr-[10px] md:mb-[10px] md:h-[calc(100%-10px)] md:rounded-[14px] md:border md:border-[#27272a] md:shadow-[0_2px_8px_rgba(0,0,0,0.2)] md:bg-white md:dark:bg-[#0E1113]"
+            ? "absolute inset-0 z-30 m-0 mr-[10px] mb-[10px] h-[calc(100%-10px)] rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)] animate-in fade-in duration-200"
+            : "fixed inset-0 z-50 md:relative md:inset-auto md:z-10 w-full md:w-[420px] xl:w-[450px] shrink-0 m-0 md:mr-[10px] md:mb-[10px] h-full md:h-[calc(100%-10px)] rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)]",
+          "max-md:rounded-none max-md:border-none max-md:m-0 max-md:h-[100dvh] max-md:bg-[url('/images/superagent-mobile-bg.jpg')] max-md:bg-cover max-md:bg-center"
         )}
       >
-        {/* 1. Header Bar with Clean Icon Controls */}
+        {/* 1. Header Bar with Clean Icon Controls (No Text Clutter, No Overlap) */}
         <div
           className={cn(
-            "h-[54px] md:h-[48px] px-3.5 sm:px-4 border-b flex items-center justify-between flex-shrink-0 transition-colors pt-[max(env(safe-area-inset-top),0px)]",
-            // Mobile: Glassmorphic translucent blur
-            "border-white/10 bg-black/40 backdrop-blur-xl text-white",
-            // Desktop:
-            isDark ? "md:bg-[#0E1113] md:border-[#1A1F24]" : "md:bg-[#FFFFFF] md:border-[#E8E8E5]"
+            "h-[48px] px-3 sm:px-4 border-b flex items-center justify-between flex-shrink-0 transition-colors",
+            isDark ? "bg-[#0E1113] border-[#1A1F24]" : "bg-[#FFFFFF] border-[#E8E8E5]",
+            "max-md:bg-black/30 max-md:border-b max-md:border-white/10 max-md:backdrop-blur-xl max-md:pt-[env(safe-area-inset-top,0px)] max-md:h-[calc(52px+env(safe-area-inset-top,0px))]"
           )}
         >
-          {/* Left: Mobile Back Button + Jarvis Title */}
-          <div className="flex items-center gap-2.5 shrink-0">
+          {/* Left: Mobile Back Button + Sparkles Icon */}
+          <div className="flex items-center gap-2 shrink-0">
             {/* Mobile Back Button */}
             <button
               onClick={onClose}
-              className="md:hidden p-1.5 -ml-1 rounded-[8px] text-zinc-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              className={cn(
+                "md:hidden p-1.5 -ml-1 rounded-[8px] transition-colors cursor-pointer",
+                isDark
+                  ? "text-[#9CA3AF] hover:text-white hover:bg-[#1A1F24]"
+                  : "text-[#6B7280] hover:text-[#0A0A0A] hover:bg-[#F0F0EE]",
+                "max-md:text-white max-md:hover:bg-white/15"
+              )}
               title="Back"
             >
-              <ArrowLeft className="w-5 h-5 stroke-[2.25]" />
+              <ArrowLeft className="w-5 h-5 stroke-[2]" />
             </button>
 
-            {/* AI Sparkles Icon & Name */}
-            <div className="flex items-center gap-2">
-              <div
-                className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-[#00E5FF]/20 text-[#00E5FF] shadow-[0_0_12px_rgba(0,229,255,0.4)] md:shadow-none md:bg-[#1a73e8]/20 md:text-[#1a73e8]"
-                title="Super Agent"
-              >
-                <Sparkles className="w-4 h-4 text-[#00E5FF] md:text-[#1a73e8] animate-ai-star" />
-              </div>
-              <div className="md:hidden flex items-center gap-1.5">
-                <span className="font-semibold text-[14px] tracking-tight text-white">Jarvis</span>
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
-              </div>
+            {/* AI Sparkles Icon */}
+            <div
+              className={cn(
+                "w-7 h-7 rounded-full flex items-center justify-center shrink-0",
+                isDark ? "bg-[#1a73e8]/20 text-[#60a5fa]" : "bg-[#eff6ff] text-[#1a73e8]",
+                "max-md:bg-cyan-500/25 max-md:text-cyan-300 max-md:shadow-[0_0_12px_rgba(0,229,255,0.4)]"
+              )}
+              title="Super Agent"
+            >
+              <Sparkles className="w-4 h-4 text-[#1a73e8] max-md:text-cyan-300 animate-ai-star" />
+            </div>
+
+            <div className="md:hidden flex items-center gap-1.5 pl-0.5">
+              <span className="text-[13px] font-semibold text-white tracking-wide">Jarvis</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_#00e5ff]" />
             </div>
           </div>
 
@@ -783,7 +783,8 @@ export function AskEstateOSPanel({
             <div
               className={cn(
                 "flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-5 text-[13.5px] leading-relaxed min-w-0 w-full transition-colors",
-                isDark ? "bg-[#0E1113]" : "bg-[#FFFFFF]"
+                isDark ? "bg-[#0E1113]" : "bg-[#FFFFFF]",
+                "max-md:bg-transparent max-md:p-3 max-md:pt-4"
               )}
             >
               <div className="max-w-[760px] mx-auto w-full space-y-4">
@@ -800,11 +801,10 @@ export function AskEstateOSPanel({
                 <div
                   className={cn(
                     "px-4 py-2.5 rounded-[20px] text-[13.5px] leading-relaxed break-words [overflow-wrap:anywhere]",
-                    // Mobile: luminous pill matching the aurora
-                    "bg-[#00E5FF]/20 text-white border border-[#00E5FF]/30 shadow-md backdrop-blur-md",
                     isDark
-                      ? "md:bg-[#20272E] md:border-[#2E3742] md:text-[#F9FAFB]"
-                      : "md:bg-[#F3F4F6] md:border-[#E5E7EB] md:text-[#111827]"
+                      ? "bg-[#20272E] border border-[#2E3742] text-[#F9FAFB]"
+                      : "bg-[#F3F4F6] border border-[#E5E7EB] text-[#111827]",
+                    "max-md:bg-cyan-500/20 max-md:border-cyan-400/35 max-md:text-white max-md:backdrop-blur-md max-md:shadow-[0_4px_16px_rgba(0,229,255,0.15)]"
                   )}
                 >
                   <p className="whitespace-pre-line leading-relaxed">{msg.text}</p>
@@ -814,8 +814,9 @@ export function AskEstateOSPanel({
                 <div className="w-full space-y-3 min-w-0 text-[13.5px] leading-relaxed">
                   <div
                     className={cn(
-                      "whitespace-pre-line leading-relaxed break-words [overflow-wrap:anywhere] min-w-0 max-w-full text-zinc-100",
-                      isDark ? "md:text-[#E5E7EB]" : "md:text-[#111827]"
+                      "whitespace-pre-line leading-relaxed break-words [overflow-wrap:anywhere] min-w-0 max-w-full",
+                      isDark ? "text-[#E5E7EB]" : "text-[#111827]",
+                      "max-md:text-white/95 max-md:drop-shadow-xs"
                     )}
                     dangerouslySetInnerHTML={{
                       __html: formatMarkdown(msg.text, isDark),
@@ -900,9 +901,9 @@ export function AskEstateOSPanel({
                         <div
                           key={pCard.actionId || pCard.caseId || `preview-${cardIdx}`}
                           className={cn(
-                            "rounded-[12px] p-3.5 space-y-2.5 min-w-0 max-w-full overflow-hidden transition-colors shadow-lg",
-                            "bg-black/50 border border-white/15 backdrop-blur-2xl text-white",
-                            isDark ? "md:bg-[#15181C] md:border-[#222830]" : "md:bg-[#FBFBFA] md:border-[#E8E8E5] md:text-black"
+                            "rounded-[10px] border p-3.5 space-y-2.5 shadow-xs animate-in fade-in-50 duration-150 min-w-0 max-w-full overflow-hidden transition-colors",
+                            isDark ? "bg-[#15181C] border-[#222830]" : "bg-[#FBFBFA] border-[#E8E8E5]",
+                            "max-md:bg-black/55 max-md:border-white/15 max-md:backdrop-blur-xl max-md:shadow-[0_8px_32px_rgba(0,0,0,0.5)] max-md:rounded-[16px]"
                           )}
                         >
                     {pCard.type === "draft_message" && pCard.personaName && (
@@ -1558,28 +1559,29 @@ export function AskEstateOSPanel({
               </div>
         </div>
 
-        {/* 4. Floating Prompt Bar Footer */}
+        {/* 4. Floating Prompt Bar Footer (No hard border line, symmetrical spacing) */}
         <div
           className={cn(
-            "px-3.5 sm:px-6 pt-2 flex-shrink-0 transition-colors",
-            "bg-black/40 backdrop-blur-xl border-t border-white/10 md:border-0 md:bg-transparent",
-            "pb-[max(env(safe-area-inset-bottom),14px)] md:pb-4",
-            isFullScreen && "md:pb-7"
+            "px-4 sm:px-6 pt-1 flex-shrink-0 transition-colors bg-transparent",
+            isFullScreen ? "pb-6 sm:pb-7" : "pb-3.5 sm:pb-4",
+            "max-md:px-3 max-md:pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]"
           )}
         >
-          <div className="max-w-[760px] mx-auto w-full space-y-2">
-            {/* Dynamic Next Step Suggestion Pills */}
+          <div className="max-w-[760px] mx-auto w-full space-y-2.5">
+            {/* Dynamic Next Step Suggestion Pills (Simple Plain Text, No Arrow) */}
             {suggestedChips.length > 0 && !isTyping && (
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none no-scrollbar">
+              <div className="flex items-center gap-2 overflow-x-auto pb-0.5 scrollbar-none no-scrollbar">
                 {suggestedChips.slice(0, 3).map((chip: string, idx: number) => (
                   <button
                     key={idx}
                     type="button"
                     onClick={() => handleSendQuery(chip)}
                     className={cn(
-                      "px-3 py-1 rounded-full text-[11.5px] font-normal transition-all whitespace-nowrap cursor-pointer shrink-0",
-                      "bg-white/10 hover:bg-white/15 border border-white/15 text-zinc-200 hover:text-white shadow-xs",
-                      "md:bg-[#14181C] md:hover:bg-[#1E242B] md:border-[#222830] md:text-[#94a3b8] md:hover:text-white"
+                      "px-3.5 py-1 rounded-full border text-[12px] font-normal transition-all whitespace-nowrap cursor-pointer shrink-0 shadow-2xs hover:scale-[1.02] active:scale-[0.98]",
+                      isDark
+                        ? "bg-[#14181C] hover:bg-[#1E242B] border-[#222830] text-[#94a3b8] hover:text-white hover:border-[#1a73e8]/40"
+                        : "bg-[#F8FAFD] hover:bg-[#eff6ff] border-[#DCE2EA] text-[#444746] hover:text-[#1a73e8] hover:border-[#1a73e8]/40",
+                      "max-md:bg-black/45 max-md:border-white/20 max-md:text-white/85 max-md:backdrop-blur-lg max-md:hover:border-cyan-400"
                     )}
                   >
                     {chip}
@@ -1593,13 +1595,11 @@ export function AskEstateOSPanel({
                 handleSendQuery(inputQuery);
               }}
               className={cn(
-                "rounded-[18px] p-2.5 pb-2 flex flex-col gap-1.5 transition-all shadow-lg",
-                // Mobile: Floating translucent frosted glass
-                "bg-white/[0.08] border border-white/15 focus-within:border-[#00E5FF]/60 focus-within:bg-white/[0.12] backdrop-blur-2xl",
-                // Desktop:
+                "border-[1.5px] rounded-[20px] p-2.5 pb-2 flex flex-col gap-1.5 transition-all shadow-2xs",
                 isDark
-                  ? "md:bg-[#14181C] md:border-[#222830] md:focus-within:border-[#1a73e8] md:focus-within:bg-[#181D22]"
-                  : "md:bg-[#f8fafd] md:border-[#dce2ea] md:focus-within:border-[#1a73e8] md:focus-within:bg-white"
+                  ? "bg-[#14181C] border-[#222830] focus-within:border-[#1a73e8] focus-within:bg-[#181D22]"
+                  : "bg-[#f8fafd] border-[#dce2ea] focus-within:border-[#1a73e8] focus-within:bg-white",
+                "max-md:bg-black/60 max-md:border-white/20 max-md:backdrop-blur-2xl max-md:shadow-[0_8px_32px_rgba(0,0,0,0.6)] max-md:rounded-[24px] max-md:focus-within:border-cyan-400 max-md:focus-within:bg-black/75"
               )}
             >
               <textarea
@@ -1613,47 +1613,52 @@ export function AskEstateOSPanel({
                     handleSendQuery(inputQuery);
                   }
                 }}
-                placeholder="Ask Jarvis across portfolio, maintenance, arrears..."
+                placeholder="Ask Super Agent across portfolio, maintenance, arrears..."
                 className={cn(
-                  "w-full text-[13.5px] bg-transparent outline-none resize-none leading-relaxed text-white placeholder:text-zinc-400",
-                  !isDark && "md:text-[#1f1f1f] md:placeholder:text-[#444746]"
+                  "w-full text-[13px] bg-transparent outline-none resize-none leading-relaxed",
+                  isDark
+                    ? "text-[#FFFFFF] placeholder:text-[#64748B]"
+                    : "text-[#1f1f1f] placeholder:text-[#444746]",
+                  "max-md:text-white max-md:placeholder:text-white/50"
                 )}
               />
 
               <div className="flex items-center justify-between pt-0.5">
-                <span className="text-[10px] text-zinc-400 font-mono hidden md:inline">Ctrl+J to toggle</span>
-                <div className="flex items-center gap-1.5 ml-auto">
-                  {/* Voice Microphone Button */}
-                  <button
-                    type="button"
-                    onClick={toggleVoice}
-                    className={cn(
-                      "w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0",
-                      isListening
-                        ? "bg-red-500 text-white animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.7)]"
-                        : "bg-white/10 hover:bg-white/20 text-[#00E5FF] border border-[#00E5FF]/30 hover:scale-105 active:scale-95"
-                    )}
-                    title={isListening ? "Listening... click to stop" : "Voice Input (Speech to Text)"}
-                    aria-label="Voice Input"
-                  >
-                    {isListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
-                  </button>
+                {/* Voice Input Mic Button */}
+                <button
+                  type="button"
+                  onClick={toggleVoiceInput}
+                  className={cn(
+                    "p-1.5 rounded-full transition-all cursor-pointer flex items-center justify-center shrink-0",
+                    isListening
+                      ? "bg-cyan-500 text-black shadow-[0_0_15px_rgba(0,229,255,0.7)] animate-pulse"
+                      : "text-white/60 hover:text-cyan-300 hover:bg-white/10"
+                  )}
+                  title={isListening ? "Listening... click to stop" : "Voice input"}
+                  aria-label="Voice input"
+                >
+                  {isListening ? (
+                    <MicOff className="w-4 h-4 stroke-[2.5]" />
+                  ) : (
+                    <Mic className="w-4 h-4 stroke-[2]" />
+                  )}
+                </button>
 
-                  {/* Send Button */}
-                  <button
-                    type="submit"
-                    disabled={!inputQuery.trim() || isTyping}
-                    className={cn(
-                      "w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0",
-                      inputQuery.trim()
-                        ? "bg-[#00E5FF] md:bg-[#1a73e8] text-black md:text-white shadow-[0_0_12px_rgba(0,229,255,0.4)] hover:scale-105 active:scale-95 font-bold"
-                        : "bg-white/10 text-zinc-500 cursor-not-allowed opacity-60 md:bg-[#1c2227] md:text-[#64748b]"
-                    )}
-                    title="Send query"
-                  >
-                    <ArrowUp className="w-3.5 h-3.5 stroke-[2.5]" />
-                  </button>
-                </div>
+                <button
+                  type="submit"
+                  disabled={!inputQuery.trim() || isTyping}
+                  className={cn(
+                    "w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0",
+                    inputQuery.trim()
+                      ? "bg-[#1a73e8] max-md:bg-gradient-to-r max-md:from-cyan-400 max-md:to-blue-600 max-md:text-black hover:bg-[#1557b0] text-white shadow-[0_2px_6px_rgba(26,115,232,0.3)] max-md:shadow-[0_0_12px_rgba(0,229,255,0.4)] hover:scale-105 active:scale-95"
+                      : isDark
+                      ? "bg-[#1c2227] max-md:bg-white/10 text-[#64748b] max-md:text-white/30 cursor-not-allowed opacity-60"
+                      : "bg-[#e8eaed] max-md:bg-white/10 text-[#5f6368] max-md:text-white/30 cursor-not-allowed opacity-70"
+                  )}
+                  title="Send query"
+                >
+                  <ArrowUp className="w-3.5 h-3.5 stroke-[2.5]" />
+                </button>
               </div>
             </form>
           </div>
