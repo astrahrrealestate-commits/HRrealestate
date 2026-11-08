@@ -66,3 +66,4 @@ Make sure all files (`estateos-bundle.tar`, `compose.test.yml`, `start-test.comm
   ```bash
   docker compose -f compose.test.yml down
   ```
+
