@@ -136,7 +136,7 @@ Evidence: G1 `make quick` "2225 passed", "Contracts: 8 kept, 0 broken.", "Succes
 - [x] test: no approved action of any type on any channel reaches a tenant
 - [ ] one day of shadow running on live mail (needs live credentials, user)
 - [x] (carried from M1) DBOS system-table retention/GC (daily DBOS system-table retention 30 days with DBOS GC)
-- [ ] (carried from M1) image CVE scan in CI (Docker Scout reports 3 high Debian CVEs in python:3.12-slim)
+- [ ] (carried from M1) image CVE scan in CI (Docker Scout reports 3 high Debian CVEs in python:3.12-slim) — Trivy step committed in the ci.yml `image` job (fails on fixable HIGH/CRITICAL); first GitHub Actions run pending
 
 ## D Dashboard + Super Agent (#10) — spec [2026-10-15-dashboard-super-agent-design.md](superpowers/specs/2026-10-15-dashboard-super-agent-design.md) · branch `d-dashboard` · API guide [dashboard-api.md](dashboard-api.md)
 Ticks below carry a quoted line from the build ledger (per-task `make quick` reports and reviews) or from a run on 2026-10-15.
