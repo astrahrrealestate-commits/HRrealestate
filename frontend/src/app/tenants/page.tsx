@@ -135,7 +135,7 @@ function TenantsContent() {
     return MOCK_TENANTS.filter((tenant) => {
       // Tab filter
       if (activeTab === "up_to_date" && tenant.rentStatus !== "up_to_date") return false;
-      if (activeTab === "overdue" && tenant.rentStatus === "up_to_date") return false;
+      if (activeTab === "overdue" && tenant.rentStatus !== "overdue" && tenant.rentStatus !== "grace_period") return false;
 
       // Search query
       if (searchQuery.trim()) {
@@ -194,10 +194,10 @@ function TenantsContent() {
         {/* Right Column: flex-1 (Flat detail + Documents + Sticky Footer)*/}
         {/* ------------------------------------------------------------- */}
         <div className="hidden md:flex flex-1 overflow-hidden">
-          
+
           {/* COLUMN 1: List (400px) */}
           <div className="w-[400px] shrink-0 border-r border-[var(--line)] bg-[var(--pane)] flex flex-col">
-            
+
             {/* Header: Controls (Max 3 tabs, 1 search bar, no cards in cards) */}
             <div className="p-4 border-b border-[var(--line)] space-y-3">
               <div className="flex items-center justify-between">
@@ -324,10 +324,10 @@ function TenantsContent() {
           {/* COLUMN 2: Detail Pane (flex-1) with Sticky Footer */}
           {activeTenant && (
             <div className="flex-1 bg-[var(--pane)] flex flex-col justify-between overflow-hidden">
-              
+
               {/* Detail Content (Scrollable) */}
               <div className="flex-1 overflow-y-auto p-6 space-y-6 max-w-4xl">
-                
+
                 {/* Header */}
                 <div className="border-b border-[var(--line)] pb-5">
                   <div className="flex items-start justify-between">

@@ -668,7 +668,7 @@ function ContactsContent() {
                         <div className="inline-flex items-center gap-1">
                           <span className="font-semibold text-[#64748b]">Agreement Duration:</span>
                           <span className="font-medium text-[#111215]">
-                            {activeContact.agreementPeriod || "01 Jan 2024 – 31 Dec 2024"}
+                            {activeContact.agreementPeriod || "Not on file"}
                           </span>
                         </div>
                       </div>
