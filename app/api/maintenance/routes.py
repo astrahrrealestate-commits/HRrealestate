@@ -4,19 +4,20 @@ Feeds active maintenance tickets, SLA timers, contractor trade assignments,
 authorized PO budget caps, and full ticket lifecycle audit trails to the Next.js frontend.
 """
 
+import re
 from datetime import UTC, datetime
 from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, computed_field
-from sqlalchemy import Engine
+from sqlalchemy import Engine, String, cast, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import WorkflowClient, get_engine, get_workflow_client
 from app.api.maintenance import dispatch
 from app.api.v1 import enqueue
-from app.api.v1.auth import require_session
+from app.api.v1.auth import Principal, require_session
 from app.contracts import ActionType, CaseState, Category, Channel, Direction, Urgency
 from app.core.logging import get_logger
 from app.db.enums import ActionStatus, ApprovalStatus, CaseEventKind
@@ -166,9 +167,18 @@ class ApproveDispatchResponse(BaseModel):
 # Seed Data
 # ---------------------------------------------------------------------------
 
-DEFAULT_TICKETS: list[dict[str, Any]] = []
+# Owner edits and dispatch confirmations are kept in memory (not yet persisted as case events). They are partitioned by
+# company so one company's audit trail and ticket edits can never be read or changed through another's session.
+_TICKETS: dict[UUID, list[dict[str, Any]]] = {}
+_HISTORY: dict[UUID, list[dict[str, Any]]] = {}
 
-DEFAULT_HISTORY_EVENTS_005: list[dict[str, Any]] = []
+
+def _tickets(company_id: UUID) -> list[dict[str, Any]]:
+    return _TICKETS.setdefault(company_id, [])
+
+
+def _history(company_id: UUID) -> list[dict[str, Any]]:
+    return _HISTORY.setdefault(company_id, [])
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +197,7 @@ DEFAULT_HISTORY_EVENTS_005: list[dict[str, Any]] = []
 )
 def get_maintenance_tickets(
     engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
     urgency: str = Query(default="all", description="all, emergency, high, normal, low"),
     status: str = Query(default="all", description="all, pending_approval, dispatched, scheduled, completed"),
     category: str = Query(default="all", description="all, electrical, plumbing, heating, appliance, structural"),
@@ -195,7 +206,10 @@ def get_maintenance_tickets(
     try:
         with Session(engine) as session:
             cases = (
-                session.query(Case).filter(Case.category == Category.maintenance).order_by(Case.opened_at.desc()).all()
+                session.query(Case)
+                .filter(Case.company_id == principal.company_id, Case.category == Category.maintenance)
+                .order_by(Case.opened_at.desc())
+                .all()
             )
             for case in cases:
                 unit = session.get(Unit, case.unit_id) if case.unit_id else None
@@ -227,7 +241,11 @@ def get_maintenance_tickets(
                 contractor_draft = ""
 
                 # Look up registered contractor Kevin van Dijk from database
-                kevin_p = session.query(Person).filter(Person.display_name.ilike("%kevin%")).first()
+                kevin_p = (
+                    session.query(Person)
+                    .filter(Person.company_id == principal.company_id, Person.display_name.ilike("%kevin%"))
+                    .first()
+                )
                 if kevin_p:
                     contractor_name = kevin_p.display_name
                     contractor_trade = (kevin_p.trade or "Plumber").title()
@@ -417,25 +435,62 @@ def get_maintenance_tickets(
 def get_ticket_history(
     ticket_id: str,
     engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> TicketHistoryResponse:
-    """Returns lifecycle audit events for the TicketHistoryModal."""
-    ticket = next(
-        (
-            t
-            for t in DEFAULT_TICKETS
-            if t["id"] == ticket_id or t["ticketNumber"] == ticket_id or ticket_id in ["005", "5"]
-        ),
-        DEFAULT_TICKETS[0],
-    )
-    events = list(DEFAULT_HISTORY_EVENTS_005)
-
+    """Returns lifecycle audit events for the TicketHistoryModal: the case's persisted events, else the owner edits
+    kept in memory for this company's ticket."""
+    with Session(engine) as session:
+        case = _find_case(session, principal.company_id, ticket_id.lstrip("#"))
+        if case is not None:
+            events = _case_history(session, case)
+            unit = session.get(Unit, case.unit_id) if case.unit_id else None
+            return TicketHistoryResponse(
+                ticketNumber=f"#{str(case.id)[:4]}",
+                ticketId=str(case.id),
+                unitLabel=(unit.address or unit.label) if unit else "Unknown unit",
+                events=events,
+                totalEvents=len(events),
+            )
+    ticket = _seeded_ticket(principal.company_id, ticket_id)
+    if ticket is None:
+        raise HTTPException(status_code=404, detail="Maintenance ticket not found")
+    events = [AuditEventItem(**e) for e in _history(principal.company_id)]
     return TicketHistoryResponse(
         ticketNumber=ticket["ticketNumber"],
         ticketId=ticket["id"],
         unitLabel=ticket["unitLabel"],
-        events=[AuditEventItem(**e) for e in events],
+        events=events,
         totalEvents=len(events),
     )
+
+
+_EVENT_TITLES = {
+    CaseEventKind.state_change: "Case state changed",
+    CaseEventKind.note: "Note added",
+    CaseEventKind.link: "Message linked to the case",
+    CaseEventKind.summary: "Case summary updated",
+}
+
+
+def _case_history(session: Session, case: Case) -> list[AuditEventItem]:
+    rows = session.scalars(
+        select(CaseEvent)
+        .where(CaseEvent.company_id == case.company_id, CaseEvent.case_id == case.id)
+        .order_by(CaseEvent.created_at.asc())
+    ).all()
+    return [
+        AuditEventItem(
+            id=str(e.id),
+            timestamp=e.created_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+            category="state_change" if e.kind is CaseEventKind.state_change else "audit",
+            actor=e.actor,
+            actorType="owner" if e.actor == "owner" else "system",
+            title=_EVENT_TITLES[e.kind],
+            description=e.note or "",
+            stateChange=f"{e.from_state.value} → {e.to_state.value}" if e.from_state and e.to_state else None,
+        )
+        for e in rows
+    ]
 
 
 @router.patch(
@@ -451,72 +506,66 @@ def update_maintenance_ticket(
     ticket_id: str,
     payload: TicketUpdateRequest,
     engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> MaintenanceTicketItem:
-    """Updates ticket in place and records an audit trail event."""
+    """Updates a ticket of the signed-in owner's company in place and records an audit trail event."""
+    company_id = principal.company_id
     clean_id = ticket_id.lstrip("#")
-    ticket = _seeded_ticket(ticket_id)
-
+    ticket = _seeded_ticket(company_id, ticket_id)
     updates = payload.model_dump(exclude_unset=True)
 
-    if not ticket and engine:
+    if not ticket:
         with Session(engine) as session:
-            try:
-                all_c = session.query(Case).all()
-                target_case = next((c for c in all_c if str(c.id).startswith(clean_id) or str(c.id) == clean_id), None)
-                if target_case:
-                    if updates.get("urgency") in set(Urgency):
-                        target_case.urgency = Urgency(updates["urgency"])
-                    if updates.get("notes"):
-                        target_case.summary = updates["notes"]
-                    session.commit()
-                    ticket = {
-                        "id": str(target_case.id),
-                        "ticketNumber": f"#{str(target_case.id)[:4]}",
-                        "issueTitle": updates.get("issueTitle", "Water leak under kitchen sink"),
-                        "unitLabel": updates.get("unitLabel", "Keizersgracht 42-A"),
-                        "tenantName": "Vipin Tyagi",
-                        "tenantPhone": "+91 94569 16996",
-                        "category": updates.get("category", "plumbing"),
-                        "contractorName": updates.get("contractorName", "Kevin van Dijk"),
-                        "contractorTrade": updates.get("contractorTrade", "Plumber"),
-                        "contractorPhone": updates.get("contractorPhone", "+31 6 88 12 34 56"),
-                        "contractorEmail": updates.get("contractorEmail", "dispatch@chahalbouw.nl"),
-                        "urgency": target_case.urgency.value if target_case.urgency else "emergency",
-                        "status": "pending_approval",
-                        "slaRemaining": "45m SLA",
-                        "isOverdue": False,
-                        "poBudgetCap": updates.get("poBudgetCap", "€ 650"),
-                        "reportedAt": "Today",
-                        "notes": updates.get("notes", target_case.summary or ""),
-                        "contractorDraft": updates.get("contractorDraft", ""),
-                        "tenantDraft": updates.get("tenantDraft", ""),
-                    }
-                    DEFAULT_TICKETS.insert(0, ticket)
-            except Exception as e:
-                log.warning("maintenance.update_live_case_failed", error=str(e))
+            target_case = _find_case(session, company_id, clean_id)
+            if target_case is not None:
+                if updates.get("urgency") in set(Urgency):
+                    target_case.urgency = Urgency(updates["urgency"])
+                if updates.get("notes"):
+                    target_case.summary = updates["notes"]
+                unit = session.get(Unit, target_case.unit_id) if target_case.unit_id else None
+                tenant = session.get(Person, target_case.primary_person_id) if target_case.primary_person_id else None
+                session.commit()
+                ticket = {
+                    "id": str(target_case.id),
+                    "ticketNumber": f"#{str(target_case.id)[:4]}",
+                    "issueTitle": updates.get("issueTitle", target_case.summary or "Maintenance request"),
+                    "unitLabel": updates.get("unitLabel") or ((unit.address or unit.label) if unit else "Unknown unit"),
+                    "tenantName": tenant.display_name if tenant else "Unknown tenant",
+                    "tenantPhone": "",
+                    "category": updates.get("category", "plumbing"),
+                    "contractorName": updates.get("contractorName", ""),
+                    "contractorTrade": updates.get("contractorTrade", ""),
+                    "contractorPhone": updates.get("contractorPhone", ""),
+                    "contractorEmail": updates.get("contractorEmail", ""),
+                    "urgency": target_case.urgency.value if target_case.urgency else "normal",
+                    "status": "pending_approval",
+                    "slaRemaining": "",
+                    "isOverdue": False,
+                    "poBudgetCap": updates.get("poBudgetCap", ""),
+                    "reportedAt": "",
+                    "notes": updates.get("notes", target_case.summary or ""),
+                    "contractorDraft": updates.get("contractorDraft", ""),
+                    "tenantDraft": updates.get("tenantDraft", ""),
+                }
+                _tickets(company_id).insert(0, ticket)
 
     if not ticket:
         raise HTTPException(status_code=404, detail="Maintenance ticket not found")
 
-    # Apply updates
     for field_name, value in updates.items():
         if value is not None:
             ticket[field_name] = value
 
-    # Append audit log event
-    now_str = datetime.now(UTC).strftime("%H:%M")
-    DEFAULT_HISTORY_EVENTS_005.append(
+    history = _history(company_id)
+    history.append(
         {
-            "id": f"ev-{len(DEFAULT_HISTORY_EVENTS_005) + 1}",
-            "timestamp": f"Today {now_str}",
+            "id": f"ev-{len(history) + 1}",
+            "timestamp": f"Today {datetime.now(UTC).strftime('%H:%M')}",
             "category": "audit",
-            "actor": "Harjot Singh (Owner)",
+            "actor": "Owner",
             "actorType": "owner",
             "title": "Maintenance ticket details edited by owner",
-            "description": (
-                f"Updated ticket #{ticket['ticketNumber']}: Contractor set to {ticket['contractorName']} "
-                f"({ticket['contractorTrade']}), PO Cap: {ticket['poBudgetCap']}."
-            ),
+            "description": f"Updated ticket {ticket['ticketNumber']}.",
             "badge": "Edited by Owner",
         }
     )
@@ -525,12 +574,12 @@ def update_maintenance_ticket(
     return MaintenanceTicketItem(**ticket)
 
 
-def _seeded_ticket(ticket_id: str) -> dict[str, Any] | None:
+def _seeded_ticket(company_id: UUID, ticket_id: str) -> dict[str, Any] | None:
     clean_id = ticket_id.lstrip("#")
     return next(
         (
             t
-            for t in DEFAULT_TICKETS
+            for t in _tickets(company_id)
             if t["id"] in (ticket_id, clean_id)
             or str(t["ticketNumber"]).lstrip("#") == clean_id
             or t["ticketNumber"] == ticket_id
@@ -539,14 +588,19 @@ def _seeded_ticket(ticket_id: str) -> dict[str, Any] | None:
     )
 
 
-def _find_case(session: Session, clean_id: str) -> Case | None:
-    try:
-        case = session.get(Case, UUID(clean_id))
-    except ValueError:
-        case = None
-    if case is None:
-        case = next((c for c in session.query(Case).all() if str(c.id).startswith(clean_id)), None)
-    return case
+_ID_PREFIX = re.compile(r"[0-9a-f-]{4,36}")
+
+
+def _find_case(session: Session, company_id: UUID, clean_id: str) -> Case | None:
+    """A case of `company_id` by its full id or the short prefix the ticket number shows (`#1a2b`). A prefix that
+    matches more than one case names nothing: an approval must never land on a guess."""
+    ref = clean_id.lower()
+    if not _ID_PREFIX.fullmatch(ref):
+        return None
+    found = session.scalars(
+        select(Case).where(Case.company_id == company_id, cast(Case.id, String).startswith(ref)).limit(2)
+    ).all()
+    return found[0] if len(found) == 1 else None
 
 
 def _first_identity(session: Session, person_id: UUID, phone: bool) -> str | None:
@@ -603,15 +657,16 @@ def _record_dispatch_state(session: Session, case: Case, contractor_name: str, a
 
 
 def _approve_live_case(
-    engine: Engine, ticket_id: str, body: ApproveDispatchRequest, ctx: dict[str, str]
-) -> list[tuple[approvals.Decision, bool]]:
-    """Postgres first: case state, audit event and the canonical approval decisions, in one commit."""
-    decided: list[tuple[approvals.Decision, bool]] = []
+    engine: Engine, company_id: UUID, ticket_id: str, body: ApproveDispatchRequest, ctx: dict[str, str]
+) -> list[tuple[approvals.Decision, bool]] | None:
+    """Postgres first: case state, audit event and the canonical approval decisions, in one commit. None means the
+    signed-in company has no such case (nothing was changed); a database failure propagates instead of being reported
+    to the owner as an authorization."""
     with Session(engine) as session:
+        case = _find_case(session, company_id, ticket_id.lstrip("#"))
+        if case is None:
+            return None
         try:
-            case = _find_case(session, ticket_id.lstrip("#"))
-            if case is None:
-                return decided
             _case_context(session, case, ctx)
             now = datetime.now(UTC)
             _record_dispatch_state(session, case, ctx["contractorName"], now)
@@ -629,18 +684,16 @@ def _approve_live_case(
             raise HTTPException(status_code=409, detail="confirm_suspicious_required") from None
         except dashboard_decisions.NotEditableError:
             raise HTTPException(status_code=409, detail="approval_not_editable") from None
-        except Exception as db_err:
-            log.warning("maintenance.approve_db_failed", error=str(db_err))
-            return []
     return decided
 
 
-def _append_history(ticket: dict[str, Any], body: ApproveDispatchRequest, to_email: str) -> None:
+def _append_history(company_id: UUID, ticket: dict[str, Any], body: ApproveDispatchRequest, to_email: str) -> None:
+    history = _history(company_id)
     now_str = datetime.now(UTC).strftime("%H:%M")
     if body.dispatchContractor:
-        DEFAULT_HISTORY_EVENTS_005.append(
+        history.append(
             {
-                "id": f"ev-{len(DEFAULT_HISTORY_EVENTS_005) + 1}",
+                "id": f"ev-{len(history) + 1}",
                 "timestamp": f"Today {now_str}",
                 "category": "contractor_po",
                 "actor": "Harjot Singh (Owner)",
@@ -657,9 +710,9 @@ def _append_history(ticket: dict[str, Any], body: ApproveDispatchRequest, to_ema
             }
         )
     if body.notifyTenant:
-        DEFAULT_HISTORY_EVENTS_005.append(
+        history.append(
             {
-                "id": f"ev-{len(DEFAULT_HISTORY_EVENTS_005) + 1}",
+                "id": f"ev-{len(history) + 1}",
                 "timestamp": f"Today {now_str}",
                 "category": "message",
                 "actor": "EstateOS (Owner Approved)",
@@ -687,6 +740,7 @@ def approve_ticket_dispatch(
     ticket_id: str,
     engine: Annotated[Engine, Depends(get_engine)],
     client: Annotated[WorkflowClient, Depends(get_workflow_client)],
+    principal: Annotated[Principal, Depends(require_session)],
     body: ApproveDispatchRequest | None = None,
 ) -> ApproveDispatchResponse:
     """Records the owner's authorization, then enqueues each approved action for the sender (invariants 1, 5)."""
@@ -700,10 +754,13 @@ def approve_ticket_dispatch(
         "tenantName": "Vipin Tyagi",
         "tenantPhone": "+31 6 94 56 16 99",
     }
-    for decision, local in _approve_live_case(engine, ticket_id, body, ctx):
+    decided = _approve_live_case(engine, principal.company_id, ticket_id, body, ctx)
+    if decided is None:
+        raise HTTPException(status_code=404, detail="Maintenance ticket not found")
+    for decision, local in decided:
         if decision.kind == "execute":  # after commit; DBOS dedupes a repeated id
             enqueue.enqueue_execute(client, decision.action_id, decision.draft_version, local)
-    ticket = _seeded_ticket(ticket_id) or {
+    ticket = _seeded_ticket(principal.company_id, ticket_id) or {
         "id": ticket_id,
         **ctx,
         "poBudgetCap": "€ 650",
@@ -716,7 +773,9 @@ def approve_ticket_dispatch(
         ticket["contractorDraft"] = body.contractorMessage
     if body.tenantMessage:
         ticket["tenantDraft"] = body.tenantMessage
-    _append_history(ticket, body, ctx["contractorEmail"] or str(ticket.get("contractorEmail") or ""))
+    _append_history(
+        principal.company_id, ticket, body, ctx["contractorEmail"] or str(ticket.get("contractorEmail") or "")
+    )
     log.info("maintenance.work_order_approved", ticket_id=ticket_id, contractor=ticket["contractorName"])
     return ApproveDispatchResponse(
         status="authorized",

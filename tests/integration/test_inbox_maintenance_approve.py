@@ -183,3 +183,175 @@ def test_maintenance_approve_decides_pending_approvals_and_only_enqueues(world: 
     assert _workflow_ids(world) == [f"exec:{world.action}:2"]  # the owner's tenant text is draft version 2
     assert _statuses(world)[2] is CaseState.waiting_on_third_party
     assert _sends(world) == 0
+
+
+@dataclass
+class Rival:
+    """Another company's pending reply: the signed-in owner of `world` must not be able to touch it."""
+
+    company: UUID
+    case: UUID
+    action: UUID
+    approval: UUID
+
+
+@pytest.fixture
+def rival(world: World) -> Iterator[Rival]:
+    with Session(world.engine) as s:
+        company = Company(name="Rival Inbox")
+        s.add(company)
+        s.flush()
+        company_id = company.id
+        case_id, action_id, approval_id = _seed(s, company, suspicious=False)
+        s.commit()
+    yield Rival(company_id, case_id, action_id, approval_id)
+    with Session(world.engine) as s:
+        for model in (
+            OwnerFeed, ActionRevision, UnderstandingRow, CaseLink, MessageRow, RawEvent, Approval, Send, TaskRow,
+            ActionRow, CaseEvent, Case,
+        ):  # fmt: skip
+            s.query(model).filter(model.company_id == company_id).delete(synchronize_session=False)
+        s.query(Company).filter(Company.id == company_id).delete()
+        s.commit()
+
+
+def _rival_status(w: World, r: Rival) -> tuple[ApprovalStatus, ActionStatus]:
+    with Session(w.engine) as s:
+        approval, action = s.get(Approval, r.approval), s.get(ActionRow, r.action)
+        assert approval is not None
+        assert action is not None
+        return approval.status, action.status
+
+
+@pytest.mark.parametrize("ref", ["approval", "case", "action", "latest"])
+def test_an_owner_cannot_decide_another_companys_approval(world: World, rival: Rival, ref: str) -> None:
+    target = {"approval": rival.approval, "case": f"case-{rival.case}", "action": f"act-{rival.action}"}.get(ref, ref)
+    r = world.client.post(f"/api/inbox/approvals/{target}/decide", json={"choice": "d2"})
+    assert r.status_code == 404
+    assert _rival_status(world, rival) == (ApprovalStatus.pending, ActionStatus.pending_approval)
+    assert world.wf.calls == []
+
+
+def test_latest_never_picks_a_case_for_the_owner_either(world: World) -> None:
+    """Ambiguous refs are refused rather than guessed: only an approval, case or action id names a decision."""
+    r = world.client.post("/api/inbox/approvals/latest/decide", json={"choice": "d2"})
+    assert r.status_code == 404
+    assert _statuses(world)[0] is ApprovalStatus.pending
+
+
+def test_threads_and_stats_list_only_the_owners_company(world: World, rival: Rival) -> None:
+    threads = world.client.get("/api/inbox/threads")
+    assert threads.status_code == 200
+    body = threads.text
+    assert str(world.case) in body
+    assert str(rival.case) not in body
+    assert world.client.get("/api/inbox/stats").json()["allCount"] == threads.json()["total"] == 1
+
+
+def test_create_draft_does_not_quote_another_companys_thread(world: World, rival: Rival) -> None:
+    with Session(world.engine) as s:
+        other_thread = s.scalars(select(MessageRow.thread_ref).where(MessageRow.company_id == rival.company)).one()
+        s.query(MessageRow).filter(MessageRow.company_id == rival.company).update(
+            {"meta": {"message_id": "<secret@b>"}}
+        )
+        s.commit()
+    payload = {"to_email": "x@y.test", "subject": "Hello", "body": "b", "thread_id": other_thread}
+    r = world.client.post("/api/inbox/create-draft", json=payload)
+    assert r.status_code == 200
+    assert "Re%3A" not in r.json()["web_url"]  # the foreign message was not quoted
+
+
+# ---- maintenance tickets: the same isolation, plus honest answers when nothing matches
+
+
+def _urgency(w: World, case_id: UUID) -> Urgency:
+    with Session(w.engine) as s:
+        case = s.get(Case, case_id)
+        assert case is not None
+        return case.urgency
+
+
+@pytest.mark.parametrize("form", ["full", "prefix"])
+def test_an_owner_cannot_approve_another_companys_ticket(world: World, rival: Rival, form: str) -> None:
+    # UUIDv7 ids created together share their leading characters, so a "prefix" must reach the random part
+    ref = str(rival.case) if form == "full" else str(rival.case)[:24]
+    r = world.client.post(f"/api/maintenance/tickets/{ref}/approve", json={})
+    assert r.status_code == 404
+    assert _rival_status(world, rival) == (ApprovalStatus.pending, ActionStatus.pending_approval)
+    assert world.wf.calls == []
+
+
+def test_approving_a_ticket_that_does_not_exist_is_a_404_not_a_fake_authorization(world: World) -> None:
+    r = world.client.post(f"/api/maintenance/tickets/{uuid4()}/approve", json={})
+    assert r.status_code == 404
+    assert world.wf.calls == []
+
+
+def test_an_owner_cannot_edit_another_companys_ticket(world: World, rival: Rival) -> None:
+    r = world.client.patch(f"/api/maintenance/tickets/{rival.case}", json={"urgency": "emergency", "notes": "pwned"})
+    assert r.status_code == 404
+    assert _urgency(world, rival.case) is Urgency.high
+
+
+def test_the_ticket_list_and_history_never_cross_companies(world: World, rival: Rival) -> None:
+    listed = world.client.get("/api/maintenance/tickets")
+    assert listed.status_code == 200
+    assert str(rival.case) not in listed.text
+    assert world.client.get(f"/api/maintenance/tickets/{rival.case}/history").status_code == 404
+
+
+def test_the_history_of_an_approved_ticket_comes_from_its_persisted_events(world: World) -> None:
+    assert world.client.post(f"/api/maintenance/tickets/{world.case}/approve", json={}).status_code == 200
+    r = world.client.get(f"/api/maintenance/tickets/{world.case}/history")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ticketId"] == str(world.case)
+    assert body["totalEvents"] >= 1
+    assert any(e["category"] == "state_change" and "→" in (e["stateChange"] or "") for e in body["events"])
+
+
+def test_an_ambiguous_ticket_prefix_names_nothing(world: World) -> None:
+    from app.api.maintenance.routes import _find_case
+
+    with Session(world.engine) as s:
+        ids = (UUID("abcd0000-0000-4000-8000-000000000001"), UUID("abcd0000-0000-4000-8000-000000000002"))
+        a, b = (
+            Case(id=i, company_id=world.company, category=Category.maintenance, urgency=Urgency.low, summary="x")
+            for i in ids
+        )
+        s.add_all([a, b])
+        s.commit()
+        try:
+            assert _find_case(s, world.company, "abcd") is None
+            assert _find_case(s, world.company, "abcd0000-0000-4000-8000-000000000001") is not None
+            assert _find_case(s, world.company, "abcd%") is None  # LIKE wildcards are not ids
+        finally:
+            s.query(Case).filter(Case.id.in_([a.id, b.id])).delete(synchronize_session=False)
+            s.commit()
+
+
+# ---- safe decide: repeat clicks and a paused company (moved here from mock-based unit tests)
+
+
+def test_a_repeat_click_on_a_settled_approval_answers_already_decided_and_queues_nothing(world: World) -> None:
+    assert (
+        world.client.post(f"/api/inbox/approvals/{world.approval}/decide", json={"choice": "reject"}).status_code == 200
+    )
+    queued_after_first = len(world.wf.calls)
+    again = world.client.post(f"/api/inbox/approvals/{world.approval}/decide", json={"choice": "d1"})
+    assert again.status_code == 200
+    assert (again.json()["status"], again.json()["decision"]) == ("already_decided", "rejected")
+    assert len(world.wf.calls) == queued_after_first
+    assert _statuses(world)[0] is ApprovalStatus.rejected
+
+
+def test_a_paused_company_holds_the_approval_and_queues_nothing(world: World) -> None:
+    with Session(world.engine) as s:
+        s.query(Company).filter(Company.id == world.company).update({"paused": True})
+        s.commit()
+    r = world.client.post(f"/api/inbox/approvals/{world.approval}/decide", json={"choice": "d1"})
+    assert r.status_code == 200
+    assert (r.json()["status"], r.json()["decision"]) == ("held", "paused")
+    assert world.wf.calls == []
+    assert _statuses(world)[1] is ActionStatus.paused
+    assert _sends(world) == 0

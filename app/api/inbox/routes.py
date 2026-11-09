@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import WorkflowClient, get_engine, get_ingest_deps, get_storage, get_workflow_client
 from app.api.inbox import decide as inbox_decide
 from app.api.v1 import enqueue
-from app.api.v1.auth import require_session
+from app.api.v1.auth import Principal, require_session
 from app.contracts import ActionType, ButtonChoice, Channel, Direction
 from app.core.errors import NotFoundError
 from app.core.logging import get_logger
@@ -64,10 +64,10 @@ class ApprovalDecideRequest(BaseModel):
 DEFAULT_SEEDED_THREADS: list[dict[str, Any]] = []
 
 
-def _build_live_threads(session: Session) -> list[dict[str, Any]]:
-    """Builds rich frontend-compatible thread structures from real PostgreSQL records."""
+def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, Any]]:
+    """Builds rich frontend-compatible thread structures from the PostgreSQL records of `company_id` only."""
     live_threads: list[dict[str, Any]] = []
-    cases = session.query(Case).order_by(Case.opened_at.desc()).limit(20).all()
+    cases = session.query(Case).filter(Case.company_id == company_id).order_by(Case.opened_at.desc()).limit(20).all()
     for case in cases:
         links = session.query(CaseLink).filter(CaseLink.case_id == case.id).all()
         msg_ids = [link.message_id for link in links]
@@ -82,7 +82,11 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
         if thread_refs:
             unlinked_thread_msgs = (
                 session.query(MessageRow)
-                .filter(MessageRow.thread_ref.in_(thread_refs), ~MessageRow.id.in_(msg_ids))
+                .filter(
+                    MessageRow.company_id == company_id,
+                    MessageRow.thread_ref.in_(thread_refs),
+                    ~MessageRow.id.in_(msg_ids),
+                )
                 .all()
             )
             for um in unlinked_thread_msgs:
@@ -145,6 +149,7 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
             extra_contractor_msgs = (
                 session.query(MessageRow)
                 .filter(
+                    MessageRow.company_id == company_id,
                     ~MessageRow.id.in_(list(known_ids)),
                     MessageRow.meta.is_not(None),
                 )
@@ -590,10 +595,12 @@ def get_inbox_threads(
     channel: str = Query(default="all", description="all, gmail, whatsapp"),
     audience: str = Query(default="all", description="all, tenants, contractors"),
     category: str = Query(default="all", description="all, contractor_repairs, contractor_money"),
+    *,
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> dict[str, Any]:
     """Retrieves inbox threads enriched with agent-drafted proposals."""
     with Session(engine) as session:
-        live_threads = _build_live_threads(session)
+        live_threads = _build_live_threads(session, principal.company_id)
 
     # Merge live threads with default seeded threads (live threads first)
     threads = list(live_threads)
@@ -627,10 +634,13 @@ def get_inbox_threads(
     summary="Get Inbox Badge Statistics",
     description="Returns aggregate metric counters for the inbox navigation badge counts.",
 )
-def get_inbox_stats(engine: Annotated[Engine, Depends(get_engine)]) -> dict[str, int]:
+def get_inbox_stats(
+    engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
+) -> dict[str, int]:
     """Returns metric counters for inbox triage badges, counted from the same live threads the inbox lists."""
     with Session(engine) as session:
-        threads = _build_live_threads(session)
+        threads = _build_live_threads(session, principal.company_id)
     return {
         "needsYouCount": sum(t["status"] == "needs_approval" for t in threads),
         "allCount": len(threads),
@@ -650,11 +660,15 @@ def _reset_dummy_cursor(session: Session, account_id: UUID) -> None:
         session.commit()
 
 
-def sync_gmail_accounts(deps: IngestDeps) -> int:
-    """Pull every connected Gmail mailbox once; a failing mailbox is logged and skipped."""
+def sync_gmail_accounts(deps: IngestDeps, company_id: UUID | None = None) -> int:
+    """Pull the connected Gmail mailboxes once (one company's when `company_id` is given, else all, for the background
+    loop); a failing mailbox is logged and skipped."""
     synced_count = 0
     with Session(deps.engine) as session:
-        accounts = session.scalars(select(ChannelAccount).where(ChannelAccount.channel == Channel.gmail)).all()
+        query = select(ChannelAccount).where(ChannelAccount.channel == Channel.gmail)
+        if company_id is not None:
+            query = query.where(ChannelAccount.company_id == company_id)
+        accounts = session.scalars(query).all()
         for acct in accounts:
             try:
                 _reset_dummy_cursor(session, acct.id)
@@ -670,10 +684,13 @@ def sync_gmail_accounts(deps: IngestDeps) -> int:
     summary="Sync Inbound Communications",
     description="Pulls new Gmail messages directly from Google and runs the Gemini ingestion pipeline.",
 )
-def sync_inbox(deps: Annotated[IngestDeps, Depends(get_ingest_deps)]) -> dict[str, Any]:
-    """Triggers an on-demand sync from Gmail and enqueues newly arrived emails for AI processing."""
-    synced_count = sync_gmail_accounts(deps)
-    waiting = _waiting_for_processing(deps.engine)
+def sync_inbox(
+    deps: Annotated[IngestDeps, Depends(get_ingest_deps)],
+    principal: Annotated[Principal, Depends(require_session)],
+) -> dict[str, Any]:
+    """Triggers an on-demand sync of the signed-in owner's Gmail and enqueues new emails for AI processing."""
+    synced_count = sync_gmail_accounts(deps, principal.company_id)
+    waiting = _waiting_for_processing(deps.engine, principal.company_id)
     message = f"Synced {synced_count} new messages."
     if waiting:
         message += f" {waiting} already fetched, still being processed."
@@ -686,18 +703,23 @@ def sync_inbox(deps: Annotated[IngestDeps, Depends(get_ingest_deps)]) -> dict[st
     }
 
 
-def _waiting_for_processing(engine: Engine) -> int:
+def _waiting_for_processing(engine: Engine, company_id: UUID) -> int:
     """Gmail mail already fetched but not yet an inbox thread: raw events not stored, messages not yet understood."""
     with Session(engine) as session:
         unstored = session.scalar(
             select(func.count())
             .select_from(RawEvent)
-            .where(RawEvent.provider == Channel.gmail, RawEvent.status == RawEventStatus.pending)
+            .where(
+                RawEvent.company_id == company_id,
+                RawEvent.provider == Channel.gmail,
+                RawEvent.status == RawEventStatus.pending,
+            )
         )
         unread = session.scalar(
             select(func.count())
             .select_from(MessageRow)
             .where(
+                MessageRow.company_id == company_id,
                 MessageRow.channel == Channel.gmail,
                 MessageRow.direction == Direction.inbound,
                 MessageRow.pipeline_status == PipelineStatus.pending,
@@ -714,9 +736,11 @@ class CreateGmailDraftRequest(BaseModel):
     case_id: str | None = None
 
 
-def _quoted_message(session: Session, req: CreateGmailDraftRequest) -> MessageRow | None:
+def _quoted_message(session: Session, req: CreateGmailDraftRequest, company_id: UUID) -> MessageRow | None:
     if req.thread_id:
-        msg = session.scalars(select(MessageRow).where(MessageRow.thread_ref == req.thread_id)).first()
+        msg = session.scalars(
+            select(MessageRow).where(MessageRow.company_id == company_id, MessageRow.thread_ref == req.thread_id)
+        ).first()
         if msg is not None:
             return msg
     if not req.case_id:
@@ -726,7 +750,9 @@ def _quoted_message(session: Session, req: CreateGmailDraftRequest) -> MessageRo
     except ValueError:
         return None
     link = session.scalars(
-        select(CaseLink).where(CaseLink.case_id == case_id).order_by(CaseLink.created_at.desc())
+        select(CaseLink)
+        .where(CaseLink.company_id == company_id, CaseLink.case_id == case_id)
+        .order_by(CaseLink.created_at.desc())
     ).first()
     return session.get(MessageRow, link.message_id) if link else None
 
@@ -742,10 +768,11 @@ def _quoted_message(session: Session, req: CreateGmailDraftRequest) -> MessageRo
 def create_gmail_draft(
     req: CreateGmailDraftRequest,
     engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> dict[str, Any]:
     """Prefills a compose window ("Re: " when the quoted message has a Message-ID); no Gmail API call."""
     with Session(engine) as session:
-        msg = _quoted_message(session, req)
+        msg = _quoted_message(session, req, principal.company_id)
         in_reply_to = msg.meta.get("message_id") if msg is not None and isinstance(msg.meta, dict) else None
     sub = req.subject
     if in_reply_to and not sub.lower().startswith("re:"):
@@ -771,13 +798,17 @@ def decide_approval(
     req: ApprovalDecideRequest,
     engine: Annotated[Engine, Depends(get_engine)],
     client: Annotated[WorkflowClient, Depends(get_workflow_client)],
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> dict[str, Any]:
-    """Postgres first (decision, case state), then the send is enqueued by name (invariants 1 and 5)."""
+    """Postgres first (decision, case state), then the send is enqueued by name (invariants 1 and 5). Only the
+    signed-in owner's own company can be decided; a ref that names nothing of theirs is a 404."""
     choice = inbox_decide.CHOICES.get(req.choice, ButtonChoice.d1)
     now = datetime.now(UTC)
     try:
         with Session(engine) as session, session.begin():
-            target = inbox_decide.resolve(session, approval_id)
+            target = inbox_decide.resolve(session, approval_id, principal.company_id)
+            if target.approval is None or target.action is None:
+                raise NotFoundError("approval not found")
             early = inbox_decide.guard(session, target, now)
             if early is not None:
                 return early
@@ -814,22 +845,39 @@ def decide_approval(
     }
 
 
+# Types a browser can show without running anything from the sender. Everything else (html, svg, xml, scripts, unknown)
+# is downloaded as an opaque attachment: it came from an inbound email and must never execute on the API origin, which
+# holds the session cookie.
+INLINE_TYPES = frozenset({"application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp"})
+
+
 @router.get("/attachments/{attachment_id}", summary="Download or view an attachment file")
 def get_attachment_file(
     attachment_id: UUID,
     engine: Annotated[Engine, Depends(get_engine)],
     storage: Annotated[ObjectStorage, Depends(get_storage)],
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> Response:
     with Session(engine) as session:
-        att = session.get(AttachmentRow, attachment_id)
+        att = session.scalars(
+            select(AttachmentRow).where(
+                AttachmentRow.id == attachment_id, AttachmentRow.company_id == principal.company_id
+            )
+        ).first()
         if not att:
             raise HTTPException(status_code=404, detail="Attachment not found")
         try:
             content = storage.get(att.s3_key)
         except Exception as exc:
             raise HTTPException(status_code=404, detail="File not found in storage") from exc
+        mime = (att.mime_type or "").split(";")[0].strip().lower()
+        inline = mime in INLINE_TYPES
+        filename = urllib.parse.quote(att.filename or "attachment", safe="")
         return Response(
             content=content,
-            media_type=att.mime_type or "application/octet-stream",
-            headers={"Content-Disposition": f'inline; filename="{att.filename or "attachment"}"'},
+            media_type=mime if inline else "application/octet-stream",
+            headers={
+                "Content-Disposition": f"{'inline' if inline else 'attachment'}; filename*=UTF-8''{filename}",
+                "X-Content-Type-Options": "nosniff",
+            },
         )

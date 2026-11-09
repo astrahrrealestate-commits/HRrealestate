@@ -667,7 +667,7 @@ export function InboxConversationView({
           onClose={() => setIsTicketModalOpen(false)}
           onSave={async (updated) => {
             try {
-              await updateMaintenanceTicket(updated.ticketNumber, updated);
+              await updateMaintenanceTicket(updated.id || updated.ticketNumber, updated);
             } catch {
               // Graceful
             }

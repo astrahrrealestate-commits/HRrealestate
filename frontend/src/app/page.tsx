@@ -144,7 +144,7 @@ export default function TodayPage() {
 
   const handleSaveTicket = async (updatedTicket: MaintenanceTicket) => {
     try {
-      await updateMaintenanceTicket(updatedTicket.ticketNumber, updatedTicket);
+      await updateMaintenanceTicket(updatedTicket.id || updatedTicket.ticketNumber, updatedTicket);
       setMaintenanceTickets((prev) =>
         prev.map((t) => (t.ticketNumber === updatedTicket.ticketNumber ? updatedTicket : t))
       );
@@ -173,7 +173,7 @@ export default function TodayPage() {
     setContractorDispatchedMap((prev) => ({ ...prev, [targetKey]: true }));
     showToast(`Work order dispatched to ${ticket.contractorName} (${ticket.poBudgetCap} cap).`);
     try {
-      await approveMaintenanceTicket(ticket.ticketNumber, {
+      await approveMaintenanceTicket(ticket.id || ticket.ticketNumber, {
         dispatchContractor: true,
         notifyTenant: false,
         poBudgetCap: ticket.poBudgetCap,
@@ -193,7 +193,7 @@ export default function TodayPage() {
     setTenantReplySentMap((prev) => ({ ...prev, [targetKey]: true }));
     showToast(`Ticket ${ticket.ticketNumber}: Dispatched to ${ticket.contractorName} & replied via ${channel === "whatsapp" ? "WhatsApp" : "Email"}.`);
     try {
-      await approveMaintenanceTicket(ticket.ticketNumber, {
+      await approveMaintenanceTicket(ticket.id || ticket.ticketNumber, {
         dispatchContractor: true,
         notifyTenant: true,
         poBudgetCap: ticket.poBudgetCap,
@@ -340,7 +340,7 @@ export default function TodayPage() {
         <div className="flex-1 flex flex-row overflow-hidden min-h-0 w-full relative">
           <div className="flex-1 m-0 mr-[10px] mb-[10px] bg-white rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden relative">
             <main className="flex-1 w-full max-w-[960px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-12 space-y-7 overflow-y-auto">
-          
+
           {/* Top Briefing Header with Daily / Weekly Switcher */}
           <div className="space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1256,7 +1256,7 @@ export default function TodayPage() {
           {(activeSection === "all" || activeSection === "overview") && (
           <section id="section-overview" className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] overflow-hidden">
             <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-[var(--line)]">
-              
+
               {/* Column 1: Open rent */}
               <div className="p-5 sm:p-6 flex flex-col justify-between space-y-4">
                 <div>

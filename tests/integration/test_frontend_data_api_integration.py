@@ -142,15 +142,10 @@ def test_maintenance_ticket_full_history(api_client: TestClient) -> None:
     assert "type" in event
 
 
-def test_maintenance_ticket_approve(api_client: TestClient) -> None:
-    """Verifies POST /api/maintenance/tickets/{ticket_id}/approve returns confirmation."""
-    payload = {"approval_note": "Approved by Harjot Singh"}
-    res = api_client.post("/api/maintenance/tickets/005/approve", json=payload)
-    assert res.status_code == 200
-    data = res.json()  # ApproveDispatchResponse; the SPA adds ticketId and its own message (api.ts)
-    assert data["status"] == "authorized"
-    assert data["ticketNumber"] == "#005"
-    assert data["contractorDispatched"] is True
+def test_maintenance_ticket_approve_of_an_unknown_ticket_is_not_found(api_client: TestClient) -> None:
+    """Approving a ticket the company does not have is a 404, never a made-up authorization."""
+    res = api_client.post("/api/maintenance/tickets/005/approve", json={"approval_note": "Approved by Harjot Singh"})
+    assert res.status_code == 404
 
 
 # ============================================================================
