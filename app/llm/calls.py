@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import UserContent
-from pydantic_ai.settings import ModelSettings
+from pydantic_ai.settings import ModelSettings, ThinkingLevel
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
@@ -56,6 +56,9 @@ class AgentSpec[T]:
     gemini_prompted: bool = (
         False  # schema too nested for Gemini's tool mode: prompt for JSON instead (runtime.output_for)
     )
+    # Reasoning effort. Gemini 2.5 thinks by default and bills those hidden tokens as output (a 500-token draft took
+    # 4,750 tokens and 26 s), so agents on the inbox's critical path turn it down. None keeps the provider default.
+    thinking: ThinkingLevel | None = None
 
 
 def is_transient(exc: BaseException) -> bool:
@@ -103,6 +106,13 @@ def _row(
     )  # fmt: skip
 
 
+def model_settings(settings: Settings, spec: AgentSpec[Any]) -> ModelSettings:
+    chosen = ModelSettings(timeout=settings.llm_timeout_sec, max_tokens=settings.llm_max_output_tokens)
+    if spec.thinking is not None:
+        chosen["thinking"] = spec.thinking
+    return chosen
+
+
 def run_agent[T: BaseModel](
     engine: Engine, settings: Settings, spec: AgentSpec[T], user_prompt: str | Sequence[UserContent], ctx: CallContext
 ) -> CallResult[T]:
@@ -119,7 +129,7 @@ def run_agent[T: BaseModel](
     try:
         result = agent.run_sync(
             user_prompt,
-            model_settings=ModelSettings(timeout=settings.llm_timeout_sec, max_tokens=settings.llm_max_output_tokens),
+            model_settings=model_settings(settings, spec),
         )
         output = spec.finalize(result.output, loaded)
     except Exception as exc:

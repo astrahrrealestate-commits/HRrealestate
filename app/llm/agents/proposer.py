@@ -75,6 +75,7 @@ PROPOSER = AgentSpec(
     output_type=Proposal,
     finalize=_unchanged,
     gemini_prompted=True,
+    thinking="minimal",
 )
 PROPOSER_DOCS = AgentSpec(  # an inbound-message proposal with passages of the case's own documents in view
     name="proposer",
@@ -82,6 +83,7 @@ PROPOSER_DOCS = AgentSpec(  # an inbound-message proposal with passages of the c
     output_type=Proposal,
     finalize=_unchanged,
     gemini_prompted=True,
+    thinking="minimal",
 )
 PROPOSER_GUIDED = AgentSpec(
     name="proposer",
@@ -89,6 +91,7 @@ PROPOSER_GUIDED = AgentSpec(
     output_type=Proposal,
     finalize=_unchanged,
     gemini_prompted=True,
+    thinking="minimal",
 )
 PROPOSER_PERSONA = AgentSpec(
     name="proposer",
@@ -96,6 +99,7 @@ PROPOSER_PERSONA = AgentSpec(
     output_type=Proposal,
     finalize=_unchanged,
     gemini_prompted=True,
+    thinking="minimal",
 )
 MAX_GUIDANCE = 400  # the planner's `text` limit
 MAX_CURRENT_VARIANT = 1500

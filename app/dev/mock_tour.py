@@ -19,13 +19,14 @@ import httpx
 from sqlalchemy import Engine, Select, func, select, update
 from sqlalchemy.orm import Session
 
+from app.channels import registry
 from app.contracts import ActionType, InteractiveChannel
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import ApprovalStatus, DocumentStatus, PipelineStatus
 from app.db.models import ActionRow, Approval, AttachmentRow, DocumentRow, MessageRow, ModelCall, OwnerAccount
 from app.dev import mock_content as mc
-from app.dev import mock_direct, mock_report
+from app.dev import mock_direct, mock_report, real_mail
 from app.dev.demo_dashboard import OWNER_EMAIL, WRITE, login, skip_reason
 from app.dev.mock_portfolio import seed_portfolio
 from app.dev.seed import seed_dev_tenant
@@ -98,15 +99,12 @@ def tenant_stage(sim: Simulator) -> int:
     return 4
 
 
-def email_stage(sim: Simulator, settings: Settings) -> int:
-    """Sanne also writes by email: a second channel with its own thread, the same person and case."""
-    if settings.gmail_provider != "fake":
-        log.warning("sim.tour.email_skipped", reason="GMAIL_PROVIDER is not fake")
+def email_stage(sim: Simulator) -> int:
+    """The same people also write by email, into the real connected mailbox (skipped when Google is not connected)."""
+    if registry.owner_login_email() is None:
+        log.warning("sim.tour.email_skipped", reason="no Google login; connect Google in the dashboard")
         return 0
-    sender = f"Sanne de Vries <{mc.EMAIL['Sanne']}>"
-    sim.gmail(sender, "Verwarming doet het niet", "De cv-ketel geeft foutcode E5 en de radiatoren blijven koud.")
-    sim.gmail(sender, "Lekkage badkamer", "Er komt water door het plafond van de badkamer, zie ook mijn WhatsApp.")
-    return 2
+    return real_mail.deliver(sim.api)
 
 
 def document_stage(sim: Simulator) -> int:
@@ -212,12 +210,34 @@ def propose_visit(api: httpx.Client) -> str:
     return f"http {api.post('/api/calendar/propose', json=body, headers=WRITE).status_code}"
 
 
+def _company(engine: Engine) -> UUID:
+    """The dev company; with Google connected its mailbox is the real one, so no fake mailbox account is added."""
+    mailbox = registry.owner_login_email()
+    return (seed_dev_tenant(engine, mailbox=mailbox) if mailbox else seed_dev_tenant(engine)).company_id
+
+
+def run_mock_mail(sim: Simulator, engine: Engine, *, timeout: float) -> int:
+    """`mock-mail`: mock directory + mock mails in the real mailbox, synced and run through the pipeline."""
+    company_id = _company(engine)
+    seed_portfolio(engine, company_id)
+    since = datetime.now(UTC)
+    added = real_mail.deliver(sim.api)
+    settle(engine, company_id, since, messages=added, files=0, timeout=timeout)
+    log.info("sim.mock_mail.done", added=added)
+    print_report(mock_report.render(*_report(engine, company_id, since)))
+    return 0
+
+
+def _report(engine: Engine, company_id: UUID, since: datetime) -> tuple[Any, Any]:
+    return mock_report.model_calls(engine, company_id, since), mock_report.row_counts(engine, company_id, since)
+
+
 def run_tour(sim: Simulator, engine: Engine, settings: Settings, *, timeout: float) -> int:
     reason = skip_reason(settings)
     if reason:
         log.error("sim.tour.cannot_run", reason=reason)
         return 1
-    company_id = seed_dev_tenant(engine).company_id
+    company_id = _company(engine)
     added = seed_portfolio(engine, company_id)
     since = datetime.now(UTC)
     previous = switch_to_dashboard(engine, company_id)
@@ -226,9 +246,7 @@ def run_tour(sim: Simulator, engine: Engine, settings: Settings, *, timeout: flo
     finally:
         restore_owners(engine, company_id, previous)
     log.info("sim.tour.done", people_added=added, **status)
-    calls = mock_report.model_calls(engine, company_id, since)
-    counts = mock_report.row_counts(engine, company_id, since)
-    print_report(mock_report.render(calls, counts))
+    print_report(mock_report.render(*_report(engine, company_id, since)))
     return 0
 
 
@@ -249,7 +267,7 @@ def _tour(
     sim: Simulator, engine: Engine, settings: Settings, company_id: UUID, since: datetime, timeout: float
 ) -> dict[str, str]:
     login(sim.api)
-    sent = tenant_stage(sim) + email_stage(sim, settings)
+    sent = tenant_stage(sim) + email_stage(sim)
     settle(engine, company_id, since, messages=sent, files=0, timeout=timeout)
     files = document_stage(sim)
     settle(engine, company_id, since, messages=sent + files, files=files, timeout=timeout)

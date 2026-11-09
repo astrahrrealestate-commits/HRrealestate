@@ -23,7 +23,7 @@ from app.contracts import ActionType, ButtonChoice, Channel, Direction
 from app.core.errors import NotFoundError
 from app.core.logging import get_logger
 from app.core.settings import get_settings
-from app.db.enums import ApprovalStatus, LinkMethod, PersonKind
+from app.db.enums import ApprovalStatus, LinkMethod, PersonKind, PipelineStatus, RawEventStatus
 from app.db.models import (
     ActionRow,
     Approval,
@@ -35,6 +35,7 @@ from app.db.models import (
     GmailSyncState,
     MessageRow,
     Person,
+    RawEvent,
     Send,
     UnderstandingRow,
     Unit,
@@ -557,7 +558,7 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
                     "problem": und_intent,
                     "unit": unit_label,
                     "priority": (case.urgency.value if case.urgency else "normal").upper(),
-                    "suggestedContractor": "Kevin van Dijk (Plumber)" if case.category.value == "maintenance" else None,
+                    "suggestedContractor": None,
                     "customFacts": custom_facts,
                 },
                 "activeChannel": channel_str,
@@ -626,21 +627,17 @@ def get_inbox_threads(
     description="Returns aggregate metric counters for the inbox navigation badge counts.",
 )
 def get_inbox_stats(engine: Annotated[Engine, Depends(get_engine)]) -> dict[str, int]:
-    """Returns metric counters for inbox triage badges."""
+    """Returns metric counters for inbox triage badges, counted from the same live threads the inbox lists."""
     with Session(engine) as session:
-        pending_count = (
-            session.query(func.count(Approval.id)).filter(Approval.status == ApprovalStatus.pending).scalar() or 0
-        )
-        total_cases = session.query(func.count(Case.id)).scalar() or 0
-
+        threads = _build_live_threads(session)
     return {
-        "needsYouCount": max(pending_count, 6),
-        "allCount": max(total_cases, 6),
-        "tenantsCount": 4,
-        "contractorsCount": 2,
-        "urgentCount": 2,
-        "whatsappCount": 4,
-        "gmailCount": 2,
+        "needsYouCount": sum(t["status"] == "needs_approval" for t in threads),
+        "allCount": len(threads),
+        "tenantsCount": sum(t["audience"] == "tenants" for t in threads),
+        "contractorsCount": sum(t["audience"] == "contractors" for t in threads),
+        "urgentCount": sum(t["urgency"] in ("high", "emergency") for t in threads),
+        "whatsappCount": sum(t["channel"] == "whatsapp" for t in threads),
+        "gmailCount": sum(t["channel"] == "gmail" for t in threads),
     }
 
 
@@ -675,12 +672,37 @@ def sync_gmail_accounts(deps: IngestDeps) -> int:
 def sync_inbox(deps: Annotated[IngestDeps, Depends(get_ingest_deps)]) -> dict[str, Any]:
     """Triggers an on-demand sync from Gmail and enqueues newly arrived emails for AI processing."""
     synced_count = sync_gmail_accounts(deps)
+    waiting = _waiting_for_processing(deps.engine)
+    message = f"Synced {synced_count} new messages."
+    if waiting:
+        message += f" {waiting} already fetched, still being processed."
     return {
         "synced": True,
         "newMessages": synced_count,
-        "message": f"Successfully checked Gmail inbox. Synced {synced_count} new messages.",
+        "processing": waiting,
+        "message": message,
         "syncedAt": datetime.now(UTC).isoformat(),
     }
+
+
+def _waiting_for_processing(engine: Engine) -> int:
+    """Gmail mail already fetched but not yet an inbox thread: raw events not stored, messages not yet understood."""
+    with Session(engine) as session:
+        unstored = session.scalar(
+            select(func.count())
+            .select_from(RawEvent)
+            .where(RawEvent.provider == Channel.gmail, RawEvent.status == RawEventStatus.pending)
+        )
+        unread = session.scalar(
+            select(func.count())
+            .select_from(MessageRow)
+            .where(
+                MessageRow.channel == Channel.gmail,
+                MessageRow.direction == Direction.inbound,
+                MessageRow.pipeline_status == PipelineStatus.pending,
+            )
+        )
+    return (unstored or 0) + (unread or 0)
 
 
 class CreateGmailDraftRequest(BaseModel):

@@ -28,7 +28,13 @@ PEOPLE = (
     MockPerson(
         "Sanne de Vries", "tenant", "+31655500101", unit="Keizersgracht 42-A", email="sanne.devries@example.test"
     ),
-    MockPerson("Mohammed El Amrani", "tenant", "+31655500102", unit="Prinsengracht 118-B"),
+    MockPerson(
+        "Mohammed El Amrani",
+        "tenant",
+        "+31655500102",
+        unit="Prinsengracht 118-B",
+        email="mohammed.elamrani@example.test",
+    ),
     MockPerson("Lotte Jansen", "tenant", "+31655500103", unit="Lijnbaansgracht 9-C"),
     MockPerson(
         "Pieter Bakker Loodgieters",
@@ -37,7 +43,9 @@ PEOPLE = (
         trade="loodgieter",
         email="info@bakker-loodgieters.example.test",
     ),
-    MockPerson("Elektro Visser", "contractor", "+31655500202", trade="elektricien"),
+    MockPerson(
+        "Elektro Visser", "contractor", "+31655500202", trade="elektricien", email="info@elektro-visser.example.test"
+    ),
 )
 EMAIL = {p.name.split()[0]: p.email for p in PEOPLE if p.email}
 PHONE = {p.name.split()[0]: p.phone for p in PEOPLE}

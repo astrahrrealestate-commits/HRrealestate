@@ -62,6 +62,7 @@ SCHEDULES: list[ScheduleInput] = [
         "schedule": "0 3 * * *",
         "cron_timezone": "Europe/Amsterdam",
     },
+    {"schedule_name": "gmail.poll", "workflow_fn": ingest.gmail_poll, "schedule": "* * * * *"},
     {"schedule_name": "gmail.backfill", "workflow_fn": ingest.gmail_backfill, "schedule": "17 * * * *"},
     {"schedule_name": "ingest.requeue", "workflow_fn": ingest.requeue_failed, "schedule": "41 * * * *"},
     {"schedule_name": "pipeline.requeue", "workflow_fn": pipeline.requeue_failed, "schedule": "47 * * * *"},

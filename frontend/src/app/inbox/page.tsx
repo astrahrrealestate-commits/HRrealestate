@@ -20,7 +20,6 @@ import { InboxThreadList } from "@/components/inbox/InboxThreadList";
 
 import { InboxConversationView } from "@/components/inbox/InboxConversationView";
 
-import { MOCK_INBOX_THREADS } from "@/data/inboxMockData";
 
 import { InboxThread } from "@/types/inbox";
 
@@ -124,7 +123,7 @@ function InboxContent() {
 
 
 
-  const [threads, setThreads] = useState<InboxThread[]>(MOCK_INBOX_THREADS);
+  const [threads, setThreads] = useState<InboxThread[]>([]);
 
   const [activeTab, setActiveTab] = useState<string>("needs_you");
 
@@ -312,6 +311,10 @@ function InboxContent() {
 
     const pollInterval = setInterval(fetchThreads, 8000);
 
+    // No Pub/Sub push on a local stack: pull new Gmail mail on open and every 15 s (the backend also polls every minute).
+    void syncGmailInbox();
+    const syncInterval = setInterval(() => void syncGmailInbox(), 15000);
+
 
 
     return () => {
@@ -319,6 +322,8 @@ function InboxContent() {
       isMounted = false;
 
       clearInterval(pollInterval);
+
+      clearInterval(syncInterval);
 
     };
 
@@ -1193,4 +1198,3 @@ export default function InboxPage() {
   );
 
 }
-

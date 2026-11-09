@@ -11,7 +11,7 @@ NEXT_REV = $(shell printf '%04d' $$(( $$(ls app/db/alembic/versions/[0-9]*.py 2>
 .PHONY: help all start doctor env seed stop reset requirements frontend frontend-install frontend-build \
         setup gmail-consent up up-db down logs ps migrate migration migrate-roundtrip alembic-check \
         fmt lint type boundaries test-unit test-int test cov quick check smoke audit eval \
-        workflows harness-test clean sim-demo sim-agents rag-eval live-check gmail-pull pending approve context-report
+        workflows harness-test clean sim-demo sim-agents mock-mail rag-eval live-check gmail-pull pending approve context-report
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -135,6 +135,9 @@ sim-agents: up ## mock portfolio + one scripted day: every agent runs, dashboard
 
 gmail-pull: ## real Gmail test: sync NEW mail now, no Pub/Sub (backfill=1 also reads the last day): make gmail-pull mailbox=you@gmail.com
 	$(COMPOSE) exec -T api python -m app.dev.simulate gmail-pull --mailbox "$(mailbox)" $(if $(backfill),--backfill)
+
+mock-mail: ## mock tenant/contractor mail into the REAL connected Gmail, synced and processed (Google must be connected)
+	$(COMPOSE) exec -T api python -m app.dev.simulate mock-mail
 
 pending: ## pending approvals (dev company) with the tap to approve each
 	$(COMPOSE) exec -T api python -m app.dev.simulate pending
