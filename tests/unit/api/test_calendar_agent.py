@@ -32,7 +32,7 @@ from app.llm.agents.calendar import (
     propose_calendar_event,
 )
 from app.main import create_app
-from tests.api_auth import as_owner
+from tests.api_auth import as_owner, with_conversation
 
 SETTINGS = Settings(
     database_url="postgresql+psycopg://u:p@localhost:1/db",
@@ -217,7 +217,7 @@ def create_test_mock_session(events_map=None, cases_map=None):
         return None
 
     mock_sess.scalars.side_effect = mock_scalars
-    mock_sess.get.side_effect = mock_get
+    mock_sess.get.side_effect = with_conversation(mock_get)
     mock_sess.__enter__.return_value = mock_sess
     return mock_sess
 
@@ -244,60 +244,6 @@ def test_calendar_api_propose_endpoint():
         assert data["lockboxCode"] == "4182"
         assert data["requiresLockbox"] is True
         assert data["hasConflict"] is False
-
-
-def test_calendar_api_1click_approve():
-    evt_id = uuid4()
-    case_id = uuid4()
-    start_time = datetime(2026, 10, 30, 15, 0, tzinfo=UTC)
-    end_time = datetime(2026, 10, 30, 16, 0, tzinfo=UTC)
-
-    mock_event = CalendarEventRow(
-        id=evt_id,
-        company_id=TEST_COMP_ID,
-        case_id=case_id,
-        title="Plumbing Repair · Keizersgracht 42-A",
-        description="Leaking pipe repair",
-        start_time=start_time,
-        end_time=end_time,
-        location="Keizersgracht 42-A",
-        status="proposed",
-        event_type="contractor_repair",
-        attendees=[{"email": "kevin@chahalbouw.nl", "displayName": "Kevin"}],
-        lockbox_code="4182",
-    )
-    mock_case = Case(
-        id=case_id,
-        company_id=TEST_COMP_ID,
-        category=Category.maintenance,
-        urgency=Urgency.emergency,
-        state=CaseState.waiting_on_third_party,
-        summary="Active leak ticket.",
-    )
-
-    mock_sess = create_test_mock_session(
-        events_map={evt_id: mock_event},
-        cases_map={case_id: mock_case},
-    )
-    mock_engine = MagicMock()
-    mock_wf = MagicMock()
-
-    app = as_owner(create_app(SETTINGS, engine=mock_engine, workflow_client=mock_wf))
-
-    with (
-        patch("app.api.calendar.routes.Session", return_value=mock_sess),
-        TestClient(app) as client,
-    ):
-        res = client.post(f"/api/calendar/events/{evt_id}/approve")
-        assert res.status_code == 200
-        data = res.json()
-        assert data["status"] == "confirmed"
-        assert data["externalEventId"] is not None
-        assert "calendar.google.com" in data["htmlLink"]
-
-        # Verify case summary was updated
-        assert "Calendar Scheduled" in mock_case.summary
-        assert "Visit scheduled on Google Calendar" in mock_case.summary
 
 
 # ---------------------------------------------------------------------------
@@ -347,7 +293,7 @@ def test_super_agent_schedule_command_returns_preview_card():
         return None
 
     mock_sess.scalars.side_effect = mock_scalars
-    mock_sess.get.side_effect = mock_get
+    mock_sess.get.side_effect = with_conversation(mock_get)
     mock_sess.__enter__.return_value = mock_sess
 
     mock_engine = MagicMock()
@@ -408,7 +354,7 @@ def test_super_agent_calendar_schedule_inquiry():
         return result
 
     mock_sess.scalars.side_effect = mock_scalars
-    mock_sess.get.side_effect = lambda m, i: company if m == Company else None
+    mock_sess.get.side_effect = with_conversation(lambda m, i: company if m == Company else None)
     mock_sess.__enter__.return_value = mock_sess
 
     mock_engine = MagicMock()

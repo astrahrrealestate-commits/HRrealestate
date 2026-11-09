@@ -14,11 +14,11 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
-from app.api.v1.auth import require_session
+from app.api.v1.auth import Principal, require_session
 from app.channels.calendar import CalendarAttendee, CalendarEventCreate, get_calendar_client
 from app.core.logging import get_logger
 from app.db.enums import CaseEventKind
-from app.db.models import Case, CaseEvent, Company
+from app.db.models import Case, CaseEvent, Unit
 from app.db.models.calendar import CalendarEventRow
 from app.llm.agents.calendar import propose_calendar_event
 
@@ -68,15 +68,38 @@ class ProposeSlotRequest(BaseModel):
     caseId: str | None = None
 
 
+def _event_response(r: CalendarEventRow, html_link: str | None = None) -> CalendarEventResponse:
+    return CalendarEventResponse(
+        id=str(r.id),
+        caseId=str(r.case_id) if r.case_id else None,
+        unitId=str(r.unit_id) if r.unit_id else None,
+        title=r.title,
+        description=r.description,
+        startTime=r.start_time.isoformat(),
+        endTime=r.end_time.isoformat(),
+        status=r.status,
+        eventType=r.event_type,
+        externalEventId=r.external_event_id,
+        location=r.location,
+        attendees=r.attendees or [],
+        lockboxCode=r.lockbox_code,
+        createdAt=r.created_at.isoformat() if r.created_at else datetime.now(UTC).isoformat(),
+        confirmedAt=r.confirmed_at.isoformat() if r.confirmed_at else None,
+        htmlLink=html_link
+        or (f"https://calendar.google.com/calendar/event?eid={r.external_event_id}" if r.external_event_id else None),
+    )
+
+
 @router.get("/events", response_model=dict[str, Any])
 def list_calendar_events(
     engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
     status: str | None = Query(default=None, description="proposed, confirmed, cancelled"),
     case_id: str | None = Query(default=None),
 ) -> dict[str, Any]:
-    """List calendar events from the database."""
+    """List the signed-in company's calendar events."""
     with Session(engine) as session:
-        query = select(CalendarEventRow)
+        query = select(CalendarEventRow).where(CalendarEventRow.company_id == principal.company_id)
         if status:
             query = query.where(CalendarEventRow.status == status)
         if case_id:
@@ -89,30 +112,7 @@ def list_calendar_events(
         query = query.order_by(CalendarEventRow.start_time.asc())
         rows = session.scalars(query).all()
 
-        events_out = []
-        for r in rows:
-            events_out.append(
-                CalendarEventResponse(
-                    id=str(r.id),
-                    caseId=str(r.case_id) if r.case_id else None,
-                    unitId=str(r.unit_id) if r.unit_id else None,
-                    title=r.title,
-                    description=r.description,
-                    startTime=r.start_time.isoformat(),
-                    endTime=r.end_time.isoformat(),
-                    status=r.status,
-                    eventType=r.event_type,
-                    externalEventId=r.external_event_id,
-                    location=r.location,
-                    attendees=r.attendees or [],
-                    lockboxCode=r.lockbox_code,
-                    createdAt=r.created_at.isoformat() if r.created_at else datetime.now(UTC).isoformat(),
-                    confirmedAt=r.confirmed_at.isoformat() if r.confirmed_at else None,
-                    htmlLink=f"https://calendar.google.com/calendar/event?eid={r.external_event_id}"
-                    if r.external_event_id
-                    else None,
-                )
-            )
+        events_out = [_event_response(r) for r in rows]
 
     return {"events": events_out, "total": len(events_out)}
 
@@ -153,20 +153,47 @@ def propose_slot(
     }
 
 
+def _parse_id(value: str, prefix: str) -> UUID:
+    try:
+        return UUID(value.removeprefix(prefix))
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"invalid id {value!r}") from None
+
+
+def _parse_time(value: str) -> datetime:
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"invalid time {value!r}"
+        ) from None
+
+
 @router.post("/events", response_model=CalendarEventResponse)
 def create_event(
     req: CreateCalendarEventRequest,
     engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> CalendarEventResponse:
-    """Create a proposed or scheduled calendar event."""
-    st = datetime.fromisoformat(req.startTime)
-    et = datetime.fromisoformat(req.endTime)
-    case_uuid = UUID(req.caseId.replace("case-", "")) if req.caseId else None
-    unit_uuid = UUID(req.unitId.replace("unit-", "")) if req.unitId else None
+    """Create a proposed or scheduled calendar event for the signed-in company; the case and unit it names must be
+    that company's own."""
+    st = _parse_time(req.startTime)
+    et = _parse_time(req.endTime)
+    case_uuid = _parse_id(req.caseId, "case-") if req.caseId else None
+    unit_uuid = _parse_id(req.unitId, "unit-") if req.unitId else None
+    comp_id = principal.company_id
 
     with Session(engine) as session, session.begin():
-        company = session.scalars(select(Company)).first()
-        comp_id = company.id if company else UUID("00000000-0000-0000-0000-000000000001")
+        if (
+            case_uuid is not None
+            and session.scalar(select(Case.id).where(Case.id == case_uuid, Case.company_id == comp_id)) is None
+        ):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="case not found")
+        if (
+            unit_uuid is not None
+            and session.scalar(select(Unit.id).where(Unit.id == unit_uuid, Unit.company_id == comp_id)) is None
+        ):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="unit not found")
 
         attendees_data = []
         if req.contractorEmail:
@@ -189,21 +216,7 @@ def create_event(
         session.add(row)
         session.flush()
 
-        res = CalendarEventResponse(
-            id=str(row.id),
-            caseId=str(row.case_id) if row.case_id else None,
-            unitId=str(row.unit_id) if row.unit_id else None,
-            title=row.title,
-            description=row.description,
-            startTime=row.start_time.isoformat(),
-            endTime=row.end_time.isoformat(),
-            status=row.status,
-            eventType=row.event_type,
-            location=row.location,
-            attendees=row.attendees or [],
-            lockboxCode=row.lockbox_code,
-            createdAt=row.created_at.isoformat(),
-        )
+        res = _event_response(row)
     return res
 
 
@@ -211,16 +224,26 @@ def create_event(
 def approve_calendar_event(
     event_id: str,
     engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> CalendarEventResponse:
-    """Execute Harjot's 1-click approval: confirms event, pushes to Google Calendar, and updates case summary."""
-    client = get_calendar_client()
-    clean_id = event_id.replace("evt-", "").replace("cal-", "")
-    target_uuid = UUID(clean_id)
+    """Execute Harjot's 1-click approval: confirms event, pushes to Google Calendar, and updates case summary.
+    Only the signed-in company's events; an event that is already confirmed is returned as it is (one Google event per
+    approval, however often the button is clicked) and a cancelled one is refused."""
+    target_uuid = _parse_id(event_id.removeprefix("evt-").removeprefix("cal-"), "")
 
     with Session(engine) as session, session.begin():
-        evt = session.get(CalendarEventRow, target_uuid)
+        evt = session.scalars(
+            select(CalendarEventRow).where(
+                CalendarEventRow.id == target_uuid, CalendarEventRow.company_id == principal.company_id
+            )
+        ).first()
         if not evt:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Calendar event {event_id} not found")
+        if evt.status == "cancelled":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="event is cancelled")
+        if evt.status == "confirmed":
+            return _event_response(evt)
+        client = get_calendar_client()
 
         # 1. Push to Google Calendar via client protocol
         attendees = [
@@ -272,21 +295,6 @@ def approve_calendar_event(
                     )
                 )
 
-        return CalendarEventResponse(
-            id=str(evt.id),
-            caseId=str(evt.case_id) if evt.case_id else None,
-            unitId=str(evt.unit_id) if evt.unit_id else None,
-            title=evt.title,
-            description=evt.description,
-            startTime=evt.start_time.isoformat(),
-            endTime=evt.end_time.isoformat(),
-            status=evt.status,
-            eventType=evt.event_type,
-            externalEventId=evt.external_event_id,
-            location=evt.location,
-            attendees=evt.attendees or [],
-            lockboxCode=evt.lockbox_code,
-            createdAt=evt.created_at.isoformat() if evt.created_at else datetime.now(UTC).isoformat(),
-            confirmedAt=evt.confirmed_at.isoformat() if evt.confirmed_at else None,
-            htmlLink=created_gcal.html_link or f"https://calendar.google.com/calendar/event?eid={created_gcal.id}",
+        return _event_response(
+            evt, created_gcal.html_link or f"https://calendar.google.com/calendar/event?eid={created_gcal.id}"
         )

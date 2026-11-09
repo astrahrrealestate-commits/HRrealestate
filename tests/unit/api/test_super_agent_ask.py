@@ -8,7 +8,7 @@ from app.core.settings import Settings
 from app.db.models import ActionRow, Approval, Case, Company
 from app.main import create_app
 from app.pipeline.concierge import StepResult
-from tests.api_auth import as_owner
+from tests.api_auth import as_owner, with_conversation
 
 SETTINGS = Settings(
     database_url="postgresql+psycopg://u:p@localhost:1/db",
@@ -37,7 +37,7 @@ def create_mock_session(comp_id=None, get_map=None):
         return result
 
     mock_sess.scalars.side_effect = mock_scalars
-    mock_sess.get.side_effect = lambda model, ident: get_map.get((model, ident))
+    mock_sess.get.side_effect = with_conversation(lambda model, ident: get_map.get((model, ident)))
     mock_sess.__enter__.return_value = mock_sess
     return mock_sess
 
@@ -383,7 +383,7 @@ def test_resolve_draft_card_strict_reply_draft():
             return mock_unit
         return None
 
-    mock_sess.get.side_effect = mock_get
+    mock_sess.get.side_effect = with_conversation(mock_get)
     mock_sess.__enter__.return_value = mock_sess
 
     with (
@@ -435,7 +435,7 @@ def test_resolve_draft_card_renders_notice_for_notify_owner():
             return mock_act
         return None
 
-    mock_sess.get.side_effect = mock_get
+    mock_sess.get.side_effect = with_conversation(mock_get)
     mock_sess.__enter__.return_value = mock_sess
 
     with patch("app.api.agent.routes.Session", return_value=mock_sess):
@@ -503,7 +503,7 @@ def test_priority_inquiry_matches_urgent_case_not_newsletter():
 
     mock_sess = MagicMock()
     mock_sess.scalars.side_effect = mock_scalars
-    mock_sess.get.return_value = None
+    mock_sess.get.side_effect = with_conversation(lambda _model, _ident: None)
     mock_sess.__enter__.return_value = mock_sess
 
     with (

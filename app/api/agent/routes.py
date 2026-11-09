@@ -17,13 +17,14 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine, get_settings_dep
-from app.api.v1.auth import require_session
+from app.api.v1.auth import Principal, require_session
 from app.channels.calendar import get_calendar_client
 from app.context import memory_items
 from app.context.compiler import compile_concierge_context
 from app.context.selection import rank_cases
 from app.context.super_agent_prompt import build_super_agent_system_prompt
 from app.contracts import ActionType, ConciergePlan, Direction, Intent
+from app.core.errors import NotFoundError
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import MemoryKind, MemoryScope, MemoryStatus, TurnStatus
@@ -36,12 +37,10 @@ from app.db.models import (
     Case,
     CaseLink,
     ChannelIdentity,
-    Company,
     DocumentChunk,
     DocumentRow,
     MemoryItem,
     MessageRow,
-    OwnerAccount,
     Person,
     Unit,
 )
@@ -817,6 +816,17 @@ def _clean_executive_answer(text: str) -> str:
     return cleaned
 
 
+def _owned_conversation(session: Session, principal: Principal, conversation_id: UUID) -> AgentConversation | None:
+    """A conversation of the signed-in owner; anyone else's (another company's or another owner's) does not exist."""
+    return session.scalars(
+        select(AgentConversation).where(
+            AgentConversation.id == conversation_id,
+            AgentConversation.company_id == principal.company_id,
+            AgentConversation.owner_id == principal.owner_id,
+        )
+    ).first()
+
+
 def _finish_agent_response(
     engine: Engine,
     conv_id: UUID,
@@ -843,16 +853,8 @@ def _finish_agent_response(
     )
     with Session(engine) as session:
         conv = session.get(AgentConversation, conv_id)
-        if not conv:
-            company = session.scalars(select(Company).limit(1)).first()
-            company_id = company.id if company else UUID("00000000-0000-0000-0000-000000000001")
-            owner_acct = session.scalars(
-                select(OwnerAccount).where(OwnerAccount.company_id == company_id).limit(1)
-            ).first()
-            owner_id = owner_acct.id if owner_acct else company_id
-            conv = AgentConversation(id=conv_id, company_id=company_id, owner_id=owner_id, title="New Chat")
-            session.add(conv)
-            session.flush()
+        if not conv:  # ask_agent created or loaded it for the signed-in owner moments ago
+            raise NotFoundError("conversation not found")
 
         if not conv.title or conv.title == "New Chat":
             conv.title = _generate_thread_title(req.query, ans_text, briefs)
@@ -938,31 +940,26 @@ def ask_agent(
     req: AskAgentRequest,
     engine: Annotated[Engine, Depends(get_engine)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> AskAgentResponse:
     now = datetime.now(UTC)
     pipeline_stage = "llm_concierge"
     fallback_reason = None
     with Session(engine) as session:
-        # Default company for single-tenant setup
-        company = session.scalars(select(Company).limit(1)).first()
-        company_id = company.id if company else UUID("00000000-0000-0000-0000-000000000001")
+        company_id = principal.company_id
 
-        # Resolve or initialize AgentConversation thread
+        # Resolve or initialize the AgentConversation thread: only one of the signed-in owner's own can be continued
         conv: AgentConversation | None = None
         if req.conversation_id:
             try:
-                conv = session.get(AgentConversation, UUID(req.conversation_id))
-            except Exception:
+                conv = _owned_conversation(session, principal, UUID(req.conversation_id))
+            except ValueError:
                 conv = None
 
         if not conv:
-            owner_acct = session.scalars(
-                select(OwnerAccount).where(OwnerAccount.company_id == company_id).limit(1)
-            ).first()
-            owner_id = owner_acct.id if owner_acct else company_id
             conv = AgentConversation(
                 company_id=company_id,
-                owner_id=owner_id,
+                owner_id=principal.owner_id,
                 title="New Chat",
                 focus_state={},
             )
@@ -2075,10 +2072,12 @@ def ask_agent(
 
 
 @router.get("/conversations", response_model=ConversationListResponse, summary="List Super Agent Conversation Threads")
-def list_conversations(engine: Annotated[Engine, Depends(get_engine)]) -> ConversationListResponse:
+def list_conversations(
+    engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
+) -> ConversationListResponse:
     with Session(engine) as session:
-        company = session.scalars(select(Company).limit(1)).first()
-        company_id = company.id if company else UUID("00000000-0000-0000-0000-000000000001")
+        company_id = principal.company_id
 
         now = datetime.now(UTC)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -2089,6 +2088,7 @@ def list_conversations(engine: Annotated[Engine, Depends(get_engine)]) -> Conver
                 select(AgentConversation)
                 .where(
                     AgentConversation.company_id == company_id,
+                    AgentConversation.owner_id == principal.owner_id,
                     AgentConversation.hidden_at.is_(None),
                 )
                 .order_by(AgentConversation.pinned.desc(), AgentConversation.last_turn_at.desc())
@@ -2137,7 +2137,9 @@ def list_conversations(engine: Annotated[Engine, Depends(get_engine)]) -> Conver
     summary="Replay Stored Conversation Turns",
 )
 def get_conversation_detail(
-    conversation_id: str, engine: Annotated[Engine, Depends(get_engine)]
+    conversation_id: str,
+    engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> ConversationDetailResponse:
     with Session(engine) as session:
         try:
@@ -2145,7 +2147,7 @@ def get_conversation_detail(
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid conversation UUID") from None
 
-        conv = session.get(AgentConversation, cid)
+        conv = _owned_conversation(session, principal, cid)
         if not conv:
             raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -2195,6 +2197,7 @@ def update_conversation(
     conversation_id: str,
     req: UpdateConversationRequest,
     engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> dict[str, Any]:
     with Session(engine) as session:
         try:
@@ -2202,7 +2205,7 @@ def update_conversation(
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid conversation UUID") from None
 
-        conv = session.get(AgentConversation, cid)
+        conv = _owned_conversation(session, principal, cid)
         if not conv:
             raise HTTPException(status_code=404, detail="Conversation not found")
 
