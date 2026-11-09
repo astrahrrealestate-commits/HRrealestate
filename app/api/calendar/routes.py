@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
 from app.api.v1.auth import Principal, require_session
+from app.api.v1.session_limits import decide_limit
 from app.channels.calendar import CalendarAttendee, CalendarEventCreate, get_calendar_client
 from app.core.logging import get_logger
 from app.db.enums import CaseEventKind
@@ -220,7 +221,7 @@ def create_event(
     return res
 
 
-@router.post("/events/{event_id}/approve", response_model=CalendarEventResponse)
+@router.post("/events/{event_id}/approve", response_model=CalendarEventResponse, dependencies=[Depends(decide_limit)])
 def approve_calendar_event(
     event_id: str,
     engine: Annotated[Engine, Depends(get_engine)],

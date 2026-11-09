@@ -62,14 +62,13 @@ the build when a route answers an anonymous caller without being listed as publi
 - attachments are scoped, and only pdf and common images render inline (nosniff always)
 - the contacts "send" routes no longer record sends that never happened; properties, tenants, the dashboard pulse and
   briefing, and contact facts come from the database instead of fabricated demo values
+- the Super Agent, inbox sync and the approve/decide routes are rate limited per owner (`api/v1/session_limits.py`);
 - calendar approve is idempotent; the dev bypass needs `env=dev` and the fake identity provider; production refuses
   localhost and plain-http public URLs and the fake Google Chat verifier
 
 Still open (fix in this order):
 - **Role is not enforced.** `allowed_users.role` is stored, but every whitelisted person can approve and send as an
   owner. Decide which roles may approve before inviting anyone who is not the owner.
-- **No rate limit on the legacy cost routes** (`/api/agent/ask`, `/api/inbox/sync`, `/api/dashboard/briefing`); the v1
-  routes have one (`app/api/v1/ratelimit.py`).
 - **The owner's Google OAuth credentials** live in one plaintext file for the whole installation
   (`channels/google_auth.py`), not per company, and that module logs the account email and the file path.
 - **The SPA falls back to bundled mock data** (`frontend/src/data/mockData`) when an API call fails, so an outage or a

@@ -18,6 +18,7 @@ from app.api.deps import WorkflowClient, get_engine, get_workflow_client
 from app.api.maintenance import dispatch
 from app.api.v1 import enqueue
 from app.api.v1.auth import Principal, require_session
+from app.api.v1.session_limits import decide_limit
 from app.contracts import ActionType, CaseState, Category, Channel, Direction, Urgency
 from app.core.logging import get_logger
 from app.db.enums import ActionStatus, ApprovalStatus, CaseEventKind
@@ -729,6 +730,7 @@ def _append_history(company_id: UUID, ticket: dict[str, Any], body: ApproveDispa
 
 @router.post(
     "/tickets/{ticket_id}/approve",
+    dependencies=[Depends(decide_limit)],
     response_model=ApproveDispatchResponse,
     summary="Approve Maintenance Dispatch & PO Cap",
     description=(

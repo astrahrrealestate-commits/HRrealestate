@@ -20,6 +20,7 @@ from app.api.deps import WorkflowClient, get_engine, get_ingest_deps, get_storag
 from app.api.inbox import decide as inbox_decide
 from app.api.v1 import enqueue
 from app.api.v1.auth import Principal, require_session
+from app.api.v1.session_limits import decide_limit, sync_limit
 from app.contracts import ActionType, ButtonChoice, Channel, Direction
 from app.core.errors import NotFoundError
 from app.core.logging import get_logger
@@ -681,6 +682,7 @@ def sync_gmail_accounts(deps: IngestDeps, company_id: UUID | None = None) -> int
 
 @router.post(
     "/sync",
+    dependencies=[Depends(sync_limit)],
     summary="Sync Inbound Communications",
     description="Pulls new Gmail messages directly from Google and runs the Gemini ingestion pipeline.",
 )
@@ -787,6 +789,7 @@ def create_gmail_draft(
 
 @router.post(
     "/approvals/{approval_id}/decide",
+    dependencies=[Depends(decide_limit)],
     summary="Decide Inbox Approval",
     description=(
         "Records Harjot's 1-click decision through the canonical approval path; an approved reply is queued for "

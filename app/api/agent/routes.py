@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine, get_settings_dep
 from app.api.v1.auth import Principal, require_session
+from app.api.v1.session_limits import ask_limit
 from app.channels.calendar import get_calendar_client
 from app.context import memory_items
 from app.context.compiler import compile_concierge_context
@@ -929,6 +930,7 @@ def _finish_agent_response(
 
 @router.post(
     "/ask",
+    dependencies=[Depends(ask_limit)],
     response_model=AskAgentResponse,
     summary="Ask EstateOS Super Agent",
     description=(
