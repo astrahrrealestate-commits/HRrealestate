@@ -324,10 +324,7 @@ export function InboxConversationView({
         {/* Message Bubbles with Dynamic Date Group Dividers */}
         {visibleMessages.map((msg, index) => {
           const isOwner = msg.sender === "owner";
-          const isDutch =
-            thread.detectedLanguage?.includes("nl") ||
-            thread.detectedLanguage?.includes("Dutch") ||
-            !!msg.bodyEnglish;
+          const hasTranslation = Boolean(msg.bodyEnglish);
           const showEnglish = expandedEnglishMsgIds[msg.id];
 
           // Determine date label from timeFormatted or sentAt
@@ -370,13 +367,7 @@ export function InboxConversationView({
           };
           const displayTime = getDisplayTime(msg);
 
-          const englishTranslation =
-            msg.bodyEnglish ||
-            (msg.body.includes("Hoi beheer")
-              ? "Hi management, after turning on the oven the power in the kitchen suddenly went out. Resetting the fuse box unfortunately did not work."
-              : msg.body.includes("Nog steeds geen stroom")
-              ? "Still no power on the kitchen wall sockets since the short circuit. The fridge is starting to get warm. Can someone come by today? Regards, Pieter"
-              : "Still no power on the kitchen sockets since the short circuit. The fridge is starting to warm up. Can someone come today? Regards, Pieter");
+          const englishTranslation = msg.bodyEnglish;
 
           return (
             <React.Fragment key={msg.id}>
@@ -538,7 +529,7 @@ export function InboxConversationView({
                   </div>
 
                   {/* Inline "Show English" translation toggle */}
-                  {isDutch && (
+                  {hasTranslation && (
                     <div className="pl-2">
                       <button
                         type="button"
