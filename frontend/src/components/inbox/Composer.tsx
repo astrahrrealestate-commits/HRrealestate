@@ -142,6 +142,7 @@ export function Composer({
   }, [isSent, undoSeconds]);
 
   const handleAccept = () => {
+    if (!content.trim()) return;
     if (onAcceptAndSend) {
       onAcceptAndSend(content, activeChannel, replyingTo?.id);
       setIsSent(true);

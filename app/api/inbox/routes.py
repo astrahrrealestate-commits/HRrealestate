@@ -807,6 +807,8 @@ def decide_approval(
     """Postgres first (decision, case state), then the send is enqueued by name (invariants 1 and 5). Only the
     signed-in owner's own company can be decided; a ref that names nothing of theirs is a 404."""
     choice = inbox_decide.CHOICES.get(req.choice, ButtonChoice.d1)
+    if req.edited_text is not None and not req.edited_text.strip() and choice is not ButtonChoice.rej:
+        raise HTTPException(status_code=422, detail="edited_text_blank")  # never fall back to a draft the owner cleared
     now = datetime.now(UTC)
     try:
         with Session(engine) as session, session.begin():

@@ -162,6 +162,24 @@ def test_inbox_edited_text_becomes_a_new_draft_version_first(world: World) -> No
         assert action.draft_version == 2
 
 
+@pytest.mark.parametrize("blank", ["", "   ", "\n\t"])
+def test_inbox_blank_edited_text_is_refused_and_nothing_is_approved_or_queued(world: World, blank: str) -> None:
+    r = world.client.post(
+        f"/api/inbox/approvals/{world.approval}/decide", json={"choice": "edit", "edited_text": blank}
+    )
+    assert r.status_code == 422
+    assert r.json()["detail"] == "edited_text_blank"
+    assert world.wf.calls == []
+    assert _statuses(world)[:2] == (ApprovalStatus.pending, ActionStatus.pending_approval)
+
+
+def test_inbox_reject_ignores_blank_edited_text(world: World) -> None:
+    r = world.client.post(
+        f"/api/inbox/approvals/{world.approval}/decide", json={"choice": "reject", "edited_text": " "}
+    )
+    assert (r.status_code, r.json()["status"]) == (200, "rejected")
+
+
 def test_inbox_reject_rejects_and_queues_nothing(world: World) -> None:
     r = world.client.post(f"/api/inbox/approvals/{world.approval}/decide", json={"choice": "reject"})
     assert (r.status_code, r.json()["status"]) == (200, "rejected")

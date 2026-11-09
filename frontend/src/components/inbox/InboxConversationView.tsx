@@ -151,6 +151,7 @@ export function InboxConversationView({
   };
 
   const handleAcceptAndSend = (text: string, channel: string, replyToMessageId?: string) => {
+    if (!text.trim()) return;
     const outboundChannel = (channel === "gmail" ? "gmail" : "whatsapp") as "whatsapp" | "gmail";
 
     // Only quote if replyingTo is explicitly selected by the user
