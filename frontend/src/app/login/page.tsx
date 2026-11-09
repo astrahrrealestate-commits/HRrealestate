@@ -4,6 +4,7 @@ import React, { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Sparkles, ShieldAlert, Lock, Loader2, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/backend";
 
 function GoogleIcon() {
   return (
@@ -42,12 +43,12 @@ function LoginForm() {
     try {
       let res: Response;
       try {
-        res = await fetch("http://localhost:8000/api/auth/login/google/url", {
+        res = await apiFetch("/api/auth/login/google/url", {
           method: "GET",
           headers: { Accept: "application/json" },
         });
       } catch (networkErr: any) {
-        throw new Error("Cannot reach backend on http://localhost:8000. Is the Docker container or backend running?");
+        throw new Error("Cannot reach the EstateOS backend. Is it running?");
       }
 
       if (!res.ok) {
@@ -166,4 +167,3 @@ export default function LoginPage() {
     </div>
   );
 }
-

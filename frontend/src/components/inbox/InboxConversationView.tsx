@@ -25,6 +25,7 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { EditTicketModal } from "@/components/maintenance/EditTicketModal";
 import { MaintenanceTicket, updateMaintenanceTicket } from "@/lib/api";
+import { BACKEND_BASE_URL } from "@/lib/backend";
 
 interface InboxConversationViewProps {
   thread: InboxThread | null;
@@ -450,7 +451,7 @@ export function InboxConversationView({
                             att.name?.match(/\.(jpe?g|png|webp|gif)$/i);
                           const fileUrl = att.url?.startsWith("http")
                             ? att.url
-                            : `http://127.0.0.1:8000${att.url}`;
+                            : `${BACKEND_BASE_URL}${att.url}`;
                           return (
                             <div
                               key={att.id || attIdx}

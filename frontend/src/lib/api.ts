@@ -1,16 +1,16 @@
 /**
  * EstateOS Backend API Client
- * Connects the Next.js frontend to the FastAPI + DBOS backend on http://localhost:8000.
+ * Connects the Next.js frontend to the FastAPI + DBOS backend (NEXT_PUBLIC_API_URL, default http://localhost:8000).
  * Pure data integration layer (REST endpoints) with robust error handling and fallback.
  */
 
 import { InboxThread } from "@/types/inbox";
+import { BACKEND_BASE_URL, apiFetch } from "@/lib/backend";
 import { PulseMetrics, AutonomousActionLog } from "@/types/dashboard";
 import { INITIAL_METRICS, RECENT_AUTONOMOUS_LOGS } from "@/data/mockData";
 import { StalledItem, INITIAL_STALLED_ITEMS } from "@/components/today/UnresponsiveRadarCard";
 import { getContactDisplayName, getSnippet, getUnifiedThreadId } from "@/lib/selectors";
 
-const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 // ---------------------------------------------------------------------------
 // Inbox & Approvals
@@ -75,7 +75,7 @@ export async function getInboxThreads(
   if (params.category && params.category !== "all") query.set("category", params.category);
 
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/inbox/threads?${query.toString()}`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/threads?${query.toString()}`, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(2500),
@@ -194,7 +194,7 @@ export async function getInboxThreads(
  */
 export async function syncGmailInbox(): Promise<{ synced: boolean; newMessages: number; message: string }> {
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/inbox/sync`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/sync`, {
       method: "POST",
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(60000),
@@ -219,7 +219,7 @@ export async function approveInboxDraft(
   replyToMessageId?: string
 ): Promise<ApprovalDecideResponse> {
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/inbox/approvals/${approvalId}/decide`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/approvals/${approvalId}/decide`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -270,7 +270,7 @@ export async function createGmailDraft(payload: {
   case_id?: string;
 }): Promise<{ ok: boolean; web_url: string; draft_id?: string; thread_id?: string }> {
   try {
-    const res = await fetch("http://localhost:8000/api/inbox/create-draft", {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/create-draft`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -340,7 +340,7 @@ const DEFAULT_INQUIRIES: ProspectiveInquiry[] = [
  */
 export async function getDashboardBriefing(kind: "daily" | "weekly" = "daily") {
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/dashboard/briefing?kind=${kind}`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/dashboard/briefing?kind=${kind}`, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(3000),
@@ -361,7 +361,7 @@ export async function getDashboardBriefing(kind: "daily" | "weekly" = "daily") {
  */
 export async function getDashboardPulse(): Promise<{ metrics: PulseMetrics; isLive: boolean }> {
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/dashboard/pulse`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/dashboard/pulse`, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(2500),
@@ -398,7 +398,7 @@ export async function getDashboardPulse(): Promise<{ metrics: PulseMetrics; isLi
  */
 export async function getDashboardRadar(): Promise<{ items: StalledItem[]; total: number; isLive: boolean }> {
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/dashboard/radar`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/dashboard/radar`, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(2500),
@@ -440,7 +440,7 @@ export async function getDashboardRadar(): Promise<{ items: StalledItem[]; total
  */
 export async function getDashboardInquiries(): Promise<{ inquiries: ProspectiveInquiry[]; total: number; isLive: boolean }> {
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/dashboard/inquiries`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/dashboard/inquiries`, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(2500),
@@ -465,7 +465,7 @@ export async function getDashboardInquiries(): Promise<{ inquiries: ProspectiveI
  */
 export async function getAutonomousLogs(): Promise<{ logs: AutonomousActionLog[]; total: number; isLive: boolean }> {
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/dashboard/logs`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/dashboard/logs`, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(2500),
@@ -533,7 +533,7 @@ export async function getMaintenanceTickets(params: {
   if (params.category && params.category !== "all") query.set("category", params.category);
 
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/maintenance/tickets?${query.toString()}`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/maintenance/tickets?${query.toString()}`, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(2500),
@@ -562,7 +562,7 @@ export async function updateMaintenanceTicket(
 ): Promise<{ ticket: MaintenanceTicket | null; success: boolean }> {
   try {
     const cleanId = ticketId.replace("#", "");
-    const res = await fetch(`${BACKEND_BASE_URL}/api/maintenance/tickets/${cleanId}`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/maintenance/tickets/${cleanId}`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
@@ -593,7 +593,7 @@ export async function getTicketHistory(ticketId: string): Promise<{
 }> {
   try {
     const cleanId = ticketId.replace("#", "");
-    const res = await fetch(`${BACKEND_BASE_URL}/api/maintenance/tickets/${cleanId}/history`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/maintenance/tickets/${cleanId}/history`, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(2500),
@@ -636,7 +636,7 @@ export async function approveMaintenanceTicket(
 
   try {
     const cleanId = ticketId.replace("#", "");
-    const res = await fetch(`${BACKEND_BASE_URL}/api/maintenance/tickets/${cleanId}/approve`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/maintenance/tickets/${cleanId}/approve`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -686,7 +686,7 @@ export async function approveMaintenanceTicket(
  */
 export async function getProperties(status: string = "all") {
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/properties?status=${status}`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/properties?status=${status}`, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(2500),
@@ -707,7 +707,7 @@ export async function getProperties(status: string = "all") {
  */
 export async function getTenants(rentStatus: string = "all") {
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/tenants?rent_status=${rentStatus}`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/tenants?rent_status=${rentStatus}`, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(2500),
@@ -871,7 +871,7 @@ export async function askAgent(
   };
 
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/agent/ask`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/agent/ask`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -893,7 +893,7 @@ export async function askAgent(
 
 export async function getAgentConversations(): Promise<ConversationSummaryItem[]> {
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/agent/conversations`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/agent/conversations`, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(10000),
@@ -910,7 +910,7 @@ export async function getAgentConversations(): Promise<ConversationSummaryItem[]
 
 export async function getConversationDetail(conversationId: string): Promise<ConversationDetailResponse | null> {
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/agent/conversations/${conversationId}`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/agent/conversations/${conversationId}`, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(10000),
@@ -929,7 +929,7 @@ export async function updateAgentConversation(
   payload: { title?: string; pinned?: boolean; hidden?: boolean }
 ): Promise<boolean> {
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/agent/conversations/${conversationId}`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/agent/conversations/${conversationId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify(payload),
@@ -950,10 +950,13 @@ export async function updateAgentConversation(
 let authPromise: Promise<void> | null = null;
 
 export async function ensureAuthenticated(): Promise<void> {
+  // The fixed test token only exists for the fake identity provider of local development. A production bundle never
+  // sends it: real sessions come from the Google login page.
+  if (process.env.NODE_ENV === "production") return;
   if (authPromise) return authPromise;
   authPromise = (async () => {
     try {
-      await fetch(`${BACKEND_BASE_URL}/api/v1/auth/session`, {
+      await apiFetch(`${BACKEND_BASE_URL}/api/v1/auth/session`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1002,7 +1005,7 @@ export async function getStandingRules(params?: {
   if (params?.limit) query.set("limit", params.limit.toString());
 
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/v1/memory?${query.toString()}`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/v1/memory?${query.toString()}`, {
       method: "GET",
       headers: {
         Accept: "application/json",
@@ -1028,7 +1031,7 @@ export async function createStandingRule(data: {
 }): Promise<MemoryItem | null> {
   await ensureAuthenticated();
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/v1/memory`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/v1/memory`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1056,7 +1059,7 @@ export async function createStandingRule(data: {
 export async function retireStandingRule(memoryId: string): Promise<boolean> {
   await ensureAuthenticated();
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/v1/memory/${memoryId}`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/v1/memory/${memoryId}`, {
       method: "DELETE",
       headers: {
         "X-EstateOS-Client": "dashboard",
@@ -1074,7 +1077,7 @@ export async function retireStandingRule(memoryId: string): Promise<boolean> {
 export async function approveStandingRule(memoryId: string): Promise<boolean> {
   await ensureAuthenticated();
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/v1/memory/${memoryId}/approve`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/v1/memory/${memoryId}/approve`, {
       method: "POST",
       headers: {
         "X-EstateOS-Client": "dashboard",
@@ -1112,7 +1115,7 @@ const PERSONA_HEADERS = {
 export async function getOwnerPersona(): Promise<OwnerPersona | null> {
   await ensureAuthenticated();
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/v1/persona`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/v1/persona`, {
       headers: PERSONA_HEADERS,
       credentials: "include",
       signal: AbortSignal.timeout(5000),
@@ -1132,7 +1135,7 @@ export async function saveOwnerPersona(data: {
 }): Promise<{ persona: OwnerPersona } | { error: string }> {
   await ensureAuthenticated();
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/v1/persona`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/v1/persona`, {
       method: "PUT",
       headers: PERSONA_HEADERS,
       credentials: "include",
@@ -1150,7 +1153,7 @@ export async function saveOwnerPersona(data: {
 export async function resetOwnerPersona(): Promise<OwnerPersona | null> {
   await ensureAuthenticated();
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/v1/persona/reset`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/v1/persona/reset`, {
       method: "POST",
       headers: PERSONA_HEADERS,
       credentials: "include",
@@ -1187,7 +1190,7 @@ export async function prewarmAgentPage(params: PrewarmPageParams): Promise<boole
     else if (lower.includes("properties") || lower.includes("unit")) view = "units";
     else if (lower.includes("tenants") || lower.includes("contact")) view = "tenants";
 
-    const res = await fetch(`${BACKEND_BASE_URL}/api/v1/agent/page`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/v1/agent/page`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -1222,7 +1225,7 @@ export interface GoogleAuthStatus {
 
 export async function getGoogleAuthStatus(): Promise<GoogleAuthStatus> {
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/auth/google/status`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/auth/google/status`, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(5000),
@@ -1239,7 +1242,7 @@ export async function getGoogleAuthStatus(): Promise<GoogleAuthStatus> {
 export async function getGoogleAuthUrl(returnTo: string = "/"): Promise<string | null> {
   try {
     const query = returnTo ? `?return_to=${encodeURIComponent(returnTo)}` : "";
-    const res = await fetch(`${BACKEND_BASE_URL}/api/auth/google/url${query}`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/auth/google/url${query}`, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(5000),
@@ -1256,7 +1259,7 @@ export async function getGoogleAuthUrl(returnTo: string = "/"): Promise<string |
 
 export async function disconnectGoogleAccount(): Promise<boolean> {
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/auth/google/disconnect`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/auth/google/disconnect`, {
       method: "POST",
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(5000),
@@ -1289,7 +1292,7 @@ export interface ContactCommunicationsData {
  */
 export async function getContactsList(audience: "all" | "tenant" | "contractor" = "all"): Promise<any[]> {
   try {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/contacts?audience=${audience}`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/contacts?audience=${audience}`, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(5000),
@@ -1317,7 +1320,7 @@ export async function getContactCommunications(
     if (phone) params.append("phone", phone);
 
     const qs = params.toString() ? `?${params.toString()}` : "";
-    const res = await fetch(
+    const res = await apiFetch(
       `${BACKEND_BASE_URL}/api/contacts/${encodeURIComponent(contactId)}/communications${qs}`,
       {
         method: "GET",
@@ -1339,7 +1342,7 @@ export async function sendContactWhatsAppMessage(
   text: string
 ): Promise<any | null> {
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `${BACKEND_BASE_URL}/api/contacts/${encodeURIComponent(contactId)}/whatsapp/send`,
       {
         method: "POST",
@@ -1373,7 +1376,7 @@ export async function generateEmailDrafts(
   guidance?: string
 ): Promise<DraftVariant[] | null> {
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `${BACKEND_BASE_URL}/api/contacts/${encodeURIComponent(contactId)}/messages/${encodeURIComponent(messageId)}/generate-drafts`,
       {
         method: "POST",
@@ -1400,7 +1403,7 @@ export async function sendEmailReply(
   choice: string = "d1"
 ): Promise<{ success: boolean; message_id: string; sent_at: string } | null> {
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `${BACKEND_BASE_URL}/api/contacts/${encodeURIComponent(contactId)}/messages/${encodeURIComponent(messageId)}/reply-mail`,
       {
         method: "POST",
@@ -1422,7 +1425,7 @@ export async function generateWhatsAppDrafts(
   contactId: string
 ): Promise<DraftVariant[] | null> {
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `${BACKEND_BASE_URL}/api/contacts/${encodeURIComponent(contactId)}/whatsapp/generate-drafts`,
       {
         method: "POST",

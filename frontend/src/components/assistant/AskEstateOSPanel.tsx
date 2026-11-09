@@ -71,6 +71,7 @@ export interface AssistantMessage {
 }
 
 import { useSuperAgent } from "@/context/SuperAgentContext";
+import { BACKEND_BASE_URL, apiFetch } from "@/lib/backend";
 
 interface AskEstateOSPanelProps {
   isOpen?: boolean;
@@ -153,8 +154,8 @@ export function AskEstateOSPanel({
       try {
         const fullUrl = action.endpoint.startsWith("http")
           ? action.endpoint
-          : `${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}${action.endpoint}`;
-        const res = await fetch(fullUrl, {
+          : `${BACKEND_BASE_URL}${action.endpoint}`;
+        const res = await apiFetch(fullUrl, {
           method: action.method || "POST",
           headers: { "Content-Type": "application/json" },
           body: action.payload ? JSON.stringify(action.payload) : undefined,
@@ -339,8 +340,8 @@ export function AskEstateOSPanel({
     setApprovingCalendarId(cardId);
     try {
       const url = payloadUrl || `/api/calendar/events/${eventId}/approve`;
-      const fullUrl = url.startsWith("http") ? url : `${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}${url}`;
-      const res = await fetch(fullUrl, { method: "POST", headers: { "Content-Type": "application/json" } });
+      const fullUrl = url.startsWith("http") ? url : `${BACKEND_BASE_URL}${url}`;
+      const res = await apiFetch(fullUrl, { method: "POST", headers: { "Content-Type": "application/json" } });
       if (!res.ok) {
         throw new Error(`Calendar approval failed: ${res.statusText}`);
       }
@@ -358,8 +359,8 @@ export function AskEstateOSPanel({
       if (memoryId) {
         await approveStandingRule(memoryId);
       } else if (payloadUrl) {
-        const fullUrl = payloadUrl.startsWith("http") ? payloadUrl : `${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}${payloadUrl}`;
-        await fetch(fullUrl, {
+        const fullUrl = payloadUrl.startsWith("http") ? payloadUrl : `${BACKEND_BASE_URL}${payloadUrl}`;
+        await apiFetch(fullUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-EstateOS-Client": "dashboard" },
           credentials: "include",
@@ -465,7 +466,7 @@ export function AskEstateOSPanel({
 
   return (
     <>
-      
+
 
       {/* Main Assistant Panel:
           1. Center Mode (40% default): floating centered modal spotlight
@@ -1742,4 +1743,3 @@ function formatMarkdown(text: string, isDark: boolean = false): string {
 
   return clean;
 }
-
