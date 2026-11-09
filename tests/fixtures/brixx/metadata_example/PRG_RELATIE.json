@@ -1,0 +1,78 @@
+{
+  "fields": [
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 1,
+      "name": "PRG_RELATIEID",
+      "required": true,
+      "type": "NUMBER"
+    },
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 2,
+      "name": "NAAM",
+      "required": true,
+      "type": "VARCHAR(132)"
+    },
+    {
+      "fk_field": "PRG_OBJECTID",
+      "fk_table": "PRG_OBJECT",
+      "id": 3,
+      "name": "OBJECTID",
+      "required": false,
+      "type": "NUMBER"
+    },
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 4,
+      "name": "GEBOORTEDATUM",
+      "required": false,
+      "type": "DATE"
+    },
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 5,
+      "name": "EMAIL",
+      "required": false,
+      "type": "VARCHAR(255)"
+    },
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 6,
+      "name": "VERSIENR",
+      "required": false,
+      "type": "NUMBER"
+    },
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 7,
+      "name": "NEWDATETIME",
+      "required": false,
+      "type": "TIMESTAMP(6)"
+    },
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 8,
+      "name": "UPDDATETIME",
+      "required": false,
+      "type": "TIMESTAMP(6)"
+    },
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 9,
+      "name": "INDVERWIJDERD",
+      "required": false,
+      "type": "NUMBER"
+    }
+  ],
+  "name": "PRG_RELATIE",
+  "primary_key": "PRG_RELATIEID"
+}

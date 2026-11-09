@@ -12,6 +12,11 @@ help until the token is replaced or the rival run finishes). Other `BrixxError`/
 are retried with backoff. A child never raises for a failed table: it returns `failed:<ErrorClass>` so the parent can
 mark the run `failed` (class and table names only) while the other tables finish. The fixed cron (`*/15`) does not
 read `brixx_sync_interval_minutes`: that setting is not used for scheduling.
+
+Mirror tables come from generated migrations, so a child writes only through the columns the migrated mirror table has
+(`app.directory.brixx.mirror`). A table the mirror cannot store yet (no migration for it, or its primary key missing)
+returns `skipped`: it is flagged drifted, nothing is fetched, and the run does not fail. New BRIXX columns land in
+`_extra` and flag the table drifted until the next codegen revision adds them.
 """
 
 from dataclasses import asdict
@@ -32,6 +37,7 @@ from app.core.workflow_names import BRIXX_SYNC_ALL, BRIXX_SYNC_TABLE, brixx_run_
 from app.db.enums import BrixxRunKind, BrixxRunStatus
 from app.db.models import Company
 from app.db.models.brixx import BrixxSyncRun
+from app.directory.brixx.mirror import mirror_columns, storable
 from app.directory.brixx.schema import build_table
 from app.directory.brixx.state import begin_table_run, get_or_create_table_state, mark_success
 from app.directory.brixx.sync import latest, sync_table_page
@@ -41,6 +47,7 @@ from app.workflows.deps import brixx_api, get_engine
 log = get_logger(__name__)
 
 OK = "ok"
+SKIPPED = "skipped"  # the mirror has no storable table for it yet: drift, not a failure
 _FAILED = "failed:"
 _RUN_NAMESPACE = uuid5(NAMESPACE_URL, "https://estateos.invalid/brixx/sync-run")
 _NOT_RETRIED = (BrixxAuthError, StaleRunError)
@@ -142,7 +149,8 @@ def sync_all(scheduled_time: datetime, context: Any) -> None:
     for table in tables:
         with SetWorkflowID(brixx_run_workflow_id(run_id, table)):
             handles.append((table, queues.brixx_queue().enqueue(sync_table, run_id, table)))
-    failures = [f"{table} ({outcome})" for table, outcome in ((t, _collect(h)) for t, h in handles) if outcome != OK]
+    outcomes = ((table, _collect(handle)) for table, handle in handles)
+    failures = [f"{table} ({outcome})" for table, outcome in outcomes if outcome not in (OK, SKIPPED)]
     finish_run_step(company_id, run_id, "tables failed: " + ", ".join(failures) if failures else None)
 
 
@@ -162,28 +170,34 @@ def describe_step(table: str) -> dict[str, Any]:
 
 
 @DBOS.step(name="brixx.begin_table", **_RETRY)
-def begin_step(run_id: str, table: str) -> dict[str, Any]:
-    """Commit the table's takeover by this run. Returns the first page, the incremental watermark and the run's
-    ORIGINAL start (read from the run row, so a retried child never uses its own clock)."""
+def begin_step(run_id: str, info: dict[str, Any]) -> dict[str, Any]:
+    """Check the mirror table, then commit the table's takeover by this run and its drift flag.
+
+    Returns `stored` (the live metadata narrowed to what the mirror stores; None: skip the table, flagged drifted,
+    with no takeover), the first page, the incremental watermark and the run's ORIGINAL start (read from the run row,
+    so a retried child never uses its own clock)."""
+    live = _info_from_json(info)
     with Session(get_engine()) as session:
         run = session.scalars(sa.select(BrixxSyncRun).where(BrixxSyncRun.id == UUID(run_id))).one_or_none()
         if run is None:
-            raise BrixxError(f"unknown BRIXX sync run for table {table!r}")
-        state = get_or_create_table_state(session, run.company_id, table)
-        first_page = begin_table_run(session, state, run.id)
-        since = state.last_success_upd
-        out = {
-            "company_id": str(run.company_id),
-            "started_at": _utc(run.started_at),
-            "page": first_page,
-            "since": None if since is None else _utc(since),
-        }
+            raise BrixxError(f"unknown BRIXX sync run for table {live.name!r}")
+        stored = storable(live, mirror_columns(session, live), session.get_bind().dialect)
+        state = get_or_create_table_state(session, run.company_id, live.name)
+        out: dict[str, Any] = {"company_id": str(run.company_id), "stored": None if stored is None else asdict(stored)}
+        if stored is not None:
+            out["page"] = begin_table_run(session, state, run.id)  # locks and re-reads the state row
+            since = state.last_success_upd
+            out |= {"started_at": _utc(run.started_at), "since": None if since is None else _utc(since)}
+        state.drifted = stored != live  # recomputed each run: cleared once a codegen revision caught up
         session.commit()
     return out
 
 
 @DBOS.step(name="brixx.sync_page", **_RETRY)
-def sync_page_step(company_id: str, run_id: str, info: dict[str, Any], page: int, since: str | None) -> dict[str, Any]:
+def sync_page_step(
+    company_id: str, run_id: str, info: dict[str, Any], stored: dict[str, Any], page: int, since: str | None
+) -> dict[str, Any]:
+    """One page of the live table `info`, written through the mirror columns of `stored` (the rest goes to `_extra`)."""
     table_info = _info_from_json(info)
     with Session(get_engine()) as session:
         result = sync_table_page(
@@ -191,7 +205,7 @@ def sync_page_step(company_id: str, run_id: str, info: dict[str, Any], page: int
             brixx_api(),
             UUID(company_id),
             table_info,
-            build_table(table_info, sa.MetaData()),
+            build_table(_info_from_json(stored), sa.MetaData()),
             run_id=UUID(run_id),
             page=page,
             since=None if since is None else datetime.fromisoformat(since),
@@ -209,28 +223,32 @@ def mark_success_step(company_id: str, run_id: str, table: str, upd: str | None,
         session.commit()
 
 
-def _sync_pages(run_id: str, table: str) -> None:
+def _sync_pages(run_id: str, table: str) -> str:
     info = describe_step(table)
-    begun = begin_step(run_id, table)
+    begun = begin_step(run_id, info)
+    stored = begun["stored"]
+    if stored is None:
+        log.warning("brixx.sync_table_skipped", table=table, reason="not_in_mirror")
+        return SKIPPED
     page, upd = begun["page"], None
     while True:
-        done = sync_page_step(begun["company_id"], run_id, info, page, begun["since"])
+        done = sync_page_step(begun["company_id"], run_id, info, stored, page, begun["since"])
         newest = done["max_upd"]
         upd = latest(upd, None if newest is None else datetime.fromisoformat(newest))
         if not done["has_next"]:
             break
         page += 1
     mark_success_step(begun["company_id"], run_id, table, None if upd is None else _utc(upd), begun["started_at"])
+    return OK
 
 
 @DBOS.workflow(name=BRIXX_SYNC_TABLE)
 def sync_table(run_id: str, table: str) -> str:
-    """Mirror one table for `run_id`. Returns `ok` or `failed:<ErrorClass>`; a failed table never raises, so the
-    run's other tables are unaffected and DBOS does not retry the whole workflow."""
+    """Mirror one table for `run_id`. Returns `ok`, `skipped` (not in the mirror yet) or `failed:<ErrorClass>`; a
+    failed table never raises, so the run's other tables are unaffected and DBOS does not retry the whole workflow."""
     try:
-        _sync_pages(run_id, table)
+        return _sync_pages(run_id, table)
     except Exception as exc:
         name = _error_name(exc)
         log.warning("brixx.sync_table_failed", table=table, error=name)
         return _FAILED + name
-    return OK
