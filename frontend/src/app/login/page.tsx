@@ -50,6 +50,26 @@ function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Local development only (the fake identity provider): sign in as the dev owner without Google.
+  const handleDevLogin = async () => {
+    setIsLoading(true);
+    setErrorMessage(null);
+    try {
+      const res = await apiFetch("/api/v1/auth/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id_token: "test-owner-token" }),
+      });
+      if (!res.ok) {
+        throw new Error("Dev sign-in is not available. Is the backend running in dev with the fake login provider?");
+      }
+      window.location.assign("/");
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Dev sign-in failed.");
+      setIsLoading(false);
+    }
+  };
+
   const handleGoogleLogin = async () => {
     setIsLoading(true);
     setErrorMessage(null);
@@ -145,6 +165,16 @@ function LoginForm() {
             </>
           )}
         </button>
+        {process.env.NODE_ENV !== "production" && (
+          <button
+            type="button"
+            onClick={handleDevLogin}
+            disabled={isLoading}
+            className="w-full h-10 rounded-xl border border-dashed border-[#374151] text-[#94a3b8] hover:text-white hover:border-[#4B5563] text-xs font-mono transition-all cursor-pointer select-none disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Continue as dev owner (local only)
+          </button>
+        )}
       </div>
 
       {/* 4. Whitelist Policy Badge */}

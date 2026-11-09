@@ -196,3 +196,25 @@ def test_dev_with_the_google_provider_does_not_fall_open() -> None:
 
 def test_test_and_prod_always_demand_a_session() -> None:
     assert _anonymous_status(SETTINGS) == 401
+
+
+def _signin_status(settings: Settings, *, owner_by_email_returns: Principal | None) -> int:
+    app = create_app(settings, engine=MagicMock(), workflow_client=MagicMock())
+    with (
+        patch("app.api.v1.auth.owner_by_email", return_value=owner_by_email_returns),
+        patch("app.api.v1.auth.default_dev_principal", return_value=PRINCIPAL),
+        TestClient(app) as c,
+    ):
+        return c.post("/api/v1/auth/session", json={"id_token": "test-owner-token"}, headers=CSRF).status_code
+
+
+def test_dev_sign_in_uses_the_dev_owner_when_the_fake_email_matches_nobody() -> None:
+    assert _signin_status(_dev(dashboard_auth_provider="fake"), owner_by_email_returns=None) == 200
+
+
+def test_the_dev_fallback_is_off_outside_dev() -> None:
+    assert _signin_status(SETTINGS, owner_by_email_returns=None) == 403  # env=test: an unknown email stays refused
+
+
+def test_a_known_owner_still_signs_in_as_themselves() -> None:
+    assert _signin_status(SETTINGS, owner_by_email_returns=PRINCIPAL) == 200

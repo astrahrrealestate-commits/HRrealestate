@@ -259,6 +259,10 @@ async def create_session(body: SessionRequest, request: Request, response: Respo
     except AuthError:
         raise HTTPException(status_code=401, detail="invalid id token") from None
     principal = await run_in_threadpool(owner_by_email, state.engine, email)
+    if principal is None and _dev_bypass(request):
+        # Local development with the fake identity provider: the dev token signs in as the owner that exists (the fake
+        # email maps to nobody once a real mailbox has been connected). The same gate as the no-login bypass.
+        principal = await run_in_threadpool(default_dev_principal, state.engine)
     if principal is None:
         log.info("dashboard_login_unknown_owner", email_hash=email_fingerprint(email))
         raise HTTPException(status_code=403, detail="not an owner account")
