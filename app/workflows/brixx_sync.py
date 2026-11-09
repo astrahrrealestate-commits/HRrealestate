@@ -46,6 +46,7 @@ from app.directory.brixx.sync import latest, sync_table_page
 from app.workflows import queues
 from app.workflows.brixx_common import BRIXX_RETRY, FAILED, OK, error_name, info_from_json
 from app.workflows.brixx_documents import enqueue_document_downloads
+from app.workflows.brixx_map import map_after_run
 from app.workflows.deps import brixx_api, get_engine
 
 log = get_logger(__name__)
@@ -53,7 +54,6 @@ log = get_logger(__name__)
 SKIPPED = "skipped"  # the mirror has no storable table for it yet: drift, not a failure
 _RUN_NAMESPACE = uuid5(NAMESPACE_URL, "https://estateos.invalid/brixx/sync-run")
 _MAX_ERROR = 1000
-_RETRY = BRIXX_RETRY
 
 
 def brixx_run_id(company_id: UUID, scheduled_time: datetime) -> UUID:
@@ -73,12 +73,12 @@ def company_step() -> str | None:
     return None if found is None else str(found)
 
 
-@DBOS.step(name="brixx.list_tables", **_RETRY)
+@DBOS.step(name="brixx.list_tables", **BRIXX_RETRY)
 def list_tables_step() -> list[str]:
     return [name for name, _key in brixx_api().list_tables()]
 
 
-@DBOS.step(name="brixx.create_run", **_RETRY)
+@DBOS.step(name="brixx.create_run", **BRIXX_RETRY)
 def create_run_step(company_id: str, scheduled_iso: str) -> str:
     """Insert and commit the run before any child is enqueued. A replayed tick keeps the original row."""
     cid = UUID(company_id)
@@ -93,7 +93,7 @@ def create_run_step(company_id: str, scheduled_iso: str) -> str:
     return str(run_id)
 
 
-@DBOS.step(name="brixx.finish_run", **_RETRY)
+@DBOS.step(name="brixx.finish_run", **BRIXX_RETRY)
 def finish_run_step(company_id: str, run_id: str, error: str | None) -> None:
     status = BrixxRunStatus.succeeded if error is None else BrixxRunStatus.failed
     with Session(get_engine()) as session:
@@ -107,7 +107,7 @@ def finish_run_step(company_id: str, run_id: str, error: str | None) -> None:
 
 @DBOS.workflow(name=BRIXX_SYNC_ALL)
 def sync_all(scheduled_time: datetime, context: Any) -> None:
-    """Every 15 minutes: one run, one `brixx.sync_table` child per BRIXX table, then the run's final status."""
+    """Every 15 minutes: one run, one `brixx.sync_table` child per BRIXX table, the final status, then the mapper."""
     company_id = company_step()
     if company_id is None:
         log.info("brixx.sync_skipped", reason="no_company")
@@ -127,12 +127,16 @@ def sync_all(scheduled_time: datetime, context: Any) -> None:
     for table in tables:
         with SetWorkflowID(brixx_run_workflow_id(run_id, table)):
             handles.append((table, queues.brixx_queue().enqueue(sync_table, run_id, table)))
-    outcomes = ((table, _collect(handle)) for table, handle in handles)
-    failures = [f"{table} ({outcome})" for table, outcome in outcomes if outcome not in (OK, SKIPPED)]
+    failures = [
+        f"{table} ({outcome})"
+        for table, outcome in ((t, collect(h)) for t, h in handles)
+        if outcome not in (OK, SKIPPED)
+    ]
     finish_run_step(company_id, run_id, "tables failed: " + ", ".join(failures) if failures else None)
+    map_after_run(run_id)  # child `brixxmap:<run_id>`: mirror -> people/units/leases
 
 
-def _collect(handle: Any) -> str:
+def collect(handle: Any) -> str:
     try:
         result = str(handle.get_result())
     except Exception as exc:  # the child crashed instead of returning a failure marker
@@ -140,14 +144,14 @@ def _collect(handle: Any) -> str:
     return OK if result == OK else result.removeprefix(FAILED)
 
 
-@DBOS.step(name="brixx.describe_table", **_RETRY)
+@DBOS.step(name="brixx.describe_table", **BRIXX_RETRY)
 def describe_step(table: str) -> dict[str, Any]:
     info = brixx_api().describe_table(table)
     build_table(info, sa.MetaData())  # refuse unsafe names before anything is stored
     return asdict(info)
 
 
-@DBOS.step(name="brixx.begin_table", **_RETRY)
+@DBOS.step(name="brixx.begin_table", **BRIXX_RETRY)
 def begin_step(run_id: str, info: dict[str, Any]) -> dict[str, Any]:
     """Check the mirror table, then commit the table's takeover by this run and its drift flag.
 
@@ -171,7 +175,7 @@ def begin_step(run_id: str, info: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-@DBOS.step(name="brixx.sync_page", **_RETRY)
+@DBOS.step(name="brixx.sync_page", **BRIXX_RETRY)
 def sync_page_step(
     company_id: str, run_id: str, info: dict[str, Any], stored: dict[str, Any], page: int, since: str | None
 ) -> dict[str, Any]:
@@ -192,7 +196,7 @@ def sync_page_step(
     return {"has_next": result.has_next, "max_upd": None if result.max_upd is None else _utc(result.max_upd)}
 
 
-@DBOS.step(name="brixx.mark_success", **_RETRY)
+@DBOS.step(name="brixx.mark_success", **BRIXX_RETRY)
 def mark_success_step(company_id: str, run_id: str, table: str, upd: str | None, started_at: str) -> None:
     with Session(get_engine()) as session:
         state = get_or_create_table_state(session, UUID(company_id), table)

@@ -26,6 +26,9 @@ DD_REVIEW = "diligence.review"
 BRIXX_SYNC_ALL = "brixx.sync_all"
 BRIXX_SYNC_TABLE = "brixx.sync_table"
 BRIXX_DOWNLOAD_DOCUMENT = "brixx.download_document"
+BRIXX_RECONCILE_ALL = "brixx.reconcile_all"
+BRIXX_RECONCILE_TABLE = "brixx.reconcile_table"
+BRIXX_MAP_DIRECTORY = "brixx.map_directory"
 FINANCE_SNAPSHOT = "finance.snapshot"
 FINANCE_QUOTE = "finance.quote"
 FINANCE_RECHECK = "finance.recheck"
@@ -54,6 +57,16 @@ def brixx_document_workflow_id(company_id: object, document_id: int, version: st
     is claimed again with the next attempt number, so it gets a new workflow.
     """
     return f"brixxdoc:{company_id}:{document_id}:{version}:{attempt}"
+
+
+def brixx_reconcile_workflow_id(run_id: object, table: str) -> str:
+    """`brixxrec:<run_id>:<table>`: the one reconcile of a table within a reconcile run."""
+    return f"brixxrec:{run_id}:{table}"
+
+
+def brixx_map_workflow_id(run_id: object) -> str:
+    """`brixxmap:<run_id>`: the one directory mapping after a sync or reconcile run."""
+    return f"brixxmap:{run_id}"
 
 
 def concierge_workflow_id(turn_id: object) -> str:

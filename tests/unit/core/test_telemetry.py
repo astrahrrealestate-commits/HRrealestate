@@ -19,3 +19,20 @@ def test_sentry_init_without_pii_when_dsn_set() -> None:
     kwargs = init.call_args.kwargs
     assert kwargs["send_default_pii"] is False
     assert kwargs["environment"] == "prod"
+
+
+def test_sentry_scrubs_brixx_rows_and_never_sends_frame_locals() -> None:
+    s = Settings(database_url=URL, sentry_dsn="https://k@o0.ingest.de.sentry.io/1", env="prod", _env_file=None)  # type: ignore[call-arg]
+    with patch("app.core.telemetry.sentry_sdk.init") as init:
+        init_telemetry(s)
+    kwargs = init.call_args.kwargs
+    assert kwargs["include_local_variables"] is False
+    event = {
+        "request": {"headers": {"Authorization": "Bearer secret-value"}},
+        "extra": {"context": {"ZOEKID": "00001011990A", "rows": [{"naam": "Invented"}]}},
+    }
+    kwargs["event_scrubber"].scrub_event(event)
+    flat = str(event)
+    assert "secret-value" not in flat
+    assert "00001011990A" not in flat
+    assert "Invented" not in flat

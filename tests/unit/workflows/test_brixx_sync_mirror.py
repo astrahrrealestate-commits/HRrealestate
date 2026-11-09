@@ -65,6 +65,9 @@ def _run_parent(outcomes: dict[str, str]) -> MagicMock:
         patch.object(wf, "list_tables_step", return_value=list(outcomes)),
         patch.object(wf, "create_run_step", return_value="run-1"),
         patch.object(wf, "finish_run_step") as finish,
+        patch.object(
+            wf, "map_after_run"
+        ),  # a DBOS workflow call; needs a running DBOS, covered by the integration tests
         patch.object(wf.queues, "brixx_queue", return_value=queue),
         patch.object(wf, "SetWorkflowID"),
     ):

@@ -4,6 +4,8 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock
 from uuid import uuid4
 
+import pytest
+
 from app.db.enums import MemoryKind, MemoryOrigin, MemoryScope, MemoryStatus
 from app.db.models import ChannelIdentity, MemoryItem, Person, PersonProfile
 from app.pipeline.gdpr import erase_person
@@ -107,3 +109,42 @@ def test_erase_person_cascades_profile_memories_and_redacts_messages() -> None:
     session.delete.assert_called_once_with(profile)
     assert person.display_name == "[Erased Person]"
     session.flush.assert_called_once()
+
+
+def test_erase_person_purges_the_brixx_mirror_for_a_brixx_person(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.pipeline import gdpr
+
+    session = MagicMock()
+    company_id, person_id = uuid4(), uuid4()
+    session.scalars.return_value = MagicMock(all=MagicMock(return_value=[]))
+    person = Person(id=person_id, company_id=company_id, display_name="Invented Name", brixx_ref="42")
+    session.scalar.side_effect = [None, person]
+    purged: list[tuple[object, int]] = []
+
+    def fake_purge(_session: object, cid: object, ref: int) -> int:
+        purged.append((cid, ref))
+        return 2
+
+    monkeypatch.setattr(gdpr, "purge_brixx_relatie", fake_purge)
+
+    report = erase_person(session, company_id, person_id)
+
+    assert purged == [(company_id, 42)]
+    assert report.brixx_rows_purged == 2
+    assert person.brixx_ref is None
+
+
+def test_erase_person_skips_the_mirror_without_a_numeric_brixx_ref(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.pipeline import gdpr
+
+    session = MagicMock()
+    session.scalars.return_value = MagicMock(all=MagicMock(return_value=[]))
+    person = Person(id=uuid4(), company_id=uuid4(), display_name="Invented Name", brixx_ref="not-a-number")
+    session.scalar.side_effect = [None, person]
+
+    def no_purge(*_args: object) -> int:
+        raise AssertionError("no numeric BRIXX ref: nothing to purge")
+
+    monkeypatch.setattr(gdpr, "purge_brixx_relatie", no_purge)
+
+    assert erase_person(session, person.company_id, person.id).brixx_rows_purged == 0

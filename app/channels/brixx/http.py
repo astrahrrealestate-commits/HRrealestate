@@ -118,9 +118,15 @@ class HttpBrixxApi:
         return BrixxTable(str(body.get("name", name)), str(body["primaryKeyField"]), fields)
 
     def fetch_page(
-        self, table: str, *, page: int, filters: str | None = None, order_by: str | None = None
+        self,
+        table: str,
+        *,
+        page: int,
+        filters: str | None = None,
+        order_by: str | None = None,
+        fields: tuple[str, ...] | None = None,
     ) -> BrixxPage:
-        params = data_query_params(page, filters, order_by)
+        params = data_query_params(page, filters, order_by, fields)
         body = _as_dict(self._json(f"bigdata/{self._env}/table/{self._segment(table)}", params), "data page")
         if "data" not in body:
             raise BrixxError("BRIXX data page has no data list")

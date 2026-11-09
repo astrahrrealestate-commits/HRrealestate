@@ -202,6 +202,24 @@ ignore_imports = ["app.channels.registry -> app.channels.whatsapp.media_settings
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
+name = "BRIXX isolation: only the BRIXX sync package, its workflows and the registry import the BRIXX client"
+type = "forbidden"
+source_modules = ["app", "app.*"]
+forbidden_modules = ["app.channels.brixx"]
+ignore_imports = [
+    "app.channels.brixx.** -> app.channels.brixx.**",
+    "app.channels.registry -> app.channels.brixx.**",
+    "app.workflows.deps -> app.channels.brixx.**",
+    "app.workflows.brixx_sync -> app.channels.brixx.**",
+    "app.workflows.brixx_common -> app.channels.brixx.**",  # rebuilds a BrixxTable from step JSON (pure dataclasses)
+    "app.dev.brixx -> app.channels.brixx.**",  # developer tooling: metadata snapshot and migration codegen
+    "app.dev.brixx_codegen -> app.channels.brixx.**",
+    "app.directory.brixx.** -> app.channels.brixx.**",
+]
+allow_indirect_imports = true
+unmatched_ignore_imports_alerting = "none"
+
+[[tool.importlinter.contracts]]
 name = "Dev tooling (simulator, dev keys) is never imported by production code"
 type = "forbidden"
 source_modules = [
