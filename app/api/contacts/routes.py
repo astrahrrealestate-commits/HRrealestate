@@ -14,12 +14,13 @@ from sqlalchemy import Engine, or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
+from app.api.v1.auth import require_session
 from app.contracts import Channel, Direction
 from app.core.logging import get_logger
 from app.db.enums import PersonKind, SendStatus
 from app.db.models import ChannelIdentity, MessageRow, Person, Send, UnderstandingRow
 
-router = APIRouter(prefix="/api/contacts", tags=["contacts"])
+router = APIRouter(prefix="/api/contacts", tags=["contacts"], dependencies=[Depends(require_session)])
 log = get_logger(__name__)
 
 

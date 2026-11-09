@@ -109,6 +109,10 @@ class Settings(BaseSettings):
     google_oauth_client_id: str | None = None  # audience of the owner's Google ID token
     google_oauth_client_secret: SecretStr | None = None
     google_oauth_redirect_uri: str | None = "http://localhost:8000/api/auth/google/callback"
+    # Where the API sends the browser after a Google flow (the SPA origin) and the callback of the owner login. Prod
+    # refuses the localhost defaults (core/startup.py).
+    frontend_base_url: str = "http://localhost:3000"
+    google_login_redirect_uri: str = "http://localhost:8000/api/auth/login/google/callback"
     # Exact SPA origins allowed cross-origin (comma-separated). Empty = no CORS (the SPA is served same-origin).
     dashboard_cors_origins: Annotated[list[str], NoDecode] = []
 

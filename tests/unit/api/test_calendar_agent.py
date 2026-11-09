@@ -32,6 +32,7 @@ from app.llm.agents.calendar import (
     propose_calendar_event,
 )
 from app.main import create_app
+from tests.api_auth import as_owner
 
 SETTINGS = Settings(
     database_url="postgresql+psycopg://u:p@localhost:1/db",
@@ -224,7 +225,7 @@ def create_test_mock_session(events_map=None, cases_map=None):
 def test_calendar_api_propose_endpoint():
     mock_engine = MagicMock()
     mock_wf = MagicMock()
-    app = create_app(SETTINGS, engine=mock_engine, workflow_client=mock_wf)
+    app = as_owner(create_app(SETTINGS, engine=mock_engine, workflow_client=mock_wf))
 
     with TestClient(app) as client:
         res = client.post(
@@ -281,7 +282,7 @@ def test_calendar_api_1click_approve():
     mock_engine = MagicMock()
     mock_wf = MagicMock()
 
-    app = create_app(SETTINGS, engine=mock_engine, workflow_client=mock_wf)
+    app = as_owner(create_app(SETTINGS, engine=mock_engine, workflow_client=mock_wf))
 
     with (
         patch("app.api.calendar.routes.Session", return_value=mock_sess),
@@ -352,7 +353,7 @@ def test_super_agent_schedule_command_returns_preview_card():
     mock_engine = MagicMock()
     mock_wf = MagicMock()
 
-    app = create_app(SETTINGS, engine=mock_engine, workflow_client=mock_wf)
+    app = as_owner(create_app(SETTINGS, engine=mock_engine, workflow_client=mock_wf))
 
     with (
         patch("app.api.agent.routes.Session", return_value=mock_sess),
@@ -413,7 +414,7 @@ def test_super_agent_calendar_schedule_inquiry():
     mock_engine = MagicMock()
     mock_wf = MagicMock()
 
-    app = create_app(SETTINGS, engine=mock_engine, workflow_client=mock_wf)
+    app = as_owner(create_app(SETTINGS, engine=mock_engine, workflow_client=mock_wf))
 
     with (
         patch("app.api.agent.routes.Session", return_value=mock_sess),

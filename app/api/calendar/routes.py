@@ -14,6 +14,7 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
+from app.api.v1.auth import require_session
 from app.channels.calendar import CalendarAttendee, CalendarEventCreate, get_calendar_client
 from app.core.logging import get_logger
 from app.db.enums import CaseEventKind
@@ -21,7 +22,7 @@ from app.db.models import Case, CaseEvent, Company
 from app.db.models.calendar import CalendarEventRow
 from app.llm.agents.calendar import propose_calendar_event
 
-router = APIRouter(prefix="/api/calendar", tags=["calendar"])
+router = APIRouter(prefix="/api/calendar", tags=["calendar"], dependencies=[Depends(require_session)])
 log = get_logger(__name__)
 
 

@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
+from app.api.v1.auth import Principal
 from app.contracts import ActionType, CaseState, Category, Channel, Direction, Urgency
 from app.core.settings import Settings
 from app.db.enums import ActionStatus, ApprovalStatus, LinkMethod
@@ -30,6 +31,7 @@ from app.db.models import (
 )
 from app.db.models.ingestion import MessageRow, RawEvent
 from app.main import create_app
+from tests.api_auth import as_owner
 
 pytestmark = pytest.mark.integration
 T0 = datetime(2026, 1, 1, tzinfo=UTC)
@@ -94,7 +96,8 @@ def _world(engine: Engine, pg_url: str, *, suspicious: bool) -> Iterator[World]:
         s.commit()
         settings = Settings(database_url=pg_url, env="test", _env_file=None)  # type: ignore[call-arg]
         wf = FakeClient()
-        with TestClient(create_app(settings, engine=engine, workflow_client=wf)) as client:
+        owner = Principal(company_id=company.id, owner_id=uuid4(), email="harjot@example.test")
+        with TestClient(as_owner(create_app(settings, engine=engine, workflow_client=wf), owner)) as client:
             yield World(client, wf, engine, company.id, case_id, action_id, approval_id)
         for model in (
             OwnerFeed, ActionRevision, UnderstandingRow, CaseLink, MessageRow, RawEvent, Approval, Send, TaskRow,

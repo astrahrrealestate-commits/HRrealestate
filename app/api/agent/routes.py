@@ -17,6 +17,7 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine, get_settings_dep
+from app.api.v1.auth import require_session
 from app.channels.calendar import get_calendar_client
 from app.context import memory_items
 from app.context.compiler import compile_concierge_context
@@ -60,7 +61,7 @@ from app.pipeline.rag import search_hybrid
 from app.superagent.chat import chat_answer
 from app.superagent.research import ResearchResult, run_research
 
-router = APIRouter(prefix="/api/agent", tags=["agent"])
+router = APIRouter(prefix="/api/agent", tags=["agent"], dependencies=[Depends(require_session)])
 log = get_logger(__name__)
 
 

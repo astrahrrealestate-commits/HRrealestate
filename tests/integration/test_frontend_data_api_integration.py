@@ -4,21 +4,27 @@ Tests pure data connectivity, response models, query parameter filtering, and CO
 without requiring mock LLM agent execution or workflow triggers.
 """
 
+from collections.abc import Iterator
+from uuid import uuid4
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 
+from app.api.v1.auth import Principal
 from app.core.settings import Settings
+from app.db.models import Company
 from app.main import create_app
+from tests.api_auth import as_owner
 
 pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
-def api_client(test_settings: Settings, migrated_engine: Engine) -> TestClient:
-    """Provides a TestClient wired with the migrated test database engine."""
-    app = create_app(test_settings, engine=migrated_engine)
-    with TestClient(app) as client:
+def api_client(test_settings: Settings, migrated_engine: Engine, committed_company: Company) -> Iterator[TestClient]:
+    """A TestClient on the migrated test database, signed in as the owner of a committed company."""
+    owner = Principal(company_id=committed_company.id, owner_id=uuid4(), email="harjot@example.test")
+    with TestClient(as_owner(create_app(test_settings, engine=migrated_engine), owner)) as client:
         yield client
 
 

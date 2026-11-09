@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import WorkflowClient, get_engine, get_workflow_client
 from app.api.maintenance import dispatch
 from app.api.v1 import enqueue
+from app.api.v1.auth import require_session
 from app.contracts import ActionType, CaseState, Category, Channel, Direction, Urgency
 from app.core.logging import get_logger
 from app.db.enums import ActionStatus, ApprovalStatus, CaseEventKind
@@ -32,7 +33,7 @@ from app.db.models import (
 )
 from app.pipeline import approvals, dashboard_decisions
 
-router = APIRouter(prefix="/api/maintenance", tags=["maintenance"])
+router = APIRouter(prefix="/api/maintenance", tags=["maintenance"], dependencies=[Depends(require_session)])
 log = get_logger(__name__)
 
 

@@ -8,6 +8,7 @@ from app.core.settings import Settings
 from app.db.models import ActionRow, Approval, Case, Company
 from app.main import create_app
 from app.pipeline.concierge import StepResult
+from tests.api_auth import as_owner
 
 SETTINGS = Settings(
     database_url="postgresql+psycopg://u:p@localhost:1/db",
@@ -55,7 +56,7 @@ def test_long_concierge_answer_not_discarded():
     assert len(long_answer) > 350
 
     mock_engine = MagicMock()
-    app = create_app(SETTINGS, engine=mock_engine)
+    app = as_owner(create_app(SETTINGS, engine=mock_engine))
 
     fake_plan = ConciergePlan(
         in_scope=True,
@@ -94,7 +95,7 @@ def test_short_concierge_answer_not_discarded():
     assert len(short_answer) < 40
 
     mock_engine = MagicMock()
-    app = create_app(SETTINGS, engine=mock_engine)
+    app = as_owner(create_app(SETTINGS, engine=mock_engine))
 
     fake_plan = ConciergePlan(
         in_scope=True,
@@ -130,7 +131,7 @@ def test_short_concierge_answer_not_discarded():
 def test_empty_db_no_fictional_ticket_005():
     """Verify that an empty database inquiry does not synthesize fake Ticket #005 or Pieter Floriszstraat."""
     mock_engine = MagicMock()
-    app = create_app(SETTINGS, engine=mock_engine)
+    app = as_owner(create_app(SETTINGS, engine=mock_engine))
 
     mock_sess = create_mock_session()
     with (
@@ -151,7 +152,7 @@ def test_empty_db_no_fictional_ticket_005():
 def test_financial_query_no_fake_bas_de_graaf():
     """Verify that an inquiry about rent arrears does not return hardcoded Bas de Graaf or € 2.150."""
     mock_engine = MagicMock()
-    app = create_app(SETTINGS, engine=mock_engine)
+    app = as_owner(create_app(SETTINGS, engine=mock_engine))
 
     mock_sess = create_mock_session()
     with (
@@ -191,7 +192,7 @@ def test_draft_card_uses_real_action_payload():
     mock_case = Case(id=case_id, company_id=comp_id)
 
     mock_engine = MagicMock()
-    app = create_app(SETTINGS, engine=mock_engine)
+    app = as_owner(create_app(SETTINGS, engine=mock_engine))
 
     fake_plan = ConciergePlan(
         in_scope=True,
@@ -237,7 +238,7 @@ def test_draft_card_uses_real_action_payload():
 def test_invoice_query_does_not_trigger_rag():
     """Verify that invoice and factuur queries do not invoke document RAG (Issue #5)."""
     mock_engine = MagicMock()
-    app = create_app(SETTINGS, engine=mock_engine)
+    app = as_owner(create_app(SETTINGS, engine=mock_engine))
 
     mock_sess = create_mock_session()
     with (
@@ -259,7 +260,7 @@ def test_invoice_query_does_not_trigger_rag():
 def test_dropped_step_surfaces_actionable_warning():
     """Verify that a step rejected due to missing case/task info surfaces actionable guidance (Issue #8)."""
     mock_engine = MagicMock()
-    app = create_app(SETTINGS, engine=mock_engine)
+    app = as_owner(create_app(SETTINGS, engine=mock_engine))
 
     fake_plan = ConciergePlan(
         in_scope=True,
@@ -297,7 +298,7 @@ def test_dropped_step_surfaces_actionable_warning():
 def test_open_view_waiting_maps_to_dashboard_not_maintenance():
     """Verify that open_view with view='waiting' always maps to Dashboard Radar even with prompt keywords (Issue #9)."""
     mock_engine = MagicMock()
-    app = create_app(SETTINGS, engine=mock_engine)
+    app = as_owner(create_app(SETTINGS, engine=mock_engine))
 
     fake_plan = ConciergePlan(
         in_scope=True,
@@ -460,7 +461,7 @@ def test_priority_inquiry_matches_urgent_case_not_newsletter():
     from app.contracts import CaseState, Urgency
 
     mock_engine = MagicMock()
-    app = create_app(SETTINGS, engine=mock_engine)
+    app = as_owner(create_app(SETTINGS, engine=mock_engine))
 
     comp_id = uuid4()
     emergency_case_id = uuid4()
@@ -535,7 +536,7 @@ def test_document_rag_returns_document_item_preview_card():
     from app.db.models import DocumentRow
 
     mock_engine = MagicMock()
-    app = create_app(SETTINGS, engine=mock_engine)
+    app = as_owner(create_app(SETTINGS, engine=mock_engine))
 
     comp_id = uuid4()
     doc_id = uuid4()
@@ -579,7 +580,7 @@ def test_standing_rule_creates_proposed_memory_with_action_card():
     from app.db.enums import MemoryStatus
 
     mock_engine = MagicMock()
-    app = create_app(SETTINGS, engine=mock_engine)
+    app = as_owner(create_app(SETTINGS, engine=mock_engine))
 
     fake_memory = MagicMock()
     fake_memory.id = uuid4()
@@ -609,7 +610,7 @@ def test_standing_rule_creates_proposed_memory_with_action_card():
 def test_task_reminder_not_saved_as_standing_rule():
     """Verify Issue 1.9: user task reminders ('remember to call Vipin') are not treated as standing policies."""
     mock_engine = MagicMock()
-    app = create_app(SETTINGS, engine=mock_engine)
+    app = as_owner(create_app(SETTINGS, engine=mock_engine))
 
     mock_sess = create_mock_session()
     with (
@@ -627,7 +628,7 @@ def test_task_reminder_not_saved_as_standing_rule():
 def test_open_question_is_answered_by_the_research_loop_with_its_step_chips():
     from app.superagent.research import ResearchResult
 
-    app = create_app(SETTINGS, engine=MagicMock())
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
     found = ResearchResult(
         "Two units are vacant; Pieter says the boiler is still broken.", ("Checked the database (2 rows)",)
     )
@@ -649,7 +650,7 @@ def test_open_question_is_answered_by_the_research_loop_with_its_step_chips():
 
 
 def test_open_question_falls_back_to_the_plain_chat_answer_when_research_returns_nothing():
-    app = create_app(SETTINGS, engine=MagicMock())
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
     with (
         patch("app.api.agent.routes.Session", return_value=create_mock_session()),
         patch("app.api.agent.routes.run_agent", side_effect=Exception("offline")),

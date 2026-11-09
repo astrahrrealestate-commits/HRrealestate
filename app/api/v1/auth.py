@@ -158,9 +158,11 @@ def default_dev_principal(engine: Engine | Connection) -> Principal | None:
 
 
 def _dev_bypass(request: Request) -> bool:
-    """Local dev only (`env == "dev"`): the SPA runs without a login. `test` and `prod` always authenticate."""
+    """Local dev only: the SPA runs without a login when `env == "dev"` AND the fake identity provider is configured.
+    `test` and `prod` always authenticate. Choosing the Google provider is the operator saying "real logins", so a
+    deployment that forgot `ENV=prod` (the default is `dev`) does not fall open."""
     settings = getattr(request.app.state, "settings", None)
-    return isinstance(settings, Settings) and settings.env == "dev"
+    return isinstance(settings, Settings) and settings.env == "dev" and settings.dashboard_auth_provider == "fake"
 
 
 def _dev_principal_or_401(request: Request) -> Principal:
@@ -200,6 +202,18 @@ def require_csrf(
 ) -> None:
     if x_estateos_client != CSRF_VALUE and not _dev_bypass(request):
         raise HTTPException(status_code=403, detail="missing client header")
+
+
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+async def require_session(request: Request) -> Principal:
+    """Guard of the dashboard routers: a valid session and, for anything that changes state, the client header (the
+    cookie is SameSite=Strict, the CORS allow-list is exact, and this header is the third CSRF layer of ADR 0006)."""
+    principal = await require_principal(request)
+    if request.method not in SAFE_METHODS:
+        require_csrf(request, request.headers.get(CSRF_HEADER))
+    return principal
 
 
 class SessionRequest(BaseModel):

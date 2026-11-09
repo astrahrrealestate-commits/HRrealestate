@@ -13,11 +13,12 @@ from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
+from app.api.v1.auth import require_session
 from app.contracts import CaseState
 from app.core.logging import get_logger
 from app.db.models import Approval, Case, Lease, Unit, WaitRow
 
-router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
+router = APIRouter(prefix="/api/dashboard", tags=["dashboard"], dependencies=[Depends(require_session)])
 log = get_logger(__name__)
 
 

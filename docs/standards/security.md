@@ -49,11 +49,28 @@ the architectural invariants in [CLAUDE.md](../../CLAUDE.md). A **blocker** fail
 **should-fix** (weakens a control or leaves a realistic abuse path; fix before merge unless the owner accepts it) ·
 **nit** (hardening or clarity).
 
-## Known gaps (2026-11-08; remove an item when it is fixed)
-- **Legacy SPA routers have no auth dependency.** A grep for auth dependencies finds them only in `app/api/v1` and
-  `app/api/auth`; the routers behind `agent`, `calendar`, `dashboard`, `inbox`, `maintenance`, `properties`, `tenants`
-  and `contacts` declare none, and `agent/routes.py` (3), `calendar/routes.py`, `auth/login_routes.py` and
-  `auth/google_routes.py` resolve the "default company" with `select(Company).limit(1)`. Fine while one owner runs one
-  company behind a private network; a blocker before a second tenant or a public deployment. Tracked by slice 1b of the
-  [Jarvis spec](../superpowers/specs/2026-11-06-super-agent-jarvis-design.md) for the Super Agent route; the others need
-  the same principal dependency. Run `estateos-security` on `app/api` for the full list.
+## Known gaps (2026-11-09; remove an item when it is fixed)
+Closed on 2026-11-09 (audit of `app/api`, regression guard `tests/unit/api/test_route_auth_guard.py`): every dashboard
+router (`agent`, `calendar`, `contacts`, `dashboard`, `inbox`, `maintenance`, `properties`, `tenants`) now depends on
+`require_session` (session cookie, plus the client header on state-changing methods); the Gmail connect flow is bound to
+the owner by a signed, expiring `state`; the dev bypass needs `env=dev` **and** the fake identity provider; production
+refuses `localhost` or plain-http public URLs. The guard test fails the build if any route answers an anonymous caller
+without being listed as public.
+
+Still open (each is a finding of the audit; fix in this order):
+- **Handlers still read across companies.** The routers above authenticate, but `dashboard`, `inbox`, `maintenance`,
+  `contacts` and `calendar` queries do not yet filter by `principal.company_id`, and `agent/routes.py` still resolves
+  the company with `select(Company).limit(1)`. Harmless with one company; a blocker before a second tenant. Includes
+  `inbox/decide.py` resolving "latest" across all companies and `maintenance._find_case` matching an id *prefix*.
+- **Owner login can take over another owner.** `auth/login_routes.py` ignores `AllowedUser.company_id`, takes the first
+  company's first owner and rewrites that owner's email; it also never verifies its OAuth `state` or `email_verified`.
+- **Google Chat webhook** accepts unsigned tokens while `google_chat_provider=fake` (the default) and production does not
+  refuse that setting.
+- **Attachments** are served `inline` with the stored mime type (stored XSS on the API origin) and without a company
+  check; the filename is not escaped in the header.
+- **Fake data and fake sends.** `properties` and `tenants` return hard-coded demo records (including lockbox PINs);
+  `contacts` "send" routes write `Send(status=sent)` rows for messages that were never sent (invariant 5).
+- **Calendar approve** pushes events (with attendee emails) to the owner's Google Calendar without being idempotent or
+  going through `app/sender/`.
+- **Personal data in logs:** login and Google flows log email addresses and OAuth response text.
+- The owner's Google OAuth credentials live in one plaintext file for the whole installation, not per company.

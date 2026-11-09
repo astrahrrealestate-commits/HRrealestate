@@ -16,6 +16,8 @@ DASHBOARD_SETTINGS = [
     "dashboard_trust_forwarded_for",
     "dashboard_cors_origins",
     "google_oauth_client_id",
+    "frontend_base_url",
+    "google_login_redirect_uri",
     "tenant_sends_per_hour",
     "concierge_daily_cap",
     "concierge_daily_budget_usd",

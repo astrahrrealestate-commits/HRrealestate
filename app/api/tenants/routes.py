@@ -10,9 +10,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
 from app.api.deps import get_engine
+from app.api.v1.auth import require_session
 from app.core.logging import get_logger
 
-router = APIRouter(prefix="/api/tenants", tags=["tenants"])
+router = APIRouter(prefix="/api/tenants", tags=["tenants"], dependencies=[Depends(require_session)])
 log = get_logger(__name__)
 
 

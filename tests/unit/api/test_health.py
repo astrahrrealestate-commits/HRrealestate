@@ -98,6 +98,9 @@ def test_prod_hides_docs_and_openapi(monkeypatch: pytest.MonkeyPatch, tmp_path: 
         dashboard_auth_provider="google",
         dashboard_session_secret="x" * 32,
         google_oauth_client_id="c.apps.googleusercontent.com",
+        frontend_base_url="https://dash.estateos.example",
+        google_login_redirect_uri="https://api.estateos.example/api/auth/login/google/callback",
+        google_oauth_redirect_uri="https://api.estateos.example/api/auth/google/callback",
         _env_file=None,
     )  # type: ignore[call-arg]
     with TestClient(create_app(prod, engine=MagicMock())) as client:

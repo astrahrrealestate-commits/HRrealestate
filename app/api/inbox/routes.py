@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import WorkflowClient, get_engine, get_ingest_deps, get_storage, get_workflow_client
 from app.api.inbox import decide as inbox_decide
 from app.api.v1 import enqueue
+from app.api.v1.auth import require_session
 from app.contracts import ActionType, ButtonChoice, Channel, Direction
 from app.core.errors import NotFoundError
 from app.core.logging import get_logger
@@ -45,7 +46,7 @@ from app.ingestion.process import IngestDeps
 from app.pipeline import dashboard_decisions
 from app.storage.ports import ObjectStorage
 
-router = APIRouter(prefix="/api/inbox", tags=["inbox"])
+router = APIRouter(prefix="/api/inbox", tags=["inbox"], dependencies=[Depends(require_session)])
 log = get_logger(__name__)
 
 

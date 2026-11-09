@@ -173,3 +173,26 @@ def test_google_unverified_email_401(verified: object) -> None:
 
 def test_google_verified_email_ok() -> None:
     assert _google_login(claims={"email": "a@b.test", "email_verified": True}) == 200
+
+
+def _dev(**kw: object) -> Settings:
+    return SETTINGS.model_copy(update={"env": "dev", **kw})
+
+
+def _anonymous_status(settings: Settings) -> int:
+    app = create_app(settings, engine=MagicMock(), workflow_client=MagicMock())
+    with patch("app.api.v1.auth.default_dev_principal", return_value=PRINCIPAL), TestClient(app) as c:
+        return c.get("/api/v1/me").status_code
+
+
+def test_dev_with_the_fake_provider_runs_without_a_login() -> None:
+    assert _anonymous_status(_dev(dashboard_auth_provider="fake")) == 200
+
+
+def test_dev_with_the_google_provider_does_not_fall_open() -> None:
+    """A deployment configured for real logins but missing ENV=prod must still demand a session."""
+    assert _anonymous_status(_dev(dashboard_auth_provider="google", google_oauth_client_id="c.test")) == 401
+
+
+def test_test_and_prod_always_demand_a_session() -> None:
+    assert _anonymous_status(SETTINGS) == 401
