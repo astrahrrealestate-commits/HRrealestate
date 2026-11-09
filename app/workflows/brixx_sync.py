@@ -17,6 +17,9 @@ Mirror tables come from generated migrations, so a child writes only through the
 (`app.directory.brixx.mirror`). A table the mirror cannot store yet (no migration for it, or its primary key missing)
 returns `skipped`: it is flagged drifted, nothing is fetched, and the run does not fail. New BRIXX columns land in
 `_extra` and flag the table drifted until the next codegen revision adds them.
+
+After `PRG_DOCUMENT` syncs, its child also claims and enqueues the document downloads (`brixx_documents`); a claim
+that outlives its retries fails that table's child like any other table error.
 """
 
 from dataclasses import asdict
@@ -27,61 +30,36 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 import sqlalchemy as sa
 from dbos import DBOS, SetWorkflowID
 from sqlalchemy.dialects import postgresql
-from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
-from app.channels.brixx.models import BrixxField, BrixxTable
-from app.core.errors import BrixxAuthError, BrixxError, StaleRunError
+from app.core.errors import BrixxError
 from app.core.logging import get_logger
 from app.core.workflow_names import BRIXX_SYNC_ALL, BRIXX_SYNC_TABLE, brixx_run_workflow_id
 from app.db.enums import BrixxRunKind, BrixxRunStatus
 from app.db.models import Company
 from app.db.models.brixx import BrixxSyncRun
+from app.directory.brixx.documents import is_document_table
 from app.directory.brixx.mirror import mirror_columns, storable
 from app.directory.brixx.schema import build_table
 from app.directory.brixx.state import begin_table_run, get_or_create_table_state, mark_success
 from app.directory.brixx.sync import latest, sync_table_page
 from app.workflows import queues
+from app.workflows.brixx_common import BRIXX_RETRY, FAILED, OK, error_name, info_from_json
+from app.workflows.brixx_documents import enqueue_document_downloads
 from app.workflows.deps import brixx_api, get_engine
 
 log = get_logger(__name__)
 
-OK = "ok"
 SKIPPED = "skipped"  # the mirror has no storable table for it yet: drift, not a failure
-_FAILED = "failed:"
 _RUN_NAMESPACE = uuid5(NAMESPACE_URL, "https://estateos.invalid/brixx/sync-run")
-_NOT_RETRIED = (BrixxAuthError, StaleRunError)
 _MAX_ERROR = 1000
-
-
-def _should_retry(exc: BaseException) -> bool:
-    """Retry BRIXX and database errors, except those where another attempt cannot succeed."""
-    return isinstance(exc, BrixxError | DBAPIError) and not isinstance(exc, _NOT_RETRIED)
-
-
-_RETRY: dict[str, Any] = {
-    "retries_allowed": True,
-    "max_attempts": 8,
-    "interval_seconds": 5.0,
-    "backoff_rate": 2.0,
-    "should_retry": _should_retry,
-}
+_RETRY = BRIXX_RETRY
 
 
 def brixx_run_id(company_id: UUID, scheduled_time: datetime) -> UUID:
     """The run of one cron tick: the same company and minute (UTC) always give the same id."""
     tick = scheduled_time.astimezone(UTC)
     return uuid5(_RUN_NAMESPACE, f"brixx:{company_id}:incremental:{tick:%Y%m%dT%H%M}")
-
-
-def _error_name(exc: BaseException) -> str:
-    """Class name of the error that mattered (the last attempt's, when DBOS gave up retrying)."""
-    attempts = getattr(exc, "errors", None) if type(exc).__name__ == "DBOSMaxStepRetriesExceeded" else None
-    return type(attempts[-1]).__name__ if attempts else type(exc).__name__
-
-
-def _info_from_json(data: dict[str, Any]) -> BrixxTable:
-    return BrixxTable(data["name"], data["primary_key"], tuple(BrixxField(**f) for f in data["fields"]))
 
 
 def _utc(value: datetime) -> str:
@@ -137,7 +115,7 @@ def sync_all(scheduled_time: datetime, context: Any) -> None:
     try:
         tables, listing_error = list_tables_step(), None
     except Exception as exc:  # BrixxAuthError is not retried; anything else outlived its retries
-        tables, listing_error = [], _error_name(exc)
+        tables, listing_error = [], error_name(exc)
     if not tables and listing_error is None:
         log.info("brixx.sync_skipped", reason="no_tables")  # e.g. the empty dev fake: no run rows, no noise
         return
@@ -158,8 +136,8 @@ def _collect(handle: Any) -> str:
     try:
         result = str(handle.get_result())
     except Exception as exc:  # the child crashed instead of returning a failure marker
-        return _error_name(exc)
-    return OK if result == OK else result.removeprefix(_FAILED)
+        return error_name(exc)
+    return OK if result == OK else result.removeprefix(FAILED)
 
 
 @DBOS.step(name="brixx.describe_table", **_RETRY)
@@ -176,7 +154,7 @@ def begin_step(run_id: str, info: dict[str, Any]) -> dict[str, Any]:
     Returns `stored` (the live metadata narrowed to what the mirror stores; None: skip the table, flagged drifted,
     with no takeover), the first page, the incremental watermark and the run's ORIGINAL start (read from the run row,
     so a retried child never uses its own clock)."""
-    live = _info_from_json(info)
+    live = info_from_json(info)
     with Session(get_engine()) as session:
         run = session.scalars(sa.select(BrixxSyncRun).where(BrixxSyncRun.id == UUID(run_id))).one_or_none()
         if run is None:
@@ -198,14 +176,14 @@ def sync_page_step(
     company_id: str, run_id: str, info: dict[str, Any], stored: dict[str, Any], page: int, since: str | None
 ) -> dict[str, Any]:
     """One page of the live table `info`, written through the mirror columns of `stored` (the rest goes to `_extra`)."""
-    table_info = _info_from_json(info)
+    table_info = info_from_json(info)
     with Session(get_engine()) as session:
         result = sync_table_page(
             session,
             brixx_api(),
             UUID(company_id),
             table_info,
-            build_table(_info_from_json(stored), sa.MetaData()),
+            build_table(info_from_json(stored), sa.MetaData()),
             run_id=UUID(run_id),
             page=page,
             since=None if since is None else datetime.fromisoformat(since),
@@ -239,6 +217,8 @@ def _sync_pages(run_id: str, table: str) -> str:
             break
         page += 1
     mark_success_step(begun["company_id"], run_id, table, None if upd is None else _utc(upd), begun["started_at"])
+    if is_document_table(table):
+        enqueue_document_downloads(begun["company_id"], info)  # files only once their metadata rows are committed
     return OK
 
 
@@ -249,6 +229,6 @@ def sync_table(run_id: str, table: str) -> str:
     try:
         return _sync_pages(run_id, table)
     except Exception as exc:
-        name = _error_name(exc)
+        name = error_name(exc)
         log.warning("brixx.sync_table_failed", table=table, error=name)
-        return _FAILED + name
+        return FAILED + name

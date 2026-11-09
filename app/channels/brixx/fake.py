@@ -1,4 +1,4 @@
-"""In-memory BRIXX API for tests and dev: pages, a simple `upddatetime` filter, scripted failures."""
+"""In-memory BRIXX API for tests and dev: pages, a simple `upddatetime` filter, documents, scripted failures."""
 
 import re
 from dataclasses import dataclass
@@ -60,12 +60,18 @@ class FakeBrixxApi:
         self._page_size = page_size
         self._documents = documents or {}
         self._failures: dict[tuple[str, int], tuple[BrixxError, bool]] = {}
+        self._download_failures: dict[int, tuple[BrixxError, bool]] = {}
+        self.download_log: list[int] = []
         self.fetch_log: list[tuple[str, int, str | None]] = []
         self.order_log: list[str | None] = []  # `order_by` of each fetch, parallel to `fetch_log`
 
     def fail_on(self, table: str, page: int, error: BrixxError, *, once: bool = True) -> None:
         """Raise `error` when `page` of `table` is fetched (once by default, so a retry succeeds)."""
         self._failures[(table.upper(), page)] = (error, once)
+
+    def fail_download(self, document_id: int, error: BrixxError, *, once: bool = True) -> None:
+        """Raise `error` when `document_id` is downloaded (once by default, so a retry succeeds)."""
+        self._download_failures[document_id] = (error, once)
 
     def _table(self, name: str) -> FakeTable:
         try:
@@ -127,6 +133,13 @@ class FakeBrixxApi:
         return [r for r in rows if ((value := _to_datetime(_upddatetime(r))) is not None and value >= since)]
 
     def download_document(self, document_id: int) -> bytes:
+        self.download_log.append(document_id)
+        failure = self._download_failures.get(document_id)
+        if failure is not None:
+            error, once = failure
+            if once:
+                del self._download_failures[document_id]
+            raise error
         try:
             return self._documents[document_id]
         except KeyError:

@@ -69,6 +69,19 @@ def test_fake_download_document() -> None:
     assert api.download_document(7) == b"pdf"
     with pytest.raises(BrixxError):
         api.download_document(8)
+    assert api.download_log == [7, 8]
+
+
+def test_fake_scripted_download_failure_is_one_shot_by_default() -> None:
+    api = FakeBrixxApi({}, documents={7: b"pdf", 9: b"img"})
+    api.fail_download(7, BrixxAuthError("HTTP 403"))
+    api.fail_download(9, BrixxError("down"), once=False)
+    with pytest.raises(BrixxAuthError):
+        api.download_document(7)
+    assert api.download_document(7) == b"pdf"
+    for _ in range(2):
+        with pytest.raises(BrixxError):
+            api.download_document(9)
 
 
 def test_fake_normalises_null_cells() -> None:

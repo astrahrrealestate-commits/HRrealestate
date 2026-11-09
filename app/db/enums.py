@@ -256,3 +256,13 @@ class DDReviewStatus(StrEnum):
     running = "running"
     done = "done"
     failed = "failed"
+
+
+class BrixxDocumentStatus(StrEnum):
+    """One version of a BRIXX document file: `pending` until downloaded, `stored` in object storage, `forbidden` when
+    BRIXX refuses the download (the token lacks the personal-data permission), `failed` after retries ran out."""
+
+    pending = "pending"
+    stored = "stored"
+    forbidden = "forbidden"
+    failed = "failed"
