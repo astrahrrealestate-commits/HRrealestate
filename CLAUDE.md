@@ -14,6 +14,8 @@ Design: [dashboard spec](docs/superpowers/specs/2026-10-15-dashboard-super-agent
 | [docs/dev-pipeline.md](docs/dev-pipeline.md) | stages, gates, test strategy per layer, definition of done |
 | [docs/build-plan.md](docs/build-plan.md) · [docs/PROGRESS.md](docs/PROGRESS.md) | milestones · status |
 | [docs/superpowers/specs/](docs/superpowers/specs/) | current approved specs |
+| [docs/standards/security.md](docs/standards/security.md) | auth, tenant scoping, injection, secrets, **known security gaps** |
+| [reports/](reports/) | dated retros: what slowed us down and what we changed |
 
 ## Build philosophy
 Assemble proven tools, then connect and manage them. Write code only for domain logic (case engine, rules, proposals,
@@ -69,11 +71,31 @@ Pub/Sub · S3 · structlog · Sentry.
 - No TODO without an issue link. No commented-out code. No blanket `# type: ignore` / `# noqa`.
 
 ## Pipeline (how every change is made)
-`/ship` per task: **RED → GREEN → REFACTOR → G1 → G2 (if db/workflows/channels/sender/api) → G3 reviewer → commit**.
+`/ship` per task: **RED → GREEN → REFACTOR → G1 → G2 (if db/workflows/channels/sender/api) → G3 reviewer (+ `estateos-security` for api/sender/channels/llm/auth/prompts/external input) → commit**.
 Full detail and the per-layer test matrix: [docs/dev-pipeline.md](docs/dev-pipeline.md).
 - New milestone → `/milestone` (brainstorm → spec → plan → execute).
 - Evidence before claims → `/check` (quote result lines). Noisy runs → `test-runner` agent.
 - Branch per milestone `m<n>-<slug>`; `main` is protected by pre-commit. Conventional commits enforced.
+
+## Two kinds of agent
+**Product agents** run inside EstateOS (the Super Agent / concierge planner, proposer, understanding, owner_qa, the
+research loop; code in `app/llm/agents/`, `app/superagent/`). **Engineering agents** build it (`.claude/agents/`):
+`estateos-implementer`, `estateos-reviewer`, `estateos-security`, `test-runner`, `builder`. "Reviewer" or "security"
+without a prefix means the engineering role. Engineering agents never get product credentials; product agents never get
+write tools.
+
+## Quality gates: reject work if
+- no test, or a test never seen red (see "Test rules" in dev-pipeline.md)
+- docs, spec or PROGRESS not updated for a behaviour or contract change
+- a significant design choice with no ADR
+- complexity a simpler equivalent would avoid, or plumbing that tech-stack.md already names a tool for
+- an open **blocker** from `docs/standards/security.md`, or no `estateos-security` pass on a diff that needs one
+A failed gate sends the task back to the stage that owns it; it does not ship.
+
+## Self-improvement loop
+At the end of every slice or milestone run `/retro`: what slowed us down, what knowledge was missing and where it
+should live, what repeated (the **third** occurrence becomes a skill), what a hook or test should have caught. Each
+answer becomes an artifact in the same change (a rule, skill, hook, test, ADR) and a dated file in `reports/`.
 
 ## Guardrails enforced by hooks (`.claude/hooks/`, self-tested by `make harness-test`)
 - **Bash:** blocks git writes outside this repo (the parent dir is a home-dir repo), force push, hook bypass,
