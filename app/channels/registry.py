@@ -12,7 +12,7 @@ from app.channels.brixx.fake import FakeBrixxApi
 from app.channels.brixx.http import HttpBrixxApi
 from app.channels.brixx.ports import BrixxApi
 from app.channels.gmail.fake import DirMailboxStore, FakeMailbox
-from app.channels.gmail.google import GoogleMailbox
+from app.channels.gmail.google import READ_SCOPES, GoogleMailbox
 from app.channels.gmail.ports import GmailMailbox
 from app.channels.gmail.push import (
     DEV_AUDIENCE,
