@@ -9,7 +9,7 @@ Tick an item only with `/check` evidence. Milestone definitions: [build-plan.md]
 - [ ] Hosting provider (EU) chosen — open
 - [ ] LLM provider confirmed (OpenAI EU default) — open
 - [ ] OpenAI org with EU data processing agreement
-- [ ] BRIXX export received
+- [ ] BRIXX Data API access (replaces the export, ADR 0010): token in `.env`, IP whitelist for the dev machine and a fixed production egress IP (see the BRIXX data mirror section)
 - [ ] Labeller named for first 100 emails
 
 ## M1 Skeleton + contracts + first migration
@@ -116,6 +116,17 @@ Evidence: G1 `make quick` "2225 passed", "Contracts: 8 kept, 0 broken.", "Succes
 - [ ] Super Agent read intents (needs a concierge prompt version); dashboard UI for the report
 - [ ] follow-ups from review: medium document flags do not change the verdict (shown in `risks`); `compare` checks each claim against the reference only (non-transitive tolerance); no index on `dd_reviews.unit_id`
 - [ ] not run: `make smoke`, `make sim-demo` (no simulator scenario written for this agent), `make harness-test` fails on `test_allows_git_write_in_own_linked_worktree` (worktree guard, unrelated to this change)
+
+## BRIXX data mirror — spec [2026-10-31-brixx-data-mirror-design.md](superpowers/specs/2026-10-31-brixx-data-mirror-design.md) · plan [Phase A](superpowers/plans/2026-10-31-brixx-data-mirror-phase-a.md) · ADR 0010 · branches `m-brixx-mirror` (PR 20), `m-brixx-status`
+Replaces the deferred M3 CSV/XLSX export import: every BRIXX table mirrored into typed Postgres tables (schema `brixx`) by DBOS workflows; BRIXX is never called on a request path.
+- [x] Phase A Tasks 1–8 (PR 20): settings + prod guard, models/port/filter builder/`{}`→NULL normaliser, httpx adapter + fake, mirror table builder and type map, sync state tables (migration 0028), idempotent page upsert, resumable table sync with drift detection, `brixx.sync_all` cron + `brixx.sync_table` children on the `brixx` queue. G1 on Windows at the PR 20 merge: "Contracts: 8 kept, 0 broken", unit+contract "2508 passed" with the 10 failed + 8 errors that are Windows-only (perms, symlinks, CRLF, timeouts), mypy only the 2 Windows `fcntl` errors in `app/channels/gmail/fake.py`
+- [x] Phase A Task 9: `GET /api/v1/brixx/status` (state tables only, company-scoped, session auth; `stale` = no succeeded run within 3 x `brixx_sync_interval_minutes`), contracts `app/contracts/brixx.py` (run enums now defined there, re-exported by `app/db/enums.py`), read model `app/directory/brixx/status.py`, OpenAPI snapshot, `docs/dashboard-api.md`. G1 on Windows: "2654 passed", "32 snapshots passed", "Contracts: 8 kept, 0 broken", the same 10 failed + 8 errors and 2 mypy errors as the clean-tree baseline, nothing new
+- [x] Phase A Task 10: ADR 0010, `docs/tech-stack.md`, `docs/hld.md`, `docs/go-live-channels.md` (BRIXX section)
+- [ ] `make check` (G2) for Phase A: integration tests `test_brixx_schema.py`, `test_brixx_state_models.py`, `test_brixx_upsert.py`, `test_brixx_sync.py`, `test_brixx_workflows.py`, `test_brixx_status_api.py` are written; the status API tests were **not run** (no Docker on the Windows dev machine), and neither were the 0028 round-trip and drift there
+- [ ] Phase B (discovery, `make brixx-codegen`, migration for all tables, first load, `make live-check k=brixx`) and Phase C (documents to S3): in progress on `m-brixx-discover` / `m-brixx-documents`. **Blocked for any live call on:** the BRIXX token in `.env`; the IP whitelist for the dev machine's public IP `122.161.68.101` (2026-11-03; the spec's `115.246.217.246` is stale); a fixed production egress IP, also whitelisted
+- [ ] open: which `Authorization` form BRIXX expects (`BRIXX_AUTH_SCHEME` bearer or raw, unconfirmed); whether the token has the personal-data permission (documents, `ZOEKID`); rotate the token after go-live (exposed in a chat on 2026-10-31)
+- [ ] follow-up (status API): the state row has no per-table success timestamp, so `last_success_at` is derived (start of the run that last completed the table, else the `UPDDATETIME` watermark; null for tables without `UPDDATETIME` while a run is mid-table or failing), and `row_count` counts rows written by the latest run, not the mirror size. A `last_success_at` column set by `mark_success` and a per-table mirror row count (Phase B, once the `brixx` tables exist) would make both exact
+- [ ] Phase D: mapper to `people`/`units`/leases, Super Agent BRIXX lookup tool, GDPR purge of mirror rows and documents (failing test first) with an erased-refs tombstone
 
 ## Review rounds (whole branch, 2026-10-08)
 - [x] round 1 (estateos-reviewer + peer): owner-step retries, pipeline failure handling (no silent drops, final failure → `other` case + alert), blocked approvals told + `resume` reruns, re-fired chase timers, blank/command edits, edit replay, task #refs, outbox per-item isolation + current owner number, payload recipient check, reply channel from the message, propose lock, timers queue, briefing lists stuck items, company_id scoping

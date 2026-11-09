@@ -2,6 +2,9 @@
 
 from enum import StrEnum
 
+from app.contracts.brixx import BrixxRunKind as BrixxRunKind  # defined once, in the contract
+from app.contracts.brixx import BrixxRunStatus as BrixxRunStatus
+
 
 class PersonKind(StrEnum):
     tenant = "tenant"
@@ -252,15 +255,4 @@ class DDReviewStatus(StrEnum):
     pending = "pending"
     running = "running"
     done = "done"
-    failed = "failed"
-
-
-class BrixxRunKind(StrEnum):
-    incremental = "incremental"
-    reconcile = "reconcile"
-
-
-class BrixxRunStatus(StrEnum):
-    running = "running"
-    succeeded = "succeeded"
     failed = "failed"

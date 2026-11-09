@@ -45,7 +45,7 @@ unless vetoed.
 | Photos / scans | model vision via Pydantic AI | — |
 | Phone / email normalising | **phonenumbers**, **email-validator** | — |
 | Fuzzy matching (linking, outcomes) | **rapidfuzz** | thresholds |
-| BRIXX export import | **polars** (CSV/XLSX) + Pydantic row models | column mapping |
+| BRIXX data | **httpx** adapter to the BRIXX Data API (`app/channels/brixx/`, fake by default) + a typed Postgres mirror (schema `brixx`) generated from BRIXX metadata into Alembic migrations, synced by DBOS cron/queue workflows (ADR 0010; replaces the polars CSV/XLSX export import) | type map, page upsert guard, sync state, raw-to-domain column mapping |
 | Object storage | **boto3** → S3-compatible EU bucket | — |
 | Dashboard session | **itsdangerous** (signed, time-limited cookie) + **google-auth** (ID token verify) | `app/api/v1/auth.py`, `ratelimit.py` (in-process token bucket; multi-instance needs Postgres counters, no Redis) |
 | Dashboard API | **FastAPI** routers `/api/v1` + SSE (`StreamingResponse`, Postgres-polled) | read models, decision routes; see [dashboard-api.md](dashboard-api.md) |

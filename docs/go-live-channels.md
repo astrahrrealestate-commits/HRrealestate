@@ -13,7 +13,8 @@ endpoint), so the API is deployed **before** deliveries are connected.
 1. **Rows.** Create the company, its channel accounts and the owner ([Onboarding rows](#onboarding-rows)).
    Deliveries for unknown numbers or mailboxes are acknowledged and logged, but create no work.
 2. **Credentials and settings** for [S3](#s3), [Gmail](#gmail) steps 1–5, [WhatsApp](#whatsapp) (tokens, secrets),
-   [Drive](#drive-document-filing) and the [LLM](#llm), without connecting any delivery yet.
+   [Drive](#drive-document-filing), the [LLM](#llm) and [BRIXX](#brixx-data-mirror) (its IP whitelist takes the
+   longest: ask early), without connecting any delivery yet.
 3. **Checks that need no inbound traffic:**
    `make live-check k="storage or mailbox or certs or draft or text_to_owner or drive or llm"`.
 4. **Deploy** with `ENV=prod`. Startup refuses to boot while any required setting is missing or still fake.
@@ -287,6 +288,42 @@ After switching:
 
 Free-form text needs an open 24-hour service window: Harjot messages the business number first. Phase 1 never
 messages tenants; the live check messages only the owner.
+
+## BRIXX (data mirror)
+
+The BRIXX mirror (ADR 0010) copies every BRIXX table into Postgres (schema `brixx`) on a 15-minute DBOS schedule and
+reads only from there. EstateOS never writes to BRIXX, and BRIXX is never called on a request path. Until switched it
+runs on the in-memory fake; prod refuses `BRIXX_PROVIDER=fake` and a missing token.
+
+1. **IP whitelist.** BRIXX accepts the token only from whitelisted source IPs; from any other IP every call answers
+   `401` (seen on 2026-10-31 with both header forms). Ask BRIXX to whitelist:
+   - the dev machine's public IP: `122.161.68.101` on 2026-11-03 (the `115.246.217.246` in the spec is stale; home
+     and office IPs change, so re-check before asking);
+   - the production egress IP. Production needs a **fixed** egress IP (for example an Elastic IP or a NAT gateway);
+     without it the sync stops whenever the host's address changes.
+2. **Settings** (private `.env` or the secret store only, never git):
+
+| Variable | Value |
+|---|---|
+| `BRIXX_PROVIDER` | `api` (prod refuses `fake`) |
+| `BRIXX_TOKEN` | the per-user Data API token (secret; never stored in the database, never logged) |
+| `BRIXX_AUTH_SCHEME` | `bearer` (sends `Authorization: Bearer <token>`, the default) or `raw` (sends the bare token). **Unconfirmed** which one BRIXX expects: start with `bearer`; if a whitelisted IP still gets `401`, try `raw` |
+| `BRIXX_BASE_URL` / `BRIXX_ENVIRONMENT` | defaults `https://mob.brixxonline.com/api/v1` / `hrrealestate` |
+| `BRIXX_SYNC_INTERVAL_MINUTES` | default 15; only the staleness window of the status API uses it (stale after 3 intervals), the cron itself is fixed at every 15 minutes |
+| `BRIXX_TIMEOUT_SEC` | default 60 |
+
+3. **Check.** `make live-check k=brixx` arrives with mirror Phase B (discovery and first load). Until then, after the
+   worker runs, read `GET /api/v1/brixx/status` (dashboard session): `last_run.status` is `succeeded`, `stale` is
+   false and no table has a `last_error`. A `BrixxAuthError` there means the token, the header form or the whitelist
+   is wrong; it is not retried, and the other tables carry on.
+4. **Rotate the token after go-live.** The current token was exposed in a chat transcript on 2026-10-31. Once the
+   production sync works, ask BRIXX for a new token, replace `BRIXX_TOKEN`, restart the api and worker, and have the
+   old one revoked. Use a separate token per environment (dev and prod).
+5. **Documents** (mirror Phase C) also need the token's "personal data" permission; without it downloads are
+   refused and shown as `forbidden`.
+
+Rollback: removing the token or the whitelist entry makes every run fail with `BrixxAuthError`, which the status API
+shows (`stale` after 45 minutes); mirror rows already synced stay readable.
 
 ## Onboarding rows
 

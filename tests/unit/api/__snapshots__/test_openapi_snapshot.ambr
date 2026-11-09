@@ -532,6 +532,27 @@
           ]
         }
       },
+      "/api/v1/brixx/status": {
+        "get": {
+          "operationId": "sync_status_api_v1_brixx_status_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/BrixxStatus"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Sync Status",
+          "tags": [
+            "brixx"
+          ]
+        }
+      },
       "/api/v1/cases": {
         "get": {
           "operationId": "get_cases_api_v1_cases_get",
@@ -3404,6 +3425,179 @@
           "stats"
         ],
         "title": "BriefingOut",
+        "type": "object"
+      },
+      "BrixxRun": {
+        "additionalProperties": false,
+        "description": "The newest sync run (any status). `error` names the failed tables and error classes.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/BrixxRunKind"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BrixxRunStatus"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "started_at",
+          "finished_at",
+          "error"
+        ],
+        "title": "BrixxRun",
+        "type": "object"
+      },
+      "BrixxRunKind": {
+        "enum": [
+          "incremental",
+          "reconcile"
+        ],
+        "title": "BrixxRunKind",
+        "type": "string"
+      },
+      "BrixxRunStatus": {
+        "enum": [
+          "running",
+          "succeeded",
+          "failed"
+        ],
+        "title": "BrixxRunStatus",
+        "type": "string"
+      },
+      "BrixxStatus": {
+        "additionalProperties": false,
+        "description": "`stale` is true when no run succeeded within 3 x `brixx_sync_interval_minutes` (or none ever did).",
+        "properties": {
+          "last_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BrixxRun"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "tables": {
+            "items": {
+              "$ref": "#/components/schemas/BrixxTableStatus"
+            },
+            "title": "Tables",
+            "type": "array"
+          },
+          "total_rows": {
+            "title": "Total Rows",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "last_run",
+          "tables",
+          "total_rows",
+          "stale"
+        ],
+        "title": "BrixxStatus",
+        "type": "object"
+      },
+      "BrixxTableStatus": {
+        "additionalProperties": false,
+        "description": "One mirrored table. `row_count` is the rows written by the table's latest run (an incremental run counts only\nchanged rows). `last_success_at`: every BRIXX change before it is in the mirror; null before the table first\ncompletes, and for a table without UPDDATETIME also while a run is mid-table or failing.",
+        "properties": {
+          "drifted": {
+            "title": "Drifted",
+            "type": "boolean"
+          },
+          "lag_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lag Seconds"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "row_count": {
+            "title": "Row Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "row_count",
+          "last_success_at",
+          "lag_seconds",
+          "drifted",
+          "last_error"
+        ],
+        "title": "BrixxTableStatus",
         "type": "object"
       },
       "ButtonChoice": {
