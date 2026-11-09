@@ -144,7 +144,33 @@ def _secure(settings: Settings) -> bool:
     return settings.env not in ("dev", "test")
 
 
-def _short(email: str) -> str:
+def set_session_cookie(response: Response, settings: Settings, token: str) -> None:
+    """The one writer of the session cookie (v1 session exchange and the Google login callback)."""
+    response.set_cookie(
+        COOKIE,
+        token,
+        max_age=settings.dashboard_session_ttl_min * 60,
+        httponly=True,
+        samesite="strict",
+        secure=_secure(settings),
+        domain=settings.dashboard_cookie_domain,
+        path="/",
+    )
+
+
+def clear_session_cookie(response: Response, settings: Settings) -> None:
+    response.delete_cookie(
+        COOKIE,
+        httponly=True,
+        samesite="strict",
+        secure=_secure(settings),
+        domain=settings.dashboard_cookie_domain,
+        path="/",
+    )
+
+
+def email_fingerprint(email: str) -> str:
+    """A short hash for logs: enough to correlate attempts, never the address itself."""
     return hashlib.sha256(email.lower().encode()).hexdigest()[:8]
 
 
@@ -234,24 +260,17 @@ async def create_session(body: SessionRequest, request: Request, response: Respo
         raise HTTPException(status_code=401, detail="invalid id token") from None
     principal = await run_in_threadpool(owner_by_email, state.engine, email)
     if principal is None:
-        log.info("dashboard_login_unknown_owner", email_hash=_short(email))
+        log.info("dashboard_login_unknown_owner", email_hash=email_fingerprint(email))
         raise HTTPException(status_code=403, detail="not an owner account")
     settings: Settings = state.settings
-    response.set_cookie(
-        COOKIE,
-        issue_session(settings, principal, datetime.now(UTC)),
-        max_age=settings.dashboard_session_ttl_min * 60,
-        httponly=True,
-        samesite="strict",
-        secure=_secure(settings),
-    )
-    log.info("dashboard_login", email_hash=_short(email))
+    set_session_cookie(response, settings, issue_session(settings, principal, datetime.now(UTC)))
+    log.info("dashboard_login", email_hash=email_fingerprint(email))
     return {"email": principal.email, "company_id": str(principal.company_id)}
 
 
 @router.delete("/auth/session", status_code=204, dependencies=[Depends(require_csrf)])
 def delete_session(request: Request, response: Response) -> None:
-    response.delete_cookie(COOKIE, httponly=True, samesite="strict", secure=_secure(request.app.state.settings))
+    clear_session_cookie(response, request.app.state.settings)
 
 
 @router.get("/me")

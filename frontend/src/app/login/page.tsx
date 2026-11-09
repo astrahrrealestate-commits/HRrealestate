@@ -29,6 +29,19 @@ function GoogleIcon() {
   );
 }
 
+// Fixed wording per error code: the page never displays text taken from the URL, so a crafted link cannot put its own
+// words in the sign-in banner.
+const LOGIN_MESSAGES: Record<string, string> = {
+  invalid_state: "That sign-in link has expired or was opened in a different browser. Please start again.",
+  unverified_email: "Google has not verified this email address, so it cannot be used to sign in.",
+  no_email: "Google did not return an email address for this account.",
+  no_code: "Google did not complete the sign-in. Please try again.",
+  not_configured: "Sign-in is not configured on this server. Contact your EstateOS administrator.",
+  token_exchange_failed: "Google sign-in failed. Please try again.",
+  profile_unavailable: "Could not read your Google profile. Please try again.",
+  provider_unreachable: "Google could not be reached. Please try again in a moment.",
+};
+
 function LoginForm() {
   const searchParams = useSearchParams();
   const errorParam = searchParams.get("error");
@@ -102,7 +115,7 @@ function LoginForm() {
                 is not on the authorized whitelist for this platform. Please contact your EstateOS administrator for access.
               </>
             ) : (
-              errorMessage || errorParam
+              errorMessage || (errorParam ? (LOGIN_MESSAGES[errorParam] ?? "Sign-in failed. Please try again.") : null)
             )}
           </p>
         </div>

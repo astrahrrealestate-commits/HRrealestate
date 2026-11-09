@@ -50,27 +50,32 @@ the architectural invariants in [CLAUDE.md](../../CLAUDE.md). A **blocker** fail
 **nit** (hardening or clarity).
 
 ## Known gaps (2026-11-09; remove an item when it is fixed)
-Closed on 2026-11-09 (audit of `app/api`, regression guard `tests/unit/api/test_route_auth_guard.py`): every dashboard
-router (`agent`, `calendar`, `contacts`, `dashboard`, `inbox`, `maintenance`, `properties`, `tenants`) now depends on
-`require_session` (session cookie, plus the client header on state-changing methods); the Gmail connect flow is bound to
-the owner by a signed, expiring `state`; the dev bypass needs `env=dev` **and** the fake identity provider; production
-refuses `localhost` or plain-http public URLs. The guard test fails the build if any route answers an anonymous caller
-without being listed as public.
+Closed on 2026-11-09 after an audit of `app/api` (regression guard: `tests/unit/api/test_route_auth_guard.py`, which fails
+the build when a route answers an anonymous caller without being listed as public):
+- every dashboard router (`agent`, `calendar`, `contacts`, `dashboard`, `inbox`, `maintenance`, `properties`, `tenants`)
+  requires a session, and state-changing calls also the client header; their queries filter by `principal.company_id`
+  and (for conversations) the owner; cross-company isolation is tested per router against a real database
+- approving or deciding something names what it decides: no "latest case" guess, no id-prefix scan, 404 when nothing
+  of the caller's matches (it used to report an authorization)
+- the Gmail connect flow is bound to the owner by a signed `state`; the owner login binds its `state` to the browser,
+  requires a verified email, enters the company of the whitelist row, and never rewrites another owner
+- attachments are scoped, and only pdf and common images render inline (nosniff always)
+- the contacts "send" routes no longer record sends that never happened; properties, tenants, the dashboard pulse and
+  briefing, and contact facts come from the database instead of fabricated demo values
+- calendar approve is idempotent; the dev bypass needs `env=dev` and the fake identity provider; production refuses
+  localhost and plain-http public URLs and the fake Google Chat verifier
 
-Still open (each is a finding of the audit; fix in this order):
-- **Handlers still read across companies.** The routers above authenticate, but `dashboard`, `inbox`, `maintenance`,
-  `contacts` and `calendar` queries do not yet filter by `principal.company_id`, and `agent/routes.py` still resolves
-  the company with `select(Company).limit(1)`. Harmless with one company; a blocker before a second tenant. Includes
-  `inbox/decide.py` resolving "latest" across all companies and `maintenance._find_case` matching an id *prefix*.
-- **Owner login can take over another owner.** `auth/login_routes.py` ignores `AllowedUser.company_id`, takes the first
-  company's first owner and rewrites that owner's email; it also never verifies its OAuth `state` or `email_verified`.
-- **Google Chat webhook** accepts unsigned tokens while `google_chat_provider=fake` (the default) and production does not
-  refuse that setting.
-- **Attachments** are served `inline` with the stored mime type (stored XSS on the API origin) and without a company
-  check; the filename is not escaped in the header.
-- **Fake data and fake sends.** `properties` and `tenants` return hard-coded demo records (including lockbox PINs);
-  `contacts` "send" routes write `Send(status=sent)` rows for messages that were never sent (invariant 5).
-- **Calendar approve** pushes events (with attendee emails) to the owner's Google Calendar without being idempotent or
-  going through `app/sender/`.
-- **Personal data in logs:** login and Google flows log email addresses and OAuth response text.
-- The owner's Google OAuth credentials live in one plaintext file for the whole installation, not per company.
+Still open (fix in this order):
+- **Role is not enforced.** `allowed_users.role` is stored, but every whitelisted person can approve and send as an
+  owner. Decide which roles may approve before inviting anyone who is not the owner.
+- **No rate limit on the legacy cost routes** (`/api/agent/ask`, `/api/inbox/sync`, `/api/dashboard/briefing`); the v1
+  routes have one (`app/api/v1/ratelimit.py`).
+- **The owner's Google OAuth credentials** live in one plaintext file for the whole installation
+  (`channels/google_auth.py`), not per company, and that module logs the account email and the file path.
+- **The SPA falls back to bundled mock data** (`frontend/src/data/mockData`) when an API call fails, so an outage or a
+  401 looks like an empty or demo dashboard instead of an error.
+- **Demo defaults remain in the maintenance list and approve context** (a default contractor and phone number), and the
+  owner's ticket edits are kept in memory per company rather than as case events. The "AI draft" options in contacts
+  are fixed templates.
+- **Rent is unknown.** Amounts and arrears are reported as 0 / `unknown` until the BRIXX rent mirror exists.
+- The SSE endpoint has no per-owner connection cap, and v1 rate limits are per process.

@@ -98,6 +98,8 @@ def test_prod_hides_docs_and_openapi(monkeypatch: pytest.MonkeyPatch, tmp_path: 
         dashboard_auth_provider="google",
         dashboard_session_secret="x" * 32,
         google_oauth_client_id="c.apps.googleusercontent.com",
+        google_chat_provider="google",
+        google_chat_project_number="123456789",
         frontend_base_url="https://dash.estateos.example",
         google_login_redirect_uri="https://api.estateos.example/api/auth/login/google/callback",
         google_oauth_redirect_uri="https://api.estateos.example/api/auth/google/callback",

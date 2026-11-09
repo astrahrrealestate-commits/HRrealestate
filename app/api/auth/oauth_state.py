@@ -54,3 +54,29 @@ def read_state(settings: Settings, token: str) -> ConnectState:
         return ConnectState(UUID(data["c"]), UUID(data["o"]), clean_return(str(data["r"])))
     except (BadData, KeyError, TypeError, ValueError):
         raise AuthError("invalid state") from None
+
+
+LOGIN_SALT = "eo-login-state"
+LOGIN_COOKIE = "eo_login_state"
+
+
+def _login_serializer(settings: Settings) -> URLSafeTimedSerializer:
+    if settings.dashboard_session_secret is None:
+        raise AuthError("dashboard session secret not configured")
+    return URLSafeTimedSerializer(settings.dashboard_session_secret.get_secret_value(), salt=LOGIN_SALT)
+
+
+def issue_login_state(settings: Settings) -> str:
+    """A signed, expiring nonce for the owner login. The same value is also set as an httpOnly cookie, so only the
+    browser that started the login can finish it (otherwise a login CSRF could sign a victim in as the attacker)."""
+    return _login_serializer(settings).dumps({"n": secrets.token_urlsafe(16)})
+
+
+def verify_login_state(settings: Settings, state: str, cookie: str | None) -> None:
+    """Raises AuthError unless `state` is a fresh, genuine login state and equals the browser's cookie."""
+    if not state or not cookie or not secrets.compare_digest(state.encode(), cookie.encode()):
+        raise AuthError("login state does not match this browser")
+    try:
+        _login_serializer(settings).loads(state, max_age=MAX_AGE_S)
+    except BadData:
+        raise AuthError("invalid login state") from None

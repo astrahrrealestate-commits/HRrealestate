@@ -17,6 +17,7 @@ DASHBOARD_SETTINGS = [
     "dashboard_cors_origins",
     "google_oauth_client_id",
     "frontend_base_url",
+    "dashboard_cookie_domain",
     "google_login_redirect_uri",
     "tenant_sends_per_hour",
     "concierge_daily_cap",
