@@ -24,9 +24,9 @@ export function EditTicketModal({
   const [urgency, setUrgency] = useState(ticket.urgency || "normal");
   const [contractorName, setContractorName] = useState(ticket.contractorName || "");
   const [contractorTrade, setContractorTrade] = useState(ticket.contractorTrade || "");
-  const [contractorPhone, setContractorPhone] = useState(ticket.contractorPhone || "+31 6 88 12 34 56");
+  const [contractorPhone, setContractorPhone] = useState(ticket.contractorPhone || "");
   const [contractorEmail, setContractorEmail] = useState(ticket.contractorEmail || "");
-  const [poBudgetCap, setPoBudgetCap] = useState(ticket.poBudgetCap || "€ 450");
+  const [poBudgetCap, setPoBudgetCap] = useState(ticket.poBudgetCap || "");
   const [notes, setNotes] = useState(ticket.notes || "");
   const [contractorDraft, setContractorDraft] = useState(ticket.contractorDraft || "");
   const [tenantDraft, setTenantDraft] = useState(ticket.tenantDraft || "");
@@ -39,13 +39,13 @@ export function EditTicketModal({
       setUrgency(ticket.urgency || "normal");
       setContractorName(ticket.contractorName || "");
       setContractorTrade(ticket.contractorTrade || "");
-      setContractorPhone(ticket.contractorPhone || "+31 6 88 12 34 56");
+      setContractorPhone(ticket.contractorPhone || "");
       setContractorEmail(ticket.contractorEmail || "");
-      setPoBudgetCap(ticket.poBudgetCap || "€ 450");
+      setPoBudgetCap(ticket.poBudgetCap || "");
       setNotes(ticket.notes || "");
       setContractorDraft(
         ticket.contractorDraft ||
-          `Beste ${ticket.contractorName || "aannemer"}, spoedverzoek voor ${ticket.unitLabel}: ${ticket.issueTitle}. Huurder ${ticket.tenantName} (${ticket.tenantPhone}). Geautoriseerd budgetplafond: ${ticket.poBudgetCap}. Gelieve ETA te bevestigen.`
+          `Beste ${ticket.contractorName || "aannemer"}, spoedverzoek voor ${ticket.unitLabel}: ${ticket.issueTitle}. Huurder ${ticket.tenantName} (${ticket.tenantPhone}). ${ticket.poBudgetCap ? `Geautoriseerd budgetplafond: ${ticket.poBudgetCap}. ` : ""}Gelieve ETA te bevestigen.`
       );
       setTenantDraft(
         ticket.tenantDraft ||

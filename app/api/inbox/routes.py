@@ -23,6 +23,7 @@ from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import decide_limit, sync_limit
 from app.contracts import ActionType, ButtonChoice, Channel, Direction
 from app.core.errors import NotFoundError
+from app.core.ids import case_ref
 from app.core.logging import get_logger
 from app.core.settings import get_settings
 from app.db.enums import ApprovalStatus, LinkMethod, PersonKind, PipelineStatus, RawEventStatus
@@ -561,7 +562,7 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
                 "aiConfidence": int((und_body.get("confidence") or 0.95) * 100),
                 "detectedLanguage": detected_lang_label,
                 "aiUnderstanding": {
-                    "ticket": f"#{str(case.id)[:4]}",
+                    "ticket": f"#{case_ref(case.id)}",
                     "problem": und_intent,
                     "unit": unit_label,
                     "priority": (case.urgency.value if case.urgency else "normal").upper(),

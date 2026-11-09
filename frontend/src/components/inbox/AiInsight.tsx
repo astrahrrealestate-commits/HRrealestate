@@ -42,28 +42,18 @@ export function AiInsight({ data, className }: AiInsightProps) {
 
   if (!data) return null;
 
-  const defaultFacts: InsightFact[] = data.facts || [
-    { label: "Ticket", value: data.ticketNumber || "#005" },
-    { label: "Priority", value: data.urgency ? data.urgency.toUpperCase() : "URGENT", isAlert: true },
-    { label: "Contractor", value: data.contractorName || "Chahal Bouw (Electrician)" },
-    { label: "Arrival window", value: data.arrivalTime || "Today 11:30 – 12:30" },
-    { label: "PO budget cap", value: "€ 650 (pre-authorized)" },
-    { label: "Access", value: "Key lockbox code #4182" },
-  ];
+  const defaultFacts: InsightFact[] =
+    data.facts ||
+    [
+      data.ticketNumber && { label: "Ticket", value: data.ticketNumber },
+      data.urgency && { label: "Priority", value: data.urgency.toUpperCase(), isAlert: true },
+      data.contractorName && { label: "Contractor", value: data.contractorName },
+      data.arrivalTime && { label: "Arrival window", value: data.arrivalTime },
+    ].filter((f): f is InsightFact => Boolean(f));
 
-  const defaultSteps: string[] = data.whatWillHappen || [
-    `Escalate incident to ticket ${data.ticketNumber || "#005"} (Emergency status)`,
-    `Dispatch ${data.contractorName || "Chahal Bouw"} via WhatsApp with authorized PO cap`,
-    "Send Dutch response to tenant with estimated arrival window",
-    "Log autonomous work order execution to ledger audit trail",
-  ];
+  const defaultSteps: string[] = data.whatWillHappen || [];
 
-  const summaryParts = [
-    data.ticketNumber || "#005",
-    data.urgency || "Urgent",
-    data.contractorName || "Chahal Bouw",
-    data.arrivalTime || "11:30",
-  ].filter(Boolean);
+  const summaryParts = [data.ticketNumber, data.urgency, data.contractorName, data.arrivalTime].filter(Boolean);
 
   const handleToggle = () => {
     // On small screens, open bottom sheet; on desktop, expand inline
@@ -131,6 +121,7 @@ export function AiInsight({ data, className }: AiInsightProps) {
           </div>
 
           {/* What Will Happen - Plain Numbered List */}
+          {defaultSteps.length > 0 && (
           <div className="pt-1">
             <span className="text-xs font-semibold text-[var(--ink-2)] uppercase tracking-wider block mb-2">
               What will happen on approval
@@ -146,6 +137,7 @@ export function AiInsight({ data, className }: AiInsightProps) {
               ))}
             </ol>
           </div>
+          )}
         </div>
       )}
 
@@ -192,6 +184,7 @@ export function AiInsight({ data, className }: AiInsightProps) {
               ))}
             </div>
 
+            {defaultSteps.length > 0 && (
             <div className="pt-2">
               <span className="text-xs font-semibold text-[var(--ink-2)] uppercase tracking-wider block mb-2">
                 What will happen on approval
@@ -207,6 +200,7 @@ export function AiInsight({ data, className }: AiInsightProps) {
                 ))}
               </ol>
             </div>
+            )}
           </div>
         </div>
       )}

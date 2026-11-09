@@ -5,6 +5,7 @@
  */
 
 import { InboxThread } from "@/types/inbox";
+import { caseRefTail, ticketRef } from "@/lib/caseRef";
 import { BACKEND_BASE_URL, apiFetch } from "@/lib/backend";
 import { PulseMetrics, AutonomousActionLog } from "@/types/dashboard";
 import { INITIAL_METRICS, RECENT_AUTONOMOUS_LOGS } from "@/data/mockData";
@@ -117,8 +118,9 @@ export async function getInboxThreads(
           return {
             id: t.id || `thread-${Math.random()}`,
             threadId: unifiedThreadId,
-            caseRef: t.caseRef || `#cs-${(t.caseId || t.id || "").slice(0, 4)}`,
-            ticketNumber: t.ticketNumber || `#${(t.caseId || t.id || "").slice(0, 4)}`,
+            caseRef: t.caseRef || `#cs-${caseRefTail(t.caseId || t.id)}`,
+            ticketNumber: t.ticketNumber || t.aiUnderstanding?.ticket || ticketRef(t.caseId || t.id),
+            caseId: t.caseId || t.id,
             channel,
             recipientRole: (t.audience === "contractors" || t.recipientRole === "contractor") ? "contractor" : (t.audience === "inquiries" ? "inquiry" : "tenant"),
             recipientRoleDetail: t.sender?.role || (t.audience === "contractors" ? "Contractor" : "Tenant"),

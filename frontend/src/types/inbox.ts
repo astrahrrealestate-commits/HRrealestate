@@ -57,7 +57,8 @@ export interface InboxThread {
   id: string;
   threadId?: string; // D4: Unified thread ID (unit + contact + ticket)
   caseRef: string;
-  ticketNumber?: string; // e.g. "#005"
+  ticketNumber?: string; // e.g. "#3f9a1c"
+  caseId?: string; // the full case id behind ticketNumber
   channel: ChannelType;
   recipientRole: RecipientRole;
   recipientRoleDetail: string; // e.g. "Tenant" or "Contractor · Electrician"

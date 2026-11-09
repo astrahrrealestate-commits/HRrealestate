@@ -20,6 +20,7 @@ from app.api.v1 import enqueue
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import decide_limit
 from app.contracts import ActionType, CaseState, Category, Channel, Direction, Urgency
+from app.core.ids import case_ref
 from app.core.logging import get_logger
 from app.db.enums import ActionStatus, ApprovalStatus, CaseEventKind
 from app.db.models import (
@@ -357,7 +358,7 @@ def get_maintenance_tickets(
 
                 # Also check if outbound work order email exists in messages
                 if not has_approved_action:
-                    tag = f"#{str(case.id)[:4]}"
+                    tag = f"#{case_ref(case.id)}"
                     outbounds = (
                         session.query(MessageRow)
                         .filter(MessageRow.direction == Direction.outbound, MessageRow.meta.is_not(None))
@@ -376,7 +377,7 @@ def get_maintenance_tickets(
                 live_tickets.append(
                     {
                         "id": str(case.id),
-                        "ticketNumber": f"#{str(case.id)[:4]}",
+                        "ticketNumber": f"#{case_ref(case.id)}",
                         "issueTitle": clean_issue_title,
                         "unitLabel": unit_label,
                         "tenantName": tenant_name,
@@ -446,7 +447,7 @@ def get_ticket_history(
             events = _case_history(session, case)
             unit = session.get(Unit, case.unit_id) if case.unit_id else None
             return TicketHistoryResponse(
-                ticketNumber=f"#{str(case.id)[:4]}",
+                ticketNumber=f"#{case_ref(case.id)}",
                 ticketId=str(case.id),
                 unitLabel=(unit.address or unit.label) if unit else "Unknown unit",
                 events=events,
@@ -528,7 +529,7 @@ def update_maintenance_ticket(
                 session.commit()
                 ticket = {
                     "id": str(target_case.id),
-                    "ticketNumber": f"#{str(target_case.id)[:4]}",
+                    "ticketNumber": f"#{case_ref(target_case.id)}",
                     "issueTitle": updates.get("issueTitle", target_case.summary or "Maintenance request"),
                     "unitLabel": updates.get("unitLabel") or ((unit.address or unit.label) if unit else "Unknown unit"),
                     "tenantName": tenant.display_name if tenant else "Unknown tenant",
@@ -589,18 +590,18 @@ def _seeded_ticket(company_id: UUID, ticket_id: str) -> dict[str, Any] | None:
     )
 
 
-_ID_PREFIX = re.compile(r"[0-9a-f-]{4,36}")
+_ID_REF = re.compile(r"[0-9a-f]{4,12}|[0-9a-f-]{36}")
 
 
 def _find_case(session: Session, company_id: UUID, clean_id: str) -> Case | None:
-    """A case of `company_id` by its full id or the short prefix the ticket number shows (`#1a2b`). A prefix that
-    matches more than one case names nothing: an approval must never land on a guess."""
+    """A case of `company_id` by its full id or the short ref the ticket number shows (`#3f9a1c`, the id's tail). A
+    ref that matches more than one case names nothing: an approval must never land on a guess."""
     ref = clean_id.lower()
-    if not _ID_PREFIX.fullmatch(ref):
+    if not _ID_REF.fullmatch(ref):
         return None
-    found = session.scalars(
-        select(Case).where(Case.company_id == company_id, cast(Case.id, String).startswith(ref)).limit(2)
-    ).all()
+    id_text = cast(Case.id, String)
+    matches = id_text == ref if len(ref) == 36 else id_text.endswith(ref)
+    found = session.scalars(select(Case).where(Case.company_id == company_id, matches).limit(2)).all()
     return found[0] if len(found) == 1 else None
 
 
@@ -615,7 +616,7 @@ def _first_identity(session: Session, person_id: UUID, phone: bool) -> str | Non
 
 def _case_context(session: Session, case: Case, ctx: dict[str, str]) -> None:
     """Fill unit, tenant and contractor contact details for the ticket from the database."""
-    ctx["ticketNumber"] = f"#{str(case.id)[:4]}"
+    ctx["ticketNumber"] = f"#{case_ref(case.id)}"
     unit = session.get(Unit, case.unit_id) if case.unit_id else None
     if unit:
         ctx["unitLabel"] = unit.address or unit.label or ctx["unitLabel"]

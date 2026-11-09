@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_engine
 from app.api.v1.auth import Principal, require_session
 from app.contracts import CaseState
+from app.core.ids import case_ref
 from app.db.enums import SendStatus
 from app.db.models import Approval, Case, Lease, Person, Send, Unit, WaitRow
 
@@ -202,7 +203,7 @@ def get_unresponsive_radar(
             items.append(
                 StalledWaitItem(
                     id=str(r.id),
-                    caseRef=f"#cs-{str(r.case_id)[:4]}",
+                    caseRef=f"#cs-{case_ref(r.case_id)}",
                     unitLabel=(unit.address or unit.label) if unit else "",
                     partyName=party.display_name if party else "Whoever answers",
                     partyRole=party.kind.value if party else "",
@@ -248,7 +249,7 @@ def get_autonomous_logs(
             id=str(snd.id),
             timestamp=snd.attempted_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC") if snd.attempted_at else "",
             actionText=f"Sent an approved {snd.channel.value} reply",
-            entityRef=f"#{str(snd.id)[:4]}",
+            entityRef=f"#{case_ref(snd.id)}",
             tag="send",
         )
         for snd in sends

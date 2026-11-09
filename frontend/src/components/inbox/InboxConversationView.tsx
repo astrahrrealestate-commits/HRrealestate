@@ -571,22 +571,19 @@ export function InboxConversationView({
             data={
               thread.aiUnderstanding
                 ? {
-                    ticketNumber: thread.ticketNumber || `#${thread.id.slice(0, 4)}`,
+                    ticketNumber: thread.ticketNumber,
                     urgency: thread.urgency,
-                    contractorName: thread.aiUnderstanding.suggestedContractor || "Chahal Bouw",
-                    arrivalTime: "Today 11:30 – 12:30",
+                    contractorName: thread.aiUnderstanding.suggestedContractor || undefined,
                     facts: thread.aiUnderstanding.customFacts?.map((f) => ({
                       label: f.label,
                       value: f.value,
                     })),
                   }
                 : {
-                    ticketNumber: thread.ticketNumber || `#${thread.id.slice(0, 4)}`,
+                    ticketNumber: thread.ticketNumber,
                     urgency: thread.urgency,
-                    contractorName: thread.category === "maintenance" ? "Chahal Bouw (Electrician)" : undefined,
-                    arrivalTime: thread.category === "maintenance" ? "Today 11:30 – 12:30" : undefined,
                     facts: [
-                      { label: "Ticket", value: thread.ticketNumber || `#${thread.id.slice(0, 4)}` },
+                      { label: "Ticket", value: thread.ticketNumber || "—" },
                       { label: "Category", value: thread.category.toUpperCase() },
                       { label: "Priority", value: (thread.urgency || "normal").toUpperCase(), isAlert: thread.urgency === "emergency" || thread.urgency === "high" },
                       { label: "Unit", value: thread.unitLabel },
@@ -642,25 +639,24 @@ export function InboxConversationView({
       {thread.ticketNumber && (
         <EditTicketModal
           ticket={{
-            id: thread.ticketNumber.replace("#", "m-"),
+            id: thread.caseId || thread.id,
             ticketNumber: thread.ticketNumber,
             issueTitle: thread.issueTitle || thread.subject || "Maintenance Request",
             unitLabel: thread.unitLabel || "Unassigned Unit",
             tenantName: thread.senderName || "Tenant",
-            tenantPhone: thread.senderContact || "+31 6 12 34 41 87",
+            tenantPhone: thread.senderContact || "",
             category: "electrical",
-            contractorName: "Chahal Bouw",
-            contractorTrade: "Electrician",
-            contractorPhone: "+31 6 88 12 34 56",
+            contractorName: thread.aiUnderstanding?.suggestedContractor || "",
+            contractorTrade: "",
             urgency: thread.urgency === "emergency" ? "emergency" : "normal",
             status: "pending_approval",
-            slaRemaining: "38m SLA",
+            slaRemaining: "",
             isOverdue: false,
-            poBudgetCap: "€ 650",
+            poBudgetCap: "",
             reportedAt: thread.relativeTime || "Today",
             notes: thread.caseSummary || "",
             originalMessage: thread.latestSnippet || "",
-            contractorDraft: `Beste Kevin (Chahal Bouw), spoedmelding voor ${thread.unitLabel}: ${thread.subject || thread.issueTitle}. Huurder ${thread.senderName} (${thread.senderContact}) is aanwezig. Geautoriseerd budgetplafond: € 650. Sleutelkast pincode: 4182. Gelieve ETA te bevestigen.`,
+            contractorDraft: "",
             tenantDraft: `Beste ${thread.senderName?.split(" ")[0] || "huurder"}, we hebben je melding over ${thread.subject?.toLowerCase() || "het onderhoud"} ontvangen. Onze monteur is geautoriseerd en neemt contact op. Met vriendelijke groet, Harjot`,
           }}
           isOpen={isTicketModalOpen}

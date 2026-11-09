@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.auth import Principal
 from app.contracts import ActionType, CaseState, Category, Channel, Direction, Urgency
+from app.core.ids import case_ref
 from app.core.settings import Settings
 from app.db.enums import ActionStatus, ApprovalStatus, LinkMethod
 from app.db.models import (
@@ -271,10 +272,9 @@ def _urgency(w: World, case_id: UUID) -> Urgency:
         return case.urgency
 
 
-@pytest.mark.parametrize("form", ["full", "prefix"])
+@pytest.mark.parametrize("form", ["full", "short"])
 def test_an_owner_cannot_approve_another_companys_ticket(world: World, rival: Rival, form: str) -> None:
-    # UUIDv7 ids created together share their leading characters, so a "prefix" must reach the random part
-    ref = str(rival.case) if form == "full" else str(rival.case)[:24]
+    ref = str(rival.case) if form == "full" else case_ref(rival.case)
     r = world.client.post(f"/api/maintenance/tickets/{ref}/approve", json={})
     assert r.status_code == 404
     assert _rival_status(world, rival) == (ApprovalStatus.pending, ActionStatus.pending_approval)
@@ -310,11 +310,11 @@ def test_the_history_of_an_approved_ticket_comes_from_its_persisted_events(world
     assert any(e["category"] == "state_change" and "→" in (e["stateChange"] or "") for e in body["events"])
 
 
-def test_an_ambiguous_ticket_prefix_names_nothing(world: World) -> None:
+def test_an_ambiguous_ticket_ref_names_nothing(world: World) -> None:
     from app.api.maintenance.routes import _find_case
 
     with Session(world.engine) as s:
-        ids = (UUID("abcd0000-0000-4000-8000-000000000001"), UUID("abcd0000-0000-4000-8000-000000000002"))
+        ids = (UUID("aaaa0000-0000-4000-8000-000000cafe01"), UUID("bbbb0000-0000-4000-8000-000000cafe01"))
         a, b = (
             Case(id=i, company_id=world.company, category=Category.maintenance, urgency=Urgency.low, summary="x")
             for i in ids
@@ -322,9 +322,29 @@ def test_an_ambiguous_ticket_prefix_names_nothing(world: World) -> None:
         s.add_all([a, b])
         s.commit()
         try:
-            assert _find_case(s, world.company, "abcd") is None
-            assert _find_case(s, world.company, "abcd0000-0000-4000-8000-000000000001") is not None
-            assert _find_case(s, world.company, "abcd%") is None  # LIKE wildcards are not ids
+            assert _find_case(s, world.company, "cafe01") is None
+            assert _find_case(s, world.company, "aaaa0000-0000-4000-8000-000000cafe01") is not None
+            assert _find_case(s, world.company, "cafe%") is None  # LIKE wildcards are not ids
+        finally:
+            s.query(Case).filter(Case.id.in_([a.id, b.id])).delete(synchronize_session=False)
+            s.commit()
+
+
+def test_cases_created_together_get_their_own_ticket_numbers(world: World) -> None:
+    from app.api.maintenance.routes import _find_case
+
+    ids = (UUID("01a10000-0000-7000-8000-00000000d00d"), UUID("01a10000-0000-7000-8000-00000000f00d"))
+    with Session(world.engine) as s:
+        a, b = (
+            Case(id=i, company_id=world.company, category=Category.maintenance, urgency=Urgency.low, summary="x")
+            for i in ids
+        )
+        s.add_all([a, b])
+        s.commit()
+        try:
+            assert case_ref(a.id) != case_ref(b.id)
+            assert _find_case(s, world.company, case_ref(a.id)) == a
+            assert _find_case(s, world.company, case_ref(b.id)) == b
         finally:
             s.query(Case).filter(Case.id.in_([a.id, b.id])).delete(synchronize_session=False)
             s.commit()
