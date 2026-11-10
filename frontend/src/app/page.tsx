@@ -366,7 +366,6 @@ export default function TodayPage() {
     } catch {
       // Graceful
     }
-    }
 
     setTimeout(() => {
       delete actionLockRef.current[`dispatch-${targetKey}`];
