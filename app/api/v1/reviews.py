@@ -8,12 +8,13 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_principal
 from app.api.v1.schemas import PendingApprovalOut, ReviewDocumentOut
 from app.pipeline.read_approvals import pending_approvals, review_documents
 from app.pipeline.read_repo import MAX_PAGE, BadCursorError, parse_cursor
 
-router = APIRouter(tags=["reviews"])
+router = APIRouter(tags=["reviews"], dependencies=[Depends(require_section("inbox", also=("maintenance",)))])
 
 
 def _read_approvals(engine: Engine, company_id: UUID, after: str | None, limit: int) -> list[PendingApprovalOut]:

@@ -18,6 +18,7 @@ from app.api.v1.auth import (
     COOKIE,
     AuthError,
     Principal,
+    access_for,
     clear_session_cookie,
     email_fingerprint,
     issue_session,
@@ -49,6 +50,8 @@ class AuthMeResponse(BaseModel):
     name: str | None = None
     role: str | None = None
     company_id: str | None = None
+    sections: list[str] = []
+    is_admin: bool = False
 
 
 def _login_error(settings: Settings, code: str) -> RedirectResponse:
@@ -210,6 +213,9 @@ def get_current_user_profile(
         return AuthMeResponse(authenticated=False)
     if not owner_matches(engine, principal):
         return AuthMeResponse(authenticated=False)
+    access = access_for(engine, principal)
+    if access is None:  # the profile was switched off: the session ends here, as it does on every other route
+        return AuthMeResponse(authenticated=False)
 
     with Session(engine) as session:
         allowed = session.scalars(
@@ -224,14 +230,15 @@ def get_current_user_profile(
         )
         # The whitelist's name wins; otherwise the name Google gave at sign-in; the email prefix is the last resort.
         display_name = allowed.display_name if allowed else owner_name or principal.email.split("@")[0].title()
-        role = allowed.role if allowed else "manager"
 
     return AuthMeResponse(
         authenticated=True,
         email=principal.email,
         name=display_name,
-        role=role,
+        role=access.role,
         company_id=str(principal.company_id),
+        sections=access.visible_sections(),
+        is_admin=access.is_admin,
     )
 
 

@@ -13,6 +13,7 @@ from sqlalchemy import Engine
 
 from app.api.deps import WorkflowClient, get_engine, get_settings_dep, get_workflow_client
 from app.api.v1 import enqueue
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_csrf, require_principal
 from app.api.v1.ratelimit import decision_limit
 from app.contracts.diligence import DDPropertyKind
@@ -23,7 +24,9 @@ from app.db.enums import DDReviewStatus
 from app.diligence import repo
 from app.pipeline.document_qa import strip_risky
 
-router = APIRouter(prefix="/diligence", tags=["diligence"])
+router = APIRouter(
+    prefix="/diligence", tags=["diligence"], dependencies=[Depends(require_section("properties", also=("inbox",)))]
+)
 NOT_FOUND = "not found"
 Owner = Annotated[Principal, Depends(require_principal)]
 Engine_ = Annotated[Engine, Depends(get_engine)]

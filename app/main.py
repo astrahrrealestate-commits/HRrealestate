@@ -165,6 +165,7 @@ def create_app(
     api.include_router(properties.router)
 
     api.include_router(tenants.router)
+    api.include_router(contacts.directory_router)
     api.include_router(contacts.router)
 
     api.include_router(whatsapp_webhook.router)

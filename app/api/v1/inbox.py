@@ -10,6 +10,7 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_storage
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_principal
 from app.api.v1.schemas import AttachmentOut, InboxItem, ThreadMessage
 from app.db.models.ingestion import AttachmentRow, MessageRow
@@ -25,7 +26,7 @@ from app.pipeline.read_repo import (
 )
 from app.storage.ports import MAX_PRESIGN_TTL_S, ObjectStorage
 
-router = APIRouter(tags=["inbox"])
+router = APIRouter(tags=["inbox"], dependencies=[Depends(require_section("inbox", also_read=("dashboard",)))])
 NOT_FOUND = "thread not found"  # one body for malformed, unknown and foreign keys: nothing to tell them apart
 
 

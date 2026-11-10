@@ -10,12 +10,13 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_principal
 from app.api.v1.schemas import BriefingOut, CompanyOut, TaskOut, WaitOut
 from app.pipeline import briefing, work_repo
 from app.pipeline.read_work import get_company, open_waits
 
-router = APIRouter(tags=["work"])
+router = APIRouter(tags=["work"], dependencies=[Depends(require_section("dashboard", also=("inbox", "maintenance")))])
 
 
 def _read_tasks(engine: Engine, company_id: UUID, now: datetime) -> list[TaskOut]:

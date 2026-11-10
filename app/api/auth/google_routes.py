@@ -18,7 +18,8 @@ from sqlalchemy.orm import Session
 
 from app.api.auth.oauth_state import ConnectState, issue_state, read_state
 from app.api.deps import get_engine, get_settings_dep
-from app.api.v1.auth import AuthError, Principal, require_session
+from app.api.v1.access import require_section
+from app.api.v1.auth import AuthError, Principal
 from app.channels import google_auth, registry
 from app.channels.google_auth import GoogleConnectionStatus
 from app.contracts import Channel
@@ -33,7 +34,7 @@ log = get_logger(__name__)
 @router.get("/url")
 def get_oauth_url(
     settings: Annotated[Settings, Depends(get_settings_dep)],
-    principal: Annotated[Principal, Depends(require_session)],
+    principal: Annotated[Principal, Depends(require_section("settings"))],
     return_to: str = Query(default="/", description="Path to return to after auth flow"),
 ) -> dict[str, str]:
     """Returns the Google authorization URL; its `state` is signed for this owner and company."""
@@ -43,7 +44,7 @@ def get_oauth_url(
 @router.get("/status")
 def get_status(
     settings: Annotated[Settings, Depends(get_settings_dep)],
-    _principal: Annotated[Principal, Depends(require_session)],
+    _principal: Annotated[Principal, Depends(require_section("settings"))],
 ) -> GoogleConnectionStatus:
     """Returns current connection status, email, name, avatar picture, and active scopes."""
     return google_auth.get_connection_status(settings)
@@ -125,7 +126,7 @@ async def oauth_callback(
 @router.post("/disconnect")
 def disconnect_account(
     settings: Annotated[Settings, Depends(get_settings_dep)],
-    _principal: Annotated[Principal, Depends(require_session)],
+    _principal: Annotated[Principal, Depends(require_section("settings"))],
 ) -> dict[str, Any]:
     """Disconnects the Google account, unlinks credentials, and deactivates channel accounts."""
     if not google_auth.disconnect_owner(settings):

@@ -19,6 +19,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_principal
 from app.api.v1.schemas import FeedItem
 from app.api.v1.turn_events import TURN_POLL_SECONDS, TurnPoller
@@ -30,7 +31,17 @@ SSE_START_LAG = timedelta(seconds=5)
 MAX_LIFETIME_S = 15 * 60.0
 
 log = structlog.get_logger(__name__)
-router = APIRouter(tags=["feed"])
+router = APIRouter(
+    tags=["feed"],
+    dependencies=[
+        Depends(
+            require_section(
+                "dashboard",
+                also=("inbox", "properties", "tenants", "contacts", "maintenance", "money", "reports", "settings"),
+            )
+        )
+    ],
+)
 
 
 def _read_page(engine: Engine, company_id: UUID, after: Cursor | None, limit: int) -> list[FeedItem]:

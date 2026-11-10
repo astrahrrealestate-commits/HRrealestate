@@ -52,6 +52,148 @@
           ]
         }
       },
+      "/api/v1/admin/profiles": {
+        "get": {
+          "operationId": "list_profiles_api_v1_admin_profiles_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/ProfileOut"
+                    },
+                    "title": "Response List Profiles Api V1 Admin Profiles Get",
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Team profiles",
+          "tags": [
+            "admin"
+          ]
+        },
+        "post": {
+          "operationId": "create_profile_api_v1_admin_profiles_post",
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileIn"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "201": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ProfileOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Create a profile",
+          "tags": [
+            "admin"
+          ]
+        }
+      },
+      "/api/v1/admin/profiles/{profile_id}": {
+        "patch": {
+          "operationId": "edit_profile_api_v1_admin_profiles__profile_id__patch",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "profile_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Profile Id",
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfilePatch"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ProfileOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Edit a profile",
+          "tags": [
+            "admin"
+          ]
+        }
+      },
+      "/api/v1/admin/sections": {
+        "get": {
+          "operationId": "list_sections_api_v1_admin_sections_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "items": {
+                      "$ref": "#/components/schemas/SectionOut"
+                    },
+                    "title": "Response List Sections Api V1 Admin Sections Get",
+                    "type": "array"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Sections a profile can be granted",
+          "tags": [
+            "admin"
+          ]
+        }
+      },
       "/api/v1/agent/conversations/{conversation_id}": {
         "get": {
           "operationId": "get_conversation_api_v1_agent_conversations__conversation_id__get",
@@ -5641,6 +5783,166 @@
         "title": "PlanStatusOut",
         "type": "object"
       },
+      "ProfileIn": {
+        "properties": {
+          "email": {
+            "description": "The Google account this person signs in with",
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "default": "member",
+            "enum": [
+              "superadmin",
+              "member"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "sections": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Sections",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "email"
+        ],
+        "title": "ProfileIn",
+        "type": "object"
+      },
+      "ProfileOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "invited_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invited By"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "sections": {
+            "description": "Sections this profile can open (every section for a superadmin)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Sections",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email",
+          "role",
+          "sections",
+          "is_active",
+          "invited_by",
+          "created_at"
+        ],
+        "title": "ProfileOut",
+        "type": "object"
+      },
+      "ProfilePatch": {
+        "properties": {
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "superadmin",
+                  "member"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sections"
+          }
+        },
+        "title": "ProfilePatch",
+        "type": "object"
+      },
       "QuoteDetailOut": {
         "properties": {
           "case_id": {
@@ -6680,6 +6982,29 @@
           "hits"
         ],
         "title": "SearchOut",
+        "type": "object"
+      },
+      "SectionOut": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "description"
+        ],
+        "title": "SectionOut",
         "type": "object"
       },
       "SessionRequest": {

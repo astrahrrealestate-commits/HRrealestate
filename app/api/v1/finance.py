@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import WorkflowClient, get_engine, get_workflow_client
 from app.api.v1 import enqueue
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_csrf, require_principal
 from app.api.v1.finance_schemas import QuoteDetailOut, QuoteOut, RecheckOut, detail_out, quote_out
 from app.api.v1.ratelimit import decision_limit
@@ -20,7 +21,7 @@ from app.core.logging import get_logger
 from app.finance import repo_read
 from app.pipeline.read_repo import BadCursorError, parse_cursor
 
-router = APIRouter(tags=["finance"])
+router = APIRouter(tags=["finance"], dependencies=[Depends(require_section("money"))])
 log = get_logger(__name__)
 NOT_FOUND = "not found"
 Owner = Annotated[Principal, Depends(require_principal)]

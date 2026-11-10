@@ -24,6 +24,7 @@ from app.api.inbox.translate import annotate_translations
 from app.api.inbox.translate import router as translate_router
 from app.api.inbox.unit_match import unit_named_in
 from app.api.v1 import enqueue
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import decide_limit, sync_limit
 from app.contracts import ActionType, ButtonChoice, Channel, Direction
@@ -55,7 +56,9 @@ from app.ingestion.process import IngestDeps
 from app.pipeline import dashboard_decisions
 from app.storage.ports import ObjectStorage
 
-router = APIRouter(prefix="/api/inbox", tags=["inbox"], dependencies=[Depends(require_session)])
+router = APIRouter(
+    prefix="/api/inbox", tags=["inbox"], dependencies=[Depends(require_section("inbox", also_read=("dashboard",)))]
+)
 router.include_router(translate_router)
 log = get_logger(__name__)
 

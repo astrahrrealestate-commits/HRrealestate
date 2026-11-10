@@ -14,6 +14,7 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import decide_limit
 from app.channels.calendar import CalendarAttendee, CalendarEventCreate, get_calendar_client
@@ -23,7 +24,11 @@ from app.db.models import Case, CaseEvent, Unit
 from app.db.models.calendar import CalendarEventRow
 from app.llm.agents.calendar import propose_calendar_event
 
-router = APIRouter(prefix="/api/calendar", tags=["calendar"], dependencies=[Depends(require_session)])
+router = APIRouter(
+    prefix="/api/calendar",
+    tags=["calendar"],
+    dependencies=[Depends(require_section("maintenance", also=("dashboard", "inbox")))],
+)
 log = get_logger(__name__)
 
 

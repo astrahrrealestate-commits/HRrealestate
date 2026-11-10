@@ -4,22 +4,22 @@ Connects the Contacts profile view directly to live Gmail & WhatsApp message str
 agent understanding classifications, and bidirectional WhatsApp dispatch.
 """
 
-from typing import Annotated, Any
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import Engine, func, or_, select
+from sqlalchemy import Engine, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
-from app.contracts import CaseState, Channel, Direction
+from app.contracts import Channel, Direction
 from app.core.logging import get_logger
-from app.db.enums import PersonKind
-from app.db.models import Case, ChannelIdentity, Lease, LeaseParty, MessageRow, Person, UnderstandingRow, Unit
+from app.db.models import ChannelIdentity, MessageRow, Person, UnderstandingRow
 
-router = APIRouter(prefix="/api/contacts", tags=["contacts"], dependencies=[Depends(require_session)])
+router = APIRouter(prefix="/api/contacts", tags=["contacts"], dependencies=[Depends(require_section("contacts"))])
 log = get_logger(__name__)
 
 
@@ -101,107 +101,6 @@ class ContactCommunicationsResponse(BaseModel):
 
 # ---------------------------------------------------------------------------
 # API Endpoints
-# ---------------------------------------------------------------------------
-
-
-def _tenancy(session: Session, company_id: UUID, person_id: UUID) -> tuple[str, str, str]:
-    """(unit label, unit address, agreement period) of the person's most recent lease, from the directory. Blank when
-    the person has no lease on file: nothing is invented."""
-    row = session.execute(
-        select(Unit.label, Unit.address, Lease.valid_from, Lease.valid_to)
-        .select_from(LeaseParty)
-        .join(Lease, Lease.id == LeaseParty.lease_id)
-        .join(Unit, Unit.id == Lease.unit_id)
-        .where(LeaseParty.company_id == company_id, LeaseParty.person_id == person_id)
-        .order_by(Lease.valid_from.desc())
-    ).first()
-    if row is None:
-        return "", "", ""
-    label, address, start, end = row
-    period = f"{start:%d %b %Y} — {end:%d %b %Y}" if end else f"Since {start:%d %b %Y} (open-ended)"
-    return label, address or label, period
-
-
-@router.get(
-    "",
-    summary="List Contacts from Database",
-    description="Queries the PostgreSQL directory for live persons (tenants, contractors).",
-)
-def list_contacts(
-    engine: Annotated[Engine, Depends(get_engine)],
-    principal: Annotated[Principal, Depends(require_session)],
-    audience: str = Query(default="all", description="all | tenant | contractor"),
-) -> list[dict[str, Any]]:
-    """Returns the signed-in company's directory contacts, with facts from their lease and cases (never made up)."""
-    company_id = principal.company_id
-    with Session(engine) as session:
-        query = session.query(Person).filter(Person.company_id == company_id)
-        if audience == "tenant":
-            query = query.filter(Person.kind == PersonKind.tenant)
-        elif audience == "contractor":
-            query = query.filter(Person.kind == PersonKind.contractor)
-
-        people = query.all()
-        results: list[dict[str, Any]] = []
-        seen: set[tuple[str, PersonKind]] = set()
-        for p in people:
-            name_clean = (p.display_name or "").strip()
-            # Ignore placeholder emails stored as names
-            if not name_clean or "@" in name_clean:
-                continue
-
-            dedup_key = (name_clean.lower(), p.kind)
-            if dedup_key in seen:
-                continue
-            seen.add(dedup_key)
-
-            identities = (
-                session.query(ChannelIdentity)
-                .filter(
-                    ChannelIdentity.company_id == company_id,
-                    ChannelIdentity.person_id == p.id,
-                    ChannelIdentity.valid_to.is_(None),
-                )
-                .all()
-            )
-            c_email = next((i.identity for i in identities if i.channel == Channel.gmail), None)
-            c_phone = next((i.identity for i in identities if i.channel == Channel.whatsapp), None)
-            is_t = p.kind == PersonKind.tenant
-
-            trade_display = (
-                "Tenant" if is_t else (p.trade.capitalize() + " Contractor" if p.trade else "Maintenance Contractor")
-            )
-            unit_label, address, period = _tenancy(session, company_id, p.id) if is_t else ("", "", "")
-            open_cases = session.scalar(
-                select(func.count(Case.id)).where(
-                    Case.company_id == company_id, Case.primary_person_id == p.id, Case.state != CaseState.resolved
-                )
-            )
-
-            results.append(
-                {
-                    "id": str(p.id),
-                    "name": name_clean,
-                    "category": "tenant" if is_t else "contractor",
-                    "tradeOrRole": trade_display,
-                    "unitRole": unit_label if is_t else (p.trade.capitalize() if p.trade else "External Contractor"),
-                    "email": c_email or "",
-                    "phone": c_phone or "",
-                    "propertyAddress": address,
-                    "residentialAddress": address,
-                    "agreementPeriod": period,
-                    "status": "active",
-                    "openTicketsCount": open_cases or 0,
-                    "notes": "",
-                    "documents": [],
-                    "emails": [],
-                    "whatsappMessages": [],
-                    "leases": [],
-                }
-            )
-        return results
-
-
 # ---------------------------------------------------------------------------
 
 

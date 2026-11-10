@@ -11,12 +11,13 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine, get_settings_dep
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_principal
 from app.contracts.brixx import BrixxStatus
 from app.core.settings import Settings
 from app.directory.brixx.status import load_status
 
-router = APIRouter(prefix="/brixx", tags=["brixx"])
+router = APIRouter(prefix="/brixx", tags=["brixx"], dependencies=[Depends(require_section("settings"))])
 Owner = Annotated[Principal, Depends(require_principal)]
 Engine_ = Annotated[Engine, Depends(get_engine)]
 Settings_ = Annotated[Settings, Depends(get_settings_dep)]

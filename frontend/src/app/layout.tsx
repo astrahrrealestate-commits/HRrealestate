@@ -3,6 +3,7 @@ import "./globals.css";
 import { SuperAgentProvider } from "@/context/SuperAgentContext";
 import { AuthProvider } from "@/context/AuthContext";
 import { CommandPalette } from "@/components/layout/CommandPalette";
+import { SectionGuard } from "@/components/layout/SectionGuard";
 
 export const metadata: Metadata = {
   title: "EstateOS | AI Property Management",
@@ -25,7 +26,7 @@ export default function RootLayout({
       <body className="min-h-dvh flex flex-col font-sans bg-[var(--bg)] text-[var(--ink)]">
         <AuthProvider>
           <SuperAgentProvider>
-            {children}
+            <SectionGuard>{children}</SectionGuard>
             <CommandPalette />
           </SuperAgentProvider>
         </AuthProvider>

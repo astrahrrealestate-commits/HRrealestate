@@ -1,6 +1,6 @@
 import { DocumentItem } from "@/components/ui/DocumentViewerModal";
 
-export type ContactCategory = "contractor" | "tenant" | "owner" | "utility" | "municipal";
+export type ContactCategory = "contractor" | "tenant" | "owner" | "utility" | "municipal" | "other";
 
 export type AgentUnderstandingCategory =
   | "maintenance"

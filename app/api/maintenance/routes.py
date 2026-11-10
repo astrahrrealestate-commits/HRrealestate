@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import WorkflowClient, get_engine, get_workflow_client
 from app.api.maintenance import dispatch
 from app.api.v1 import enqueue
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import decide_limit
 from app.contracts import ActionType, CaseState, Category, Channel, Direction, Urgency
@@ -36,7 +37,11 @@ from app.db.models import (
 )
 from app.pipeline import approvals, dashboard_decisions
 
-router = APIRouter(prefix="/api/maintenance", tags=["maintenance"], dependencies=[Depends(require_session)])
+router = APIRouter(
+    prefix="/api/maintenance",
+    tags=["maintenance"],
+    dependencies=[Depends(require_section("maintenance", also_read=("reports", "dashboard")))],
+)
 log = get_logger(__name__)
 
 

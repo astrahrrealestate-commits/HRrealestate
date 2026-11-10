@@ -15,12 +15,17 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.contracts import Channel
 from app.db.enums import PersonKind
 from app.db.models import ChannelIdentity, Lease, LeaseParty, Person, Unit
 
-router = APIRouter(prefix="/api/tenants", tags=["tenants"], dependencies=[Depends(require_session)])
+router = APIRouter(
+    prefix="/api/tenants",
+    tags=["tenants"],
+    dependencies=[Depends(require_section("tenants", also_read=("reports", "dashboard")))],
+)
 
 RENT_UNKNOWN = "unknown"
 

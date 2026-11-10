@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import WorkflowClient, get_embedder_dep, get_engine, get_workflow_client
 from app.api.v1 import enqueue
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_csrf, require_principal
 from app.api.v1.ratelimit import decision_limit
 from app.core.errors import NotFoundError
@@ -26,7 +27,7 @@ from app.pipeline.document_search import DocDetail, DocFilter, DocHit, get_docum
 from app.pipeline.drive_reorg import PlanView, build_plan, decide_plan, latest_plan
 from app.pipeline.rag import search_hybrid
 
-router = APIRouter(tags=["documents"])
+router = APIRouter(tags=["documents"], dependencies=[Depends(require_section("inbox", also=("maintenance",)))])
 NOT_FOUND = "not found"
 Owner = Annotated[Principal, Depends(require_principal)]
 Engine_ = Annotated[Engine, Depends(get_engine)]

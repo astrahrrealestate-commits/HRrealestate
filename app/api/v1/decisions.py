@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import WorkflowClient, get_engine, get_workflow_client
 from app.api.v1 import enqueue
+from app.api.v1.access import require_admin, require_section
 from app.api.v1.auth import Principal, require_csrf, require_principal
 from app.api.v1.ratelimit import decision_limit
 from app.api.v1.schemas import (
@@ -36,7 +37,14 @@ from app.owner.cards import approval_messages
 from app.pipeline import approvals, dashboard_decisions, owner_commands, work_repo
 from app.pipeline.local_actions import LOCAL_TYPES
 
-router = APIRouter(tags=["decisions"], dependencies=[Depends(require_csrf), Depends(decision_limit)])
+router = APIRouter(
+    tags=["decisions"],
+    dependencies=[
+        Depends(require_section("inbox", also=("maintenance",))),
+        Depends(require_csrf),
+        Depends(decision_limit),
+    ],
+)
 log = get_logger(__name__)
 NOT_FOUND = "not found"
 DOC_CHOICES = frozenset({t.value for t in DocType} | {DOC_SKIP})
@@ -177,14 +185,14 @@ def _set_paused(engine: Engine, company_id: UUID, paused: bool) -> bool:
     return bool(changed.rowcount)  # type: ignore[attr-defined]  # CursorResult from a DML statement
 
 
-@router.post("/company/pause")
+@router.post("/company/pause", dependencies=[Depends(require_admin)])
 def pause(who: Owner, engine: Engine_) -> PausedOut:
     if _set_paused(engine, who.company_id, True):
         log.info("dashboard.company_paused", company_id=str(who.company_id))
     return PausedOut(paused=True)
 
 
-@router.post("/company/resume")
+@router.post("/company/resume", dependencies=[Depends(require_admin)])
 def resume(who: Owner, engine: Engine_, client: Client) -> PausedOut:
     changed = _set_paused(engine, who.company_id, False)
     if changed:

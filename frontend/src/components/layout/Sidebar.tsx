@@ -15,6 +15,7 @@ import {
   BookOpen,
   ChevronDown,
   LogOut,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { needsYouCount, ThreadCountTarget } from "@/lib/selectors";
@@ -51,7 +52,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
       }
     }
   }, []);
-  const { user, logout } = useAuth();
+  const { user, logout, canAccess } = useAuth();
 
   const displayName = user?.name || "Harjot Singh";
   const displayEmail = user?.email || "harjot@estateos.internal";
@@ -89,24 +90,27 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
       ? liveCount
       : 0;
 
-  const navigationItems: NavItem[] = [
+  const allNavigationItems: (NavItem & { section: string })[] = [
     {
       label: "Dashboard",
+      section: "dashboard",
       href: "/",
       icon: Home,
       badge: effectiveCount > 0 ? `(${effectiveCount} Today)` : undefined,
     },
     {
       label: "Messages",
+      section: "inbox",
       href: "/inbox",
       icon: Inbox,
       badge: effectiveCount > 0 ? `(${effectiveCount})` : undefined,
     },
-    { label: "Properties", href: "/properties", icon: Building2 },
-    { label: "Tenants", href: "/tenants", icon: Users },
-    { label: "Contacts", href: "/contacts", icon: Contact },
-    { label: "Maintenance", href: "/maintenance", icon: Wrench },
+    { label: "Properties", section: "properties", href: "/properties", icon: Building2 },
+    { label: "Tenants", section: "tenants", href: "/tenants", icon: Users },
+    { label: "Contacts", section: "contacts", href: "/contacts", icon: Contact },
+    { label: "Maintenance", section: "maintenance", href: "/maintenance", icon: Wrench },
   ];
+  const navigationItems = allNavigationItems.filter((item) => canAccess(item.section));
 
   return (
     <aside className="hidden md:flex flex-col justify-between select-none h-dvh sticky top-0 md:w-[72px] xl:w-[240px] flex-shrink-0 border-r border-[#27272a] bg-[#1B1B1B] transition-all z-20">
@@ -193,14 +197,33 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
       <div className="border-t border-white/5">
         <div className="p-2 xl:p-2.5 space-y-1">
           {/* Knowledge Base */}
-          <Link
-            href="/reports"
-            title="Knowledge Base"
-            className="w-full flex items-center min-h-[38px] rounded-xl text-[13.5px] transition-colors justify-center xl:justify-start px-2 xl:px-3 text-zinc-400 hover:text-white hover:bg-white/5 font-medium gap-2.5 border border-transparent"
-          >
-            <BookOpen className="w-4 h-4 flex-shrink-0 text-zinc-400" strokeWidth={1.75} />
-            <span className="hidden xl:inline truncate">Knowledge Base</span>
-          </Link>
+          {canAccess("reports") && (
+            <Link
+              href="/reports"
+              title="Knowledge Base"
+              className="w-full flex items-center min-h-[38px] rounded-xl text-[13.5px] transition-colors justify-center xl:justify-start px-2 xl:px-3 text-zinc-400 hover:text-white hover:bg-white/5 font-medium gap-2.5 border border-transparent"
+            >
+              <BookOpen className="w-4 h-4 flex-shrink-0 text-zinc-400" strokeWidth={1.75} />
+              <span className="hidden xl:inline truncate">Knowledge Base</span>
+            </Link>
+          )}
+
+          {/* Team & access: superadmins only */}
+          {user?.isAdmin && (
+            <Link
+              href="/admin"
+              title="Team & access"
+              className={cn(
+                "w-full flex items-center min-h-[38px] rounded-xl text-[13.5px] transition-colors justify-center xl:justify-start px-2 xl:px-3 font-medium gap-2.5 border border-transparent",
+                pathname.startsWith("/admin")
+                  ? "bg-white/10 text-white"
+                  : "text-zinc-400 hover:text-white hover:bg-white/5"
+              )}
+            >
+              <ShieldCheck className="w-4 h-4 flex-shrink-0" strokeWidth={1.75} />
+              <span className="hidden xl:inline truncate">Team & access</span>
+            </Link>
+          )}
 
           {/* Connections Trigger Button */}
           <button

@@ -13,6 +13,7 @@ from sqlalchemy import Engine, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.contracts import CaseState
 from app.core.ids import case_ref
@@ -20,7 +21,11 @@ from app.core.rent_data import RENT_DATA_AVAILABLE
 from app.db.enums import SendStatus
 from app.db.models import Approval, Case, Lease, Person, Send, Unit, WaitRow
 
-router = APIRouter(prefix="/api/dashboard", tags=["dashboard"], dependencies=[Depends(require_session)])
+router = APIRouter(
+    prefix="/api/dashboard",
+    tags=["dashboard"],
+    dependencies=[Depends(require_section("dashboard", also_read=("reports",)))],
+)
 
 
 # ---------------------------------------------------------------------------

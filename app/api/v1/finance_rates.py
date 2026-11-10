@@ -14,6 +14,7 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_csrf, require_principal
 from app.api.v1.finance_schemas import RateIn, RateOut, RateRemovedOut
 from app.api.v1.ratelimit import decision_limit
@@ -23,7 +24,7 @@ from app.db.models import VendorRate
 from app.finance import repo
 from app.pipeline.read_work import get_company
 
-router = APIRouter(tags=["finance"])
+router = APIRouter(tags=["finance"], dependencies=[Depends(require_section("money"))])
 NOT_FOUND = "not found"
 Owner = Annotated[Principal, Depends(require_principal)]
 Engine_ = Annotated[Engine, Depends(get_engine)]
