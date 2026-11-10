@@ -9,6 +9,10 @@ import { cn } from "@/lib/utils";
 
 interface InboxThreadListProps {
   threads: InboxThread[];
+  /** Until the first load answers, or after it failed with nothing to show, an empty list must not read "All clear". */
+  loadState?: "loading" | "ready" | "error";
+  /** The list is empty because of a search, a filter or a tab, not because the inbox is. */
+  isFiltered?: boolean;
   selectedThreadId: string;
   onSelectThread: (threadId: string) => void;
   onDone?: (threadId: string) => void;
@@ -30,6 +34,8 @@ interface ThreadGroup {
  */
 export function InboxThreadList({
   threads,
+  loadState = "ready",
+  isFiltered = false,
   selectedThreadId,
   onSelectThread,
   onDone,
@@ -85,8 +91,14 @@ export function InboxThreadList({
           className
         )}
       >
-        <p className="text-[14px] text-[var(--ink-2)] font-medium">
-          All clear. Nothing needs you.
+        <p className="text-[14px] text-[var(--ink-2)] font-medium" role={loadState === "error" ? "alert" : "status"}>
+          {loadState === "loading"
+            ? "Loading your inbox…"
+            : loadState === "error"
+              ? "Can't reach the server. Retrying…"
+              : isFiltered
+                ? "No threads match."
+                : "All clear. Nothing needs you."}
         </p>
       </div>
     );

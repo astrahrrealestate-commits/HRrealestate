@@ -79,7 +79,7 @@ export async function getInboxThreads(
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/threads?${query.toString()}`, {
       method: "GET",
       headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(2500),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (res.ok) {

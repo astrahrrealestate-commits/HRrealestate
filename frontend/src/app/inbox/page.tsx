@@ -124,6 +124,7 @@ function InboxContent() {
 
 
   const [threads, setThreads] = useState<InboxThread[]>([]);
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
 
   const [activeTab, setActiveTab] = useState<string>("needs_you");
 
@@ -263,49 +264,39 @@ function InboxContent() {
 
 
 
+    let inFlight = false;
     const fetchThreads = () => {
-
+      if (inFlight) return;
+      inFlight = true;
       getInboxThreads()
-
-        .then(({ threads: live }) => {
-
-          if (isMounted) {
-
-            setThreads(live || []);
-
-            if (live && live.length > 0) {
-
-              if (threadParam) {
-
-                const m = findMatchingThread(live, threadParam);
-
-                if (m) setSelectedThreadId(m.id);
-
-              } else {
-
-                setSelectedThreadId((prev) => prev || live[0].id);
-
-              }
-
-            } else {
-
-              setSelectedThreadId("");
-
-            }
-
+        .then(({ threads: live, isLive }) => {
+          if (!isMounted) return;
+          if (!isLive) {
+            // A failed load must not wipe what is already on screen or pose as an empty inbox.
+            setLoadState("error");
+            return;
           }
-
+          setLoadState("ready");
+          setThreads(live);
+          if (live.length > 0) {
+            if (threadParam) {
+              const m = findMatchingThread(live, threadParam);
+              if (m) setSelectedThreadId(m.id);
+            } else {
+              setSelectedThreadId((prev) => prev || live[0].id);
+            }
+          } else {
+            setSelectedThreadId("");
+          }
         })
-
         .catch((err) => {
-
           console.warn("Failed to load live inbox threads:", err);
-
+          if (isMounted) setLoadState("error");
+        })
+        .finally(() => {
+          inFlight = false;
         });
-
     };
-
-
 
     fetchThreads();
 
@@ -1063,6 +1054,8 @@ function InboxContent() {
               <InboxThreadList
 
                 threads={filteredAndSortedThreads}
+                loadState={threads.length > 0 && loadState === "error" ? "ready" : loadState}
+                isFiltered={Boolean(searchQuery.trim()) || selectedFilterIds.length > 0}
 
                 selectedThreadId={activeThread?.id || ""}
 
