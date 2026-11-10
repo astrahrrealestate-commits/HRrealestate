@@ -200,8 +200,13 @@ def _dev_principal_or_401(request: Request) -> Principal:
 
 
 def cookie_principal(request: Request) -> Principal:
-    """The signed-cookie checks alone (no I/O): signature, age. 401 when missing or invalid."""
-    token = request.cookies.get(COOKIE)
+    """The signed-cookie checks alone (no I/O): signature, age. 401 when missing or invalid.
+    Accepts eo_session cookie, X-Session-Token header, or Authorization: Bearer token."""
+    token = request.cookies.get(COOKIE) or request.headers.get("X-Session-Token")
+    if not token:
+        auth_h = request.headers.get("Authorization", "")
+        if auth_h.startswith("Bearer "):
+            token = auth_h[7:].strip()
     if not token:
         return _dev_principal_or_401(request)
     try:

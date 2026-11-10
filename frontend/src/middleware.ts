@@ -14,7 +14,19 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // 2. If user already has a valid session and visits /login, redirect to dashboard
+  // 2. If session token is in URL (from Google OAuth callback redirect), set cookie on localhost:3000
+  const urlToken = request.nextUrl.searchParams.get("session_token");
+  if (urlToken) {
+    const response = NextResponse.next();
+    response.cookies.set("eo_session", urlToken, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+    });
+    return response;
+  }
+
+  // 3. If user already has a valid session and visits /login, redirect to dashboard
   if (pathname === "/login") {
     if (sessionCookie && sessionCookie.value) {
       return NextResponse.redirect(new URL("/", request.url));
@@ -22,7 +34,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // 3. Protected routes: If no session cookie, redirect to /login
+  // 4. Protected routes: If no session cookie, redirect to /login
   if (!sessionCookie || !sessionCookie.value) {
     const loginUrl = new URL("/login", request.url);
     return NextResponse.redirect(loginUrl);

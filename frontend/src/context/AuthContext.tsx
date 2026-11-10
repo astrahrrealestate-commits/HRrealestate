@@ -43,6 +43,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res.ok) {
         const data = await res.json();
         if (data.authenticated && data.email) {
+          if (data.token) {
+            localStorage.setItem("eo_session_token", data.token);
+          }
           setUser({
             email: data.email,
             name: data.name || data.email.split("@")[0],
@@ -62,6 +65,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const urlToken = params.get("session_token");
+      if (urlToken) {
+        localStorage.setItem("eo_session_token", urlToken);
+        params.delete("session_token");
+        const newSearch = params.toString() ? `?${params.toString()}` : "";
+        window.history.replaceState({}, "", `${window.location.pathname}${newSearch}`);
+      }
+    }
     fetchCurrentUser();
   }, []);
 
@@ -73,6 +86,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
     } catch {
       // Ignore network errors on logout
+    }
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("eo_session_token");
     }
     // Also clear client cookie if possible
     document.cookie = "eo_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;";
