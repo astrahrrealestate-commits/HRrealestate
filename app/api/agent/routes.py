@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
+from app.api.agent.fallback import domain_fallback_answer
 from app.api.agent.focus import new_chat_fact, next_focus
 from app.api.deps import get_engine, get_settings_dep
 from app.api.v1.auth import Principal, require_session
@@ -259,44 +260,6 @@ def _research_answer(
     return run_research(
         engine, settings, company_id, system_prompt, history or [], query, embedder=build_embedder(settings)
     )
-
-
-def _domain_fallback_answer(query: str, live_cases_text: str = "", is_error: bool = False) -> str:
-    """Domain-accurate fallback reflecting real database state without false assurances."""
-    q_l = query.lower()
-    has_live_cases = bool(
-        live_cases_text
-        and "no active open" not in live_cases_text.lower()
-        and "0 active open" not in live_cases_text.lower()
-    )
-
-    if any(w in q_l for w in ["case", "ticket", "open", "active", "status"]):
-        if has_live_cases:
-            return f"**Active Open Cases in Database:**\n\n{live_cases_text}"
-        return "**Active Cases:** 0 open cases found in database."
-    elif any(w in q_l for w in ["keizersgracht", "vipin", "tenant", "unit"]):
-        return (
-            "**Unit: Keizersgracht 42-A**\n\n"
-            "• **Tenant:** Vipin Tyagi\n"
-            "• **Standing Contractor Rule:** Plumber Kevin van Dijk is assigned for any pipe leaks."
-        )
-    elif any(w in q_l for w in ["contractor", "plumber"]):
-        return (
-            "**Registered Contractors:**\n\n"
-            "• **Kevin van Dijk (Plumber):** Assigned for leak and plumbing maintenance at Keizersgracht 42-A."
-        )
-    else:
-        if is_error:
-            status_snippet = (
-                f"\n\n**Current Live Tickets:**\n{live_cases_text}"
-                if has_live_cases
-                else "\n\n• Database records show 0 open tickets."
-            )
-            return (
-                "⚠️ **Assistant Degraded:** The AI model timed out or was rate-limited. "
-                "No automated actions were performed." + status_snippet
-            )
-        return f"**EstateOS Live Status:**\n\n{live_cases_text or '• 0 open cases in database.'}"
 
 
 def _find_case_recipient(session: Session, target_case: Case | UUID) -> tuple[str, str, str | None, str | None]:
@@ -1542,7 +1505,7 @@ def ask_agent(
             chat_resp: str | None = researched.answer
         else:
             chat_resp = _generate_chat_answer(req.query, settings, engine, company_id, system_prompt, req.history)
-        ans_text = chat_resp or _domain_fallback_answer(req.query, live_cases_text=live_cases_text, is_error=llm_failed)
+        ans_text = chat_resp or domain_fallback_answer(req.query, live_cases_text=live_cases_text, is_error=llm_failed)
 
     # 3. Build step badge labels and inspect any generated proposal cards / actions
     step_descriptions: list[str] = list(research_steps)
