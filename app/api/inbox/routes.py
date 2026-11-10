@@ -9,6 +9,7 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Annotated, Any
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -18,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import WorkflowClient, get_engine, get_ingest_deps, get_storage, get_workflow_client
 from app.api.inbox import decide as inbox_decide
+from app.api.inbox.time_labels import when_label
 from app.api.inbox.unit_match import unit_named_in
 from app.api.v1 import enqueue
 from app.api.v1.auth import Principal, require_session
@@ -35,6 +37,7 @@ from app.db.models import (
     Case,
     CaseLink,
     ChannelAccount,
+    Company,
     DocumentRow,
     GmailSyncState,
     MessageRow,
@@ -71,6 +74,8 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
     """Builds rich frontend-compatible thread structures from the PostgreSQL records of `company_id` only."""
     live_threads: list[dict[str, Any]] = []
     cases = session.query(Case).filter(Case.company_id == company_id).order_by(Case.opened_at.desc()).limit(20).all()
+    company = session.get(Company, company_id)
+    company_tz = ZoneInfo(company.timezone if company else "Europe/Amsterdam")
     company_units = [(u.label, u.address) for u in session.query(Unit).filter(Unit.company_id == company_id)]
     for case in cases:
         links = session.query(CaseLink).filter(CaseLink.case_id == case.id).all()
@@ -357,15 +362,7 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
         # Ensure sent_dt is timezone-aware
         if sent_dt.tzinfo is None:
             sent_dt = sent_dt.replace(tzinfo=UTC)
-        days_diff = (now_dt.date() - sent_dt.date()).days
-        if days_diff == 0:
-            rel_label = f"Today {sent_dt.strftime('%H:%M')}"
-        elif days_diff == 1:
-            rel_label = f"Yesterday {sent_dt.strftime('%H:%M')}"
-        elif days_diff < 7:
-            rel_label = f"{sent_dt.strftime('%a')} {sent_dt.strftime('%H:%M')}"
-        else:
-            rel_label = sent_dt.strftime("%d %b %H:%M")
+        rel_label = when_label(sent_dt, now_dt, company_tz, weekdays=True)
 
         # Collect attachments for all messages in this thread
         msg_ids_list = [m.id for m in messages]
@@ -401,12 +398,7 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
             m_dt = m.sent_at if m.sent_at else now_dt
             if m_dt.tzinfo is None:
                 m_dt = m_dt.replace(tzinfo=UTC)
-            m_days = (now_dt.date() - m_dt.date()).days
-            m_time_fmt = (
-                f"Today {m_dt.strftime('%H:%M')}"
-                if m_days == 0
-                else (f"Yesterday {m_dt.strftime('%H:%M')}" if m_days == 1 else m_dt.strftime("%d %b %H:%M"))
-            )
+            m_time_fmt = when_label(m_dt, now_dt, company_tz)
             m_is_incoming = m.direction != Direction.outbound
             if m.direction == Direction.outbound:
                 m_sender_type = "owner"
@@ -448,12 +440,7 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
                 s_dt = s.attempted_at if s.attempted_at else now_dt
                 if s_dt.tzinfo is None:
                     s_dt = s_dt.replace(tzinfo=UTC)
-                s_days = (now_dt.date() - s_dt.date()).days
-                s_time_fmt = (
-                    f"Today {s_dt.strftime('%H:%M')}"
-                    if s_days == 0
-                    else (f"Yesterday {s_dt.strftime('%H:%M')}" if s_days == 1 else s_dt.strftime("%d %b %H:%M"))
-                )
+                s_time_fmt = when_label(s_dt, now_dt, company_tz)
                 # Retrieve draft text from action payload
                 act_row = next((a for a in actions if a.id == s.action_id), None)
                 act_payload = act_row.payload if act_row and isinstance(act_row.payload, dict) else {}

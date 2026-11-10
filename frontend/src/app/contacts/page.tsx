@@ -42,6 +42,7 @@ import {
   sendEmailReply,
   generateWhatsAppDrafts,
 } from "@/lib/api";
+import { formatClock } from "@/lib/clock";
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -312,7 +313,7 @@ function ContactsContent() {
     setIsSendingWhatsApp(true);
 
     const now = new Date();
-    const timeStr = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const timeStr = formatClock(now);
     const optimisticMsg: ContactWhatsAppMessage = {
       id: `temp-${Date.now()}`,
       sender: "owner",

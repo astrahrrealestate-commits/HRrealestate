@@ -18,6 +18,7 @@ import { FilterBar, FilterTab, FilterGroup } from "@/components/ui/FilterBar";
 
 import { InboxThreadList } from "@/components/inbox/InboxThreadList";
 import { threadMatchesQuery } from "@/lib/threadSearch";
+import { formatClock } from "@/lib/clock";
 import { matchesFilters, matchesTab, optionCount } from "@/lib/inboxFilters";
 
 import { InboxConversationView } from "@/components/inbox/InboxConversationView";
@@ -446,9 +447,7 @@ function InboxContent() {
 
     const now = new Date();
 
-    const utcHours = String(now.getUTCHours()).padStart(2, "0");
-
-    const utcMins = String(now.getUTCMinutes()).padStart(2, "0");
+    const clockNow = formatClock(now);
 
     const newMsg = {
 
@@ -462,7 +461,7 @@ function InboxContent() {
 
       sentAt: now.toISOString(),
 
-      timeFormatted: `${utcHours}:${utcMins}`,
+      timeFormatted: clockNow,
 
       body: draftText,
 

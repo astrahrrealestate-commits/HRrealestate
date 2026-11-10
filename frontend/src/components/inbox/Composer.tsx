@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { DraftOption } from "@/types/dashboard";
 import { DraftPersona } from "@/types/inbox";
 import { createGmailDraft } from "@/lib/api";
+import { formatClock } from "@/lib/clock";
 
 export interface ComposerProps {
   /** Which thread this composer is for: text typed in one thread comes back when the owner returns to it. */
@@ -221,7 +222,7 @@ export function Composer({
           <div className="flex items-center gap-2 text-[var(--ink-2)]">
             <Check className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" strokeWidth={2.5} />
             <span>
-              Sent via {activeChannel === "gmail" ? "Gmail" : "WhatsApp"} · <span className="font-mono">{sentTimestamp || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+              Sent via {activeChannel === "gmail" ? "Gmail" : "WhatsApp"} · <span className="font-mono">{sentTimestamp || formatClock(new Date())}</span>
             </span>
             <span className="text-[11px] text-[var(--ink-3)] font-mono">({undoSeconds}s)</span>
           </div>

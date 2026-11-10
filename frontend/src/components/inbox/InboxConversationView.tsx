@@ -23,9 +23,12 @@ import { Composer } from "@/components/inbox/Composer";
 import { isUrgent } from "@/lib/selectors";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { formatClock, localDayNumber, localParts } from "@/lib/clock";
 import { EditTicketModal } from "@/components/maintenance/EditTicketModal";
 import { MaintenanceTicket, updateMaintenanceTicket } from "@/lib/api";
 import { BACKEND_BASE_URL } from "@/lib/backend";
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 interface InboxConversationViewProps {
   thread: InboxThread | null;
@@ -186,8 +189,7 @@ export function InboxConversationView({
     }
 
     const now = new Date();
-    const utcHours = String(now.getUTCHours()).padStart(2, "0");
-    const utcMins = String(now.getUTCMinutes()).padStart(2, "0");
+    const clockNow = formatClock(now);
     // Add outgoing bubble to timeline immediately (Section 5.2)
     const newOutgoingMsg: ThreadMessage = {
       id: `reply-${Date.now()}`,
@@ -195,7 +197,7 @@ export function InboxConversationView({
       senderName: "Harjot Singh",
       senderContact: "+31 20 000 0001",
       sentAt: now.toISOString(),
-      timeFormatted: `${utcHours}:${utcMins}`,
+      timeFormatted: clockNow,
       body: text,
       channel: outboundChannel,
       replyTo: targetReply
@@ -385,14 +387,11 @@ export function InboxConversationView({
             if (tf.toLowerCase().startsWith("today")) return "Today";
             if (m.sentAt) {
               const d = new Date(m.sentAt);
-              const now = new Date();
-              const isToday = d.toDateString() === now.toDateString();
-              const yesterday = new Date(now);
-              yesterday.setDate(now.getDate() - 1);
-              const isYesterday = d.toDateString() === yesterday.toDateString();
-              if (isToday) return "Today";
-              if (isYesterday) return "Yesterday";
-              return format(d, "EEE d MMM");
+              const ago = localDayNumber(new Date()) - localDayNumber(d);
+              if (ago === 0) return "Today";
+              if (ago === 1) return "Yesterday";
+              const local = localParts(d);
+              return `${local.weekday} ${local.day} ${MONTHS[local.month - 1]}`;
             }
             return "Today";
           };
@@ -402,15 +401,11 @@ export function InboxConversationView({
           const prevDayLabel = prevMsg ? getDayLabel(prevMsg) : null;
           const showDateDivider = index === 0 || currentDayLabel !== prevDayLabel;
 
-          // Time formatted in UTC (e.g. 09:35, 09:39)
+          // Time on the company's local clock, 24 h (e.g. 09:35)
           const getDisplayTime = (m: ThreadMessage) => {
             if (m.sentAt) {
               const d = new Date(m.sentAt);
-              if (!isNaN(d.getTime())) {
-                const hh = String(d.getUTCHours()).padStart(2, "0");
-                const mm = String(d.getUTCMinutes()).padStart(2, "0");
-                return `${hh}:${mm}`;
-              }
+              if (!isNaN(d.getTime())) return formatClock(d);
             }
             return (m.timeFormatted || "08:15")
               .replace(/^(today|yesterday)\s*/i, "")

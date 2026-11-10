@@ -38,6 +38,7 @@ import {
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { askAgent, approveInboxDraft, approveStandingRule, AssistantCard, CardAction, PreviewCardData, updateAgentConversation } from "@/lib/api";
+import { formatClock } from "@/lib/clock";
 
 export interface AssistantAction {
   label: string;
@@ -263,7 +264,7 @@ export function AskEstateOSPanel({
     const userMsg: AssistantMessage = {
       id: `user-${Date.now()}`,
       sender: "user",
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      timestamp: formatClock(new Date()),
       text: trimmed,
     };
 
@@ -311,7 +312,7 @@ export function AskEstateOSPanel({
       const botMsg: AssistantMessage = {
         id: `agent-${Date.now()}`,
         sender: "assistant",
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        timestamp: formatClock(new Date()),
         text: res.answer,
         steps: res.steps,
         previewCard: res.previewCard,
@@ -327,7 +328,7 @@ export function AskEstateOSPanel({
       const errorMsg: AssistantMessage = {
         id: `err-${Date.now()}`,
         sender: "assistant",
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        timestamp: formatClock(new Date()),
         text: "I was unable to complete your request right now. Please verify the backend connection and try again.",
       };
       setMessages((prev) => [...prev, errorMsg]);
