@@ -13,9 +13,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
+from app.api.agent.focus import new_chat_fact, next_focus
 from app.api.deps import get_engine, get_settings_dep
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import ask_limit
@@ -860,23 +861,7 @@ def _finish_agent_response(
         if not conv.title or conv.title == "New Chat":
             conv.title = _generate_thread_title(req.query, ans_text, briefs)
 
-        current_focus = dict(conv.focus_state or {})
-        if preview_card:
-            if preview_card.caseId:
-                current_focus["case_id"] = str(preview_card.caseId)
-            if preview_card.unitLabel:
-                current_focus["unit_label"] = preview_card.unitLabel
-            if preview_card.recipient:
-                current_focus["recipient"] = preview_card.recipient
-            if preview_card.contractor:
-                current_focus["contractor"] = preview_card.contractor
-            if preview_card.actionId:
-                current_focus["last_action_id"] = preview_card.actionId
-            if preview_card.channel:
-                current_focus["channel"] = preview_card.channel
-        elif briefs:
-            current_focus["case_id"] = str(briefs[0].case_id)
-            current_focus["unit_label"] = briefs[0].label
+        current_focus = next_focus(conv.focus_state or {}, preview_card.model_dump() if preview_card else None)
 
         conv.focus_state = current_focus
         conv.last_turn_at = now
@@ -1435,12 +1420,19 @@ def ask_agent(
                     + "\n".join(f_lines)
                 )
 
+        with Session(engine) as turn_session:
+            prior_turns = turn_session.scalar(
+                select(func.count(AgentTurn.id)).where(
+                    AgentTurn.company_id == company_id, AgentTurn.conversation_id == conv_id
+                )
+            )
+        fresh_chat_text = new_chat_fact(prior_turns or 0)
         compiled = compile_concierge_context(
             question=req.query,
             recent=history,
             cases=rank_cases(briefs, req.query, focus_cid),
             open_tasks=tasks,
-            page_facts_text=(page_facts_text or "") + focus_text,
+            page_facts_text="\n\n".join(t for t in ((page_facts_text or "") + focus_text, fresh_chat_text) if t),
             owner_preferences=approved_memories,
         )
         prompt = compiled.prompt_text
