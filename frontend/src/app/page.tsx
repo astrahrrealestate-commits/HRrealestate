@@ -45,6 +45,7 @@ import {
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import { getPortfolio } from "@/lib/portfolioApi";
 import type { PropertyComplex } from "@/types/portfolio";
+import { ticketRef } from "@/lib/caseRef";
 
 
 export default function TodayPage() {
@@ -78,9 +79,9 @@ export default function TodayPage() {
     contractorPhone: "",
     urgency: "normal",
     status: "pending_approval",
-    slaRemaining: "4h SLA",
+    slaRemaining: "",
     isOverdue: false,
-    poBudgetCap: "€ 350",
+    poBudgetCap: "",
     reportedAt: "Today",
     notes: "",
     originalMessage: "",
@@ -177,7 +178,7 @@ export default function TodayPage() {
   ) => {
     const targetKey = key || ticket.id || ticket.ticketNumber;
     setContractorDispatchedMap((prev) => ({ ...prev, [targetKey]: true }));
-    showToast(`Work order dispatched to ${ticket.contractorName} (${ticket.poBudgetCap} cap).`);
+    showToast(`Work order dispatched to ${ticket.contractorName}${ticket.poBudgetCap ? ` (${ticket.poBudgetCap} cap)` : ""}.`);
     try {
       await approveMaintenanceTicket(ticket.id || ticket.ticketNumber, {
         dispatchContractor: true,
@@ -635,7 +636,7 @@ export default function TodayPage() {
           {/* Emergency Alert Card with In-Place Maintenance Ticket & Channel-Aware Actions */}
           {(activeSection === "all" || activeSection === "urgent") && (
             topUrgentThread ? (() => {
-            const ticketNum = topUrgentThread.ticketNumber || "#005";
+            const ticketNum = topUrgentThread.ticketNumber || ticketRef(topUrgentThread.caseId || topUrgentThread.id);
             const ticket: MaintenanceTicket = maintenanceTickets.find(
               (t) =>
                 t.ticketNumber === ticketNum ||
@@ -681,9 +682,11 @@ export default function TodayPage() {
 
                   {/* Exactly Required Options: In-Place Details, Channel-Specific Tenant Reply, Contractor Dispatch */}
                   <div className="flex items-center gap-2 shrink-0 self-end md:self-center flex-wrap">
-                    <span className="font-mono text-xs text-[var(--accent-ink)] font-bold px-2 py-0.5 rounded bg-[var(--accent)]/10 border border-[var(--accent)]/20">
-                      {ticket.slaRemaining || "38m SLA"}
-                    </span>
+                    {ticket.slaRemaining && (
+                      <span className="font-mono text-xs text-[var(--accent-ink)] font-bold px-2 py-0.5 rounded bg-[var(--accent)]/10 border border-[var(--accent)]/20">
+                        {ticket.slaRemaining}
+                      </span>
+                    )}
 
                     {/* View Ticket Details on the same page */}
                     <button
@@ -786,7 +789,7 @@ export default function TodayPage() {
                           ) : (
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#EA4335]/10 text-[#C5221F] font-semibold text-xs border border-[#EA4335]/20">
                               <Mail className="w-3.5 h-3.5" />
-                              <span>Inbound via Email · {topUrgentThread.senderContact || "pieter.bakker@gmail.com"}</span>
+                              <span>Inbound via Email · {topUrgentThread.senderContact}</span>
                             </span>
                           )}
                           <span className="text-[var(--ink-3)] hidden sm:inline">·</span>
@@ -794,7 +797,7 @@ export default function TodayPage() {
                           <span className="text-xs text-[var(--ink-3)] font-mono">({ticket.unitLabel})</span>
                         </div>
                         <span className="font-mono text-xs font-semibold text-[var(--ink-3)] bg-[var(--selected)] px-2.5 py-0.5 rounded border border-[var(--line)]">
-                          {topUrgentThread.relativeTime || "Today 08:15 CET"}
+                          {topUrgentThread.relativeTime}
                         </span>
                       </div>
 
@@ -904,7 +907,7 @@ export default function TodayPage() {
                                   : "bg-blue-50 text-blue-700 border-blue-200"
                               )}
                             >
-                              {isContractorDispatched ? "✓ Dispatched" : `Pre-Approved Cap: ${ticket.poBudgetCap}`}
+                              {isContractorDispatched ? "✓ Dispatched" : (ticket.poBudgetCap ? `Cap: ${ticket.poBudgetCap}` : "No cap recorded")}
                             </span>
                           </div>
                           {/* Expanded 6-row textarea with min-h-[145px] so full work order is visible without scrolling */}
