@@ -62,11 +62,12 @@ token `test-owner-token` for `owner@example.test`; prod refuses the fake provide
 | `POST /agent/messages` | 30 / min | owner |
 | `PUT /agent/page` | 60 / min | owner (its own bucket: pre-warms never use up the message limit) |
 | `POST /auth/session` | 10 / min | client IP (`X-Forwarded-For` ignored unless `DASHBOARD_TRUST_FORWARDED_FOR=true`; a request without a client address shares one `unknown` bucket) |
+| `GET /search` | 120 / min | owner (its own bucket: searching never uses up the message limit) |
 | approvals decide/edit, tasks done/snooze, documents file, finance recheck / rate put / rate delete, company pause/resume | 120 / min | owner |
 
 Behind a reverse proxy, without `DASHBOARD_TRUST_FORWARDED_FOR` every login shares the proxy's IP bucket (10/min for
 all users together). Enable the flag only when the proxy overwrites `X-Forwarded-For` (the last entry is used), never when
-the API is reachable directly. GETs and the SSE stream are not limited. On `429` wait `Retry-After` seconds.
+the API is reachable directly. Other GETs and the SSE stream are not limited. On `429` wait `Retry-After` seconds.
 - Agent text: 1 to the question limit (over it: `422` with a "too long" message); `\n`, `\t` and `\r\n` allowed; NUL and
   other control characters and whitespace-only text are `422`.
 
@@ -126,6 +127,7 @@ Changing a document link may propose a one-item reorganisation plan (`created_by
 | `GET /persona` | none | `200 {name, filename, content, version, is_default, updated_at, max_chars}`: the writing persona (markdown) the draft agent writes in. Created from the bundled sample on first read | none |
 | `PUT /persona` | `{content, name?, filename?}`: `content` is the markdown (not blank, at most `max_chars` = 8000 characters) | `200` the stored persona; `version` goes up by one on every save. The next drafts use it and each tenant- or contractor-facing draft records `persona_name` and `persona_version` | `422` blank or too long |
 | `POST /persona/reset` | none | `200` the bundled sample persona again (`is_default: true`, `version` still goes up) | none |
+| `GET /search?q=` | none: `q` is 2 to 100 characters after whitespace is collapsed and control characters (including NUL) are dropped (longer is cut; shorter returns no hits) | `200 {hits: [{kind: person\|unit\|case\|document, id, title, subtitle, person_kind}]}` (`person_kind` is `tenant\|contractor\|owner\|other` for people, else null): at most 5 hits per kind, grouped people, units, cases, documents, for the ⌘K palette. Substring match on names, trades, unit labels and addresses, case summaries and document titles or file names; your company only; people and units whose validity has ended are left out. `title` is tenant-derived text: show it as plain text | `429` over 120 requests a minute |
 | `/auth/session` | `{id_token}` | see Auth | see Auth |
 
 Document choices (`DOC_CHOICES`): `lease`, `invoice`, `quote`, `id_document`, `insurance`, `certificate`, `correspondence`, `photo`, `other`, `skip`.

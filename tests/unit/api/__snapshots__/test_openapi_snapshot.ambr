@@ -2860,6 +2860,49 @@
           ]
         }
       },
+      "/api/v1/search": {
+        "get": {
+          "operationId": "search_api_v1_search_get",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "q",
+              "required": false,
+              "schema": {
+                "default": "",
+                "title": "Q",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/SearchOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Search",
+          "tags": [
+            "search"
+          ]
+        }
+      },
       "/api/v1/tasks": {
         "get": {
           "operationId": "get_tasks_api_v1_tasks_get",
@@ -4729,6 +4772,16 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "HitKind": {
+        "enum": [
+          "person",
+          "unit",
+          "case",
+          "document"
+        ],
+        "title": "HitKind",
+        "type": "string"
+      },
       "InboxItem": {
         "properties": {
           "case_id": {
@@ -5305,6 +5358,16 @@
         ],
         "title": "PendingApprovalOut",
         "type": "object"
+      },
+      "PersonKind": {
+        "enum": [
+          "tenant",
+          "contractor",
+          "owner",
+          "other"
+        ],
+        "title": "PersonKind",
+        "type": "string"
       },
       "PersonaIn": {
         "properties": {
@@ -6534,6 +6597,68 @@
           "run_no"
         ],
         "title": "RunOut",
+        "type": "object"
+      },
+      "SearchHitOut": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/HitKind"
+          },
+          "person_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "subtitle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subtitle"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "title",
+          "subtitle",
+          "person_kind"
+        ],
+        "title": "SearchHitOut",
+        "type": "object"
+      },
+      "SearchOut": {
+        "properties": {
+          "hits": {
+            "items": {
+              "$ref": "#/components/schemas/SearchHitOut"
+            },
+            "title": "Hits",
+            "type": "array"
+          }
+        },
+        "required": [
+          "hits"
+        ],
+        "title": "SearchOut",
         "type": "object"
       },
       "SessionRequest": {

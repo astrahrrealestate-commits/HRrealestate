@@ -213,3 +213,13 @@ def test_forwarded_for_last_entry_is_used_when_trusted(trusting_client: TestClie
     assert [login("1.1.1.1, 9.9.9.9") for _ in range(10)] == [401] * 10
     assert login("2.2.2.2, 9.9.9.9") == 429  # same last entry: same bucket, a spoofed first entry changes nothing
     assert login("1.1.1.1, 8.8.8.8") == 401
+
+
+def test_search_is_limited_at_120_per_principal_with_its_own_bucket(client: TestClient) -> None:
+    p, other = principal(), principal()
+    with patch("app.api.v1.search.global_search", return_value=[]), patch("app.api.v1.search.Session", MagicMock()):
+        codes = [client.get("/api/v1/search?q=ab", cookies={COOKIE: cookie(p)}).status_code for _ in range(121)]
+        assert codes[:120] == [200] * 120
+        assert codes[120] == 429
+        assert client.get("/api/v1/search?q=ab", cookies={COOKIE: cookie(other)}).status_code == 200
+    assert post_agent(client, p).status_code == 202  # searching never spends the agent message bucket
