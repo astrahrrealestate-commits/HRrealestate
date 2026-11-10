@@ -16,6 +16,7 @@ from app.api.deps import get_engine
 from app.api.v1.auth import Principal, require_session
 from app.contracts import CaseState
 from app.core.ids import case_ref
+from app.core.rent_data import RENT_DATA_AVAILABLE
 from app.db.enums import SendStatus
 from app.db.models import Approval, Case, Lease, Person, Send, Unit, WaitRow
 
@@ -159,7 +160,7 @@ def get_pulse_metrics(
         openRentTotalEur=0.0,
         overdueRentEur=0.0,
         overdueTenantsCount=0,
-        rentDataAvailable=False,
+        rentDataAvailable=RENT_DATA_AVAILABLE,
         occupancyPercentage=round(leased / total * 100, 1) if total else 0.0,
         totalUnits=total,
         occupiedUnits=leased,

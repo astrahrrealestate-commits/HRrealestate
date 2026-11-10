@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.api.agent.fallback import domain_fallback_answer
 from app.api.agent.focus import new_chat_fact, next_focus
 from app.api.agent.property_scope import property_scope
+from app.api.agent.rent_guard import rent_data_answer
 from app.api.deps import get_engine, get_settings_dep
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import ask_limit
@@ -1133,6 +1134,25 @@ def ask_agent(
                 pipeline_stage="memory_rule",
                 fallback_reason=None,
                 suggestions=["What should I do first?", "Who owes rent?", "Check calendar"],
+                now=now,
+                briefs=briefs,
+            )
+        no_rent_data = rent_data_answer(req.query)
+        if no_rent_data:
+            return _finish_agent_response(
+                engine=engine,
+                conv_id=conv_id,
+                req=req,
+                ans_text=no_rent_data,
+                case_refs=[],
+                suggested_action=None,
+                action_buttons=[],
+                step_descriptions=["Checked which rent data is connected"],
+                preview_card=None,
+                cards_list=[],
+                pipeline_stage="rent_data_unavailable",
+                fallback_reason=None,
+                suggestions=["What should I do first?", "Show open tickets", "List active leases"],
                 now=now,
                 briefs=briefs,
             )
