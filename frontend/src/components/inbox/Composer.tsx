@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Sparkles, Check, RotateCcw, Send, MessageSquare, Mail, Maximize2, X, ExternalLink, Loader2, UserRound } from "lucide-react";
+import { Sparkles, Check, RotateCcw, Send, MessageSquare, Mail, Maximize2, X, ExternalLink, Loader2, UserRound, Mic, MicOff } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
@@ -10,6 +10,7 @@ import { DraftPersona } from "@/types/inbox";
 import { createGmailDraft } from "@/lib/api";
 import { EnglishToggle } from "@/components/inbox/EnglishToggle";
 import { formatClock } from "@/lib/clock";
+import { useVoiceInput } from "@/hooks/useVoiceInput";
 
 export interface ComposerProps {
   /** Which thread this composer is for: text typed in one thread comes back when the owner returns to it. */
@@ -76,6 +77,23 @@ export function Composer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const typedByThread = useRef<Record<string, string>>({});
   const key = threadKey ?? "";
+
+  const isDutchThread = (detectedLanguage || "").toLowerCase().includes("dutch") || drafts.some((d) => d.language === "nl");
+  const {
+    isListening,
+    speechLang,
+    setSpeechLang,
+    toggleVoiceInput,
+    stopListening,
+  } = useVoiceInput({
+    initialLang: isDutchThread ? "nl" : "en",
+    onTranscript: (liveText) => {
+      editContent(liveText);
+      if (isEditingFull) {
+        setFullEditText(liveText);
+      }
+    },
+  });
 
   // The owner's own text, remembered per thread; an incoming draft or a re-render must never overwrite it.
   const editContent = (value: string) => {
@@ -379,12 +397,64 @@ export function Composer({
             className="w-full min-h-[96px] sm:min-h-[110px] text-base sm:text-[14px] p-3 rounded-[var(--radius-ctl)] bg-[var(--bg)] border border-[var(--line)] text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:bg-[var(--pane)] focus:border-[var(--ink)] focus:outline-none transition-colors resize-y leading-relaxed"
           />
         </div>
-        {/* English for the text in the box: a Dutch draft, edited or not. Translated only when opened. */}
-        <EnglishToggle
-          text={content}
-          language={drafts.some((d) => d.language === "nl") ? "nl" : undefined}
-          cachedEnglish={drafts.find((d) => d.text.trim() === content.trim())?.englishMeaning}
-        />
+        {/* Voice Dictation Controls & Language Switcher + English Toggle */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 pb-0.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {/* Dictate Mic Button */}
+            <button
+              type="button"
+              onClick={() => toggleVoiceInput(content)}
+              className={cn(
+                "px-2.5 py-1 rounded-full text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 shrink-0 border select-none",
+                isListening
+                  ? "bg-cyan-500 text-black border-cyan-400 shadow-[0_0_15px_rgba(0,229,255,0.7)] animate-pulse font-semibold ring-2 ring-cyan-300"
+                  : "bg-[var(--pane)] hover:bg-[var(--selected)] text-[var(--ink-2)] hover:text-[var(--ink)] border-[var(--line)]"
+              )}
+              title={isListening ? "Listening... click to stop" : `Voice dictation (${speechLang === "nl" ? "Dutch" : "English"})`}
+              aria-label="Voice input"
+            >
+              {isListening ? (
+                <MicOff className="w-3.5 h-3.5 text-black stroke-[2.5]" />
+              ) : (
+                <Mic className="w-3.5 h-3.5 text-[var(--accent-ink)] stroke-[2]" />
+              )}
+              <span>{isListening ? "Listening..." : "Dictate"}</span>
+            </button>
+
+            {/* Speech Language Switcher: 🇬🇧 EN | 🇳🇱 NL */}
+            <button
+              type="button"
+              onClick={() => setSpeechLang((prev) => (prev === "nl" ? "en" : "nl"))}
+              className={cn(
+                "text-[10.5px] font-bold px-2 py-0.5 rounded-full border transition-all cursor-pointer flex items-center gap-1 select-none",
+                speechLang === "nl"
+                  ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/25"
+                  : "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30 hover:bg-blue-500/25"
+              )}
+              title={speechLang === "nl" ? "Voice language: Nederlands (click to switch to English)" : "Voice language: English (click to switch to Nederlands)"}
+            >
+              <span>{speechLang === "nl" ? "🇳🇱 NL" : "🇬🇧 EN"}</span>
+            </button>
+
+            {isListening && (
+              <span className="text-[11.5px] text-cyan-600 dark:text-cyan-400 font-medium animate-pulse flex items-center gap-1.5 pl-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-ping inline-block" />
+                <span>
+                  {speechLang === "nl"
+                    ? "Luisteren naar spraak (Nederlands)..."
+                    : "Listening to speech (English)..."}
+                </span>
+              </span>
+            )}
+          </div>
+
+          {/* English for the text in the box: a Dutch draft, edited or not. Translated only when opened. */}
+          <EnglishToggle
+            text={content}
+            language={drafts.some((d) => d.language === "nl") ? "nl" : undefined}
+            cachedEnglish={drafts.find((d) => d.text.trim() === content.trim())?.englishMeaning}
+          />
+        </div>
 
         {/* Bottom Bar: Action proposal & Buttons */}
         {hasDraft ? (
@@ -546,13 +616,31 @@ export function Composer({
             <span className="font-heading font-bold text-[16px] text-[var(--ink)]">
               Edit AI Draft
             </span>
-            <button
-              type="button"
-              onClick={() => setIsEditingFull(false)}
-              className="p-1 rounded text-[var(--ink-3)]"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => toggleVoiceInput(fullEditText)}
+                className={cn(
+                  "p-1.5 rounded-full transition-all cursor-pointer flex items-center justify-center shrink-0 border",
+                  isListening
+                    ? "bg-cyan-500 text-black border-cyan-400 shadow-[0_0_12px_rgba(0,229,255,0.7)] animate-pulse"
+                    : "bg-[var(--pane)] text-[var(--ink-2)] border-[var(--line)]"
+                )}
+                title={isListening ? "Listening... click to stop" : "Voice dictation"}
+              >
+                {isListening ? <MicOff className="w-4 h-4 stroke-[2.5]" /> : <Mic className="w-4 h-4 stroke-[2]" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  stopListening();
+                  setIsEditingFull(false);
+                }}
+                className="p-1 rounded text-[var(--ink-3)]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
           <div className="flex-1 p-4 flex flex-col">
