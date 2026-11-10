@@ -661,6 +661,27 @@
           ]
         }
       },
+      "/api/v1/channels/whatsapp/status": {
+        "get": {
+          "operationId": "whatsapp_status_api_v1_channels_whatsapp_status_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/WhatsAppStatus"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Whatsapp Status",
+          "tags": [
+            "channels"
+          ]
+        }
+      },
       "/api/v1/company": {
         "get": {
           "operationId": "get_company_settings_api_v1_company_get",
@@ -7149,6 +7170,30 @@
           "last_chased_at"
         ],
         "title": "WaitOut",
+        "type": "object"
+      },
+      "WhatsAppStatus": {
+        "description": "`configured` is false for the built-in fake provider: no real WhatsApp account is attached.",
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "provider": {
+            "enum": [
+              "fake",
+              "cloud_api",
+              "360dialog"
+            ],
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "configured",
+          "provider"
+        ],
+        "title": "WhatsAppStatus",
         "type": "object"
       }
     }

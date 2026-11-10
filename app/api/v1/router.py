@@ -7,6 +7,7 @@ from app.api.v1 import (
     auth,
     brixx,
     cases,
+    channels,
     decisions,
     diligence,
     documents,
@@ -38,3 +39,4 @@ api_v1_router.include_router(finance_rates.router)
 api_v1_router.include_router(diligence.router)
 api_v1_router.include_router(brixx.router)
 api_v1_router.include_router(search.router)
+api_v1_router.include_router(channels.router)
