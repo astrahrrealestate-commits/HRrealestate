@@ -17,6 +17,7 @@ from app.api.agent.rent_guard import NO_RENT_DATA_ANSWER, rent_data_answer
         "What is the collection rate?",
         "how much rent is outstanding",
         "List unpaid tenants",
+        "Who is behind on rent?",
     ],
 )
 def test_rent_money_questions_get_the_no_data_answer(query: str) -> None:

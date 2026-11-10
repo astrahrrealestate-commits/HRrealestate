@@ -238,9 +238,9 @@ export function AskEstateOSPanel({
     }
     if (currentPageName.toLowerCase().includes("money")) {
       return [
-        "Why invoice open",
+        "Why is the invoice open?",
         "Match open payments",
-        "Who behind rent",
+        "Who is behind on rent?",
       ];
     }
     if (currentPageName.toLowerCase().includes("maintenance")) {
@@ -251,8 +251,8 @@ export function AskEstateOSPanel({
       ];
     }
     return [
-      "What do first",
-      "Who behind rent",
+      "What should I do first?",
+      "Who is behind on rent?",
       "Show active leases",
     ];
   }, [lastAssistantMsg, currentPageName]);

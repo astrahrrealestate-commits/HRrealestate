@@ -22,7 +22,8 @@ _RENT_MONEY_QUESTION = re.compile(
     r"|\bcollection\s+rate\b"
     r"|\brent\s+(?:outstanding|collected|received|roll|status)\b"
     r"|\b(?:outstanding|open)\s+rent\b"
-    r"|\bhow\s+much\s+rent\b",
+    r"|\bhow\s+much\s+rent\b"
+    r"|\bbehind\s+(?:on|with)\s+(?:the\s+|their\s+)?rent\b",
     re.IGNORECASE,
 )
 

@@ -417,7 +417,7 @@ export default function TodayPage() {
                       href="/inbox"
                       className="font-semibold text-[var(--accent-ink)] hover:underline underline-offset-4 whitespace-nowrap"
                     >
-                      {currentUrgentCount} is urgent
+                      {currentUrgentCount} {currentUrgentCount === 1 ? "is" : "are"} urgent
                     </Link>
                   </>
                 ) : null}
