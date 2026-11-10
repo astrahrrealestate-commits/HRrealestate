@@ -17,6 +17,7 @@ import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { FilterBar, FilterTab, FilterGroup } from "@/components/ui/FilterBar";
 
 import { InboxThreadList } from "@/components/inbox/InboxThreadList";
+import { threadMatchesQuery } from "@/lib/threadSearch";
 
 import { InboxConversationView } from "@/components/inbox/InboxConversationView";
 
@@ -870,15 +871,7 @@ function InboxContent() {
 
     if (searchQuery.trim()) {
 
-      const q = searchQuery.toLowerCase().trim();
-
-      result = result.filter((t) => {
-
-        const text = `${t.senderName} ${t.unitLabel} ${t.subject} ${t.latestSnippet} ${t.ticketNumber || ""} ${t.caseRef || ""}`.toLowerCase();
-
-        return text.includes(q);
-
-      });
+      result = result.filter((t) => threadMatchesQuery(t, searchQuery));
 
     }
 
