@@ -28,7 +28,11 @@ SPEC_TABLES = {
     # due diligence lite (spec 2026-10-31)
     "dd_reviews", "dd_review_documents", "dd_document_reads",
     # BRIXX data mirror (sync bookkeeping; mirrored data itself lives in the `brixx` schema)
-    "brixx_sync_runs", "brixx_sync_table_state",
+    "brixx_sync_runs", "brixx_sync_table_state", "brixx_documents",
+    # BRIXX directory (spec 2026-11-03): GDPR tombstones, reconcile key staging
+    "brixx_erased_refs", "brixx_reconcile_seen",
+    # local Dutch to English translation cache (ADR 0011; migration 0038)
+    "translations",
 }  # fmt: skip
 
 
@@ -68,6 +72,8 @@ def test_critical_unique_constraints_present() -> None:
     assert ("message_id",) in _uniques(t["understandings"])
     assert ("action_id", "draft_version") in _uniques(t["action_revisions"])
     assert ("owner_id",) in _uniques(t["agent_page_state"])  # one pre-warmed page per owner (upsert target)
+    assert ("company_id", "document_id", "sha256") in _uniques(t["brixx_documents"])  # one object per content
+    assert ("company_id", "document_id", "source_version") in _uniques(t["brixx_documents"])  # one row per version
 
 
 def test_current_identity_unique_is_partial() -> None:

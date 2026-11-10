@@ -13,16 +13,26 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
+from app.api.agent.draft_requests import channel_note, rewrite_answer
+from app.api.agent.fallback import domain_fallback_answer
+from app.api.agent.focus import new_chat_fact, next_focus
+from app.api.agent.property_scope import property_scope
+from app.api.agent.rent_guard import rent_data_answer
+from app.api.agent.steps import asks_for_clarification, display_steps
 from app.api.deps import get_engine, get_settings_dep
+from app.api.v1.auth import Principal, require_session
+from app.api.v1.session_limits import ask_limit
 from app.channels.calendar import get_calendar_client
 from app.context import memory_items
 from app.context.compiler import compile_concierge_context
 from app.context.selection import rank_cases
 from app.context.super_agent_prompt import build_super_agent_system_prompt
 from app.contracts import ActionType, ConciergePlan, Direction, Intent
+from app.core.errors import NotFoundError
+from app.core.ids import case_ref as short_case_ref
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import MemoryKind, MemoryScope, MemoryStatus, TurnStatus
@@ -35,12 +45,10 @@ from app.db.models import (
     Case,
     CaseLink,
     ChannelIdentity,
-    Company,
     DocumentChunk,
     DocumentRow,
     MemoryItem,
     MessageRow,
-    OwnerAccount,
     Person,
     Unit,
 )
@@ -60,7 +68,7 @@ from app.pipeline.rag import search_hybrid
 from app.superagent.chat import chat_answer
 from app.superagent.research import ResearchResult, run_research
 
-router = APIRouter(prefix="/api/agent", tags=["agent"])
+router = APIRouter(prefix="/api/agent", tags=["agent"], dependencies=[Depends(require_session)])
 log = get_logger(__name__)
 
 
@@ -257,44 +265,6 @@ def _research_answer(
     return run_research(
         engine, settings, company_id, system_prompt, history or [], query, embedder=build_embedder(settings)
     )
-
-
-def _domain_fallback_answer(query: str, live_cases_text: str = "", is_error: bool = False) -> str:
-    """Domain-accurate fallback reflecting real database state without false assurances."""
-    q_l = query.lower()
-    has_live_cases = bool(
-        live_cases_text
-        and "no active open" not in live_cases_text.lower()
-        and "0 active open" not in live_cases_text.lower()
-    )
-
-    if any(w in q_l for w in ["case", "ticket", "open", "active", "status"]):
-        if has_live_cases:
-            return f"**Active Open Cases in Database:**\n\n{live_cases_text}"
-        return "**Active Cases:** 0 open cases found in database."
-    elif any(w in q_l for w in ["keizersgracht", "vipin", "tenant", "unit"]):
-        return (
-            "**Unit: Keizersgracht 42-A**\n\n"
-            "• **Tenant:** Vipin Tyagi\n"
-            "• **Standing Contractor Rule:** Plumber Kevin van Dijk is assigned for any pipe leaks."
-        )
-    elif any(w in q_l for w in ["contractor", "plumber"]):
-        return (
-            "**Registered Contractors:**\n\n"
-            "• **Kevin van Dijk (Plumber):** Assigned for leak and plumbing maintenance at Keizersgracht 42-A."
-        )
-    else:
-        if is_error:
-            status_snippet = (
-                f"\n\n**Current Live Tickets:**\n{live_cases_text}"
-                if has_live_cases
-                else "\n\n• Database records show 0 open tickets."
-            )
-            return (
-                "⚠️ **Assistant Degraded:** The AI model timed out or was rate-limited. "
-                "No automated actions were performed." + status_snippet
-            )
-        return f"**EstateOS Live Status:**\n\n{live_cases_text or '• 0 open cases in database.'}"
 
 
 def _find_case_recipient(session: Session, target_case: Case | UUID) -> tuple[str, str, str | None, str | None]:
@@ -816,6 +786,17 @@ def _clean_executive_answer(text: str) -> str:
     return cleaned
 
 
+def _owned_conversation(session: Session, principal: Principal, conversation_id: UUID) -> AgentConversation | None:
+    """A conversation of the signed-in owner; anyone else's (another company's or another owner's) does not exist."""
+    return session.scalars(
+        select(AgentConversation).where(
+            AgentConversation.id == conversation_id,
+            AgentConversation.company_id == principal.company_id,
+            AgentConversation.owner_id == principal.owner_id,
+        )
+    ).first()
+
+
 def _finish_agent_response(
     engine: Engine,
     conv_id: UUID,
@@ -842,37 +823,13 @@ def _finish_agent_response(
     )
     with Session(engine) as session:
         conv = session.get(AgentConversation, conv_id)
-        if not conv:
-            company = session.scalars(select(Company).limit(1)).first()
-            company_id = company.id if company else UUID("00000000-0000-0000-0000-000000000001")
-            owner_acct = session.scalars(
-                select(OwnerAccount).where(OwnerAccount.company_id == company_id).limit(1)
-            ).first()
-            owner_id = owner_acct.id if owner_acct else company_id
-            conv = AgentConversation(id=conv_id, company_id=company_id, owner_id=owner_id, title="New Chat")
-            session.add(conv)
-            session.flush()
+        if not conv:  # ask_agent created or loaded it for the signed-in owner moments ago
+            raise NotFoundError("conversation not found")
 
         if not conv.title or conv.title == "New Chat":
             conv.title = _generate_thread_title(req.query, ans_text, briefs)
 
-        current_focus = dict(conv.focus_state or {})
-        if preview_card:
-            if preview_card.caseId:
-                current_focus["case_id"] = str(preview_card.caseId)
-            if preview_card.unitLabel:
-                current_focus["unit_label"] = preview_card.unitLabel
-            if preview_card.recipient:
-                current_focus["recipient"] = preview_card.recipient
-            if preview_card.contractor:
-                current_focus["contractor"] = preview_card.contractor
-            if preview_card.actionId:
-                current_focus["last_action_id"] = preview_card.actionId
-            if preview_card.channel:
-                current_focus["channel"] = preview_card.channel
-        elif briefs:
-            current_focus["case_id"] = str(briefs[0].case_id)
-            current_focus["unit_label"] = briefs[0].label
+        current_focus = next_focus(conv.focus_state or {}, preview_card.model_dump() if preview_card else None)
 
         conv.focus_state = current_focus
         conv.last_turn_at = now
@@ -926,6 +883,7 @@ def _finish_agent_response(
 
 @router.post(
     "/ask",
+    dependencies=[Depends(ask_limit)],
     response_model=AskAgentResponse,
     summary="Ask EstateOS Super Agent",
     description=(
@@ -937,31 +895,26 @@ def ask_agent(
     req: AskAgentRequest,
     engine: Annotated[Engine, Depends(get_engine)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> AskAgentResponse:
     now = datetime.now(UTC)
     pipeline_stage = "llm_concierge"
     fallback_reason = None
     with Session(engine) as session:
-        # Default company for single-tenant setup
-        company = session.scalars(select(Company).limit(1)).first()
-        company_id = company.id if company else UUID("00000000-0000-0000-0000-000000000001")
+        company_id = principal.company_id
 
-        # Resolve or initialize AgentConversation thread
+        # Resolve or initialize the AgentConversation thread: only one of the signed-in owner's own can be continued
         conv: AgentConversation | None = None
         if req.conversation_id:
             try:
-                conv = session.get(AgentConversation, UUID(req.conversation_id))
-            except Exception:
+                conv = _owned_conversation(session, principal, UUID(req.conversation_id))
+            except ValueError:
                 conv = None
 
         if not conv:
-            owner_acct = session.scalars(
-                select(OwnerAccount).where(OwnerAccount.company_id == company_id).limit(1)
-            ).first()
-            owner_id = owner_acct.id if owner_acct else company_id
             conv = AgentConversation(
                 company_id=company_id,
-                owner_id=owner_id,
+                owner_id=principal.owner_id,
                 title="New Chat",
                 focus_state={},
             )
@@ -1187,6 +1140,64 @@ def ask_agent(
                 now=now,
                 briefs=briefs,
             )
+        task_command = owner_commands.parse_command(req.query)
+        if task_command.kind in (owner_commands.CommandKind.done, owner_commands.CommandKind.snooze):
+            # "done #ref" / "snooze #ref 2d" act on the owner's own task list: never left to the model's plan
+            return _finish_agent_response(
+                engine=engine,
+                conv_id=conv_id,
+                req=req,
+                ans_text=owner_commands.run_command(engine, settings, company_id, task_command, now=now),
+                case_refs=[],
+                suggested_action=None,
+                action_buttons=[],
+                step_descriptions=["Updated your task list"],
+                preview_card=None,
+                cards_list=[],
+                pipeline_stage="owner_command",
+                fallback_reason=None,
+                suggestions=["Show my tasks", "What should I do first?", "Show open tickets"],
+                now=now,
+                briefs=briefs,
+            )
+        no_rewrite = rewrite_answer(req.query)
+        if no_rewrite:
+            return _finish_agent_response(
+                engine=engine,
+                conv_id=conv_id,
+                req=req,
+                ans_text=no_rewrite,
+                case_refs=[],
+                suggested_action=None,
+                action_buttons=[],
+                step_descriptions=[],
+                preview_card=None,
+                cards_list=[],
+                pipeline_stage="rewrite_unsupported",
+                fallback_reason=None,
+                suggestions=["Show open tickets", "What should I do first?", "Check calendar"],
+                now=now,
+                briefs=briefs,
+            )
+        no_rent_data = rent_data_answer(req.query)
+        if no_rent_data:
+            return _finish_agent_response(
+                engine=engine,
+                conv_id=conv_id,
+                req=req,
+                ans_text=no_rent_data,
+                case_refs=[],
+                suggested_action=None,
+                action_buttons=[],
+                step_descriptions=["Checked which rent data is connected"],
+                preview_card=None,
+                cards_list=[],
+                pipeline_stage="rent_data_unavailable",
+                fallback_reason=None,
+                suggestions=["What should I do first?", "Show open tickets", "List active leases"],
+                now=now,
+                briefs=briefs,
+            )
         # Specific Task Trigger: Calendar / Appointment / Visit inquiry or booking
         cal_pattern = r"\b(calendar|schedule|appointment|visit|afspraak|agenda|book|boeken|inplannen)\b"
         if re.search(cal_pattern, q_low):
@@ -1396,8 +1407,8 @@ def ask_agent(
         "\n".join(
             [
                 (
-                    f"• Ticket #{str(b.case_id)[:6]}: {b.label} (State: {b.state}, Urgency: {b.urgency}). Problem: "
-                    f"{b.summary}"
+                    f"• Ticket #{short_case_ref(b.case_id)}: {b.label} (State: {b.state}, Urgency: {b.urgency}). "
+                    f"Problem: {b.summary}"
                 )
                 for b in briefs
             ]
@@ -1428,19 +1439,26 @@ def ask_agent(
             if conv.focus_state.get("contractor"):
                 f_lines.append(f"• Assigned Contractor: {conv.focus_state['contractor']}")
             if conv.focus_state.get("case_id"):
-                f_lines.append(f"• Active Ticket: #{str(conv.focus_state['case_id'])[:6]}")
+                f_lines.append(f"• Active Ticket: #{short_case_ref(conv.focus_state['case_id'])}")
             if f_lines:
                 focus_text = (
                     "\n\nActive Thread Focus (Pronouns like 'he', 'him', 'that ticket' refer to these entities):\n"
                     + "\n".join(f_lines)
                 )
 
+        with Session(engine) as turn_session:
+            prior_turns = turn_session.scalar(
+                select(func.count(AgentTurn.id)).where(
+                    AgentTurn.company_id == company_id, AgentTurn.conversation_id == conv_id
+                )
+            )
+        fresh_chat_text = new_chat_fact(prior_turns or 0)
         compiled = compile_concierge_context(
             question=req.query,
             recent=history,
             cases=rank_cases(briefs, req.query, focus_cid),
             open_tasks=tasks,
-            page_facts_text=(page_facts_text or "") + focus_text,
+            page_facts_text="\n\n".join(t for t in ((page_facts_text or "") + focus_text, fresh_chat_text) if t),
             owner_preferences=approved_memories,
         )
         prompt = compiled.prompt_text
@@ -1550,7 +1568,7 @@ def ask_agent(
             chat_resp: str | None = researched.answer
         else:
             chat_resp = _generate_chat_answer(req.query, settings, engine, company_id, system_prompt, req.history)
-        ans_text = chat_resp or _domain_fallback_answer(req.query, live_cases_text=live_cases_text, is_error=llm_failed)
+        ans_text = chat_resp or domain_fallback_answer(req.query, live_cases_text=live_cases_text, is_error=llm_failed)
 
     # 3. Build step badge labels and inspect any generated proposal cards / actions
     step_descriptions: list[str] = list(research_steps)
@@ -1582,7 +1600,7 @@ def ask_agent(
         cid_str = None
         if r.data and "case_id" in r.data and r.data["case_id"]:
             cid_str = str(r.data["case_id"])
-            case_refs.append(f"#{cid_str[:6]}")
+            case_refs.append(f"#{short_case_ref(cid_str)}")
 
         # Check for navigation view requests and map strictly to target frontend views
         if r.view:
@@ -1594,14 +1612,14 @@ def ask_agent(
                 view_path = "/"
             elif v_low in ("cases", "maintenance"):
                 if case_ref:
-                    view_label = f"Open Ticket #{case_ref[:6]} in Maintenance"
+                    view_label = f"Open Ticket #{short_case_ref(case_ref)} in Maintenance"
                     view_path = f"/maintenance?ticket={case_ref}"
                 else:
                     view_label = "Open in Maintenance"
                     view_path = "/maintenance"
             elif v_low in ("inbox", "approvals", "messages", "message", "mail", "emails", "communication"):
                 if case_ref:
-                    view_label = f"Open Thread #{case_ref[:6]} in Messages"
+                    view_label = f"Open Thread #{short_case_ref(case_ref)} in Messages"
                     view_path = f"/inbox?thread=case-{case_ref}"
                 else:
                     view_label = "Open Messages"
@@ -1626,19 +1644,19 @@ def ask_agent(
                 is_inbox = any(w in context_str for w in ["email", "reply", "draft", "message", "whatsapp"])
 
                 if case_ref and is_maint:
-                    view_label = f"Review PO & Ticket #{case_ref[:6]} in Maintenance"
+                    view_label = f"Review PO & Ticket #{short_case_ref(case_ref)} in Maintenance"
                     view_path = f"/maintenance?ticket={case_ref}"
                 elif is_maint:
                     view_label = "Open in Maintenance"
                     view_path = "/maintenance"
                 elif case_ref and is_inbox:
-                    view_label = f"Open Thread #{case_ref[:6]} in Inbox"
+                    view_label = f"Open Thread #{short_case_ref(case_ref)} in Inbox"
                     view_path = f"/inbox?thread=case-{case_ref}"
                 elif is_inbox:
                     view_label = "Review Approvals in Inbox"
                     view_path = "/inbox?tab=needs_approval"
                 elif case_ref:
-                    view_label = f"Review Ticket #{case_ref[:6]} in Maintenance"
+                    view_label = f"Review Ticket #{short_case_ref(case_ref)} in Maintenance"
                     view_path = f"/maintenance?ticket={case_ref}"
                 else:
                     view_label = "Open Today Overview"
@@ -1739,14 +1757,30 @@ def ask_agent(
     if preview_card:
         preview_cards_list.append(preview_card)
 
+    # A question that names a street is answered for that street, or says the portfolio has no such property
+    with Session(engine) as scope_session:
+        company_units = [
+            (u.label, u.address)
+            for u in scope_session.scalars(select(Unit).where(Unit.company_id == company_id, Unit.valid_to.is_(None)))
+        ]
+    scope = property_scope(req.query, company_units, briefs)
+    card_briefs = list(scope.briefs) if scope.kind == "scoped" else list(briefs)
+    if scope.kind == "unknown":
+        ans_text = f"I don't have a property on {scope.street} in your portfolio."
+        preview_card = None
+        preview_cards_list = []
+        action_buttons = []
+        case_refs = []
+        suggested_action = None
+
     # Populate dynamic navigation and micro-cards for priority/maintenance inquiries from real DB state
     if any(k in q_low for k in ["priority", "first", "ticket", "maintenance", "repair", "urgent", "emergency"]):
-        if not preview_card and briefs:
+        if not preview_card and card_briefs and not asks_for_clarification(_clean_executive_answer(ans_text)):
             # Smartly cap at top 3 cases ordered by priority
-            top_briefs = briefs[:3]
+            top_briefs = card_briefs[:3]
             for b in top_briefs:
                 cid_str = str(b.case_id)
-                cid_short = cid_str[:6]
+                cid_short = short_case_ref(cid_str)
                 target_path = f"/maintenance?ticket={cid_str}"
                 clean_body = _clean_card_body(b.summary or "Active maintenance case in queue.")
 
@@ -1787,7 +1821,7 @@ def ask_agent(
                     )
                 )
             elif top_briefs:
-                cid_short = str(top_briefs[0].case_id)[:6]
+                cid_short = short_case_ref(top_briefs[0].case_id)
                 action_buttons.append(
                     ActionButtonData(
                         label=f"Open Ticket #{cid_short} in Maintenance",
@@ -1871,59 +1905,27 @@ def ask_agent(
                 "You can review the message and tap **Accept and send** below."
             )
 
+    if preview_card and preview_card.type == "draft_message":
+        note = channel_note(req.query, preview_card.channel, preview_card.recipient)
+        if note:
+            ans_text = f"{note}\n\n{ans_text}"
+
     # Filter out duplicate Approvals button if a draft card is already shown (draft card has Accept and send)
     if preview_card and preview_card.type == "draft_message":
         action_buttons = [b for b in action_buttons if "approval" not in b.label.lower()]
 
-    # Clean, professional execution steps
-    has_dirty_step = any(
-        any(
-            p in s.lower()
-            for p in [
-                "opening ",
-                "which",
-                "not waiting",
-                "based on active portfolio",
-                "open tasks:",
-                "are you",
-                "can you",
-                "what do you mean",
-            ]
-        )
-        or (len(s) > 90 and not s.startswith("⚠️"))
-        or s.lower().startswith("first,")
-        for s in step_descriptions
+    step_descriptions = display_steps(
+        step_descriptions, has_draft_card=bool(preview_card and preview_card.type == "draft_message")
     )
-    if not step_descriptions or has_dirty_step:
-        if preview_card and preview_card.type == "draft_message":
-            step_descriptions = ["Retrieved ticket context", "Prepared draft reply", "Queued for approval"]
-        elif any(k in q_low for k in ["priority", "first", "emergency", "ticket"]):
-            step_descriptions = ["Analyzed active maintenance queue", "Ranked tickets by operational urgency"]
-        elif any(k in q_low for k in ["rent", "arrear", "invoice", "overdue"]):
-            step_descriptions = ["Scanned portfolio payment ledger", "Checked active tenant balances"]
-        elif any(k in q_low for k in ["task", "todo", "waiting"]):
-            step_descriptions = ["Fetched pending action approvals", "Ranked tasks by operational SLA"]
-        elif any(k in q_low for k in ["inbox", "message", "messages", "email", "emails", "mail", "whatsapp"]):
-            step_descriptions = ["Scanned recent communications", "Checked urgent tenant inquiries"]
-        elif any(k in q_low for k in ["contractor", "job", "pending"]):
-            step_descriptions = ["Queried active contractor dispatch schedule"]
-        elif any(k in q_low for k in ["explain", "detail"]):
-            step_descriptions = ["Analyzed active portfolio records", "Generated executive briefing"]
-        else:
-            step_descriptions = ["Indexed live portfolio state", "Synthesized response"]
-    else:
-        # Sanitize any raw truncated answer text that got shoved into steps
-        clean_steps = []
-        for s in step_descriptions:
-            if s.startswith("Based on active portfolio") or s.startswith("Open tasks:"):
-                clean_steps.append("Analyzed live portfolio records")
-            elif len(s) > 80:
-                clean_steps.append(s[:77] + "...")
-            else:
-                clean_steps.append(s)
-        step_descriptions = clean_steps
 
     suggested_action = action_buttons[0].label if action_buttons else None
+
+    if not _clean_executive_answer(ans_text).strip():  # cards without a sentence, or a property with nothing open
+        if scope.kind == "scoped" and not card_briefs:
+            ans_text = "No open cases found for the property you named."
+        elif preview_cards_list:
+            tail = " for the property you named." if scope.kind == "scoped" else "."
+            ans_text = f"Here are the {len(preview_cards_list)} highest-priority ticket(s){tail}"
 
     # Determine 3 dynamic workflow suggestions (2-3 words each)
     suggestions: list[str] = []
@@ -1932,7 +1934,7 @@ def ask_agent(
 
     if not suggestions or len(suggestions) < 3:
         if preview_card and preview_card.type == "draft_message":
-            fallback_pills = ["Send WhatsApp now", "Make reply firmer", "Open in Inbox"]
+            fallback_pills = ["Open in Inbox", "Show open tickets", "What should I do first?"]
         elif any(k in q_low for k in ["rent", "arrear", "invoice", "money", "overdue"]):
             fallback_pills = ["Draft payment reminder", "Show lease PDF", "Open in Money"]
         elif any(k in q_low for k in ["leak", "boiler", "repair", "maintenance", "ticket", "priority"]):
@@ -2074,10 +2076,12 @@ def ask_agent(
 
 
 @router.get("/conversations", response_model=ConversationListResponse, summary="List Super Agent Conversation Threads")
-def list_conversations(engine: Annotated[Engine, Depends(get_engine)]) -> ConversationListResponse:
+def list_conversations(
+    engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
+) -> ConversationListResponse:
     with Session(engine) as session:
-        company = session.scalars(select(Company).limit(1)).first()
-        company_id = company.id if company else UUID("00000000-0000-0000-0000-000000000001")
+        company_id = principal.company_id
 
         now = datetime.now(UTC)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -2088,6 +2092,7 @@ def list_conversations(engine: Annotated[Engine, Depends(get_engine)]) -> Conver
                 select(AgentConversation)
                 .where(
                     AgentConversation.company_id == company_id,
+                    AgentConversation.owner_id == principal.owner_id,
                     AgentConversation.hidden_at.is_(None),
                 )
                 .order_by(AgentConversation.pinned.desc(), AgentConversation.last_turn_at.desc())
@@ -2136,7 +2141,9 @@ def list_conversations(engine: Annotated[Engine, Depends(get_engine)]) -> Conver
     summary="Replay Stored Conversation Turns",
 )
 def get_conversation_detail(
-    conversation_id: str, engine: Annotated[Engine, Depends(get_engine)]
+    conversation_id: str,
+    engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> ConversationDetailResponse:
     with Session(engine) as session:
         try:
@@ -2144,7 +2151,7 @@ def get_conversation_detail(
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid conversation UUID") from None
 
-        conv = session.get(AgentConversation, cid)
+        conv = _owned_conversation(session, principal, cid)
         if not conv:
             raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -2194,6 +2201,7 @@ def update_conversation(
     conversation_id: str,
     req: UpdateConversationRequest,
     engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> dict[str, Any]:
     with Session(engine) as session:
         try:
@@ -2201,7 +2209,7 @@ def update_conversation(
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid conversation UUID") from None
 
-        conv = session.get(AgentConversation, cid)
+        conv = _owned_conversation(session, principal, cid)
         if not conv:
             raise HTTPException(status_code=404, detail="Conversation not found")
 

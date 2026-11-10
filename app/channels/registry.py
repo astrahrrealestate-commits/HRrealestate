@@ -1,5 +1,6 @@
 """Build inbound-side channel adapters from settings (fakes by default). Outbound adapters are built in app.sender."""
 
+import json
 import re
 import threading
 from functools import lru_cache
@@ -11,7 +12,7 @@ from app.channels.brixx.fake import FakeBrixxApi
 from app.channels.brixx.http import HttpBrixxApi
 from app.channels.brixx.ports import BrixxApi
 from app.channels.gmail.fake import DirMailboxStore, FakeMailbox
-from app.channels.gmail.google import GoogleMailbox
+from app.channels.gmail.google import READ_SCOPES, GoogleMailbox
 from app.channels.gmail.ports import GmailMailbox
 from app.channels.gmail.push import (
     DEV_AUDIENCE,
@@ -111,19 +112,24 @@ def fake_gmail_mailbox(settings: Settings, address: str) -> FakeMailbox:
 _local_mailboxes = threading.local()
 
 
+OWNER_LOGIN_FILE = Path(".data/credentials/google_owner.json")
+
+
+def owner_login_email() -> str | None:
+    """The address the dashboard's Google login was granted for, if someone connected one."""
+    if not OWNER_LOGIN_FILE.exists():
+        return None
+    return str(json.loads(OWNER_LOGIN_FILE.read_text()).get("email") or "").lower() or None
+
+
 def gmail_mailbox(settings: Settings, address: str) -> GmailMailbox:
-
-    unified_file = Path(".data/credentials/google_owner.json")
-
-    cred_file = unified_file if unified_file.exists() else settings.gmail_credentials_file
-
+    owner_email = owner_login_email()
+    if owner_email and settings.gmail_provider == "fake" and _mailbox_address(address) != owner_email:
+        return fake_gmail_mailbox(settings, address)  # the login covers its own mailbox only; dev mailboxes stay fake
+    cred_file = OWNER_LOGIN_FILE if owner_email else settings.gmail_credentials_file
     if settings.gmail_provider == "fake" and not (cred_file and cred_file.exists()):
         return fake_gmail_mailbox(settings, address)
-
     if not cred_file or not cred_file.exists():
-        if settings.gmail_provider == "fake":
-            return fake_gmail_mailbox(settings, address)
-
         raise UnsafeConfigurationError(f"gmail_provider 'google' needs valid credentials (checked {cred_file})")
 
     addr = _mailbox_address(address)
@@ -142,7 +148,8 @@ def gmail_mailbox(settings: Settings, address: str) -> GmailMailbox:
 
     from google.oauth2.credentials import Credentials
 
-    creds = Credentials.from_authorized_user_file(str(cred_file))
+    # The login file keeps the scopes it was granted (gmail.modify covers reading); refreshing with another scope fails.
+    creds = Credentials.from_authorized_user_file(str(cred_file), None if owner_email else READ_SCOPES)
 
     mailbox = GoogleMailbox(build("gmail", "v1", credentials=creds, cache_discovery=False), addr)
 

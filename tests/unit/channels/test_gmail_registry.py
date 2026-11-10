@@ -67,3 +67,47 @@ def test_real_gmail_without_pubsub_settings_boots_in_dev_and_rejects_every_push(
 def test_real_gmail_in_prod_still_needs_pubsub_settings() -> None:
     with pytest.raises(UnsafeConfigurationError):
         gmail_push_verifier(_s(gmail_provider="google", env="prod"))
+
+
+def _owner_file(root: Path, email: str) -> None:
+    import json
+
+    path = root / ".data" / "credentials" / "google_owner.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"email": email, "scopes": ["https://www.googleapis.com/auth/gmail.modify"]}))
+
+
+def test_owner_login_credentials_serve_only_their_own_mailbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """With provider=fake the dashboard's Google login covers its own address; other (dev) mailboxes stay fake."""
+    monkeypatch.chdir(tmp_path)
+    _owner_file(tmp_path, "boss@gmail.test")
+    other = gmail_mailbox(_s(storage_local_dir=tmp_path / "store"), "hausverwaltung@example.test")
+    assert isinstance(other, FakeMailbox)
+
+
+def test_owner_login_credentials_refresh_with_the_scopes_they_were_granted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Refreshing with gmail.readonly when only gmail.modify was granted makes Google answer invalid_scope."""
+    from google.oauth2.credentials import Credentials
+
+    import app.channels.registry as registry
+
+    seen: dict[str, Any] = {}
+
+    def fake_load(filename: str, scopes: Any = None) -> object:
+        seen["scopes"] = scopes
+        return object()
+
+    class _Mailbox:
+        def __init__(self, service: Any, address: str) -> None: ...
+        def verify_address(self) -> None: ...
+
+    monkeypatch.chdir(tmp_path)
+    _owner_file(tmp_path, "boss@gmail.test")
+    monkeypatch.setattr(Credentials, "from_authorized_user_file", staticmethod(fake_load))
+    monkeypatch.setattr(registry, "build", lambda *a, **k: object())
+    monkeypatch.setattr(registry, "GoogleMailbox", _Mailbox)
+    registry._local_mailboxes.cache = {}
+    gmail_mailbox(_s(storage_local_dir=tmp_path / "store"), "boss@gmail.test")
+    assert seen["scopes"] is None

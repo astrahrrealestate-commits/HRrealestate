@@ -168,6 +168,8 @@ def _parser() -> argparse.ArgumentParser:
     approve.add_argument("--choice", default="d1", choices=["ok", "d1", "d2", "d3", "rej"])
     tour = sub.add_parser("tour", help="mock portfolio + one scripted day so every agent runs (needs the live stack)")
     tour.add_argument("--timeout", type=float, default=120.0)
+    mock_mail = sub.add_parser("mock-mail", help="put mock tenant/contractor mail into the REAL mailbox and run it")
+    mock_mail.add_argument("--timeout", type=float, default=180.0)
     demo = sub.add_parser("demo", help="seed, run the parity and dashboard scenarios and assert the stored rows (G5)")
     demo.add_argument("--timeout", type=float, default=60.0)
     return parser
@@ -194,6 +196,10 @@ def _run(args: argparse.Namespace, sim: Simulator, engine: Engine, settings: Set
 
     if args.command == "demo":
         return run_demo(sim, engine, settings, timeout=args.timeout)
+    if args.command == "mock-mail":
+        from app.dev.mock_tour import run_mock_mail
+
+        return run_mock_mail(sim, engine, timeout=args.timeout)
     if args.command == "tour":
         from app.dev.mock_tour import run_tour
 

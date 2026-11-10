@@ -109,6 +109,13 @@ class Settings(BaseSettings):
     google_oauth_client_id: str | None = None  # audience of the owner's Google ID token
     google_oauth_client_secret: SecretStr | None = None
     google_oauth_redirect_uri: str | None = "http://localhost:8000/api/auth/google/callback"
+    # Where the API sends the browser after a Google flow (the SPA origin) and the callback of the owner login. Prod
+    # refuses the localhost defaults (core/startup.py).
+    frontend_base_url: str = "http://localhost:3000"
+    # Cookie Domain when the SPA and the API sit on sibling hosts (api.x.com and app.x.com): the SPA middleware must see
+    # the session cookie the API sets. None keeps it host-only, which is right for one host or for localhost.
+    dashboard_cookie_domain: str | None = None
+    google_login_redirect_uri: str = "http://localhost:8000/api/auth/login/google/callback"
     # Exact SPA origins allowed cross-origin (comma-separated). Empty = no CORS (the SPA is served same-origin).
     dashboard_cors_origins: Annotated[list[str], NoDecode] = []
 
@@ -124,6 +131,7 @@ class Settings(BaseSettings):
     storage_backend: Literal["local", "memory", "s3"] = "local"
     storage_local_dir: Path = Path(".data/storage")
     dev_signing_dir: Path = Path(".data/dev-keys")  # simulator keys for fake Pub/Sub tokens
+    translation_model_dir: Path = Path(".data/models/opus-mt-nl-en")  # `make translation-model`; baked into the image
 
     s3_region: str = "eu-central-1"
     s3_endpoint_url: str | None = None

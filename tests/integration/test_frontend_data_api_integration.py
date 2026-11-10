@@ -1,222 +1,310 @@
-"""Integration tests verifying backend REST API endpoints consumed by the EstateOS frontend.
+"""REST endpoints the frontend reads (dashboard, maintenance, properties, tenants, inbox), against a seeded database.
 
-Tests pure data connectivity, response models, query parameter filtering, and CORS support
-without requiring mock LLM agent execution or workflow triggers.
+Every number is checked against rows this module seeds, for the signed-in company only: a second company with its own
+units, cases and sends must not show up, and nothing is made up when a table is empty.
 """
+
+from collections.abc import Iterator
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, timedelta
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine
+from sqlalchemy.orm import Session
 
+from app.api.v1.auth import Principal
+from app.contracts import Category, Channel, Urgency
 from app.core.settings import Settings
+from app.db.enums import CaseEventKind, PersonKind, SendStatus, WaitStatus
+from app.db.models import (
+    Case,
+    CaseEvent,
+    ChannelIdentity,
+    Company,
+    Lease,
+    LeaseParty,
+    Person,
+    Send,
+    Unit,
+    WaitRow,
+)  # fmt: skip
 from app.main import create_app
+from tests.api_auth import as_owner
+from tests.integration.conftest import purge_company
+from tests.integration.test_inbox_maintenance_approve import _seed
 
 pytestmark = pytest.mark.integration
+TODAY = datetime.now(UTC).date()
+SINCE = date(2025, 3, 1)
+
+
+@dataclass
+class Portfolio:
+    client: TestClient
+    engine: Engine
+    company: UUID
+    singel: UUID  # occupied, open-ended lease
+    prinsen: UUID  # occupied, lease ending soon -> notice given
+    herengracht: UUID  # vacant
+    anouk: UUID
+    maintenance_case: UUID
+
+
+def _unit(s: Session, company_id: UUID, label: str, address: str) -> UUID:
+    unit = Unit(company_id=company_id, label=label, address=address, valid_from=date(2024, 1, 1))
+    s.add(unit)
+    s.flush()
+    return unit.id
+
+
+def _tenant(s: Session, company_id: UUID, unit_id: UUID, name: str, email: str, phone: str, end: date | None) -> UUID:
+    person = Person(company_id=company_id, kind=PersonKind.tenant, display_name=name, valid_from=SINCE)
+    lease = Lease(company_id=company_id, unit_id=unit_id, valid_from=SINCE, valid_to=end)
+    s.add_all([person, lease])
+    s.flush()
+    s.add_all(
+        [
+            LeaseParty(company_id=company_id, lease_id=lease.id, person_id=person.id, role="tenant"),
+            ChannelIdentity(
+                company_id=company_id, person_id=person.id, channel=Channel.gmail, identity=email, valid_from=SINCE
+            ),
+            ChannelIdentity(
+                company_id=company_id, person_id=person.id, channel=Channel.whatsapp, identity=phone, valid_from=SINCE
+            ),
+        ]
+    )
+    s.flush()
+    return person.id
+
+
+def _send(s: Session, company_id: UUID, days_ago: int) -> None:
+    s.add(
+        Send(
+            company_id=company_id, idempotency_key=f"k-{uuid4()}", channel=Channel.gmail, target="x@y.test",
+            status=SendStatus.sent, attempted_at=datetime.now(UTC) - timedelta(days=days_ago),
+        )
+    )  # fmt: skip
 
 
 @pytest.fixture
-def api_client(test_settings: Settings, migrated_engine: Engine) -> TestClient:
-    """Provides a TestClient wired with the migrated test database engine."""
-    app = create_app(test_settings, engine=migrated_engine)
+def portfolio(migrated_engine: Engine, pg_url: str) -> Iterator[Portfolio]:
+    with Session(migrated_engine) as s:
+        mine, theirs = Company(name="Data A"), Company(name="Data B")
+        s.add_all([mine, theirs])
+        s.flush()
+        a, b = mine.id, theirs.id
+        singel = _unit(s, a, "Singel 5-A", "Singel 5-A, 1012 AB Amsterdam")
+        prinsen = _unit(s, a, "Prinsengracht 9", "Prinsengracht 9, 1015 DK Amsterdam")
+        herengracht = _unit(s, a, "Herengracht 1", "Herengracht 1, 1015 BA Amsterdam")
+        anouk = _tenant(s, a, singel, "Anouk de Vries", "anouk@a.test", "+31611111111", None)
+        bram = _tenant(s, a, prinsen, "Bram Jansen", "bram@a.test", "+31622222222", TODAY + timedelta(days=30))
+        # an emergency maintenance case and the seeded inbox case (urgency high, one pending approval)
+        emergency = Case(company_id=a, category=Category.maintenance, urgency=Urgency.emergency, summary="Burst pipe")
+        s.add(emergency)
+        s.flush()
+        _seed(s, mine, suspicious=False)
+        s.add(
+            CaseEvent(company_id=a, case_id=emergency.id, kind=CaseEventKind.note, note="Plumber called", actor="owner")
+        )
+        s.add(
+            WaitRow(
+                company_id=a, case_id=emergency.id, party_person_id=bram, about="Quote for the pipe",
+                expected_by=datetime.now(UTC) - timedelta(days=4), status=WaitStatus.waiting,
+            )
+        )  # fmt: skip
+        _send(s, a, 1)
+        _send(s, a, 3)
+        _send(s, a, 30)  # outside the week
+        # another company: must stay invisible in every count below
+        other_unit = _unit(s, b, "Elsewhere 1", "Elsewhere 1")
+        _tenant(s, b, other_unit, "Carla Smit", "carla@b.test", "+31633333333", None)
+        s.add(Case(company_id=b, category=Category.maintenance, urgency=Urgency.emergency, summary="Their burst pipe"))
+        _send(s, b, 1)
+        s.commit()
+        emergency_id = emergency.id
+        ids = (a, b)
+    settings = Settings(database_url=pg_url, env="test", _env_file=None)  # type: ignore[call-arg]
+    owner = Principal(company_id=ids[0], owner_id=uuid4(), email="harjot@example.test")
+    app = as_owner(create_app(settings, engine=migrated_engine), owner)
     with TestClient(app) as client:
-        yield client
+        yield Portfolio(client, migrated_engine, ids[0], singel, prinsen, herengracht, anouk, emergency_id)
+    for company_id in ids:
+        purge_company(migrated_engine, company_id)
 
 
 # ============================================================================
-# 1. Dashboard Pulse & Metrics APIs
+# 1. Dashboard
 # ============================================================================
 
 
-def test_dashboard_pulse_endpoint(api_client: TestClient) -> None:
-    """Verifies GET /api/dashboard/pulse returns pulse pillars and portfolio stats."""
-    res = api_client.get("/api/dashboard/pulse")
-    assert res.status_code == 200
-    data = res.json()
-    assert "needsYouCount" in data
-    assert "emergencyCount" in data
-    assert "openRentTotalEur" in data
-    assert "overdueRentEur" in data
-    assert "occupancyPercentage" in data
-    assert "totalUnits" in data
-    assert "occupiedUnits" in data
-    assert "autonomousActionsWeek" in data
-    assert data["totalUnits"] == 110
+def test_dashboard_pulse_counts_only_this_companys_real_rows(portfolio: Portfolio) -> None:
+    data = portfolio.client.get("/api/dashboard/pulse").json()
+    assert data["totalUnits"] == 3
+    assert data["occupiedUnits"] == 2
+    assert data["occupancyPercentage"] == 66.7
+    assert data["emergencyCount"] == 1  # theirs is not counted
+    assert data["needsYouCount"] == 1  # the one seeded pending approval
+    assert data["autonomousActionsWeek"] == 2  # two sends this week; the 30 day old one and theirs are not counted
+    assert data["rentDataAvailable"] is False
+    assert (data["openRentTotalEur"], data["overdueRentEur"], data["hoursSavedWeek"]) == (0.0, 0.0, 0.0)
 
 
-def test_dashboard_radar_endpoint(api_client: TestClient) -> None:
-    """Verifies GET /api/dashboard/radar returns stalled wait items."""
-    res = api_client.get("/api/dashboard/radar")
-    assert res.status_code == 200
-    data = res.json()
-    assert "items" in data
-    assert "total" in data
-    assert isinstance(data["items"], list)
-    if data["items"]:
-        item = data["items"][0]
-        assert "unitLabel" in item
-        assert "partyName" in item
-        assert "partyRole" in item
-        assert "proposedActionLabel" in item
+def test_the_pulse_of_an_empty_company_is_zeros_not_invented_numbers(migrated_engine: Engine, pg_url: str) -> None:
+    with Session(migrated_engine) as s:
+        empty = Company(name="Empty")
+        s.add(empty)
+        s.commit()
+        company_id = empty.id
+    settings = Settings(database_url=pg_url, env="test", _env_file=None)  # type: ignore[call-arg]
+    owner = Principal(company_id=company_id, owner_id=uuid4(), email="harjot@example.test")
+    try:
+        with TestClient(as_owner(create_app(settings, engine=migrated_engine), owner)) as client:
+            data = client.get("/api/dashboard/pulse").json()
+        assert (data["totalUnits"], data["occupiedUnits"], data["occupancyPercentage"]) == (0, 0, 0.0)
+        assert (data["needsYouCount"], data["emergencyCount"], data["autonomousActionsWeek"]) == (0, 0, 0)
+    finally:
+        purge_company(migrated_engine, company_id)
 
 
-def test_dashboard_inquiries_endpoint(api_client: TestClient) -> None:
-    """Verifies GET /api/dashboard/inquiries returns prospective tenant leads."""
-    res = api_client.get("/api/dashboard/inquiries")
-    assert res.status_code == 200
-    data = res.json()
-    assert "inquiries" in data
-    assert "total" in data
-    assert isinstance(data["inquiries"], list)
-    assert data["total"] >= 2
-    lead = data["inquiries"][0]
-    assert "name" in lead
-    assert "contact" in lead
-    assert "channel" in lead
-    assert "unit" in lead
+def test_dashboard_radar_lists_overdue_waits_with_who_where_and_how_long(portfolio: Portfolio) -> None:
+    data = portfolio.client.get("/api/dashboard/radar").json()
+    assert data["total"] == 1
+    item = data["items"][0]
+    assert item["partyName"] == "Bram Jansen"
+    assert item["partyRole"] == "tenant"
+    assert item["issueSummary"] == "Quote for the pipe"
+    assert item["daysWaiting"] == 4
+    assert item["proposedActionLabel"]
 
 
-def test_dashboard_logs_endpoint(api_client: TestClient) -> None:
-    """Verifies GET /api/dashboard/logs returns autonomous action audit logs."""
-    res = api_client.get("/api/dashboard/logs")
-    assert res.status_code == 200
-    data = res.json()
-    assert "logs" in data
-    assert "total" in data
-    assert isinstance(data["logs"], list)
-    log_item = data["logs"][0]
-    assert "actionText" in log_item
-    assert "timestamp" in log_item
-    assert "tag" in log_item
+def test_dashboard_inquiries_are_empty_until_inquiries_exist(portfolio: Portfolio) -> None:
+    assert portfolio.client.get("/api/dashboard/inquiries").json() == {"inquiries": [], "total": 0}
+
+
+def test_dashboard_logs_list_this_companys_sent_replies_newest_first(portfolio: Portfolio) -> None:
+    data = portfolio.client.get("/api/dashboard/logs?limit=5").json()
+    assert data["total"] == 3  # theirs excluded
+    assert all(entry["actionText"] == "Sent an approved gmail reply" for entry in data["logs"])
+    stamps = [entry["timestamp"] for entry in data["logs"]]
+    assert stamps == sorted(stamps, reverse=True)
+
+
+def test_the_briefing_states_only_what_the_database_holds(portfolio: Portfolio) -> None:
+    data = portfolio.client.get("/api/dashboard/briefing").json()
+    text = str(data)
+    assert "2 matters need attention" in text  # the emergency case and the seeded high-urgency inbox case
+    assert "1 draft awaiting your review" in text
+    for invented in ("94.5", "120.400", "Keizersgracht", "Pieter Floriszstraat", "FastFix"):
+        assert invented not in text
 
 
 # ============================================================================
-# 2. Maintenance Hub APIs
+# 2. Maintenance hub
 # ============================================================================
 
 
-def test_maintenance_tickets_list(api_client: TestClient) -> None:
-    """Verifies GET /api/maintenance/tickets returns ticket records and operational stats."""
-    res = api_client.get("/api/maintenance/tickets")
-    assert res.status_code == 200
-    data = res.json()
-    assert "tickets" in data
+def test_maintenance_tickets_list_this_companys_cases(portfolio: Portfolio) -> None:
+    data = portfolio.client.get("/api/maintenance/tickets").json()
     assert "stats" in data
-    assert isinstance(data["tickets"], list)
-    assert len(data["tickets"]) > 0
-    ticket = data["tickets"][0]
-    assert "ticketNumber" in ticket
-    assert "issueTitle" in ticket
-    assert "unitLabel" in ticket
-    assert "contractorName" in ticket
-    assert "poBudgetCap" in ticket
-    assert "slaRemaining" in ticket
+    ids = {t["id"] for t in data["tickets"]}
+    assert str(portfolio.maintenance_case) in ids
+    ticket = next(t for t in data["tickets"] if t["id"] == str(portfolio.maintenance_case))
+    for key in ("ticketNumber", "issueTitle", "unitLabel", "contractorName", "poBudgetCap", "slaRemaining"):
+        assert key in ticket
+    assert "Their burst pipe" not in str(data)
 
 
-def test_maintenance_tickets_filtering(api_client: TestClient) -> None:
-    """Verifies filtering by category on GET /api/maintenance/tickets."""
-    res = api_client.get("/api/maintenance/tickets?category=electrical")
+def test_maintenance_tickets_filtering(portfolio: Portfolio) -> None:
+    res = portfolio.client.get("/api/maintenance/tickets?category=electrical")
     assert res.status_code == 200
-    data = res.json()
-    for ticket in data["tickets"]:
-        assert ticket["category"] == "electrical"
+    assert all(t["category"] == "electrical" for t in res.json()["tickets"])
 
 
-def test_maintenance_ticket_full_history(api_client: TestClient) -> None:
-    """Verifies GET /api/maintenance/tickets/{ticket_id}/history returns audit trail."""
-    res = api_client.get("/api/maintenance/tickets/005/history")
-    assert res.status_code == 200
-    data = res.json()
-    assert "ticketNumber" in data
-    assert "events" in data
-    assert isinstance(data["events"], list)
-    assert len(data["events"]) > 0
-    event = data["events"][0]
-    assert "actor" in event
-    assert "title" in event
-    assert "type" in event
+def test_maintenance_ticket_history_is_the_persisted_case_trail(portfolio: Portfolio) -> None:
+    data = portfolio.client.get(f"/api/maintenance/tickets/{portfolio.maintenance_case}/history").json()
+    assert data["ticketId"] == str(portfolio.maintenance_case)
+    assert [e["description"] for e in data["events"]] == ["Plumber called"]
+    assert {"actor", "title", "type"} <= set(data["events"][0])
 
 
-def test_maintenance_ticket_approve(api_client: TestClient) -> None:
-    """Verifies POST /api/maintenance/tickets/{ticket_id}/approve returns confirmation."""
-    payload = {"approval_note": "Approved by Harjot Singh"}
-    res = api_client.post("/api/maintenance/tickets/005/approve", json=payload)
-    assert res.status_code == 200
-    data = res.json()  # ApproveDispatchResponse; the SPA adds ticketId and its own message (api.ts)
-    assert data["status"] == "authorized"
-    assert data["ticketNumber"] == "#005"
-    assert data["contractorDispatched"] is True
+def test_maintenance_ticket_approve_of_an_unknown_ticket_is_not_found(portfolio: Portfolio) -> None:
+    """Approving a ticket the company does not have is a 404, never a made-up authorization."""
+    res = portfolio.client.post("/api/maintenance/tickets/005/approve", json={"approval_note": "Approved"})
+    assert res.status_code == 404
 
 
 # ============================================================================
-# 3. Properties & Units APIs
+# 3. Properties & units
 # ============================================================================
 
 
-def test_properties_list_and_details(api_client: TestClient) -> None:
-    """Verifies GET /api/properties directory and single unit lookups."""
-    res = api_client.get("/api/properties")
+def test_properties_list_the_companys_units_with_occupancy_from_leases(portfolio: Portfolio) -> None:
+    data = portfolio.client.get("/api/properties").json()
+    assert (data["totalUnits"], data["occupiedCount"], data["vacantCount"]) == (3, 2, 1)
+    by_label = {u["label"]: u for u in data["units"]}
+    assert set(by_label) == {"Singel 5-A", "Prinsengracht 9", "Herengracht 1"}
+    assert (by_label["Singel 5-A"]["status"], by_label["Singel 5-A"]["currentTenant"]) == ("occupied", "Anouk de Vries")
+    assert by_label["Prinsengracht 9"]["status"] == "notice_given"
+    assert by_label["Prinsengracht 9"]["leaseEnd"] == f"{TODAY + timedelta(days=30):%d-%m-%Y}"
+    assert (by_label["Herengracht 1"]["status"], by_label["Herengracht 1"]["currentTenant"]) == ("vacant", None)
+    for unit in data["units"]:
+        assert unit["lockboxCode"] is None  # never exposed
+        assert unit["monthlyRentEur"] == 0.0
+    assert "Elsewhere" not in str(data)
+
+
+def test_properties_filter_by_status_and_single_unit_lookup(portfolio: Portfolio) -> None:
+    vacant = portfolio.client.get("/api/properties?status=vacant").json()
+    assert [u["label"] for u in vacant["units"]] == ["Herengracht 1"]
+    assert vacant["totalUnits"] == 3  # the counts describe the portfolio, the list is filtered
+    one = portfolio.client.get(f"/api/properties/{portfolio.singel}")
+    assert (one.status_code, one.json()["address"]) == (200, "Singel 5-A, 1012 AB Amsterdam")
+
+
+def test_a_unit_of_another_company_or_a_bad_id_is_not_found(portfolio: Portfolio) -> None:
+    assert portfolio.client.get(f"/api/properties/{uuid4()}").status_code == 404
+    assert portfolio.client.get("/api/properties/not-a-uuid").status_code == 404
+
+
+# ============================================================================
+# 4. Tenants
+# ============================================================================
+
+
+def test_tenants_list_the_companys_tenants_with_lease_facts_and_unknown_rent(portfolio: Portfolio) -> None:
+    data = portfolio.client.get("/api/tenants").json()
+    assert (data["totalTenants"], data["overdueCount"]) == (2, 0)
+    anouk = next(t for t in data["tenants"] if t["name"] == "Anouk de Vries")
+    assert (anouk["email"], anouk["phone"], anouk["unitLabel"]) == ("anouk@a.test", "+31611111111", "Singel 5-A")
+    assert (anouk["leaseStart"], anouk["leaseEnd"]) == ("01-03-2025", "")
+    assert (anouk["rentStatus"], anouk["monthlyRentEur"]) == ("unknown", 0.0)
+    assert "Carla" not in str(data)
+
+
+def test_tenant_profile_lookup_is_scoped(portfolio: Portfolio) -> None:
+    ok = portfolio.client.get(f"/api/tenants/{portfolio.anouk}")
+    assert (ok.status_code, ok.json()["name"]) == (200, "Anouk de Vries")
+    assert portfolio.client.get(f"/api/tenants/{uuid4()}").status_code == 404
+    assert portfolio.client.get("/api/tenants/Anouk").status_code == 404
+
+
+# ============================================================================
+# 5. Inbox & CORS
+# ============================================================================
+
+
+def test_inbox_threads_api(portfolio: Portfolio) -> None:
+    res = portfolio.client.get("/api/inbox/threads")
     assert res.status_code == 200
-    data = res.json()
-    assert "units" in data
-    assert data["totalUnits"] == 110
-    unit = data["units"][0]
-    assert "label" in unit
-    assert "address" in unit
-    assert "monthlyRentEur" in unit
-
-    # Single unit detail lookup
-    unit_res = api_client.get(f"/api/properties/{unit['id']}")
-    assert unit_res.status_code == 200
-    unit_data = unit_res.json()
-    assert unit_data["id"] == unit["id"]
-
-
-# ============================================================================
-# 4. Tenants APIs
-# ============================================================================
-
-
-def test_tenants_list_and_details(api_client: TestClient) -> None:
-    """Verifies GET /api/tenants directory and single tenant profile."""
-    res = api_client.get("/api/tenants")
-    assert res.status_code == 200
-    data = res.json()
-    assert "tenants" in data
-    assert "totalTenants" in data
-    tenant = data["tenants"][0]
-    assert "name" in tenant
-    assert "phone" in tenant
-    assert "email" in tenant
-    assert "unitLabel" in tenant
-    assert "rentStatus" in tenant
-
-    # Single tenant profile lookup
-    tenant_res = api_client.get(f"/api/tenants/{tenant['id']}")
-    assert tenant_res.status_code == 200
-    tenant_data = tenant_res.json()
-    assert tenant_data["id"] == tenant["id"]
-
-
-# ============================================================================
-# 5. Inbox Endpoints & CORS Validation
-# ============================================================================
-
-
-def test_inbox_threads_api(api_client: TestClient) -> None:
-    """Verifies GET /api/inbox/threads for communications triage."""
-    res = api_client.get("/api/inbox/threads")
-    assert res.status_code == 200
-    data = res.json()
-    assert "threads" in data
+    assert "threads" in res.json()
 
 
 def test_cors_headers_for_frontend(test_settings: Settings, migrated_engine: Engine) -> None:
     """An allowlisted SPA origin (DASHBOARD_CORS_ORIGINS) passes the preflight; without one, CORS is off outside dev."""
     settings = test_settings.model_copy(update={"dashboard_cors_origins": ["http://localhost:3000"]})
-    headers = {
-        "Origin": "http://localhost:3000",
-        "Access-Control-Request-Method": "GET",
-    }
+    headers = {"Origin": "http://localhost:3000", "Access-Control-Request-Method": "GET"}
     with TestClient(create_app(settings, engine=migrated_engine)) as client:
         res = client.options("/api/dashboard/pulse", headers=headers)
     assert res.status_code in (200, 204)

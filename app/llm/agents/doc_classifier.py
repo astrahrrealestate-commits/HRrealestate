@@ -22,6 +22,7 @@ DOC_CLASSIFIER = AgentSpec(
     prompt=PromptRef(name="doc_classifier", version="v1"),
     output_type=DocumentClassification,
     finalize=_unchanged,
+    thinking=False,
 )
 
 

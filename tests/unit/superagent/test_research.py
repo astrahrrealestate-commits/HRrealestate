@@ -14,8 +14,9 @@ from app.core.settings import Settings
 from app.superagent import research
 
 
-def _settings() -> Settings:
-    return Settings(llm_model="google-gla:gemini-2.5-flash")  # type: ignore[call-arg]
+def _settings(model: str = "google-gla:gemini-2.5-flash") -> Settings:
+    """Explicit database_url and no env file: the tests must not depend on a developer's local .env."""
+    return Settings(database_url="postgresql+psycopg://u:p@localhost:1/db", llm_model=model, _env_file=None)  # type: ignore[call-arg]
 
 
 def _scripted(calls: list[tuple[str, dict[str, Any]]], final: str, seen: dict[str, Any] | None = None) -> FunctionModel:
@@ -118,7 +119,7 @@ def test_a_fourth_tool_call_is_refused_and_the_run_degrades_to_none(
 
 
 def test_offline_fake_model_skips_the_loop(rows: list[Any]) -> None:
-    out = research.run_research(MagicMock(), Settings(llm_model="fake"), uuid4(), "S", [], "q", embedder=None)  # type: ignore[call-arg]
+    out = research.run_research(MagicMock(), _settings("fake"), uuid4(), "S", [], "q", embedder=None)
     assert out is None
     assert rows == []
 

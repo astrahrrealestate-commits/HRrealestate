@@ -11,6 +11,7 @@ from app.ingestion.process import IngestDeps
 from app.llm.embeddings import TextEmbedder, build_embedder
 from app.storage.factory import build_storage
 from app.storage.ports import ObjectStorage
+from app.translation.ports import Translator
 
 
 class WorkflowClient(Protocol):
@@ -43,6 +44,10 @@ def storage_for(state: Any) -> ObjectStorage:
 
 def get_storage(request: Request) -> ObjectStorage:
     return storage_for(request.app.state)
+
+
+def get_translator(request: Request) -> Translator:
+    return cast(Translator, request.app.state.translator)
 
 
 def ingest_deps_for(state: Any) -> IngestDeps:

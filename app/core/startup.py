@@ -32,6 +32,10 @@ def production_problems(settings: Settings) -> list[str]:
         problems.append("gemini_api_key is not set (embedding_model is a gemini model)")
     if settings.drive_provider == "fake":
         problems.append("drive_provider is 'fake'")
+    if settings.google_chat_provider == "fake":
+        problems.append("google_chat_provider is 'fake' (it accepts unsigned tokens)")
+    elif not settings.google_chat_project_number:
+        problems.append("google_chat_project_number is not set (the Chat token audience)")
     drive = settings.drive_credentials_file
     if drive is None or not drive.is_file():
         problems.append("drive_credentials_file is not set or not a readable file")
@@ -62,6 +66,10 @@ def production_problems(settings: Settings) -> list[str]:
         problems.append("dashboard_session_secret is the public dev-only default (docker/compose.yml)")
     if not settings.google_oauth_client_id:
         problems.append("google_oauth_client_id is not set")
+    for name in ("frontend_base_url", "google_login_redirect_uri", "google_oauth_redirect_uri"):
+        value = getattr(settings, name) or ""
+        if not value.startswith("https://") or "localhost" in value or "127.0.0.1" in value:
+            problems.append(f"{name} must be a public https URL (it is {value!r})")
     creds = settings.gmail_credentials_file
     if creds is None or not creds.is_file():
         problems.append("gmail_credentials_file is not set or not a readable file")

@@ -9,6 +9,7 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Annotated, Any
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -18,12 +19,20 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import WorkflowClient, get_engine, get_ingest_deps, get_storage, get_workflow_client
 from app.api.inbox import decide as inbox_decide
+from app.api.inbox.time_labels import when_label
+from app.api.inbox.translate import annotate_translations
+from app.api.inbox.translate import router as translate_router
+from app.api.inbox.unit_match import unit_named_in
 from app.api.v1 import enqueue
+from app.api.v1.auth import Principal, require_session
+from app.api.v1.session_limits import decide_limit, sync_limit
 from app.contracts import ActionType, ButtonChoice, Channel, Direction
 from app.core.errors import NotFoundError
+from app.core.ids import case_ref
+from app.core.language import detect_language
 from app.core.logging import get_logger
 from app.core.settings import get_settings
-from app.db.enums import ApprovalStatus, LinkMethod, PersonKind
+from app.db.enums import ApprovalStatus, LinkMethod, PersonKind, PipelineStatus, RawEventStatus
 from app.db.models import (
     ActionRow,
     Approval,
@@ -31,10 +40,12 @@ from app.db.models import (
     Case,
     CaseLink,
     ChannelAccount,
+    Company,
     DocumentRow,
     GmailSyncState,
     MessageRow,
     Person,
+    RawEvent,
     Send,
     UnderstandingRow,
     Unit,
@@ -44,7 +55,8 @@ from app.ingestion.process import IngestDeps
 from app.pipeline import dashboard_decisions
 from app.storage.ports import ObjectStorage
 
-router = APIRouter(prefix="/api/inbox", tags=["inbox"])
+router = APIRouter(prefix="/api/inbox", tags=["inbox"], dependencies=[Depends(require_session)])
+router.include_router(translate_router)
 log = get_logger(__name__)
 
 
@@ -62,10 +74,13 @@ class ApprovalDecideRequest(BaseModel):
 DEFAULT_SEEDED_THREADS: list[dict[str, Any]] = []
 
 
-def _build_live_threads(session: Session) -> list[dict[str, Any]]:
-    """Builds rich frontend-compatible thread structures from real PostgreSQL records."""
+def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, Any]]:
+    """Builds rich frontend-compatible thread structures from the PostgreSQL records of `company_id` only."""
     live_threads: list[dict[str, Any]] = []
-    cases = session.query(Case).order_by(Case.opened_at.desc()).limit(20).all()
+    cases = session.query(Case).filter(Case.company_id == company_id).order_by(Case.opened_at.desc()).limit(20).all()
+    company = session.get(Company, company_id)
+    company_tz = ZoneInfo(company.timezone if company else "Europe/Amsterdam")
+    company_units = [(u.label, u.address) for u in session.query(Unit).filter(Unit.company_id == company_id)]
     for case in cases:
         links = session.query(CaseLink).filter(CaseLink.case_id == case.id).all()
         msg_ids = [link.message_id for link in links]
@@ -80,7 +95,11 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
         if thread_refs:
             unlinked_thread_msgs = (
                 session.query(MessageRow)
-                .filter(MessageRow.thread_ref.in_(thread_refs), ~MessageRow.id.in_(msg_ids))
+                .filter(
+                    MessageRow.company_id == company_id,
+                    MessageRow.thread_ref.in_(thread_refs),
+                    ~MessageRow.id.in_(msg_ids),
+                )
                 .all()
             )
             for um in unlinked_thread_msgs:
@@ -143,6 +162,7 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
             extra_contractor_msgs = (
                 session.query(MessageRow)
                 .filter(
+                    MessageRow.company_id == company_id,
                     ~MessageRow.id.in_(list(known_ids)),
                     MessageRow.meta.is_not(None),
                 )
@@ -189,29 +209,7 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
                     for m in messages
                 ]
             ).lower()
-
-            portfolio_units = [
-                ("Keizersgracht 42-A", ["keizersgracht", "vipin", "anouk", "de vries"]),
-                (
-                    "Pieter Floriszstraat 1 C",
-                    [
-                        "pieter floriszstraat",
-                        "pieter florisz",
-                        "pieter.bakker",
-                        "pieter bakker",
-                        "keuken",
-                        "emma",
-                        "wilson",
-                    ],
-                ),
-                ("Singel 412", ["singel", "marloes", "mieter", "heizung"]),
-                ("Prinses Marijkestraat 2 A", ["marijke", "marijkestraat", "daan"]),
-                ("Henry Dunantweg 5 F", ["dunantweg", "lars"]),
-            ]
-            for u_name, keywords in portfolio_units:
-                if any(kw in all_text or kw in sender_email.lower() or kw in sender_name.lower() for kw in keywords):
-                    unit_label = u_name
-                    break
+            unit_label = unit_named_in(all_text, company_units)
 
         if not unit_label:
             unit_label = "Unassigned Unit"
@@ -239,42 +237,9 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
         und_entities = und_body.get("entities") or {}
         und_intent = und_body.get("intent") or case.summary or "Incoming communication analyzed by Gemini AI agent."
 
-        # Language detection: check if text is English vs Dutch
-        msg_text = latest_msg.text or ""
-        msg_lower = msg_text.lower()
-        english_indicators = [
-            "dear",
-            "hello",
-            "hi",
-            "thanks",
-            "regards",
-            "please",
-            "rent",
-            "payment",
-            "notice",
-            "lease",
-            "kitchen",
-            "power",
-            "fridge",
-            "apartment",
-        ]
-        dutch_indicators = [
-            "geachte",
-            "beste",
-            "goedemorgen",
-            "hallo",
-            "bedankt",
-            "groet",
-            "stroom",
-            "keuken",
-            "lekkage",
-            "factuur",
-            "huur",
-        ]
-        en_score = sum(1 for w in english_indicators if w in msg_lower)
-        nl_score = sum(1 for w in dutch_indicators if w in msg_lower)
-        is_english = en_score >= nl_score and en_score > 0
-        detected_lang_label = "English (detected)" if is_english else "Dutch (detected)"
+        detected_lang_label = {"nl": "Dutch (detected)", "en": "English (detected)"}.get(
+            detect_language(latest_msg.text or ""), "Language not detected"
+        )
 
         # Custom facts for EstateOS understood block
         custom_facts = [
@@ -320,7 +285,6 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
                         "label": f"Draft {idx} (Recommended)" if idx == 1 else f"Draft {idx} (Alternative)",
                         "channel": "gmail",
                         "text": text,
-                        "englishMeaning": "AI-generated draft reply to tenant",
                         "confidence": 98 if idx == 1 else 95,
                     }
                 )
@@ -368,15 +332,7 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
         # Ensure sent_dt is timezone-aware
         if sent_dt.tzinfo is None:
             sent_dt = sent_dt.replace(tzinfo=UTC)
-        days_diff = (now_dt.date() - sent_dt.date()).days
-        if days_diff == 0:
-            rel_label = f"Today {sent_dt.strftime('%H:%M')}"
-        elif days_diff == 1:
-            rel_label = f"Yesterday {sent_dt.strftime('%H:%M')}"
-        elif days_diff < 7:
-            rel_label = f"{sent_dt.strftime('%a')} {sent_dt.strftime('%H:%M')}"
-        else:
-            rel_label = sent_dt.strftime("%d %b %H:%M")
+        rel_label = when_label(sent_dt, now_dt, company_tz, weekdays=True)
 
         # Collect attachments for all messages in this thread
         msg_ids_list = [m.id for m in messages]
@@ -412,12 +368,7 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
             m_dt = m.sent_at if m.sent_at else now_dt
             if m_dt.tzinfo is None:
                 m_dt = m_dt.replace(tzinfo=UTC)
-            m_days = (now_dt.date() - m_dt.date()).days
-            m_time_fmt = (
-                f"Today {m_dt.strftime('%H:%M')}"
-                if m_days == 0
-                else (f"Yesterday {m_dt.strftime('%H:%M')}" if m_days == 1 else m_dt.strftime("%d %b %H:%M"))
-            )
+            m_time_fmt = when_label(m_dt, now_dt, company_tz)
             m_is_incoming = m.direction != Direction.outbound
             if m.direction == Direction.outbound:
                 m_sender_type = "owner"
@@ -459,12 +410,7 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
                 s_dt = s.attempted_at if s.attempted_at else now_dt
                 if s_dt.tzinfo is None:
                     s_dt = s_dt.replace(tzinfo=UTC)
-                s_days = (now_dt.date() - s_dt.date()).days
-                s_time_fmt = (
-                    f"Today {s_dt.strftime('%H:%M')}"
-                    if s_days == 0
-                    else (f"Yesterday {s_dt.strftime('%H:%M')}" if s_days == 1 else s_dt.strftime("%d %b %H:%M"))
-                )
+                s_time_fmt = when_label(s_dt, now_dt, company_tz)
                 # Retrieve draft text from action payload
                 act_row = next((a for a in actions if a.id == s.action_id), None)
                 act_payload = act_row.payload if act_row and isinstance(act_row.payload, dict) else {}
@@ -522,6 +468,7 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
         audience_label = "contractors" if is_contractor else "tenants"
         recipient_role = "contractor" if is_contractor else "tenant"
 
+        annotate_translations(session, company_id, msgs_data, [*gmail_drafts, *whatsapp_drafts])
         live_threads.append(
             {
                 "id": f"case-{case.id}",
@@ -553,11 +500,11 @@ def _build_live_threads(session: Session) -> list[dict[str, Any]]:
                 "aiConfidence": int((und_body.get("confidence") or 0.95) * 100),
                 "detectedLanguage": detected_lang_label,
                 "aiUnderstanding": {
-                    "ticket": f"#{str(case.id)[:4]}",
+                    "ticket": f"#{case_ref(case.id)}",
                     "problem": und_intent,
                     "unit": unit_label,
                     "priority": (case.urgency.value if case.urgency else "normal").upper(),
-                    "suggestedContractor": "Kevin van Dijk (Plumber)" if case.category.value == "maintenance" else None,
+                    "suggestedContractor": None,
                     "customFacts": custom_facts,
                 },
                 "activeChannel": channel_str,
@@ -588,10 +535,12 @@ def get_inbox_threads(
     channel: str = Query(default="all", description="all, gmail, whatsapp"),
     audience: str = Query(default="all", description="all, tenants, contractors"),
     category: str = Query(default="all", description="all, contractor_repairs, contractor_money"),
+    *,
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> dict[str, Any]:
     """Retrieves inbox threads enriched with agent-drafted proposals."""
     with Session(engine) as session:
-        live_threads = _build_live_threads(session)
+        live_threads = _build_live_threads(session, principal.company_id)
 
     # Merge live threads with default seeded threads (live threads first)
     threads = list(live_threads)
@@ -625,22 +574,21 @@ def get_inbox_threads(
     summary="Get Inbox Badge Statistics",
     description="Returns aggregate metric counters for the inbox navigation badge counts.",
 )
-def get_inbox_stats(engine: Annotated[Engine, Depends(get_engine)]) -> dict[str, int]:
-    """Returns metric counters for inbox triage badges."""
+def get_inbox_stats(
+    engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
+) -> dict[str, int]:
+    """Returns metric counters for inbox triage badges, counted from the same live threads the inbox lists."""
     with Session(engine) as session:
-        pending_count = (
-            session.query(func.count(Approval.id)).filter(Approval.status == ApprovalStatus.pending).scalar() or 0
-        )
-        total_cases = session.query(func.count(Case.id)).scalar() or 0
-
+        threads = _build_live_threads(session, principal.company_id)
     return {
-        "needsYouCount": max(pending_count, 6),
-        "allCount": max(total_cases, 6),
-        "tenantsCount": 4,
-        "contractorsCount": 2,
-        "urgentCount": 2,
-        "whatsappCount": 4,
-        "gmailCount": 2,
+        "needsYouCount": sum(t["status"] == "needs_approval" for t in threads),
+        "allCount": len(threads),
+        "tenantsCount": sum(t["audience"] == "tenants" for t in threads),
+        "contractorsCount": sum(t["audience"] == "contractors" for t in threads),
+        "urgentCount": sum(t["urgency"] in ("high", "emergency") for t in threads),
+        "whatsappCount": sum(t["channel"] == "whatsapp" for t in threads),
+        "gmailCount": sum(t["channel"] == "gmail" for t in threads),
     }
 
 
@@ -652,11 +600,15 @@ def _reset_dummy_cursor(session: Session, account_id: UUID) -> None:
         session.commit()
 
 
-def sync_gmail_accounts(deps: IngestDeps) -> int:
-    """Pull every connected Gmail mailbox once; a failing mailbox is logged and skipped."""
+def sync_gmail_accounts(deps: IngestDeps, company_id: UUID | None = None) -> int:
+    """Pull the connected Gmail mailboxes once (one company's when `company_id` is given, else all, for the background
+    loop); a failing mailbox is logged and skipped."""
     synced_count = 0
     with Session(deps.engine) as session:
-        accounts = session.scalars(select(ChannelAccount).where(ChannelAccount.channel == Channel.gmail)).all()
+        query = select(ChannelAccount).where(ChannelAccount.channel == Channel.gmail)
+        if company_id is not None:
+            query = query.where(ChannelAccount.company_id == company_id)
+        accounts = session.scalars(query).all()
         for acct in accounts:
             try:
                 _reset_dummy_cursor(session, acct.id)
@@ -669,18 +621,52 @@ def sync_gmail_accounts(deps: IngestDeps) -> int:
 
 @router.post(
     "/sync",
+    dependencies=[Depends(sync_limit)],
     summary="Sync Inbound Communications",
     description="Pulls new Gmail messages directly from Google and runs the Gemini ingestion pipeline.",
 )
-def sync_inbox(deps: Annotated[IngestDeps, Depends(get_ingest_deps)]) -> dict[str, Any]:
-    """Triggers an on-demand sync from Gmail and enqueues newly arrived emails for AI processing."""
-    synced_count = sync_gmail_accounts(deps)
+def sync_inbox(
+    deps: Annotated[IngestDeps, Depends(get_ingest_deps)],
+    principal: Annotated[Principal, Depends(require_session)],
+) -> dict[str, Any]:
+    """Triggers an on-demand sync of the signed-in owner's Gmail and enqueues new emails for AI processing."""
+    synced_count = sync_gmail_accounts(deps, principal.company_id)
+    waiting = _waiting_for_processing(deps.engine, principal.company_id)
+    message = f"Synced {synced_count} new messages."
+    if waiting:
+        message += f" {waiting} already fetched, still being processed."
     return {
         "synced": True,
         "newMessages": synced_count,
-        "message": f"Successfully checked Gmail inbox. Synced {synced_count} new messages.",
+        "processing": waiting,
+        "message": message,
         "syncedAt": datetime.now(UTC).isoformat(),
     }
+
+
+def _waiting_for_processing(engine: Engine, company_id: UUID) -> int:
+    """Gmail mail already fetched but not yet an inbox thread: raw events not stored, messages not yet understood."""
+    with Session(engine) as session:
+        unstored = session.scalar(
+            select(func.count())
+            .select_from(RawEvent)
+            .where(
+                RawEvent.company_id == company_id,
+                RawEvent.provider == Channel.gmail,
+                RawEvent.status == RawEventStatus.pending,
+            )
+        )
+        unread = session.scalar(
+            select(func.count())
+            .select_from(MessageRow)
+            .where(
+                MessageRow.company_id == company_id,
+                MessageRow.channel == Channel.gmail,
+                MessageRow.direction == Direction.inbound,
+                MessageRow.pipeline_status == PipelineStatus.pending,
+            )
+        )
+    return (unstored or 0) + (unread or 0)
 
 
 class CreateGmailDraftRequest(BaseModel):
@@ -691,9 +677,11 @@ class CreateGmailDraftRequest(BaseModel):
     case_id: str | None = None
 
 
-def _quoted_message(session: Session, req: CreateGmailDraftRequest) -> MessageRow | None:
+def _quoted_message(session: Session, req: CreateGmailDraftRequest, company_id: UUID) -> MessageRow | None:
     if req.thread_id:
-        msg = session.scalars(select(MessageRow).where(MessageRow.thread_ref == req.thread_id)).first()
+        msg = session.scalars(
+            select(MessageRow).where(MessageRow.company_id == company_id, MessageRow.thread_ref == req.thread_id)
+        ).first()
         if msg is not None:
             return msg
     if not req.case_id:
@@ -703,7 +691,9 @@ def _quoted_message(session: Session, req: CreateGmailDraftRequest) -> MessageRo
     except ValueError:
         return None
     link = session.scalars(
-        select(CaseLink).where(CaseLink.case_id == case_id).order_by(CaseLink.created_at.desc())
+        select(CaseLink)
+        .where(CaseLink.company_id == company_id, CaseLink.case_id == case_id)
+        .order_by(CaseLink.created_at.desc())
     ).first()
     return session.get(MessageRow, link.message_id) if link else None
 
@@ -719,10 +709,11 @@ def _quoted_message(session: Session, req: CreateGmailDraftRequest) -> MessageRo
 def create_gmail_draft(
     req: CreateGmailDraftRequest,
     engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> dict[str, Any]:
     """Prefills a compose window ("Re: " when the quoted message has a Message-ID); no Gmail API call."""
     with Session(engine) as session:
-        msg = _quoted_message(session, req)
+        msg = _quoted_message(session, req, principal.company_id)
         in_reply_to = msg.meta.get("message_id") if msg is not None and isinstance(msg.meta, dict) else None
     sub = req.subject
     if in_reply_to and not sub.lower().startswith("re:"):
@@ -737,6 +728,7 @@ def create_gmail_draft(
 
 @router.post(
     "/approvals/{approval_id}/decide",
+    dependencies=[Depends(decide_limit)],
     summary="Decide Inbox Approval",
     description=(
         "Records Harjot's 1-click decision through the canonical approval path; an approved reply is queued for "
@@ -748,13 +740,19 @@ def decide_approval(
     req: ApprovalDecideRequest,
     engine: Annotated[Engine, Depends(get_engine)],
     client: Annotated[WorkflowClient, Depends(get_workflow_client)],
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> dict[str, Any]:
-    """Postgres first (decision, case state), then the send is enqueued by name (invariants 1 and 5)."""
+    """Postgres first (decision, case state), then the send is enqueued by name (invariants 1 and 5). Only the
+    signed-in owner's own company can be decided; a ref that names nothing of theirs is a 404."""
     choice = inbox_decide.CHOICES.get(req.choice, ButtonChoice.d1)
+    if req.edited_text is not None and not req.edited_text.strip() and choice is not ButtonChoice.rej:
+        raise HTTPException(status_code=422, detail="edited_text_blank")  # never fall back to a draft the owner cleared
     now = datetime.now(UTC)
     try:
         with Session(engine) as session, session.begin():
-            target = inbox_decide.resolve(session, approval_id)
+            target = inbox_decide.resolve(session, approval_id, principal.company_id)
+            if target.approval is None or target.action is None:
+                raise NotFoundError("approval not found")
             early = inbox_decide.guard(session, target, now)
             if early is not None:
                 return early
@@ -791,22 +789,39 @@ def decide_approval(
     }
 
 
+# Types a browser can show without running anything from the sender. Everything else (html, svg, xml, scripts, unknown)
+# is downloaded as an opaque attachment: it came from an inbound email and must never execute on the API origin, which
+# holds the session cookie.
+INLINE_TYPES = frozenset({"application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp"})
+
+
 @router.get("/attachments/{attachment_id}", summary="Download or view an attachment file")
 def get_attachment_file(
     attachment_id: UUID,
     engine: Annotated[Engine, Depends(get_engine)],
     storage: Annotated[ObjectStorage, Depends(get_storage)],
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> Response:
     with Session(engine) as session:
-        att = session.get(AttachmentRow, attachment_id)
+        att = session.scalars(
+            select(AttachmentRow).where(
+                AttachmentRow.id == attachment_id, AttachmentRow.company_id == principal.company_id
+            )
+        ).first()
         if not att:
             raise HTTPException(status_code=404, detail="Attachment not found")
         try:
             content = storage.get(att.s3_key)
         except Exception as exc:
             raise HTTPException(status_code=404, detail="File not found in storage") from exc
+        mime = (att.mime_type or "").split(";")[0].strip().lower()
+        inline = mime in INLINE_TYPES
+        filename = urllib.parse.quote(att.filename or "attachment", safe="")
         return Response(
             content=content,
-            media_type=att.mime_type or "application/octet-stream",
-            headers={"Content-Disposition": f'inline; filename="{att.filename or "attachment"}"'},
+            media_type=mime if inline else "application/octet-stream",
+            headers={
+                "Content-Disposition": f"{'inline' if inline else 'attachment'}; filename*=UTF-8''{filename}",
+                "X-Content-Type-Options": "nosniff",
+            },
         )

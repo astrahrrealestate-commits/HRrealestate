@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 
 from app.core.settings import Settings
-from app.core.startup import UnsafeConfigurationError, assert_production_safe
+from app.core.startup import UnsafeConfigurationError, assert_production_safe, production_problems
 
 URL = "postgresql+psycopg://u:p@localhost:5433/db"
 REAL: dict[str, Any] = {
@@ -28,6 +28,11 @@ REAL: dict[str, Any] = {
     "dashboard_auth_provider": "google",
     "dashboard_session_secret": "x" * 32,
     "google_oauth_client_id": "client.apps.googleusercontent.com",
+    "google_chat_provider": "google",
+    "google_chat_project_number": "123456789",
+    "frontend_base_url": "https://dash.estateos.example",
+    "google_login_redirect_uri": "https://api.estateos.example/api/auth/login/google/callback",
+    "google_oauth_redirect_uri": "https://api.estateos.example/api/auth/google/callback",
 }
 
 
@@ -128,3 +133,24 @@ def test_an_openai_embedding_model_needs_the_openai_key() -> None:
     with pytest.raises(UnsafeConfigurationError, match="embedding_model is an openai model"):
         assert_production_safe(_s(env="prod", **{**REAL, "llm_model": "google-gla:gemini-2.5-flash",
                                                  "gemini_api_key": "g", "openai_api_key": None}))  # fmt: skip
+
+
+@pytest.mark.parametrize("field", ["frontend_base_url", "google_login_redirect_uri", "google_oauth_redirect_uri"])
+@pytest.mark.parametrize("bad", ["http://localhost:3000", "http://dash.estateos.example", "https://127.0.0.1:3000", ""])
+def test_prod_refuses_a_local_or_plain_http_public_url(field: str, bad: str) -> None:
+    problems = production_problems(_s(env="prod", **{**REAL, field: bad}))
+    assert any(p.startswith(f"{field} must be a public https URL") for p in problems)
+
+
+def test_prod_accepts_public_https_urls() -> None:
+    assert production_problems(_s(env="prod", **REAL)) == []
+
+
+def test_prod_refuses_the_fake_google_chat_provider_which_accepts_unsigned_tokens() -> None:
+    problems = production_problems(_s(env="prod", **{**REAL, "google_chat_provider": "fake"}))
+    assert any(p.startswith("google_chat_provider is 'fake'") for p in problems)
+
+
+def test_prod_needs_the_google_chat_audience_when_the_provider_is_real() -> None:
+    problems = production_problems(_s(env="prod", **{**REAL, "google_chat_project_number": None}))
+    assert any(p.startswith("google_chat_project_number is not set") for p in problems)

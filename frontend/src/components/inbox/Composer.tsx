@@ -8,8 +8,12 @@ import { Button } from "@/components/ui/Button";
 import { DraftOption } from "@/types/dashboard";
 import { DraftPersona } from "@/types/inbox";
 import { createGmailDraft } from "@/lib/api";
+import { EnglishToggle } from "@/components/inbox/EnglishToggle";
+import { formatClock } from "@/lib/clock";
 
 export interface ComposerProps {
+  /** Which thread this composer is for: text typed in one thread comes back when the owner returns to it. */
+  threadKey?: string;
   draftText?: string;
   drafts?: DraftOption[];
   draftPersona?: DraftPersona; // set when the drafts were written in the owner's persona
@@ -54,6 +58,7 @@ export function Composer({
   onClearReplyingTo,
   onAcceptAndSend,
   onReject,
+  threadKey,
   onSendManualReply,
   onUndo,
   isSent: initialSent = false,
@@ -69,6 +74,21 @@ export function Composer({
   const [undoSeconds, setUndoSeconds] = useState(30);
   const [isDraftingGmail, setIsDraftingGmail] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const typedByThread = useRef<Record<string, string>>({});
+  const key = threadKey ?? "";
+
+  // The owner's own text, remembered per thread; an incoming draft or a re-render must never overwrite it.
+  const editContent = (value: string) => {
+    typedByThread.current[key] = value;
+    setContent(value);
+  };
+  const forgetTyped = () => {
+    delete typedByThread.current[key];
+  };
+  const handleRejectClick = () => {
+    forgetTyped();
+    onReject?.();
+  };
 
   const cleanPhone = (recipientPhone || "").replace(/[^0-9]/g, "");
   const effectiveEmail = recipientEmail || (recipientPhone && recipientPhone.includes("@") ? recipientPhone : "");
@@ -111,17 +131,22 @@ export function Composer({
     }
   };
 
-  // Sync draft prop changes & sent status changes when switching threads
+  // Sync the proposed draft, channel and sent status when the thread or the draft changes. `drafts` is rebuilt on
+  // every render of the parent, so only its first entry (primitives) is a dependency.
+  const hasDrafts = drafts.length > 0;
+  const firstDraftId = drafts[0]?.id;
+  const firstDraftText = drafts[0]?.text;
   useEffect(() => {
     setIsSent(initialSent);
     setActiveChannel(channel);
-    if (!initialSent && drafts.length > 0) {
-      setSelectedDraftId(drafts[0].id);
-      setContent(draftText || drafts[0]?.text || "");
-    } else {
-      setContent(draftText || "");
+    if (!initialSent && hasDrafts) setSelectedDraftId(firstDraftId || "d1");
+    const typed = typedByThread.current[key];
+    if (typed !== undefined && !initialSent) {
+      setContent(typed);
+      return;
     }
-  }, [draftText, channel, drafts, initialSent]);
+    setContent(draftText || (!initialSent && hasDrafts ? firstDraftText || "" : ""));
+  }, [key, draftText, channel, hasDrafts, firstDraftId, firstDraftText, initialSent]);
 
   // Focus textarea when user quotes a message
   useEffect(() => {
@@ -142,6 +167,8 @@ export function Composer({
   }, [isSent, undoSeconds]);
 
   const handleAccept = () => {
+    if (!content.trim()) return;
+    forgetTyped();
     if (onAcceptAndSend) {
       onAcceptAndSend(content, activeChannel, replyingTo?.id);
       setIsSent(true);
@@ -162,7 +189,7 @@ export function Composer({
   };
 
   const handleSaveFullEdit = () => {
-    setContent(fullEditText);
+    editContent(fullEditText);
     setIsEditingFull(false);
   };
 
@@ -170,6 +197,7 @@ export function Composer({
     if (!content.trim()) return;
     if (onSendManualReply) {
       onSendManualReply(content, activeChannel, replyingTo?.id);
+      forgetTyped();
       setContent("");
       if (onClearReplyingTo) {
         onClearReplyingTo();
@@ -195,7 +223,7 @@ export function Composer({
           <div className="flex items-center gap-2 text-[var(--ink-2)]">
             <Check className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" strokeWidth={2.5} />
             <span>
-              Sent via {activeChannel === "gmail" ? "Gmail" : "WhatsApp"} · <span className="font-mono">{sentTimestamp || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+              Sent via {activeChannel === "gmail" ? "Gmail" : "WhatsApp"} · <span className="font-mono">{sentTimestamp || formatClock(new Date())}</span>
             </span>
             <span className="text-[11px] text-[var(--ink-3)] font-mono">({undoSeconds}s)</span>
           </div>
@@ -271,7 +299,7 @@ export function Composer({
                         type="button"
                         onClick={() => {
                           setSelectedDraftId(d.id || `d${idx + 1}`);
-                          setContent(d.text);
+                          editContent(d.text);
                           setIsSent(false);
                         }}
                         className={cn(
@@ -336,7 +364,7 @@ export function Composer({
             ref={textareaRef}
             rows={hasDraft ? 5 : 3}
             value={content}
-            onChange={(e) => setContent(e.target.value)}
+            onChange={(e) => editContent(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -351,6 +379,12 @@ export function Composer({
             className="w-full min-h-[96px] sm:min-h-[110px] text-base sm:text-[14px] p-3 rounded-[var(--radius-ctl)] bg-[var(--bg)] border border-[var(--line)] text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:bg-[var(--pane)] focus:border-[var(--ink)] focus:outline-none transition-colors resize-y leading-relaxed"
           />
         </div>
+        {/* English for the text in the box: a Dutch draft, edited or not. Translated only when opened. */}
+        <EnglishToggle
+          text={content}
+          language={drafts.some((d) => d.language === "nl") ? "nl" : undefined}
+          cachedEnglish={drafts.find((d) => d.text.trim() === content.trim())?.englishMeaning}
+        />
 
         {/* Bottom Bar: Action proposal & Buttons */}
         {hasDraft ? (
@@ -364,7 +398,7 @@ export function Composer({
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={onReject}
+                onClick={handleRejectClick}
                 className="text-[var(--ink-3)] hover:text-[var(--ink)] whitespace-nowrap shrink-0"
               >
                 Reject
@@ -416,7 +450,7 @@ export function Composer({
             {/* Mobile Stack (Section 5.6): Ghost buttons above, full-width orange below */}
             <div className="sm:hidden flex flex-col gap-2">
               <div className="grid grid-cols-2 gap-2">
-                <Button variant="ghost" size="sm" onClick={onReject}>
+                <Button variant="ghost" size="sm" onClick={handleRejectClick}>
                   Reject
                 </Button>
                 <Button variant="ghost" size="sm" onClick={handleOpenFullEdit}>

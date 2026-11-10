@@ -94,3 +94,7 @@ class StaleRunError(BrixxError):
 
 class BrixxStoreError(BrixxError):
     """The mirror database rejected a page. The message names only the DB error class, table and page."""
+
+
+class TranslationUnavailableError(EstateOSError):
+    """The local translation model is not installed (or could not be loaded), so nothing can be translated."""

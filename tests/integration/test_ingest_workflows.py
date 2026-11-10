@@ -255,6 +255,16 @@ def test_watch_renew_and_backfill(env: Env) -> None:
     assert len(_gmail_raws(env)) == 1
 
 
+def test_minute_poll_picks_up_unpushed_mail_and_a_quiet_mailbox_adds_nothing(env: Env) -> None:
+    env.mailbox.add_message(_mail("poll-me"), labels=["INBOX"])
+    ingest.gmail_poll(datetime.now(UTC), None)
+    wait(ingest.poll_workflow_id(str(env.gmail.id), env.mailbox.current_history_id()))
+    assert len(_gmail_raws(env)) == 1
+    ingest.gmail_poll(datetime.now(UTC), None)  # nothing new: same history id, same workflow id, no second sync
+    wait(ingest.poll_workflow_id(str(env.gmail.id), env.mailbox.current_history_id()))
+    assert len(_gmail_raws(env)) == 1
+
+
 def _children(message_id: object) -> list[str]:
     ids = [f"pipe:{message_id}", f"owner:{message_id}"]
     return sorted(w.workflow_id for w in DBOS.list_workflows(workflow_ids=ids))

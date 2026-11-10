@@ -1,24 +1,28 @@
 """Tenants REST API Routes.
 
-Feeds active tenant directory, contact records, lease statuses, and payment arrears tracking to the Next.js frontend.
+Feeds the tenant directory (contact details, unit, lease dates) to the Next.js frontend from the company's own
+directory tables. Rent amounts and payment status are not stored there yet, so the rent is 0.0 and the status is
+`unknown` rather than a guess; arrears arrive with the BRIXX rent mirror.
 """
 
-from typing import Annotated, Any
+from datetime import UTC, date, datetime
+from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
+from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
-from app.core.logging import get_logger
+from app.api.v1.auth import Principal, require_session
+from app.contracts import Channel
+from app.db.enums import PersonKind
+from app.db.models import ChannelIdentity, Lease, LeaseParty, Person, Unit
 
-router = APIRouter(prefix="/api/tenants", tags=["tenants"])
-log = get_logger(__name__)
+router = APIRouter(prefix="/api/tenants", tags=["tenants"], dependencies=[Depends(require_session)])
 
-
-# ---------------------------------------------------------------------------
-# Pydantic Models
-# ---------------------------------------------------------------------------
+RENT_UNKNOWN = "unknown"
 
 
 class TenantItem(BaseModel):
@@ -32,7 +36,7 @@ class TenantItem(BaseModel):
     leaseStart: str
     leaseEnd: str
     monthlyRentEur: float
-    rentStatus: str = Field(description="up_to_date, grace_period, overdue")
+    rentStatus: str = Field(description="up_to_date, grace_period, overdue, or unknown when no rent data is mirrored")
     overdueDays: int = 0
 
 
@@ -44,102 +48,64 @@ class TenantsResponse(BaseModel):
     tenants: list[TenantItem]
 
 
-# ---------------------------------------------------------------------------
-# Seed Data
-# ---------------------------------------------------------------------------
-
-DEFAULT_TENANTS: list[dict[str, Any]] = [
-    {
-        "id": "p-1",
-        "name": "Pieter Bakker",
-        "phone": "+31 6 12 34 41 87",
-        "email": "pieter.bakker@gmail.com",
-        "unitLabel": "Pieter Floriszstraat 1 C",
-        "leaseStart": "01-09-2023",
-        "leaseEnd": "31-08-2027",
-        "monthlyRentEur": 1450.00,
-        "rentStatus": "up_to_date",
-        "overdueDays": 0,
-    },
-    {
-        "id": "p-2",
-        "name": "Marloes Jansen",
-        "phone": "+31 6 44 22 88 19",
-        "email": "marloes.jansen@uva.nl",
-        "unitLabel": "Singel 412",
-        "leaseStart": "01-11-2022",
-        "leaseEnd": "31-10-2026",
-        "monthlyRentEur": 2200.00,
-        "rentStatus": "up_to_date",
-        "overdueDays": 0,
-    },
-    {
-        "id": "p-3",
-        "name": "Vipin Tyagi",
-        "phone": "+31 6 94 56 16 99",
-        "email": "vipin.tyagi@amsterdam-living.nl",
-        "unitLabel": "Keizersgracht 42-A",
-        "leaseStart": "01-01-2024",
-        "leaseEnd": "31-12-2027",
-        "monthlyRentEur": 2450.00,
-        "rentStatus": "up_to_date",
-        "overdueDays": 0,
-    },
-    {
-        "id": "p-4",
-        "name": "Daan Vermeulen",
-        "phone": "+31 6 55 44 33 22",
-        "email": "daan.vermeulen@gmail.com",
-        "unitLabel": "Prinses Marijkestraat 2 A",
-        "leaseStart": "01-07-2023",
-        "leaseEnd": "30-06-2028",
-        "monthlyRentEur": 1850.00,
-        "rentStatus": "overdue",
-        "overdueDays": 9,
-    },
-    {
-        "id": "p-5",
-        "name": "Lars van den Berg",
-        "phone": "+31 6 88 77 66 55",
-        "email": "lars@vandenberg.nl",
-        "unitLabel": "Henry Dunantweg 5 F",
-        "leaseStart": "01-01-2023",
-        "leaseEnd": "31-12-2026",
-        "monthlyRentEur": 1390.00,
-        "rentStatus": "overdue",
-        "overdueDays": 18,
-    },
-]
-
-
-# ---------------------------------------------------------------------------
-# API Routes
-# ---------------------------------------------------------------------------
+def _item(session: Session, person: Person, today: date) -> TenantItem:
+    company_id = person.company_id
+    row = session.execute(
+        select(Unit.label, Lease.valid_from, Lease.valid_to)
+        .select_from(LeaseParty)
+        .join(Lease, Lease.id == LeaseParty.lease_id)
+        .join(Unit, Unit.id == Lease.unit_id)
+        .where(
+            LeaseParty.company_id == company_id,
+            LeaseParty.person_id == person.id,
+            (Lease.valid_to.is_(None)) | (Lease.valid_to >= today),
+        )
+        .order_by(Lease.valid_from.desc())
+    ).first()
+    identities = session.scalars(
+        select(ChannelIdentity).where(
+            ChannelIdentity.company_id == company_id,
+            ChannelIdentity.person_id == person.id,
+            ChannelIdentity.valid_to.is_(None),
+        )
+    ).all()
+    label, start, end = row if row is not None else ("", None, None)
+    return TenantItem(
+        id=str(person.id),
+        name=person.display_name,
+        phone=next((i.identity for i in identities if i.channel == Channel.whatsapp), ""),
+        email=next((i.identity for i in identities if i.channel == Channel.gmail), ""),
+        unitLabel=label,
+        leaseStart=f"{start:%d-%m-%Y}" if start else "",
+        leaseEnd=f"{end:%d-%m-%Y}" if end else "",
+        monthlyRentEur=0.0,
+        rentStatus=RENT_UNKNOWN,
+        overdueDays=0,
+    )
 
 
 @router.get(
     "",
     response_model=TenantsResponse,
     summary="Get Active Tenant Directory",
-    description=(
-        "Retrieves the directory of active tenants with contact information, lease dates, and payment statuses."
-    ),
+    description="The company's tenants with contact details, unit and lease dates. Rent status is `unknown` for now.",
 )
 def get_tenants(
     engine: Annotated[Engine, Depends(get_engine)],
-    rent_status: str = Query(default="all", description="all, up_to_date, grace_period, overdue"),
+    principal: Annotated[Principal, Depends(require_session)],
+    rent_status: str = Query(default="all", description="all, up_to_date, grace_period, overdue, unknown"),
 ) -> TenantsResponse:
-    """Returns active tenants matching filter options."""
-    tenants = list(DEFAULT_TENANTS)
-    if rent_status != "all":
-        tenants = [t for t in tenants if t["rentStatus"] == rent_status]
-
-    overdue = len([t for t in DEFAULT_TENANTS if t["rentStatus"] == "overdue"])
-
+    today = datetime.now(UTC).date()
+    with Session(engine) as session:
+        people = session.scalars(
+            select(Person)
+            .where(Person.company_id == principal.company_id, Person.kind == PersonKind.tenant)
+            .order_by(Person.display_name.asc())
+        ).all()
+        items = [_item(session, p, today) for p in people if p.display_name and "@" not in p.display_name]
+    shown = items if rent_status == "all" else [t for t in items if t.rentStatus == rent_status]
     return TenantsResponse(
-        totalTenants=104,
-        overdueCount=overdue,
-        tenants=[TenantItem(**t) for t in tenants],
+        totalTenants=len(items), overdueCount=sum(t.rentStatus == "overdue" for t in items), tenants=shown
     )
 
 
@@ -147,15 +113,23 @@ def get_tenants(
     "/{tenant_id}",
     response_model=TenantItem,
     summary="Get Specific Tenant Profile",
-    description="Retrieves single tenant profile, lease contract reference, and communication channel details.",
+    description="One of the company's tenants with contact details, unit and lease dates.",
 )
 def get_tenant_details(
     tenant_id: str,
     engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> TenantItem:
-    """Returns single tenant profile."""
-    tenant = next(
-        (t for t in DEFAULT_TENANTS if t["id"] == tenant_id or tenant_id.lower() in t["name"].lower()),
-        DEFAULT_TENANTS[0],
-    )
-    return TenantItem(**tenant)
+    try:
+        wanted = UUID(tenant_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Tenant not found") from None
+    with Session(engine) as session:
+        person = session.scalars(
+            select(Person).where(
+                Person.id == wanted, Person.company_id == principal.company_id, Person.kind == PersonKind.tenant
+            )
+        ).first()
+        if person is None:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+        return _item(session, person, datetime.now(UTC).date())

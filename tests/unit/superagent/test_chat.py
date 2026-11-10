@@ -14,7 +14,7 @@ from app.superagent import chat
 
 
 def _settings(model: str = "google-gla:gemini-2.5-flash") -> Settings:
-    return Settings(llm_model=model)  # type: ignore[call-arg]
+    return Settings(database_url="postgresql+psycopg://u:p@localhost:1/db", llm_model=model, _env_file=None)  # type: ignore[call-arg]
 
 
 def _echo(seen: dict[str, Any]) -> FunctionModel:

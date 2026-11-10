@@ -23,8 +23,13 @@ import { Composer } from "@/components/inbox/Composer";
 import { isUrgent } from "@/lib/selectors";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { formatClock, localDayNumber, localParts } from "@/lib/clock";
 import { EditTicketModal } from "@/components/maintenance/EditTicketModal";
+import { EnglishToggle } from "@/components/inbox/EnglishToggle";
 import { MaintenanceTicket, updateMaintenanceTicket } from "@/lib/api";
+import { BACKEND_BASE_URL } from "@/lib/backend";
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 interface InboxConversationViewProps {
   thread: InboxThread | null;
@@ -49,12 +54,35 @@ export function InboxConversationView({
 }: InboxConversationViewProps) {
   const [showEarlier, setShowEarlier] = useState(false);
   const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
-  const [expandedEnglishMsgIds, setExpandedEnglishMsgIds] = useState<Record<string, boolean>>({});
   const [isSent, setIsSent] = useState(false);
   const [localMessages, setLocalMessages] = useState<ThreadMessage[]>([]);
   const [stagedDraftText, setStagedDraftText] = useState("");
   const [replyingTo, setReplyingTo] = useState<{ id: string; text: string; sender: string } | null>(null);
   const timelineEndRef = useRef<HTMLDivElement>(null);
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close the More actions menu on an outside click, Escape, or when another thread opens.
+  useEffect(() => {
+    if (!isMoreOpen) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (!moreMenuRef.current?.contains(e.target as Node)) setIsMoreOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsMoreOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isMoreOpen]);
+
+  const copyToClipboard = (value?: string) => {
+    if (value) void navigator.clipboard?.writeText(value);
+    setIsMoreOpen(false);
+  };
 
   // Sync thread messages to local state
   useEffect(() => {
@@ -142,14 +170,8 @@ export function InboxConversationView({
     );
   }
 
-  const handleToggleEnglish = (msgId: string) => {
-    setExpandedEnglishMsgIds((prev) => ({
-      ...prev,
-      [msgId]: !prev[msgId],
-    }));
-  };
-
   const handleAcceptAndSend = (text: string, channel: string, replyToMessageId?: string) => {
+    if (!text.trim()) return;
     const outboundChannel = (channel === "gmail" ? "gmail" : "whatsapp") as "whatsapp" | "gmail";
 
     // Only quote if replyingTo is explicitly selected by the user
@@ -160,8 +182,7 @@ export function InboxConversationView({
     }
 
     const now = new Date();
-    const utcHours = String(now.getUTCHours()).padStart(2, "0");
-    const utcMins = String(now.getUTCMinutes()).padStart(2, "0");
+    const clockNow = formatClock(now);
     // Add outgoing bubble to timeline immediately (Section 5.2)
     const newOutgoingMsg: ThreadMessage = {
       id: `reply-${Date.now()}`,
@@ -169,7 +190,7 @@ export function InboxConversationView({
       senderName: "Harjot Singh",
       senderContact: "+31 20 000 0001",
       sentAt: now.toISOString(),
-      timeFormatted: `${utcHours}:${utcMins}`,
+      timeFormatted: clockNow,
       body: text,
       channel: outboundChannel,
       replyTo: targetReply
@@ -281,13 +302,40 @@ export function InboxConversationView({
             Done
           </Button>
 
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={<MoreHorizontal className="w-4 h-4" />}
-            className="px-2"
-            title="More actions"
-          />
+          <div className="relative" ref={moreMenuRef}>
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<MoreHorizontal className="w-4 h-4" />}
+              className="px-2"
+              title="More actions"
+              aria-haspopup="menu"
+              aria-expanded={isMoreOpen}
+              onClick={() => setIsMoreOpen((open) => !open)}
+            />
+            {isMoreOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 top-full mt-1 z-20 min-w-[200px] rounded-[var(--radius-ctl)] border border-[var(--line)] bg-[var(--pane)] shadow-md py-1 text-[13px]"
+              >
+                {[
+                  { label: "Copy ticket number", value: thread.ticketNumber },
+                  { label: "Copy sender contact", value: thread.senderContact },
+                ].map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    role="menuitem"
+                    disabled={!item.value}
+                    onClick={() => copyToClipboard(item.value)}
+                    className="w-full text-left px-3 py-1.5 text-[var(--ink)] hover:bg-[var(--selected)] disabled:text-[var(--ink-3)] disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -322,11 +370,6 @@ export function InboxConversationView({
         {/* Message Bubbles with Dynamic Date Group Dividers */}
         {visibleMessages.map((msg, index) => {
           const isOwner = msg.sender === "owner";
-          const isDutch =
-            thread.detectedLanguage?.includes("nl") ||
-            thread.detectedLanguage?.includes("Dutch") ||
-            !!msg.bodyEnglish;
-          const showEnglish = expandedEnglishMsgIds[msg.id];
 
           // Determine date label from timeFormatted or sentAt
           const getDayLabel = (m: ThreadMessage) => {
@@ -335,14 +378,11 @@ export function InboxConversationView({
             if (tf.toLowerCase().startsWith("today")) return "Today";
             if (m.sentAt) {
               const d = new Date(m.sentAt);
-              const now = new Date();
-              const isToday = d.toDateString() === now.toDateString();
-              const yesterday = new Date(now);
-              yesterday.setDate(now.getDate() - 1);
-              const isYesterday = d.toDateString() === yesterday.toDateString();
-              if (isToday) return "Today";
-              if (isYesterday) return "Yesterday";
-              return format(d, "EEE d MMM");
+              const ago = localDayNumber(new Date()) - localDayNumber(d);
+              if (ago === 0) return "Today";
+              if (ago === 1) return "Yesterday";
+              const local = localParts(d);
+              return `${local.weekday} ${local.day} ${MONTHS[local.month - 1]}`;
             }
             return "Today";
           };
@@ -352,29 +392,17 @@ export function InboxConversationView({
           const prevDayLabel = prevMsg ? getDayLabel(prevMsg) : null;
           const showDateDivider = index === 0 || currentDayLabel !== prevDayLabel;
 
-          // Time formatted in UTC (e.g. 09:35, 09:39)
+          // Time on the company's local clock, 24 h (e.g. 09:35)
           const getDisplayTime = (m: ThreadMessage) => {
             if (m.sentAt) {
               const d = new Date(m.sentAt);
-              if (!isNaN(d.getTime())) {
-                const hh = String(d.getUTCHours()).padStart(2, "0");
-                const mm = String(d.getUTCMinutes()).padStart(2, "0");
-                return `${hh}:${mm}`;
-              }
+              if (!isNaN(d.getTime())) return formatClock(d);
             }
             return (m.timeFormatted || "08:15")
               .replace(/^(today|yesterday)\s*/i, "")
               .trim();
           };
           const displayTime = getDisplayTime(msg);
-
-          const englishTranslation =
-            msg.bodyEnglish ||
-            (msg.body.includes("Hoi beheer")
-              ? "Hi management, after turning on the oven the power in the kitchen suddenly went out. Resetting the fuse box unfortunately did not work."
-              : msg.body.includes("Nog steeds geen stroom")
-              ? "Still no power on the kitchen wall sockets since the short circuit. The fridge is starting to get warm. Can someone come by today? Regards, Pieter"
-              : "Still no power on the kitchen sockets since the short circuit. The fridge is starting to warm up. Can someone come today? Regards, Pieter");
 
           return (
             <React.Fragment key={msg.id}>
@@ -409,28 +437,7 @@ export function InboxConversationView({
                     </div>
                   </div>
 
-                  {/* Inline English toggle for outgoing message if Dutch */}
-                  {msg.bodyEnglish && (
-                    <div className="pr-2">
-                      <button
-                        type="button"
-                        onClick={() => handleToggleEnglish(msg.id)}
-                        className="inline-flex items-center gap-1 text-[11px] text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors cursor-pointer"
-                      >
-                        {showEnglish ? (
-                          <ChevronDown className="w-3 h-3" />
-                        ) : (
-                          <ChevronRight className="w-3 h-3" />
-                        )}
-                        <span>{showEnglish ? "Hide English" : "Show English translation"}</span>
-                      </button>
-                      {showEnglish && (
-                        <div className="mt-1 text-xs text-[var(--ink-3)] italic bg-[var(--pane)] border border-[var(--line)]/60 rounded px-2.5 py-1.5 max-w-[85%] text-right">
-                          {englishTranslation}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  <EnglishToggle text={msg.body} language={msg.language} cachedEnglish={msg.bodyEnglish} align="right" />
                 </div>
               ) : (
                 // Incoming bubble (left, --selected fill, no border)
@@ -450,7 +457,7 @@ export function InboxConversationView({
                             att.name?.match(/\.(jpe?g|png|webp|gif)$/i);
                           const fileUrl = att.url?.startsWith("http")
                             ? att.url
-                            : `http://127.0.0.1:8000${att.url}`;
+                            : `${BACKEND_BASE_URL}${att.url}`;
                           return (
                             <div
                               key={att.id || attIdx}
@@ -535,29 +542,7 @@ export function InboxConversationView({
                     </div>
                   </div>
 
-                  {/* Inline "Show English" translation toggle */}
-                  {isDutch && (
-                    <div className="pl-2">
-                      <button
-                        type="button"
-                        onClick={() => handleToggleEnglish(msg.id)}
-                        className="inline-flex items-center gap-1 text-xs text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors cursor-pointer"
-                      >
-                        {showEnglish ? (
-                          <ChevronDown className="w-3 h-3" />
-                        ) : (
-                          <ChevronRight className="w-3 h-3" />
-                        )}
-                        <span>{showEnglish ? "Hide English" : "Show English translation"}</span>
-                      </button>
-
-                      {showEnglish && (
-                        <div className="mt-1 text-xs text-[var(--ink-3)] italic bg-[var(--pane)] border border-[var(--line)]/60 rounded px-2.5 py-1.5 max-w-[85%]">
-                          {englishTranslation}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  <EnglishToggle text={msg.body} language={msg.language} cachedEnglish={msg.bodyEnglish} />
                 </div>
               )}
             </React.Fragment>
@@ -570,22 +555,19 @@ export function InboxConversationView({
             data={
               thread.aiUnderstanding
                 ? {
-                    ticketNumber: thread.ticketNumber || `#${thread.id.slice(0, 4)}`,
+                    ticketNumber: thread.ticketNumber,
                     urgency: thread.urgency,
-                    contractorName: thread.aiUnderstanding.suggestedContractor || "Chahal Bouw",
-                    arrivalTime: "Today 11:30 – 12:30",
+                    contractorName: thread.aiUnderstanding.suggestedContractor || undefined,
                     facts: thread.aiUnderstanding.customFacts?.map((f) => ({
                       label: f.label,
                       value: f.value,
                     })),
                   }
                 : {
-                    ticketNumber: thread.ticketNumber || `#${thread.id.slice(0, 4)}`,
+                    ticketNumber: thread.ticketNumber,
                     urgency: thread.urgency,
-                    contractorName: thread.category === "maintenance" ? "Chahal Bouw (Electrician)" : undefined,
-                    arrivalTime: thread.category === "maintenance" ? "Today 11:30 – 12:30" : undefined,
                     facts: [
-                      { label: "Ticket", value: thread.ticketNumber || `#${thread.id.slice(0, 4)}` },
+                      { label: "Ticket", value: thread.ticketNumber || "—" },
                       { label: "Category", value: thread.category.toUpperCase() },
                       { label: "Priority", value: (thread.urgency || "normal").toUpperCase(), isAlert: thread.urgency === "emergency" || thread.urgency === "high" },
                       { label: "Unit", value: thread.unitLabel },
@@ -602,6 +584,7 @@ export function InboxConversationView({
 
       {/* 3. Sticky Composer (Section 5.2 & 6.2) */}
       <Composer
+        threadKey={thread.id}
         draftText={isSent ? "" : stagedDraftText}
         drafts={
           isSent
@@ -641,32 +624,31 @@ export function InboxConversationView({
       {thread.ticketNumber && (
         <EditTicketModal
           ticket={{
-            id: thread.ticketNumber.replace("#", "m-"),
+            id: thread.caseId || thread.id,
             ticketNumber: thread.ticketNumber,
             issueTitle: thread.issueTitle || thread.subject || "Maintenance Request",
             unitLabel: thread.unitLabel || "Unassigned Unit",
             tenantName: thread.senderName || "Tenant",
-            tenantPhone: thread.senderContact || "+31 6 12 34 41 87",
+            tenantPhone: thread.senderContact || "",
             category: "electrical",
-            contractorName: "Chahal Bouw",
-            contractorTrade: "Electrician",
-            contractorPhone: "+31 6 88 12 34 56",
+            contractorName: thread.aiUnderstanding?.suggestedContractor || "",
+            contractorTrade: "",
             urgency: thread.urgency === "emergency" ? "emergency" : "normal",
             status: "pending_approval",
-            slaRemaining: "38m SLA",
+            slaRemaining: "",
             isOverdue: false,
-            poBudgetCap: "€ 650",
+            poBudgetCap: "",
             reportedAt: thread.relativeTime || "Today",
             notes: thread.caseSummary || "",
             originalMessage: thread.latestSnippet || "",
-            contractorDraft: `Beste Kevin (Chahal Bouw), spoedmelding voor ${thread.unitLabel}: ${thread.subject || thread.issueTitle}. Huurder ${thread.senderName} (${thread.senderContact}) is aanwezig. Geautoriseerd budgetplafond: € 650. Sleutelkast pincode: 4182. Gelieve ETA te bevestigen.`,
+            contractorDraft: "",
             tenantDraft: `Beste ${thread.senderName?.split(" ")[0] || "huurder"}, we hebben je melding over ${thread.subject?.toLowerCase() || "het onderhoud"} ontvangen. Onze monteur is geautoriseerd en neemt contact op. Met vriendelijke groet, Harjot`,
           }}
           isOpen={isTicketModalOpen}
           onClose={() => setIsTicketModalOpen(false)}
           onSave={async (updated) => {
             try {
-              await updateMaintenanceTicket(updated.ticketNumber, updated);
+              await updateMaintenanceTicket(updated.id || updated.ticketNumber, updated);
             } catch {
               // Graceful
             }

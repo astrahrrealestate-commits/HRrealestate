@@ -15,6 +15,7 @@ from fastapi import HTTPException, Request
 AGENT_PER_MIN = 30
 AUTH_PER_MIN = 10
 DECISION_PER_MIN = 120
+SEARCH_PER_MIN = 120  # ⌘K palette: one debounced request per pause in typing
 PAGE_PER_MIN = 60  # PUT /agent/page pre-warms (debounced navigation), its own bucket
 MAX_BUCKETS = 10_000
 SWEEP_EVERY = 256
@@ -102,3 +103,4 @@ agent_limit = limit_principal("agent", AGENT_PER_MIN)
 auth_limit = limit_ip("auth", AUTH_PER_MIN)
 decision_limit = limit_principal("decision", DECISION_PER_MIN)
 page_limit = limit_principal("page", PAGE_PER_MIN)
+search_limit = limit_principal("search", SEARCH_PER_MIN)

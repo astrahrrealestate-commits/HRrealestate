@@ -23,10 +23,16 @@ def test_a_case_named_in_the_question_beats_urgency() -> None:
     assert ranked[0] is boiler
 
 
-def test_the_ticket_id_prefix_in_the_question_matches() -> None:
-    target = _case("Door", "low", case_id=UUID("abcdef12-0000-0000-0000-000000000000"))
+def test_the_ticket_ref_in_the_question_matches() -> None:
+    target = _case("Door", "low", case_id=UUID("01a1a4d1-0000-7000-8000-00abcdef1234"))
     other = _case("Roof", "emergency")
-    assert rank_cases([other, target], "update on ticket #abcdef please")[0] is target
+    assert rank_cases([other, target], "update on ticket #ef1234 please")[0] is target
+
+
+def test_the_timestamp_head_of_an_id_is_not_a_ticket_ref() -> None:
+    target = _case("Door", "low", case_id=UUID("01a1a4d1-0000-7000-8000-00abcdef1234"))
+    other = _case("Roof", "emergency")
+    assert rank_cases([other, target], "update on ticket #01a1a4 please")[0] is other
 
 
 def test_the_focus_case_comes_first() -> None:

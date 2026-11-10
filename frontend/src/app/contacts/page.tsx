@@ -43,6 +43,7 @@ import {
   sendEmailReply,
   generateWhatsAppDrafts,
 } from "@/lib/api";
+import { formatClock } from "@/lib/clock";
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -314,7 +315,7 @@ function ContactsContent() {
     setIsSendingWhatsApp(true);
 
     const now = new Date();
-    const timeStr = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const timeStr = formatClock(now);
     const optimisticMsg: ContactWhatsAppMessage = {
       id: `temp-${Date.now()}`,
       sender: "owner",
@@ -644,7 +645,7 @@ function ContactsContent() {
                         <div className="inline-flex items-center gap-1">
                           <span className="font-semibold text-[#64748b]">Agreement Duration:</span>
                           <span className="font-medium text-[#111215]">
-                            {activeContact.agreementPeriod || "01 Jan 2024 – 31 Dec 2024"}
+                            {activeContact.agreementPeriod || "Not on file"}
                           </span>
                         </div>
                       </div>

@@ -24,7 +24,10 @@ import {
   Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { MOCK_TENANTS, TenantProfile } from "@/data/tenantsMockData";
+import type { TenantProfile } from "@/types/portfolio";
+import { getTenantProfiles } from "@/lib/portfolioApi";
+import { euro, UNKNOWN } from "@/lib/portfolioFormat";
+import { PageStateShell } from "@/components/portfolio/PageStateShell";
 import { DocumentViewerModal, DocumentItem } from "@/components/ui/DocumentViewerModal";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import { useSuperAgent } from "@/context/SuperAgentContext";
@@ -47,16 +50,23 @@ function findMatchingTenant(allTenants: TenantProfile[], query: string): TenantP
   const byUnit = allTenants.find(
     (t) =>
       t.unitLabel.toLowerCase().includes(q) ||
-      t.email.toLowerCase().includes(q) ||
+      (t.email ?? "").toLowerCase().includes(q) ||
       (q.replace(/[^0-9]/g, "").length >= 4 &&
-        t.phone.replace(/[^0-9]/g, "").includes(q.replace(/[^0-9]/g, "")))
+        (t.phone ?? "").replace(/[^0-9]/g, "").includes(q.replace(/[^0-9]/g, "")))
   );
   if (byUnit) return byUnit;
 
   return null;
 }
 
-function TenantsContent() {
+function rentStatusLabel(status: TenantProfile["rentStatus"]): string {
+  if (status === "up_to_date") return "Rent up to date";
+  if (status === "grace_period") return "In grace period";
+  if (status === "overdue") return "Overdue";
+  return "Rent status unknown";
+}
+
+function TenantsView({ tenants: MOCK_TENANTS }: { tenants: TenantProfile[] }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const superAgent = useSuperAgent();
@@ -125,7 +135,7 @@ function TenantsContent() {
     superAgent.setCurrentPageName("Tenants");
     if (activeTenant) {
       superAgent.setSelectedContext(
-        `Tenant: ${activeTenant.name} (${activeTenant.unitLabel}) [Status: ${activeTenant.rentStatus}, Rent: € ${activeTenant.monthlyRentEur}/mo, Phone: ${activeTenant.phone}]`
+        `Tenant: ${activeTenant.name} (${activeTenant.unitLabel}) [Status: ${activeTenant.rentStatus}, Rent: ${euro(activeTenant.monthlyRentEur)}/mo, Phone: ${activeTenant.phone ?? UNKNOWN}]`
       );
     } else {
       superAgent.setSelectedContext("Tenant Directory (110 active tenants)");
@@ -137,15 +147,15 @@ function TenantsContent() {
     return MOCK_TENANTS.filter((tenant) => {
       // Tab filter
       if (activeTab === "up_to_date" && tenant.rentStatus !== "up_to_date") return false;
-      if (activeTab === "overdue" && tenant.rentStatus === "up_to_date") return false;
+      if (activeTab === "overdue" && tenant.rentStatus !== "overdue" && tenant.rentStatus !== "grace_period") return false;
 
       // Search query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchesName = tenant.name.toLowerCase().includes(q);
         const matchesUnit = tenant.unitLabel.toLowerCase().includes(q);
-        const matchesEmail = tenant.email.toLowerCase().includes(q);
-        const matchesPhone = tenant.phone.toLowerCase().includes(q);
+        const matchesEmail = (tenant.email ?? "").toLowerCase().includes(q);
+        const matchesPhone = (tenant.phone ?? "").toLowerCase().includes(q);
         if (!matchesName && !matchesUnit && !matchesEmail && !matchesPhone) {
           return false;
         }
@@ -158,9 +168,10 @@ function TenantsContent() {
   const stats = useMemo(() => {
     const total = MOCK_TENANTS.length;
     const overdue = MOCK_TENANTS.filter((t) => t.rentStatus === "overdue").length;
-    const upToDate = total - overdue;
-    return { total, overdue, upToDate };
-  }, []);
+    const upToDate = MOCK_TENANTS.filter((t) => t.rentStatus === "up_to_date").length;
+    const unknown = MOCK_TENANTS.filter((t) => t.rentStatus === "unknown").length;
+    return { total, overdue, upToDate, unknown };
+  }, [MOCK_TENANTS]);
 
   const handleSelectTenant = (tenant: TenantProfile) => {
     setSelectedTenantId(tenant.id);
@@ -196,10 +207,10 @@ function TenantsContent() {
         {/* Right Column: flex-1 (Flat detail + Documents + Sticky Footer)*/}
         {/* ------------------------------------------------------------- */}
         <div className="hidden md:flex flex-1 overflow-hidden">
-          
+
           {/* COLUMN 1: List (400px) */}
           <div className="w-[400px] shrink-0 border-r border-[var(--line)] bg-[var(--pane)] flex flex-col">
-            
+
             {/* Header: Controls (Max 3 tabs, 1 search bar, no cards in cards) */}
             <div className="p-4 border-b border-[var(--line)] space-y-3">
               <div className="flex items-center justify-between">
@@ -208,7 +219,7 @@ function TenantsContent() {
                     Tenant Directory
                   </h2>
                   <div className="text-[12px] text-[var(--ink-3)] font-mono">
-                    {stats.total} total · {stats.overdue} overdue · {stats.upToDate} up to date
+                    {stats.total} total · {stats.overdue} overdue · {stats.upToDate} up to date{stats.unknown > 0 ? ` · ${stats.unknown} rent unknown` : ""}
                   </div>
                 </div>
               </div>
@@ -298,7 +309,7 @@ function TenantsContent() {
                         </span>
                       ) : (
                         <span className="text-[11px] text-[var(--ink-3)] shrink-0">
-                          Paid
+                          {rentStatusLabel(tenant.rentStatus)}
                         </span>
                       )}
                     </div>
@@ -308,8 +319,8 @@ function TenantsContent() {
                     </div>
 
                     <div className="flex items-center justify-between text-[11px] text-[var(--ink-3)] font-mono pt-0.5">
-                      <span>€ {tenant.monthlyRentEur},- / mo</span>
-                      <span>Lease: {tenant.leaseEnd}</span>
+                      <span>{tenant.monthlyRentEur == null ? UNKNOWN : `${euro(tenant.monthlyRentEur)} / mo`}</span>
+                      <span>Lease: {tenant.leaseEnd ?? UNKNOWN}</span>
                     </div>
                   </button>
                 );
@@ -326,10 +337,10 @@ function TenantsContent() {
           {/* COLUMN 2: Detail Pane (flex-1) with Sticky Footer */}
           {activeTenant && (
             <div className="flex-1 bg-[var(--pane)] flex flex-col justify-between overflow-hidden">
-              
+
               {/* Detail Content (Scrollable) */}
               <div className="flex-1 overflow-y-auto p-6 space-y-6 max-w-4xl">
-                
+
                 {/* Header */}
                 <div className="border-b border-[var(--line)] pb-5">
                   <div className="flex items-start justify-between">
@@ -338,7 +349,7 @@ function TenantsContent() {
                         {activeTenant.name}
                       </h2>
                       <p className="text-[14px] text-[var(--ink-2)] mt-0.5 font-medium">
-                        {activeTenant.unitLabel} · {activeTenant.complexName}
+                        {activeTenant.unitLabel}{activeTenant.complexName ? ` · ${activeTenant.complexName}` : ""}
                       </p>
                     </div>
 
@@ -346,11 +357,11 @@ function TenantsContent() {
                       {activeTenant.rentStatus === "overdue" ? (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold bg-[var(--accent)]/15 text-[var(--accent-ink)] border border-[var(--accent)]/30">
                           <AlertTriangle className="w-3.5 h-3.5" />
-                          <span>{activeTenant.overdueDays} Days Overdue (€ {activeTenant.overdueAmountEur},-)</span>
+                          <span>{activeTenant.overdueDays} Days Overdue{activeTenant.overdueAmountEur == null ? "" : ` (${euro(activeTenant.overdueAmountEur)})`}</span>
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium text-[var(--ink-2)] bg-[var(--selected)] border border-[var(--line)]">
-                          <span>Rent Up to Date</span>
+                          <span>{rentStatusLabel(activeTenant.rentStatus)}</span>
                         </span>
                       )}
                     </div>
@@ -366,33 +377,37 @@ function TenantsContent() {
                     <div>
                       <span className="text-[var(--ink-3)] block">Monthly Rent</span>
                       <span className="font-mono text-sm font-semibold text-[var(--ink)]">
-                        € {activeTenant.monthlyRentEur},-
+                        {euro(activeTenant.monthlyRentEur)}
                       </span>
                     </div>
                     <div>
                       <span className="text-[var(--ink-3)] block">Security Deposit</span>
                       <span className="font-mono text-sm text-[var(--ink-2)]">
-                        € {activeTenant.depositEur},-
+                        {euro(activeTenant.depositEur)}
                       </span>
                     </div>
                     <div>
                       <span className="text-[var(--ink-3)] block">Lease Commencement</span>
                       <span className="font-medium text-[var(--ink)]">
-                        {activeTenant.leaseStart}
+                        {activeTenant.leaseStart ?? UNKNOWN}
                       </span>
                     </div>
                     <div>
                       <span className="text-[var(--ink-3)] block">Lease Expiry</span>
                       <span className="font-medium text-[var(--ink)]">
-                        {activeTenant.leaseEnd}
+                        {activeTenant.leaseEnd ?? UNKNOWN}
                       </span>
                     </div>
                     <div>
                       <span className="text-[var(--ink-3)] block">Identity & Vetting</span>
-                      <span className="font-medium text-emerald-600 flex items-center gap-1 pt-0.5">
-                        <ShieldCheck className="w-3.5 h-3.5" />
-                        <span>iDIN Verified</span>
-                      </span>
+                      {activeTenant.idVerified ? (
+                        <span className="font-medium text-emerald-600 flex items-center gap-1 pt-0.5">
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          <span>iDIN Verified</span>
+                        </span>
+                      ) : (
+                        <span className="font-medium text-[var(--ink-2)] pt-0.5 block">{UNKNOWN}</span>
+                      )}
                     </div>
                     <div>
                       <span className="text-[var(--ink-3)] block">Payment Status</span>
@@ -400,7 +415,7 @@ function TenantsContent() {
                         {activeTenant.rentStatus === "overdue" ? (
                           <span className="text-[var(--accent-ink)] font-semibold">Overdue ({activeTenant.overdueDays}d)</span>
                         ) : (
-                          "Direct Debit (SEPA)"
+                          rentStatusLabel(activeTenant.rentStatus)
                         )}
                       </span>
                     </div>
@@ -415,11 +430,11 @@ function TenantsContent() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                     <div className="flex items-center gap-2 text-[var(--ink)]">
                       <Phone className="w-4 h-4 text-[var(--ink-3)] shrink-0" />
-                      <span className="font-mono">{activeTenant.phone}</span>
+                      <span className="font-mono">{activeTenant.phone ?? UNKNOWN}</span>
                     </div>
                     <div className="flex items-center gap-2 text-[var(--ink)]">
                       <Mail className="w-4 h-4 text-[var(--ink-3)] shrink-0" />
-                      <span>{activeTenant.email}</span>
+                      <span>{activeTenant.email ?? UNKNOWN}</span>
                     </div>
                   </div>
                 </div>
@@ -448,6 +463,9 @@ function TenantsContent() {
                   </div>
 
                   <div className="divide-y divide-[var(--line)] border border-[var(--line)] rounded-lg overflow-hidden bg-[var(--pane)]">
+                    {activeTenant.documents.length === 0 && (
+                      <p className="text-xs text-[var(--ink-3)] italic">No documents filed.</p>
+                    )}
                     {activeTenant.documents.map((doc) => (
                       <div
                         key={doc.id}
@@ -498,7 +516,7 @@ function TenantsContent() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => router.push(`/properties?complex=comp-keizersgracht`)}
+                    onClick={() => router.push(`/properties?unit=${encodeURIComponent(activeTenant.unitLabel)}`)}
                     className="text-xs border border-[var(--line)] text-[var(--ink-2)]"
                   >
                     View unit
@@ -549,7 +567,7 @@ function TenantsContent() {
                   {stats.total} Active Residents
                 </div>
                 <div className="text-xs text-[var(--ink-3)]">
-                  {stats.overdue} overdue · {stats.upToDate} up to date
+                  {stats.overdue} overdue · {stats.upToDate} up to date{stats.unknown > 0 ? ` · ${stats.unknown} rent unknown` : ""}
                 </div>
               </div>
 
@@ -576,7 +594,7 @@ function TenantsContent() {
                         : "bg-[var(--bg)] text-[var(--ink-2)] border border-[var(--line)]"
                     )}
                   >
-                    Paid ({stats.upToDate})
+                    Up to date ({stats.upToDate})
                   </button>
                   <button
                     onClick={() => setActiveTab("overdue")}
@@ -622,12 +640,12 @@ function TenantsContent() {
                           </span>
                         ) : (
                           <span className="text-xs text-[var(--ink-3)] shrink-0">
-                            Paid
+                            {rentStatusLabel(tenant.rentStatus)}
                           </span>
                         )}
                       </div>
                       <div className="text-xs text-[var(--ink-3)] mt-0.5 truncate">
-                        {tenant.unitLabel} · € {tenant.monthlyRentEur},-
+                        {tenant.unitLabel} · {euro(tenant.monthlyRentEur)}
                       </div>
                     </div>
                     <ChevronRight className="w-4 h-4 text-[var(--ink-3)] shrink-0 ml-1" />
@@ -666,7 +684,7 @@ function TenantsContent() {
                   </span>
                 ) : (
                   <span className="text-xs text-[var(--ink-3)]">
-                    Paid
+                    {rentStatusLabel(activeTenant.rentStatus)}
                   </span>
                 )}
               </div>
@@ -681,22 +699,22 @@ function TenantsContent() {
                     <div>
                       <span className="text-xs text-[var(--ink-3)] block">Monthly Rent</span>
                       <span className="font-mono font-semibold text-[var(--ink)]">
-                        € {activeTenant.monthlyRentEur},-
+                        {euro(activeTenant.monthlyRentEur)}
                       </span>
                     </div>
                     <div>
                       <span className="text-xs text-[var(--ink-3)] block">Security Deposit</span>
                       <span className="font-mono text-[var(--ink-2)]">
-                        € {activeTenant.depositEur},-
+                        {euro(activeTenant.depositEur)}
                       </span>
                     </div>
                     <div>
                       <span className="text-xs text-[var(--ink-3)] block">Commencement</span>
-                      <span className="font-medium text-[var(--ink)]">{activeTenant.leaseStart}</span>
+                      <span className="font-medium text-[var(--ink)]">{activeTenant.leaseStart ?? UNKNOWN}</span>
                     </div>
                     <div>
                       <span className="text-xs text-[var(--ink-3)] block">Expiry</span>
-                      <span className="font-medium text-[var(--ink)]">{activeTenant.leaseEnd}</span>
+                      <span className="font-medium text-[var(--ink)]">{activeTenant.leaseEnd ?? UNKNOWN}</span>
                     </div>
                   </div>
                 </div>
@@ -709,11 +727,11 @@ function TenantsContent() {
                   <div className="space-y-1.5 text-xs text-[var(--ink)]">
                     <div className="flex items-center gap-2">
                       <Phone className="w-3.5 h-3.5 text-[var(--ink-3)]" />
-                      <span className="font-mono">{activeTenant.phone}</span>
+                      <span className="font-mono">{activeTenant.phone ?? UNKNOWN}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Mail className="w-3.5 h-3.5 text-[var(--ink-3)]" />
-                      <span>{activeTenant.email}</span>
+                      <span>{activeTenant.email ?? UNKNOWN}</span>
                     </div>
                   </div>
                 </div>
@@ -737,6 +755,9 @@ function TenantsContent() {
                   </span>
 
                   <div className="divide-y divide-[var(--line)] border border-[var(--line)] rounded-lg overflow-hidden bg-[var(--pane)]">
+                    {activeTenant.documents.length === 0 && (
+                      <p className="text-xs text-[var(--ink-3)] italic">No documents filed.</p>
+                    )}
                     {activeTenant.documents.map((doc) => (
                       <div
                         key={doc.id}
@@ -785,7 +806,7 @@ function TenantsContent() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => router.push(`/properties?complex=comp-keizersgracht`)}
+                    onClick={() => router.push(`/properties?unit=${encodeURIComponent(activeTenant.unitLabel)}`)}
                     className="flex-1 text-xs border border-[var(--line)] py-2.5"
                   >
                     View unit
@@ -824,6 +845,33 @@ function TenantsContent() {
 
     </div>
   );
+}
+
+function TenantsContent() {
+  const [state, setState] = useState<
+    { status: "loading" } | { status: "error" } | { status: "ready"; tenants: TenantProfile[] }
+  >({ status: "loading" });
+
+  useEffect(() => {
+    let isMounted = true;
+    const load = () =>
+      getTenantProfiles().then((result) => {
+        if (!isMounted) return;
+        if (result.ok) setState({ status: "ready", tenants: result.data });
+        else setState((prev) => (prev.status === "ready" ? prev : { status: "error" }));
+      });
+    void load();
+    const poll = setInterval(load, 30000);
+    return () => {
+      isMounted = false;
+      clearInterval(poll);
+    };
+  }, []);
+
+  if (state.status === "loading") return <PageStateShell title="Tenants" message="Loading tenants…" />;
+  if (state.status === "error") return <PageStateShell title="Tenants" message="Can't reach the server. Retrying…" alert />;
+  if (state.tenants.length === 0) return <PageStateShell title="Tenants" message="No tenants recorded yet." />;
+  return <TenantsView tenants={state.tenants} />;
 }
 
 export default function TenantsPage() {

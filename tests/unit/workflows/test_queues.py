@@ -22,7 +22,16 @@ def _register(settings: Settings) -> dict[str, dict[str, Any]]:
 
 def test_every_named_queue_is_registered_at_boot() -> None:
     registered = _register(_settings())
-    assert set(registered) == {"pipeline", "gmail_sync", "timers", "documents", "concierge", "brixx", "finance"}
+    assert set(registered) == {
+        "pipeline",
+        "gmail_sync",
+        "timers",
+        "documents",
+        "concierge",
+        "brixx",
+        "brixx_documents",
+        "finance",
+    }
     names = {v for k, v in vars(workflow_names).items() if k.endswith("_QUEUE")}
     assert names == set(registered)
 
@@ -47,6 +56,7 @@ def test_other_queues_keep_their_options() -> None:
     assert registered["timers"] == {"worker_concurrency": 2}
     assert registered["documents"] == {"partition_concurrency": 1}
     assert registered["brixx"] == {"worker_concurrency": 2}
+    assert registered["brixx_documents"] == {"concurrency": 1}  # one BRIXX download at a time, across workers
 
 
 def test_the_chat_queue_handle_is_the_registered_one() -> None:

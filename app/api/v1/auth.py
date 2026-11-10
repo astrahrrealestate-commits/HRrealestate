@@ -144,7 +144,33 @@ def _secure(settings: Settings) -> bool:
     return settings.env not in ("dev", "test")
 
 
-def _short(email: str) -> str:
+def set_session_cookie(response: Response, settings: Settings, token: str) -> None:
+    """The one writer of the session cookie (v1 session exchange and the Google login callback)."""
+    response.set_cookie(
+        COOKIE,
+        token,
+        max_age=settings.dashboard_session_ttl_min * 60,
+        httponly=True,
+        samesite="strict",
+        secure=_secure(settings),
+        domain=settings.dashboard_cookie_domain,
+        path="/",
+    )
+
+
+def clear_session_cookie(response: Response, settings: Settings) -> None:
+    response.delete_cookie(
+        COOKIE,
+        httponly=True,
+        samesite="strict",
+        secure=_secure(settings),
+        domain=settings.dashboard_cookie_domain,
+        path="/",
+    )
+
+
+def email_fingerprint(email: str) -> str:
+    """A short hash for logs: enough to correlate attempts, never the address itself."""
     return hashlib.sha256(email.lower().encode()).hexdigest()[:8]
 
 
@@ -158,9 +184,11 @@ def default_dev_principal(engine: Engine | Connection) -> Principal | None:
 
 
 def _dev_bypass(request: Request) -> bool:
-    """Local dev only (`env == "dev"`): the SPA runs without a login. `test` and `prod` always authenticate."""
+    """Local dev only: the SPA runs without a login when `env == "dev"` AND the fake identity provider is configured.
+    `test` and `prod` always authenticate. Choosing the Google provider is the operator saying "real logins", so a
+    deployment that forgot `ENV=prod` (the default is `dev`) does not fall open."""
     settings = getattr(request.app.state, "settings", None)
-    return isinstance(settings, Settings) and settings.env == "dev"
+    return isinstance(settings, Settings) and settings.env == "dev" and settings.dashboard_auth_provider == "fake"
 
 
 def _dev_principal_or_401(request: Request) -> Principal:
@@ -202,6 +230,18 @@ def require_csrf(
         raise HTTPException(status_code=403, detail="missing client header")
 
 
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+async def require_session(request: Request) -> Principal:
+    """Guard of the dashboard routers: a valid session and, for anything that changes state, the client header (the
+    cookie is SameSite=Strict, the CORS allow-list is exact, and this header is the third CSRF layer of ADR 0006)."""
+    principal = await require_principal(request)
+    if request.method not in SAFE_METHODS:
+        require_csrf(request, request.headers.get(CSRF_HEADER))
+    return principal
+
+
 class SessionRequest(BaseModel):
     id_token: str
 
@@ -219,25 +259,22 @@ async def create_session(body: SessionRequest, request: Request, response: Respo
     except AuthError:
         raise HTTPException(status_code=401, detail="invalid id token") from None
     principal = await run_in_threadpool(owner_by_email, state.engine, email)
+    if principal is None and _dev_bypass(request):
+        # Local development with the fake identity provider: the dev token signs in as the owner that exists (the fake
+        # email maps to nobody once a real mailbox has been connected). The same gate as the no-login bypass.
+        principal = await run_in_threadpool(default_dev_principal, state.engine)
     if principal is None:
-        log.info("dashboard_login_unknown_owner", email_hash=_short(email))
+        log.info("dashboard_login_unknown_owner", email_hash=email_fingerprint(email))
         raise HTTPException(status_code=403, detail="not an owner account")
     settings: Settings = state.settings
-    response.set_cookie(
-        COOKIE,
-        issue_session(settings, principal, datetime.now(UTC)),
-        max_age=settings.dashboard_session_ttl_min * 60,
-        httponly=True,
-        samesite="strict",
-        secure=_secure(settings),
-    )
-    log.info("dashboard_login", email_hash=_short(email))
+    set_session_cookie(response, settings, issue_session(settings, principal, datetime.now(UTC)))
+    log.info("dashboard_login", email_hash=email_fingerprint(email))
     return {"email": principal.email, "company_id": str(principal.company_id)}
 
 
 @router.delete("/auth/session", status_code=204, dependencies=[Depends(require_csrf)])
 def delete_session(request: Request, response: Response) -> None:
-    response.delete_cookie(COOKIE, httponly=True, samesite="strict", secure=_secure(request.app.state.settings))
+    clear_session_cookie(response, request.app.state.settings)
 
 
 @router.get("/me")

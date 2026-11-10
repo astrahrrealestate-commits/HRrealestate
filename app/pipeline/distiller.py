@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.channels.dashboard import feed
+from app.context.memory_dedup import find_near_duplicate
 from app.context.memory_items import (
     normalize_memory_text,
     screen_memory_text,
@@ -99,6 +100,17 @@ def propose_distilled_memory(
             MemoryItem.text == clean,
         )
     )
+    if existing is None:
+        existing = find_near_duplicate(
+            session,
+            company_id,
+            scope,
+            scope_id,
+            clean,
+            (MemoryStatus.active, MemoryStatus.proposed),
+            kind=kind,
+            origin=MemoryOrigin.distilled,
+        )
     refs = list(source_refs or [])
     if existing is not None:
         existing.evidence_count += 1

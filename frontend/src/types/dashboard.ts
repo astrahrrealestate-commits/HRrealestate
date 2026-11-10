@@ -14,6 +14,8 @@ export interface DraftOption {
   recipientType: RecipientRole;
   recipientName: string;
   inResponseTo?: string; // Exact quote of the message this draft replies to
+  language?: "nl" | "en" | "unknown";
+  englishMeaning?: string; // cached English of a Dutch draft
 }
 
 export interface MultiPartyDrafts {

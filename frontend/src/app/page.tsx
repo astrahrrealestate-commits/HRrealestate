@@ -45,6 +45,10 @@ import {
   isUrgent,
 } from "@/lib/selectors";
 import { useSuperAgent } from "@/context/SuperAgentContext";
+import { getPortfolio, getTenantProfiles } from "@/lib/portfolioApi";
+import type { TenantProfile } from "@/types/portfolio";
+import type { PropertyComplex } from "@/types/portfolio";
+import { ticketRef } from "@/lib/caseRef";
 
 
 export default function TodayPage() {
@@ -55,6 +59,8 @@ export default function TodayPage() {
   // State
   const [threads, setThreads] = useState<InboxThread[]>([]);
   const [metrics, setMetrics] = useState<PulseMetrics>(INITIAL_METRICS);
+  const [portfolio, setPortfolio] = useState<PropertyComplex[] | null>(null);
+  const [tenants, setTenants] = useState<TenantProfile[] | null>(null);
   const [radarItems, setRadarItems] = useState<StalledItem[]>([]);
   const [inquiries, setInquiries] = useState<ProspectiveInquiry[]>([]);
   const [logs, setLogs] = useState<AutonomousActionLog[]>([]);
@@ -78,9 +84,9 @@ export default function TodayPage() {
     contractorPhone: "",
     urgency: "normal",
     status: "pending_approval",
-    slaRemaining: "4h SLA",
+    slaRemaining: "",
     isOverdue: false,
-    poBudgetCap: "€ 350",
+    poBudgetCap: "",
     reportedAt: "Today",
     notes: "",
     originalMessage: "",
@@ -109,6 +115,12 @@ export default function TodayPage() {
       })
       .catch((err) => console.warn("Failed to load threads on Today:", err));
 
+    getPortfolio().then((result) => {
+      if (isMounted && result.ok) setPortfolio(result.data);
+    });
+    getTenantProfiles().then((result) => {
+      if (isMounted && result.ok) setTenants(result.data);
+    });
     // 2. Metrics & radar & inquiries & logs
     Promise.all([
       getDashboardPulse(),
@@ -147,7 +159,7 @@ export default function TodayPage() {
 
   const handleSaveTicket = async (updatedTicket: MaintenanceTicket) => {
     try {
-      await updateMaintenanceTicket(updatedTicket.ticketNumber, updatedTicket);
+      await updateMaintenanceTicket(updatedTicket.id || updatedTicket.ticketNumber, updatedTicket);
       setMaintenanceTickets((prev) =>
         prev.map((t) => (t.ticketNumber === updatedTicket.ticketNumber ? updatedTicket : t))
       );
@@ -290,7 +302,6 @@ export default function TodayPage() {
 
     actionLockRef.current[`dispatch-${targetKey}`] = true;
     setContractorDispatchedMap((prev) => ({ ...prev, [targetKey]: true }));
-
     // Copy work order to clipboard
     if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
       try {
@@ -304,6 +315,11 @@ export default function TodayPage() {
     try {
       await updateMaintenanceTicket(ticket.ticketNumber, {
         contractorDraft: currentOrder.trim(),
+      });
+      await approveMaintenanceTicket(ticket.id || ticket.ticketNumber, {
+        dispatchContractor: true,
+        notifyTenant: false,
+        poBudgetCap: ticket.poBudgetCap,
       });
     } catch {
       // Graceful
@@ -325,6 +341,31 @@ export default function TodayPage() {
       const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(contractorEmail)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(currentOrder.trim())}`;
       window.open(gmailUrl, "_blank");
       showToast(`Work order copied to clipboard & opened in Gmail for ${ticket.contractorName}.`);
+    }
+
+    setTimeout(() => {
+      delete actionLockRef.current[`dispatch-${targetKey}`];
+    }, 1200);
+  };
+
+  const handleApproveBoth = async (
+    ticket: MaintenanceTicket,
+    channel: "whatsapp" | "gmail" | string,
+    key?: string
+  ) => {
+    const targetKey = key || ticket.id || ticket.ticketNumber;
+    setContractorDispatchedMap((prev) => ({ ...prev, [targetKey]: true }));
+    setTenantReplySentMap((prev) => ({ ...prev, [targetKey]: true }));
+    showToast(`Ticket ${ticket.ticketNumber}: Dispatched to ${ticket.contractorName} & replied via ${channel === "whatsapp" ? "WhatsApp" : "Email"}.`);
+    try {
+      await approveMaintenanceTicket(ticket.id || ticket.ticketNumber, {
+        dispatchContractor: true,
+        notifyTenant: true,
+        poBudgetCap: ticket.poBudgetCap,
+      });
+    } catch {
+      // Graceful
+    }
     }
 
     setTimeout(() => {
@@ -399,7 +440,7 @@ export default function TodayPage() {
       href: "/inbox",
     },
     {
-      count: metrics.autonomousActionsWeek || 142,
+      count: metrics.autonomousActionsWeek,
       label: "handled this week",
     },
   ], [currentNeedsYouCount, currentUrgentCount, metrics.autonomousActionsWeek]);
@@ -452,19 +493,29 @@ export default function TodayPage() {
     ];
   }, [inquiries, activeSection]);
 
-  // Financial Aging distribution for bottom pane
+  // Open rent by days overdue, from the tenants' own overdue rent. Empty until rent payments are mirrored.
+  const overdueTenants = (tenants ?? []).filter((t) => t.rentStatus === "overdue" && t.overdueDays > 0 && (t.monthlyRentEur ?? 0) > 0);
+  const agingTotal = overdueTenants.reduce((sum, t) => sum + (t.monthlyRentEur ?? 0), 0);
   const agingBuckets = [
-    { label: "0–30 days", amount: "€ 120.400,-", pct: 72.6, barClass: "bg-[var(--ink)]" },
-    { label: "30–90 days", amount: "€ 35.334,99", pct: 21.3, barClass: "bg-[var(--ink-3)]" },
-    { label: "90+ days", amount: "€ 10.000,-", pct: 6.1, barClass: "bg-[var(--accent)]" },
-  ];
+    { label: "1–30 days", min: 1, max: 30, barClass: "bg-[var(--ink)]" },
+    { label: "31–90 days", min: 31, max: 90, barClass: "bg-[var(--ink-3)]" },
+    { label: "91+ days", min: 91, max: Infinity, barClass: "bg-[var(--accent)]" },
+  ].map((bucket) => {
+    const sum = overdueTenants.filter((t) => t.overdueDays >= bucket.min && t.overdueDays <= bucket.max).reduce((n, t) => n + (t.monthlyRentEur ?? 0), 0);
+    return { ...bucket, sum, amount: formatCurrency(sum), pct: agingTotal > 0 ? (sum / agingTotal) * 100 : 0 };
+  });
 
-  // Occupancy distribution per building
-  const occupancyBuildings = [
-    { name: "Keizersgracht (42-46)", rate: 100, occupied: 42, total: 42 },
-    { name: "Prinsengracht (118-124)", rate: 92.1, occupied: 35, total: 38 },
-    { name: "Herengracht Historic", rate: 90.0, occupied: 27, total: 30 },
-  ];
+  // Occupancy per building and overall: the same portfolio data the Properties page shows
+  const occupancyBuildings = (portfolio ?? []).map((c) => ({
+    name: c.name,
+    rate: c.occupancyRate,
+    occupied: c.occupiedUnits,
+    total: c.totalUnits,
+  }));
+  const portfolioUnits = occupancyBuildings.reduce((n, b) => n + b.total, 0);
+  const portfolioOccupied = occupancyBuildings.reduce((n, b) => n + b.occupied, 0);
+  const occupancyHeadline =
+    portfolio && portfolioUnits > 0 ? `${Math.round((portfolioOccupied / portfolioUnits) * 1000) / 10}%` : "—";
 
   // Briefing mode: Daily pulse vs Weekly recap
   const [briefingKind, setBriefingKind] = useState<"daily" | "weekly">("daily");
@@ -505,7 +556,7 @@ export default function TodayPage() {
         <div className="flex-1 flex flex-row overflow-hidden min-h-0 w-full relative">
           <div className="flex-1 m-0 mr-[10px] mb-[10px] bg-white rounded-[14px] border border-[#162B45] shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden relative">
             <main className="flex-1 w-full max-w-[960px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-12 space-y-7 overflow-y-auto">
-          
+
           {/* Top Briefing Header with Daily / Weekly Switcher */}
           <div className="space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -571,7 +622,7 @@ export default function TodayPage() {
                       href="/inbox"
                       className="font-semibold text-[var(--accent-ink)] hover:underline underline-offset-4 whitespace-nowrap"
                     >
-                      {currentUrgentCount} is urgent
+                      {currentUrgentCount} {currentUrgentCount === 1 ? "is" : "are"} urgent
                     </Link>
                   </>
                 ) : null}
@@ -778,7 +829,7 @@ export default function TodayPage() {
           {/* Emergency Alert Card with In-Place Maintenance Ticket & Channel-Aware Actions */}
           {(activeSection === "all" || activeSection === "urgent") && (
             topUrgentThread ? (() => {
-            const ticketNum = topUrgentThread.ticketNumber || "#005";
+            const ticketNum = topUrgentThread.ticketNumber || ticketRef(topUrgentThread.caseId || topUrgentThread.id);
             const ticket: MaintenanceTicket = maintenanceTickets.find(
               (t) =>
                 t.ticketNumber === ticketNum ||
@@ -824,9 +875,11 @@ export default function TodayPage() {
 
                   {/* Exactly Required Options: In-Place Details, Channel-Specific Tenant Reply, Contractor Dispatch */}
                   <div className="flex items-center gap-2 shrink-0 self-end md:self-center flex-wrap">
-                    <span className="font-mono text-xs text-[var(--accent-ink)] font-bold px-2 py-0.5 rounded bg-[var(--accent)]/10 border border-[var(--accent)]/20">
-                      {ticket.slaRemaining || "38m SLA"}
-                    </span>
+                    {ticket.slaRemaining && (
+                      <span className="font-mono text-xs text-[var(--accent-ink)] font-bold px-2 py-0.5 rounded bg-[var(--accent)]/10 border border-[var(--accent)]/20">
+                        {ticket.slaRemaining}
+                      </span>
+                    )}
 
                     {/* View Ticket Details on the same page */}
                     <button
@@ -929,7 +982,7 @@ export default function TodayPage() {
                           ) : (
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#EA4335]/10 text-[#C5221F] font-semibold text-xs border border-[#EA4335]/20">
                               <Mail className="w-3.5 h-3.5" />
-                              <span>Inbound via Email · {topUrgentThread.senderContact || "pieter.bakker@gmail.com"}</span>
+                              <span>Inbound via Email · {topUrgentThread.senderContact}</span>
                             </span>
                           )}
                           <span className="text-[var(--ink-3)] hidden sm:inline">·</span>
@@ -937,7 +990,7 @@ export default function TodayPage() {
                           <span className="text-xs text-[var(--ink-3)] font-mono">({ticket.unitLabel})</span>
                         </div>
                         <span className="font-mono text-xs font-semibold text-[var(--ink-3)] bg-[var(--selected)] px-2.5 py-0.5 rounded border border-[var(--line)]">
-                          {topUrgentThread.relativeTime || "Today 08:15 CET"}
+                          {topUrgentThread.relativeTime}
                         </span>
                       </div>
 
@@ -1052,7 +1105,7 @@ export default function TodayPage() {
                                       : "bg-blue-50 text-blue-700 border-blue-200"
                                   )}
                                 >
-                                  {isUnavailable ? "⚠ Contractor Unavailable" : isContractorDispatched ? "✓ Dispatched" : `Pre-Approved Cap: ${ticket.poBudgetCap}`}
+                                  {isUnavailable ? "⚠ Contractor Unavailable" : isContractorDispatched ? "✓ Dispatched" : (ticket.poBudgetCap ? `Cap: ${ticket.poBudgetCap}` : "No cap recorded")}
                                 </span>
                               );
                             })()}
@@ -1406,7 +1459,7 @@ export default function TodayPage() {
           {(activeSection === "all" || activeSection === "overview") && (
           <section id="section-overview" className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] overflow-hidden">
             <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-[var(--line)]">
-              
+
               {/* Column 1: Open rent */}
               <div className="p-5 sm:p-6 flex flex-col justify-between space-y-4">
                 <div>
@@ -1415,29 +1468,35 @@ export default function TodayPage() {
                       Open rent
                     </span>
                     <span className="font-mono text-[15px] font-semibold text-[var(--ink)] tabular-nums">
-                      {formatCurrency(metrics.openRentTotalEur)}
+                      {agingTotal > 0 ? formatCurrency(agingTotal) : "—"}
                     </span>
                   </div>
 
-                  {/* Horizontal Segmented Progress Bar */}
-                  <div className="h-2 w-full rounded-full bg-[var(--selected)] overflow-hidden flex mt-3">
-                    <div style={{ width: "72.6%" }} className="bg-[var(--ink)] h-full" title="0–30 days: 72.6%" />
-                    <div style={{ width: "21.3%" }} className="bg-[var(--ink-3)] h-full" title="30–90 days: 21.3%" />
-                    <div style={{ width: "6.1%" }} className="bg-[var(--accent)] h-full" title="90+ days: 6.1%" />
-                  </div>
-
-                  {/* Legend */}
-                  <div className="space-y-1.5 mt-3 text-xs text-[var(--ink-2)]">
-                    {agingBuckets.map((b) => (
-                      <div key={b.label} className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <span className={cn("w-2 h-2 rounded-full", b.barClass)} />
-                          <span>{b.label}</span>
-                        </div>
-                        <span className="font-mono text-[var(--ink-3)] tabular-nums">{b.amount}</span>
+                  {agingTotal > 0 ? (
+                    <>
+                      {/* Horizontal Segmented Progress Bar */}
+                      <div className="h-2 w-full rounded-full bg-[var(--selected)] overflow-hidden flex mt-3">
+                        {agingBuckets.map((b) => (
+                          <div key={b.label} style={{ width: `${b.pct}%` }} className={cn(b.barClass, "h-full")} title={`${b.label}: ${b.pct.toFixed(1)}%`} />
+                        ))}
                       </div>
-                    ))}
-                  </div>
+
+                      {/* Legend */}
+                      <div className="space-y-1.5 mt-3 text-xs text-[var(--ink-2)]">
+                        {agingBuckets.map((b) => (
+                          <div key={b.label} className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5">
+                              <span className={cn("w-2 h-2 rounded-full", b.barClass)} />
+                              <span>{b.label}</span>
+                            </div>
+                            <span className="font-mono text-[var(--ink-3)] tabular-nums">{b.amount}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="mt-3 text-xs text-[var(--ink-3)]">No overdue rent recorded. Rent payments are not mirrored yet.</p>
+                  )}
                 </div>
 
                 <Link
@@ -1457,7 +1516,7 @@ export default function TodayPage() {
                       Occupancy
                     </span>
                     <span className="font-mono text-[15px] font-semibold text-[var(--ink)] tabular-nums">
-                      {metrics.occupancyPercentage}%
+                      {occupancyHeadline}
                     </span>
                   </div>
 
@@ -1486,7 +1545,7 @@ export default function TodayPage() {
                   href="/properties"
                   className="text-xs font-medium text-[var(--ink)] hover:underline underline-offset-4 inline-flex items-center gap-1 pt-1"
                 >
-                  <span>View 110 units directory</span>
+                  <span>{portfolio ? `View ${portfolioUnits} units directory` : "View units directory"}</span>
                   <ArrowRight className="w-3 h-3" />
                 </Link>
               </div>

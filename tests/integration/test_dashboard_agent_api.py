@@ -202,3 +202,32 @@ def test_conversation_turns_expose_their_recorded_timings(world: World, test_set
         "warm_hit",
         "first_delta_ms",
     }
+
+
+def test_done_command_closes_the_owners_task_without_the_model(world: World) -> None:
+    from app.db.enums import TaskStatus
+    from app.db.models import TaskRow
+    from app.pipeline import work_repo
+
+    with Session(world.engine) as s, s.begin():
+        task_id = work_repo.create_task(
+            s, world.company, title="Dispatch Kevin van Dijk", assignee="owner", source="owner"
+        )
+    ref = work_repo.short_ref(task_id)
+    try:
+        r = world.client.post("/api/agent/ask", json={"query": f"done #{ref}"}, headers=H)
+        assert r.status_code == 200
+        assert r.json()["answer"].startswith("Done: Dispatch Kevin van Dijk")
+        with Session(world.engine) as s:
+            task = s.get(TaskRow, task_id)
+            assert task is not None
+            assert task.status is TaskStatus.done
+    finally:
+        with Session(world.engine) as s, s.begin():
+            s.query(TaskRow).filter(TaskRow.id == task_id).delete()
+
+
+def test_done_with_an_unknown_ref_changes_nothing_and_says_so(world: World) -> None:
+    r = world.client.post("/api/agent/ask", json={"query": "done #abcdef"}, headers=H)
+    assert r.status_code == 200
+    assert "no open task #abcdef" in r.json()["answer"].lower()

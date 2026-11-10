@@ -1,4 +1,5 @@
 import { differenceInCalendarDays, format } from "date-fns";
+import { formatClock, localDayNumber, localParts } from "@/lib/clock";
 
 /**
  * Format timestamp according to Section 3.5:
@@ -13,9 +14,7 @@ export function formatListTime(d: Date | string | number | null | undefined, now
   // If running in SSR/prerender context without window, use deterministic timestamp to prevent Next.js 16 dynamic prerender error
   const referenceNow = now ?? (typeof window !== "undefined" ? new Date() : STATIC_NOW);
   if (!d) {
-    const hh = String(referenceNow.getUTCHours()).padStart(2, "0");
-    const mm = String(referenceNow.getUTCMinutes()).padStart(2, "0");
-    return `Today ${hh}:${mm}`;
+    return `Today ${formatClock(referenceNow)}`;
   }
 
   if (typeof d === "string") {
@@ -33,21 +32,15 @@ export function formatListTime(d: Date | string | number | null | undefined, now
     if (typeof d === "string" && d.trim().length > 0) {
       return d.trim();
     }
-    const hh = String(referenceNow.getUTCHours()).padStart(2, "0");
-    const mm = String(referenceNow.getUTCMinutes()).padStart(2, "0");
-    return `Today ${hh}:${mm}`;
+    return `Today ${formatClock(referenceNow)}`;
   }
 
-  const hh = String(dateObj.getUTCHours()).padStart(2, "0");
-  const mm = String(dateObj.getUTCMinutes()).padStart(2, "0");
-  const refDay = referenceNow.toISOString().slice(0, 10);
-  const objDay = dateObj.toISOString().slice(0, 10);
-
-  if (refDay === objDay) return `Today ${hh}:${mm}`;
-  const diffDays = Math.round((new Date(refDay).getTime() - new Date(objDay).getTime()) / (1000 * 60 * 60 * 24));
-  if (diffDays === 1) return `Yesterday ${hh}:${mm}`;
+  const clock = formatClock(dateObj);
+  const diffDays = localDayNumber(referenceNow) - localDayNumber(dateObj);
+  if (diffDays === 0) return `Today ${clock}`;
+  if (diffDays === 1) return `Yesterday ${clock}`;
+  const local = localParts(dateObj);
+  if (diffDays < 7 && diffDays > 0) return `${local.weekday} ${clock}`;
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const daysShort = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  if (diffDays < 7 && diffDays > 0) return `${daysShort[dateObj.getUTCDay()]} ${hh}:${mm}`;
-  return `${dateObj.getUTCDate()} ${months[dateObj.getUTCMonth()]} ${hh}:${mm}`;
+  return `${local.day} ${months[local.month - 1]} ${clock}`;
 }

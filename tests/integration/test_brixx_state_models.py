@@ -1,4 +1,4 @@
-"""BRIXX sync bookkeeping tables: enums round-trip and one state row per (company, table)."""
+"""BRIXX sync bookkeeping tables: enums round-trip, one state row per (company, table), document uniqueness."""
 
 from datetime import UTC, datetime
 
@@ -6,9 +6,9 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.enums import BrixxRunKind, BrixxRunStatus
+from app.db.enums import BrixxDocumentStatus, BrixxRunKind, BrixxRunStatus
 from app.db.models import Company
-from app.db.models.brixx import BrixxSyncRun, BrixxSyncTableState
+from app.db.models.brixx import BrixxDocument, BrixxSyncRun, BrixxSyncTableState
 
 pytestmark = pytest.mark.integration
 
@@ -68,3 +68,30 @@ def test_run_round_trips_enum_values(db: Session, company: Company) -> None:
     assert run.status is BrixxRunStatus.failed
     assert run.error == "boom"
     assert run.started_at == started
+
+
+SHA = "a" * 64
+
+
+def test_document_content_unique_per_company_document_and_sha(db: Session, company: Company) -> None:
+    db.add(BrixxDocument(company_id=company.id, document_id=7, source_version="v1", sha256=SHA))
+    db.flush()
+    db.add(BrixxDocument(company_id=company.id, document_id=7, source_version="v2", sha256=SHA))
+    with pytest.raises(IntegrityError):
+        db.flush()
+
+
+def test_document_version_claimed_once(db: Session, company: Company) -> None:
+    db.add(BrixxDocument(company_id=company.id, document_id=7, source_version="v1"))
+    db.flush()
+    db.add(BrixxDocument(company_id=company.id, document_id=7, source_version="v1"))
+    with pytest.raises(IntegrityError):
+        db.flush()
+
+
+def test_unstored_versions_coexist_and_default_to_pending(db: Session, company: Company) -> None:
+    first = BrixxDocument(company_id=company.id, document_id=7, source_version="v1")
+    db.add_all([first, BrixxDocument(company_id=company.id, document_id=7, source_version="v2")])
+    db.flush()  # sha256 NULL twice: NULLs are distinct
+    db.refresh(first)
+    assert (first.status, first.attempts, first.sha256) == (BrixxDocumentStatus.pending, 0, None)

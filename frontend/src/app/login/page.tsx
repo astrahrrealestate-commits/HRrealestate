@@ -4,6 +4,7 @@ import React, { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Sparkles, ShieldAlert, Lock, Loader2, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/backend";
 
 function GoogleIcon() {
   return (
@@ -28,6 +29,19 @@ function GoogleIcon() {
   );
 }
 
+// Fixed wording per error code: the page never displays text taken from the URL, so a crafted link cannot put its own
+// words in the sign-in banner.
+const LOGIN_MESSAGES: Record<string, string> = {
+  invalid_state: "That sign-in link has expired or was opened in a different browser. Please start again.",
+  unverified_email: "Google has not verified this email address, so it cannot be used to sign in.",
+  no_email: "Google did not return an email address for this account.",
+  no_code: "Google did not complete the sign-in. Please try again.",
+  not_configured: "Sign-in is not configured on this server. Contact your EstateOS administrator.",
+  token_exchange_failed: "Google sign-in failed. Please try again.",
+  profile_unavailable: "Could not read your Google profile. Please try again.",
+  provider_unreachable: "Google could not be reached. Please try again in a moment.",
+};
+
 function LoginForm() {
   const searchParams = useSearchParams();
   const errorParam = searchParams.get("error");
@@ -36,18 +50,38 @@ function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Local development only (the fake identity provider): sign in as the dev owner without Google.
+  const handleDevLogin = async () => {
+    setIsLoading(true);
+    setErrorMessage(null);
+    try {
+      const res = await apiFetch("/api/v1/auth/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id_token: "test-owner-token" }),
+      });
+      if (!res.ok) {
+        throw new Error("Dev sign-in is not available. Is the backend running in dev with the fake login provider?");
+      }
+      window.location.assign("/");
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Dev sign-in failed.");
+      setIsLoading(false);
+    }
+  };
+
   const handleGoogleLogin = async () => {
     setIsLoading(true);
     setErrorMessage(null);
     try {
       let res: Response;
       try {
-        res = await fetch("http://localhost:8000/api/auth/login/google/url", {
+        res = await apiFetch("/api/auth/login/google/url", {
           method: "GET",
           headers: { Accept: "application/json" },
         });
       } catch (networkErr: any) {
-        throw new Error("Cannot reach backend on http://localhost:8000. Is the Docker container or backend running?");
+        throw new Error("Cannot reach the EstateOS backend. Is it running?");
       }
 
       if (!res.ok) {
@@ -101,7 +135,7 @@ function LoginForm() {
                 is not on the authorized whitelist for this platform. Please contact your EstateOS administrator for access.
               </>
             ) : (
-              errorMessage || errorParam
+              errorMessage || (errorParam ? (LOGIN_MESSAGES[errorParam] ?? "Sign-in failed. Please try again.") : null)
             )}
           </p>
         </div>
@@ -131,6 +165,16 @@ function LoginForm() {
             </>
           )}
         </button>
+        {process.env.NODE_ENV !== "production" && (
+          <button
+            type="button"
+            onClick={handleDevLogin}
+            disabled={isLoading}
+            className="w-full h-10 rounded-xl border border-dashed border-[#374151] text-[#94a3b8] hover:text-white hover:border-[#4B5563] text-xs font-mono transition-all cursor-pointer select-none disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Continue as dev owner (local only)
+          </button>
+        )}
       </div>
 
       {/* 4. Whitelist Policy Badge */}
@@ -166,4 +210,3 @@ export default function LoginPage() {
     </div>
   );
 }
-

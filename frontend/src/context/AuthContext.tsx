@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { apiFetch } from "@/lib/backend";
 
 export interface AuthUser {
   email: string;
@@ -33,7 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchCurrentUser = async () => {
     try {
-      const res = await fetch("http://localhost:8000/api/auth/me", {
+      const res = await apiFetch("/api/auth/me", {
         method: "GET",
         headers: { Accept: "application/json" },
         credentials: "include",
@@ -66,7 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
-      await fetch("http://localhost:8000/api/auth/logout", {
+      await apiFetch("/api/auth/logout", {
         method: "POST",
         credentials: "include",
       });
@@ -97,4 +98,3 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 export function useAuth() {
   return useContext(AuthContext);
 }
-

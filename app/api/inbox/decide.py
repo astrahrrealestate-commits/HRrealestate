@@ -45,10 +45,12 @@ class Outcome:
     local: bool
 
 
-def _reply_action(session: Session, case_id: UUID) -> ActionRow | None:
+def _reply_action(session: Session, company_id: UUID, case_id: UUID) -> ActionRow | None:
     return session.scalars(
         select(ActionRow)
-        .where(ActionRow.case_id == case_id, ActionRow.type == ActionType.reply_draft)
+        .where(
+            ActionRow.company_id == company_id, ActionRow.case_id == case_id, ActionRow.type == ActionType.reply_draft
+        )
         .order_by(ActionRow.created_at.desc())
     ).first()
 
@@ -63,31 +65,36 @@ def _live_approval(session: Session, action: ActionRow) -> Approval | None:
     return next((a for a in rows if a.status is ApprovalStatus.pending), rows[0] if rows else None)
 
 
-def _from_case(session: Session, case: Case | None) -> Target:
-    action = _reply_action(session, case.id) if case else None
+def _from_case(session: Session, case: Case) -> Target:
+    action = _reply_action(session, case.company_id, case.id)
     return Target(_live_approval(session, action) if action else None, action, case)
 
 
-def resolve(session: Session, ref: str) -> Target:
-    """An approval id, a case id (`case-…`), an action id (`act-…`), or else the latest unresolved case."""
+def _owned[M: (Approval, ActionRow, Case)](
+    session: Session, model: type[M], company_id: UUID, row_id: UUID
+) -> M | None:
+    return session.scalars(select(model).where(model.id == row_id, model.company_id == company_id)).first()
+
+
+def resolve(session: Session, ref: str, company_id: UUID) -> Target:
+    """An approval id, a case id (`case-…`) or an action id (`act-…`) of `company_id`. Anything else, another company's
+    id included, names nothing (an empty Target). There is deliberately no "latest case" guess: a decision must name
+    what it decides."""
     try:
         target_id = UUID(ref.replace("case-", "").replace("act-", ""))
     except ValueError:
-        latest = session.scalars(
-            select(Case).where(Case.state != CaseState.resolved).order_by(Case.opened_at.desc())
-        ).first()
-        return _from_case(session, latest)
-    approval = session.get(Approval, target_id)
+        return Target(None, None, None)
+    approval = _owned(session, Approval, company_id, target_id)
     if approval is not None:
-        action = session.get(ActionRow, approval.action_id)
-        return Target(approval, action, session.get(Case, action.case_id) if action else None)
-    case = session.get(Case, target_id)
+        action = _owned(session, ActionRow, company_id, approval.action_id)
+        return Target(approval, action, _owned(session, Case, company_id, action.case_id) if action else None)
+    case = _owned(session, Case, company_id, target_id)
     if case is not None:
         return _from_case(session, case)
-    action = session.get(ActionRow, target_id)
+    action = _owned(session, ActionRow, company_id, target_id)
     if action is None:
         return Target(None, None, None)
-    return Target(_live_approval(session, action), action, session.get(Case, action.case_id))
+    return Target(_live_approval(session, action), action, _owned(session, Case, company_id, action.case_id))
 
 
 def decide(session: Session, target: Target, choice: ButtonChoice, text: str | None, at: datetime) -> Outcome:

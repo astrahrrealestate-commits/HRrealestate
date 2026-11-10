@@ -17,10 +17,12 @@ import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { FilterBar, FilterTab, FilterGroup } from "@/components/ui/FilterBar";
 
 import { InboxThreadList } from "@/components/inbox/InboxThreadList";
+import { threadMatchesQuery } from "@/lib/threadSearch";
+import { formatClock } from "@/lib/clock";
+import { matchesFilters, matchesTab, optionCount } from "@/lib/inboxFilters";
 
 import { InboxConversationView } from "@/components/inbox/InboxConversationView";
 
-import { MOCK_INBOX_THREADS } from "@/data/inboxMockData";
 
 import { InboxThread } from "@/types/inbox";
 
@@ -30,7 +32,7 @@ import { approveInboxDraft, getInboxThreads, syncGmailInbox } from "@/lib/api";
 
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 
-import { needsYouCount, isNeedsYou, isUrgent } from "@/lib/selectors";
+import { needsYouCount, isUrgent } from "@/lib/selectors";
 
 import { cn } from "@/lib/utils";
 
@@ -124,7 +126,8 @@ function InboxContent() {
 
 
 
-  const [threads, setThreads] = useState<InboxThread[]>(MOCK_INBOX_THREADS);
+  const [threads, setThreads] = useState<InboxThread[]>([]);
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
 
   const [activeTab, setActiveTab] = useState<string>("needs_you");
 
@@ -147,6 +150,16 @@ function InboxContent() {
   const threadParam = searchParams?.get("thread") || "";
 
   const draftParam = searchParams?.get("draft") || "";
+  const searchParam = searchParams?.get("search") || "";
+
+  // A link such as /inbox?search=<tenant> (Tenants, Properties) opens the inbox already searching for it, on All
+  // so a finished thread is found too.
+  useEffect(() => {
+    if (searchParam) {
+      setSearchQuery(searchParam);
+      setActiveTab("all");
+    }
+  }, [searchParam]);
 
   const [selectedThreadId, setSelectedThreadId] = useState<string>(threadParam);
 
@@ -264,53 +277,47 @@ function InboxContent() {
 
 
 
+    let inFlight = false;
     const fetchThreads = () => {
-
+      if (inFlight) return;
+      inFlight = true;
       getInboxThreads()
-
-        .then(({ threads: live }) => {
-
-          if (isMounted) {
-
-            setThreads(live || []);
-
-            if (live && live.length > 0) {
-
-              if (threadParam) {
-
-                const m = findMatchingThread(live, threadParam);
-
-                if (m) setSelectedThreadId(m.id);
-
-              } else {
-
-                setSelectedThreadId((prev) => prev || live[0].id);
-
-              }
-
-            } else {
-
-              setSelectedThreadId("");
-
-            }
-
+        .then(({ threads: live, isLive }) => {
+          if (!isMounted) return;
+          if (!isLive) {
+            // A failed load must not wipe what is already on screen or pose as an empty inbox.
+            setLoadState("error");
+            return;
           }
-
+          setLoadState("ready");
+          setThreads(live);
+          if (live.length > 0) {
+            if (threadParam) {
+              const m = findMatchingThread(live, threadParam);
+              if (m) setSelectedThreadId(m.id);
+            } else {
+              setSelectedThreadId((prev) => prev || live[0].id);
+            }
+          } else {
+            setSelectedThreadId("");
+          }
         })
-
         .catch((err) => {
-
           console.warn("Failed to load live inbox threads:", err);
-
+          if (isMounted) setLoadState("error");
+        })
+        .finally(() => {
+          inFlight = false;
         });
-
     };
-
-
 
     fetchThreads();
 
     const pollInterval = setInterval(fetchThreads, 8000);
+
+    // No Pub/Sub push on a local stack: pull new Gmail mail on open and every 15 s (the backend also polls every minute).
+    void syncGmailInbox();
+    const syncInterval = setInterval(() => void syncGmailInbox(), 15000);
 
 
 
@@ -319,6 +326,8 @@ function InboxContent() {
       isMounted = false;
 
       clearInterval(pollInterval);
+
+      clearInterval(syncInterval);
 
     };
 
@@ -448,9 +457,7 @@ function InboxContent() {
 
     const now = new Date();
 
-    const utcHours = String(now.getUTCHours()).padStart(2, "0");
-
-    const utcMins = String(now.getUTCMinutes()).padStart(2, "0");
+    const clockNow = formatClock(now);
 
     const newMsg = {
 
@@ -464,7 +471,7 @@ function InboxContent() {
 
       sentAt: now.toISOString(),
 
-      timeFormatted: `${utcHours}:${utcMins}`,
+      timeFormatted: clockNow,
 
       body: draftText,
 
@@ -664,33 +671,7 @@ function InboxContent() {
 
   const filterGroups: FilterGroup[] = useMemo(() => {
 
-    const tenantsCount = threads.filter((t) => t.recipientRole === "tenant").length;
-
-    const contractorsCount = threads.filter((t) => t.recipientRole === "contractor").length;
-
-    const leadsCount = threads.filter((t) => t.recipientRole === "inquiry").length;
-
-
-
-    const whatsappCount = threads.filter((t) => t.channel === "whatsapp").length;
-
-    const gmailCount = threads.filter((t) => t.channel === "gmail").length;
-
-    const portalCount = threads.filter((t) => t.channel === "portal").length;
-
-
-
-    const repairsCount = threads.filter((t) => t.category === "maintenance" || t.category === "contractor_repairs").length;
-
-    const rentCount = threads.filter((t) => t.category === "rent" || t.category === "payment").length;
-
-    const leaseCount = threads.filter((t) => t.category === "lease" || t.category === "sublet").length;
-
-    const complaintCount = threads.filter((t) => t.category === "complaint").length;
-
-    const adminCount = threads.filter((t) => t.category === "admin").length;
-
-
+    const countOf = (optionId: string) => optionCount(threads, activeTab, selectedFilterIds, optionId);
 
     return [
 
@@ -702,11 +683,11 @@ function InboxContent() {
 
         options: [
 
-          { id: "who_tenants", label: "Tenants", count: tenantsCount },
+          { id: "who_tenants", label: "Tenants", count: countOf("who_tenants") },
 
-          { id: "who_contractors", label: "Contractors", count: contractorsCount },
+          { id: "who_contractors", label: "Contractors", count: countOf("who_contractors") },
 
-          { id: "who_leads", label: "Leads", count: leadsCount },
+          { id: "who_leads", label: "Leads", count: countOf("who_leads") },
 
         ],
 
@@ -720,11 +701,11 @@ function InboxContent() {
 
         options: [
 
-          { id: "ch_whatsapp", label: "WhatsApp", count: whatsappCount },
+          { id: "ch_whatsapp", label: "WhatsApp", count: countOf("ch_whatsapp") },
 
-          { id: "ch_gmail", label: "Gmail", count: gmailCount },
+          { id: "ch_gmail", label: "Gmail", count: countOf("ch_gmail") },
 
-          { id: "ch_portal", label: "Portal", count: portalCount },
+          { id: "ch_portal", label: "Portal", count: countOf("ch_portal") },
 
         ],
 
@@ -738,15 +719,15 @@ function InboxContent() {
 
         options: [
 
-          { id: "type_repairs", label: "Repairs", count: repairsCount },
+          { id: "type_repairs", label: "Repairs", count: countOf("type_repairs") },
 
-          { id: "type_rent", label: "Rent & Money", count: rentCount },
+          { id: "type_rent", label: "Rent & Money", count: countOf("type_rent") },
 
-          { id: "type_lease", label: "Lease", count: leaseCount },
+          { id: "type_lease", label: "Lease", count: countOf("type_lease") },
 
-          { id: "type_complaint", label: "Complaint", count: complaintCount },
+          { id: "type_complaint", label: "Complaint", count: countOf("type_complaint") },
 
-          { id: "type_admin", label: "Admin", count: adminCount },
+          { id: "type_admin", label: "Admin", count: countOf("type_admin") },
 
         ],
 
@@ -754,7 +735,7 @@ function InboxContent() {
 
     ];
 
-  }, [threads]);
+  }, [threads, activeTab, selectedFilterIds]);
 
 
 
@@ -786,103 +767,14 @@ function InboxContent() {
 
 
 
-    // 1. Tab filter
-
-    if (activeTab === "needs_you") {
-
-      result = result.filter(isNeedsYou);
-
-    } else if (activeTab === "done") {
-
-      result = result.filter((t) => !isNeedsYou(t));
-
-    }
-
-
-
-    // 2. Who filter
-
-    const whoFilters = selectedFilterIds.filter((id) => id.startsWith("who_"));
-
-    if (whoFilters.length > 0) {
-
-      result = result.filter((t) => {
-
-        if (whoFilters.includes("who_tenants") && t.recipientRole === "tenant") return true;
-
-        if (whoFilters.includes("who_contractors") && t.recipientRole === "contractor") return true;
-
-        if (whoFilters.includes("who_leads") && t.recipientRole === "inquiry") return true;
-
-        return false;
-
-      });
-
-    }
-
-
-
-    // 3. Channel filter
-
-    const chFilters = selectedFilterIds.filter((id) => id.startsWith("ch_"));
-
-    if (chFilters.length > 0) {
-
-      result = result.filter((t) => {
-
-        if (chFilters.includes("ch_whatsapp") && t.channel === "whatsapp") return true;
-
-        if (chFilters.includes("ch_gmail") && t.channel === "gmail") return true;
-
-        if (chFilters.includes("ch_portal") && t.channel === "portal") return true;
-
-        return false;
-
-      });
-
-    }
-
-
-
-    // 4. Type filter
-
-    const typeFilters = selectedFilterIds.filter((id) => id.startsWith("type_"));
-
-    if (typeFilters.length > 0) {
-
-      result = result.filter((t) => {
-
-        if (typeFilters.includes("type_repairs") && (t.category === "maintenance" || t.category === "contractor_repairs")) return true;
-
-        if (typeFilters.includes("type_rent") && (t.category === "rent" || t.category === "payment")) return true;
-
-        if (typeFilters.includes("type_lease") && (t.category === "lease" || t.category === "sublet")) return true;
-
-        if (typeFilters.includes("type_complaint") && t.category === "complaint") return true;
-
-        if (typeFilters.includes("type_admin") && t.category === "admin") return true;
-
-        return false;
-
-      });
-
-    }
-
-
+    // 1-4. Tab, then the Who / Channel / Type options (shared with the badge counts)
+    result = result.filter((t) => matchesTab(t, activeTab) && matchesFilters(t, selectedFilterIds));
 
     // 5. Search query (supports plain text and token unit: / from:)
 
     if (searchQuery.trim()) {
 
-      const q = searchQuery.toLowerCase().trim();
-
-      result = result.filter((t) => {
-
-        const text = `${t.senderName} ${t.unitLabel} ${t.subject} ${t.latestSnippet} ${t.ticketNumber || ""} ${t.caseRef || ""}`.toLowerCase();
-
-        return text.includes(q);
-
-      });
+      result = result.filter((t) => threadMatchesQuery(t, searchQuery));
 
     }
 
@@ -1058,6 +950,8 @@ function InboxContent() {
               <InboxThreadList
 
                 threads={filteredAndSortedThreads}
+                loadState={threads.length > 0 && loadState === "error" ? "ready" : loadState}
+                isFiltered={Boolean(searchQuery.trim()) || selectedFilterIds.length > 0}
 
                 selectedThreadId={activeThread?.id || ""}
 
@@ -1193,4 +1087,3 @@ export default function InboxPage() {
   );
 
 }
-

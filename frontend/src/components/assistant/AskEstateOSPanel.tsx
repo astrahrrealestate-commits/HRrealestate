@@ -46,6 +46,7 @@ import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { askAgent, approveInboxDraft, approveStandingRule, AssistantCard, CardAction, PreviewCardData, updateAgentConversation, getInboxThreads } from "@/lib/api";
 import { InboxThread } from "@/types/inbox";
+import { formatClock } from "@/lib/clock";
 
 export interface AssistantAction {
   label: string;
@@ -80,6 +81,7 @@ export interface AssistantMessage {
 
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { BACKEND_BASE_URL, apiFetch } from "@/lib/backend";
 
 interface AskEstateOSPanelProps {
   isOpen?: boolean;
@@ -312,8 +314,8 @@ export function AskEstateOSPanel({
       try {
         const fullUrl = action.endpoint.startsWith("http")
           ? action.endpoint
-          : `${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}${action.endpoint}`;
-        const res = await fetch(fullUrl, {
+          : `${BACKEND_BASE_URL}${action.endpoint}`;
+        const res = await apiFetch(fullUrl, {
           method: action.method || "POST",
           headers: { "Content-Type": "application/json" },
           body: action.payload ? JSON.stringify(action.payload) : undefined,
@@ -395,9 +397,9 @@ export function AskEstateOSPanel({
     }
     if (currentPageName.toLowerCase().includes("money")) {
       return [
-        "Why invoice open",
+        "Why is the invoice open?",
         "Match open payments",
-        "Who behind rent",
+        "Who is behind on rent?",
       ];
     }
     if (currentPageName.toLowerCase().includes("maintenance")) {
@@ -408,8 +410,8 @@ export function AskEstateOSPanel({
       ];
     }
     return [
-      "What do first",
-      "Who behind rent",
+      "What should I do first?",
+      "Who is behind on rent?",
       "Show active leases",
     ];
   }, [lastAssistantMsg, currentPageName]);
@@ -421,7 +423,7 @@ export function AskEstateOSPanel({
     const userMsg: AssistantMessage = {
       id: `user-${Date.now()}`,
       sender: "user",
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      timestamp: formatClock(new Date()),
       text: trimmed,
     };
 
@@ -469,7 +471,7 @@ export function AskEstateOSPanel({
       const botMsg: AssistantMessage = {
         id: `agent-${Date.now()}`,
         sender: "assistant",
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        timestamp: formatClock(new Date()),
         text: res.answer,
         steps: res.steps,
         previewCard: res.previewCard,
@@ -485,7 +487,7 @@ export function AskEstateOSPanel({
       const errorMsg: AssistantMessage = {
         id: `err-${Date.now()}`,
         sender: "assistant",
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        timestamp: formatClock(new Date()),
         text: "I was unable to complete your request right now. Please verify the backend connection and try again.",
       };
       setMessages((prev) => [...prev, errorMsg]);
@@ -500,8 +502,8 @@ export function AskEstateOSPanel({
     setApprovingCalendarId(cardId);
     try {
       const url = payloadUrl || `/api/calendar/events/${eventId}/approve`;
-      const fullUrl = url.startsWith("http") ? url : `${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}${url}`;
-      const res = await fetch(fullUrl, { method: "POST", headers: { "Content-Type": "application/json" } });
+      const fullUrl = url.startsWith("http") ? url : `${BACKEND_BASE_URL}${url}`;
+      const res = await apiFetch(fullUrl, { method: "POST", headers: { "Content-Type": "application/json" } });
       if (!res.ok) {
         throw new Error(`Calendar approval failed: ${res.statusText}`);
       }
@@ -519,8 +521,8 @@ export function AskEstateOSPanel({
       if (memoryId) {
         await approveStandingRule(memoryId);
       } else if (payloadUrl) {
-        const fullUrl = payloadUrl.startsWith("http") ? payloadUrl : `${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}${payloadUrl}`;
-        await fetch(fullUrl, {
+        const fullUrl = payloadUrl.startsWith("http") ? payloadUrl : `${BACKEND_BASE_URL}${payloadUrl}`;
+        await apiFetch(fullUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-EstateOS-Client": "dashboard" },
           credentials: "include",
@@ -2388,7 +2390,8 @@ export function AskEstateOSPanel({
                 </div>
               )}
 
-              {msg.debugInfo && (
+              {/* Pipeline debug is for developers: never shown to the owner unless NEXT_PUBLIC_SHOW_AGENT_DEBUG=1 */}
+              {msg.debugInfo && process.env.NEXT_PUBLIC_SHOW_AGENT_DEBUG === "1" && (
                 <div className={cn("flex items-center gap-1.5 px-1 text-[9.5px] font-mono", isDark ? "text-[#64748B]" : "text-[#888888]")}>
                   <span className={cn(
                     "px-1.5 py-0.5 rounded border",
@@ -2714,4 +2717,3 @@ function formatMarkdown(text: string, isDark: boolean = false): string {
 
   return clean;
 }
-

@@ -510,14 +510,14 @@ export function TriageWorkspace({
                         </span>
                       </div>
 
-                      {/* Tenant is home */}
-                      <div className="bg-white rounded-xl border border-neutral-200/90 p-3.5 flex items-start justify-between shadow-2xs">
+                      {displayData.understanding.tenantIsHome && (
+<div className="bg-white rounded-xl border border-neutral-200/90 p-3.5 flex items-start justify-between shadow-2xs">
                         <div>
                           <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
                             Tenant is home
                           </span>
                           <p className="text-sm font-bold text-neutral-900 mt-0.5">
-                            {displayData.understanding.tenantIsHome || "From 17:00"}
+                            {displayData.understanding.tenantIsHome}
                           </p>
                         </div>
                         <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
@@ -525,6 +525,7 @@ export function TriageWorkspace({
                           <span>Checked</span>
                         </span>
                       </div>
+)}
 
                       {/* Priority */}
                       <div className="bg-white rounded-xl border border-neutral-200/90 p-3.5 flex items-start justify-between shadow-2xs">
@@ -542,14 +543,14 @@ export function TriageWorkspace({
                         </span>
                       </div>
 
-                      {/* Suggested contractor */}
-                      <div className="bg-white rounded-xl border border-neutral-200/90 p-3.5 flex items-start justify-between shadow-2xs">
+                      {displayData.understanding.suggestedContractor && (
+<div className="bg-white rounded-xl border border-neutral-200/90 p-3.5 flex items-start justify-between shadow-2xs">
                         <div>
                           <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
                             Suggested contractor
                           </span>
                           <p className="text-sm font-bold text-neutral-900 mt-0.5">
-                            {displayData.understanding.suggestedContractor || "Chahal Bouw"}
+                            {displayData.understanding.suggestedContractor}
                           </p>
                         </div>
                         <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
@@ -557,12 +558,15 @@ export function TriageWorkspace({
                           <span>Checked</span>
                         </span>
                       </div>
+)}
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Section 3: WHEN YOU APPROVE (Dropdown / Collapsible) */}
+              {/* Section 3: WHEN YOU APPROVE: only when the thread names real follow-up actions */}
+{displayData.whenYouApprove.length > 0 && (
+
               <div className="bg-white rounded-2xl border border-neutral-200/90 shadow-2xs overflow-hidden transition-all">
                 <button
                   type="button"
@@ -609,8 +613,9 @@ export function TriageWorkspace({
                   </div>
                 )}
               </div>
+)}
 
-              {/* Section 4: REPLY TO TENANT / CONTRACTOR WORKSPACE */}
+{/* Section 4: REPLY TO TENANT / CONTRACTOR WORKSPACE */}
               <div className="bg-neutral-50/80 rounded-2xl border border-neutral-200/90 p-5 space-y-4">
                 {/* Header: Language Detected Badge & Draft 1 vs Draft 2 Toggle */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-neutral-200/60">

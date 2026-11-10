@@ -27,11 +27,10 @@ import {
   Filter,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  PROPERTY_COMPLEXES,
-  PropertyComplex,
-  UnitDetail,
-} from "@/data/propertiesMockData";
+import type { PropertyComplex, UnitDetail } from "@/types/portfolio";
+import { getPortfolio } from "@/lib/portfolioApi";
+import { euro, specLine, UNKNOWN } from "@/lib/portfolioFormat";
+import { PageStateShell } from "@/components/portfolio/PageStateShell";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -80,7 +79,7 @@ function findMatchingUnitAndComplex(
   return null;
 }
 
-function PropertiesContent() {
+function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: PropertyComplex[] }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const superAgent = useSuperAgent();
@@ -106,18 +105,20 @@ function PropertiesContent() {
       if (result) {
         setSelectedComplexId(result.complex.id);
         setSelectedUnitId(result.unit.id);
-        if (result.unit.status === "occupied" && activeTab === "vacant") {
-          setActiveTab("occupied");
-        } else if (result.unit.status === "vacant" && activeTab === "occupied") {
-          setActiveTab("vacant");
-        }
+        // Only a deep link may move the tab, and only when it would hide the linked unit. The tab itself must
+        // not be a dependency, or clicking a tab re-runs this and snaps it back.
+        setActiveTab((tab) => {
+          if (result.unit.status === "occupied" && tab === "vacant") return "occupied";
+          if (result.unit.status !== "occupied" && tab === "occupied") return "vacant";
+          return tab;
+        });
       } else if (complexParam && PROPERTY_COMPLEXES.some((c) => c.id === complexParam)) {
         setSelectedComplexId(complexParam);
       }
     } else {
       setSelectedUnitId(null);
     }
-  }, [complexParam, unitParam, activeTab]);
+  }, [complexParam, unitParam]);
 
   // Listen for instant custom navigation events (handles same-page Super Agent clicks)
   useEffect(() => {
@@ -189,7 +190,7 @@ function PropertiesContent() {
         const matchesUnit = unit.unitNumber.toLowerCase().includes(q);
         const matchesAddress = unit.fullAddress.toLowerCase().includes(q);
         const matchesTenant = unit.currentTenant?.name.toLowerCase().includes(q);
-        const matchesLockbox = unit.lockboxCode.toLowerCase().includes(q);
+        const matchesLockbox = (unit.lockboxCode ?? "").toLowerCase().includes(q);
         if (!matchesUnit && !matchesAddress && !matchesTenant && !matchesLockbox) {
           return false;
         }
@@ -210,8 +211,9 @@ function PropertiesContent() {
       vacant += c.vacantUnits;
       notice += c.noticeGivenUnits;
     });
-    return { total, occupied, vacant, notice, rate: "94.5%" };
-  }, []);
+    const rate = total === 0 ? UNKNOWN : `${Math.round((occupied / total) * 1000) / 10}%`;
+    return { total, occupied, vacant, notice, rate };
+  }, [PROPERTY_COMPLEXES]);
 
   // Complex switch handler
   const handleSelectComplex = (complexId: string) => {
@@ -278,7 +280,7 @@ function PropertiesContent() {
         {/* Col 3: Unit detail pane (380px)                               */}
         {/* ------------------------------------------------------------- */}
         <div className="hidden md:flex flex-1 overflow-hidden min-w-0">
-          
+
           {/* COLUMN 1: Complex List (Left pane, 200px-240px) */}
           <div className="w-[200px] xl:w-[240px] shrink-0 border-r border-[var(--line)] bg-[var(--pane)] flex flex-col">
             <div className="p-3 xl:p-4 border-b border-[var(--line)]">
@@ -314,7 +316,7 @@ function PropertiesContent() {
                     </div>
 
                     <div className="text-[12px] text-[var(--ink-3)] truncate">
-                      {comp.neighborhood}
+                      {comp.neighborhood ?? ""}
                     </div>
 
                     {/* Progress indicator */}
@@ -348,7 +350,7 @@ function PropertiesContent() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => router.push("/inbox")}
+                    onClick={() => router.push(`/maintenance?search=${encodeURIComponent(activeComplex.name)}`)}
                     className="text-xs border border-[var(--line)] text-[var(--ink-2)]"
                   >
                     Complex tickets
@@ -443,7 +445,7 @@ function PropertiesContent() {
                             {unit.unitNumber}
                           </span>
                           <span className="text-[11px] text-[var(--ink-3)] block truncate max-w-[90px]">
-                            Floor {unit.floor} · {unit.areaSqm} m²
+                            {specLine(unit.floor, unit.areaSqm)}
                           </span>
                         </div>
 
@@ -472,7 +474,7 @@ function PropertiesContent() {
                           </div>
                         )}
                         <div className="text-[11px] font-mono text-[var(--ink-3)] tabular-nums">
-                          € {unit.monthlyRentEur},-
+                          {euro(unit.monthlyRentEur)}
                         </div>
                       </div>
 
@@ -480,9 +482,9 @@ function PropertiesContent() {
                       <div className="flex items-center justify-between text-[10px] text-[var(--ink-3)] border-t border-[var(--line)]/50 pt-1 mt-1 font-mono">
                         <span className="flex items-center gap-1">
                           <KeyRound className="w-2.5 h-2.5" />
-                          <span>{unit.lockboxCode}</span>
+                          <span>{unit.lockboxCode ?? UNKNOWN}</span>
                         </span>
-                        {unit.activeTicketCount > 0 && (
+                        {(unit.activeTicketCount ?? 0) > 0 && (
                           <span className="text-[var(--accent-ink)] font-semibold">
                             {unit.activeTicketCount} ticket
                           </span>
@@ -504,7 +506,7 @@ function PropertiesContent() {
           {/* COLUMN 3: Unit Detail Pane (Right pane, 300px-350px) with Sticky Footer */}
           {activeUnit && (
             <div className="w-[300px] xl:w-[350px] shrink-0 bg-[var(--pane)] flex flex-col justify-between border-l border-[var(--line)]">
-              
+
               {/* Detail Content (Scrollable) */}
               <div className="flex-1 overflow-y-auto p-4 xl:p-5 space-y-4">
                 {/* Header */}
@@ -528,28 +530,29 @@ function PropertiesContent() {
                   <div className="grid grid-cols-2 gap-y-2.5 text-xs">
                     <div>
                       <span className="text-[var(--ink-3)] block">Floor / Level</span>
-                      <span className="font-medium text-[var(--ink)]">Floor {activeUnit.floor}</span>
+                      <span className="font-medium text-[var(--ink)]">{activeUnit.floor == null ? UNKNOWN : `Floor ${activeUnit.floor}`}</span>
                     </div>
                     <div>
                       <span className="text-[var(--ink-3)] block">Living Area</span>
-                      <span className="font-medium text-[var(--ink)]">{activeUnit.areaSqm} m²</span>
+                      <span className="font-medium text-[var(--ink)]">{activeUnit.areaSqm == null ? UNKNOWN : `${activeUnit.areaSqm} m²`}</span>
                     </div>
                     <div>
                       <span className="text-[var(--ink-3)] block">Monthly Rent</span>
-                      <span className="font-mono font-semibold text-[var(--ink)]">€ {activeUnit.monthlyRentEur},-</span>
+                      <span className="font-mono font-semibold text-[var(--ink)]">{euro(activeUnit.monthlyRentEur)}</span>
                     </div>
                     <div>
                       <span className="text-[var(--ink-3)] block">Security Deposit</span>
-                      <span className="font-mono text-[var(--ink-2)]">€ {activeUnit.depositEur},-</span>
+                      <span className="font-mono text-[var(--ink-2)]">{euro(activeUnit.depositEur)}</span>
                     </div>
                     <div>
                       <span className="text-[var(--ink-3)] block">Lockbox PIN</span>
                       <div className="flex items-center gap-1.5 pt-0.5">
                         <span className="font-mono font-semibold text-[var(--ink)] tracking-wider">
-                          {activeUnit.lockboxCode}
+                          {activeUnit.lockboxCode ?? UNKNOWN}
                         </span>
                         <button
-                          onClick={() => handleCopyLockbox(activeUnit.lockboxCode)}
+                          hidden={!activeUnit.lockboxCode}
+                          onClick={() => activeUnit.lockboxCode && handleCopyLockbox(activeUnit.lockboxCode)}
                           className="text-[10px] text-[var(--ink-3)] hover:text-[var(--ink)] underline cursor-pointer"
                         >
                           {copiedLockbox ? "Copied" : "Copy"}
@@ -559,12 +562,12 @@ function PropertiesContent() {
                     <div>
                       <span className="text-[var(--ink-3)] block">Active Tickets</span>
                       <span className="font-medium text-[var(--ink)]">
-                        {activeUnit.activeTicketCount > 0 ? (
+                        {(activeUnit.activeTicketCount ?? 0) > 0 ? (
                           <span className="text-[var(--accent-ink)] font-semibold">
                             {activeUnit.activeTicketCount} open
                           </span>
                         ) : (
-                          "0 open"
+                          activeUnit.activeTicketCount == null ? UNKNOWN : "0 open"
                         )}
                       </span>
                     </div>
@@ -583,23 +586,23 @@ function PropertiesContent() {
                           {activeUnit.currentTenant.name}
                         </span>
                         <span className="text-[11px] text-[var(--ink-3)]">
-                          {activeUnit.currentTenant.rentPaidUpToDate ? "✓ Rent up to date" : "⚠ Overdue"}
+                          {activeUnit.currentTenant.rentPaidUpToDate == null ? "Rent status unknown" : activeUnit.currentTenant.rentPaidUpToDate ? "✓ Rent up to date" : "⚠ Overdue"}
                         </span>
                       </div>
 
                       <div className="space-y-1 text-[var(--ink-2)]">
                         <div className="flex items-center gap-2">
                           <Phone className="w-3.5 h-3.5 text-[var(--ink-3)]" />
-                          <span>{activeUnit.currentTenant.phone}</span>
+                          <span>{activeUnit.currentTenant.phone ?? UNKNOWN}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <Mail className="w-3.5 h-3.5 text-[var(--ink-3)]" />
-                          <span>{activeUnit.currentTenant.email}</span>
+                          <span>{activeUnit.currentTenant.email ?? UNKNOWN}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <Calendar className="w-3.5 h-3.5 text-[var(--ink-3)]" />
                           <span>
-                            Lease: {activeUnit.currentTenant.leaseStart} to {activeUnit.currentTenant.leaseEnd}
+                            Lease ends {activeUnit.currentTenant.leaseEnd ?? UNKNOWN}
                           </span>
                         </div>
                       </div>
@@ -630,6 +633,8 @@ function PropertiesContent() {
                   variant="ghost"
                   size="sm"
                   onClick={() => router.push(`/inbox?search=${encodeURIComponent(activeUnit.unitNumber)}`)}
+                  disabled={!activeUnit.currentTenant}
+                  title={activeUnit.currentTenant ? undefined : "Vacant: no tenant to have messages with"}
                   className="text-xs border border-[var(--line)] text-[var(--ink-2)]"
                 >
                   View messages
@@ -827,7 +832,7 @@ function PropertiesContent() {
                           )}
                         />
                         <span className="text-[10px] text-[var(--ink-3)] font-mono mt-1 tabular-nums">
-                          €{Math.round(unit.monthlyRentEur / 100) * 100 / 1000}k
+                          {unit.monthlyRentEur == null ? UNKNOWN : `€${Math.round(unit.monthlyRentEur / 100) * 100 / 1000}k`}
                         </span>
                       </button>
                     );
@@ -882,28 +887,29 @@ function PropertiesContent() {
                   <div className="grid grid-cols-2 gap-y-3 text-sm">
                     <div>
                       <span className="text-xs text-[var(--ink-3)] block">Floor</span>
-                      <span className="font-medium text-[var(--ink)]">Floor {activeUnit.floor}</span>
+                      <span className="font-medium text-[var(--ink)]">{activeUnit.floor == null ? UNKNOWN : `Floor ${activeUnit.floor}`}</span>
                     </div>
                     <div>
                       <span className="text-xs text-[var(--ink-3)] block">Area</span>
-                      <span className="font-medium text-[var(--ink)]">{activeUnit.areaSqm} m²</span>
+                      <span className="font-medium text-[var(--ink)]">{activeUnit.areaSqm == null ? UNKNOWN : `${activeUnit.areaSqm} m²`}</span>
                     </div>
                     <div>
                       <span className="text-xs text-[var(--ink-3)] block">Monthly Rent</span>
-                      <span className="font-mono font-semibold text-[var(--ink)]">€ {activeUnit.monthlyRentEur},-</span>
+                      <span className="font-mono font-semibold text-[var(--ink)]">{euro(activeUnit.monthlyRentEur)}</span>
                     </div>
                     <div>
                       <span className="text-xs text-[var(--ink-3)] block">Deposit</span>
-                      <span className="font-mono text-[var(--ink-2)]">€ {activeUnit.depositEur},-</span>
+                      <span className="font-mono text-[var(--ink-2)]">{euro(activeUnit.depositEur)}</span>
                     </div>
                     <div>
                       <span className="text-xs text-[var(--ink-3)] block">Lockbox PIN</span>
                       <div className="flex items-center gap-2 pt-0.5">
                         <span className="font-mono font-bold text-[var(--ink)] tracking-wider">
-                          {activeUnit.lockboxCode}
+                          {activeUnit.lockboxCode ?? UNKNOWN}
                         </span>
                         <button
-                          onClick={() => handleCopyLockbox(activeUnit.lockboxCode)}
+                          hidden={!activeUnit.lockboxCode}
+                          onClick={() => activeUnit.lockboxCode && handleCopyLockbox(activeUnit.lockboxCode)}
                           className="text-xs text-[var(--ink-3)] underline"
                         >
                           {copiedLockbox ? "Copied" : "Copy"}
@@ -913,12 +919,12 @@ function PropertiesContent() {
                     <div>
                       <span className="text-xs text-[var(--ink-3)] block">Active Tickets</span>
                       <span className="font-medium text-[var(--ink)]">
-                        {activeUnit.activeTicketCount > 0 ? (
+                        {(activeUnit.activeTicketCount ?? 0) > 0 ? (
                           <span className="text-[var(--accent-ink)] font-semibold">
                             {activeUnit.activeTicketCount} open
                           </span>
                         ) : (
-                          "0 open"
+                          activeUnit.activeTicketCount == null ? UNKNOWN : "0 open"
                         )}
                       </span>
                     </div>
@@ -938,16 +944,16 @@ function PropertiesContent() {
                       <div className="space-y-1 text-xs text-[var(--ink-2)]">
                         <div className="flex items-center gap-2">
                           <Phone className="w-3.5 h-3.5 text-[var(--ink-3)]" />
-                          <span>{activeUnit.currentTenant.phone}</span>
+                          <span>{activeUnit.currentTenant.phone ?? UNKNOWN}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <Mail className="w-3.5 h-3.5 text-[var(--ink-3)]" />
-                          <span>{activeUnit.currentTenant.email}</span>
+                          <span>{activeUnit.currentTenant.email ?? UNKNOWN}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <Calendar className="w-3.5 h-3.5 text-[var(--ink-3)]" />
                           <span>
-                            {activeUnit.currentTenant.leaseStart} – {activeUnit.currentTenant.leaseEnd}
+                            Ends {activeUnit.currentTenant.leaseEnd ?? UNKNOWN}
                           </span>
                         </div>
                       </div>
@@ -1015,6 +1021,37 @@ function PropertiesContent() {
 
     </div>
   );
+}
+
+function PropertiesContent() {
+  const [state, setState] = useState<
+    { status: "loading" } | { status: "error" } | { status: "ready"; complexes: PropertyComplex[] }
+  >({ status: "loading" });
+
+  useEffect(() => {
+    let isMounted = true;
+    const load = () =>
+      getPortfolio().then((result) => {
+        if (!isMounted) return;
+        if (result.ok) setState({ status: "ready", complexes: result.data });
+        else setState((prev) => (prev.status === "ready" ? prev : { status: "error" }));
+      });
+    void load();
+    const poll = setInterval(load, 30000);
+    return () => {
+      isMounted = false;
+      clearInterval(poll);
+    };
+  }, []);
+
+  if (state.status === "loading") return <PageStateShell title="Properties" message="Loading properties…" />;
+  if (state.status === "error") {
+    return <PageStateShell title="Properties" message="Can't reach the server. Retrying…" alert />;
+  }
+  if (state.complexes.length === 0) {
+    return <PageStateShell title="Properties" message="No properties recorded yet." />;
+  }
+  return <PropertiesView complexes={state.complexes} />;
 }
 
 export default function PropertiesPage() {

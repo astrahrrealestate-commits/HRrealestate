@@ -62,11 +62,12 @@ token `test-owner-token` for `owner@example.test`; prod refuses the fake provide
 | `POST /agent/messages` | 30 / min | owner |
 | `PUT /agent/page` | 60 / min | owner (its own bucket: pre-warms never use up the message limit) |
 | `POST /auth/session` | 10 / min | client IP (`X-Forwarded-For` ignored unless `DASHBOARD_TRUST_FORWARDED_FOR=true`; a request without a client address shares one `unknown` bucket) |
+| `GET /search` | 120 / min | owner (its own bucket: searching never uses up the message limit) |
 | approvals decide/edit, tasks done/snooze, documents file, finance recheck / rate put / rate delete, company pause/resume | 120 / min | owner |
 
 Behind a reverse proxy, without `DASHBOARD_TRUST_FORWARDED_FOR` every login shares the proxy's IP bucket (10/min for
 all users together). Enable the flag only when the proxy overwrites `X-Forwarded-For` (the last entry is used), never when
-the API is reachable directly. GETs and the SSE stream are not limited. On `429` wait `Retry-After` seconds.
+the API is reachable directly. Other GETs and the SSE stream are not limited. On `429` wait `Retry-After` seconds.
 - Agent text: 1 to the question limit (over it: `422` with a "too long" message); `\n`, `\t` and `\r\n` allowed; NUL and
   other control characters and whitespace-only text are `422`.
 
@@ -97,6 +98,7 @@ Read (GET, cookie only):
 | `/finance/quotes?case_id=&person_id=&cursor=&limit=` | quote checker (M11), newest first, `limit` 1 to 100: `{id, cursor, case_id, vendor{id, name}\|null, quote_date, work_date, currency, total, status: received\|reviewed\|unlinked, latest{review_id, verdict, late_days, late_flag, overcharge_total, low_confidence, snapshot_basis}\|null, created_at}[]`. `cursor` on an item is the value to send as `cursor` for the next page (empty page = end); a malformed cursor is `422`. Money (`total`, `overcharge_total`) is a decimal string. `vendor` is null while no contractor is linked |
 | `/finance/quotes/{id}` | the list item + `{lines[{position, description, item_key, quantity, unit, unit_price, amount, vat_included}], report, history[{id, verdict, created_at}]}`. `report` is the latest review exactly as stored (the `quote_review` feed payload, below), null before the first review; `history` is newest first; `404` for foreign or unknown ids |
 | `/finance/rates?person_id=&limit=` | the company's agreed rates (closed ones too), by contractor and item: `{id, person_id, item_key, description, unit, amount, currency, valid_from, valid_to, source: owner\|document\|quote, created_at}[]`, `limit` 1 to 500 (default 200) |
+| `/brixx/status` | BRIXX mirror sync health, read from the sync state tables only (BRIXX is never called on a request): `{last_run{id, kind: incremental\|reconcile, status: running\|succeeded\|failed, started_at, finished_at, error}\|null, tables[{name, row_count, last_success_at, lag_seconds, drifted, last_error}], total_rows, stale}`. `last_run` is the newest run in any status. `stale` is true when no run succeeded within 3 x `brixx_sync_interval_minutes` (default 15, so 45 minutes) or none ever did. Tables are sorted by name; `row_count` (and `total_rows`, their sum) counts the rows written by each table's latest run, so an incremental run shows only changed rows, not the mirror size. `last_success_at`: every BRIXX change before it is mirrored (the start of the run that last completed the table; while a newer run is mid-table or the last attempt failed, the newest change applied); null before the first complete pass, and for tables without `UPDDATETIME` also while a run is mid-table or failing. `lag_seconds` is the age of `last_success_at`. `drifted`: BRIXX has columns the mirror lacks (their values are kept in `_extra`). `last_error` and `error` hold error class, table and page only (for example `BrixxAuthError table=PRG_RELATIE page=3`) |
 | `/agent/conversations/{id}` | `{id, turns[{id, text, status, plan, results, answer, created_at, updated_at, timings}]}`; `404` if not yours. `timings`: see [Turn timings](#turn-timings) |
 
 Writes (POST unless another method is shown, need the CSRF header; the decision writes share the 120/min limit):
@@ -125,6 +127,7 @@ Changing a document link may propose a one-item reorganisation plan (`created_by
 | `GET /persona` | none | `200 {name, filename, content, version, is_default, updated_at, max_chars}`: the writing persona (markdown) the draft agent writes in. Created from the bundled sample on first read | none |
 | `PUT /persona` | `{content, name?, filename?}`: `content` is the markdown (not blank, at most `max_chars` = 8000 characters) | `200` the stored persona; `version` goes up by one on every save. The next drafts use it and each tenant- or contractor-facing draft records `persona_name` and `persona_version` | `422` blank or too long |
 | `POST /persona/reset` | none | `200` the bundled sample persona again (`is_default: true`, `version` still goes up) | none |
+| `GET /search?q=` | none: `q` is 2 to 100 characters after whitespace is collapsed and control characters (including NUL) are dropped (longer is cut; shorter returns no hits) | `200 {hits: [{kind: person\|unit\|case\|document, id, title, subtitle, person_kind}]}` (`person_kind` is `tenant\|contractor\|owner\|other` for people, else null): at most 5 hits per kind, grouped people, units, cases, documents, for the ⌘K palette. Substring match on names, trades, unit labels and addresses, case summaries and document titles or file names; your company only; people and units whose validity has ended are left out. `title` is tenant-derived text: show it as plain text | `429` over 120 requests a minute |
 | `/auth/session` | `{id_token}` | see Auth | see Auth |
 
 Document choices (`DOC_CHOICES`): `lease`, `invoice`, `quote`, `id_document`, `insurance`, `certificate`, `correspondence`, `photo`, `other`, `skip`.

@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -7,6 +8,7 @@ from sqlalchemy.exc import OperationalError
 from structlog.testing import capture_logs
 
 import app
+from app.channels.registry import _media_credentials
 from app.core.settings import Settings
 from app.main import create_app
 
@@ -69,6 +71,15 @@ def test_factory_without_arguments_reads_environment(monkeypatch: pytest.MonkeyP
         get_settings.cache_clear()
 
 
+@pytest.fixture
+def fresh_media_credentials() -> Iterator[None]:
+    """Media credentials are read once per process: an earlier test's empty read must not leak in or out."""
+    _media_credentials.cache_clear()
+    yield
+    _media_credentials.cache_clear()
+
+
+@pytest.mark.usefixtures("fresh_media_credentials")
 def test_prod_hides_docs_and_openapi(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("WHATSAPP_MEDIA_TOKENS", '{"100000000000001": "k"}')
     creds = tmp_path / "gmail-read.json"
@@ -98,6 +109,11 @@ def test_prod_hides_docs_and_openapi(monkeypatch: pytest.MonkeyPatch, tmp_path: 
         dashboard_auth_provider="google",
         dashboard_session_secret="x" * 32,
         google_oauth_client_id="c.apps.googleusercontent.com",
+        google_chat_provider="google",
+        google_chat_project_number="123456789",
+        frontend_base_url="https://dash.estateos.example",
+        google_login_redirect_uri="https://api.estateos.example/api/auth/login/google/callback",
+        google_oauth_redirect_uri="https://api.estateos.example/api/auth/google/callback",
         _env_file=None,
     )  # type: ignore[call-arg]
     with TestClient(create_app(prod, engine=MagicMock())) as client:

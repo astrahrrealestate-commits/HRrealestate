@@ -11,6 +11,7 @@ TIMERS_QUEUE = "timers"  # due timers never wait behind LLM pipeline work (their
 DOCUMENTS_QUEUE = "documents"  # partitioned per company, concurrency 1: Drive folder creation never races
 CONCIERGE_QUEUE = "concierge"  # Super Agent turns: never wait behind pipeline work; short poll interval
 BRIXX_QUEUE = "brixx"  # BRIXX mirror table syncs: slow upstream, never competes with pipeline work
+BRIXX_DOCUMENTS_QUEUE = "brixx_documents"  # BRIXX file downloads, one at a time: never delays the table syncs
 FINANCE_QUEUE = "finance"  # price snapshots and quote reviews (M11): never wait behind pipeline work
 PROCESS_EVENT = "ingest.process_event"
 GMAIL_SYNC = "ingest.gmail_sync"
@@ -24,6 +25,10 @@ CONCIERGE_TURN = "concierge.turn"
 DD_REVIEW = "diligence.review"
 BRIXX_SYNC_ALL = "brixx.sync_all"
 BRIXX_SYNC_TABLE = "brixx.sync_table"
+BRIXX_DOWNLOAD_DOCUMENT = "brixx.download_document"
+BRIXX_RECONCILE_ALL = "brixx.reconcile_all"
+BRIXX_RECONCILE_TABLE = "brixx.reconcile_table"
+BRIXX_MAP_DIRECTORY = "brixx.map_directory"
 FINANCE_SNAPSHOT = "finance.snapshot"
 FINANCE_QUOTE = "finance.quote"
 FINANCE_RECHECK = "finance.recheck"
@@ -43,6 +48,25 @@ def reorg_workflow_id(plan_id: object) -> str:
 def brixx_run_workflow_id(run_id: object, table: str) -> str:
     """`brixx:<run_id>:<table>`: the one sync of a table within a run; a repeated enqueue is deduplicated by DBOS."""
     return f"brixx:{run_id}:{table}"
+
+
+def brixx_document_workflow_id(company_id: object, document_id: int, version: str, attempt: int) -> str:
+    """`brixxdoc:<company_id>:<document_id>:<version>:<attempt>`: one download attempt of one document version.
+
+    A repeated enqueue (the next sync while the download is still queued) is deduplicated by DBOS; a failed version
+    is claimed again with the next attempt number, so it gets a new workflow.
+    """
+    return f"brixxdoc:{company_id}:{document_id}:{version}:{attempt}"
+
+
+def brixx_reconcile_workflow_id(run_id: object, table: str) -> str:
+    """`brixxrec:<run_id>:<table>`: the one reconcile of a table within a reconcile run."""
+    return f"brixxrec:{run_id}:{table}"
+
+
+def brixx_map_workflow_id(run_id: object) -> str:
+    """`brixxmap:<run_id>`: the one directory mapping after a sync or reconcile run."""
+    return f"brixxmap:{run_id}"
 
 
 def concierge_workflow_id(turn_id: object) -> str:

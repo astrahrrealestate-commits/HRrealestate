@@ -6,6 +6,9 @@ Cascades tenant erasure across:
 3. `messages` (text and sender_identity redacted).
 4. `channel_identities` (identity scrubbed, valid_to set).
 5. `people` (display_name set to [Erased Person], valid_to set).
+6. `translations` (English copies of the person's message texts, found by text hash, deleted before the redaction).
+7. BRIXX mirror: a person with a numeric `brixx_ref` gets a `brixx_erased_refs` tombstone and their mirror rows
+   (`brixx.prg_relatie`, `brixx.zprg_relatie`) are deleted, so a re-sync never resurrects them.
 Strictly company-scoped (invariant 4).
 """
 
@@ -17,6 +20,8 @@ from sqlalchemy import delete, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
+from app.core.texthash import source_hash
+from app.db.brixx_erasure import purge_brixx_relatie, relatie_id
 from app.db.enums import MemoryScope, MemoryStatus
 from app.db.models import (
     ChannelIdentity,
@@ -26,6 +31,7 @@ from app.db.models import (
     MessageRow,
     Person,
     PersonProfile,
+    Translation,
 )
 
 log = get_logger(__name__)
@@ -40,6 +46,18 @@ class ErasureReport:
     messages_redacted: int
     identities_cleared: int
     person_anonymized: bool
+    brixx_rows_purged: int
+
+
+def _delete_translations(session: Session, company_id: UUID, msg_ids: list[UUID]) -> None:
+    texts = session.execute(
+        select(MessageRow.text).where(MessageRow.company_id == company_id, MessageRow.id.in_(msg_ids))
+    ).scalars()
+    hashes = {source_hash(t) for t in texts if t and t.strip()}
+    if hashes:
+        session.execute(
+            delete(Translation).where(Translation.company_id == company_id, Translation.source_hash.in_(hashes))
+        )
 
 
 def erase_person(
@@ -59,9 +77,10 @@ def erase_person(
     )
     msg_id_strs = {str(mid) for mid in msg_ids}
 
-    # 2. Redact message texts and identities
+    # 2. Redact message texts and identities (their cached English copies go first: they are found by the text)
     messages_redacted = 0
     if msg_ids:
+        _delete_translations(session, company_id, msg_ids)
         res = session.execute(
             update(MessageRow)
             .where(
@@ -157,7 +176,11 @@ def erase_person(
         )
     )
     person_anonymized = False
+    brixx_rows_purged = 0
     if person is not None:
+        relatie = relatie_id(person.brixx_ref)
+        if relatie is not None:
+            brixx_rows_purged = purge_brixx_relatie(session, company_id, relatie)
         person.display_name = "[Erased Person]"
         person.trade = None
         person.brixx_ref = None
@@ -174,6 +197,7 @@ def erase_person(
         messages_redacted=messages_redacted,
         identities_cleared=identities_cleared,
         person_anonymized=person_anonymized,
+        brixx_rows_purged=brixx_rows_purged,
     )
     log.info(
         "gdpr.person_erased",
@@ -181,5 +205,6 @@ def erase_person(
         person_id=str(person_id),
         memories_retired=memories_retired,
         messages_redacted=messages_redacted,
+        brixx_rows_purged=brixx_rows_purged,
     )
     return report

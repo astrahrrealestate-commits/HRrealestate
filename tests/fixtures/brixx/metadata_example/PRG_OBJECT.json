@@ -1,0 +1,70 @@
+{
+  "fields": [
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 1,
+      "name": "PRG_OBJECTID",
+      "required": true,
+      "type": "NUMBER"
+    },
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 2,
+      "name": "NAAM",
+      "required": true,
+      "type": "VARCHAR(80)"
+    },
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 3,
+      "name": "STRAAT",
+      "required": false,
+      "type": "VARCHAR(120)"
+    },
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 4,
+      "name": "HUURPRIJS",
+      "required": false,
+      "type": "NUMBER"
+    },
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 5,
+      "name": "VERSIENR",
+      "required": false,
+      "type": "NUMBER"
+    },
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 6,
+      "name": "NEWDATETIME",
+      "required": false,
+      "type": "TIMESTAMP(6)"
+    },
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 7,
+      "name": "UPDDATETIME",
+      "required": false,
+      "type": "TIMESTAMP(6)"
+    },
+    {
+      "fk_field": null,
+      "fk_table": null,
+      "id": 8,
+      "name": "INDVERWIJDERD",
+      "required": false,
+      "type": "NUMBER"
+    }
+  ],
+  "name": "PRG_OBJECT",
+  "primary_key": "PRG_OBJECTID"
+}

@@ -4,22 +4,22 @@ Connects the Contacts profile view directly to live Gmail & WhatsApp message str
 agent understanding classifications, and bidirectional WhatsApp dispatch.
 """
 
-from datetime import UTC, datetime
 from typing import Annotated, Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import Engine, or_
+from sqlalchemy import Engine, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
-from app.contracts import Channel, Direction
+from app.api.v1.auth import Principal, require_session
+from app.contracts import CaseState, Channel, Direction
 from app.core.logging import get_logger
-from app.db.enums import PersonKind, SendStatus
-from app.db.models import ChannelIdentity, MessageRow, Person, Send, UnderstandingRow
+from app.db.enums import PersonKind
+from app.db.models import Case, ChannelIdentity, Lease, LeaseParty, MessageRow, Person, UnderstandingRow, Unit
 
-router = APIRouter(prefix="/api/contacts", tags=["contacts"])
+router = APIRouter(prefix="/api/contacts", tags=["contacts"], dependencies=[Depends(require_session)])
 log = get_logger(__name__)
 
 
@@ -104,6 +104,24 @@ class ContactCommunicationsResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def _tenancy(session: Session, company_id: UUID, person_id: UUID) -> tuple[str, str, str]:
+    """(unit label, unit address, agreement period) of the person's most recent lease, from the directory. Blank when
+    the person has no lease on file: nothing is invented."""
+    row = session.execute(
+        select(Unit.label, Unit.address, Lease.valid_from, Lease.valid_to)
+        .select_from(LeaseParty)
+        .join(Lease, Lease.id == LeaseParty.lease_id)
+        .join(Unit, Unit.id == Lease.unit_id)
+        .where(LeaseParty.company_id == company_id, LeaseParty.person_id == person_id)
+        .order_by(Lease.valid_from.desc())
+    ).first()
+    if row is None:
+        return "", "", ""
+    label, address, start, end = row
+    period = f"{start:%d %b %Y} — {end:%d %b %Y}" if end else f"Since {start:%d %b %Y} (open-ended)"
+    return label, address or label, period
+
+
 @router.get(
     "",
     summary="List Contacts from Database",
@@ -111,11 +129,13 @@ class ContactCommunicationsResponse(BaseModel):
 )
 def list_contacts(
     engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
     audience: str = Query(default="all", description="all | tenant | contractor"),
 ) -> list[dict[str, Any]]:
-    """Returns directory contacts directly from database."""
+    """Returns the signed-in company's directory contacts, with facts from their lease and cases (never made up)."""
+    company_id = principal.company_id
     with Session(engine) as session:
-        query = session.query(Person)
+        query = session.query(Person).filter(Person.company_id == company_id)
         if audience == "tenant":
             query = query.filter(Person.kind == PersonKind.tenant)
         elif audience == "contractor":
@@ -137,7 +157,11 @@ def list_contacts(
 
             identities = (
                 session.query(ChannelIdentity)
-                .filter(ChannelIdentity.person_id == p.id, ChannelIdentity.valid_to.is_(None))
+                .filter(
+                    ChannelIdentity.company_id == company_id,
+                    ChannelIdentity.person_id == p.id,
+                    ChannelIdentity.valid_to.is_(None),
+                )
                 .all()
             )
             c_email = next((i.identity for i in identities if i.channel == Channel.gmail), None)
@@ -147,16 +171,12 @@ def list_contacts(
             trade_display = (
                 "Tenant" if is_t else (p.trade.capitalize() + " Contractor" if p.trade else "Maintenance Contractor")
             )
-            unit_display = (
-                p.brixx_ref or "Keizersgracht 42-A"
-                if is_t
-                else (p.trade.capitalize() if p.trade else "External Contractor")
+            unit_label, address, period = _tenancy(session, company_id, p.id) if is_t else ("", "", "")
+            open_cases = session.scalar(
+                select(func.count(Case.id)).where(
+                    Case.company_id == company_id, Case.primary_person_id == p.id, Case.state != CaseState.resolved
+                )
             )
-
-            # Assign sensible fallback identities for known tenants if not yet attached in channel_identities
-            if not c_email and "pieter" in name_clean.lower():
-                c_email = "pieter.bakker@example.com"
-                c_phone = "+31 6 5550 0142"
 
             results.append(
                 {
@@ -164,19 +184,14 @@ def list_contacts(
                     "name": name_clean,
                     "category": "tenant" if is_t else "contractor",
                     "tradeOrRole": trade_display,
-                    "unitRole": unit_display,
+                    "unitRole": unit_label if is_t else (p.trade.capitalize() if p.trade else "External Contractor"),
                     "email": c_email or "",
                     "phone": c_phone or "",
-                    "propertyAddress": "Keizersgracht 42-A, 1015 CS Amsterdam"
-                    if is_t
-                    else "Amsterdam Metropolitan Area",
-                    "residentialAddress": "Keizersgracht 42-A, 1015 CS Amsterdam"
-                    if is_t
-                    else "Amsterdam Metropolitan Area",
-                    "agreementPeriod": "01 Jan 2024 — 31 Dec 2024" if is_t else "Master Service Agreement (Active)",
+                    "propertyAddress": address,
+                    "residentialAddress": address,
+                    "agreementPeriod": period,
                     "status": "active",
-                    "openTicketsCount": 0,
-                    "rating": 5.0,
+                    "openTicketsCount": open_cases or 0,
                     "notes": "",
                     "documents": [],
                     "emails": [],
@@ -202,10 +217,12 @@ def list_contacts(
 def get_contact_communications(
     contact_id: str,
     engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
     email: str | None = Query(default=None, description="Optional email address to match"),
     phone: str | None = Query(default=None, description="Optional phone number to match"),
 ) -> ContactCommunicationsResponse:
-    """Queries MessageRow for all communications matching the contact's email or phone."""
+    """Queries the signed-in company's MessageRows matching the contact's email or phone."""
+    company_id = principal.company_id
     matched_person: Person | None = None
     target_emails: set[str] = set()
     target_phones: set[str] = set()
@@ -220,23 +237,34 @@ def get_contact_communications(
         try:
             # Check UUID
             p_uuid = UUID(contact_id)
-            matched_person = session.get(Person, p_uuid)
+            matched_person = session.scalars(
+                select(Person).where(Person.id == p_uuid, Person.company_id == company_id)
+            ).first()
         except ValueError:
             pass
 
         if not matched_person and (target_emails or target_phones):
             ident_match = (
                 session.query(ChannelIdentity)
-                .filter(ChannelIdentity.identity.in_(list(target_emails | target_phones)))
+                .filter(
+                    ChannelIdentity.company_id == company_id,
+                    ChannelIdentity.identity.in_(list(target_emails | target_phones)),
+                )
                 .first()
             )
             if ident_match:
-                matched_person = session.get(Person, ident_match.person_id)
+                matched_person = session.scalars(
+                    select(Person).where(Person.id == ident_match.person_id, Person.company_id == company_id)
+                ).first()
 
         if matched_person:
             person_idents = (
                 session.query(ChannelIdentity)
-                .filter(ChannelIdentity.person_id == matched_person.id, ChannelIdentity.valid_to.is_(None))
+                .filter(
+                    ChannelIdentity.company_id == company_id,
+                    ChannelIdentity.person_id == matched_person.id,
+                    ChannelIdentity.valid_to.is_(None),
+                )
                 .all()
             )
             for pi in person_idents:
@@ -256,7 +284,11 @@ def get_contact_communications(
         live_messages: list[MessageRow] = []
         if filter_conds:
             live_messages = (
-                session.query(MessageRow).filter(or_(*filter_conds)).order_by(MessageRow.sent_at.desc()).limit(50).all()
+                session.query(MessageRow)
+                .filter(MessageRow.company_id == company_id, or_(*filter_conds))
+                .order_by(MessageRow.sent_at.desc())
+                .limit(50)
+                .all()
             )
 
         if live_messages:
@@ -270,7 +302,11 @@ def get_contact_communications(
 
                 # Look for UnderstandingRow
                 category: str | None = None
-                und = session.query(UnderstandingRow).filter(UnderstandingRow.message_id == msg.id).first()
+                und = (
+                    session.query(UnderstandingRow)
+                    .filter(UnderstandingRow.company_id == company_id, UnderstandingRow.message_id == msg.id)
+                    .first()
+                )
                 if und and und.category:
                     category = und.category.value if hasattr(und.category, "value") else str(und.category)
 
@@ -327,64 +363,21 @@ def get_contact_communications(
     )
 
 
+NO_DIRECT_SEND = (
+    "Direct sends are not available. Draft the message and approve it in the inbox: EstateOS sends only drafts "
+    "that the owner approved there."
+)
+
+
 @router.post(
     "/{contact_id}/whatsapp/send",
     response_model=ContactWhatsAppMessageResponse,
-    summary="Send WhatsApp Message to Contact",
-    description="Dispatches an outbound WhatsApp message to the contact and stores it in PostgreSQL.",
+    summary="Send WhatsApp Message to Contact (not available)",
+    description="Refused: messages leave EstateOS only as approved drafts, through the sender.",
 )
-def send_contact_whatsapp(
-    contact_id: str,
-    payload: SendWhatsAppMessageRequest,
-    engine: Annotated[Engine, Depends(get_engine)],
-) -> ContactWhatsAppMessageResponse:
-    """Records and dispatches an outbound WhatsApp message."""
-    now = datetime.now(UTC)
-    new_id = uuid4()
-
-    with Session(engine) as session:
-        # Attempt to link to Person
-        phone_target: str = "+31 6 5550 0101"
-        try:
-            p_uuid = UUID(contact_id)
-            person = session.get(Person, p_uuid)
-            if person:
-                p_wa = (
-                    session.query(ChannelIdentity)
-                    .filter(
-                        ChannelIdentity.person_id == person.id,
-                        ChannelIdentity.channel == Channel.whatsapp,
-                        ChannelIdentity.valid_to.is_(None),
-                    )
-                    .first()
-                )
-                if p_wa:
-                    phone_target = p_wa.identity
-        except ValueError:
-            pass
-
-        # Note: If WhatsApp Cloud API credentials are live in settings,
-        # registry.whatsapp_send(...) can be called here asynchronously.
-        msg_row = MessageRow(
-            id=new_id,
-            channel=Channel.whatsapp,
-            direction=Direction.outbound,
-            sender_identity="desk@estateos.internal",
-            recipient_identity=phone_target,
-            body=payload.text,
-            sent_at=now,
-        )
-        session.add(msg_row)
-        session.commit()
-
-    return ContactWhatsAppMessageResponse(
-        id=str(new_id),
-        sender="owner",
-        text=payload.text,
-        time=now.strftime("%H:%M"),
-        date="Today",
-        status="sent",
-    )
+def send_contact_whatsapp(contact_id: str, payload: SendWhatsAppMessageRequest) -> ContactWhatsAppMessageResponse:
+    """Never records or reports a send that did not happen (CLAUDE.md invariant 5: only app/sender sends)."""
+    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=NO_DIRECT_SEND)
 
 
 def _is_uuid(val: str) -> bool:
@@ -406,12 +399,17 @@ def generate_email_drafts(
     message_id: str,
     payload: GenerateDraftsRequest,
     engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> GenerateDraftsResponse:
-    """Produces 3 distinct AI reply drafts in Harjot's persona voice."""
+    """Produces 3 distinct reply drafts in Harjot's persona voice."""
     subject = "uw bericht"
     with Session(engine) as session:
         if _is_uuid(message_id):
-            msg = session.get(MessageRow, UUID(message_id))
+            msg = session.scalars(
+                select(MessageRow).where(
+                    MessageRow.id == UUID(message_id), MessageRow.company_id == principal.company_id
+                )
+            ).first()
             if msg and msg.meta.get("subject"):
                 subject = str(msg.meta["subject"])
 
@@ -454,58 +452,12 @@ def generate_email_drafts(
 @router.post(
     "/{contact_id}/messages/{message_id}/reply-mail",
     response_model=SendEmailReplyResponse,
-    summary="Send Approved Email Reply into Gmail Thread",
-    description="Sends the approved email reply into the exact Gmail thread using Google Gmail API.",
+    summary="Send Email Reply into Gmail Thread (not available)",
+    description="Refused: replies leave EstateOS only as approved drafts, through the sender.",
 )
-def send_email_reply(
-    contact_id: str,
-    message_id: str,
-    payload: SendEmailReplyRequest,
-    engine: Annotated[Engine, Depends(get_engine)],
-) -> SendEmailReplyResponse:
-    """Dispatches the approved email reply to the exact Gmail thread."""
-    now = datetime.now(UTC)
-    new_msg_id = uuid4()
-    thread_ref: str | None = None
-    recipient_target = "tenant@example.test"
-
-    with Session(engine) as session:
-        if _is_uuid(message_id):
-            orig_msg = session.get(MessageRow, UUID(message_id))
-            if orig_msg:
-                thread_ref = orig_msg.thread_ref
-                recipient_target = orig_msg.sender_identity or recipient_target
-
-        reply_row = MessageRow(
-            id=new_msg_id,
-            channel=Channel.gmail,
-            direction=Direction.outbound,
-            sender_identity="harjot@estateos.internal",
-            recipient_identity=recipient_target,
-            subject=payload.subject,
-            body=payload.body,
-            thread_ref=thread_ref,
-            sent_at=now,
-        )
-        session.add(reply_row)
-
-        send_rec = Send(
-            idempotency_key=f"reply-{new_msg_id}",
-            channel=Channel.gmail,
-            target=recipient_target,
-            status=SendStatus.sent,
-            attempted_at=now,
-        )
-        session.add(send_rec)
-        session.commit()
-
-    return SendEmailReplyResponse(
-        success=True,
-        message_id=str(new_msg_id),
-        thread_ref=thread_ref,
-        subject=payload.subject,
-        sent_at=now.strftime("%H:%M"),
-    )
+def send_email_reply(contact_id: str, message_id: str, payload: SendEmailReplyRequest) -> SendEmailReplyResponse:
+    """Never records or reports a send that did not happen (CLAUDE.md invariant 5: only app/sender sends)."""
+    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=NO_DIRECT_SEND)
 
 
 @router.post(

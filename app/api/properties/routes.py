@@ -1,24 +1,24 @@
-"""Properties & Units REST API Routes.
+"""Properties REST API Routes.
 
-Feeds portfolio directory, unit occupancy records, lockbox PINs, and address lookups to the Next.js frontend.
+Feeds the portfolio directory (units, occupancy, tenant and lease end) to the Next.js frontend from the company's own
+directory tables. Rent amounts and lockbox codes are not stored there yet, so they are not reported: the rent is 0.0
+(unknown, see `rentDataAvailable` on the dashboard pulse) and no lockbox code is ever returned.
 """
 
-from typing import Annotated, Any
+from datetime import UTC, date, datetime
+from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
+from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
-from app.core.logging import get_logger
+from app.api.v1.auth import Principal, require_session
+from app.db.models import Lease, LeaseParty, Person, Unit
 
-router = APIRouter(prefix="/api/properties", tags=["properties"])
-log = get_logger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Pydantic Models
-# ---------------------------------------------------------------------------
+router = APIRouter(prefix="/api/properties", tags=["properties"], dependencies=[Depends(require_session)])
 
 
 class UnitItem(BaseModel):
@@ -44,99 +44,69 @@ class PropertiesResponse(BaseModel):
     units: list[UnitItem]
 
 
-# ---------------------------------------------------------------------------
-# Seed Data
-# ---------------------------------------------------------------------------
-
-DEFAULT_UNITS: list[dict[str, Any]] = [
-    {
-        "id": "u-1",
-        "label": "Pieter Floriszstraat 1 C",
-        "address": "Pieter Floriszstraat 1 C, 1018 TZ Amsterdam",
-        "buildingName": "Centrum Portfolio",
-        "status": "occupied",
-        "monthlyRentEur": 1450.00,
-        "currentTenant": "Pieter Bakker",
-        "leaseEnd": "31-08-2027",
-        "lockboxCode": "4182",
-    },
-    {
-        "id": "u-2",
-        "label": "Singel 412",
-        "address": "Singel 412, 1016 AK Amsterdam",
-        "buildingName": "Singel Grachtenpand",
-        "status": "occupied",
-        "monthlyRentEur": 2200.00,
-        "currentTenant": "Marloes Jansen",
-        "leaseEnd": "31-10-2026",
-        "lockboxCode": "1902",
-    },
-    {
-        "id": "u-3",
-        "label": "Keizersgracht 42-A",
-        "address": "Keizersgracht 42-A, 1015 CR Amsterdam",
-        "buildingName": "Keizersgracht Estates",
-        "status": "occupied",
-        "monthlyRentEur": 2450.00,
-        "currentTenant": "Anouk de Jong",
-        "leaseEnd": "31-12-2027",
-        "lockboxCode": "5512",
-    },
-    {
-        "id": "u-4",
-        "label": "Prinses Marijkestraat 2 A",
-        "address": "Prinses Marijkestraat 2 A, 1077 XZ Amsterdam",
-        "buildingName": "Marijke Complex",
-        "status": "occupied",
-        "monthlyRentEur": 1850.00,
-        "currentTenant": "Daan Vermeulen",
-        "leaseEnd": "30-06-2028",
-        "lockboxCode": "2044",
-    },
-    {
-        "id": "u-5",
-        "label": "Henry Dunantweg 5 F",
-        "address": "Henry Dunantweg 5 F, 1066 HL Amsterdam",
-        "buildingName": "Dunantweg Residences",
-        "status": "notice_given",
-        "monthlyRentEur": 1390.00,
-        "currentTenant": "Lars van den Berg",
-        "leaseEnd": "31-12-2026",
-        "lockboxCode": "8810",
-    },
-]
+def _status(lease_end: date | None, today: date) -> str:
+    return "notice_given" if lease_end is not None and lease_end >= today else "occupied"
 
 
-# ---------------------------------------------------------------------------
-# API Routes
-# ---------------------------------------------------------------------------
+def _item(session: Session, unit: Unit, today: date) -> UnitItem:
+    """The unit with its current lease: one that has not ended (open-ended, or ending today or later)."""
+    lease = session.scalars(
+        select(Lease)
+        .where(
+            Lease.company_id == unit.company_id,
+            Lease.unit_id == unit.id,
+            (Lease.valid_to.is_(None)) | (Lease.valid_to >= today),
+            Lease.valid_from <= today,
+        )
+        .order_by(Lease.valid_from.desc())
+    ).first()
+    tenant = None
+    if lease is not None:
+        tenant = session.scalars(
+            select(Person)
+            .join(LeaseParty, LeaseParty.person_id == Person.id)
+            .where(
+                LeaseParty.company_id == unit.company_id,
+                LeaseParty.lease_id == lease.id,
+                LeaseParty.role == "tenant",
+            )
+        ).first()
+    return UnitItem(
+        id=str(unit.id),
+        label=unit.label,
+        address=unit.address or unit.label,
+        buildingName="",
+        status="vacant" if lease is None else _status(lease.valid_to, today),
+        monthlyRentEur=0.0,
+        currentTenant=tenant.display_name if tenant else None,
+        leaseEnd=f"{lease.valid_to:%d-%m-%Y}" if lease is not None and lease.valid_to else None,
+        lockboxCode=None,
+    )
 
 
 @router.get(
     "",
     response_model=PropertiesResponse,
     summary="Get Portfolio Properties & Units",
-    description=(
-        "Retrieves the portfolio directory of property units with occupancy status, address, monthly "
-        "rent, and current tenant associations."
-    ),
+    description="The company's units with occupancy status, address, current tenant and lease end.",
 )
 def get_properties(
     engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
     status: str = Query(default="all", description="all, occupied, vacant, notice_given"),
 ) -> PropertiesResponse:
-    """Returns property units matching query filters."""
-    units = list(DEFAULT_UNITS)
-    if status != "all":
-        units = [u for u in units if u["status"] == status]
-
-    occupied = len([u for u in DEFAULT_UNITS if u["status"] == "occupied"])
-
+    today = datetime.now(UTC).date()
+    with Session(engine) as session:
+        units = session.scalars(
+            select(Unit)
+            .where(Unit.company_id == principal.company_id, Unit.valid_to.is_(None))
+            .order_by(Unit.label.asc())
+        ).all()
+        items = [_item(session, unit, today) for unit in units]
+    occupied = sum(i.status in ("occupied", "notice_given") for i in items)
+    shown = items if status == "all" else [i for i in items if i.status == status]
     return PropertiesResponse(
-        totalUnits=110,
-        occupiedCount=occupied + 100,  # Scaled to full portfolio of 110 units
-        vacantCount=6,
-        units=[UnitItem(**u) for u in units],
+        totalUnits=len(items), occupiedCount=occupied, vacantCount=len(items) - occupied, units=shown
     )
 
 
@@ -144,12 +114,19 @@ def get_properties(
     "/{unit_id}",
     response_model=UnitItem,
     summary="Get Specific Unit Details",
-    description="Retrieves unit details, lease information, and lockbox PIN for a specific property.",
+    description="One of the company's units with its current lease.",
 )
 def get_unit_details(
     unit_id: str,
     engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> UnitItem:
-    """Returns single unit profile."""
-    unit = next((u for u in DEFAULT_UNITS if u["id"] == unit_id or unit_id in u["label"]), DEFAULT_UNITS[0])
-    return UnitItem(**unit)
+    try:
+        wanted = UUID(unit_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Unit not found") from None
+    with Session(engine) as session:
+        unit = session.scalars(select(Unit).where(Unit.id == wanted, Unit.company_id == principal.company_id)).first()
+        if unit is None:
+            raise HTTPException(status_code=404, detail="Unit not found")
+        return _item(session, unit, datetime.now(UTC).date())

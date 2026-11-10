@@ -12,6 +12,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.context.memory_dedup import find_near_duplicate
 from app.core.ids import new_id
 from app.db.enums import MemoryKind, MemoryOrigin, MemoryScope, MemoryStatus
 from app.db.models import MemoryItem
@@ -83,12 +84,23 @@ def record_owner_memory(
             MemoryItem.text == clean_text,
         )
     )
+    if existing is None:
+        existing = find_near_duplicate(
+            session,
+            company_id,
+            scope,
+            scope_id,
+            clean_text,
+            (MemoryStatus.active,),
+            kind=kind,
+            origin=MemoryOrigin.owner,
+        )
     if existing is not None:
         if existing.status == MemoryStatus.active:
             existing.evidence_count += 1
             existing.last_used_at = datetime.now(tz=UTC)
             session.flush()
-            return existing, f"Remembered (updated evidence count: {existing.evidence_count})."
+            return existing, f"Remembered (updated evidence count: {existing.evidence_count}): '{existing.text}'"
         return existing, "Rule is already proposed and pending activation."
 
     item = MemoryItem(
