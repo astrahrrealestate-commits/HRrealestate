@@ -57,7 +57,9 @@ def seed_dev_tenant(
             ("avinash.p@fwc.co.in", "Avinash P", "owner"),
         ]
         for u_email, u_name, u_role in default_allowed:
-            existing = session.scalar(select(AllowedUser).where(AllowedUser.email == u_email))
+            existing = session.scalar(
+                select(AllowedUser).where(AllowedUser.company_id == company_id, AllowedUser.email == u_email)
+            )
             if existing:
                 existing.role = u_role
                 existing.is_active = True
@@ -76,7 +78,9 @@ def seed_dev_tenant(
 
         # Remove non-staff accounts from login whitelist if previously seeded
         for removed_email in ["vipint9902@gmail.com", "suryanstyagi.work@gmail.com"]:
-            to_remove = session.scalar(select(AllowedUser).where(AllowedUser.email == removed_email))
+            to_remove = session.scalar(
+                select(AllowedUser).where(AllowedUser.company_id == company_id, AllowedUser.email == removed_email)
+            )
             if to_remove:
                 session.delete(to_remove)
 

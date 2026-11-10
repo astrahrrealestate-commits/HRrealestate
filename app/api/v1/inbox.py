@@ -26,7 +26,7 @@ from app.pipeline.read_repo import (
 )
 from app.storage.ports import MAX_PRESIGN_TTL_S, ObjectStorage
 
-router = APIRouter(tags=["inbox"], dependencies=[Depends(require_section("inbox", also_read=("dashboard",)))])
+router = APIRouter(tags=["inbox"], dependencies=[Depends(require_section("inbox"))])
 NOT_FOUND = "thread not found"  # one body for malformed, unknown and foreign keys: nothing to tell them apart
 
 

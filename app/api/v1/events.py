@@ -9,6 +9,7 @@ import asyncio
 import time
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Annotated
 from uuid import UUID
 
@@ -44,9 +45,13 @@ router = APIRouter(
 )
 
 
-def _read_page(engine: Engine, company_id: UUID, after: Cursor | None, limit: int) -> list[FeedItem]:
+def _read_page(
+    engine: Engine, company_id: UUID, after: Cursor | None, limit: int, *, full: bool = True
+) -> list[FeedItem]:
     with Session(engine) as session:
-        return [FeedItem.model_validate(r) for r in feed_page(session, company_id, after, limit)]
+        items = [FeedItem.model_validate(r) for r in feed_page(session, company_id, after, limit)]
+    # A card's payload holds the draft replies and what the sender wrote: only Inbox and Maintenance see it (ADR 0012).
+    return items if full else [i.model_copy(update={"payload": {}}) for i in items]
 
 
 def _cursor_of(item: FeedItem) -> Cursor:
@@ -58,9 +63,9 @@ def frame(item: FeedItem) -> str:
     return f"id: {cursor}\nevent: feed\ndata: {item.model_dump_json()}\n\n"
 
 
-def poll_frames(engine: Engine, company_id: UUID, after: Cursor) -> tuple[list[str], Cursor]:
+def poll_frames(engine: Engine, company_id: UUID, after: Cursor, *, full: bool = True) -> tuple[list[str], Cursor]:
     """One poll: the SSE frames for rows after `after` (at most one page) and the advanced cursor."""
-    items = _read_page(engine, company_id, after, MAX_PAGE)
+    items = _read_page(engine, company_id, after, MAX_PAGE, full=full)
     return [frame(i) for i in items], (_cursor_of(items[-1]) if items else after)
 
 
@@ -90,12 +95,12 @@ def feed_due(now: float, next_feed: float, tick: float) -> bool:
 
 
 async def _poll(
-    engine: Engine, company_id: UUID, after: Cursor, turns: TurnPoller | None, *, feed: bool
+    engine: Engine, company_id: UUID, after: Cursor, turns: TurnPoller | None, *, feed: bool, full: bool = True
 ) -> tuple[list[str], Cursor]:
     """One tick: the feed page when it is due, then the turn changes (both in the thread pool)."""
     frames: list[str] = []
     if feed:
-        frames, after = await run_in_threadpool(poll_frames, engine, company_id, after)
+        frames, after = await run_in_threadpool(partial(poll_frames, full=full), engine, company_id, after)
     if turns is not None:
         frames += await run_in_threadpool(turns.poll)
     return frames, after
@@ -112,6 +117,7 @@ async def event_stream(
     clock: Callable[[], float] = time.monotonic,
     turns: TurnPoller | None = None,
     turn_poll_interval: float | None = None,
+    full: bool = True,
 ) -> AsyncIterator[str]:
     """Poll loop: turns every `TURN_POLL_SECONDS`, the feed every `POLL_INTERVAL_S`. Ends on disconnect, on error
     (final `error` frame) or after `max_lifetime` so the client reconnects and re-authenticates."""
@@ -126,7 +132,7 @@ async def event_stream(
             return
         due = feed_due(now, next_feed, tick)
         try:
-            frames, after = await _poll(engine, company_id, after, turns, feed=due)
+            frames, after = await _poll(engine, company_id, after, turns, feed=due, full=full)
         except Exception as exc:
             log.warning("dashboard.events.stream_error", error=type(exc).__name__)
             yield 'event: error\ndata: {"detail":"stream ended"}\n\n'
@@ -143,6 +149,10 @@ async def event_stream(
         await asyncio.sleep(tick)
 
 
+def _sees_cards(principal: Principal) -> bool:
+    return principal.access.can("inbox") or principal.access.can("maintenance")
+
+
 @router.get("/feed")
 async def get_feed(
     request: Request,
@@ -154,7 +164,10 @@ async def get_feed(
         cursor = parse_cursor(after) if after else None
     except BadCursorError:
         raise HTTPException(status_code=422, detail="invalid cursor") from None
-    return await run_in_threadpool(_read_page, request.app.state.engine, principal.company_id, cursor, limit)
+    full = _sees_cards(principal)
+    return await run_in_threadpool(
+        partial(_read_page, full=full), request.app.state.engine, principal.company_id, cursor, limit
+    )
 
 
 @router.get("/events")
@@ -164,7 +177,7 @@ async def get_events(
     after = start_cursor(request.headers.get("last-event-id"))
     engine = request.app.state.engine
     turns = TurnPoller(engine, principal.company_id, principal.owner_id)
-    stream = event_stream(request, engine, principal.company_id, after, turns=turns)
+    stream = event_stream(request, engine, principal.company_id, after, turns=turns, full=_sees_cards(principal))
     return StreamingResponse(
         stream, media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
     )

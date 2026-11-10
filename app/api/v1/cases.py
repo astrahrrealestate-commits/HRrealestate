@@ -23,9 +23,7 @@ from app.core.errors import NotFoundError
 from app.pipeline.read_cases import ActivityRow, CaseBundle, activity, case_bundle, list_cases
 from app.pipeline.read_repo import MAX_PAGE
 
-router = APIRouter(
-    tags=["cases"], dependencies=[Depends(require_section("inbox", also=("maintenance",), also_read=("dashboard",)))]
-)
+router = APIRouter(tags=["cases"], dependencies=[Depends(require_section("inbox", also=("maintenance",)))])
 NOT_FOUND = "case not found"  # same body for a missing and a foreign id
 
 

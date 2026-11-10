@@ -29,8 +29,21 @@ maintenance person before they write, or to name and classify one that already d
   `tests/unit/api/test_section_access.py` walks the whole OpenAPI document as a contacts-only profile and fails if a
   route outside the shared list is not refused (403), so a new router cannot ship unguarded.
   The Reports and Dashboard pages are assembled from the properties, tenants, maintenance and inbox endpoints, so
-  `reports` and `dashboard` may also **read** (GET) those. That is the data their pages summarise, including message
-  bodies and tenant details; it is not hidden from a dashboard or reports profile.
+  `reports` and `dashboard` may also **read** (GET) those, as a summary: a profile that reads a list through another
+  section's pages gets it without what was said or how to reach anyone. Tenants lose `phone` and `email`; tickets lose
+  the phone numbers, contractor email, notes, original message and both drafts; inbox threads keep title, summary, unit,
+  urgency and status but lose message bodies, drafts, attachments, provider ids (a WhatsApp thread id is the
+  customer's number), snippet and the sender's contact; the thread is an allow-list, so a field added later stays
+  hidden until listed (`app/api/inbox/summary.py`). A contact named after their email or number shows as "Unknown
+  contact". The owner feed (`/api/v1/feed`, the SSE stream) sends card payloads (draft text, choices) only to Inbox
+  and Maintenance; others get the cards with an empty payload. The calendar is readable by Dashboard without
+  attendees and lockbox codes, and writable only by Maintenance or Inbox; attachments need Inbox. Holding the section
+  itself (`tenants`, `maintenance`, `inbox`) returns everything.
+  **This is a view limit, not a wall, while the Super Agent is ungated** (below): any profile can ask it for the same
+  data in words.
+  Reports may read only the dashboard `logs`; ticket history, the v1 inbox/cases/activity and the other dashboard
+  routes need their own section. The Dashboard page's "needs you" cards therefore show the headline; opening a thread
+  to read or answer it needs Inbox.
 - **Admin API** (`/api/v1/admin/*`, superadmin only): list, create and edit profiles. Rules: unique email (across
   companies, as the table already is), at least one section for a member, unknown sections refused, nobody can switch
   off or demote their own profile, only the `owner` role can change the owner's row, at least one active admin must
@@ -55,11 +68,12 @@ maintenance person before they write, or to name and classify one that already d
   own design (per-section tool scopes); recorded in security.md.
 - Approving and sending are allowed for anyone who holds the section that offers them (inbox, or maintenance for the
   workflow routes); pausing the company is admin-only.
-- Emails stay unique across all companies (the table's existing key, and the Google login looks a person up by email
-  alone). Creating a profile for an address that already has one answers 409 in any company, which reveals that the
-  address is whitelisted somewhere, and an admin could whitelist another company's address. Phase 1 has one company;
-  make the key `(company_id, lower(email))` and make the login refuse an ambiguous address before a second company
-  exists.
+- An email is unique **within a company** (migration 0040: `(company_id, lower(email))`), so a 409 on create says
+  nothing about other companies. The Google login looks a person up by address alone, so an address whitelisted
+  (and active) in more than one company is refused with `error=ambiguous_account` and no session; the login never
+  guesses a company. The cost: an admin who whitelists a stranger's address in their own company can stop that person
+  from signing in until the extra row is removed. Phase 1 has one company; revisit with a company picker at login
+  before a second company is onboarded.
 - One extra indexed lookup per authenticated request.
 - Alternative rejected: role-based presets (admin/manager/viewer) with fixed permissions: the request was explicit
   about per-section switches, and a preset table would have to be edited for every new combination.

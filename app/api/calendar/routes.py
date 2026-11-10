@@ -27,7 +27,7 @@ from app.llm.agents.calendar import propose_calendar_event
 router = APIRouter(
     prefix="/api/calendar",
     tags=["calendar"],
-    dependencies=[Depends(require_section("maintenance", also=("dashboard", "inbox")))],
+    dependencies=[Depends(require_section("maintenance", also=("inbox",), also_read=("dashboard",)))],
 )
 log = get_logger(__name__)
 
@@ -74,7 +74,8 @@ class ProposeSlotRequest(BaseModel):
     caseId: str | None = None
 
 
-def _event_response(r: CalendarEventRow, html_link: str | None = None) -> CalendarEventResponse:
+def _event_response(r: CalendarEventRow, html_link: str | None = None, *, full: bool = True) -> CalendarEventResponse:
+    """`full=False` (a Dashboard profile) leaves out who is invited and the lockbox code (ADR 0012)."""
     return CalendarEventResponse(
         id=str(r.id),
         caseId=str(r.case_id) if r.case_id else None,
@@ -87,8 +88,8 @@ def _event_response(r: CalendarEventRow, html_link: str | None = None) -> Calend
         eventType=r.event_type,
         externalEventId=r.external_event_id,
         location=r.location,
-        attendees=r.attendees or [],
-        lockboxCode=r.lockbox_code,
+        attendees=(r.attendees or []) if full else [],
+        lockboxCode=r.lockbox_code if full else None,
         createdAt=r.created_at.isoformat() if r.created_at else datetime.now(UTC).isoformat(),
         confirmedAt=r.confirmed_at.isoformat() if r.confirmed_at else None,
         htmlLink=html_link
@@ -118,7 +119,8 @@ def list_calendar_events(
         query = query.order_by(CalendarEventRow.start_time.asc())
         rows = session.scalars(query).all()
 
-        events_out = [_event_response(r) for r in rows]
+        full = principal.access.can("maintenance") or principal.access.can("inbox")
+        events_out = [_event_response(r, full=full) for r in rows]
 
     return {"events": events_out, "total": len(events_out)}
 

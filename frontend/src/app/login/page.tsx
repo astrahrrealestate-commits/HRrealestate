@@ -34,6 +34,7 @@ function GoogleIcon() {
 const LOGIN_MESSAGES: Record<string, string> = {
   invalid_state: "That sign-in link has expired or was opened in a different browser. Please start again.",
   unverified_email: "Google has not verified this email address, so it cannot be used to sign in.",
+  ambiguous_account: "This email address is set up for more than one company, so it cannot sign in here. Ask your EstateOS administrator to remove the extra profile.",
   no_email: "Google did not return an email address for this account.",
   no_code: "Google did not complete the sign-in. Please try again.",
   not_configured: "Sign-in is not configured on this server. Contact your EstateOS administrator.",

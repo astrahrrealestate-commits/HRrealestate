@@ -3,7 +3,8 @@ the person's very next request."""
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from uuid import uuid4
+from datetime import date
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
@@ -12,14 +13,17 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.auth import Principal
 from app.api.v1.sections import SECTIONS
+from app.contracts import Channel
 from app.core.settings import Settings
-from app.db.models import AllowedUser, Company
+from app.db.enums import PersonKind
+from app.db.models import AllowedUser, ChannelIdentity, Company, Person
 from tests.integration.access_support import CSRF, add_person_to_team, build_app, signed_in
 from tests.integration.conftest import purge_company
 
 pytestmark = pytest.mark.integration
 PROFILES = "/api/v1/admin/profiles"
 ALL_KEYS = [s.key for s in SECTIONS]
+SINCE = date(2026, 1, 1)
 
 
 @dataclass
@@ -97,10 +101,23 @@ def test_a_superadmin_profile_needs_no_section_list(team: Team) -> None:
     assert response.json()["sections"] == ALL_KEYS
 
 
-def test_an_email_that_already_has_a_profile_is_a_409_even_in_another_company(team: Team) -> None:
+def test_an_email_that_already_has_a_profile_in_this_company_is_a_409(team: Team) -> None:
     with signed_in(team.app, team.settings, team.boss) as client:
         assert _create(client, team.clerk.email).status_code == 409
-        assert _create(client, team.outsider.email.upper()).status_code == 409
+        assert _create(client, team.clerk.email.upper()).status_code == 409
+
+
+def test_an_address_another_company_uses_is_not_revealed_by_a_409(team: Team) -> None:
+    with signed_in(team.app, team.settings, team.boss) as client:
+        assert _create(client, team.outsider.email).status_code == 201
+
+
+def test_the_same_address_in_two_companies_is_two_profiles(team: Team) -> None:
+    with signed_in(team.app, team.settings, team.boss) as client:
+        _create(client, team.outsider.email)
+    with Session(team.engine) as s:
+        rows = s.scalars(select(AllowedUser).where(AllowedUser.email == team.outsider.email)).all()
+    assert {r.company_id for r in rows} == {team.company.id, team.outsider.company_id}
 
 
 def test_a_member_cannot_read_or_change_profiles(team: Team) -> None:
@@ -284,3 +301,94 @@ def test_the_migration_promotes_the_earliest_entry_of_a_company_with_no_admin(te
         assert sorted(boss_roles) == ["member", "superadmin"]  # a company that already has an admin is left alone
     finally:
         purge_company(team.engine, orphan.id)
+
+
+def _seed_tenant(engine: Engine, company_id: UUID) -> None:
+    with Session(engine) as s, s.begin():
+        person = Person(company_id=company_id, kind=PersonKind.tenant, display_name="Anouk de Vries", valid_from=SINCE)
+        s.add(person)
+        s.flush()
+        for channel, identity in ((Channel.gmail, "anouk@mail.test"), (Channel.whatsapp, "+31611111111")):
+            s.add(
+                ChannelIdentity(
+                    company_id=company_id, person_id=person.id, channel=channel, identity=identity, valid_from=SINCE
+                )
+            )
+
+
+def test_reports_and_dashboard_see_the_rent_roll_but_not_tenant_contact_details(team: Team) -> None:
+    _seed_tenant(team.engine, team.company.id)
+    for section in ("reports", "dashboard"):
+        reader = add_person_to_team(
+            team.engine, team.company.id, f"{section}-{uuid4().hex[:6]}@t.test", role="member", sections=[section]
+        )
+        with signed_in(team.app, team.settings, reader) as client:
+            tenants = client.get("/api/tenants").json()["tenants"]
+            assert [t["name"] for t in tenants] == ["Anouk de Vries"], section
+            assert (tenants[0]["phone"], tenants[0]["email"]) == ("", ""), section
+            detail = client.get(f"/api/tenants/{tenants[0]['id']}").json()
+            assert (detail["phone"], detail["email"]) == ("", ""), section
+    holder = add_person_to_team(
+        team.engine, team.company.id, f"tenants-{uuid4().hex[:6]}@t.test", role="member", sections=["tenants"]
+    )
+    with signed_in(team.app, team.settings, holder) as client:
+        tenant = client.get("/api/tenants").json()["tenants"][0]
+    assert (tenant["phone"], tenant["email"]) == ("+31611111111", "anouk@mail.test")
+
+
+def test_reports_reads_the_logs_only_and_dashboard_never_reads_the_v1_inbox_or_ticket_history(team: Team) -> None:
+    reporter = add_person_to_team(
+        team.engine, team.company.id, f"rep-{uuid4().hex[:6]}@t.test", role="member", sections=["reports"]
+    )
+    with signed_in(team.app, team.settings, reporter) as client:
+        assert client.get("/api/dashboard/logs").status_code == 200
+        for path in ("/api/dashboard/pulse", "/api/dashboard/radar", "/api/dashboard/briefing"):
+            assert client.get(path).status_code == 403, path
+        assert client.get("/api/maintenance/tickets/00000000-0000-0000-0000-000000000001/history").status_code == 403
+    watcher = add_person_to_team(
+        team.engine, team.company.id, f"dash-{uuid4().hex[:6]}@t.test", role="member", sections=["dashboard"]
+    )
+    with signed_in(team.app, team.settings, watcher) as client:
+        assert client.get("/api/dashboard/pulse").status_code == 200
+        assert client.get("/api/inbox/threads").status_code == 200
+        for path in ("/api/v1/inbox", "/api/v1/cases", "/api/v1/activity"):
+            assert client.get(path).status_code == 403, path
+
+
+def test_a_reports_or_dashboard_profile_gets_no_card_text_from_the_feed_or_the_calendar_writes(team: Team) -> None:
+    from app.db.enums import FeedKind
+    from app.db.models import OwnerFeed
+
+    with Session(team.engine) as s, s.begin():
+        s.add(
+            OwnerFeed(
+                company_id=team.company.id,
+                idempotency_key=f"test-{uuid4().hex}",
+                kind=FeedKind.approval,
+                payload={"text": "Draft 1: Dear Anouk, 0611111111"},
+            )
+        )
+    for section in ("reports", "dashboard"):
+        reader = add_person_to_team(
+            team.engine, team.company.id, f"{section}-{uuid4().hex[:6]}@t.test", role="member", sections=[section]
+        )
+        with signed_in(team.app, team.settings, reader) as client:
+            cards = client.get("/api/v1/feed").json()
+            assert cards, section
+            assert all(c["payload"] == {} for c in cards), section
+    desk = add_person_to_team(
+        team.engine, team.company.id, f"inbox-{uuid4().hex[:6]}@t.test", role="member", sections=["inbox"]
+    )
+    with signed_in(team.app, team.settings, desk) as client:
+        assert any("Dear Anouk" in c["payload"].get("text", "") for c in client.get("/api/v1/feed").json())
+
+    watcher = add_person_to_team(
+        team.engine, team.company.id, f"cal-{uuid4().hex[:6]}@t.test", role="member", sections=["dashboard"]
+    )
+    event = {"title": "Visit", "startTime": "2026-12-01T09:00:00Z", "endTime": "2026-12-01T10:00:00Z"}
+    with signed_in(team.app, team.settings, watcher) as client:
+        assert client.get("/api/calendar/events").status_code == 200
+        assert client.post("/api/calendar/events", json=event, headers=CSRF).status_code == 403
+        approve = client.post("/api/calendar/events/00000000-0000-0000-0000-000000000001/approve", headers=CSRF)
+        assert approve.status_code == 403
+        assert client.get("/api/inbox/attachments/00000000-0000-0000-0000-000000000001").status_code == 403

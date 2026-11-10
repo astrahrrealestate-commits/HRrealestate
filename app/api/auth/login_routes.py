@@ -179,12 +179,16 @@ async def login_callback(
 
     # The whitelist is the gatekeeper (allowed_users); its row names the company the person may enter.
     with Session(engine) as session, session.begin():
-        allowed = session.scalars(
+        rows = session.scalars(
             select(AllowedUser).where(func.lower(AllowedUser.email) == email, AllowedUser.is_active.is_(True))
-        ).first()
-        if not allowed:
+        ).all()
+        if not rows:
             log.warning("auth.login.access_denied_not_whitelisted", email_hash=email_fingerprint(email))
             return _login_error(settings, "access_denied")
+        if len(rows) > 1:  # never guess which company a shared address means
+            log.warning("auth.login.ambiguous_address", email_hash=email_fingerprint(email), companies=len(rows))
+            return _login_error(settings, "ambiguous_account")
+        allowed = rows[0]
         owner = _owner_for(session, allowed, email, name)
         principal = Principal(company_id=allowed.company_id, owner_id=owner.id, email=email)
         session_token = issue_session(settings, principal, datetime.now(UTC))
@@ -220,7 +224,9 @@ def get_current_user_profile(
     with Session(engine) as session:
         allowed = session.scalars(
             select(AllowedUser).where(
-                func.lower(AllowedUser.email) == principal.email.lower(), AllowedUser.is_active.is_(True)
+                AllowedUser.company_id == principal.company_id,
+                func.lower(AllowedUser.email) == principal.email.lower(),
+                AllowedUser.is_active.is_(True),
             )
         ).first()
         owner_name = session.scalar(

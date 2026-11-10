@@ -219,3 +219,15 @@ def test_me_ends_the_session_of_a_person_removed_from_a_company_that_still_has_a
         s.query(AllowedUser).filter(AllowedUser.email == f"newbie-{tag}@b.test").delete()
         s.commit()
     assert login.client.get("/api/auth/me").json()["authenticated"] is False
+
+
+def test_an_address_whitelisted_in_two_companies_gets_no_session_and_no_owner(login: Login) -> None:
+    tag = login.tag
+    with Session(login.engine) as s, s.begin():
+        s.add(AllowedUser(company_id=login.first_company, email=f"newbie-{tag}@b.test", display_name="Newbie A"))
+    state = _start(login)
+    with _google(f"newbie-{tag}@b.test"):
+        response = _callback(login, state)
+    assert response.headers["location"] == f"{FRONTEND}/login?error=ambiguous_account"
+    assert login.client.cookies.get(COOKIE) is None
+    assert _owner_rows(login.engine, login.second_company) == []

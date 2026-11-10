@@ -148,7 +148,7 @@ def test_event_stream_emits_feed_then_ping_then_stops() -> None:
     request.is_disconnected = is_disconnected
     pages = iter([[_item(1)], []])
 
-    def fake_read(*_: object) -> list[FeedItem]:
+    def fake_read(*_: object, **__: object) -> list[FeedItem]:
         return next(pages)
 
     async def collect() -> list[str]:
@@ -166,7 +166,7 @@ def test_poll_pages_identical_created_at_without_skips() -> None:
     """Rows sharing created_at are ordered by id; the cursor carries both, so limit=1 paging loses nothing."""
     rows = [_item(1), _item(2), _item(3)]
 
-    def fake_read(_e: object, _c: object, after: tuple[datetime, UUID], _limit: int) -> list[FeedItem]:
+    def fake_read(_e: object, _c: object, after: tuple[datetime, UUID], _limit: int, **_: object) -> list[FeedItem]:
         return [r for r in rows if (r.created_at, r.id) > after][:1]
 
     cursor = (T0, UUID(int=0))

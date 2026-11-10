@@ -73,12 +73,14 @@ the build when a route answers an anonymous caller without being listed as publi
 Still open (fix in this order):
 - **Profiles limit sections, not actions, and not the Super Agent** (ADR 0012). A member sees only the sections a
   superadmin switched on; every router is guarded per request and a test walks the OpenAPI document to keep it so.
-  Anyone who holds a section that offers approve/send can approve and send, and `reports`/`dashboard` profiles may
-  read the data their pages summarise (message bodies and tenant details included). The Super Agent (`/api/agent`,
-  `/api/v1/agent`) answers from the whole portfolio whatever the profile: before inviting anyone who should not see
-  everything, decide whether they get it, and scope its tools per section. Profile emails are unique across
-  companies, so one company's admin can learn that an address is whitelisted and could whitelist another company's
-  address; fix before a second company exists.
+  Anyone who holds a section that offers approve/send can approve and send; `reports`/`dashboard` profiles read the
+  lists their pages summarise without message bodies, drafts, phone numbers or emails (the feed, calendar and
+  attachments follow the same rule). That is a view limit only while the Super Agent (`/api/agent`,
+  `/api/v1/agent`) is ungated: it answers from the whole portfolio whatever the profile, so a restricted profile can
+  ask it for the hidden data: before inviting anyone who should not see
+  everything, decide whether they get it, and scope its tools per section. An address whitelisted in two companies
+  cannot sign in (`ambiguous_account`): an admin who whitelists a stranger's address can lock that person out until
+  the row is removed; add a company picker before a second company exists.
 - **The owner's Google OAuth credentials** live in one plaintext file for the whole installation
   (`channels/google_auth.py`), not per company, and that module logs the account email and the file path.
 - **The SPA falls back to bundled mock data** (`frontend/src/data/mockData`) when an API call fails, so an outage or a

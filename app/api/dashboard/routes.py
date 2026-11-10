@@ -13,6 +13,7 @@ from sqlalchemy import Engine, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
+from app.api.inbox.summary import safe_name
 from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.contracts import CaseState
@@ -117,11 +118,19 @@ class LogsResponse(BaseModel):
 # API Routes
 # ---------------------------------------------------------------------------
 
+
+def _party_name(party: Person | None, principal: Principal) -> str:
+    if party is None:
+        return "Whoever answers"
+    return party.display_name if principal.access.can("inbox") else safe_name(party.display_name)
+
+
 OPEN_CASE_STATES = (CaseState.open, CaseState.waiting_on_owner, CaseState.waiting_on_third_party)
 
 
 @router.get(
     "/pulse",
+    dependencies=[Depends(require_section("dashboard"))],
     response_model=PulseMetricsResponse,
     summary="Get Executive Pulse Metrics",
     description=(
@@ -177,6 +186,7 @@ def get_pulse_metrics(
 
 @router.get(
     "/radar",
+    dependencies=[Depends(require_section("dashboard"))],
     response_model=RadarResponse,
     summary="Get Unresponsive Cases Radar",
     description=(
@@ -211,7 +221,7 @@ def get_unresponsive_radar(
                     id=str(r.id),
                     caseRef=f"#cs-{case_ref(r.case_id)}",
                     unitLabel=(unit.address or unit.label) if unit else "",
-                    partyName=party.display_name if party else "Whoever answers",
+                    partyName=_party_name(party, principal),
                     partyRole=party.kind.value if party else "",
                     issueSummary=r.about or "Awaiting a response",
                     daysWaiting=max(0, (now - r.expected_by).days),
@@ -224,6 +234,7 @@ def get_unresponsive_radar(
 
 @router.get(
     "/inquiries",
+    dependencies=[Depends(require_section("dashboard"))],
     response_model=InquiriesResponse,
     summary="Get Prospective Tenant Inquiries",
     description="Prospective tenant leads. Empty until inquiries are captured; EstateOS does not invent leads.",
@@ -283,6 +294,7 @@ def _plural(count: int, noun: str) -> str:
 
 @router.get(
     "/briefing",
+    dependencies=[Depends(require_section("dashboard"))],
     response_model=BriefingResponse,
     summary="Get Executive Morning Pulse / Weekly Briefing",
     description="A short briefing built only from the company's own counts: urgent cases, pending approvals, cases.",
