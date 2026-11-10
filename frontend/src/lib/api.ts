@@ -1225,6 +1225,8 @@ export interface GoogleAuthStatus {
   picture?: string;
   scopes?: string[];
   connected_at?: string;
+  /** The status could not be read (offline, server error). `connected: false` then means "unknown", not "off". */
+  unreachable?: boolean;
 }
 
 export async function getGoogleAuthStatus(): Promise<GoogleAuthStatus> {
@@ -1240,7 +1242,53 @@ export async function getGoogleAuthStatus(): Promise<GoogleAuthStatus> {
   } catch (err) {
     console.warn("Failed to fetch Google auth status:", err);
   }
-  return { connected: false };
+  return { connected: false, unreachable: true };
+}
+
+export interface WhatsAppSetup {
+  configured: boolean;
+  provider: string;
+}
+
+/** GET /api/v1/channels/whatsapp/status: what the server is set up for; null when it cannot be read. */
+export async function getWhatsAppSetup(): Promise<WhatsAppSetup | null> {
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/v1/channels/whatsapp/status`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(5000),
+    });
+    return res.ok ? ((await res.json()) as WhatsAppSetup) : null;
+  } catch {
+    return null;
+  }
+}
+
+export interface BrixxSyncStatus {
+  stale: boolean;
+  totalRows: number;
+  lastRunAt: string | null;
+  lastRunStatus: string | null;
+}
+
+/** GET /api/v1/brixx/status: the newest sync run; null when it cannot be read. */
+export async function getBrixxSyncStatus(): Promise<BrixxSyncStatus | null> {
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/v1/brixx/status`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+    const body: { stale: boolean; total_rows: number; last_run: { status: string; finished_at: string | null; started_at: string } | null } =
+      await res.json();
+    return {
+      stale: body.stale,
+      totalRows: body.total_rows,
+      lastRunAt: body.last_run ? (body.last_run.finished_at ?? body.last_run.started_at) : null,
+      lastRunStatus: body.last_run?.status ?? null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function getGoogleAuthUrl(returnTo: string = "/"): Promise<string | null> {
