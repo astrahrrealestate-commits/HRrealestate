@@ -149,39 +149,87 @@ export function AskEstateOSPanel({
   };
 
   const isDark = theme === "dark";
+  const [speechLang, setSpeechLang] = useState<"en" | "nl">("nl"); // Dutch default for Amsterdam properties, toggleable to English
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
 
-  const toggleVoiceInput = () => {
+  // Clean up speech recognition on unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {}
+      }
+    };
+  }, []);
+
+  const toggleVoiceInput = (overrideLang?: "en" | "nl") => {
     if (typeof window === "undefined") return;
     const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRec) {
-      alert("Speech recognition is not supported in this browser.");
+      alert("Speech recognition is not supported in this browser. Please use Google Chrome, Microsoft Edge, or Safari.");
       return;
     }
     if (isListening) {
-      recognitionRef.current?.stop();
+      try {
+        recognitionRef.current?.stop();
+      } catch {}
       setIsListening(false);
       return;
     }
     try {
+      const activeLang = overrideLang || speechLang;
       const recognition = new SpeechRec();
-      recognition.lang = "en-US";
-      recognition.continuous = false;
+      // 'nl-NL' for Dutch, 'en-US' for English
+      recognition.lang = activeLang === "nl" ? "nl-NL" : "en-US";
+      recognition.continuous = true;
       recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+
+      // Retain existing text as base prefix
+      const basePrefix = inputQuery.trim() ? inputQuery.trim() + " " : "";
+
       recognition.onstart = () => setIsListening(true);
       recognition.onresult = (event: any) => {
-        const transcript = Array.from(event.results)
-          .map((r: any) => r[0].transcript)
-          .join("");
-        setInputQuery(transcript);
+        let interimTranscript = "";
+        let finalTranscript = "";
+
+        for (let i = 0; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript + " ";
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+
+        const liveText = (finalTranscript + interimTranscript).trim();
+        if (liveText) {
+          setInputQuery(basePrefix + liveText);
+        }
       };
       recognition.onend = () => setIsListening(false);
-      recognition.onerror = () => setIsListening(false);
+      recognition.onerror = (e: any) => {
+        console.warn("Speech recognition warning:", e);
+        setIsListening(false);
+      };
       recognitionRef.current = recognition;
       recognition.start();
-    } catch {
+    } catch (err) {
+      console.error("Speech recognition could not start:", err);
       setIsListening(false);
+    }
+  };
+
+  const handleToggleLang = () => {
+    const nextLang = speechLang === "nl" ? "en" : "nl";
+    setSpeechLang(nextLang);
+    if (isListening && recognitionRef.current) {
+      try {
+        recognitionRef.current.abort();
+      } catch {}
+      setIsListening(false);
+      setTimeout(() => toggleVoiceInput(nextLang), 100);
     }
   };
 
@@ -958,39 +1006,65 @@ export function AskEstateOSPanel({
                 placeholder="Talk to your super agent and get your job done"
                 className="w-full text-[13px] bg-transparent outline-none resize-none text-white placeholder:text-slate-500 leading-normal"
               />
-              <div className="flex items-center justify-end gap-2 pt-1">
-                {/* White Circular Mic Button (Matches Mockup) */}
-                <button
-                  type="button"
-                  onClick={toggleVoiceInput}
-                  className={cn(
-                    "w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-lg",
-                    isListening
-                      ? "bg-[#00e5ff] text-black shadow-[0_0_18px_#00e5ff] animate-pulse"
-                      : "bg-white text-black hover:bg-slate-100 active:scale-95"
+              <div className="flex items-center justify-between pt-1">
+                {/* Left: Language selector & Listening status */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleToggleLang}
+                    className={cn(
+                      "text-[11px] font-semibold px-2.5 py-1 rounded-full border transition-all cursor-pointer flex items-center gap-1 select-none",
+                      speechLang === "nl"
+                        ? "bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-[0_0_8px_rgba(245,158,11,0.25)]"
+                        : "bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-[0_0_8px_rgba(0,229,255,0.25)]"
+                    )}
+                    title={speechLang === "nl" ? "Voice language: Nederlands (tap to switch to English)" : "Voice language: English (tap to switch to Nederlands)"}
+                  >
+                    <span>{speechLang === "nl" ? "🇳🇱 NL" : "🇬🇧 EN"}</span>
+                  </button>
+
+                  {isListening && (
+                    <span className="text-[11px] text-cyan-300 font-medium animate-pulse flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping inline-block" />
+                      Listening {speechLang === "nl" ? "(NL)" : "(EN)"}...
+                    </span>
                   )}
-                  title={isListening ? "Listening..." : "Tap to Speak"}
-                >
-                  {isListening ? (
-                    <MicOff className="w-4 h-4 stroke-[2.5]" />
-                  ) : (
-                    <Mic className="w-4 h-4 stroke-[2.5]" />
-                  )}
-                </button>
-                {/* Dark Circular Send Button */}
-                <button
-                  type="submit"
-                  disabled={!inputQuery.trim() || isTyping}
-                  className={cn(
-                    "w-8 h-8 rounded-full bg-[#2a2b31] flex items-center justify-center transition-all cursor-pointer",
-                    inputQuery.trim()
-                      ? "text-white hover:bg-blue-600 active:scale-95"
-                      : "text-slate-500 cursor-not-allowed opacity-60"
-                  )}
-                  title="Send"
-                >
-                  <ArrowUp className="w-4 h-4 stroke-[2.5]" />
-                </button>
+                </div>
+
+                {/* Right: White Circular Mic Button & Send Button */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleVoiceInput()}
+                    className={cn(
+                      "w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-lg",
+                      isListening
+                        ? "bg-[#00e5ff] text-black shadow-[0_0_18px_#00e5ff] animate-pulse ring-2 ring-cyan-300"
+                        : "bg-white text-black hover:bg-slate-100 active:scale-95"
+                    )}
+                    title={isListening ? "Listening... Tap to stop" : `Tap to Speak (${speechLang === "nl" ? "Dutch" : "English"})`}
+                  >
+                    {isListening ? (
+                      <MicOff className="w-4 h-4 stroke-[2.5]" />
+                    ) : (
+                      <Mic className="w-4 h-4 stroke-[2.5]" />
+                    )}
+                  </button>
+                  {/* Dark Circular Send Button */}
+                  <button
+                    type="submit"
+                    disabled={!inputQuery.trim() || isTyping}
+                    className={cn(
+                      "w-8 h-8 rounded-full bg-[#2a2b31] flex items-center justify-center transition-all cursor-pointer",
+                      inputQuery.trim()
+                        ? "text-white hover:bg-blue-600 active:scale-95"
+                        : "text-slate-500 cursor-not-allowed opacity-60"
+                    )}
+                    title="Send"
+                  >
+                    <ArrowUp className="w-4 h-4 stroke-[2.5]" />
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -2348,25 +2422,51 @@ export function AskEstateOSPanel({
               />
 
               <div className="flex items-center justify-between pt-0.5">
-                {/* Voice Input Mic Button */}
-                <button
-                  type="button"
-                  onClick={toggleVoiceInput}
-                  className={cn(
-                    "p-1.5 rounded-full transition-all cursor-pointer flex items-center justify-center shrink-0",
-                    isListening
-                      ? "bg-cyan-500 text-black shadow-[0_0_15px_rgba(0,229,255,0.7)] animate-pulse"
-                      : "text-white/60 hover:text-cyan-300 hover:bg-white/10"
+                {/* Voice Input Mic Button & Speech Language Switcher */}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => toggleVoiceInput()}
+                    className={cn(
+                      "p-1.5 rounded-full transition-all cursor-pointer flex items-center justify-center shrink-0",
+                      isListening
+                        ? "bg-cyan-500 text-black shadow-[0_0_15px_rgba(0,229,255,0.7)] animate-pulse ring-2 ring-cyan-300"
+                        : isDark
+                        ? "text-slate-400 hover:text-white hover:bg-white/10"
+                        : "text-[#5f6368] hover:text-[#1a73e8] hover:bg-slate-100"
+                    )}
+                    title={isListening ? "Listening... click to stop" : `Voice input (${speechLang === "nl" ? "Dutch" : "English"})`}
+                    aria-label="Voice input"
+                  >
+                    {isListening ? (
+                      <MicOff className="w-4 h-4 stroke-[2.5]" />
+                    ) : (
+                      <Mic className="w-4 h-4 stroke-[2]" />
+                    )}
+                  </button>
+
+                  {/* Speech Language Switcher */}
+                  <button
+                    type="button"
+                    onClick={handleToggleLang}
+                    className={cn(
+                      "text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all cursor-pointer flex items-center gap-1 select-none",
+                      speechLang === "nl"
+                        ? "bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/25"
+                        : "bg-blue-500/15 text-blue-400 border-blue-500/30 hover:bg-blue-500/25"
+                    )}
+                    title={speechLang === "nl" ? "Voice language: Nederlands (click to switch to English)" : "Voice language: English (click to switch to Nederlands)"}
+                  >
+                    <span>{speechLang === "nl" ? "🇳🇱 NL" : "🇬🇧 EN"}</span>
+                  </button>
+
+                  {isListening && (
+                    <span className="text-[11px] text-cyan-400 font-medium animate-pulse flex items-center gap-1 pl-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping inline-block" />
+                      Listening ({speechLang === "nl" ? "Dutch" : "English"})...
+                    </span>
                   )}
-                  title={isListening ? "Listening... click to stop" : "Voice input"}
-                  aria-label="Voice input"
-                >
-                  {isListening ? (
-                    <MicOff className="w-4 h-4 stroke-[2.5]" />
-                  ) : (
-                    <Mic className="w-4 h-4 stroke-[2]" />
-                  )}
-                </button>
+                </div>
 
                 <button
                   type="submit"
