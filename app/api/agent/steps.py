@@ -27,3 +27,8 @@ def display_steps(steps: list[str], *, has_draft_card: bool) -> list[str]:
         else:
             shown.append(step)
     return shown
+
+
+def asks_for_clarification(answer: str) -> bool:
+    """The reply ends with a question: the agent needs more detail, so no cards should be dumped under it."""
+    return answer.rstrip().endswith("?")

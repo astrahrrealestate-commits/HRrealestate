@@ -10,6 +10,7 @@ import re
 from collections.abc import Sequence
 from uuid import UUID
 
+from app.core.ids import case_ref
 from app.llm.agents.owner_qa import CaseBrief
 
 DETAIL_CASES = 5  # cases that keep a summary; the rest are index lines
@@ -81,7 +82,7 @@ def _words(text: str) -> set[str]:
 def _score(case: CaseBrief, query: str, query_words: set[str], focus: str) -> int:
     score = _FOCUS_SCORE if focus and str(case.case_id) == focus else 0
     cid = str(case.case_id).lower()
-    if cid in query or cid[:6] in query:
+    if cid in query or case_ref(case.case_id) in query:
         score += _ID_SCORE
     score += _LABEL_HIT * len(query_words & _words(case.label))
     score += _SUMMARY_HIT * len(query_words & _words(case.summary))

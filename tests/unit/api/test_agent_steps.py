@@ -32,3 +32,13 @@ def test_a_long_step_is_shortened() -> None:
 def test_model_text_posing_as_a_step_is_dropped() -> None:
     assert display_steps(["Based on active portfolio data, the answer is 3"], has_draft_card=False) == []
     assert display_steps(["First, I will look at the queue"], has_draft_card=False) == []
+
+
+def test_a_reply_that_asks_a_question_is_a_clarification() -> None:
+    from app.api.agent.steps import asks_for_clarification
+
+    assert asks_for_clarification("Which ticket are you referring to?")
+    assert asks_for_clarification("Could you tell me more?  \n")
+    assert not asks_for_clarification("Here are the 3 highest-priority tickets.")
+    assert not asks_for_clarification("")
+    assert not asks_for_clarification("Is the boiler fixed? Yes, it was closed on Monday.")

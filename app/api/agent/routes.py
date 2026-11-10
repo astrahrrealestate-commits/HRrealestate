@@ -20,7 +20,7 @@ from app.api.agent.fallback import domain_fallback_answer
 from app.api.agent.focus import new_chat_fact, next_focus
 from app.api.agent.property_scope import property_scope
 from app.api.agent.rent_guard import rent_data_answer
-from app.api.agent.steps import display_steps
+from app.api.agent.steps import asks_for_clarification, display_steps
 from app.api.deps import get_engine, get_settings_dep
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import ask_limit
@@ -31,6 +31,7 @@ from app.context.selection import rank_cases
 from app.context.super_agent_prompt import build_super_agent_system_prompt
 from app.contracts import ActionType, ConciergePlan, Direction, Intent
 from app.core.errors import NotFoundError
+from app.core.ids import case_ref as short_case_ref
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import MemoryKind, MemoryScope, MemoryStatus, TurnStatus
@@ -1386,8 +1387,8 @@ def ask_agent(
         "\n".join(
             [
                 (
-                    f"• Ticket #{str(b.case_id)[:6]}: {b.label} (State: {b.state}, Urgency: {b.urgency}). Problem: "
-                    f"{b.summary}"
+                    f"• Ticket #{short_case_ref(b.case_id)}: {b.label} (State: {b.state}, Urgency: {b.urgency}). "
+                    f"Problem: {b.summary}"
                 )
                 for b in briefs
             ]
@@ -1418,7 +1419,7 @@ def ask_agent(
             if conv.focus_state.get("contractor"):
                 f_lines.append(f"• Assigned Contractor: {conv.focus_state['contractor']}")
             if conv.focus_state.get("case_id"):
-                f_lines.append(f"• Active Ticket: #{str(conv.focus_state['case_id'])[:6]}")
+                f_lines.append(f"• Active Ticket: #{short_case_ref(conv.focus_state['case_id'])}")
             if f_lines:
                 focus_text = (
                     "\n\nActive Thread Focus (Pronouns like 'he', 'him', 'that ticket' refer to these entities):\n"
@@ -1579,7 +1580,7 @@ def ask_agent(
         cid_str = None
         if r.data and "case_id" in r.data and r.data["case_id"]:
             cid_str = str(r.data["case_id"])
-            case_refs.append(f"#{cid_str[:6]}")
+            case_refs.append(f"#{short_case_ref(cid_str)}")
 
         # Check for navigation view requests and map strictly to target frontend views
         if r.view:
@@ -1591,14 +1592,14 @@ def ask_agent(
                 view_path = "/"
             elif v_low in ("cases", "maintenance"):
                 if case_ref:
-                    view_label = f"Open Ticket #{case_ref[:6]} in Maintenance"
+                    view_label = f"Open Ticket #{short_case_ref(case_ref)} in Maintenance"
                     view_path = f"/maintenance?ticket={case_ref}"
                 else:
                     view_label = "Open in Maintenance"
                     view_path = "/maintenance"
             elif v_low in ("inbox", "approvals", "messages", "message", "mail", "emails", "communication"):
                 if case_ref:
-                    view_label = f"Open Thread #{case_ref[:6]} in Messages"
+                    view_label = f"Open Thread #{short_case_ref(case_ref)} in Messages"
                     view_path = f"/inbox?thread=case-{case_ref}"
                 else:
                     view_label = "Open Messages"
@@ -1623,19 +1624,19 @@ def ask_agent(
                 is_inbox = any(w in context_str for w in ["email", "reply", "draft", "message", "whatsapp"])
 
                 if case_ref and is_maint:
-                    view_label = f"Review PO & Ticket #{case_ref[:6]} in Maintenance"
+                    view_label = f"Review PO & Ticket #{short_case_ref(case_ref)} in Maintenance"
                     view_path = f"/maintenance?ticket={case_ref}"
                 elif is_maint:
                     view_label = "Open in Maintenance"
                     view_path = "/maintenance"
                 elif case_ref and is_inbox:
-                    view_label = f"Open Thread #{case_ref[:6]} in Inbox"
+                    view_label = f"Open Thread #{short_case_ref(case_ref)} in Inbox"
                     view_path = f"/inbox?thread=case-{case_ref}"
                 elif is_inbox:
                     view_label = "Review Approvals in Inbox"
                     view_path = "/inbox?tab=needs_approval"
                 elif case_ref:
-                    view_label = f"Review Ticket #{case_ref[:6]} in Maintenance"
+                    view_label = f"Review Ticket #{short_case_ref(case_ref)} in Maintenance"
                     view_path = f"/maintenance?ticket={case_ref}"
                 else:
                     view_label = "Open Today Overview"
@@ -1754,12 +1755,12 @@ def ask_agent(
 
     # Populate dynamic navigation and micro-cards for priority/maintenance inquiries from real DB state
     if any(k in q_low for k in ["priority", "first", "ticket", "maintenance", "repair", "urgent", "emergency"]):
-        if not preview_card and card_briefs:
+        if not preview_card and card_briefs and not asks_for_clarification(_clean_executive_answer(ans_text)):
             # Smartly cap at top 3 cases ordered by priority
             top_briefs = card_briefs[:3]
             for b in top_briefs:
                 cid_str = str(b.case_id)
-                cid_short = cid_str[:6]
+                cid_short = short_case_ref(cid_str)
                 target_path = f"/maintenance?ticket={cid_str}"
                 clean_body = _clean_card_body(b.summary or "Active maintenance case in queue.")
 
@@ -1800,7 +1801,7 @@ def ask_agent(
                     )
                 )
             elif top_briefs:
-                cid_short = str(top_briefs[0].case_id)[:6]
+                cid_short = short_case_ref(top_briefs[0].case_id)
                 action_buttons.append(
                     ActionButtonData(
                         label=f"Open Ticket #{cid_short} in Maintenance",
