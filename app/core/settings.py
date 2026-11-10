@@ -131,6 +131,7 @@ class Settings(BaseSettings):
     storage_backend: Literal["local", "memory", "s3"] = "local"
     storage_local_dir: Path = Path(".data/storage")
     dev_signing_dir: Path = Path(".data/dev-keys")  # simulator keys for fake Pub/Sub tokens
+    translation_model_dir: Path = Path(".data/models/opus-mt-nl-en")  # `make translation-model`; baked into the image
 
     s3_region: str = "eu-central-1"
     s3_endpoint_url: str | None = None

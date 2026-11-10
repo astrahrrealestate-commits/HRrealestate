@@ -151,6 +151,8 @@ export async function getInboxThreads(
                   sentAt: m.sentAt || parseTimestampToIso(m.timestamp || t.timestamp),
                   timeFormatted: m.timeFormatted || (m.timestamp || "Today"),
                   body: m.body || m.content || "",
+                  bodyEnglish: m.bodyEnglish || undefined,
+                  language: m.language,
                   channel: m.channel || channel,
                   replyTo: m.replyTo,
                 }))
@@ -1444,4 +1446,32 @@ export async function generateWhatsAppDrafts(
     // Offline / fallback
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Translation (Dutch to English, local model, cached on the server; ADR 0011)
+// ---------------------------------------------------------------------------
+
+export interface TranslateResult {
+  language: "nl" | "en" | "unknown";
+  textEn: string | null;
+  cached: boolean;
+}
+
+/**
+ * POST /api/inbox/translate. Resolves null when the server cannot translate (model missing, offline).
+ * The server runs the model once per distinct text, so asking again is cheap.
+ */
+export async function translateToEnglish(text: string): Promise<TranslateResult | null> {
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/translate`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+      signal: AbortSignal.timeout(30000),
+    });
+    return res.ok ? ((await res.json()) as TranslateResult) : null;
+  } catch {
+    return null;
+  }
 }

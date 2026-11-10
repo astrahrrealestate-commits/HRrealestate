@@ -9,7 +9,7 @@ UV      := uv run --frozen
 NEXT_REV = $(shell printf '%04d' $$(( $$(ls app/db/alembic/versions/[0-9]*.py 2>/dev/null | wc -l) + 1 )))
 
 .PHONY: help all start doctor env seed stop reset requirements frontend frontend-install frontend-build \
-        setup gmail-consent up up-db down logs ps migrate migration migrate-roundtrip alembic-check \
+        setup gmail-consent translation-model up up-db down logs ps migrate migration migrate-roundtrip alembic-check \
         fmt lint type boundaries test-unit test-int test cov quick check smoke audit eval \
         workflows harness-test clean sim-demo sim-agents mock-mail rag-eval live-check gmail-pull pending approve context-report
 
@@ -52,6 +52,9 @@ frontend: env frontend-install ## dashboard dev server on http://localhost:3000 
 
 frontend-build: frontend-install ## production build of the dashboard (type-check included)
 	cd frontend && npm run build
+
+translation-model: ## download the local Dutch to English model into .data/models (the Docker image bakes its own)
+	$(UV) python -m app.translation.fetch .data/models/opus-mt-nl-en
 
 requirements: ## regenerate requirements.txt / requirements-dev.txt for pip users from uv.lock (uv.lock stays the source of truth)
 	uv export --frozen --no-hashes --no-dev --no-emit-project -o requirements.txt

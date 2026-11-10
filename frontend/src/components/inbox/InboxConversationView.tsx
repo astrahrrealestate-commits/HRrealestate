@@ -25,6 +25,7 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { formatClock, localDayNumber, localParts } from "@/lib/clock";
 import { EditTicketModal } from "@/components/maintenance/EditTicketModal";
+import { EnglishToggle } from "@/components/inbox/EnglishToggle";
 import { MaintenanceTicket, updateMaintenanceTicket } from "@/lib/api";
 import { BACKEND_BASE_URL } from "@/lib/backend";
 
@@ -53,7 +54,6 @@ export function InboxConversationView({
 }: InboxConversationViewProps) {
   const [showEarlier, setShowEarlier] = useState(false);
   const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
-  const [expandedEnglishMsgIds, setExpandedEnglishMsgIds] = useState<Record<string, boolean>>({});
   const [isSent, setIsSent] = useState(false);
   const [localMessages, setLocalMessages] = useState<ThreadMessage[]>([]);
   const [stagedDraftText, setStagedDraftText] = useState("");
@@ -169,13 +169,6 @@ export function InboxConversationView({
       </div>
     );
   }
-
-  const handleToggleEnglish = (msgId: string) => {
-    setExpandedEnglishMsgIds((prev) => ({
-      ...prev,
-      [msgId]: !prev[msgId],
-    }));
-  };
 
   const handleAcceptAndSend = (text: string, channel: string, replyToMessageId?: string) => {
     if (!text.trim()) return;
@@ -377,8 +370,6 @@ export function InboxConversationView({
         {/* Message Bubbles with Dynamic Date Group Dividers */}
         {visibleMessages.map((msg, index) => {
           const isOwner = msg.sender === "owner";
-          const hasTranslation = Boolean(msg.bodyEnglish);
-          const showEnglish = expandedEnglishMsgIds[msg.id];
 
           // Determine date label from timeFormatted or sentAt
           const getDayLabel = (m: ThreadMessage) => {
@@ -413,8 +404,6 @@ export function InboxConversationView({
           };
           const displayTime = getDisplayTime(msg);
 
-          const englishTranslation = msg.bodyEnglish;
-
           return (
             <React.Fragment key={msg.id}>
               {showDateDivider && (
@@ -448,28 +437,7 @@ export function InboxConversationView({
                     </div>
                   </div>
 
-                  {/* Inline English toggle for outgoing message if Dutch */}
-                  {msg.bodyEnglish && (
-                    <div className="pr-2">
-                      <button
-                        type="button"
-                        onClick={() => handleToggleEnglish(msg.id)}
-                        className="inline-flex items-center gap-1 text-[11px] text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors cursor-pointer"
-                      >
-                        {showEnglish ? (
-                          <ChevronDown className="w-3 h-3" />
-                        ) : (
-                          <ChevronRight className="w-3 h-3" />
-                        )}
-                        <span>{showEnglish ? "Hide English" : "Show English translation"}</span>
-                      </button>
-                      {showEnglish && (
-                        <div className="mt-1 text-xs text-[var(--ink-3)] italic bg-[var(--pane)] border border-[var(--line)]/60 rounded px-2.5 py-1.5 max-w-[85%] text-right">
-                          {englishTranslation}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  <EnglishToggle text={msg.body} language={msg.language} cachedEnglish={msg.bodyEnglish} align="right" />
                 </div>
               ) : (
                 // Incoming bubble (left, --selected fill, no border)
@@ -574,29 +542,7 @@ export function InboxConversationView({
                     </div>
                   </div>
 
-                  {/* Inline "Show English" translation toggle */}
-                  {hasTranslation && (
-                    <div className="pl-2">
-                      <button
-                        type="button"
-                        onClick={() => handleToggleEnglish(msg.id)}
-                        className="inline-flex items-center gap-1 text-xs text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors cursor-pointer"
-                      >
-                        {showEnglish ? (
-                          <ChevronDown className="w-3 h-3" />
-                        ) : (
-                          <ChevronRight className="w-3 h-3" />
-                        )}
-                        <span>{showEnglish ? "Hide English" : "Show English translation"}</span>
-                      </button>
-
-                      {showEnglish && (
-                        <div className="mt-1 text-xs text-[var(--ink-3)] italic bg-[var(--pane)] border border-[var(--line)]/60 rounded px-2.5 py-1.5 max-w-[85%]">
-                          {englishTranslation}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  <EnglishToggle text={msg.body} language={msg.language} cachedEnglish={msg.bodyEnglish} />
                 </div>
               )}
             </React.Fragment>

@@ -52,6 +52,7 @@ def test_the_real_routes_carry_the_limits() -> None:
     from app.api.agent.routes import router as agent
     from app.api.calendar.routes import router as calendar
     from app.api.inbox.routes import router as inbox
+    from app.api.inbox.translate import router as translate
     from app.api.maintenance.routes import router as maintenance
 
     def limited(router: object, path: str) -> bool:
@@ -60,6 +61,7 @@ def test_the_real_routes_carry_the_limits() -> None:
 
     assert limited(agent, "/api/agent/ask")
     assert limited(inbox, "/api/inbox/sync")
+    assert limited(translate, "/translate")  # included into the inbox router (prefix /api/inbox)
     assert limited(inbox, "/api/inbox/approvals/{approval_id}/decide")
     assert limited(maintenance, "/api/maintenance/tickets/{ticket_id}/approve")
     assert limited(calendar, "/api/calendar/events/{event_id}/approve")

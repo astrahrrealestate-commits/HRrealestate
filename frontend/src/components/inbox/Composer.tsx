@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { DraftOption } from "@/types/dashboard";
 import { DraftPersona } from "@/types/inbox";
 import { createGmailDraft } from "@/lib/api";
+import { EnglishToggle } from "@/components/inbox/EnglishToggle";
 import { formatClock } from "@/lib/clock";
 
 export interface ComposerProps {
@@ -378,6 +379,12 @@ export function Composer({
             className="w-full min-h-[96px] sm:min-h-[110px] text-base sm:text-[14px] p-3 rounded-[var(--radius-ctl)] bg-[var(--bg)] border border-[var(--line)] text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:bg-[var(--pane)] focus:border-[var(--ink)] focus:outline-none transition-colors resize-y leading-relaxed"
           />
         </div>
+        {/* English for the text in the box: a Dutch draft, edited or not. Translated only when opened. */}
+        <EnglishToggle
+          text={content}
+          language={drafts.some((d) => d.language === "nl") ? "nl" : undefined}
+          cachedEnglish={drafts.find((d) => d.text.trim() === content.trim())?.englishMeaning}
+        />
 
         {/* Bottom Bar: Action proposal & Buttons */}
         {hasDraft ? (

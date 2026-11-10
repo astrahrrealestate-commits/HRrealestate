@@ -29,6 +29,8 @@ from app.core.startup import assert_production_safe
 from app.core.telemetry import init_telemetry
 from app.db.session import make_engine
 from app.storage.ports import ObjectStorage
+from app.translation.ct2 import Ct2Translator
+from app.translation.ports import Translator
 
 log = get_logger(__name__)
 
@@ -69,6 +71,7 @@ def create_app(
     google_chat_verifier: ChatVerifier | None = None,
     id_token_verifier: dashboard_auth.IdTokenVerifier | None = None,
     storage: ObjectStorage | None = None,
+    translator: Translator | None = None,
 ) -> FastAPI:
 
     settings = settings or get_settings()
@@ -93,6 +96,8 @@ def create_app(
         api.state.settings = settings
 
         api.state.storage = storage
+
+        api.state.translator = translator or Ct2Translator(settings.translation_model_dir)  # model loads on first use
 
         api.state.workflow_client = workflow_client or DBOSClient(
             system_database_url=settings.dbos_database_url, lazy=True

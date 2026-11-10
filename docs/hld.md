@@ -47,6 +47,7 @@ app/
   pipeline/     understanding (agent), case_engine, proposals (agent), rules (pure)
   owner/        command handler, message builders (≤20-char buttons), briefing composer
   sender/       the only module with send credentials; guards + idempotent sends
+  translation/  local Dutch to English (CTranslate2 adapter, sentence splitting, Postgres cache; ADR 0011)
   directory/    identity lookup; brixx/ = BRIXX mirror schema builder, page upsert, resumable sync, status read model (ADR 0010)
   outcomes/     sent-folder / echo capture, rapidfuzz labelling
   llm/          Pydantic AI agents, prompt loader (prompts/vN/*.md), model_calls recorder

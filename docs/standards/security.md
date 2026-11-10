@@ -62,7 +62,11 @@ the build when a route answers an anonymous caller without being listed as publi
 - attachments are scoped, and only pdf and common images render inline (nosniff always)
 - the contacts "send" routes no longer record sends that never happened; properties, tenants, the dashboard pulse and
   briefing, and contact facts come from the database instead of fabricated demo values
-- the Super Agent, inbox sync and the approve/decide routes are rate limited per owner (`api/v1/session_limits.py`);
+- the Super Agent, inbox sync, translate and the approve/decide routes are rate limited per owner (`api/v1/session_limits.py`);
+- local translation (ADR 0011): `POST /api/inbox/translate` is session + client-header guarded and limited to 30/min per
+  owner; work per request is bounded (20000 characters accepted, 8000 translated, at most 80 sentences, batches of 32);
+  the model files are pinned to a commit and SHA-256 checked at build; translations are tenant-scoped, display-only,
+  and deleted by `erase_person` together with the messages they copy
 - calendar approve is idempotent; the dev bypass needs `env=dev` and the fake identity provider; production refuses
   localhost and plain-http public URLs and the fake Google Chat verifier
 

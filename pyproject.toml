@@ -6,6 +6,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "alembic>=1.14",
     "boto3>=1.35",
+    "ctranslate2>=4.5",
     "dbos>=1.0",
     "email-validator>=2.2",
     "fastapi>=0.115",
@@ -27,6 +28,7 @@ dependencies = [
     "pydantic-settings>=2.6",
     "pypdf>=5.1",
     "rapidfuzz>=3.14.6",
+    "sentencepiece>=0.2",
     "sentry-sdk[fastapi]>=2.19",
     "sqlalchemy>=2.0.36",
     "sqlglot>=26.0",
@@ -114,7 +116,7 @@ exclude = ["app/db/alembic/versions/"]
 untyped_calls_exclude = ["google.auth", "google.oauth2"]  # google-auth ships partial hints; strict elsewhere
 
 [[tool.mypy.overrides]]
-module = ["testcontainers.*", "phonenumbers.*", "polyfactory.*", "boto3.*", "botocore.*", "moto.*", "googleapiclient.*", "google_auth_oauthlib.*", "mailparser_reply.*", "inscriptis.*", "requests.*"]
+module = ["testcontainers.*", "phonenumbers.*", "polyfactory.*", "boto3.*", "botocore.*", "moto.*", "googleapiclient.*", "google_auth_oauthlib.*", "mailparser_reply.*", "inscriptis.*", "requests.*", "ctranslate2.*", "sentencepiece.*"]
 ignore_missing_imports = true
 
 [tool.pydantic-mypy]
@@ -162,7 +164,7 @@ layers = [
     "app.api",
     "app.workflows",
     "app.superagent",
-    "app.pipeline | app.owner | app.ingestion | app.directory | app.outcomes | app.sender | app.finance | app.diligence",
+    "app.pipeline | app.owner | app.ingestion | app.directory | app.outcomes | app.sender | app.finance | app.diligence | app.translation",
     "app.context",
     "app.db : app.llm : app.storage : app.channels",
     "app.contracts",

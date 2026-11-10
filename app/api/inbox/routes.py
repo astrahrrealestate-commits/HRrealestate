@@ -20,6 +20,8 @@ from sqlalchemy.orm import Session
 from app.api.deps import WorkflowClient, get_engine, get_ingest_deps, get_storage, get_workflow_client
 from app.api.inbox import decide as inbox_decide
 from app.api.inbox.time_labels import when_label
+from app.api.inbox.translate import annotate_translations
+from app.api.inbox.translate import router as translate_router
 from app.api.inbox.unit_match import unit_named_in
 from app.api.v1 import enqueue
 from app.api.v1.auth import Principal, require_session
@@ -27,6 +29,7 @@ from app.api.v1.session_limits import decide_limit, sync_limit
 from app.contracts import ActionType, ButtonChoice, Channel, Direction
 from app.core.errors import NotFoundError
 from app.core.ids import case_ref
+from app.core.language import detect_language
 from app.core.logging import get_logger
 from app.core.settings import get_settings
 from app.db.enums import ApprovalStatus, LinkMethod, PersonKind, PipelineStatus, RawEventStatus
@@ -53,6 +56,7 @@ from app.pipeline import dashboard_decisions
 from app.storage.ports import ObjectStorage
 
 router = APIRouter(prefix="/api/inbox", tags=["inbox"], dependencies=[Depends(require_session)])
+router.include_router(translate_router)
 log = get_logger(__name__)
 
 
@@ -233,42 +237,9 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
         und_entities = und_body.get("entities") or {}
         und_intent = und_body.get("intent") or case.summary or "Incoming communication analyzed by Gemini AI agent."
 
-        # Language detection: check if text is English vs Dutch
-        msg_text = latest_msg.text or ""
-        msg_lower = msg_text.lower()
-        english_indicators = [
-            "dear",
-            "hello",
-            "hi",
-            "thanks",
-            "regards",
-            "please",
-            "rent",
-            "payment",
-            "notice",
-            "lease",
-            "kitchen",
-            "power",
-            "fridge",
-            "apartment",
-        ]
-        dutch_indicators = [
-            "geachte",
-            "beste",
-            "goedemorgen",
-            "hallo",
-            "bedankt",
-            "groet",
-            "stroom",
-            "keuken",
-            "lekkage",
-            "factuur",
-            "huur",
-        ]
-        en_score = sum(1 for w in english_indicators if w in msg_lower)
-        nl_score = sum(1 for w in dutch_indicators if w in msg_lower)
-        is_english = en_score >= nl_score and en_score > 0
-        detected_lang_label = "English (detected)" if is_english else "Dutch (detected)"
+        detected_lang_label = {"nl": "Dutch (detected)", "en": "English (detected)"}.get(
+            detect_language(latest_msg.text or ""), "Language not detected"
+        )
 
         # Custom facts for EstateOS understood block
         custom_facts = [
@@ -314,7 +285,6 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
                         "label": f"Draft {idx} (Recommended)" if idx == 1 else f"Draft {idx} (Alternative)",
                         "channel": "gmail",
                         "text": text,
-                        "englishMeaning": "AI-generated draft reply to tenant",
                         "confidence": 98 if idx == 1 else 95,
                     }
                 )
@@ -498,6 +468,7 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
         audience_label = "contractors" if is_contractor else "tenants"
         recipient_role = "contractor" if is_contractor else "tenant"
 
+        annotate_translations(session, company_id, msgs_data, [*gmail_drafts, *whatsapp_drafts])
         live_threads.append(
             {
                 "id": f"case-{case.id}",
