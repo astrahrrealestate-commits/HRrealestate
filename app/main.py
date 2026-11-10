@@ -144,6 +144,7 @@ def create_app(
     )
 
     from app.api.auth import google_routes, login_routes
+    from app.api.v1 import money
 
     api.include_router(google_routes.router)
     api.include_router(login_routes.router)
@@ -157,6 +158,7 @@ def create_app(
     api.include_router(api_v1_router)
 
     api.include_router(dashboard.router)
+    api.include_router(money.router, prefix="/api")
 
     api.include_router(inbox.router)
 

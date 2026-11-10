@@ -139,6 +139,9 @@ export function TransactionDetailSheet({
               <div>
                 <span className="text-[var(--ink-3)] block">Target Property</span>
                 <span className="font-medium text-[var(--ink)]">{transaction.unitLabel}</span>
+                {transaction.unitAddress && (
+                  <span className="text-[11px] text-[var(--ink-3)] block">{transaction.unitAddress}</span>
+                )}
               </div>
               <div>
                 <span className="text-[var(--ink-3)] block">Settlement Channel</span>
@@ -152,6 +155,18 @@ export function TransactionDetailSheet({
                 <span className="text-[var(--ink-3)] block">Settlement Date</span>
                 <span className="font-mono text-[var(--ink-2)]">{transaction.paidDate || "Unsettled"}</span>
               </div>
+              {transaction.tenantPhone && (
+                <div>
+                  <span className="text-[var(--ink-3)] block">WhatsApp / Phone</span>
+                  <span className="font-mono text-[var(--ink)]">{transaction.tenantPhone}</span>
+                </div>
+              )}
+              {transaction.tenantEmail && (
+                <div>
+                  <span className="text-[var(--ink-3)] block">Email</span>
+                  <span className="text-[var(--ink)] truncate block">{transaction.tenantEmail}</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -193,17 +208,33 @@ export function TransactionDetailSheet({
           </Button>
 
           {isOverdue ? (
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => {
-                if (onAction) onAction(transaction.aiSuggestedAction || "Send formal reminder");
-                onClose();
-              }}
-              className="text-xs bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-black font-semibold"
-            >
-              ✦ {t("Send payment nudge", "Betalingsherinnering sturen")}
-            </Button>
+            <div className="flex items-center gap-2">
+              {transaction.tenantPhone && (
+                <a
+                  href={`https://wa.me/${transaction.tenantPhone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
+                    `Beste ${transaction.counterparty},\n\nDit is een vriendelijke herinnering over de huurbetaling voor ${transaction.unitLabel} van € ${transaction.amountEur.toLocaleString("nl-NL")} (factuur ${transaction.reference}).\n\nGraag vernemen we of de overboeking reeds voldaan is.\n\nMet vriendelijke groet,\nEstateOS Beheer`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+                  title="Open WhatsApp with prefilled reminder"
+                >
+                  <Send className="w-3 h-3" />
+                  <span>WhatsApp Nudge</span>
+                </a>
+              )}
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  if (onAction) onAction(transaction.aiSuggestedAction || "Send formal reminder");
+                  onClose();
+                }}
+                className="text-xs bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-black font-semibold"
+              >
+                ✦ {t("Open in Inbox")}
+              </Button>
+            </div>
           ) : (
             <Button
               variant="ghost"
