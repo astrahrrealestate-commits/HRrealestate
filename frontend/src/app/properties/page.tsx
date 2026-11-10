@@ -348,7 +348,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => router.push("/inbox")}
+                    onClick={() => router.push(`/maintenance?search=${encodeURIComponent(activeComplex.name)}`)}
                     className="text-xs border border-[var(--line)] text-[var(--ink-2)]"
                   >
                     Complex tickets
@@ -631,6 +631,8 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                   variant="ghost"
                   size="sm"
                   onClick={() => router.push(`/inbox?search=${encodeURIComponent(activeUnit.unitNumber)}`)}
+                  disabled={!activeUnit.currentTenant}
+                  title={activeUnit.currentTenant ? undefined : "Vacant: no tenant to have messages with"}
                   className="text-xs border border-[var(--line)] text-[var(--ink-2)]"
                 >
                   View messages

@@ -150,6 +150,16 @@ function InboxContent() {
   const threadParam = searchParams?.get("thread") || "";
 
   const draftParam = searchParams?.get("draft") || "";
+  const searchParam = searchParams?.get("search") || "";
+
+  // A link such as /inbox?search=<tenant> (Tenants, Properties) opens the inbox already searching for it, on All
+  // so a finished thread is found too.
+  useEffect(() => {
+    if (searchParam) {
+      setSearchQuery(searchParam);
+      setActiveTab("all");
+    }
+  }, [searchParam]);
 
   const [selectedThreadId, setSelectedThreadId] = useState<string>(threadParam);
 

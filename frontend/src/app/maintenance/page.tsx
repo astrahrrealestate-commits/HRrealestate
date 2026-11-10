@@ -121,6 +121,12 @@ function MaintenanceContent() {
   const ticketParam = searchParams?.get("ticket") || "";
   const [selectedTicketId, setSelectedTicketId] = useState<string>(ticketParam);
 
+  // /maintenance?search=<text> (Properties, Tenants) opens the list already searching for it
+  const searchParam = searchParams?.get("search") || "";
+  useEffect(() => {
+    if (searchParam) setSearchQuery(searchParam);
+  }, [searchParam]);
+
   // Viewport tracking for mobile switching (<1024px)
   useEffect(() => {
     const handleResize = () => {
@@ -410,7 +416,7 @@ function MaintenanceContent() {
         {/* WORKSPACE ROW with 40% Super Agent */}
         <div className="flex-1 flex flex-row overflow-hidden min-h-0 w-full relative">
           <div className="flex-1 m-0 mr-[10px] mb-[10px] bg-white rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden relative">
-          
+
           {/* Header + Controls + Table / Ticket Rows List */}
           <div className="h-full flex flex-col overflow-hidden bg-[var(--pane)]">
             {/* Header: Title, Inline Stats, Ghost "New ticket" (Section 5.4 & 2.4 M2) */}
@@ -445,7 +451,7 @@ function MaintenanceContent() {
 
             {/* Controls Bar: 3 Tabs (Open, Needs approval, Done) + Search + Status Dropdown (Section 5.4 & 2.4 M4) */}
             <div className="px-4 sm:px-6 py-2.5 border-b border-[var(--line)] bg-[var(--pane)] flex flex-wrap items-center justify-between gap-3 shrink-0 select-none">
-              
+
               {/* 3 Tabs */}
               <div className="flex items-center gap-1">
                 {[
@@ -561,7 +567,7 @@ function MaintenanceContent() {
 
             {/* List / Table Area (The only scrolling part, Section 5.4 & 2.4 M3) */}
             <div className="flex-1 overflow-y-auto pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-0">
-              
+
               {/* Desktop Table View (>= 768px): One line per row (56px), Selected = grey with ink left bar, Status always visible, Contractor hidden below 1500px */}
               <div className="hidden md:block w-full">
                 <table className="w-full text-left border-collapse table-fixed">

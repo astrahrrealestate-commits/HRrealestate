@@ -461,6 +461,9 @@ function TenantsView({ tenants: MOCK_TENANTS }: { tenants: TenantProfile[] }) {
                   </div>
 
                   <div className="divide-y divide-[var(--line)] border border-[var(--line)] rounded-lg overflow-hidden bg-[var(--pane)]">
+                    {activeTenant.documents.length === 0 && (
+                      <p className="text-xs text-[var(--ink-3)] italic">No documents filed.</p>
+                    )}
                     {activeTenant.documents.map((doc) => (
                       <div
                         key={doc.id}
@@ -750,6 +753,9 @@ function TenantsView({ tenants: MOCK_TENANTS }: { tenants: TenantProfile[] }) {
                   </span>
 
                   <div className="divide-y divide-[var(--line)] border border-[var(--line)] rounded-lg overflow-hidden bg-[var(--pane)]">
+                    {activeTenant.documents.length === 0 && (
+                      <p className="text-xs text-[var(--ink-3)] italic">No documents filed.</p>
+                    )}
                     {activeTenant.documents.map((doc) => (
                       <div
                         key={doc.id}
