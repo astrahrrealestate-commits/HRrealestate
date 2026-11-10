@@ -151,7 +151,7 @@ def set_session_cookie(response: Response, settings: Settings, token: str) -> No
         token,
         max_age=settings.dashboard_session_ttl_min * 60,
         httponly=True,
-        samesite="strict",
+        samesite="strict" if settings.env == "prod" else "lax",
         secure=_secure(settings),
         domain=settings.dashboard_cookie_domain,
         path="/",
@@ -162,7 +162,7 @@ def clear_session_cookie(response: Response, settings: Settings) -> None:
     response.delete_cookie(
         COOKIE,
         httponly=True,
-        samesite="strict",
+        samesite="strict" if settings.env == "prod" else "lax",
         secure=_secure(settings),
         domain=settings.dashboard_cookie_domain,
         path="/",
