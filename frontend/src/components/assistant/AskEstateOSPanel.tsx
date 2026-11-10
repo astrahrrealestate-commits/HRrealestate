@@ -1476,7 +1476,8 @@ export function AskEstateOSPanel({
                 </div>
               )}
 
-              {msg.debugInfo && (
+              {/* Pipeline debug is for developers: never shown to the owner unless NEXT_PUBLIC_SHOW_AGENT_DEBUG=1 */}
+              {msg.debugInfo && process.env.NEXT_PUBLIC_SHOW_AGENT_DEBUG === "1" && (
                 <div className={cn("flex items-center gap-1.5 px-1 text-[9.5px] font-mono", isDark ? "text-[#64748B]" : "text-[#888888]")}>
                   <span className={cn(
                     "px-1.5 py-0.5 rounded border",

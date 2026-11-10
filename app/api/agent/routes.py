@@ -20,6 +20,7 @@ from app.api.agent.fallback import domain_fallback_answer
 from app.api.agent.focus import new_chat_fact, next_focus
 from app.api.agent.property_scope import property_scope
 from app.api.agent.rent_guard import rent_data_answer
+from app.api.agent.steps import display_steps
 from app.api.deps import get_engine, get_settings_dep
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import ask_limit
@@ -1887,53 +1888,9 @@ def ask_agent(
     if preview_card and preview_card.type == "draft_message":
         action_buttons = [b for b in action_buttons if "approval" not in b.label.lower()]
 
-    # Clean, professional execution steps
-    has_dirty_step = any(
-        any(
-            p in s.lower()
-            for p in [
-                "opening ",
-                "which",
-                "not waiting",
-                "based on active portfolio",
-                "open tasks:",
-                "are you",
-                "can you",
-                "what do you mean",
-            ]
-        )
-        or (len(s) > 90 and not s.startswith("⚠️"))
-        or s.lower().startswith("first,")
-        for s in step_descriptions
+    step_descriptions = display_steps(
+        step_descriptions, has_draft_card=bool(preview_card and preview_card.type == "draft_message")
     )
-    if not step_descriptions or has_dirty_step:
-        if preview_card and preview_card.type == "draft_message":
-            step_descriptions = ["Retrieved ticket context", "Prepared draft reply", "Queued for approval"]
-        elif any(k in q_low for k in ["priority", "first", "emergency", "ticket"]):
-            step_descriptions = ["Analyzed active maintenance queue", "Ranked tickets by operational urgency"]
-        elif any(k in q_low for k in ["rent", "arrear", "invoice", "overdue"]):
-            step_descriptions = ["Scanned portfolio payment ledger", "Checked active tenant balances"]
-        elif any(k in q_low for k in ["task", "todo", "waiting"]):
-            step_descriptions = ["Fetched pending action approvals", "Ranked tasks by operational SLA"]
-        elif any(k in q_low for k in ["inbox", "message", "messages", "email", "emails", "mail", "whatsapp"]):
-            step_descriptions = ["Scanned recent communications", "Checked urgent tenant inquiries"]
-        elif any(k in q_low for k in ["contractor", "job", "pending"]):
-            step_descriptions = ["Queried active contractor dispatch schedule"]
-        elif any(k in q_low for k in ["explain", "detail"]):
-            step_descriptions = ["Analyzed active portfolio records", "Generated executive briefing"]
-        else:
-            step_descriptions = ["Indexed live portfolio state", "Synthesized response"]
-    else:
-        # Sanitize any raw truncated answer text that got shoved into steps
-        clean_steps = []
-        for s in step_descriptions:
-            if s.startswith("Based on active portfolio") or s.startswith("Open tasks:"):
-                clean_steps.append("Analyzed live portfolio records")
-            elif len(s) > 80:
-                clean_steps.append(s[:77] + "...")
-            else:
-                clean_steps.append(s)
-        step_descriptions = clean_steps
 
     suggested_action = action_buttons[0].label if action_buttons else None
 
