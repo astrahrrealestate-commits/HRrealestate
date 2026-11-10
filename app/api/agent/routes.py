@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
+from app.api.agent.draft_requests import channel_note, rewrite_answer
 from app.api.agent.fallback import domain_fallback_answer
 from app.api.agent.focus import new_chat_fact, next_focus
 from app.api.agent.property_scope import property_scope
@@ -1159,6 +1160,25 @@ def ask_agent(
                 now=now,
                 briefs=briefs,
             )
+        no_rewrite = rewrite_answer(req.query)
+        if no_rewrite:
+            return _finish_agent_response(
+                engine=engine,
+                conv_id=conv_id,
+                req=req,
+                ans_text=no_rewrite,
+                case_refs=[],
+                suggested_action=None,
+                action_buttons=[],
+                step_descriptions=[],
+                preview_card=None,
+                cards_list=[],
+                pipeline_stage="rewrite_unsupported",
+                fallback_reason=None,
+                suggestions=["Show open tickets", "What should I do first?", "Check calendar"],
+                now=now,
+                briefs=briefs,
+            )
         no_rent_data = rent_data_answer(req.query)
         if no_rent_data:
             return _finish_agent_response(
@@ -1885,6 +1905,11 @@ def ask_agent(
                 "You can review the message and tap **Accept and send** below."
             )
 
+    if preview_card and preview_card.type == "draft_message":
+        note = channel_note(req.query, preview_card.channel, preview_card.recipient)
+        if note:
+            ans_text = f"{note}\n\n{ans_text}"
+
     # Filter out duplicate Approvals button if a draft card is already shown (draft card has Accept and send)
     if preview_card and preview_card.type == "draft_message":
         action_buttons = [b for b in action_buttons if "approval" not in b.label.lower()]
@@ -1909,7 +1934,7 @@ def ask_agent(
 
     if not suggestions or len(suggestions) < 3:
         if preview_card and preview_card.type == "draft_message":
-            fallback_pills = ["Send WhatsApp now", "Make reply firmer", "Open in Inbox"]
+            fallback_pills = ["Open in Inbox", "Show open tickets", "What should I do first?"]
         elif any(k in q_low for k in ["rent", "arrear", "invoice", "money", "overdue"]):
             fallback_pills = ["Draft payment reminder", "Show lease PDF", "Open in Money"]
         elif any(k in q_low for k in ["leak", "boiler", "repair", "maintenance", "ticket", "priority"]):
