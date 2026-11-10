@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.api.agent.fallback import domain_fallback_answer
 from app.api.agent.focus import new_chat_fact, next_focus
+from app.api.agent.property_scope import property_scope
 from app.api.deps import get_engine, get_settings_dep
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import ask_limit
@@ -1694,11 +1695,27 @@ def ask_agent(
     if preview_card:
         preview_cards_list.append(preview_card)
 
+    # A question that names a street is answered for that street, or says the portfolio has no such property
+    with Session(engine) as scope_session:
+        company_units = [
+            (u.label, u.address)
+            for u in scope_session.scalars(select(Unit).where(Unit.company_id == company_id, Unit.valid_to.is_(None)))
+        ]
+    scope = property_scope(req.query, company_units, briefs)
+    card_briefs = list(scope.briefs) if scope.kind == "scoped" else list(briefs)
+    if scope.kind == "unknown":
+        ans_text = f"I don't have a property on {scope.street} in your portfolio."
+        preview_card = None
+        preview_cards_list = []
+        action_buttons = []
+        case_refs = []
+        suggested_action = None
+
     # Populate dynamic navigation and micro-cards for priority/maintenance inquiries from real DB state
     if any(k in q_low for k in ["priority", "first", "ticket", "maintenance", "repair", "urgent", "emergency"]):
-        if not preview_card and briefs:
+        if not preview_card and card_briefs:
             # Smartly cap at top 3 cases ordered by priority
-            top_briefs = briefs[:3]
+            top_briefs = card_briefs[:3]
             for b in top_briefs:
                 cid_str = str(b.case_id)
                 cid_short = cid_str[:6]
@@ -1879,6 +1896,13 @@ def ask_agent(
         step_descriptions = clean_steps
 
     suggested_action = action_buttons[0].label if action_buttons else None
+
+    if not _clean_executive_answer(ans_text).strip():  # cards without a sentence, or a property with nothing open
+        if scope.kind == "scoped" and not card_briefs:
+            ans_text = "No open cases found for the property you named."
+        elif preview_cards_list:
+            tail = " for the property you named." if scope.kind == "scoped" else "."
+            ans_text = f"Here are the {len(preview_cards_list)} highest-priority ticket(s){tail}"
 
     # Determine 3 dynamic workflow suggestions (2-3 words each)
     suggestions: list[str] = []
