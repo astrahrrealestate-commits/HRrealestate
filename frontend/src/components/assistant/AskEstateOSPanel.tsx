@@ -149,13 +149,27 @@ export function AskEstateOSPanel({
   };
 
   const isDark = theme === "dark";
-  const [speechLang, setSpeechLang] = useState<"en" | "nl">("nl"); // Dutch default for Amsterdam properties, toggleable to English
+  const [speechLang, setSpeechLang] = useState<"en" | "nl">("en"); // English default, toggleable to Dutch
   const [isListening, setIsListening] = useState(false);
+  const [isPausingToAutoSend, setIsPausingToAutoSend] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const latestSpokenQueryRef = useRef<string>("");
+  const handleSendQueryRef = useRef<(q: string) => void>(() => {});
+
+  // Cancel any active auto-send silence timer
+  const cancelAutoSend = () => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    setIsPausingToAutoSend(false);
+  };
 
   // Clean up speech recognition on unmount
   useEffect(() => {
     return () => {
+      cancelAutoSend();
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
@@ -172,6 +186,7 @@ export function AskEstateOSPanel({
       return;
     }
     if (isListening) {
+      cancelAutoSend();
       try {
         recognitionRef.current?.stop();
       } catch {}
@@ -190,7 +205,11 @@ export function AskEstateOSPanel({
       // Retain existing text as base prefix
       const basePrefix = inputQuery.trim() ? inputQuery.trim() + " " : "";
 
-      recognition.onstart = () => setIsListening(true);
+      recognition.onstart = () => {
+        setIsListening(true);
+        cancelAutoSend();
+      };
+
       recognition.onresult = (event: any) => {
         let interimTranscript = "";
         let finalTranscript = "";
@@ -205,23 +224,55 @@ export function AskEstateOSPanel({
 
         const liveText = (finalTranscript + interimTranscript).trim();
         if (liveText) {
-          setInputQuery(basePrefix + liveText);
+          const combined = basePrefix + liveText;
+          setInputQuery(combined);
+          latestSpokenQueryRef.current = combined;
+
+          // Reset silence timer on every new spoken token
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
+          }
+          setIsPausingToAutoSend(true);
+
+          // After 1.8s of silence / pause, auto-send chat query!
+          silenceTimerRef.current = setTimeout(() => {
+            const queryToSend = latestSpokenQueryRef.current.trim();
+            if (queryToSend) {
+              try {
+                recognitionRef.current?.stop();
+              } catch {}
+              setIsListening(false);
+              setIsPausingToAutoSend(false);
+              setInputQuery("");
+              latestSpokenQueryRef.current = "";
+              handleSendQueryRef.current(queryToSend);
+            }
+          }, 1800);
         }
       };
-      recognition.onend = () => setIsListening(false);
-      recognition.onerror = (e: any) => {
-        console.warn("Speech recognition warning:", e);
+
+      recognition.onend = () => {
+        // Recognition completed
         setIsListening(false);
       };
+
+      recognition.onerror = (e: any) => {
+        console.warn("Speech recognition warning:", e);
+        cancelAutoSend();
+        setIsListening(false);
+      };
+
       recognitionRef.current = recognition;
       recognition.start();
     } catch (err) {
       console.error("Speech recognition could not start:", err);
+      cancelAutoSend();
       setIsListening(false);
     }
   };
 
   const handleToggleLang = () => {
+    cancelAutoSend();
     const nextLang = speechLang === "nl" ? "en" : "nl";
     setSpeechLang(nextLang);
     if (isListening && recognitionRef.current) {
@@ -440,6 +491,8 @@ export function AskEstateOSPanel({
       setIsTyping(false);
     }
   };
+
+  handleSendQueryRef.current = handleSendQuery;
 
   const handleApproveCalendar = async (cardId: string, eventId?: string | null, payloadUrl?: string | null) => {
     setApprovingCalendarId(cardId);
@@ -996,8 +1049,12 @@ export function AskEstateOSPanel({
               <textarea
                 rows={1}
                 value={inputQuery}
-                onChange={(e) => setInputQuery(e.target.value)}
+                onChange={(e) => {
+                  cancelAutoSend();
+                  setInputQuery(e.target.value);
+                }}
                 onKeyDown={(e) => {
+                  cancelAutoSend();
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     handleSendQuery(inputQuery);
@@ -1026,7 +1083,11 @@ export function AskEstateOSPanel({
                   {isListening && (
                     <span className="text-[11px] text-cyan-300 font-medium animate-pulse flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping inline-block" />
-                      Listening {speechLang === "nl" ? "(NL)" : "(EN)"}...
+                      {isPausingToAutoSend
+                        ? "⚡ Sending..."
+                        : speechLang === "nl"
+                        ? "Luisteren (NL)..."
+                        : "Listening (EN)..."}
                     </span>
                   )}
                 </div>
@@ -2404,8 +2465,12 @@ export function AskEstateOSPanel({
                 ref={inputRef}
                 rows={1}
                 value={inputQuery}
-                onChange={(e) => setInputQuery(e.target.value)}
+                onChange={(e) => {
+                  cancelAutoSend();
+                  setInputQuery(e.target.value);
+                }}
                 onKeyDown={(e) => {
+                  cancelAutoSend();
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     handleSendQuery(inputQuery);
@@ -2463,7 +2528,11 @@ export function AskEstateOSPanel({
                   {isListening && (
                     <span className="text-[11px] text-cyan-400 font-medium animate-pulse flex items-center gap-1 pl-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping inline-block" />
-                      Listening ({speechLang === "nl" ? "Dutch" : "English"})...
+                      {isPausingToAutoSend
+                        ? "⚡ Sending..."
+                        : speechLang === "nl"
+                        ? "Luisteren (Dutch)..."
+                        : "Listening (English)..."}
                     </span>
                   )}
                 </div>
