@@ -43,6 +43,8 @@ import {
   isUrgent,
 } from "@/lib/selectors";
 import { useSuperAgent } from "@/context/SuperAgentContext";
+import { getPortfolio } from "@/lib/portfolioApi";
+import type { PropertyComplex } from "@/types/portfolio";
 
 
 export default function TodayPage() {
@@ -52,6 +54,7 @@ export default function TodayPage() {
   // State
   const [threads, setThreads] = useState<InboxThread[]>([]);
   const [metrics, setMetrics] = useState<PulseMetrics>(INITIAL_METRICS);
+  const [portfolio, setPortfolio] = useState<PropertyComplex[] | null>(null);
   const [radarItems, setRadarItems] = useState<StalledItem[]>([]);
   const [inquiries, setInquiries] = useState<ProspectiveInquiry[]>([]);
   const [logs, setLogs] = useState<AutonomousActionLog[]>([]);
@@ -106,6 +109,9 @@ export default function TodayPage() {
       })
       .catch((err) => console.warn("Failed to load threads on Today:", err));
 
+    getPortfolio().then((result) => {
+      if (isMounted && result.ok) setPortfolio(result.data);
+    });
     // 2. Metrics & radar & inquiries & logs
     Promise.all([
       getDashboardPulse(),
@@ -294,12 +300,17 @@ export default function TodayPage() {
     { label: "90+ days", amount: "€ 10.000,-", pct: 6.1, barClass: "bg-[var(--accent)]" },
   ];
 
-  // Occupancy distribution per building
-  const occupancyBuildings = [
-    { name: "Keizersgracht (42-46)", rate: 100, occupied: 42, total: 42 },
-    { name: "Prinsengracht (118-124)", rate: 92.1, occupied: 35, total: 38 },
-    { name: "Herengracht Historic", rate: 90.0, occupied: 27, total: 30 },
-  ];
+  // Occupancy per building and overall: the same portfolio data the Properties page shows
+  const occupancyBuildings = (portfolio ?? []).map((c) => ({
+    name: c.name,
+    rate: c.occupancyRate,
+    occupied: c.occupiedUnits,
+    total: c.totalUnits,
+  }));
+  const portfolioUnits = occupancyBuildings.reduce((n, b) => n + b.total, 0);
+  const portfolioOccupied = occupancyBuildings.reduce((n, b) => n + b.occupied, 0);
+  const occupancyHeadline =
+    portfolio && portfolioUnits > 0 ? `${Math.round((portfolioOccupied / portfolioUnits) * 1000) / 10}%` : "—";
 
   // Briefing mode: Daily pulse vs Weekly recap
   const [briefingKind, setBriefingKind] = useState<"daily" | "weekly">("daily");
@@ -1307,7 +1318,7 @@ export default function TodayPage() {
                       Occupancy
                     </span>
                     <span className="font-mono text-[15px] font-semibold text-[var(--ink)] tabular-nums">
-                      {metrics.occupancyPercentage}%
+                      {occupancyHeadline}
                     </span>
                   </div>
 
@@ -1336,7 +1347,7 @@ export default function TodayPage() {
                   href="/properties"
                   className="text-xs font-medium text-[var(--ink)] hover:underline underline-offset-4 inline-flex items-center gap-1 pt-1"
                 >
-                  <span>View 110 units directory</span>
+                  <span>{portfolio ? `View ${portfolioUnits} units directory` : "View units directory"}</span>
                   <ArrowRight className="w-3 h-3" />
                 </Link>
               </div>
