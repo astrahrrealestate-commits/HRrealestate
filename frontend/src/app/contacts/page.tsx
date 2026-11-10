@@ -500,38 +500,6 @@ function ContactsContent() {
                   )}
                 </div>
               </div>
-                        onClick={() => {
-                          setFilterAudience("tenant");
-                          setIsFilterDropdownOpen(false);
-                        }}
-                        className={cn(
-                          "px-3 py-2 text-[12px] text-left transition-colors cursor-pointer",
-                          filterAudience === "tenant"
-                            ? "bg-[#f3f4f6] text-[#111827] font-semibold"
-                            : "text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]"
-                        )}
-                      >
-                        Tenants
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFilterAudience("contractor");
-                          setIsFilterDropdownOpen(false);
-                        }}
-                        className={cn(
-                          "px-3 py-2 text-[12px] text-left transition-colors cursor-pointer",
-                          filterAudience === "contractor"
-                            ? "bg-[#f3f4f6] text-[#111827] font-semibold"
-                            : "text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]"
-                        )}
-                      >
-                        Contractors
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
 
               {/* Contact items scroll */}
               <div className="flex-1 overflow-y-auto py-1.5">
