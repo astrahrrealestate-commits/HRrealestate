@@ -217,7 +217,13 @@ def get_current_user_profile(
                 func.lower(AllowedUser.email) == principal.email.lower(), AllowedUser.is_active.is_(True)
             )
         ).first()
-        display_name = allowed.display_name if allowed else principal.email.split("@")[0].title()
+        owner_name = session.scalar(
+            select(OwnerAccount.display_name).where(
+                OwnerAccount.id == principal.owner_id, OwnerAccount.company_id == principal.company_id
+            )
+        )
+        # The whitelist's name wins; otherwise the name Google gave at sign-in; the email prefix is the last resort.
+        display_name = allowed.display_name if allowed else owner_name or principal.email.split("@")[0].title()
         role = allowed.role if allowed else "manager"
 
     return AuthMeResponse(

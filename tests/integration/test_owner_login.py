@@ -194,3 +194,16 @@ def test_me_reports_the_same_session_the_guard_accepts_and_not_a_removed_owner(l
     assert login.client.get("/api/auth/me").json() == {
         "authenticated": False, "email": None, "name": None, "role": None, "company_id": None,
     }  # fmt: skip
+
+
+def test_me_names_a_signed_in_owner_without_a_whitelist_row_by_their_google_name(login: Login) -> None:
+    tag = login.tag
+    state = _start(login)
+    with _google(f"newbie-{tag}@b.test", name="Real Google Name"):
+        _callback(login, state)
+    with Session(login.engine) as s:
+        s.query(AllowedUser).filter(AllowedUser.email == f"newbie-{tag}@b.test").delete()
+        s.commit()
+    body = login.client.get("/api/auth/me").json()
+    assert body["authenticated"] is True
+    assert body["name"] == "Real Google Name"  # not the email prefix "Newbie-xxxx"
