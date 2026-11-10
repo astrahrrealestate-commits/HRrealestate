@@ -14,6 +14,7 @@ import { StatLine, StatItem } from "@/components/ui/StatLine";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { Button } from "@/components/ui/Button";
 import { formatCurrency, cn } from "@/lib/utils";
+import { useLanguage } from "@/context/LanguageContext";
 import {
   getInboxThreads,
   getDashboardPulse,
@@ -49,6 +50,7 @@ import { useSuperAgent } from "@/context/SuperAgentContext";
 export default function TodayPage() {
   const router = useRouter();
   const superAgent = useSuperAgent();
+  const { t } = useLanguage();
 
   // State
   const [threads, setThreads] = useState<InboxThread[]>([]);

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { MaintenanceTicket } from "@/lib/api";
 import { X, Check, Wrench, Shield, MessageSquare, AlertCircle } from "lucide-react";
+import { useLanguage } from "@/context/LanguageContext";
 
 interface EditTicketModalProps {
   ticket: MaintenanceTicket;
@@ -19,6 +20,7 @@ export function EditTicketModal({
   onSave,
   onShowToast,
 }: EditTicketModalProps) {
+  const { t } = useLanguage();
   const [issueTitle, setIssueTitle] = useState(ticket.issueTitle || "");
   const [unitLabel, setUnitLabel] = useState(ticket.unitLabel || "");
   const [urgency, setUrgency] = useState(ticket.urgency || "normal");
@@ -151,11 +153,11 @@ export function EditTicketModal({
                 <span className="font-mono font-bold text-[15px]">{ticket.ticketNumber}</span>
                 <span className="text-[var(--ink-3)]">·</span>
                 <span className="text-[14px] font-semibold text-[var(--ink)] truncate max-w-[280px]">
-                  Edit Work Order & Budget
+                  {t("Edit Work Order & Budget", "Werkorder & Budget Bewerken")}
                 </span>
               </div>
               <p className="text-[12px] text-[var(--ink-3)] mt-0.5">
-                Customize contractor assignment, spending cap, and outbound messages
+                {t("Customize contractor assignment, spending cap, and outbound messages", "Pas aannemertoewijzing, budgetlimiet en uitgaande berichten aan")}
               </p>
             </div>
           </div>
@@ -366,7 +368,7 @@ export function EditTicketModal({
               disabled={isSaving}
               className="px-4 py-2 rounded-xl text-xs font-medium text-[var(--ink-2)] hover:text-[var(--ink)] hover:bg-[var(--selected)] transition-colors cursor-pointer border border-[var(--line)]"
             >
-              Cancel
+              {t("Cancel")}
             </button>
 
             <button
@@ -375,7 +377,7 @@ export function EditTicketModal({
               className="px-5 py-2 rounded-xl text-xs font-semibold bg-[var(--ink)] text-white hover:bg-[var(--ink)]/90 transition-all cursor-pointer flex items-center gap-2 shadow-sm"
             >
               <Check className="w-3.5 h-3.5 text-[var(--accent)]" />
-              <span>{isSaving ? "Saving..." : "Save Work Order Changes"}</span>
+              <span>{isSaving ? t("Saving...", "Opslaan...") : t("Save Work Order Changes", "Wijzigingen opslaan")}</span>
             </button>
           </div>
         </form>

@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   AlertCircle,
 } from "lucide-react";
+import { useLanguage } from "@/context/LanguageContext";
 import {
   GoogleAuthStatus,
   getGoogleAuthStatus,
@@ -26,6 +27,7 @@ interface ConnectionsModalProps {
 }
 
 export function ConnectionsModal({ isOpen, onClose }: ConnectionsModalProps) {
+  const { t } = useLanguage();
   const [mounted, setMounted] = useState(false);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
 
@@ -196,10 +198,10 @@ export function ConnectionsModal({ isOpen, onClose }: ConnectionsModalProps) {
             </div>
             <div>
               <h2 className="font-semibold text-[17px] text-zinc-900 dark:text-zinc-100 leading-tight">
-                Connections & Integrations
+                {t("Connections & Integrations", "Koppelingen & Integraties")}
               </h2>
               <p className="text-[12px] text-zinc-500 dark:text-zinc-400 mt-1">
-                Active external channels powering EstateOS triage, scheduling & document filing
+                {t("Active external channels powering EstateOS triage, scheduling & document filing", "Actieve externe kanalen voor triage, planning en documentbeheer")}
               </p>
             </div>
           </div>

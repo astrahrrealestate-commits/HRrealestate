@@ -5,6 +5,7 @@ import { X, ArrowUpRight, ArrowDownRight, CheckCircle2, AlertTriangle, Clock, Bu
 import { Button } from "@/components/ui/Button";
 import { MoneyTransaction } from "@/data/moneyMockData";
 import { useSuperAgent } from "@/context/SuperAgentContext";
+import { useLanguage } from "@/context/LanguageContext";
 
 interface TransactionDetailSheetProps {
   transaction: MoneyTransaction | null;
@@ -23,6 +24,7 @@ export function TransactionDetailSheet({
   onAction,
 }: TransactionDetailSheetProps) {
   const superAgent = useSuperAgent();
+  const { t } = useLanguage();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -187,7 +189,7 @@ export function TransactionDetailSheet({
             onClick={onClose}
             className="text-xs border border-[var(--line)]"
           >
-            Close
+            {t("Close")}
           </Button>
 
           {isOverdue ? (
@@ -200,7 +202,7 @@ export function TransactionDetailSheet({
               }}
               className="text-xs bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-black font-semibold"
             >
-              ✦ Send payment nudge
+              ✦ {t("Send payment nudge", "Betalingsherinnering sturen")}
             </Button>
           ) : (
             <Button
@@ -237,7 +239,7 @@ Verified and exported via EstateOS Financial Module
               }}
               className="text-xs border border-[var(--line)] cursor-pointer"
             >
-              Export receipt
+              {t("Export receipt", "Betaalbewijs exporteren")}
             </Button>
           )}
         </div>
