@@ -1,14 +1,15 @@
 "use client";
 
 import React, { useEffect } from "react";
-import { X, Check, BarChart3, FileSpreadsheet, ArrowRight, ShieldCheck, Clock } from "lucide-react";
+import { X, Check, FileSpreadsheet } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { MOCK_REPORTS, ReportTemplate } from "@/data/reportsMockData";
+import type { ReportTemplate } from "@/types/reports";
 
 interface ReportPickerSheetProps {
   isOpen: boolean;
   onClose: () => void;
-  selectedReportId: string;
+  reports: ReportTemplate[];
+  selectedReportId: string | undefined;
   onSelectReport: (report: ReportTemplate) => void;
 }
 
@@ -20,6 +21,7 @@ interface ReportPickerSheetProps {
 export function ReportPickerSheet({
   isOpen,
   onClose,
+  reports,
   selectedReportId,
   onSelectReport,
 }: ReportPickerSheetProps) {
@@ -37,13 +39,13 @@ export function ReportPickerSheet({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end bg-black/60 backdrop-blur-xs md:hidden animate-in fade-in duration-150">
-      
+
       {/* Backdrop */}
       <div className="absolute inset-0" onClick={onClose} />
 
       {/* Bottom Sheet panel */}
       <div className="relative w-full max-h-[85vh] bg-[var(--pane)] border-t border-[var(--line)] rounded-t-2xl flex flex-col shadow-2xl overflow-hidden animate-in slide-in-from-bottom duration-200">
-        
+
         {/* Handle bar */}
         <div className="w-12 h-1.5 bg-[var(--line)] rounded-full mx-auto mt-2.5 mb-1" />
 
@@ -67,7 +69,7 @@ export function ReportPickerSheet({
 
         {/* List of Report Options */}
         <div className="flex-1 overflow-y-auto p-4 space-y-2 pb-[calc(2rem+env(safe-area-inset-bottom))]">
-          {MOCK_REPORTS.map((report) => {
+          {reports.map((report) => {
             const isSelected = report.id === selectedReportId;
 
             return (

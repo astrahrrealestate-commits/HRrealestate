@@ -47,3 +47,16 @@ export function localDayNumber(date: Date): number {
   const p = localParts(date);
   return Math.floor(Date.UTC(p.year, p.month - 1, p.day) / 86_400_000);
 }
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/** "10-11-2026" in the company's zone, the same form the API uses for lease dates. */
+export function formatDate(date: Date): string {
+  const p = localParts(date);
+  return `${pad(p.day)}-${pad(p.month)}-${p.year}`;
+}
+
+export function formatStamp(date: Date): string {
+  const p = localParts(date);
+  return `${formatDate(date)} ${p.hh}:${p.mm}`;
+}
