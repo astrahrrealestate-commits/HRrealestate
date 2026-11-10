@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { SuperAgentProvider } from "@/context/SuperAgentContext";
 import { AuthProvider } from "@/context/AuthContext";
+import { LanguageProvider } from "@/context/LanguageContext";
 
 export const metadata: Metadata = {
   title: "EstateOS | AI Property Management",
@@ -22,9 +23,11 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full antialiased">
       <body className="min-h-dvh flex flex-col font-sans bg-[var(--bg)] text-[var(--ink)]">
-        <AuthProvider>
-          <SuperAgentProvider>{children}</SuperAgentProvider>
-        </AuthProvider>
+        <LanguageProvider>
+          <AuthProvider>
+            <SuperAgentProvider>{children}</SuperAgentProvider>
+          </AuthProvider>
+        </LanguageProvider>
       </body>
     </html>
   );

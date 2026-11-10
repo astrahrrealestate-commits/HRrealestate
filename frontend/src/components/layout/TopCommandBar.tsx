@@ -4,6 +4,7 @@ import React, { useRef, useEffect } from "react";
 import { Sparkles, Search, X, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSuperAgent } from "@/context/SuperAgentContext";
+import { useLanguage } from "@/context/LanguageContext";
 
 interface TopCommandBarProps {
   onAskAgent?: () => void;
@@ -25,6 +26,7 @@ export function TopCommandBar({
   hideSearch = false,
 }: TopCommandBarProps) {
   const superAgent = useSuperAgent();
+  const { language, setLanguage, t } = useLanguage();
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -49,16 +51,48 @@ export function TopCommandBar({
       <div className="flex items-center gap-2 text-xs">
         <span className="text-[#94a3b8] font-normal flex items-center gap-1.5">
           <Sparkles className="w-3.5 h-3.5 text-[#00e5ff]" />
-          <span>EstateOS Super Agent</span>
+          <span>{t("topbar.super_agent")}</span>
         </span>
         <span className="text-[#64748b]">/</span>
         <span className="text-white font-medium tracking-tight">
-          {pageTitle || "Conversational Control Center"}
+          {pageTitle ? t(pageTitle, pageTitle) : t("topbar.control_center")}
         </span>
       </div>
 
-      {/* Right: Sync Mailbox & Super Agent Core Button */}
+      {/* Right: Language Switcher, Sync Mailbox & Super Agent Core Button */}
       <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+        {/* Language Segmented Toggle (EN / NL) */}
+        <div className="flex items-center rounded-full bg-[#10213B] border border-[#162B45] p-0.5 text-[11px] font-semibold text-slate-400">
+          <button
+            type="button"
+            onClick={() => setLanguage("en")}
+            className={cn(
+              "px-2 py-0.5 rounded-full transition-all cursor-pointer flex items-center gap-1",
+              language === "en"
+                ? "bg-white/20 text-white shadow-xs font-bold"
+                : "hover:text-slate-200"
+            )}
+            title="English"
+          >
+            <span>🇬🇧</span>
+            <span>EN</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setLanguage("nl")}
+            className={cn(
+              "px-2 py-0.5 rounded-full transition-all cursor-pointer flex items-center gap-1",
+              language === "nl"
+                ? "bg-white/20 text-white shadow-xs font-bold"
+                : "hover:text-slate-200"
+            )}
+            title="Nederlands"
+          >
+            <span>🇳🇱</span>
+            <span>NL</span>
+          </button>
+        </div>
+
         {/* Sync Mailbox button */}
         {onSyncMailbox && (
           <button
@@ -71,7 +105,9 @@ export function TopCommandBar({
             <RotateCw
               className={cn("w-3.5 h-3.5 text-zinc-300", isSyncing && "animate-spin text-[#1a73e8]")}
             />
-            <span className="hidden sm:inline">Sync</span>
+            <span className="hidden sm:inline">
+              {isSyncing ? t("topbar.syncing") : t("topbar.sync")}
+            </span>
           </button>
         )}
 
@@ -88,9 +124,9 @@ export function TopCommandBar({
           title="Super Agent Core (Ctrl+J)"
         >
           <Sparkles className={cn("w-3.5 h-3.5 text-[#00e5ff] shrink-0", superAgent.isOpen && "animate-ai-star")} strokeWidth={2.25} />
-          <span className="leading-none hidden sm:inline">Super Agent</span>
+          <span className="leading-none hidden sm:inline">{t("topbar.agent_core")}</span>
           <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded-full bg-white/20 text-white ml-0.5">
-            Active
+            {t("topbar.agent_active")}
           </span>
         </button>
       </div>

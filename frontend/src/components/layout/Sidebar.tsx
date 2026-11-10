@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { needsYouCount, ThreadCountTarget } from "@/lib/selectors";
 import { getInboxThreads } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { useLanguage } from "@/context/LanguageContext";
 
 interface NavItem {
   label: string;
@@ -54,6 +55,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
     }
   }, []);
   const { user, logout } = useAuth();
+  const { t } = useLanguage();
 
   const displayName = user?.name || "Harjot Singh";
   const displayEmail = user?.email || "harjot@estateos.internal";
@@ -93,22 +95,22 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
 
   const navigationItems: NavItem[] = [
     {
-      label: "Dashboard",
+      label: t("nav.dashboard"),
       href: "/",
       icon: Home,
-      badge: effectiveCount > 0 ? `(${effectiveCount} Today)` : undefined,
+      badge: effectiveCount > 0 ? `(${effectiveCount} ${t("nav.today_badge")})` : undefined,
     },
     {
-      label: "Messages",
+      label: t("nav.messages"),
       href: "/inbox",
       icon: Inbox,
       badge: effectiveCount > 0 ? `(${effectiveCount})` : undefined,
     },
-    { label: "Properties", href: "/properties", icon: Building2 },
-    { label: "Tenants", href: "/tenants", icon: Users },
-    { label: "Contacts", href: "/contacts", icon: Contact },
-    { label: "Maintenance", href: "/maintenance", icon: Wrench },
-    { label: "Money", href: "/money", icon: CircleDollarSign },
+    { label: t("nav.properties"), href: "/properties", icon: Building2 },
+    { label: t("nav.tenants"), href: "/tenants", icon: Users },
+    { label: t("nav.contacts"), href: "/contacts", icon: Contact },
+    { label: t("nav.maintenance"), href: "/maintenance", icon: Wrench },
+    { label: t("nav.money"), href: "/money", icon: CircleDollarSign },
   ];
 
   return (
@@ -132,7 +134,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
           <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#10213B] border border-[#162B45] text-slate-400 hover:text-white hover:border-[#223f66] transition-colors cursor-pointer group">
             <div className="flex items-center gap-2">
               <Search className="w-3.5 h-3.5 text-slate-400 group-hover:text-white" />
-              <span className="text-[12px]">Search...</span>
+              <span className="text-[12px]">{t("nav.search_placeholder")}</span>
             </div>
             <kbd className="text-[10px] font-mono text-slate-400 bg-white/5 border border-white/10 px-1.5 py-0.5 rounded">
               ⌘K
@@ -143,7 +145,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
         {/* Section Label: WORKSPACE */}
         <div className="px-3 pt-3 pb-1 hidden xl:block">
           <span className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">
-            WORKSPACE
+            {t("nav.workspace")}
           </span>
         </div>
 
@@ -211,18 +213,18 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
           {/* Knowledge Base */}
           <Link
             href="/reports"
-            title="Knowledge Base"
+            title={t("nav.knowledge_base")}
             className="w-full flex items-center min-h-[38px] rounded-xl text-[13.5px] transition-colors justify-center xl:justify-start px-2 xl:px-3 text-slate-400 hover:text-white hover:bg-white/5 font-medium gap-2.5 border border-transparent"
           >
             <BookOpen className="w-4 h-4 flex-shrink-0 text-slate-400" strokeWidth={1.75} />
-            <span className="hidden xl:inline truncate">Knowledge Base</span>
+            <span className="hidden xl:inline truncate">{t("nav.knowledge_base")}</span>
           </Link>
 
           {/* Connections Trigger Button */}
           <button
             type="button"
             onClick={() => setIsConnectionsOpen(true)}
-            title="Connections & Integrations"
+            title={t("nav.connections")}
             className="w-full flex items-center min-h-[38px] rounded-xl text-[13.5px] transition-colors relative group justify-center xl:justify-between px-2 xl:px-3 cursor-pointer text-slate-400 hover:text-white hover:bg-white/5 font-medium border border-transparent"
           >
             <div className="flex items-center gap-2.5 min-w-0">
@@ -230,11 +232,11 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
                 className="w-4 h-4 flex-shrink-0 text-slate-400 group-hover:text-white transition-colors"
                 strokeWidth={1.75}
               />
-              <span className="hidden xl:inline truncate">Connections</span>
+              <span className="hidden xl:inline truncate">{t("nav.connections")}</span>
             </div>
             <span className="hidden xl:inline-flex items-center gap-1.5 text-[10.5px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Live
+              {t("nav.live")}
             </span>
           </button>
         </div>
@@ -259,7 +261,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
                 className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 transition-colors cursor-pointer"
               >
                 <LogOut className="w-3.5 h-3.5" />
-                <span>Log out</span>
+                <span>{t("nav.sign_out")}</span>
               </button>
             </div>
           )}

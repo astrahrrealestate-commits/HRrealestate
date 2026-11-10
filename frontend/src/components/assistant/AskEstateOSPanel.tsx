@@ -79,6 +79,7 @@ export interface AssistantMessage {
 }
 
 import { useSuperAgent } from "@/context/SuperAgentContext";
+import { useLanguage } from "@/context/LanguageContext";
 
 interface AskEstateOSPanelProps {
   isOpen?: boolean;
@@ -97,6 +98,7 @@ export function AskEstateOSPanel({
 }: AskEstateOSPanelProps) {
   const router = useRouter();
   const superAgent = useSuperAgent();
+  const { t, language } = useLanguage();
   const isOpen = propIsOpen !== undefined ? propIsOpen : superAgent.isOpen;
   const onClose = propOnClose || (() => superAgent.setIsOpen(false));
   const currentPageName = propPageName || superAgent.currentPageName || "Today";
@@ -1678,7 +1680,10 @@ export function AskEstateOSPanel({
                       "max-md:text-white/95 max-md:drop-shadow-xs"
                     )}
                     dangerouslySetInnerHTML={{
-                      __html: formatMarkdown(msg.text, isDark),
+                      __html: formatMarkdown(
+                        msg.id === "initial-msg" ? t("agent.welcome_sub", msg.text) : msg.text,
+                        isDark
+                      ),
                     }}
                   />
 
@@ -2073,7 +2078,7 @@ export function AskEstateOSPanel({
                             "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border",
                             isDark ? "bg-amber-500/15 text-amber-400 border-amber-500/30" : "bg-amber-50 text-amber-800 border-amber-200"
                           )}>
-                            {pCard.badgeLabel || "NOTICE"}
+                            {t(pCard.badgeLabel || "NOTICE")}
                           </span>
                           <span className={cn("text-[10.5px] font-mono", isDark ? "text-[#64748B]" : "text-[#888888]")}>
                             {pCard.unitLabel || "Action Required"}
@@ -2081,19 +2086,19 @@ export function AskEstateOSPanel({
                         </div>
 
                         <div className={cn("text-[13px] font-semibold", isDark ? "text-[#F9FAFB]" : "text-[#0A0A0A]")}>
-                          {pCard.title || "Action Notice"}
+                          {t(pCard.title || "Action Notice")}
                         </div>
 
                         <div className={cn(
                           "p-2.5 rounded-[8px] text-[12px] leading-relaxed font-sans break-words [overflow-wrap:anywhere] border",
                           isDark ? "bg-[#0E1113] border-amber-500/20 text-[#E2E8F0]" : "bg-[#FFFBEB] border-amber-200 text-[#78350F]"
                         )}>
-                          {pCard.body}
+                          {t(pCard.body || "")}
                         </div>
 
                         <div className={cn("pt-1 flex items-center justify-between gap-2 border-t", isDark ? "border-[#1E2328]" : "border-[#E8E8E5]")}>
                           <span className={cn("text-[10px] font-mono", isDark ? "text-[#64748B]" : "text-[#888888]")}>
-                            Status: {pCard.status || "Pending Review"}
+                            {t("Status")}: {t(pCard.status || "pending")}
                           </span>
                           <div className="flex items-center gap-2">
                             {pCard.caseId && (
@@ -2107,7 +2112,7 @@ export function AskEstateOSPanel({
                                     : "bg-[#0A0A0A] hover:bg-[#222222] border-[#0A0A0A] text-[#FFFFFF]"
                                 )}
                               >
-                                Retry Draft
+                                {t("Retry Draft")}
                               </button>
                             )}
                             <button
@@ -2115,7 +2120,7 @@ export function AskEstateOSPanel({
                               onClick={() => handleNavigate(pCard?.targetUrl || `/inbox?thread=case-${pCard?.caseId || ""}`)}
                               className="text-[11px] text-[#1a73e8] hover:underline flex items-center gap-1 cursor-pointer font-medium"
                             >
-                              <span>Open in Inbox</span>
+                              <span>{t("Open in Inbox")}</span>
                               <ExternalLink className="w-3 h-3" />
                             </button>
                           </div>
@@ -2373,7 +2378,7 @@ export function AskEstateOSPanel({
                             </>
                           ) : (
                             <>
-                              <span>{act.label}</span>
+                              <span>{t(act.label)}</span>
                               <CornerDownRight className="w-3 h-3" />
                             </>
                           )}
@@ -2476,7 +2481,7 @@ export function AskEstateOSPanel({
                     handleSendQuery(inputQuery);
                   }
                 }}
-                placeholder="Ask Super Agent across portfolio, maintenance, arrears..."
+                placeholder={t("agent.ask_placeholder")}
                 className={cn(
                   "w-full text-[13px] bg-transparent outline-none resize-none leading-relaxed",
                   isDark

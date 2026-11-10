@@ -22,6 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 import { needsYouCount, ThreadCountTarget } from "@/lib/selectors";
 import { MOCK_INBOX_THREADS } from "@/data/inboxMockData";
+import { useLanguage } from "@/context/LanguageContext";
 
 interface MobileTabBarProps {
   pendingCount?: number;
@@ -31,6 +32,7 @@ interface MobileTabBarProps {
 
 export function MobileTabBar({ pendingCount, threads, className }: MobileTabBarProps) {
   const pathname = usePathname() || "/";
+  const { t } = useLanguage();
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [isConnectionsOpen, setIsConnectionsOpen] = useState(false);
 
@@ -54,20 +56,20 @@ export function MobileTabBar({ pendingCount, threads, className }: MobileTabBarP
       : needsYouCount(threads || []);
 
   const mainTabs = [
-    { label: "Today", href: "/", icon: Home },
+    { label: t("nav.dashboard"), href: "/", icon: Home },
     {
-      label: "Inbox",
+      label: t("nav.messages"),
       href: "/inbox",
       icon: Inbox,
       badge: effectiveCount > 0 ? effectiveCount : undefined,
     },
-    { label: "Maintenance", href: "/maintenance", icon: Wrench },
-    { label: "Properties", href: "/properties", icon: Building2 },
+    { label: t("nav.maintenance"), href: "/maintenance", icon: Wrench },
+    { label: t("nav.properties"), href: "/properties", icon: Building2 },
   ];
 
   const moreItems = [
-    { label: "Tenants", href: "/tenants", icon: Users },
-    { label: "Contacts", href: "/contacts", icon: Contact },
+    { label: t("nav.tenants"), href: "/tenants", icon: Users },
+    { label: t("nav.contacts"), href: "/contacts", icon: Contact },
     // { label: "Money", href: "/money", icon: Coins },
     // Hidden from navigation:
     // { label: "Reports", href: "/reports", icon: BarChart3 },
