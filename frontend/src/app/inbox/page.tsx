@@ -18,6 +18,7 @@ import { FilterBar, FilterTab, FilterGroup } from "@/components/ui/FilterBar";
 
 import { InboxThreadList } from "@/components/inbox/InboxThreadList";
 import { threadMatchesQuery } from "@/lib/threadSearch";
+import { matchesFilters, matchesTab, optionCount } from "@/lib/inboxFilters";
 
 import { InboxConversationView } from "@/components/inbox/InboxConversationView";
 
@@ -30,7 +31,7 @@ import { approveInboxDraft, getInboxThreads, syncGmailInbox } from "@/lib/api";
 
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 
-import { needsYouCount, isNeedsYou, isUrgent } from "@/lib/selectors";
+import { needsYouCount, isUrgent } from "@/lib/selectors";
 
 import { cn } from "@/lib/utils";
 
@@ -661,33 +662,7 @@ function InboxContent() {
 
   const filterGroups: FilterGroup[] = useMemo(() => {
 
-    const tenantsCount = threads.filter((t) => t.recipientRole === "tenant").length;
-
-    const contractorsCount = threads.filter((t) => t.recipientRole === "contractor").length;
-
-    const leadsCount = threads.filter((t) => t.recipientRole === "inquiry").length;
-
-
-
-    const whatsappCount = threads.filter((t) => t.channel === "whatsapp").length;
-
-    const gmailCount = threads.filter((t) => t.channel === "gmail").length;
-
-    const portalCount = threads.filter((t) => t.channel === "portal").length;
-
-
-
-    const repairsCount = threads.filter((t) => t.category === "maintenance" || t.category === "contractor_repairs").length;
-
-    const rentCount = threads.filter((t) => t.category === "rent" || t.category === "payment").length;
-
-    const leaseCount = threads.filter((t) => t.category === "lease" || t.category === "sublet").length;
-
-    const complaintCount = threads.filter((t) => t.category === "complaint").length;
-
-    const adminCount = threads.filter((t) => t.category === "admin").length;
-
-
+    const countOf = (optionId: string) => optionCount(threads, activeTab, selectedFilterIds, optionId);
 
     return [
 
@@ -699,11 +674,11 @@ function InboxContent() {
 
         options: [
 
-          { id: "who_tenants", label: "Tenants", count: tenantsCount },
+          { id: "who_tenants", label: "Tenants", count: countOf("who_tenants") },
 
-          { id: "who_contractors", label: "Contractors", count: contractorsCount },
+          { id: "who_contractors", label: "Contractors", count: countOf("who_contractors") },
 
-          { id: "who_leads", label: "Leads", count: leadsCount },
+          { id: "who_leads", label: "Leads", count: countOf("who_leads") },
 
         ],
 
@@ -717,11 +692,11 @@ function InboxContent() {
 
         options: [
 
-          { id: "ch_whatsapp", label: "WhatsApp", count: whatsappCount },
+          { id: "ch_whatsapp", label: "WhatsApp", count: countOf("ch_whatsapp") },
 
-          { id: "ch_gmail", label: "Gmail", count: gmailCount },
+          { id: "ch_gmail", label: "Gmail", count: countOf("ch_gmail") },
 
-          { id: "ch_portal", label: "Portal", count: portalCount },
+          { id: "ch_portal", label: "Portal", count: countOf("ch_portal") },
 
         ],
 
@@ -735,15 +710,15 @@ function InboxContent() {
 
         options: [
 
-          { id: "type_repairs", label: "Repairs", count: repairsCount },
+          { id: "type_repairs", label: "Repairs", count: countOf("type_repairs") },
 
-          { id: "type_rent", label: "Rent & Money", count: rentCount },
+          { id: "type_rent", label: "Rent & Money", count: countOf("type_rent") },
 
-          { id: "type_lease", label: "Lease", count: leaseCount },
+          { id: "type_lease", label: "Lease", count: countOf("type_lease") },
 
-          { id: "type_complaint", label: "Complaint", count: complaintCount },
+          { id: "type_complaint", label: "Complaint", count: countOf("type_complaint") },
 
-          { id: "type_admin", label: "Admin", count: adminCount },
+          { id: "type_admin", label: "Admin", count: countOf("type_admin") },
 
         ],
 
@@ -751,7 +726,7 @@ function InboxContent() {
 
     ];
 
-  }, [threads]);
+  }, [threads, activeTab, selectedFilterIds]);
 
 
 
@@ -783,89 +758,8 @@ function InboxContent() {
 
 
 
-    // 1. Tab filter
-
-    if (activeTab === "needs_you") {
-
-      result = result.filter(isNeedsYou);
-
-    } else if (activeTab === "done") {
-
-      result = result.filter((t) => !isNeedsYou(t));
-
-    }
-
-
-
-    // 2. Who filter
-
-    const whoFilters = selectedFilterIds.filter((id) => id.startsWith("who_"));
-
-    if (whoFilters.length > 0) {
-
-      result = result.filter((t) => {
-
-        if (whoFilters.includes("who_tenants") && t.recipientRole === "tenant") return true;
-
-        if (whoFilters.includes("who_contractors") && t.recipientRole === "contractor") return true;
-
-        if (whoFilters.includes("who_leads") && t.recipientRole === "inquiry") return true;
-
-        return false;
-
-      });
-
-    }
-
-
-
-    // 3. Channel filter
-
-    const chFilters = selectedFilterIds.filter((id) => id.startsWith("ch_"));
-
-    if (chFilters.length > 0) {
-
-      result = result.filter((t) => {
-
-        if (chFilters.includes("ch_whatsapp") && t.channel === "whatsapp") return true;
-
-        if (chFilters.includes("ch_gmail") && t.channel === "gmail") return true;
-
-        if (chFilters.includes("ch_portal") && t.channel === "portal") return true;
-
-        return false;
-
-      });
-
-    }
-
-
-
-    // 4. Type filter
-
-    const typeFilters = selectedFilterIds.filter((id) => id.startsWith("type_"));
-
-    if (typeFilters.length > 0) {
-
-      result = result.filter((t) => {
-
-        if (typeFilters.includes("type_repairs") && (t.category === "maintenance" || t.category === "contractor_repairs")) return true;
-
-        if (typeFilters.includes("type_rent") && (t.category === "rent" || t.category === "payment")) return true;
-
-        if (typeFilters.includes("type_lease") && (t.category === "lease" || t.category === "sublet")) return true;
-
-        if (typeFilters.includes("type_complaint") && t.category === "complaint") return true;
-
-        if (typeFilters.includes("type_admin") && t.category === "admin") return true;
-
-        return false;
-
-      });
-
-    }
-
-
+    // 1-4. Tab, then the Who / Channel / Type options (shared with the badge counts)
+    result = result.filter((t) => matchesTab(t, activeTab) && matchesFilters(t, selectedFilterIds));
 
     // 5. Search query (supports plain text and token unit: / from:)
 
