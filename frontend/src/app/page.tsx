@@ -43,7 +43,8 @@ import {
   isUrgent,
 } from "@/lib/selectors";
 import { useSuperAgent } from "@/context/SuperAgentContext";
-import { getPortfolio } from "@/lib/portfolioApi";
+import { getPortfolio, getTenantProfiles } from "@/lib/portfolioApi";
+import type { TenantProfile } from "@/types/portfolio";
 import type { PropertyComplex } from "@/types/portfolio";
 import { ticketRef } from "@/lib/caseRef";
 
@@ -56,6 +57,7 @@ export default function TodayPage() {
   const [threads, setThreads] = useState<InboxThread[]>([]);
   const [metrics, setMetrics] = useState<PulseMetrics>(INITIAL_METRICS);
   const [portfolio, setPortfolio] = useState<PropertyComplex[] | null>(null);
+  const [tenants, setTenants] = useState<TenantProfile[] | null>(null);
   const [radarItems, setRadarItems] = useState<StalledItem[]>([]);
   const [inquiries, setInquiries] = useState<ProspectiveInquiry[]>([]);
   const [logs, setLogs] = useState<AutonomousActionLog[]>([]);
@@ -112,6 +114,9 @@ export default function TodayPage() {
 
     getPortfolio().then((result) => {
       if (isMounted && result.ok) setPortfolio(result.data);
+    });
+    getTenantProfiles().then((result) => {
+      if (isMounted && result.ok) setTenants(result.data);
     });
     // 2. Metrics & radar & inquiries & logs
     Promise.all([
@@ -245,7 +250,7 @@ export default function TodayPage() {
       href: "/inbox",
     },
     {
-      count: metrics.autonomousActionsWeek || 142,
+      count: metrics.autonomousActionsWeek,
       label: "handled this week",
     },
   ], [currentNeedsYouCount, currentUrgentCount, metrics.autonomousActionsWeek]);
@@ -294,12 +299,17 @@ export default function TodayPage() {
     },
   ];
 
-  // Financial Aging distribution for bottom pane
+  // Open rent by days overdue, from the tenants' own overdue rent. Empty until rent payments are mirrored.
+  const overdueTenants = (tenants ?? []).filter((t) => t.rentStatus === "overdue" && t.overdueDays > 0 && (t.monthlyRentEur ?? 0) > 0);
+  const agingTotal = overdueTenants.reduce((sum, t) => sum + (t.monthlyRentEur ?? 0), 0);
   const agingBuckets = [
-    { label: "0–30 days", amount: "€ 120.400,-", pct: 72.6, barClass: "bg-[var(--ink)]" },
-    { label: "30–90 days", amount: "€ 35.334,99", pct: 21.3, barClass: "bg-[var(--ink-3)]" },
-    { label: "90+ days", amount: "€ 10.000,-", pct: 6.1, barClass: "bg-[var(--accent)]" },
-  ];
+    { label: "1–30 days", min: 1, max: 30, barClass: "bg-[var(--ink)]" },
+    { label: "31–90 days", min: 31, max: 90, barClass: "bg-[var(--ink-3)]" },
+    { label: "91+ days", min: 91, max: Infinity, barClass: "bg-[var(--accent)]" },
+  ].map((bucket) => {
+    const sum = overdueTenants.filter((t) => t.overdueDays >= bucket.min && t.overdueDays <= bucket.max).reduce((n, t) => n + (t.monthlyRentEur ?? 0), 0);
+    return { ...bucket, sum, amount: formatCurrency(sum), pct: agingTotal > 0 ? (sum / agingTotal) * 100 : 0 };
+  });
 
   // Occupancy per building and overall: the same portfolio data the Properties page shows
   const occupancyBuildings = (portfolio ?? []).map((c) => ({
@@ -1279,29 +1289,35 @@ export default function TodayPage() {
                       Open rent
                     </span>
                     <span className="font-mono text-[15px] font-semibold text-[var(--ink)] tabular-nums">
-                      {formatCurrency(metrics.openRentTotalEur)}
+                      {agingTotal > 0 ? formatCurrency(agingTotal) : "—"}
                     </span>
                   </div>
 
-                  {/* Horizontal Segmented Progress Bar */}
-                  <div className="h-2 w-full rounded-full bg-[var(--selected)] overflow-hidden flex mt-3">
-                    <div style={{ width: "72.6%" }} className="bg-[var(--ink)] h-full" title="0–30 days: 72.6%" />
-                    <div style={{ width: "21.3%" }} className="bg-[var(--ink-3)] h-full" title="30–90 days: 21.3%" />
-                    <div style={{ width: "6.1%" }} className="bg-[var(--accent)] h-full" title="90+ days: 6.1%" />
-                  </div>
-
-                  {/* Legend */}
-                  <div className="space-y-1.5 mt-3 text-xs text-[var(--ink-2)]">
-                    {agingBuckets.map((b) => (
-                      <div key={b.label} className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <span className={cn("w-2 h-2 rounded-full", b.barClass)} />
-                          <span>{b.label}</span>
-                        </div>
-                        <span className="font-mono text-[var(--ink-3)] tabular-nums">{b.amount}</span>
+                  {agingTotal > 0 ? (
+                    <>
+                      {/* Horizontal Segmented Progress Bar */}
+                      <div className="h-2 w-full rounded-full bg-[var(--selected)] overflow-hidden flex mt-3">
+                        {agingBuckets.map((b) => (
+                          <div key={b.label} style={{ width: `${b.pct}%` }} className={cn(b.barClass, "h-full")} title={`${b.label}: ${b.pct.toFixed(1)}%`} />
+                        ))}
                       </div>
-                    ))}
-                  </div>
+
+                      {/* Legend */}
+                      <div className="space-y-1.5 mt-3 text-xs text-[var(--ink-2)]">
+                        {agingBuckets.map((b) => (
+                          <div key={b.label} className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5">
+                              <span className={cn("w-2 h-2 rounded-full", b.barClass)} />
+                              <span>{b.label}</span>
+                            </div>
+                            <span className="font-mono text-[var(--ink-3)] tabular-nums">{b.amount}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="mt-3 text-xs text-[var(--ink-3)]">No overdue rent recorded. Rent payments are not mirrored yet.</p>
+                  )}
                 </div>
 
                 <Link
