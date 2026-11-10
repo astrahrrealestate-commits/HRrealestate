@@ -56,6 +56,30 @@ export function InboxConversationView({
   const [stagedDraftText, setStagedDraftText] = useState("");
   const [replyingTo, setReplyingTo] = useState<{ id: string; text: string; sender: string } | null>(null);
   const timelineEndRef = useRef<HTMLDivElement>(null);
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close the More actions menu on an outside click, Escape, or when another thread opens.
+  useEffect(() => {
+    if (!isMoreOpen) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (!moreMenuRef.current?.contains(e.target as Node)) setIsMoreOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsMoreOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isMoreOpen]);
+
+  const copyToClipboard = (value?: string) => {
+    if (value) void navigator.clipboard?.writeText(value);
+    setIsMoreOpen(false);
+  };
 
   // Sync thread messages to local state
   useEffect(() => {
@@ -283,13 +307,40 @@ export function InboxConversationView({
             Done
           </Button>
 
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={<MoreHorizontal className="w-4 h-4" />}
-            className="px-2"
-            title="More actions"
-          />
+          <div className="relative" ref={moreMenuRef}>
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<MoreHorizontal className="w-4 h-4" />}
+              className="px-2"
+              title="More actions"
+              aria-haspopup="menu"
+              aria-expanded={isMoreOpen}
+              onClick={() => setIsMoreOpen((open) => !open)}
+            />
+            {isMoreOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 top-full mt-1 z-20 min-w-[200px] rounded-[var(--radius-ctl)] border border-[var(--line)] bg-[var(--pane)] shadow-md py-1 text-[13px]"
+              >
+                {[
+                  { label: "Copy ticket number", value: thread.ticketNumber },
+                  { label: "Copy sender contact", value: thread.senderContact },
+                ].map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    role="menuitem"
+                    disabled={!item.value}
+                    onClick={() => copyToClipboard(item.value)}
+                    className="w-full text-left px-3 py-1.5 text-[var(--ink)] hover:bg-[var(--selected)] disabled:text-[var(--ink-3)] disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
