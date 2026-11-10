@@ -34,6 +34,7 @@ import {
 } from "@/data/propertiesMockData";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import { useSuperAgent } from "@/context/SuperAgentContext";
+import { useLanguage } from "@/context/LanguageContext";
 
 function findMatchingUnitAndComplex(
   complexes: PropertyComplex[],
@@ -83,6 +84,7 @@ function PropertiesContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const superAgent = useSuperAgent();
+  const { t } = useLanguage();
 
   // URL state synchronization: ?complex=comp-id&unit=unit-id
   const complexParam = searchParams.get("complex");
@@ -367,7 +369,7 @@ function PropertiesContent() {
                         : "text-[var(--ink-3)] hover:text-[var(--ink)]"
                     )}
                   >
-                    All ({activeComplex.units.length})
+                    {t("All")} ({activeComplex.units.length})
                   </button>
                   <button
                     onClick={() => setActiveTab("occupied")}
@@ -378,7 +380,7 @@ function PropertiesContent() {
                         : "text-[var(--ink-3)] hover:text-[var(--ink)]"
                     )}
                   >
-                    Occupied ({activeComplex.units.filter((u) => u.status === "occupied").length})
+                    {t("Occupied")} ({activeComplex.units.filter((u) => u.status === "occupied").length})
                   </button>
                   <button
                     onClick={() => setActiveTab("vacant")}
@@ -389,7 +391,7 @@ function PropertiesContent() {
                         : "text-[var(--ink-3)] hover:text-[var(--ink)]"
                     )}
                   >
-                    Vacant / Notice ({activeComplex.units.filter((u) => u.status !== "occupied").length})
+                    {t("Vacant")} ({activeComplex.units.filter((u) => u.status !== "occupied").length})
                   </button>
                 </div>
 
@@ -400,7 +402,7 @@ function PropertiesContent() {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search unit, tenant, lockbox..."
+                    placeholder={t("Search properties...", "Zoek eenheden...")}
                     className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--bg)] border border-[var(--line)] rounded-md text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none focus:border-[var(--ink-2)]"
                   />
                   {searchQuery && (

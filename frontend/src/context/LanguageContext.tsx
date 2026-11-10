@@ -42,27 +42,125 @@ export const DICTIONARY: Translations = {
   "topbar.agent_active": { en: "Active", nl: "Actief" },
   "topbar.agent_core": { en: "Super Agent", nl: "Super Agent" },
 
-  // Common Actions & Badges
-  "common.approve": { en: "Approve", nl: "Goedkeuren" },
-  "common.reject": { en: "Reject", nl: "Afwijzen" },
-  "common.retry": { en: "Retry", nl: "Opnieuw" },
-  "common.open_in_inbox": { en: "Open in Inbox", nl: "Openen in Inbox" },
-  "common.view_details": { en: "View Details", nl: "Details bekijken" },
-  "common.cancel": { en: "Cancel", nl: "Annuleren" },
-  "common.save": { en: "Save", nl: "Opslaan" },
-  "common.filter": { en: "Filter", nl: "Filteren" },
-  "common.all": { en: "All", nl: "Alles" },
-  "common.search": { en: "Search", nl: "Zoeken" },
-  "common.loading": { en: "Loading...", nl: "Laden..." },
-  "common.status": { en: "Status", nl: "Status" },
-  "common.pending": { en: "Pending", nl: "In afwachting" },
-  "common.completed": { en: "Completed", nl: "Voltooid" },
-  "common.urgent": { en: "Urgent", nl: "Urgent" },
-  "common.emergency": { en: "Emergency", nl: "Noodgeval" },
-  "common.high": { en: "High", nl: "Hoog" },
-  "common.medium": { en: "Medium", nl: "Gemiddeld" },
-  "common.low": { en: "Low", nl: "Laag" },
-  "common.notice": { en: "NOTICE", nl: "KENNISGEVING" },
+  // Page Titles
+  "Maintenance": { en: "Maintenance", nl: "Onderhoud" },
+  "Money & Ledger": { en: "Money & Ledger", nl: "Financiën & Grootboek" },
+  "Money": { en: "Money", nl: "Financiën" },
+  "Financial Control": { en: "Financial Control", nl: "Financieel Overzicht" },
+  "Tenants Directory": { en: "Tenants Directory", nl: "Huurdersoverzicht" },
+  "Tenants": { en: "Tenants", nl: "Huurders" },
+  "Properties & Units": { en: "Properties & Units", nl: "Panden & Eenheden" },
+  "Properties Portfolio": { en: "Properties Portfolio", nl: "Vastgoedportefeuille" },
+  "Properties": { en: "Properties", nl: "Panden" },
+  "Inbox & Communications": { en: "Inbox & Communications", nl: "Inbox & Communicatie" },
+  "Inbox": { en: "Inbox", nl: "Inbox" },
+  "Contacts Directory": { en: "Contacts Directory", nl: "Contactpersonen" },
+  "Contacts": { en: "Contacts", nl: "Contacten" },
+  "Settings": { en: "Settings", nl: "Instellingen" },
+  "Reports & Knowledge": { en: "Reports & Knowledge", nl: "Rapporten & Kennisbank" },
+  "Reports": { en: "Reports", nl: "Rapporten" },
+
+  // Tabs & Filters
+  "Open": { en: "Open", nl: "Open" },
+  "Needs approval": { en: "Needs approval", nl: "Goedkeuring vereist" },
+  "Done": { en: "Done", nl: "Voltooid" },
+  "All": { en: "All", nl: "Alles" },
+  "All statuses": { en: "All statuses", nl: "Alle statussen" },
+  "Dispatched": { en: "Dispatched", nl: "Verzonden" },
+  "Scheduled": { en: "Scheduled", nl: "Ingepland" },
+  "Completed": { en: "Completed", nl: "Voltooid" },
+  "Pending": { en: "Pending", nl: "In afwachting" },
+  "Receivables": { en: "Receivables", nl: "Vorderingen" },
+  "Payables": { en: "Payables", nl: "Te betalen" },
+  "Overdue": { en: "Overdue", nl: "Achterstallig" },
+  "Up to date": { en: "Up to date", nl: "Bijgewerkt" },
+  "Occupied": { en: "Occupied", nl: "Verhuurd" },
+  "Vacant": { en: "Vacant", nl: "Leegstaand" },
+  "Drafted": { en: "Drafted", nl: "Concepten" },
+  "Unread": { en: "Unread", nl: "Ongelezen" },
+
+  // Search Placeholders
+  "Search tickets...": { en: "Search tickets...", nl: "Tickets zoeken..." },
+  "Search transactions...": { en: "Search transactions...", nl: "Transacties zoeken..." },
+  "Search tenants...": { en: "Search tenants...", nl: "Huurders zoeken..." },
+  "Search properties...": { en: "Search properties...", nl: "Panden zoeken..." },
+  "Search messages...": { en: "Search messages...", nl: "Berichten zoeken..." },
+  "Search contacts...": { en: "Search contacts...", nl: "Contacten zoeken..." },
+  "Search...": { en: "Search...", nl: "Zoeken..." },
+
+  // Common Action Buttons & Labels
+  "New ticket": { en: "New ticket", nl: "Nieuw ticket" },
+  "New Ticket": { en: "New Ticket", nl: "Nieuw ticket" },
+  "Add Tenant": { en: "Add Tenant", nl: "Huurder toevoegen" },
+  "Add Property": { en: "Add Property", nl: "Pand toevoegen" },
+  "Download Export": { en: "Download Export", nl: "Export downloaden" },
+  "Export": { en: "Export", nl: "Exporteren" },
+  "Filter": { en: "Filter", nl: "Filteren" },
+  "Approve": { en: "Approve", nl: "Goedkeuren" },
+  "Reject": { en: "Reject", nl: "Afwijzen" },
+  "Approve & Dispatch": { en: "Approve & Dispatch", nl: "Goedkeuren & Verzenden" },
+  "Edit": { en: "Edit", nl: "Bewerken" },
+  "History": { en: "History", nl: "Geschiedenis" },
+  "Save": { en: "Save", nl: "Opslaan" },
+  "Cancel": { en: "Cancel", nl: "Annuleren" },
+  "Close": { en: "Close", nl: "Sluiten" },
+  "Retry": { en: "Retry", nl: "Opnieuw" },
+  "Retry Draft": { en: "Retry Draft", nl: "Concept opnieuw maken" },
+  "Open in Inbox": { en: "Open in Inbox", nl: "Openen in Inbox" },
+  "View Details": { en: "View Details", nl: "Details bekijken" },
+  "Send": { en: "Send", nl: "Verzenden" },
+  "Send approval": { en: "Send approval", nl: "Goedkeuring verzenden" },
+  "Open technician": { en: "Open technician", nl: "Monteur openen" },
+  "Review dispatch": { en: "Review dispatch", nl: "Verzending bekijken" },
+
+  // Status & Urgency Labels
+  "urgent": { en: "urgent", nl: "urgent" },
+  "Urgent": { en: "Urgent", nl: "Urgent" },
+  "emergency": { en: "emergency", nl: "noodgeval" },
+  "Emergency": { en: "Emergency", nl: "Noodgeval" },
+  "in progress": { en: "in progress", nl: "in behandeling" },
+  "In Progress": { en: "In Progress", nl: "In behandeling" },
+  "open": { en: "open", nl: "open" },
+  "high": { en: "high", nl: "hoog" },
+  "medium": { en: "medium", nl: "gemiddeld" },
+  "low": { en: "low", nl: "laag" },
+  "pending": { en: "pending", nl: "in afwachting" },
+  "completed": { en: "completed", nl: "voltooid" },
+  "resolved": { en: "resolved", nl: "opgelost" },
+  "overdue": { en: "overdue", nl: "achterstallig" },
+  "Status": { en: "Status", nl: "Status" },
+  "Status:": { en: "Status:", nl: "Status:" },
+  "Status: pending": { en: "Status: pending", nl: "Status: in afwachting" },
+  "NOTICE": { en: "NOTICE", nl: "KENNISGEVING" },
+  "TICKET": { en: "TICKET", nl: "TICKET" },
+  "Needs you": { en: "Needs you", nl: "Aandacht vereist" },
+  "Waiting on others": { en: "Waiting on others", nl: "Wachten op anderen" },
+  "New leads": { en: "New leads", nl: "Nieuwe leads" },
+  "Open Inbox →": { en: "Open Inbox →", nl: "Open Inbox →" },
+  "Open all →": { en: "Open all →", nl: "Alles openen →" },
+  "Filters": { en: "Filters", nl: "Filters" },
+  "Reset all": { en: "Reset all", nl: "Alles herstellen" },
+  "Clear search": { en: "Clear search", nl: "Zoekopdracht wissen" },
+  "Date": { en: "Date", nl: "Datum" },
+  "Amount": { en: "Amount", nl: "Bedrag" },
+  "Counterparty": { en: "Counterparty", nl: "Tegenpartij" },
+  "Unit": { en: "Unit", nl: "Eenheid" },
+  "Reference": { en: "Reference", nl: "Referentie" },
+  "PO Cap": { en: "PO Cap", nl: "Inkooporderlimiet" },
+  "Contractor / Technician": { en: "Contractor / Technician", nl: "Aannemer / Monteur" },
+  "Tenant": { en: "Tenant", nl: "Huurder" },
+  "Category": { en: "Category", nl: "Categorie" },
+  "Reported": { en: "Reported", nl: "Gemeld" },
+  "Notes": { en: "Notes", nl: "Notities" },
+
+  // Dashboard specifics
+  "Today's Focus": { en: "Today's Focus", nl: "Focus van Vandaag" },
+  "Triage Queue": { en: "Triage Queue", nl: "Wachtrij Triage" },
+  "All clear. No urgent tasks requiring your attention.": {
+    en: "All clear. No urgent tasks requiring your attention.",
+    nl: "Alles bijgewerkt. Geen urgente taken die uw aandacht vereisen.",
+  },
+  "Recent Activity": { en: "Recent Activity", nl: "Recente Activiteit" },
 
   // Super Agent UI
   "agent.panel_title": { en: "Super Agent", nl: "Super Agent" },
@@ -76,45 +174,15 @@ export const DICTIONARY: Translations = {
   },
   "agent.listening_en": { en: "Listening (English)...", nl: "Luisteren (Engels)..." },
   "agent.listening_nl": { en: "Listening (Dutch)...", nl: "Luisteren (Nederlands)..." },
-  "agent.what_should_i_do": { en: "What should I do first? →", nl: "Wat moet ik eerst doen? →" },
-  "agent.show_todays_tasks": { en: "Show me today's tasks", nl: "Toon taken van vandaag" },
-  "agent.send_approval": { en: "Send approval", nl: "Goedkeuring verzenden" },
-  "agent.open_technician": { en: "Open technician", nl: "Monteur openen" },
-  "agent.review_dispatch": { en: "Review dispatch", nl: "Verzending bekijken" },
-  "agent.retry_draft": { en: "Retry Draft", nl: "Concept opnieuw" },
-
-  // Direct Button & Badge Strings (matches actions directly)
   "What should I do first?": { en: "What should I do first?", nl: "Wat moet ik eerst doen?" },
   "What should I do first? →": { en: "What should I do first? →", nl: "Wat moet ik eerst doen? →" },
   "Show me today's task": { en: "Show me today's task", nl: "Toon mijn taak van vandaag" },
   "Show me today's tasks": { en: "Show me today's tasks", nl: "Toon mijn taken van vandaag" },
-  "Send approval": { en: "Send approval", nl: "Goedkeuring verzenden" },
-  "Open technician": { en: "Open technician", nl: "Monteur openen" },
-  "Review dispatch": { en: "Review dispatch", nl: "Verzending bekijken" },
-  "Retry Draft": { en: "Retry Draft", nl: "Concept opnieuw maken" },
-  "Open in Inbox": { en: "Open in Inbox", nl: "Openen in Inbox" },
   "Draft Generation Notice": { en: "Draft Generation Notice", nl: "Kennisgeving Conceptaanmaak" },
   "EstateOS could not draft a reply for a new message on this case. Please look at it yourself.": {
     en: "EstateOS could not draft a reply for a new message on this case. Please look at it yourself.",
     nl: "EstateOS kon geen antwoord opstellen voor een nieuw bericht in dit dossier. Bekijk het zelf.",
   },
-  "Status: pending": { en: "Status: pending", nl: "Status: in afwachting" },
-  "pending": { en: "pending", nl: "in afwachting" },
-  "Approved": { en: "Approved", nl: "Goedgekeurd" },
-  "Pending": { en: "Pending", nl: "In afwachting" },
-  "NOTICE": { en: "NOTICE", nl: "KENNISGEVING" },
-  "URGENT": { en: "URGENT", nl: "URGENT" },
-  "TICKET": { en: "TICKET", nl: "TICKET" },
-
-  // Maintenance & Pages
-  "maintenance.title": { en: "Maintenance", nl: "Onderhoud" },
-  "maintenance.open_cases": { en: "Open Cases", nl: "Openstaande dossiers" },
-  "maintenance.technician": { en: "Contractor / Technician", nl: "Aannemer / Monteur" },
-  "tenants.title": { en: "Tenants", nl: "Huurders" },
-  "properties.title": { en: "Properties", nl: "Panden" },
-  "inbox.title": { en: "Inbox & Messages", nl: "Inbox & Berichten" },
-  "money.title": { en: "Financial Control", nl: "Financieel Overzicht" },
-  "contacts.title": { en: "Contacts Directory", nl: "Contactpersonen" },
 };
 
 interface LanguageContextType {
@@ -164,9 +232,17 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   };
 
   const t = (key: string, fallback?: string): string => {
-    const item = DICTIONARY[key];
-    if (item && item[language]) {
-      return item[language];
+    if (!key) return "";
+    const direct = DICTIONARY[key] || DICTIONARY[key.trim()];
+    if (direct && direct[language]) {
+      return direct[language];
+    }
+    // Case-insensitive fallback
+    const lowerKey = key.trim().toLowerCase();
+    for (const [k, val] of Object.entries(DICTIONARY)) {
+      if (k.toLowerCase() === lowerKey && val[language]) {
+        return val[language];
+      }
     }
     return fallback !== undefined ? fallback : key;
   };

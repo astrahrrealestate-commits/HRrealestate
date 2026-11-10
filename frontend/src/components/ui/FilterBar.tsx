@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Search, ChevronDown, RotateCw, X, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/context/LanguageContext";
 
 export interface FilterTab {
   id: string;
@@ -63,6 +64,7 @@ export function FilterBar({
   searchPlaceholder = "Search...",
   className,
 }: FilterBarProps) {
+  const { t } = useLanguage();
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -125,7 +127,7 @@ export function FilterBar({
                     : "text-[var(--ink-3)] hover:text-[var(--ink)] hover:bg-[var(--selected)]/50"
                 )}
               >
-                <span>{tab.label}</span>
+                <span>{t(tab.label)}</span>
                 {tab.count !== undefined && (
                   <span
                     className={cn(
@@ -153,7 +155,7 @@ export function FilterBar({
               type="text"
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
-              placeholder={searchPlaceholder}
+              placeholder={t(searchPlaceholder)}
               className="w-full h-8 pl-8 pr-7 text-[13px] bg-[var(--bg)] border border-[var(--line)] rounded-[var(--radius-ctl)] text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none focus:bg-[var(--pane)] focus:border-[var(--ink)] transition-colors"
             />
             {searchQuery ? (
@@ -161,7 +163,7 @@ export function FilterBar({
                 type="button"
                 onClick={() => onSearchChange("")}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--ink-3)] hover:text-[var(--ink)] p-0.5"
-                title="Clear search"
+                title={t("Clear search", "Zoekopdracht wissen")}
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -187,7 +189,7 @@ export function FilterBar({
                 aria-expanded={isPopoverOpen}
               >
                 <SlidersHorizontal className="w-3.5 h-3.5 text-[var(--ink-3)]" />
-                <span>Filter</span>
+                <span>{t("Filter")}</span>
                 {activeFilterCount > 0 && (
                   <span className="text-xs bg-[var(--ink)] text-white px-1.5 py-0.2 rounded-full tabular-nums">
                     {activeFilterCount}
@@ -201,7 +203,7 @@ export function FilterBar({
                 <div className="absolute right-0 top-full mt-1.5 w-64 p-3 bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] shadow-md z-50 text-[13px] space-y-3 animate-in fade-in zoom-in-95 duration-100">
                   <div className="flex items-center justify-between pb-1.5 border-b border-[var(--line)]">
                     <span className="font-semibold text-[var(--ink)] text-xs uppercase tracking-wider">
-                      Filters
+                      {t("Filters", "Filters")}
                     </span>
                     {activeFilterCount > 0 && onClearFilters && (
                       <button
@@ -209,7 +211,7 @@ export function FilterBar({
                         onClick={onClearFilters}
                         className="text-xs text-[var(--accent-ink)] hover:underline cursor-pointer"
                       >
-                        Reset all
+                        {t("Reset all", "Alles herstellen")}
                       </button>
                     )}
                   </div>

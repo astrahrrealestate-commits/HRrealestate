@@ -3,6 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/context/LanguageContext";
 
 export interface SectionHeaderProps {
   title: string;
@@ -27,6 +28,8 @@ export function SectionHeader({
   onAction,
   className,
 }: SectionHeaderProps) {
+  const { t } = useLanguage();
+
   return (
     <div
       className={cn(
@@ -35,7 +38,7 @@ export function SectionHeader({
       )}
     >
       <h3 className="text-[16px] font-semibold text-[var(--ink)] tracking-tight leading-snug">
-        {title}
+        {t(title)}
         {count !== undefined && (
           <span className="text-[var(--ink-3)] font-normal ml-1.5 tabular-nums">
             ({count})
@@ -49,7 +52,7 @@ export function SectionHeader({
             href={actionHref}
             className="text-[13px] font-medium text-[var(--ink)] hover:underline underline-offset-4 whitespace-nowrap inline-flex items-center gap-1 transition-colors"
           >
-            {actionText}
+            {t(actionText)}
           </Link>
         ) : (
           <button
@@ -57,7 +60,7 @@ export function SectionHeader({
             onClick={onAction}
             className="text-[13px] font-medium text-[var(--ink)] hover:underline underline-offset-4 whitespace-nowrap inline-flex items-center gap-1 transition-colors cursor-pointer bg-transparent border-none p-0"
           >
-            {actionText}
+            {t(actionText)}
           </button>
         )
       )}

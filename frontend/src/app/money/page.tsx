@@ -30,6 +30,7 @@ import { MOCK_TRANSACTIONS, MoneyTransaction } from "@/data/moneyMockData";
 import { TransactionDetailSheet } from "@/components/money/TransactionDetailSheet";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import { useSuperAgent } from "@/context/SuperAgentContext";
+import { useLanguage } from "@/context/LanguageContext";
 
 type MoneyTab = "all" | "receivables" | "payables" | "overdue";
 
@@ -67,6 +68,7 @@ function MoneyContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const superAgent = useSuperAgent();
+  const { t } = useLanguage();
 
   const invoiceParam = searchParams?.get("invoice") || "";
   const txParam = searchParams?.get("tx") || "";
@@ -233,7 +235,7 @@ function MoneyContent() {
           {/* Header & Inline Stats (Section 5.5: No cards inside cards, StatLine format) */}
           <div className="space-y-1">
             <h1 className="font-heading font-bold text-[24px] sm:text-[28px] text-[var(--ink)] tracking-tight">
-              Money & Ledger
+              {t("Money & Ledger")}
             </h1>
             <p className="text-xs sm:text-[13px] text-[var(--ink-2)] font-mono">
               € 165.734,99 open rent · € {aggregates.overdueTotal.toLocaleString("nl-NL")},- overdue ({aggregates.overdueCount} tenants) · 94.5% collection rate
@@ -288,7 +290,7 @@ function MoneyContent() {
                     : "bg-[var(--bg)] text-[var(--ink-2)] hover:text-[var(--ink)] border border-[var(--line)]"
                 )}
               >
-                All ({MOCK_TRANSACTIONS.length})
+                {t("All")} ({MOCK_TRANSACTIONS.length})
               </button>
               <button
                 onClick={() => setActiveTab("receivables")}
@@ -299,7 +301,7 @@ function MoneyContent() {
                     : "bg-[var(--bg)] text-[var(--ink-2)] hover:text-[var(--ink)] border border-[var(--line)]"
                 )}
               >
-                Receivables
+                {t("Receivables")}
               </button>
               <button
                 onClick={() => setActiveTab("payables")}
@@ -310,7 +312,7 @@ function MoneyContent() {
                     : "bg-[var(--bg)] text-[var(--ink-2)] hover:text-[var(--ink)] border border-[var(--line)]"
                 )}
               >
-                Payables
+                {t("Payables")}
               </button>
               <button
                 onClick={() => setActiveTab("overdue")}
@@ -321,7 +323,7 @@ function MoneyContent() {
                     : "bg-[var(--bg)] text-[var(--ink-2)] hover:text-[var(--ink)] border border-[var(--line)]"
                 )}
               >
-                Overdue ({aggregates.overdueCount})
+                {t("Overdue")} ({aggregates.overdueCount})
               </button>
             </div>
 

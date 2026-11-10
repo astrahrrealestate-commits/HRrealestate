@@ -37,6 +37,7 @@ import {
 } from "@/lib/api";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import { useSuperAgent } from "@/context/SuperAgentContext";
+import { useLanguage } from "@/context/LanguageContext";
 
 export interface MaintenanceTicket {
   id: string;
@@ -105,6 +106,7 @@ function findMatchingTicket(allTickets: MaintenanceTicket[], query: string): Mai
 function MaintenanceContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { t } = useLanguage();
 
   const [tickets, setTickets] = useState<MaintenanceTicket[]>(MOCK_MAINTENANCE_TICKETS);
   const [activeTab, setActiveTab] = useState<"open" | "needs_approval" | "done">("open");
@@ -418,18 +420,18 @@ function MaintenanceContent() {
               <div className="min-w-0">
                 <div className="flex items-center gap-2.5">
                   <h1 className="font-heading font-bold text-[18px] sm:text-[20px] text-[var(--ink)] tracking-tight leading-tight">
-                    Maintenance
+                    {t("Maintenance")}
                   </h1>
                 </div>
 
                 {/* Inline stats (Section 2.4 M2 & 5.4): "4 open · 3 urgent · 1 in progress" */}
                 <p className="text-[13px] text-[var(--ink-2)] mt-0.5">
-                  <span className="font-medium text-[var(--ink)] tabular-nums">{openCount}</span> open
+                  <span className="font-medium text-[var(--ink)] tabular-nums">{openCount}</span> {t("open")}
                   <span className="text-[var(--ink-3)] mx-1.5">·</span>
                   <span className="font-semibold text-[var(--accent-ink)] tabular-nums">{urgentTicketsCount}</span>{" "}
-                  <span className="text-[var(--accent-ink)] font-medium">urgent</span>
+                  <span className="text-[var(--accent-ink)] font-medium">{t("urgent")}</span>
                   <span className="text-[var(--ink-3)] mx-1.5">·</span>
-                  <span className="font-medium text-[var(--ink)] tabular-nums">{inProgressCount}</span> in progress
+                  <span className="font-medium text-[var(--ink)] tabular-nums">{inProgressCount}</span> {t("in progress")}
                 </p>
               </div>
 
@@ -439,7 +441,7 @@ function MaintenanceContent() {
                 onClick={() => showToast("Opening manual ticket intake drawer...")}
                 className="text-xs border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] shadow-2xs shrink-0"
               >
-                New ticket
+                {t("New ticket")}
               </Button>
             </div>
 
@@ -449,9 +451,9 @@ function MaintenanceContent() {
               {/* 3 Tabs */}
               <div className="flex items-center gap-1">
                 {[
-                  { id: "open", label: "Open", count: openCount },
-                  { id: "needs_approval", label: "Needs approval", count: tickets.filter((t) => t.status === "pending_approval").length },
-                  { id: "done", label: "Done" },
+                  { id: "open", label: t("Open"), count: openCount },
+                  { id: "needs_approval", label: t("Needs approval"), count: tickets.filter((t) => t.status === "pending_approval").length },
+                  { id: "done", label: t("Done") },
                 ].map((tab) => {
                   const isActive = activeTab === tab.id;
                   return (
@@ -493,7 +495,7 @@ function MaintenanceContent() {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search tickets..."
+                    placeholder={t("Search tickets...")}
                     className="w-full h-8 pl-8 pr-7 text-[13px] bg-[var(--bg)] border border-[var(--line)] rounded-[var(--radius-ctl)] text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none focus:bg-[var(--pane)] focus:border-[var(--ink)] transition-colors"
                   />
                   {searchQuery && (
@@ -515,7 +517,7 @@ function MaintenanceContent() {
                     className="h-8 px-2.5 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--ink-2)] border border-[var(--line)] rounded-[var(--radius-ctl)] bg-[var(--pane)] hover:bg-[var(--selected)] transition-colors cursor-pointer select-none"
                   >
                     <span>
-                      {statusFilter === "all" ? "All statuses" : statusFilter.replace("_", " ")}
+                      {statusFilter === "all" ? t("All statuses") : t(statusFilter.replace("_", " "))}
                     </span>
                     <ChevronDown className="w-3 h-3 text-[var(--ink-3)]" />
                   </button>
@@ -528,11 +530,11 @@ function MaintenanceContent() {
                       />
                       <div className="absolute right-0 top-full mt-1.5 w-44 bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-ctl)] shadow-lg py-1 z-30 animate-in fade-in zoom-in-95 duration-100 text-xs">
                         {[
-                          { id: "all", label: "All statuses" },
-                          { id: "pending_approval", label: "Needs approval" },
-                          { id: "dispatched", label: "Dispatched" },
-                          { id: "scheduled", label: "Scheduled" },
-                          { id: "completed", label: "Completed" },
+                          { id: "all", label: t("All statuses") },
+                          { id: "pending_approval", label: t("Needs approval") },
+                          { id: "dispatched", label: t("Dispatched") },
+                          { id: "scheduled", label: t("Scheduled") },
+                          { id: "completed", label: t("Completed") },
                         ].map((opt) => (
                           <button
                             key={opt.id}
