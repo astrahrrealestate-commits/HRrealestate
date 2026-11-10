@@ -58,21 +58,71 @@ export function EditTicketModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // 1. Validate required non-empty text fields
+    if (!issueTitle.trim()) {
+      onShowToast?.("Work order issue description cannot be empty.");
+      return;
+    }
+    if (!unitLabel.trim()) {
+      onShowToast?.("Unit / property label cannot be empty.");
+      return;
+    }
+    if (!contractorName.trim()) {
+      onShowToast?.("Contractor name cannot be empty.");
+      return;
+    }
+
+    // 2. Validate Budget Cap (strictly positive number, 0 and negative prohibited)
+    const cleanedBudget = poBudgetCap.replace(/[^0-9.,]/g, "").replace(",", ".");
+    const numBudget = parseFloat(cleanedBudget);
+    if (isNaN(numBudget) || numBudget <= 0) {
+      onShowToast?.("Budget cap must be a valid positive amount greater than 0.");
+      return;
+    }
+    if (numBudget > 50000) {
+      onShowToast?.("Budget cap cannot exceed € 50,000.");
+      return;
+    }
+
+    // 3. Validate contractor phone if provided (6-25 characters)
+    if (contractorPhone.trim() && !/^[+0-9\s\-()]{6,25}$/.test(contractorPhone.trim())) {
+      onShowToast?.("Please enter a valid contractor phone number (6-25 digits).");
+      return;
+    }
+
+    // 4. Validate email format if provided
+    if (contractorEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contractorEmail.trim())) {
+      onShowToast?.("Please enter a valid contractor email address.");
+      return;
+    }
+
+    // 5. Validate outbound drafts (cannot be empty strings)
+    if (!contractorDraft.trim()) {
+      onShowToast?.("Contractor work order draft preview cannot be empty.");
+      return;
+    }
+    if (!tenantDraft.trim()) {
+      onShowToast?.("Tenant confirmation reply preview cannot be empty.");
+      return;
+    }
+
     setIsSaving(true);
     try {
+      const formattedBudget = poBudgetCap.includes("€") ? poBudgetCap.trim() : `€ ${numBudget.toLocaleString("nl-NL")}`;
       const updated: MaintenanceTicket = {
         ...ticket,
-        issueTitle,
-        unitLabel,
+        issueTitle: issueTitle.trim(),
+        unitLabel: unitLabel.trim(),
         urgency: urgency as any,
-        contractorName,
-        contractorTrade,
-        contractorPhone,
-        contractorEmail,
-        poBudgetCap,
-        notes,
-        contractorDraft,
-        tenantDraft,
+        contractorName: contractorName.trim(),
+        contractorTrade: contractorTrade.trim(),
+        contractorPhone: contractorPhone.trim(),
+        contractorEmail: contractorEmail.trim(),
+        poBudgetCap: formattedBudget,
+        notes: notes.trim(),
+        contractorDraft: contractorDraft.trim(),
+        tenantDraft: tenantDraft.trim(),
       };
       await onSave(updated);
       onShowToast?.(`Ticket ${ticket.ticketNumber} updated successfully.`);
@@ -128,11 +178,15 @@ export function EditTicketModal({
             </span>
 
             <div>
-              <label className="block text-[12px] font-medium text-[var(--ink-2)] mb-1">Issue Description</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[12px] font-medium text-[var(--ink-2)]">Issue Description</label>
+                <span className="text-[10px] text-[var(--ink-3)] font-mono">{issueTitle.length}/120</span>
+              </div>
               <input
                 type="text"
                 value={issueTitle}
                 onChange={(e) => setIssueTitle(e.target.value)}
+                maxLength={120}
                 required
                 className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--line)] rounded-lg text-xs font-medium text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] transition-colors"
               />
@@ -145,6 +199,7 @@ export function EditTicketModal({
                   type="text"
                   value={unitLabel}
                   onChange={(e) => setUnitLabel(e.target.value)}
+                  maxLength={60}
                   required
                   className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--line)] rounded-lg text-xs font-medium text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] transition-colors"
                 />
@@ -179,6 +234,7 @@ export function EditTicketModal({
                   type="text"
                   value={contractorName}
                   onChange={(e) => setContractorName(e.target.value)}
+                  maxLength={80}
                   required
                   className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--line)] rounded-lg text-xs font-medium text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] transition-colors"
                 />
@@ -190,6 +246,7 @@ export function EditTicketModal({
                   type="text"
                   value={contractorTrade}
                   onChange={(e) => setContractorTrade(e.target.value)}
+                  maxLength={60}
                   className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--line)] rounded-lg text-xs font-medium text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] transition-colors"
                 />
               </div>
@@ -203,6 +260,8 @@ export function EditTicketModal({
                     type="text"
                     value={poBudgetCap}
                     onChange={(e) => setPoBudgetCap(e.target.value)}
+                    maxLength={20}
+                    placeholder="e.g. € 450"
                     required
                     className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--line)] rounded-lg text-xs font-mono font-bold text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] transition-colors"
                   />
@@ -218,6 +277,8 @@ export function EditTicketModal({
                   type="text"
                   value={contractorPhone}
                   onChange={(e) => setContractorPhone(e.target.value)}
+                  maxLength={25}
+                  placeholder="+31 6 12 34 56 78"
                   className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--line)] rounded-lg text-xs font-mono text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] transition-colors"
                 />
               </div>
@@ -228,6 +289,7 @@ export function EditTicketModal({
                   type="email"
                   value={contractorEmail}
                   onChange={(e) => setContractorEmail(e.target.value)}
+                  maxLength={80}
                   placeholder="e.g. planning@chahalbouw.nl"
                   className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--line)] rounded-lg text-xs font-mono text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] transition-colors"
                 />
@@ -240,6 +302,7 @@ export function EditTicketModal({
                 type="text"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
+                maxLength={200}
                 placeholder="e.g. Lockbox code 4182"
                 className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--line)] rounded-lg text-xs text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] transition-colors"
               />
@@ -259,12 +322,16 @@ export function EditTicketModal({
                   <Wrench className="w-3.5 h-3.5 text-[var(--accent-ink)]" />
                   <span>Work Order for Contractor ({contractorName})</span>
                 </div>
-                <span className="text-[var(--ink-3)] font-mono">WhatsApp Dispatch</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-[var(--ink-3)] font-mono">{contractorDraft.length}/1500</span>
+                  <span className="text-[var(--ink-3)] font-mono">WhatsApp Dispatch</span>
+                </div>
               </div>
               <textarea
                 rows={3}
                 value={contractorDraft}
                 onChange={(e) => setContractorDraft(e.target.value)}
+                maxLength={1500}
                 className="w-full p-2 bg-[var(--pane)] border border-[var(--line)] rounded-lg text-xs leading-relaxed text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] resize-y"
               />
             </div>
@@ -276,12 +343,16 @@ export function EditTicketModal({
                   <MessageSquare className="w-3.5 h-3.5 text-blue-500" />
                   <span>Confirmation Reply for Tenant ({ticket.tenantName})</span>
                 </div>
-                <span className="text-[var(--ink-3)] font-mono">Tenant Update</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-[var(--ink-3)] font-mono">{tenantDraft.length}/1500</span>
+                  <span className="text-[var(--ink-3)] font-mono">Tenant Update</span>
+                </div>
               </div>
               <textarea
                 rows={3}
                 value={tenantDraft}
                 onChange={(e) => setTenantDraft(e.target.value)}
+                maxLength={1500}
                 className="w-full p-2 bg-[var(--pane)] border border-[var(--line)] rounded-lg text-xs leading-relaxed text-[var(--ink)] focus:outline-hidden focus:border-[var(--accent)] resize-y"
               />
             </div>

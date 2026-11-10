@@ -393,12 +393,12 @@ function MaintenanceContent() {
   };
 
   return (
-    <div className="h-dvh bg-[#1B1B1B] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
+    <div className="h-dvh bg-[#0A1B2F] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
       {/* 1. Left Fixed Sidebar */}
       <Sidebar />
 
       {/* 2. Main Canvas */}
-      <div className="flex-1 flex flex-col min-w-0 h-dvh overflow-hidden bg-[#1B1B1B]">
+      <div className="flex-1 flex flex-col min-w-0 h-dvh overflow-hidden bg-[#0A1B2F]">
         {/* Top bar hidden on mobile when detail pane is open */}
         <div className={cn(isMobileDetailOpen ? "hidden md:block" : "block")}>
           <TopCommandBar

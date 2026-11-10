@@ -144,7 +144,7 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <div className="min-h-screen w-screen bg-[#1B1B1B] flex flex-col items-center justify-center p-4 relative overflow-hidden select-none">
+    <div className="min-h-screen w-screen bg-[#0A1B2F] flex flex-col items-center justify-center p-4 relative overflow-hidden select-none">
       {/* Subtle background ambient glow */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-[#1a73e8]/5 rounded-full blur-3xl pointer-events-none" />
 

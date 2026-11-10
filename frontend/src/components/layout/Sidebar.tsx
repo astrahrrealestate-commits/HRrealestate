@@ -11,10 +11,12 @@ import {
   Users,
   Contact,
   Wrench,
+  CircleDollarSign,
   LayoutGrid,
   BookOpen,
   ChevronDown,
   LogOut,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { needsYouCount, ThreadCountTarget } from "@/lib/selectors";
@@ -106,14 +108,15 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
     { label: "Tenants", href: "/tenants", icon: Users },
     { label: "Contacts", href: "/contacts", icon: Contact },
     { label: "Maintenance", href: "/maintenance", icon: Wrench },
+    { label: "Money", href: "/money", icon: CircleDollarSign },
   ];
 
   return (
-    <aside className="hidden md:flex flex-col justify-between select-none h-dvh sticky top-0 md:w-[72px] xl:w-[240px] flex-shrink-0 border-r border-[#27272a] bg-[#1B1B1B] transition-all z-20">
+    <aside className="hidden md:flex flex-col justify-between select-none h-dvh sticky top-0 md:w-[72px] xl:w-[240px] flex-shrink-0 border-r border-[#162B45] bg-[#0A1B2F] transition-all z-20">
       {/* Top Header & Navigation */}
       <div className="flex flex-col">
         {/* Brand Logo Header (h-14 aligned with TopCommandBar) */}
-        <div className="h-[48px] px-4 xl:px-4 flex items-center justify-between border-b border-[#27272a]">
+        <div className="h-[48px] px-4 xl:px-4 flex items-center justify-between border-b border-[#162B45]">
           <Link href="/" className="flex items-center gap-2.5 group">
             <div className="w-7 h-7 rounded-lg bg-white/10 border border-white/15 flex items-center justify-center text-white shadow-xs flex-shrink-0">
               <Home className="w-4 h-4 stroke-[2.25]" />
@@ -124,9 +127,22 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
           </Link>
         </div>
 
+        {/* Quick Search Bar (matching reference design) */}
+        <div className="px-2.5 pt-2.5 pb-1 hidden xl:block">
+          <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#10213B] border border-[#162B45] text-slate-400 hover:text-white hover:border-[#223f66] transition-colors cursor-pointer group">
+            <div className="flex items-center gap-2">
+              <Search className="w-3.5 h-3.5 text-slate-400 group-hover:text-white" />
+              <span className="text-[12px]">Search...</span>
+            </div>
+            <kbd className="text-[10px] font-mono text-slate-400 bg-white/5 border border-white/10 px-1.5 py-0.5 rounded">
+              ⌘K
+            </kbd>
+          </div>
+        </div>
+
         {/* Section Label: WORKSPACE */}
         <div className="px-3 pt-3 pb-1 hidden xl:block">
-          <span className="text-[10px] font-bold tracking-wider text-zinc-500 uppercase">
+          <span className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">
             WORKSPACE
           </span>
         </div>
@@ -164,7 +180,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
                     />
                     {/* Compact badge dot for icon nav (md only) */}
                     {item.badge !== undefined && (
-                      <span className="xl:hidden absolute -top-1 -right-1.5 w-2 h-2 rounded-full bg-[var(--accent)] ring-2 ring-[#1B1B1B]" />
+                      <span className="xl:hidden absolute -top-1 -right-1.5 w-2 h-2 rounded-full bg-[var(--accent)] ring-2 ring-[#0A1B2F]" />
                     )}
                   </div>
                   <span className="hidden xl:inline truncate">{item.label}</span>
@@ -176,8 +192,8 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
                     className={cn(
                       "hidden xl:inline-flex text-[11px] tabular-nums leading-none",
                       isActive
-                        ? "text-zinc-300 font-medium"
-                        : "text-zinc-500 group-hover:text-zinc-400"
+                        ? "text-slate-200 font-medium"
+                        : "text-slate-400 group-hover:text-slate-300"
                     )}
                   >
                     {item.badge}
@@ -190,15 +206,15 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
       </div>
 
       {/* Bottom Section: Knowledge Base, Connections & User Profile */}
-      <div className="border-t border-white/5">
+      <div className="border-t border-[#162B45]">
         <div className="p-2 xl:p-2.5 space-y-1">
           {/* Knowledge Base */}
           <Link
             href="/reports"
             title="Knowledge Base"
-            className="w-full flex items-center min-h-[38px] rounded-xl text-[13.5px] transition-colors justify-center xl:justify-start px-2 xl:px-3 text-zinc-400 hover:text-white hover:bg-white/5 font-medium gap-2.5 border border-transparent"
+            className="w-full flex items-center min-h-[38px] rounded-xl text-[13.5px] transition-colors justify-center xl:justify-start px-2 xl:px-3 text-slate-400 hover:text-white hover:bg-white/5 font-medium gap-2.5 border border-transparent"
           >
-            <BookOpen className="w-4 h-4 flex-shrink-0 text-zinc-400" strokeWidth={1.75} />
+            <BookOpen className="w-4 h-4 flex-shrink-0 text-slate-400" strokeWidth={1.75} />
             <span className="hidden xl:inline truncate">Knowledge Base</span>
           </Link>
 
@@ -207,11 +223,11 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
             type="button"
             onClick={() => setIsConnectionsOpen(true)}
             title="Connections & Integrations"
-            className="w-full flex items-center min-h-[38px] rounded-xl text-[13.5px] transition-colors relative group justify-center xl:justify-between px-2 xl:px-3 cursor-pointer text-zinc-400 hover:text-white hover:bg-white/5 font-medium border border-transparent"
+            className="w-full flex items-center min-h-[38px] rounded-xl text-[13.5px] transition-colors relative group justify-center xl:justify-between px-2 xl:px-3 cursor-pointer text-slate-400 hover:text-white hover:bg-white/5 font-medium border border-transparent"
           >
             <div className="flex items-center gap-2.5 min-w-0">
               <LayoutGrid
-                className="w-4 h-4 flex-shrink-0 text-zinc-400 group-hover:text-white transition-colors"
+                className="w-4 h-4 flex-shrink-0 text-slate-400 group-hover:text-white transition-colors"
                 strokeWidth={1.75}
               />
               <span className="hidden xl:inline truncate">Connections</span>
@@ -224,10 +240,10 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
         </div>
 
         {/* User Profile & Logout Popover */}
-        <div className="relative border-t border-white/5">
+        <div className="relative border-t border-[#162B45]">
           {isUserMenuOpen && (
-            <div className="absolute bottom-full left-2 right-2 mb-2 p-2 rounded-xl bg-[#14171A] border border-[#27272a] shadow-xl z-50 animate-in fade-in slide-in-from-bottom-2 duration-150">
-              <div className="px-2 py-1.5 border-b border-[#222830] mb-1">
+            <div className="absolute bottom-full left-2 right-2 mb-2 p-2 rounded-xl bg-[#0E2138] border border-[#162B45] shadow-xl z-50 animate-in fade-in slide-in-from-bottom-2 duration-150">
+              <div className="px-2 py-1.5 border-b border-[#162B45] mb-1">
                 <span className="text-xs font-semibold text-white block truncate">{displayName}</span>
                 <span className="text-[11px] text-[#94a3b8] block truncate font-mono">{displayEmail}</span>
                 <span className="inline-block mt-1 px-1.5 py-0.2 rounded text-[9.5px] uppercase font-bold tracking-wider bg-[#1a73e8]/20 text-[#60a5fa] border border-[#1a73e8]/30">
@@ -254,19 +270,19 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
             title="User Profile & Sign Out"
           >
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-7 h-7 xl:w-8 xl:h-8 rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center text-[11px] font-bold text-zinc-200 flex-shrink-0">
+              <div className="w-7 h-7 xl:w-8 xl:h-8 rounded-full bg-[#162B45] border border-white/10 flex items-center justify-center text-[11px] font-bold text-slate-200 flex-shrink-0">
                 {userInitials}
               </div>
               <div className="hidden xl:flex flex-col min-w-0">
                 <span className="text-[13px] font-semibold text-white truncate leading-tight">
                   {displayName}
                 </span>
-                <span className="text-[11px] text-zinc-400 truncate leading-tight mt-0.5">
+                <span className="text-[11px] text-slate-400 truncate leading-tight mt-0.5">
                   {displayEmail}
                 </span>
               </div>
             </div>
-            <ChevronDown className={cn("hidden xl:block w-3.5 h-3.5 text-zinc-500 flex-shrink-0 transition-transform", isUserMenuOpen && "rotate-180 text-white")} />
+            <ChevronDown className={cn("hidden xl:block w-3.5 h-3.5 text-slate-400 flex-shrink-0 transition-transform", isUserMenuOpen && "rotate-180 text-white")} />
           </div>
         </div>
       </div>

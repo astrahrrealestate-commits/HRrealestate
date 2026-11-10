@@ -44,13 +44,16 @@ export function TopCommandBar({
   }, [hideSearch, onSearchChange]);
 
   return (
-    <header className="h-[48px] bg-[#1B1B1B] border-b border-[#27272a] px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shrink-0">
+    <header className="h-[48px] bg-[#0A1B2F] border-b border-[#162B45] px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shrink-0">
       {/* Left: Breadcrumbs matching reference design */}
       <div className="flex items-center gap-2 text-xs">
-        <span className="text-[#94a3b8] font-normal">EstateOS</span>
+        <span className="text-[#94a3b8] font-normal flex items-center gap-1.5">
+          <Sparkles className="w-3.5 h-3.5 text-[#00e5ff]" />
+          <span>EstateOS Super Agent</span>
+        </span>
         <span className="text-[#64748b]">/</span>
         <span className="text-white font-medium tracking-tight">
-          {pageTitle || "Main Dashboard"}
+          {pageTitle || "Conversational Control Center"}
         </span>
       </div>
 
@@ -62,7 +65,7 @@ export function TopCommandBar({
             type="button"
             onClick={onSyncMailbox}
             disabled={isSyncing}
-            className="inline-flex items-center gap-1.5 h-[30px] px-2.5 sm:px-3 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/15 text-white border border-white/15 transition-all cursor-pointer disabled:opacity-50 select-none"
+            className="inline-flex items-center gap-1.5 h-[30px] px-2.5 sm:px-3 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/15 text-white border border-[#162B45] transition-all cursor-pointer disabled:opacity-50 select-none"
             title="Sync mailbox with Gmail & WhatsApp"
           >
             <RotateCw
@@ -77,17 +80,17 @@ export function TopCommandBar({
           type="button"
           onClick={onAskAgent || superAgent.toggleOpen}
           className={cn(
-            "inline-flex items-center gap-1.5 h-[30px] px-3 rounded-full text-xs font-semibold transition-all cursor-pointer select-none",
+            "inline-flex items-center gap-1.5 h-[30px] px-3 rounded-full text-xs font-semibold transition-all cursor-pointer select-none border",
             superAgent.isOpen
-              ? "bg-[#1a73e8] text-white shadow-[0_0_12px_rgba(26,115,232,0.4)]"
-              : "bg-white/10 hover:bg-white/15 text-white border border-white/15"
+              ? "bg-[#10213B] text-white border-[#162B45] shadow-[0_0_12px_rgba(0,229,255,0.25)]"
+              : "bg-white/10 hover:bg-white/15 text-white border-white/15"
           )}
           title="Super Agent Core (Ctrl+J)"
         >
-          <Sparkles className={cn("w-3.5 h-3.5 text-[#1a73e8] shrink-0", superAgent.isOpen && "text-white animate-ai-star")} strokeWidth={2.25} />
+          <Sparkles className={cn("w-3.5 h-3.5 text-[#00e5ff] shrink-0", superAgent.isOpen && "animate-ai-star")} strokeWidth={2.25} />
           <span className="leading-none hidden sm:inline">Super Agent</span>
-          <span className="text-[10px] uppercase font-mono px-1.5 py-0.2 rounded-full bg-white/20 text-white ml-0.5">
-            Core
+          <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded-full bg-white/20 text-white ml-0.5">
+            Active
           </span>
         </button>
       </div>

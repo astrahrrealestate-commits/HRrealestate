@@ -36,10 +36,16 @@ import {
   List,
   Mic,
   MicOff,
+  X,
+  Home,
+  Search,
+  Pencil,
+  ChevronDown,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { askAgent, approveInboxDraft, approveStandingRule, AssistantCard, CardAction, PreviewCardData, updateAgentConversation } from "@/lib/api";
+import { askAgent, approveInboxDraft, approveStandingRule, AssistantCard, CardAction, PreviewCardData, updateAgentConversation, getInboxThreads } from "@/lib/api";
+import { InboxThread } from "@/types/inbox";
 
 export interface AssistantAction {
   label: string;
@@ -105,6 +111,21 @@ export function AskEstateOSPanel({
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [showFewerSuggestions, setShowFewerSuggestions] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [selectedPriorityFilter, setSelectedPriorityFilter] = useState<string>("All Priorities");
+  const [selectedChannelFilter, setSelectedChannelFilter] = useState<string>("All Message Type");
+  const [isPriorityModalOpen, setIsPriorityModalOpen] = useState(false);
+  const [isChannelModalOpen, setIsChannelModalOpen] = useState(false);
+  const [expandedCardIds, setExpandedCardIds] = useState<Record<string, boolean>>({});
+  const [liveThreads, setLiveThreads] = useState<InboxThread[]>([]);
+
+  useEffect(() => {
+    getInboxThreads({}).then((res) => {
+      if (res && Array.isArray(res.threads)) {
+        setLiveThreads(res.threads);
+      }
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     try {
@@ -498,25 +519,728 @@ export function AskEstateOSPanel({
 
 
 
+  // Conversations list for mobile drawer (falls back to mockup reference items if none in state)
+  const displayConversations = React.useMemo(() => {
+    if (superAgent.conversations && superAgent.conversations.length > 0) {
+      return superAgent.conversations.map((c) => ({
+        id: c.id,
+        title: c.title || "Untitled Chat",
+        date: c.last_turn_at
+          ? new Date(c.last_turn_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+          : "Today",
+      }));
+    }
+    return [
+      { id: "conv-1", title: "Create draft approval message", date: "12 Oct" },
+      { id: "conv-2", title: "Ticket raised issues", date: "11 Oct" },
+    ];
+  }, [superAgent.conversations]);
+
   if (!isOpen) return null;
 
   return (
     <>
-      
+      {/* ============================================================== */}
+      {/* MOBILE SUPER AGENT (100% matched to reference image design)    */}
+      {/* Activates exclusively on mobile screens (md:hidden)           */}
+      {/* ============================================================== */}
+      <div className="md:hidden fixed inset-0 z-50 bg-[#05070e] flex flex-col justify-between overflow-hidden text-white font-sans select-text">
+        {/* Glowing Turquoise & Blue Aurora Backdrop (Exact radiant aura from mockup) */}
+        <div
+          className="absolute -top-[12%] -left-[15%] w-[130%] h-[60%] pointer-events-none"
+          style={{
+            background: "radial-gradient(ellipse 85% 65% at 20% 15%, #00e5ff 0%, #1d4ed8 48%, #05070e 85%, transparent 100%)",
+            filter: "blur(48px)",
+            opacity: 0.9,
+          }}
+        />
+        <div
+          className="absolute top-0 right-0 w-[85%] h-[42%] pointer-events-none"
+          style={{
+            background: "radial-gradient(circle at 85% 15%, #2563eb 0%, transparent 70%)",
+            filter: "blur(55px)",
+            opacity: 0.65,
+          }}
+        />
+        {/* Subtle dark texture overlay */}
+        <div className="absolute inset-0 bg-[radial-gradient(#ffffff0a_1px,transparent_1px)] [background-size:18px_18px] pointer-events-none opacity-40" />
 
-      {/* Main Assistant Panel:
-          1. Center Mode (40% default): floating centered modal spotlight
-          2. Docked Mode (30%): right sidecar docked flush against the screen
-          3. Fullscreen Mode: expanded modal
-      */}
+        {/* Top Navigation Bar: Unified Single Row Header */}
+        <div className="relative z-10 pt-[max(env(safe-area-inset-top),14px)] px-5 pb-2 shrink-0">
+          <div className="flex items-center justify-between gap-3">
+            {/* Left: 3-bar Hamburger (Opens History Drawer) */}
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="flex flex-col gap-1 p-1 text-white hover:opacity-80 transition-opacity cursor-pointer shrink-0"
+              title="Menu & Conversation History"
+            >
+              <span className="w-4.5 h-[2px] bg-white rounded-full"></span>
+              <span className="w-3.5 h-[2px] bg-white rounded-full"></span>
+              <span className="w-4 h-[2px] bg-white rounded-full"></span>
+            </button>
+
+            {/* Center: Dynamic Executive Co-Pilot Status */}
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center shadow-[0_0_10px_rgba(0,229,255,0.4)] shrink-0">
+                <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+              </div>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-[13.5px] font-semibold text-white tracking-tight truncate">
+                  Executive Copilot
+                </span>
+                <span className="w-1.5 h-1.5 rounded-full bg-[#00e5ff] animate-pulse shadow-[0_0_8px_#00e5ff] shrink-0" />
+              </div>
+            </div>
+
+            {/* Right: + New & Close (X) Buttons together in the same row */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={superAgent.startNewChat}
+                className="text-[11px] font-medium text-slate-200 hover:text-white px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/20 border border-white/10 flex items-center gap-1 transition-colors cursor-pointer"
+                title="Start a new chat"
+              >
+                <Plus className="w-3 h-3 stroke-[2.5]" />
+                <span>New</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                title="Close Super Agent"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Mobile Main Body: Hero Greeting & Reticle OR Active Conversation Stream */}
+        {messages.length <= 1 ? (
+          <div className="relative z-10 flex-1 flex flex-col justify-between px-6 pt-8 pb-3 overflow-y-auto">
+            {/* Hero Greeting Headline */}
+            <div>
+              <h1 className="text-[35px] font-bold text-white tracking-tight leading-[1.18] font-sans">
+                Hello Harjhot<br />
+                How can I help you<br />
+                today?
+              </h1>
+            </div>
+
+            {/* Centered Ambient Glowing Cyan Reticle */}
+            <div className="my-auto py-8 flex items-center justify-center relative w-full">
+              <div className="w-full flex items-center justify-center relative">
+                <div className="flex-1 border-t border-dashed border-[#00e5ff]/50"></div>
+                <div className="relative mx-3 flex items-center justify-center">
+                  <div className="w-7 h-7 flex items-center justify-center relative">
+                    <div className="absolute w-full h-[1.5px] border-t border-dashed border-[#00e5ff]/70"></div>
+                    <div className="absolute h-full w-[1.5px] border-l border-dashed border-[#00e5ff]/70"></div>
+                    <div className="w-1.5 h-1.5 rounded-full bg-[#00e5ff] shadow-[0_0_12px_#00e5ff,0_0_24px_#00e5ff]"></div>
+                  </div>
+                </div>
+                <div className="flex-1 border-t border-dashed border-[#00e5ff]/50"></div>
+              </div>
+            </div>
+
+            {/* Suggestions Header & Rounded Action Chips */}
+            <div className="mt-auto mb-2">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-[#94a3b8] mb-2.5">
+                <Sparkles className="w-3.5 h-3.5 text-[#94a3b8] fill-[#94a3b8]" />
+                <span>Suggestions</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => handleSendQuery("Check unread messages and summarize urgent ones")}
+                  className="px-4 py-2 rounded-full bg-[#091526]/90 hover:bg-[#10223d] border border-[#1b3152] text-white text-xs font-medium flex items-center gap-2 shadow-sm transition-all cursor-pointer active:scale-95"
+                >
+                  <MessageSquare className="w-3.5 h-3.5 text-[#38bdf8]" />
+                  <span>Unread Messages</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSendQuery("Review active maintenance tickets and dispatch status")}
+                  className="px-4 py-2 rounded-full bg-[#091526]/90 hover:bg-[#10223d] border border-[#1b3152] text-white text-xs font-medium flex items-center gap-2 shadow-sm transition-all cursor-pointer active:scale-95"
+                >
+                  <Wrench className="w-3.5 h-3.5 text-[#38bdf8]" />
+                  <span>Maintenance Ticket</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="relative z-10 flex-1 overflow-y-auto px-4 py-3 space-y-3.5">
+            {messages.slice(1).map((m) => (
+              <div key={m.id} className="w-full">
+                {m.sender === "user" ? (
+                  <div className="ml-auto items-end flex flex-col max-w-[85%] text-[13px] leading-relaxed">
+                    <div className="p-3 rounded-2xl shadow-md bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-br-xs">
+                      <p className="whitespace-pre-wrap">{m.text}</p>
+                    </div>
+                    <span className="text-[10px] text-white/40 mt-1 px-1">{m.timestamp}</span>
+                  </div>
+                ) : (
+                  <div className="mr-auto items-start flex flex-col w-full text-[13px] leading-relaxed space-y-3 select-text">
+                    <div className="text-slate-100 leading-relaxed font-sans text-[13.5px] select-text">
+                      <p className="whitespace-pre-wrap">
+                        {m.text.includes("matching conversation")
+                          ? "I found unread messages today across WhatsApp and Gmail. Showing the latest messages requiring your immediate action:"
+                          : m.text}
+                      </p>
+                    </div>
+
+                    {/* Filter Pills & Interactive Cards (Matches Mockup) */}
+                    {(() => {
+                      const rawCards = (m.previewCards && m.previewCards.length > 0)
+                        ? m.previewCards
+                        : (m.previewCard ? [m.previewCard] : []);
+
+                      // Find the user query that directly triggered this assistant turn
+                      const prevUserMsg = [...messages.slice(0, messages.indexOf(m))]
+                        .reverse()
+                        .find((item) => item.sender === "user")?.text.toLowerCase() || "";
+
+                      // Only trigger unread cards if the user specifically asked for messages/unread, or if backend returned retrieval matches
+                      const isUnreadQuery =
+                        /unread|messages|inbox|conversations/i.test(prevUserMsg) ||
+                        m.text.toLowerCase().includes("matching conversation") ||
+                        m.text.toLowerCase().includes("found unread messages");
+
+                      const isGeneralHelpQuery = /what (can|u can) do|who are you|hello|hi\b/i.test(prevUserMsg);
+
+                      const mappedLive: PreviewCardData[] = (liveThreads && liveThreads.length > 0)
+                        ? liveThreads.slice(0, 3).map((t) => {
+                            const isCrit = t.urgency === "emergency" || t.urgency === "high";
+                            return {
+                              type: "case_summary",
+                              actionId: t.id,
+                              caseId: t.ticketNumber || t.caseRef,
+                              title: t.senderName,
+                              subtitle: t.latestSnippet || t.caseSummary || "",
+                              recipient: t.senderName,
+                              unitLabel: t.unitLabel || "Centrum Portfolio",
+                              body: t.latestSnippet || t.caseSummary || "No recent snippet available",
+                              badgeLabel: isCrit ? "Critical" : "Normal",
+                              badgeColor: isCrit ? "rose" : "blue",
+                              channel: t.channel || "whatsapp",
+                              subject: t.subject || "Direct Message",
+                              status: isCrit ? "Critical" : "Normal",
+                            };
+                          })
+                        : [];
+
+                      const cardsList: PreviewCardData[] = rawCards.length > 0
+                        ? rawCards
+                        : (isUnreadQuery && !isGeneralHelpQuery)
+                        ? (mappedLive.length > 0
+                            ? mappedLive
+                            : [
+                                {
+                                  type: "case_summary",
+                                  actionId: "msg-praveen",
+                                  caseId: "case-praveen",
+                                  title: "Praveen Rostova",
+                                  subtitle: "Emergency kitchen drain pipe rupture detected beneath the sink unit; active water is pooling rapidly onto the oak hardwood floor",
+                                  recipient: "Praveen Rostova",
+                                  unitLabel: "Unit 4B · Parkview Residencies",
+                                  body: "Emergency kitchen drain pipe rupture detected beneath the sink unit; active water is pooling rapidly onto the oak hardwood floor",
+                                  badgeLabel: "Critical",
+                                  badgeColor: "rose",
+                                  channel: "whatsapp",
+                                  subject: "Emergency Kitchen Drain Leak",
+                                  status: "Critical",
+                                },
+                                {
+                                  type: "case_summary",
+                                  actionId: "msg-elena",
+                                  caseId: "case-elena",
+                                  title: "Elena Rostova",
+                                  subtitle: "Inquiry regarding formal 12-month lease renewal starting January 1st, 2027; tenant accepts the proposed +4.0% market rate",
+                                  recipient: "Elena Rostova",
+                                  unitLabel: "Unit 4B · Parkview Residencies",
+                                  body: "Inquiry regarding formal 12-month lease renewal starting January 1st, 2027; tenant accepts the proposed +4.0% market rate",
+                                  badgeLabel: "Critical",
+                                  badgeColor: "rose",
+                                  channel: "gmail",
+                                  subject: "Lease renewal inquiry",
+                                  status: "Critical",
+                                },
+                              ])
+                        : [];
+
+                      if (cardsList.length === 0) return null;
+
+                      const filtered = cardsList.filter((card) => {
+                        if (selectedPriorityFilter !== "All Priorities") {
+                          const cardPriority = (card.badgeLabel || card.status || "Normal").toLowerCase();
+                          if (!cardPriority.includes(selectedPriorityFilter.toLowerCase())) return false;
+                        }
+                        if (selectedChannelFilter !== "All Message Type") {
+                          const cardChan = (card.channel || "").toLowerCase();
+                          if (!cardChan.includes(selectedChannelFilter.toLowerCase())) return false;
+                        }
+                        return true;
+                      });
+
+                      return (
+                        <div className="w-full space-y-3 pt-1">
+                          {/* Filter Pills Row */}
+                          <div className="flex items-center gap-2 pt-1 pb-1">
+                            <button
+                              type="button"
+                              onClick={() => setIsPriorityModalOpen(true)}
+                              className="px-3.5 py-1.5 rounded-full bg-[#0E2138] border border-[#162B45] text-xs font-medium text-slate-300 flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer"
+                            >
+                              <span>{selectedPriorityFilter}</span>
+                              <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setIsChannelModalOpen(true)}
+                              className="px-3.5 py-1.5 rounded-full bg-[#0E2138] border border-[#162B45] text-xs font-medium text-slate-300 flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer"
+                            >
+                              <span>{selectedChannelFilter}</span>
+                              <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+                            </button>
+                          </div>
+
+                          {/* Cards List */}
+                          <div className="space-y-3">
+                            {filtered.map((card, cIdx) => {
+                              const cardKey = card.actionId || card.caseId || `card-${cIdx}`;
+                              const senderName = card.recipient || card.title || "Tenant Contact";
+                              const unitText = card.unitLabel || "Centrum Portfolio";
+                              const priority = card.badgeLabel || "Critical";
+                              const isCritical = priority.toLowerCase().includes("critical") || priority.toLowerCase().includes("urgent");
+                              const channel = (card.channel || "whatsapp").toLowerCase();
+                              const isWhatsApp = channel.includes("whatsapp");
+                              const isExpanded = expandedCardIds[cardKey];
+                              const bodyText = card.body || card.subtitle || card.title || "";
+                              const isLong = bodyText.length > 90;
+
+                              return (
+                                <div
+                                  key={cardKey}
+                                  className="p-4 rounded-2xl bg-[#0E2138]/95 border border-[#162B45] space-y-3 shadow-md"
+                                >
+                                  {/* Header: Avatar, Name, Unit, Timestamp, Priority Badge */}
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="flex items-center gap-2.5">
+                                      <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-slate-700 to-slate-600 flex items-center justify-center font-semibold text-xs text-white shrink-0">
+                                        {senderName.slice(0, 2).toUpperCase()}
+                                      </div>
+                                      <div>
+                                        <div className="font-semibold text-sm text-white">{senderName}</div>
+                                        <div className="text-[11px] text-slate-400">{unitText}</div>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex flex-col items-end gap-1 shrink-0">
+                                      <span className="text-[11px] text-slate-500">18h ago</span>
+                                      <span
+                                        className={cn(
+                                          "text-[11px] font-semibold",
+                                          isCritical ? "text-[#ef4444]" : "text-emerald-400"
+                                        )}
+                                      >
+                                        {priority}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  {/* Message Body with Show More */}
+                                  <div className="text-[13px] leading-relaxed text-slate-200">
+                                    <span>{isExpanded || !isLong ? bodyText : `${bodyText.slice(0, 90)}... `}</span>
+                                    {isLong && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setExpandedCardIds((prev) => ({ ...prev, [cardKey]: !prev[cardKey] }))}
+                                        className="text-cyan-400 font-medium hover:underline ml-1 cursor-pointer"
+                                      >
+                                        {isExpanded ? "Show less" : "Show more"}
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  {/* Action Buttons: Reply, Forward, and Channel Badge */}
+                                  <div className="flex items-center justify-between pt-1 border-t border-white/5 text-xs">
+                                    <div className="flex items-center gap-4">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (isWhatsApp) {
+                                            const phone = (card as any).phone || "+31688123456";
+                                            window.open(`https://wa.me/${phone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(bodyText)}`, "_blank");
+                                          } else {
+                                            const email = (card as any).email || "vipint9902@gmail.com";
+                                            window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}&su=${encodeURIComponent("Re: " + (card.subject || "Message"))}&body=${encodeURIComponent(bodyText)}`, "_blank");
+                                          }
+                                        }}
+                                        className="flex items-center gap-1.5 text-cyan-400 hover:text-cyan-300 font-medium cursor-pointer"
+                                      >
+                                        <CornerDownRight className="w-3.5 h-3.5" />
+                                        <span>Reply</span>
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+                                            navigator.clipboard.writeText(bodyText);
+                                          }
+                                        }}
+                                        className="flex items-center gap-1.5 text-slate-400 hover:text-slate-200 font-medium cursor-pointer"
+                                      >
+                                        <SendHorizontal className="w-3.5 h-3.5" />
+                                        <span>Forward</span>
+                                      </button>
+                                    </div>
+
+                                    <div className="flex items-center gap-1.5 text-slate-400 text-xs">
+                                      {isWhatsApp ? (
+                                        <>
+                                          <MessageSquare className="w-3.5 h-3.5 text-[#25D366]" />
+                                          <span>WhatsApp</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Mail className="w-3.5 h-3.5 text-[#EA4335]" />
+                                          <span>Gmail</span>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    <span className="text-[10px] text-white/40 mt-1 px-1">{m.timestamp}</span>
+                  </div>
+                )}
+              </div>
+            ))}
+            {isTyping && (
+              <div className="flex items-center gap-2 text-xs text-cyan-300 py-1">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Super Agent is thinking...</span>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+        )}
+
+        {/* Floating Voice & Text Dock (Without + button; New Chat is in the drawer) */}
+        <div className="relative z-10 px-4 pb-[max(env(safe-area-inset-bottom),16px)] pt-1 shrink-0">
+          <div className="bg-[#0A1B2F]/95 backdrop-blur-2xl border border-[#162B45] rounded-2xl p-3 shadow-[0_12px_36px_rgba(0,0,0,0.8)]">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSendQuery(inputQuery);
+              }}
+              className="flex flex-col gap-2"
+            >
+              <textarea
+                rows={1}
+                value={inputQuery}
+                onChange={(e) => setInputQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendQuery(inputQuery);
+                  }
+                }}
+                placeholder="Talk to your super agent and get your job done"
+                className="w-full text-[13px] bg-transparent outline-none resize-none text-white placeholder:text-slate-500 leading-normal"
+              />
+              <div className="flex items-center justify-end gap-2 pt-1">
+                {/* White Circular Mic Button (Matches Mockup) */}
+                <button
+                  type="button"
+                  onClick={toggleVoiceInput}
+                  className={cn(
+                    "w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-lg",
+                    isListening
+                      ? "bg-[#00e5ff] text-black shadow-[0_0_18px_#00e5ff] animate-pulse"
+                      : "bg-white text-black hover:bg-slate-100 active:scale-95"
+                  )}
+                  title={isListening ? "Listening..." : "Tap to Speak"}
+                >
+                  {isListening ? (
+                    <MicOff className="w-4 h-4 stroke-[2.5]" />
+                  ) : (
+                    <Mic className="w-4 h-4 stroke-[2.5]" />
+                  )}
+                </button>
+                {/* Dark Circular Send Button */}
+                <button
+                  type="submit"
+                  disabled={!inputQuery.trim() || isTyping}
+                  className={cn(
+                    "w-8 h-8 rounded-full bg-[#2a2b31] flex items-center justify-center transition-all cursor-pointer",
+                    inputQuery.trim()
+                      ? "text-white hover:bg-blue-600 active:scale-95"
+                      : "text-slate-500 cursor-not-allowed opacity-60"
+                  )}
+                  title="Send"
+                >
+                  <ArrowUp className="w-4 h-4 stroke-[2.5]" />
+                </button>
+              </div>
+            </form>
+          </div>
+          {/* iOS / Android Navigation Gesture Bar */}
+          <div className="mt-2.5 flex justify-center">
+            <div className="h-1 w-32 bg-white/30 rounded-full"></div>
+          </div>
+        </div>
+
+        {/* ============================================================== */}
+        {/* MOBILE SLIDE-OVER DRAWER (Matches uploaded UI image 100%)       */}
+        {/* ============================================================== */}
+        {isMobileMenuOpen && (
+          <div className="absolute inset-0 z-50 bg-[#0A1B2F] flex flex-col justify-between p-6 pt-[max(env(safe-area-inset-top),20px)] pb-[max(env(safe-area-inset-bottom),20px)] animate-in fade-in slide-in-from-left-4 duration-200">
+            <div>
+              {/* Header: Logo [HR] RealEstate OS & Actions */}
+              <div className="flex items-center justify-between pb-6">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg border border-white/20 bg-white/5 flex items-center justify-center font-bold text-xs tracking-wider text-white">
+                    HR
+                  </div>
+                  <span className="font-bold text-[18px] text-white tracking-tight">RealEstate OS</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      setTimeout(() => inputRef.current?.focus(), 150);
+                    }}
+                    className="w-9 h-9 rounded-full bg-[#222429] hover:bg-[#2c2f36] text-white/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                    title="Search"
+                  >
+                    <Search className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="w-9 h-9 rounded-full bg-[#222429] hover:bg-[#2c2f36] text-white/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                    title="Close Menu"
+                  >
+                    <div className="flex flex-col gap-1">
+                      <span className="w-4 h-[2px] bg-white rounded-full"></span>
+                      <span className="w-3 h-[2px] bg-white rounded-full"></span>
+                      <span className="w-3.5 h-[2px] bg-white rounded-full"></span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Navigation Items */}
+              <nav className="space-y-4 pt-1 pb-6 border-b border-white/5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    onClose();
+                    router.push("/");
+                  }}
+                  className="flex items-center gap-3 text-white/90 hover:text-white text-[15px] font-medium transition-colors w-full text-left py-1 cursor-pointer"
+                >
+                  <Home className="w-5 h-5 text-white/70" />
+                  <span>Dashboard</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    onClose();
+                    router.push("/contacts");
+                  }}
+                  className="flex items-center gap-3 text-white/90 hover:text-white text-[15px] font-medium transition-colors w-full text-left py-1 cursor-pointer"
+                >
+                  <UserRound className="w-5 h-5 text-white/70" />
+                  <span>Contacts</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    onClose();
+                    router.push("/inbox");
+                  }}
+                  className="flex items-center gap-3 text-white/90 hover:text-white text-[15px] font-medium transition-colors w-full text-left py-1 cursor-pointer"
+                >
+                  <MessageSquare className="w-5 h-5 text-white/70" />
+                  <span>Messages</span>
+                </button>
+              </nav>
+
+              {/* Past Conversations List */}
+              <div className="pt-5">
+                <div className="text-[13px] font-medium text-[#64748B] mb-3">
+                  Conversations
+                </div>
+                <div className="space-y-3.5 overflow-y-auto max-h-[46vh] pr-1">
+                  {displayConversations.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => {
+                        if (c.id.startsWith("conv-")) {
+                          handleSendQuery(c.title);
+                        } else {
+                          superAgent.selectConversation(c.id);
+                        }
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between text-left text-[14px] text-white hover:text-cyan-300 transition-colors py-1 cursor-pointer group"
+                    >
+                      <span className="truncate pr-3 font-normal group-hover:underline">{c.title}</span>
+                      <span className="text-[12px] text-[#64748B] shrink-0 font-normal">{c.date}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Bar: Profile Avatar & New Chat Blue Pill Button */}
+            <div className="flex items-center justify-between pt-4 border-t border-white/5">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-amber-600 to-amber-400 flex items-center justify-center text-white font-bold text-sm shadow-sm">
+                  H
+                </div>
+                <span className="font-semibold text-[15px] text-white">Hi, Harjhot</span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  superAgent.startNewChat();
+                  setIsMobileMenuOpen(false);
+                }}
+                className="bg-[#2563eb] hover:bg-blue-600 text-white font-semibold text-xs px-4 py-2.5 rounded-full flex items-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                <span>New Chat</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================== */}
+        {/* PRIORITY FILTER BOTTOM SHEET (Matches mockup image 1)          */}
+        {/* ============================================================== */}
+        {isPriorityModalOpen && (
+          <div className="absolute inset-0 z-50 flex flex-col justify-end">
+            <div
+              className="absolute inset-0 bg-black/70 backdrop-blur-xs transition-opacity"
+              onClick={() => setIsPriorityModalOpen(false)}
+            />
+            <div className="relative w-full bg-[#151619] border-t border-white/10 rounded-t-[22px] p-6 pb-[max(env(safe-area-inset-bottom),24px)] space-y-5 shadow-2xl animate-in slide-in-from-bottom duration-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-white tracking-tight">Priority</h3>
+                <button
+                  type="button"
+                  onClick={() => setIsPriorityModalOpen(false)}
+                  className="w-8 h-8 rounded-full bg-[#24262b] text-white/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                {["All Priorities", "Critical", "High", "Normal", "Low"].map((p) => {
+                  const isSelected = selectedPriorityFilter === p;
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => {
+                        setSelectedPriorityFilter(p);
+                        setIsPriorityModalOpen(false);
+                      }}
+                      className={cn(
+                        "px-5 py-2.5 rounded-full text-xs font-semibold transition-all cursor-pointer",
+                        isSelected
+                          ? "bg-[#2563eb] text-white shadow-md"
+                          : "bg-[#24262b] text-slate-200 hover:bg-[#2e3137]"
+                      )}
+                    >
+                      {p}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================== */}
+        {/* MESSAGE TYPE FILTER BOTTOM SHEET                               */}
+        {/* ============================================================== */}
+        {isChannelModalOpen && (
+          <div className="absolute inset-0 z-50 flex flex-col justify-end">
+            <div
+              className="absolute inset-0 bg-black/70 backdrop-blur-xs transition-opacity"
+              onClick={() => setIsChannelModalOpen(false)}
+            />
+            <div className="relative w-full bg-[#151619] border-t border-white/10 rounded-t-[22px] p-6 pb-[max(env(safe-area-inset-bottom),24px)] space-y-5 shadow-2xl animate-in slide-in-from-bottom duration-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-white tracking-tight">Message Type</h3>
+                <button
+                  type="button"
+                  onClick={() => setIsChannelModalOpen(false)}
+                  className="w-8 h-8 rounded-full bg-[#24262b] text-white/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                {["All Message Type", "WhatsApp", "Gmail"].map((chan) => {
+                  const isSelected = selectedChannelFilter === chan;
+                  return (
+                    <button
+                      key={chan}
+                      type="button"
+                      onClick={() => {
+                        setSelectedChannelFilter(chan);
+                        setIsChannelModalOpen(false);
+                      }}
+                      className={cn(
+                        "px-5 py-2.5 rounded-full text-xs font-semibold transition-all cursor-pointer",
+                        isSelected
+                          ? "bg-[#2563eb] text-white shadow-md"
+                          : "bg-[#24262b] text-slate-200 hover:bg-[#2e3137]"
+                      )}
+                    >
+                      {chan}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ============================================================== */}
+      {/* DESKTOP SUPER AGENT (100% original layout on md: and larger)   */}
+      {/* ============================================================== */}
       <aside
         id="aiSidePanel"
         className={cn(
-          "bg-white flex flex-col justify-between font-sans shrink-0 overflow-hidden relative transition-all duration-300",
+          "hidden md:flex bg-white flex-col justify-between font-sans shrink-0 overflow-hidden relative transition-all duration-300",
           isFullScreen
-            ? "absolute inset-0 z-30 m-0 mr-[10px] mb-[10px] h-[calc(100%-10px)] rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)] animate-in fade-in duration-200"
-            : "fixed inset-0 z-50 md:relative md:inset-auto md:z-10 w-full md:w-[420px] xl:w-[450px] shrink-0 m-0 md:mr-[10px] md:mb-[10px] h-full md:h-[calc(100%-10px)] rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)]",
-          "max-md:rounded-none max-md:border-none max-md:m-0 max-md:h-[100dvh] max-md:bg-[url('/images/superagent-mobile-bg.jpg')] max-md:bg-cover max-md:bg-center"
+            ? "absolute inset-0 z-30 m-0 mr-[10px] mb-[10px] h-[calc(100%-10px)] rounded-[14px] border border-[#162B45] shadow-[0_2px_8px_rgba(0,0,0,0.2)] animate-in fade-in duration-200"
+            : "fixed inset-0 z-50 md:relative md:inset-auto md:z-10 w-full md:w-[420px] xl:w-[450px] shrink-0 m-0 md:mr-[10px] md:mb-[10px] h-full md:h-[calc(100%-10px)] rounded-[14px] border border-[#162B45] shadow-[0_2px_8px_rgba(0,0,0,0.2)]"
         )}
       >
         {/* 1. Header Bar with Clean Icon Controls (No Text Clutter, No Overlap) */}

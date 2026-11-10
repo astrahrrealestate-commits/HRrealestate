@@ -391,14 +391,14 @@ function ContactsContent() {
   }, [openEmailId, filteredEmails, liveEmails]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#1B1B1B] text-[#111215] font-sans antialiased">
-      {/* 1. Left Nav (Desktop Sidebar - #1B1B1B dark theme) */}
+    <div className="flex h-screen w-screen overflow-hidden bg-[#0A1B2F] text-[#111215] font-sans antialiased">
+      {/* 1. Left Nav (Desktop Sidebar - #0A1B2F dark blue theme) */}
       <Sidebar />
 
       {/* 2. Content Workspace */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#1B1B1B]">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0A1B2F]">
         {/* Top Bar matching CSS spec */}
-        <header className="h-[48px] bg-[#1B1B1B] border-b border-[#27272a] px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shrink-0">
+        <header className="h-[48px] bg-[#0A1B2F] border-b border-[#162B45] px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shrink-0">
           <div className="flex items-center gap-2 text-xs">
             <span className="text-[#94a3b8] font-normal">EstateOS</span>
             <span className="text-[#64748b]">/</span>

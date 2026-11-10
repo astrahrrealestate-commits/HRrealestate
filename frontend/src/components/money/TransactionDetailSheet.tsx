@@ -207,10 +207,35 @@ export function TransactionDetailSheet({
               variant="ghost"
               size="sm"
               onClick={() => {
-                alert(`Downloaded bank statement for ${transaction.reference}`);
+                const receiptContent = `========================================================
+ESTATEOS FINANCIAL RECEIPT & TRANSACTION PROOF
+========================================================
+Reference ID    : ${transaction.reference}
+Transaction ID  : ${transaction.id}
+Due Date        : ${transaction.dueDate}
+Paid Date       : ${transaction.paidDate || "N/A"}
+Counterparty    : ${transaction.counterparty}
+Property / Unit : ${transaction.unitLabel}
+Category        : ${transaction.category}
+Amount          : € ${Math.abs(transaction.amountEur).toLocaleString("nl-NL", { minimumFractionDigits: 2 })}
+Direction       : ${transaction.direction === "inflow" ? "INFLOW / RENT RECEIVED" : "OUTFLOW / EXPENSE"}
+Status          : ${transaction.status.toUpperCase()}
+Generated At    : ${new Date().toISOString()}
+========================================================
+Verified and exported via EstateOS Financial Module
+========================================================`;
+                const blob = new Blob([receiptContent], { type: "text/plain;charset=utf-8" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `Receipt_${transaction.reference || transaction.id}.txt`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
                 onClose();
               }}
-              className="text-xs border border-[var(--line)]"
+              className="text-xs border border-[var(--line)] cursor-pointer"
             >
               Export receipt
             </Button>
