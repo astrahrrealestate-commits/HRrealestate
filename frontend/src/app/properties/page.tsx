@@ -104,18 +104,20 @@ function PropertiesContent() {
       if (result) {
         setSelectedComplexId(result.complex.id);
         setSelectedUnitId(result.unit.id);
-        if (result.unit.status === "occupied" && activeTab === "vacant") {
-          setActiveTab("occupied");
-        } else if (result.unit.status === "vacant" && activeTab === "occupied") {
-          setActiveTab("vacant");
-        }
+        // Only a deep link may move the tab, and only when it would hide the linked unit. The tab itself must
+        // not be a dependency, or clicking a tab re-runs this and snaps it back.
+        setActiveTab((tab) => {
+          if (result.unit.status === "occupied" && tab === "vacant") return "occupied";
+          if (result.unit.status !== "occupied" && tab === "occupied") return "vacant";
+          return tab;
+        });
       } else if (complexParam && PROPERTY_COMPLEXES.some((c) => c.id === complexParam)) {
         setSelectedComplexId(complexParam);
       }
     } else {
       setSelectedUnitId(null);
     }
-  }, [complexParam, unitParam, activeTab]);
+  }, [complexParam, unitParam]);
 
   // Listen for instant custom navigation events (handles same-page Super Agent clicks)
   useEffect(() => {
@@ -276,7 +278,7 @@ function PropertiesContent() {
         {/* Col 3: Unit detail pane (380px)                               */}
         {/* ------------------------------------------------------------- */}
         <div className="hidden md:flex flex-1 overflow-hidden min-w-0">
-          
+
           {/* COLUMN 1: Complex List (Left pane, 200px-240px) */}
           <div className="w-[200px] xl:w-[240px] shrink-0 border-r border-[var(--line)] bg-[var(--pane)] flex flex-col">
             <div className="p-3 xl:p-4 border-b border-[var(--line)]">
@@ -502,7 +504,7 @@ function PropertiesContent() {
           {/* COLUMN 3: Unit Detail Pane (Right pane, 300px-350px) with Sticky Footer */}
           {activeUnit && (
             <div className="w-[300px] xl:w-[350px] shrink-0 bg-[var(--pane)] flex flex-col justify-between border-l border-[var(--line)]">
-              
+
               {/* Detail Content (Scrollable) */}
               <div className="flex-1 overflow-y-auto p-4 xl:p-5 space-y-4">
                 {/* Header */}
