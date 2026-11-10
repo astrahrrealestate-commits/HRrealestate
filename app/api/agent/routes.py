@@ -1137,6 +1137,26 @@ def ask_agent(
                 now=now,
                 briefs=briefs,
             )
+        task_command = owner_commands.parse_command(req.query)
+        if task_command.kind in (owner_commands.CommandKind.done, owner_commands.CommandKind.snooze):
+            # "done #ref" / "snooze #ref 2d" act on the owner's own task list: never left to the model's plan
+            return _finish_agent_response(
+                engine=engine,
+                conv_id=conv_id,
+                req=req,
+                ans_text=owner_commands.run_command(engine, settings, company_id, task_command, now=now),
+                case_refs=[],
+                suggested_action=None,
+                action_buttons=[],
+                step_descriptions=["Updated your task list"],
+                preview_card=None,
+                cards_list=[],
+                pipeline_stage="owner_command",
+                fallback_reason=None,
+                suggestions=["Show my tasks", "What should I do first?", "Show open tickets"],
+                now=now,
+                briefs=briefs,
+            )
         no_rent_data = rent_data_answer(req.query)
         if no_rent_data:
             return _finish_agent_response(

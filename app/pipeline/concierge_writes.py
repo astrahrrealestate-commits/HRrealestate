@@ -17,6 +17,7 @@ from app.pipeline import read_work, work_repo
 from app.pipeline.concierge_base import NEED_DETAIL, NOT_FOUND, Ctx, StepResult, failed, log_change, task_ref
 from app.pipeline.concierge_sanitize import sanitize
 from app.pipeline.owner_commands import parse_duration
+from app.pipeline.task_note import task_note
 
 TITLE_MAX = 200
 RESUME_IN_DASHBOARD = "Use Resume in the dashboard to re-run approved items."
@@ -85,7 +86,8 @@ def create_task(ctx: Ctx, step: PlanStep) -> StepResult:
     log_change(ctx, step)
     ref = work_repo.short_ref(task_id)
     lead = "Already on your list" if existing else "Task added"
-    return StepResult(step.intent, True, f"{lead}: {title} #{ref}", {"task_id": str(task_id), "ref": ref}, "tasks")
+    summary = f"{lead}: {title} #{ref}. {task_note(title, ref)}"
+    return StepResult(step.intent, True, summary, {"task_id": str(task_id), "ref": ref}, "tasks")
 
 
 def pause(ctx: Ctx, step: PlanStep) -> StepResult:
