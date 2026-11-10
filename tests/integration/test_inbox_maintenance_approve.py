@@ -29,6 +29,7 @@ from app.db.models import (
     Send,
     TaskRow,
     UnderstandingRow,
+    Unit,
 )
 from app.db.models.ingestion import MessageRow, RawEvent
 from app.main import create_app
@@ -345,6 +346,40 @@ def test_an_ambiguous_ticket_ref_names_nothing(world: World) -> None:
             assert _find_case(s, world.company, "cafe%") is None  # LIKE wildcards are not ids
         finally:
             s.query(Case).filter(Case.id.in_([a.id, b.id])).delete(synchronize_session=False)
+            s.commit()
+
+
+def _thread_unit(w: World) -> str:
+    threads = w.client.get("/api/inbox/threads").json()["threads"]
+    return next(t["unit"] for t in threads if t["caseId"] == str(w.case))
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Factuur groepenkast Prinsengracht 118-B, graag betalen", "Prinsengracht 118-B, 1015 EA Amsterdam"),
+        ("De keuken van Emma en Lars is kapot", "Unassigned Unit"),
+    ],
+)
+def test_a_thread_takes_the_unit_its_text_names_from_the_companys_own_units(
+    world: World, text: str, expected: str
+) -> None:
+    with Session(world.engine) as s:
+        unit = Unit(
+            company_id=world.company,
+            label="Prinsengracht 118-B",
+            address="Prinsengracht 118-B, 1015 EA Amsterdam",
+            valid_from=T0.date(),
+        )
+        s.add(unit)
+        s.query(MessageRow).filter(MessageRow.company_id == world.company).update({"text": text})
+        s.commit()
+        unit_id = unit.id
+    try:
+        assert _thread_unit(world) == expected
+    finally:
+        with Session(world.engine) as s:
+            s.query(Unit).filter(Unit.id == unit_id).delete()
             s.commit()
 
 

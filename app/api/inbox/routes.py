@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import WorkflowClient, get_engine, get_ingest_deps, get_storage, get_workflow_client
 from app.api.inbox import decide as inbox_decide
+from app.api.inbox.unit_match import unit_named_in
 from app.api.v1 import enqueue
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import decide_limit, sync_limit
@@ -70,6 +71,7 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
     """Builds rich frontend-compatible thread structures from the PostgreSQL records of `company_id` only."""
     live_threads: list[dict[str, Any]] = []
     cases = session.query(Case).filter(Case.company_id == company_id).order_by(Case.opened_at.desc()).limit(20).all()
+    company_units = [(u.label, u.address) for u in session.query(Unit).filter(Unit.company_id == company_id)]
     for case in cases:
         links = session.query(CaseLink).filter(CaseLink.case_id == case.id).all()
         msg_ids = [link.message_id for link in links]
@@ -198,29 +200,7 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
                     for m in messages
                 ]
             ).lower()
-
-            portfolio_units = [
-                ("Keizersgracht 42-A", ["keizersgracht", "vipin", "anouk", "de vries"]),
-                (
-                    "Pieter Floriszstraat 1 C",
-                    [
-                        "pieter floriszstraat",
-                        "pieter florisz",
-                        "pieter.bakker",
-                        "pieter bakker",
-                        "keuken",
-                        "emma",
-                        "wilson",
-                    ],
-                ),
-                ("Singel 412", ["singel", "marloes", "mieter", "heizung"]),
-                ("Prinses Marijkestraat 2 A", ["marijke", "marijkestraat", "daan"]),
-                ("Henry Dunantweg 5 F", ["dunantweg", "lars"]),
-            ]
-            for u_name, keywords in portfolio_units:
-                if any(kw in all_text or kw in sender_email.lower() or kw in sender_name.lower() for kw in keywords):
-                    unit_label = u_name
-                    break
+            unit_label = unit_named_in(all_text, company_units)
 
         if not unit_label:
             unit_label = "Unassigned Unit"
