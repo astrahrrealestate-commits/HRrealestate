@@ -16,6 +16,7 @@ import {
   Calendar,
   Building,
   ChevronRight,
+  ChevronUp,
   Download,
   TrendingUp,
   TrendingDown,
@@ -122,6 +123,8 @@ function MoneyContent() {
   const [isMonthDropdownOpen, setIsMonthDropdownOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TenantRentTab>("all");
   const [chartView, setChartView] = useState<ChartViewMode>("revenue");
+  const [timeHorizon, setTimeHorizon] = useState<"monthly" | "yearly">("monthly");
+  const [isChartCollapsed, setIsChartCollapsed] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTx, setSelectedTx] = useState<MoneyTransaction | null>(null);
 
@@ -501,93 +504,158 @@ function MoneyContent() {
                 </div>
               </div>
 
-              {/* Dual Visual Trends: Monthly Revenue Trend OR Portfolio Occupancy Trend */}
-              <div className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] p-5 sm:p-6 shadow-2xs space-y-4">
+              {/* Dual Visual Trends: Monthly/Yearly Revenue Trend OR Portfolio Occupancy Trend */}
+              <div className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] p-4 sm:p-5 shadow-2xs space-y-3.5 transition-all">
                 
-                {/* Chart Header + View Switcher */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                {/* Chart Header + View Switchers + Minimize/Expand Button */}
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                   <div>
                     <h3 className="text-[14px] font-semibold text-[var(--ink)] tracking-tight">
                       {chartView === "revenue"
-                        ? t("Monthly Rent Revenue & Collection Trend (Last 6 Months)")
-                        : t("Portfolio Occupancy Progression (Last 6 Months)")}
+                        ? timeHorizon === "yearly"
+                          ? t("Annual Rent Revenue & Collection Comparison", "Annual Rent Revenue & Collection Comparison")
+                          : t("Monthly Rent Revenue & Collection Trend (Last 6 Months)")
+                        : timeHorizon === "yearly"
+                          ? t("Annual Portfolio Occupancy Comparison", "Annual Portfolio Occupancy Comparison")
+                          : t("Portfolio Occupancy Progression (Last 6 Months)")}
                     </h3>
                     <p className="text-xs text-[var(--ink-3)]">
                       {chartView === "revenue"
-                        ? t("Comparing scheduled lease commitments against collected receipts. Click a bar to filter ledger.")
-                        : t("Tracking occupied residential units over time (growing from 94.5% to 100.0%).")}
+                        ? timeHorizon === "yearly"
+                          ? t("Annual aggregate lease commitments against collected receipts.", "Annual aggregate lease commitments against collected receipts.")
+                          : t("Comparing scheduled lease commitments against collected receipts. Click a bar to filter ledger.")
+                        : t("Tracking occupied residential units over time.")}
                     </p>
                   </div>
 
-                  {/* Switcher Toggle (Revenue vs Occupancy) */}
-                  <div className="inline-flex items-center p-0.5 bg-[var(--selected)]/60 rounded-md border border-[var(--line)] self-start sm:self-auto text-xs">
+                  {/* Switchers & Minimize Controls */}
+                  <div className="flex items-center gap-2 flex-wrap self-start lg:self-auto">
+                    {/* Time Horizon Switcher (Monthly vs Yearly) */}
+                    <div className="inline-flex items-center p-0.5 bg-[var(--selected)]/60 rounded-md border border-[var(--line)] text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setTimeHorizon("monthly")}
+                        className={cn(
+                          "px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer",
+                          timeHorizon === "monthly"
+                            ? "bg-[var(--ink)] text-white shadow-xs font-semibold"
+                            : "text-[var(--ink-2)] hover:text-[var(--ink)]"
+                        )}
+                      >
+                        {t("Monthly", "Monthly")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTimeHorizon("yearly")}
+                        className={cn(
+                          "px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer",
+                          timeHorizon === "yearly"
+                            ? "bg-[var(--ink)] text-white shadow-xs font-semibold"
+                            : "text-[var(--ink-2)] hover:text-[var(--ink)]"
+                        )}
+                      >
+                        {t("Yearly", "Yearly")}
+                      </button>
+                    </div>
+
+                    {/* Metric Switcher (Revenue vs Occupancy) */}
+                    <div className="inline-flex items-center p-0.5 bg-[var(--selected)]/60 rounded-md border border-[var(--line)] text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setChartView("revenue")}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer",
+                          chartView === "revenue"
+                            ? "bg-[var(--ink)] text-white shadow-xs"
+                            : "text-[var(--ink-2)] hover:text-[var(--ink)]"
+                        )}
+                      >
+                        <BarChart3 className="w-3.5 h-3.5" />
+                        <span>{t("Revenue")}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setChartView("occupancy")}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer",
+                          chartView === "occupancy"
+                            ? "bg-[var(--ink)] text-white shadow-xs"
+                            : "text-[var(--ink-2)] hover:text-[var(--ink)]"
+                        )}
+                      >
+                        <Users className="w-3.5 h-3.5" />
+                        <span>{t("Occupancy")}</span>
+                      </button>
+                    </div>
+
+                    {/* Minimize / Expand Toggle */}
                     <button
                       type="button"
-                      onClick={() => setChartView("revenue")}
-                      className={cn(
-                        "inline-flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer",
-                        chartView === "revenue"
-                          ? "bg-[var(--ink)] text-white shadow-xs"
-                          : "text-[var(--ink-2)] hover:text-[var(--ink)]"
-                      )}
+                      onClick={() => setIsChartCollapsed((prev) => !prev)}
+                      className="inline-flex items-center gap-1.5 h-[28px] px-2.5 rounded-md border border-[var(--line)] bg-[var(--bg)] hover:bg-[var(--selected)] text-xs font-medium text-[var(--ink-2)] hover:text-[var(--ink)] transition-colors cursor-pointer select-none"
+                      title={isChartCollapsed ? t("Expand chart", "Expand chart") : t("Minimize chart", "Minimize chart")}
                     >
-                      <BarChart3 className="w-3.5 h-3.5" />
-                      <span>{t("Revenue")}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setChartView("occupancy")}
-                      className={cn(
-                        "inline-flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer",
-                        chartView === "occupancy"
-                          ? "bg-[var(--ink)] text-white shadow-xs"
-                          : "text-[var(--ink-2)] hover:text-[var(--ink)]"
-                      )}
-                    >
-                      <Users className="w-3.5 h-3.5" />
-                      <span>{t("Occupancy")}</span>
+                      <span>{isChartCollapsed ? t("Expand", "Expand") : t("Minimize", "Minimize")}</span>
+                      {isChartCollapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
                     </button>
                   </div>
                 </div>
 
-                {/* Chart Legend (Apex Line Chart - Monochrome & Understated) */}
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono text-[var(--ink-2)] border-b border-[var(--line)] pb-3">
-                  <div className="flex items-center gap-4">
-                    {chartView === "revenue" ? (
-                      <>
-                        <div className="flex items-center gap-2">
-                          <span className="w-4 h-0.5 border-t border-dashed border-[#94A3B8]" />
-                          <span>{t("Scheduled Target")}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="w-4 h-0.5 bg-[#0A1B2F]" />
-                          <span className="font-semibold text-[var(--ink)]">{t("Settled Rent")}</span>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="flex items-center gap-2">
-                          <span className="w-4 h-0.5 bg-[#0A1B2F]" />
-                          <span className="font-semibold text-[var(--ink)]">{t("Portfolio Occupancy Rate (%)")}</span>
-                        </div>
-                      </>
-                    )}
+                {/* Collapsed State Minimalist Summary Strip */}
+                {isChartCollapsed ? (
+                  <div
+                    onClick={() => setIsChartCollapsed(false)}
+                    className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 bg-[var(--selected)]/40 rounded-md border border-[var(--line)] text-xs text-[var(--ink-2)] font-mono cursor-pointer hover:bg-[var(--selected)] transition-colors"
+                  >
+                    <span>{t("Scheduled Target")}: € {aggregates.totalScheduled.toLocaleString("nl-NL", { minimumFractionDigits: 2 })}</span>
+                    <span>{t("Settled Rent")}: € {aggregates.totalCollected.toLocaleString("nl-NL", { minimumFractionDigits: 2 })} ({aggregates.collectionRate.toFixed(1)}%)</span>
+                    <span>{t("Overdue Arrears")}: € {aggregates.overdueTotal.toLocaleString("nl-NL", { minimumFractionDigits: 2 })}</span>
+                    <span>{t("Portfolio Occupancy")}: {aggregates.occupancyRate.toFixed(1)}%</span>
+                    <span className="text-xs text-[var(--ink-3)] font-sans underline">{t("Click to expand")}</span>
                   </div>
+                ) : (
+                  <>
+                    {/* Chart Legend (Apex Line Chart - Monochrome & Understated) */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono text-[var(--ink-2)] border-b border-[var(--line)] pb-3">
+                      <div className="flex items-center gap-4">
+                        {chartView === "revenue" ? (
+                          <>
+                            <div className="flex items-center gap-2">
+                              <span className="w-4 h-0.5 border-t border-dashed border-[#94A3B8]" />
+                              <span>{t("Scheduled Target")}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="w-4 h-0.5 bg-[#0A1B2F]" />
+                              <span className="font-semibold text-[var(--ink)]">{t("Settled Rent")}</span>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-2">
+                              <span className="w-4 h-0.5 bg-[#0A1B2F]" />
+                              <span className="font-semibold text-[var(--ink)]">{t("Portfolio Occupancy Rate (%)")}</span>
+                            </div>
+                          </>
+                        )}
+                      </div>
 
-                  <span className="text-[11px] text-[var(--ink-3)] hidden sm:inline">
-                    {t("Click node to select cycle")}
-                  </span>
-                </div>
+                      <span className="text-[11px] text-[var(--ink-3)] hidden sm:inline">
+                        {timeHorizon === "yearly" ? t("Annual breakdown") : t("Click node to select cycle")}
+                      </span>
+                    </div>
 
-                {/* Apex Line Graph */}
-                <div className="w-full pt-1">
-                  <RentAnalyticsLineChart
-                    trendPoints={trendPoints}
-                    selectedMonth={selectedMonth}
-                    onSelectMonth={setSelectedMonth}
-                    chartView={chartView}
-                  />
-                </div>
+                    {/* Apex Line Graph */}
+                    <div className="w-full pt-1">
+                      <RentAnalyticsLineChart
+                        trendPoints={trendPoints}
+                        selectedMonth={selectedMonth}
+                        onSelectMonth={setSelectedMonth}
+                        chartView={chartView}
+                        timeHorizon={timeHorizon}
+                      />
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Controls Bar: Tenant Tabs + Search Input */}
