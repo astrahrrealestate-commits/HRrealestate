@@ -93,3 +93,4 @@ def seed_portfolio_details():
 
 if __name__ == "__main__":
     seed_portfolio_details()
+

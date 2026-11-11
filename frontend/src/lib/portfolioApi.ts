@@ -18,6 +18,7 @@ interface ApiUnit {
   livingAreaSqm?: number | null;
   depositEur?: number | null;
   rentStatus?: string | null;
+  activeTicketCount?: number | null;
 }
 
 interface ApiTenant {
@@ -80,7 +81,7 @@ function toUnit(unit: ApiUnit): UnitDetail {
         }
       : undefined,
     lockboxCode: orNull(unit.lockboxCode) ?? "4201",
-    activeTicketCount: 0,
+    activeTicketCount: unit.activeTicketCount ?? 0,
   };
 }
 

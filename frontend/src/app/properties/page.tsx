@@ -181,8 +181,8 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
   const filteredUnits = useMemo(() => {
     return activeComplex.units.filter((unit) => {
       // Tab filter
-      if (activeTab === "occupied" && unit.status !== "occupied") return false;
-      if (activeTab === "vacant" && unit.status === "occupied") return false;
+      if (activeTab === "occupied" && unit.status === "vacant") return false;
+      if (activeTab === "vacant" && unit.status !== "vacant") return false;
 
       // Search query
       if (searchQuery.trim()) {
@@ -382,7 +382,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                         : "text-[var(--ink-3)] hover:text-[var(--ink)]"
                     )}
                   >
-                    {t("Occupied")} ({activeComplex.units.filter((u) => u.status === "occupied").length})
+                    {t("Occupied")} ({activeComplex.units.filter((u) => u.status !== "vacant").length})
                   </button>
                   <button
                     onClick={() => setActiveTab("vacant")}
@@ -393,7 +393,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                         : "text-[var(--ink-3)] hover:text-[var(--ink)]"
                     )}
                   >
-                    {t("Vacant")} ({activeComplex.units.filter((u) => u.status !== "occupied").length})
+                    {t("Vacant")} ({activeComplex.units.filter((u) => u.status === "vacant").length})
                   </button>
                 </div>
 
@@ -768,7 +768,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                         : "bg-[var(--bg)] text-[var(--ink-2)] border border-[var(--line)]"
                     )}
                   >
-                    Occupied ({activeComplex.units.filter((u) => u.status === "occupied").length})
+                    Occupied ({activeComplex.units.filter((u) => u.status !== "vacant").length})
                   </button>
                   <button
                     onClick={() => setActiveTab("vacant")}
@@ -779,7 +779,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                         : "bg-[var(--bg)] text-[var(--ink-2)] border border-[var(--line)]"
                     )}
                   >
-                    Vacant ({activeComplex.units.filter((u) => u.status !== "occupied").length})
+                    Vacant ({activeComplex.units.filter((u) => u.status === "vacant").length})
                   </button>
                 </div>
 

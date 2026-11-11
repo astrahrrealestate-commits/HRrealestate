@@ -11,14 +11,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
 from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
-from app.contracts import Channel
-from app.db.models import ChannelIdentity, Lease, LeaseParty, Person, Unit
+from app.contracts import CaseState, Channel
+from app.db.models import Case, ChannelIdentity, Lease, LeaseParty, Person, Unit
 from app.db.models.finance import TenantRentPayment
 
 router = APIRouter(
@@ -47,6 +47,7 @@ class UnitItem(BaseModel):
     livingAreaSqm: int | None = None
     depositEur: float | None = None
     rentStatus: str | None = None
+    activeTicketCount: int = 0
 
 
 class PropertiesResponse(BaseModel):
@@ -59,7 +60,13 @@ class PropertiesResponse(BaseModel):
 
 
 def _status(lease_end: date | None, today: date) -> str:
-    return "notice_given" if lease_end is not None and lease_end >= today else "occupied"
+    if lease_end is None:
+        return "occupied"
+    if lease_end < today:
+        return "vacant"
+    if (lease_end - today).days <= 30:
+        return "notice_given"
+    return "occupied"
 
 
 def _item(session: Session, unit: Unit, today: date) -> UnitItem:
@@ -114,6 +121,15 @@ def _item(session: Session, unit: Unit, today: date) -> UnitItem:
                 monthly_rent = float(rent_record.contract_rent_cents) / 100.0
                 rent_status = "up_to_date" if rent_record.status == "paid" else ("overdue" if rent_record.status == "overdue" else "up_to_date")
 
+    open_tickets = session.scalar(
+        select(func.count(Case.id))
+        .where(
+            Case.company_id == unit.company_id,
+            Case.unit_id == unit.id,
+            Case.state != CaseState.resolved,
+        )
+    ) or 0
+
     lbl = unit.label.lower()
     floor_str = "Ground Floor" if ("-a" in lbl or " 1 " in lbl or "ground" in lbl) else ("1st Floor" if "-b" in lbl else ("2nd Floor" if "-c" in lbl else "1st Floor"))
     area_sqm = 85 if "-a" in lbl else (78 if "-b" in lbl else (65 if "-c" in lbl else 72))
@@ -136,6 +152,7 @@ def _item(session: Session, unit: Unit, today: date) -> UnitItem:
         livingAreaSqm=area_sqm,
         depositEur=monthly_rent * 2.0 if lease is not None else None,
         rentStatus=rent_status if lease is not None else None,
+        activeTicketCount=open_tickets,
     )
 
 
