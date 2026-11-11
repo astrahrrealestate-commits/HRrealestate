@@ -470,11 +470,16 @@ function TenantsContent() {
                       <div className="flex-1 min-w-0 flex flex-col">
                         <span
                           className={cn(
-                            "text-[13px] truncate leading-tight",
+                            "text-[13px] truncate leading-tight flex items-center justify-between",
                             isSelected ? "text-[#0f172a] font-bold" : "text-[#475569] hover:text-[#0f172a]"
                           )}
                         >
-                          {contact.name}
+                          <span className="truncate">{contact.name}</span>
+                          {contact.rentStatus === "overdue" && (
+                            <span className="shrink-0 text-[9.5px] font-semibold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded-full uppercase ml-1">
+                              {t("Overdue", "Overdue")}
+                            </span>
+                          )}
                         </span>
                         {contact.tradeOrRole && (
                           <span className="text-[10.5px] text-[#94a3b8] truncate font-medium mt-0.5">
@@ -543,9 +548,15 @@ function TenantsContent() {
                           <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold rounded-full capitalize bg-[#f0fdf4] text-[#16a34a] border border-[#bbf7d0]">
                             Tenant
                           </span>
-                          <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold rounded-full capitalize bg-[#f0fdf4] text-[#16a34a] border border-[#bbf7d0]">
-                            Rent up to date
-                          </span>
+                          {activeContact.rentStatus === "overdue" ? (
+                            <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold rounded-full capitalize bg-[#fef2f2] text-[#dc2626] border border-[#fecaca]">
+                              {t("Rent overdue", "Rent overdue")}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold rounded-full capitalize bg-[#f0fdf4] text-[#16a34a] border border-[#bbf7d0]">
+                              {t("Rent up to date", "Rent up to date")}
+                            </span>
+                          )}
                           {activeContact.unitRole && (
                             <span className="text-[11px] text-[#64748b] font-medium">
                               · {activeContact.unitRole}
