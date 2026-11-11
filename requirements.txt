@@ -39,6 +39,8 @@ click==8.5.0
     #   uvicorn
 cryptography==50.0.2
     # via google-auth
+ctranslate2==4.8.5
+    # via estateos
 dbos==3.2.0
     # via estateos
 distro==1.9.0
@@ -68,7 +70,7 @@ google-auth==2.60.0
     #   google-genai
 google-auth-httplib2==0.4.4
     # via google-api-python-client
-google-genai==2.29.0
+google-genai==3.1.0
     # via pydantic-ai-slim
 googleapis-common-protos==1.75.5
     # via
@@ -94,12 +96,11 @@ httplib2==0.32.0
 httptools==0.8.0
     # via uvicorn
 httpx==0.28.1
-    # via
-    #   estateos
-    #   google-genai
+    # via estateos
 httpx2==2.13.1
     # via
     #   genai-prices
+    #   google-genai
     #   openai
     #   pydantic-ai-slim
 httpx2-jsfetch==1.0 ; sys_platform == 'emscripten'
@@ -137,6 +138,8 @@ markupsafe==3.0.4
     # via mako
 mdurl==0.1.2
     # via markdown-it-py
+numpy==2.5.4
+    # via ctranslate2
 openai==3.26.0
     # via pydantic-ai-slim
 opentelemetry-api==1.45.1
@@ -230,6 +233,7 @@ python-dotenv==1.2.4
     #   uvicorn
 pyyaml==6.0.3
     # via
+    #   ctranslate2
     #   dbos
     #   pydantic-evals
     #   uvicorn
@@ -250,6 +254,8 @@ rich==15.0.0
     # via pydantic-evals
 s3transfer==0.19.2
     # via boto3
+sentencepiece==0.2.3
+    # via estateos
 sentry-sdk==2.71.0
     # via estateos
 six==1.17.0

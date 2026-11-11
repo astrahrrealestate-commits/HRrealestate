@@ -2,7 +2,7 @@
 # One image, three roles (command decides): migrate | api | worker. See docker/compose.yml.
 
 # Digest-pinned for reproducible builds; Dependabot (docker ecosystem) bumps tag + digest together.
-FROM ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 AS uv
+FROM ghcr.io/astral-sh/uv:0.12.5@sha256:e85be844203885286c60ffad8a858d48afb6c5a5c237ca0e67f12e74b8f174b1 AS uv
 
 FROM python:3.12-slim@sha256:a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e89e19dfb86704 AS builder
 COPY --from=uv /uv /bin/uv
