@@ -19,11 +19,13 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import WorkflowClient, get_engine, get_ingest_deps, get_storage, get_workflow_client
 from app.api.inbox import decide as inbox_decide
+from app.api.inbox.summary import headline_only
 from app.api.inbox.time_labels import when_label
 from app.api.inbox.translate import annotate_translations
 from app.api.inbox.translate import router as translate_router
 from app.api.inbox.unit_match import unit_named_in
 from app.api.v1 import enqueue
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import decide_limit, sync_limit
 from app.contracts import ActionType, ButtonChoice, Channel, Direction
@@ -55,7 +57,9 @@ from app.ingestion.process import IngestDeps
 from app.pipeline import dashboard_decisions
 from app.storage.ports import ObjectStorage
 
-router = APIRouter(prefix="/api/inbox", tags=["inbox"], dependencies=[Depends(require_session)])
+router = APIRouter(
+    prefix="/api/inbox", tags=["inbox"], dependencies=[Depends(require_section("inbox", also_read=("dashboard",)))]
+)
 router.include_router(translate_router)
 log = get_logger(__name__)
 
@@ -541,6 +545,8 @@ def get_inbox_threads(
     """Retrieves inbox threads enriched with agent-drafted proposals."""
     with Session(engine) as session:
         live_threads = _build_live_threads(session, principal.company_id)
+    if not principal.access.can("inbox"):
+        live_threads = [headline_only(t) for t in live_threads]
 
     # Merge live threads with default seeded threads (live threads first)
     threads = list(live_threads)
@@ -795,7 +801,11 @@ def decide_approval(
 INLINE_TYPES = frozenset({"application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp"})
 
 
-@router.get("/attachments/{attachment_id}", summary="Download or view an attachment file")
+@router.get(
+    "/attachments/{attachment_id}",
+    summary="Download or view an attachment file",
+    dependencies=[Depends(require_section("inbox"))],
+)
 def get_attachment_file(
     attachment_id: UUID,
     engine: Annotated[Engine, Depends(get_engine)],

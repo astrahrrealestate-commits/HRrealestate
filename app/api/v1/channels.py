@@ -10,10 +10,11 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from app.api.deps import get_settings_dep
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_principal
 from app.core.settings import Settings
 
-router = APIRouter(prefix="/channels", tags=["channels"])
+router = APIRouter(prefix="/channels", tags=["channels"], dependencies=[Depends(require_section("settings"))])
 Owner = Annotated[Principal, Depends(require_principal)]
 Settings_ = Annotated[Settings, Depends(get_settings_dep)]
 

@@ -35,6 +35,15 @@ class SearchOut(BaseModel):
     hits: list[SearchHitOut]
 
 
+# The sections whose pages show each kind of record: a profile finds only what it could open anyway (ADR 0012).
+KIND_SECTIONS: dict[HitKind, tuple[str, ...]] = {
+    HitKind.person: ("contacts", "tenants"),
+    HitKind.unit: ("properties", "tenants"),
+    HitKind.case: ("inbox", "maintenance"),
+    HitKind.document: ("inbox",),
+}
+
+
 @router.get("/search", response_model=SearchOut, dependencies=[Depends(search_limit)])
 def search(who: Owner, engine: Engine_, q: Annotated[str, Query()] = "") -> SearchOut:
     with Session(engine) as session:
@@ -43,5 +52,6 @@ def search(who: Owner, engine: Engine_, q: Annotated[str, Query()] = "") -> Sear
         hits=[
             SearchHitOut(kind=h.kind, id=h.id, title=h.title, subtitle=h.subtitle, person_kind=h.person_kind)
             for h in hits
+            if any(who.access.can(section) for section in KIND_SECTIONS[h.kind])
         ]
     )

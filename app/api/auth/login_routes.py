@@ -18,6 +18,7 @@ from app.api.v1.auth import (
     COOKIE,
     AuthError,
     Principal,
+    access_for,
     clear_session_cookie,
     email_fingerprint,
     issue_session,
@@ -50,6 +51,8 @@ class AuthMeResponse(BaseModel):
     role: str | None = None
     company_id: str | None = None
     token: str | None = None
+    sections: list[str] = []
+    is_admin: bool = False
 
 
 def _login_error(settings: Settings, code: str) -> RedirectResponse:
@@ -177,12 +180,16 @@ async def login_callback(
 
     # The whitelist is the gatekeeper (allowed_users); its row names the company the person may enter.
     with Session(engine) as session, session.begin():
-        allowed = session.scalars(
+        rows = session.scalars(
             select(AllowedUser).where(func.lower(AllowedUser.email) == email, AllowedUser.is_active.is_(True))
-        ).first()
-        if not allowed:
+        ).all()
+        if not rows:
             log.warning("auth.login.access_denied_not_whitelisted", email_hash=email_fingerprint(email))
             return _login_error(settings, "access_denied")
+        if len(rows) > 1:  # never guess which company a shared address means
+            log.warning("auth.login.ambiguous_address", email_hash=email_fingerprint(email), companies=len(rows))
+            return _login_error(settings, "ambiguous_account")
+        allowed = rows[0]
         owner = _owner_for(session, allowed, email, name)
         principal = Principal(company_id=allowed.company_id, owner_id=owner.id, email=email)
         session_token = issue_session(settings, principal, datetime.now(UTC))
@@ -216,11 +223,16 @@ def get_current_user_profile(
         return AuthMeResponse(authenticated=False)
     if not owner_matches(engine, principal):
         return AuthMeResponse(authenticated=False)
+    access = access_for(engine, principal)
+    if access is None:  # the profile was switched off: the session ends here, as it does on every other route
+        return AuthMeResponse(authenticated=False)
 
     with Session(engine) as session:
         allowed = session.scalars(
             select(AllowedUser).where(
-                func.lower(AllowedUser.email) == principal.email.lower(), AllowedUser.is_active.is_(True)
+                AllowedUser.company_id == principal.company_id,
+                func.lower(AllowedUser.email) == principal.email.lower(),
+                AllowedUser.is_active.is_(True),
             )
         ).first()
         owner_name = session.scalar(
@@ -230,15 +242,16 @@ def get_current_user_profile(
         )
         # The whitelist's name wins; otherwise the name Google gave at sign-in; the email prefix is the last resort.
         display_name = allowed.display_name if allowed else owner_name or principal.email.split("@")[0].title()
-        role = allowed.role if allowed else "manager"
 
     return AuthMeResponse(
         authenticated=True,
         email=principal.email,
         name=display_name,
-        role=role,
+        role=access.role,
         company_id=str(principal.company_id),
         token=token,
+        sections=access.visible_sections(),
+        is_admin=access.is_admin,
     )
 
 

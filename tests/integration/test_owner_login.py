@@ -193,6 +193,7 @@ def test_me_reports_the_same_session_the_guard_accepts_and_not_a_removed_owner(l
         s.commit()
     assert login.client.get("/api/auth/me").json() == {
         "authenticated": False, "email": None, "name": None, "role": None, "company_id": None,
+        "sections": [], "is_admin": False,
     }  # fmt: skip
 
 
@@ -201,9 +202,32 @@ def test_me_names_a_signed_in_owner_without_a_whitelist_row_by_their_google_name
     state = _start(login)
     with _google(f"newbie-{tag}@b.test", name="Real Google Name"):
         _callback(login, state)
-    with Session(login.engine) as s:
-        s.query(AllowedUser).filter(AllowedUser.email == f"newbie-{tag}@b.test").delete()
+    with Session(login.engine) as s:  # a company with no whitelist rows at all (the Google ID-token owner)
+        s.query(AllowedUser).filter(AllowedUser.company_id == login.second_company).delete()
         s.commit()
     body = login.client.get("/api/auth/me").json()
     assert body["authenticated"] is True
     assert body["name"] == "Real Google Name"  # not the email prefix "Newbie-xxxx"
+
+
+def test_me_ends_the_session_of_a_person_removed_from_a_company_that_still_has_a_whitelist(login: Login) -> None:
+    tag = login.tag
+    state = _start(login)
+    with _google(f"newbie-{tag}@b.test", name="Real Google Name"):
+        _callback(login, state)
+    with Session(login.engine) as s:
+        s.query(AllowedUser).filter(AllowedUser.email == f"newbie-{tag}@b.test").delete()
+        s.commit()
+    assert login.client.get("/api/auth/me").json()["authenticated"] is False
+
+
+def test_an_address_whitelisted_in_two_companies_gets_no_session_and_no_owner(login: Login) -> None:
+    tag = login.tag
+    with Session(login.engine) as s, s.begin():
+        s.add(AllowedUser(company_id=login.first_company, email=f"newbie-{tag}@b.test", display_name="Newbie A"))
+    state = _start(login)
+    with _google(f"newbie-{tag}@b.test"):
+        response = _callback(login, state)
+    assert response.headers["location"] == f"{FRONTEND}/login?error=ambiguous_account"
+    assert login.client.cookies.get(COOKIE) is None
+    assert _owner_rows(login.engine, login.second_company) == []

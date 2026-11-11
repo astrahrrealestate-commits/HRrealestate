@@ -15,12 +15,17 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.contracts import Channel
 from app.db.enums import PersonKind
 from app.db.models import ChannelIdentity, Lease, LeaseParty, Person, Unit
 
-router = APIRouter(prefix="/api/tenants", tags=["tenants"], dependencies=[Depends(require_session)])
+router = APIRouter(
+    prefix="/api/tenants",
+    tags=["tenants"],
+    dependencies=[Depends(require_section("tenants", also_read=("reports", "dashboard")))],
+)
 
 RENT_UNKNOWN = "unknown"
 
@@ -46,6 +51,11 @@ class TenantsResponse(BaseModel):
     totalTenants: int
     overdueCount: int
     tenants: list[TenantItem]
+
+
+def _without_contact(tenant: TenantItem) -> TenantItem:
+    """What Reports and Dashboard see: the rent roll, not the tenant's phone and email (ADR 0012)."""
+    return tenant.model_copy(update={"phone": "", "email": ""})
 
 
 def _item(session: Session, person: Person, today: date) -> TenantItem:
@@ -103,6 +113,8 @@ def get_tenants(
             .order_by(Person.display_name.asc())
         ).all()
         items = [_item(session, p, today) for p in people if p.display_name and "@" not in p.display_name]
+    if not principal.access.can("tenants"):
+        items = [_without_contact(t) for t in items]
     shown = items if rent_status == "all" else [t for t in items if t.rentStatus == rent_status]
     return TenantsResponse(
         totalTenants=len(items), overdueCount=sum(t.rentStatus == "overdue" for t in items), tenants=shown
@@ -132,4 +144,5 @@ def get_tenant_details(
         ).first()
         if person is None:
             raise HTTPException(status_code=404, detail="Tenant not found")
-        return _item(session, person, datetime.now(UTC).date())
+        item = _item(session, person, datetime.now(UTC).date())
+    return item if principal.access.can("tenants") else _without_contact(item)

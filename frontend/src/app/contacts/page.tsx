@@ -25,6 +25,8 @@ import {
   Mic,
   Filter,
   Phone,
+  Plus,
+  Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSuperAgent } from "@/context/SuperAgentContext";
@@ -44,6 +46,8 @@ import {
   generateWhatsAppDrafts,
 } from "@/lib/api";
 import { formatClock } from "@/lib/clock";
+import { ContactFormModal } from "@/components/contacts/ContactFormModal";
+import type { SavedContact } from "@/lib/contactsWriteApi";
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -98,7 +102,11 @@ function ContactsContent() {
   const { t } = useLanguage();
 
   // Left Sidebar Filter state
-  const [filterAudience, setFilterAudience] = useState<"all" | "tenant" | "contractor">("all");
+  const [filterAudience, setFilterAudience] = useState<"all" | "tenant" | "contractor" | "other">("all");
+  const [contactForm, setContactForm] = useState<{ open: boolean; contact: ContactItem | null }>({
+    open: false,
+    contact: null,
+  });
   const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -106,6 +114,18 @@ function ContactsContent() {
   const [dbContacts, setDbContacts] = useState<ContactItem[]>([]);
   const [isLoadingContacts, setIsLoadingContacts] = useState<boolean>(true);
   const allAvailableContacts = dbContacts;
+
+  // A contact just added or classified: show it in the list (replacing the old row) and open it.
+  const handleContactSaved = (saved: SavedContact) => {
+    setDbContacts((prev) => {
+      const rest = prev.filter((c) => c.id !== saved.id);
+      return [...rest, saved].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    });
+    setFilterAudience("all");
+    setSelectedContactId(saved.id);
+    setOpenEmailId(null);
+    router.push(`/contacts?contact=${saved.id}`);
+  };
 
   const [selectedContactId, setSelectedContactId] = useState<string>(
     contactParam || ""
@@ -116,7 +136,7 @@ function ContactsContent() {
     async function loadContacts() {
       setIsLoadingContacts(true);
       try {
-        const list = await getContactsList(filterAudience);
+        const list = await getContactsList(filterAudience === "other" ? "all" : filterAudience);
         if (isMounted && list) {
           setDbContacts(list);
         }
@@ -349,6 +369,7 @@ function ContactsContent() {
     return allAvailableContacts.filter((contact) => {
       if (filterAudience === "tenant" && contact.category !== "tenant") return false;
       if (filterAudience === "contractor" && contact.category !== "contractor") return false;
+      if (filterAudience === "other" && (contact.category === "tenant" || contact.category === "contractor")) return false;
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -419,12 +440,26 @@ function ContactsContent() {
             >
               {/* Header */}
               <div className="p-[14px_12px_10px] shrink-0 border-b border-[#e8e9eb] space-y-2">
-                <div className="text-[10.5px] font-bold text-[#64748b] tracking-[0.06em] uppercase">
-                  {filterAudience === "all"
-                    ? t("All Contacts")
-                    : filterAudience === "tenant"
-                    ? t("Tenants")
-                    : t("Contractors")}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[10.5px] font-bold text-[#64748b] tracking-[0.06em] uppercase">
+                    {filterAudience === "all"
+                      ? t("All Contacts")
+                      : filterAudience === "tenant"
+                      ? t("Tenants")
+                      : filterAudience === "contractor"
+                      ? t("Contractors")
+                      : t("Other")}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setContactForm({ open: true, contact: null })}
+                    title="Add contact"
+                    aria-label="Add contact"
+                    className="inline-flex items-center gap-1 h-[22px] px-2 rounded-[6px] bg-[#111215] text-white text-[10.5px] font-semibold hover:bg-[#27272a] transition-colors cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Add</span>
+                  </button>
                 </div>
 
                 {/* Search Bar with Funnel */}
@@ -497,6 +532,21 @@ function ContactsContent() {
                       >
                         {t("Contractors")}
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFilterAudience("other");
+                          setIsFilterDropdownOpen(false);
+                        }}
+                        className={cn(
+                          "px-3 py-2 text-[12px] text-left transition-colors cursor-pointer",
+                          filterAudience === "other"
+                            ? "bg-[#f3f4f6] text-[#111827] font-semibold"
+                            : "text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]"
+                        )}
+                      >
+                        Other
+                      </button>
                     </div>
                   )}
                 </div>
@@ -560,7 +610,7 @@ function ContactsContent() {
 
                 {!isLoadingContacts && filteredContacts.length === 0 && (
                   <div className="text-center py-12 text-[#94a3b8] text-xs">
-                    No contacts found in database.
+                    No contacts yet. People who write to you by email or WhatsApp appear here, or add one with the Add button.
                   </div>
                 )}
               </div>
@@ -622,6 +672,21 @@ function ContactsContent() {
                         >
                           {activeContact.category}
                         </span>
+                        {(activeContact as SavedContact).unclassified && (
+                          <span className="text-[10.5px] text-[#92400e] bg-[#fffbeb] border border-[#fde68a] rounded-full px-2 py-0.5 font-medium">
+                            From messages, not classified yet
+                          </span>
+                        )}
+                        {(activeContact as SavedContact).source === "directory" && (
+                          <button
+                            type="button"
+                            onClick={() => setContactForm({ open: true, contact: activeContact })}
+                            className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-[#2563eb] hover:text-[#1d4ed8] cursor-pointer"
+                          >
+                            <Pencil className="w-3 h-3" />
+                            {(activeContact as SavedContact).unclassified ? "Name & classify" : "Edit"}
+                          </button>
+                        )}
                       </div>
 
                       {/* Phone + Email + Agreement Inline Row */}
@@ -1404,6 +1469,13 @@ function ContactsContent() {
 
       {/* Mobile Tab Bar */}
       <MobileTabBar />
+
+      <ContactFormModal
+        isOpen={contactForm.open}
+        contact={contactForm.contact}
+        onClose={() => setContactForm((f) => ({ ...f, open: false }))}
+        onSaved={handleContactSaved}
+      />
     </div>
   );
 }

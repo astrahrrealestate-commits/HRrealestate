@@ -181,7 +181,7 @@ def _timed(polls: int, **kw: Any) -> tuple[FakeTime, list[float], list[float]]:
     fake, feed_at, turn_at = FakeTime(), [], []
     poller = turn_events.TurnPoller(MagicMock(), uuid4(), uuid4(), now=NOW)
 
-    def read_page(*_: object) -> list[FeedItem]:
+    def read_page(*_: object, **__: object) -> list[FeedItem]:
         feed_at.append(fake.now)
         return []
 

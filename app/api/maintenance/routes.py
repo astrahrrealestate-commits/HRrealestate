@@ -15,8 +15,10 @@ from sqlalchemy import Engine, String, cast, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import WorkflowClient, get_engine, get_workflow_client
+from app.api.inbox.summary import safe_name
 from app.api.maintenance import dispatch
 from app.api.v1 import enqueue
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import decide_limit
 from app.contracts import ActionType, CaseState, Category, Channel, Direction, Urgency
@@ -36,7 +38,11 @@ from app.db.models import (
 )
 from app.pipeline import approvals, dashboard_decisions
 
-router = APIRouter(prefix="/api/maintenance", tags=["maintenance"], dependencies=[Depends(require_session)])
+router = APIRouter(
+    prefix="/api/maintenance",
+    tags=["maintenance"],
+    dependencies=[Depends(require_section("maintenance", also_read=("reports", "dashboard")))],
+)
 log = get_logger(__name__)
 
 
@@ -69,6 +75,23 @@ class MaintenanceTicketItem(BaseModel):
     originalMessage: str | None = None
     tenantDraft: str | None = None
     contractorDraft: str | None = None
+
+
+def _without_contact_and_messages(ticket: MaintenanceTicketItem) -> MaintenanceTicketItem:
+    """What Reports and Dashboard see: the ticket, not the phone numbers, notes, messages or drafts (ADR 0012)."""
+    return ticket.model_copy(
+        update={
+            "tenantName": safe_name(ticket.tenantName),
+            "contractorName": safe_name(ticket.contractorName),
+            "tenantPhone": "",
+            "contractorPhone": None,
+            "contractorEmail": None,
+            "notes": "",
+            "originalMessage": None,
+            "tenantDraft": None,
+            "contractorDraft": None,
+        }
+    )
 
 
 class TicketUpdateRequest(BaseModel):
@@ -361,7 +384,11 @@ def get_maintenance_tickets(
                     tag = f"#{case_ref(case.id)}"
                     outbounds = (
                         session.query(MessageRow)
-                        .filter(MessageRow.direction == Direction.outbound, MessageRow.meta.is_not(None))
+                        .filter(
+                            MessageRow.company_id == principal.company_id,
+                            MessageRow.direction == Direction.outbound,
+                            MessageRow.meta.is_not(None),
+                        )
                         .all()
                     )
                     for om in outbounds:
@@ -420,14 +447,16 @@ def get_maintenance_tickets(
         totalPoBudgetEur=0.0 if not all_tickets else 2150.00,
     )
 
-    return MaintenanceTicketsResponse(
-        stats=stats, tickets=[MaintenanceTicketItem(**t) for t in tickets], total=len(tickets)
-    )
+    items = [MaintenanceTicketItem(**t) for t in tickets]
+    if not principal.access.can("maintenance"):
+        items = [_without_contact_and_messages(i) for i in items]
+    return MaintenanceTicketsResponse(stats=stats, tickets=items, total=len(items))
 
 
 @router.get(
     "/tickets/{ticket_id}/history",
     response_model=TicketHistoryResponse,
+    dependencies=[Depends(require_section("maintenance"))],
     summary="Get Full Ticket Lifecycle Audit Trail",
     description=(
         "Retrieves the chronological audit log of all events for a ticket, including inbound distress "

@@ -1,258 +1,224 @@
 "use client";
 
-import React, { useState, useMemo, Suspense } from "react";
-import { useRouter } from "next/navigation";
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { Button } from "@/components/ui/Button";
-import { StatusText } from "@/components/ui/StatusText";
-import {
-  ShieldCheck,
-  UserPlus,
-  Users,
-  Search,
-  CheckCircle2,
-  Lock,
-  Mail,
-  ChevronRight,
-  Shield,
-  KeyRound,
-  FileCheck,
-} from "lucide-react";
+import { Search, ShieldCheck, UserPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { MOCK_ADMIN_USERS, AdminUser } from "@/data/adminMockData";
-import { InvitePersonForm } from "@/components/admin/InvitePersonForm";
+import { useAuth } from "@/context/AuthContext";
+import { ProfileBuilder } from "@/components/admin/ProfileBuilder";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
+import { Profile, SectionInfo, listProfiles, listSections, updateProfile } from "@/lib/adminApi";
 
-type AdminTab = "team" | "audit" | "security";
+const roleLabel = (role: string) => (role === "member" || role === "manager" ? "Member" : "Superadmin");
 
 function AdminContent() {
-  const router = useRouter();
-
-  const [activeTab, setActiveTab] = useState<AdminTab>("team");
-  const [users, setUsers] = useState<AdminUser[]>(MOCK_ADMIN_USERS);
+  const { user } = useAuth();
+  const [profiles, setProfiles] = useState<Profile[] | null>(null);
+  const [sections, setSections] = useState<SectionInfo[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [isInviteFormOpen, setIsInviteFormOpen] = useState(false);
-  const [isAskAgentOpen, setIsAskAgentOpen] = useState(false);
+  const [builder, setBuilder] = useState<{ open: boolean; profile: Profile | null }>({ open: false, profile: null });
 
-  const filteredUsers = useMemo(() => {
-    if (!searchQuery.trim()) return users;
-    const q = searchQuery.toLowerCase();
-    return users.filter(
-      (u) =>
-        u.name.toLowerCase().includes(q) ||
-        u.email.toLowerCase().includes(q) ||
-        u.role.toLowerCase().includes(q)
-    );
-  }, [users, searchQuery]);
+  const load = useCallback(async () => {
+    setLoadError(null);
+    const [p, s] = await Promise.all([listProfiles(), listSections()]);
+    if (!p.ok) return setLoadError(p.error);
+    if (!s.ok) return setLoadError(s.error);
+    setProfiles(p.data);
+    setSections(s.data);
+  }, []);
 
-  const handleInviteUser = (newUser: { name: string; email: string; role: string; complex: string }) => {
-    const userItem: AdminUser = {
-      id: `usr-${Date.now()}`,
-      name: newUser.name,
-      email: newUser.email,
-      role: newUser.role as any,
-      status: "invited",
-      lastActive: "Invite sent just now",
-      assignedComplexes: newUser.complex,
-      twoFactorEnabled: false,
-    };
-    setUsers((prev) => [userItem, ...prev]);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: load() only sets state after awaiting
+    void load();
+  }, [load]);
+
+  const labelOf = useMemo(() => new Map(sections.map((s) => [s.key, s.label])), [sections]);
+  const visible = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!profiles) return [];
+    if (!q) return profiles;
+    return profiles.filter((p) => `${p.name} ${p.email} ${roleLabel(p.role)}`.toLowerCase().includes(q));
+  }, [profiles, searchQuery]);
+
+  const saved = (profile: Profile) =>
+    setProfiles((prev) => {
+      if (!prev) return [profile];
+      return prev.some((p) => p.id === profile.id) ? prev.map((p) => (p.id === profile.id ? profile : p)) : [...prev, profile];
+    });
+
+  const setActive = async (profile: Profile, active: boolean) => {
+    if (!active && !window.confirm(`Switch off ${profile.name}? They are signed out on their next click.`)) return;
+    setActionError(null);
+    const result = await updateProfile(profile.id, { is_active: active });
+    if (result.ok) saved(result.data);
+    else setActionError(result.error);
   };
+
+  const activeCount = profiles?.filter((p) => p.is_active).length ?? 0;
 
   return (
     <div className="h-dvh bg-[#0A1B2F] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
-      {/* 1. Left Nav (Desktop Sidebar) */}
       <Sidebar />
 
-      {/* 2. Main Content Canvas */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0A1B2F]">
-        <TopCommandBar
-          pageTitle="Admin"
-          hideSearch={true}
-        />
+        <TopCommandBar pageTitle="Team & access" hideSearch={true} />
 
-        {/* WORKSPACE ROW with 40% Super Agent */}
         <div className="flex-1 flex flex-row overflow-hidden min-h-0 w-full relative">
           <div className="flex-1 m-0 mr-[10px] mb-[10px] bg-white rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden relative">
+            <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6 max-w-6xl w-full mx-auto pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-12">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--line)] pb-5">
+                <div>
+                  <h1 className="font-heading font-bold text-[24px] sm:text-[28px] text-[var(--ink)] tracking-tight">
+                    Team & access
+                  </h1>
+                  <p className="text-xs sm:text-[13px] text-[var(--ink-2)] mt-0.5">
+                    {profiles
+                      ? `${profiles.length} ${profiles.length === 1 ? "profile" : "profiles"} · ${activeCount} active`
+                      : "Choose who can sign in and which sections each person sees."}
+                  </p>
+                </div>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setBuilder({ open: true, profile: null })}
+                  disabled={!profiles}
+                  className="text-xs gap-1.5"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>New profile</span>
+                </Button>
+              </div>
 
-        {/* Scrollable Container */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6 max-w-6xl w-full mx-auto pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-12">
-          
-          {/* Header & Inline Stats */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--line)] pb-5">
-            <div>
-              <h1 className="font-heading font-bold text-[24px] sm:text-[28px] text-[var(--ink)] tracking-tight">
-                Team & Governance
-              </h1>
-              <p className="text-xs sm:text-[13px] text-[var(--ink-2)] mt-0.5 font-mono">
-                {users.length} authorized administrators · 2FA Enforced · Zero Security Exceptions
+              <div className="relative sm:w-72">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--ink-3)]" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search profiles…"
+                  aria-label="Search profiles"
+                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--bg)] border border-[var(--line)] rounded-md text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none"
+                />
+              </div>
+
+              {actionError && (
+                <p role="alert" className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-md px-3 py-2">
+                  {actionError}
+                </p>
+              )}
+
+              <div className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] overflow-hidden shadow-2xs divide-y divide-[var(--line)]">
+                {loadError && (
+                  <div className="text-center py-14 text-xs space-y-3" role="alert">
+                    <p className="text-rose-600">{loadError}</p>
+                    <Button variant="secondary" size="sm" onClick={() => void load()} className="text-xs">
+                      Try again
+                    </Button>
+                  </div>
+                )}
+                {!loadError && !profiles && <div className="text-center py-14 text-[var(--ink-3)] text-xs">Loading profiles…</div>}
+                {visible.map((profile) => {
+                  const isYou = profile.email.toLowerCase() === user?.email.toLowerCase();
+                  const everything = profile.role !== "member" && profile.role !== "manager";
+                  return (
+                    <div
+                      key={profile.id}
+                      className={cn(
+                        "p-4 sm:px-5 sm:py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3 hover:bg-[var(--selected)]/30 transition-colors",
+                        !profile.is_active && "opacity-60"
+                      )}
+                    >
+                      <div className="min-w-0 flex-1 space-y-1.5">
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <span className="font-semibold text-[15px] text-[var(--ink)]">{profile.name}</span>
+                          <span className="text-xs px-2 py-0.5 rounded bg-[var(--selected)] text-[var(--ink-2)] border border-[var(--line)] font-medium inline-flex items-center gap-1">
+                            {everything && <ShieldCheck className="w-3 h-3" />}
+                            {roleLabel(profile.role)}
+                          </span>
+                          {isYou && <span className="text-[11px] text-[var(--ink-3)]">You</span>}
+                          {!profile.is_active && <span className="text-[11px] text-[var(--ink-3)] font-medium">Switched off</span>}
+                        </div>
+                        <div className="text-xs text-[var(--ink-3)]">{profile.email}</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {everything ? (
+                            <span className="text-[11px] px-2 py-0.5 rounded-full border border-[var(--line)] text-[var(--ink-2)]">
+                              All sections
+                            </span>
+                          ) : (
+                            profile.sections.map((key) => (
+                              <span
+                                key={key}
+                                className="text-[11px] px-2 py-0.5 rounded-full border border-[var(--line)] text-[var(--ink-2)] bg-[var(--bg)]"
+                              >
+                                {labelOf.get(key) ?? key}
+                              </span>
+                            ))
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 self-end lg:self-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setBuilder({ open: true, profile })}
+                          className="text-xs border border-[var(--line)]"
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={isYou}
+                          title={isYou ? "You cannot switch off your own profile" : undefined}
+                          onClick={() => void setActive(profile, !profile.is_active)}
+                          className="text-xs border border-[var(--line)]"
+                        >
+                          {profile.is_active ? "Switch off" : "Switch on"}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+                {profiles && visible.length === 0 && (
+                  <div className="text-center py-14 text-[var(--ink-3)] text-xs">
+                    {profiles.length === 0 ? "No profiles yet. Create the first one." : "No profile matches your search."}
+                  </div>
+                )}
+              </div>
+
+              <p className="text-xs text-[var(--ink-3)] leading-relaxed">
+                A change applies on the person&apos;s next click. Sections limit the pages and the data behind them; the
+                Super Agent answers from the whole portfolio, so give it only to people you trust with all of it.
               </p>
-            </div>
-
-            {/* Invite Action (Ghost button) */}
-            <div className="shrink-0">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsInviteFormOpen(true)}
-                className="text-xs border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] gap-1.5 shadow-2xs font-semibold"
-              >
-                <UserPlus className="w-3.5 h-3.5" />
-                <span>Invite person</span>
-              </Button>
-            </div>
+            </main>
           </div>
 
-          {/* Controls: Scrollable Tabs + Search (Section 5.6.1: Scrollable tabs, people as rows) */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] p-3 shadow-2xs">
-            
-            {/* Scrollable Tabs */}
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar text-xs">
-              <button
-                onClick={() => setActiveTab("team")}
-                className={cn(
-                  "px-3 py-1.5 rounded-md font-medium whitespace-nowrap transition-colors cursor-pointer",
-                  activeTab === "team"
-                    ? "bg-[var(--ink)] text-white font-semibold"
-                    : "bg-[var(--bg)] text-[var(--ink-2)] hover:text-[var(--ink)] border border-[var(--line)]"
-                )}
-              >
-                Team ({users.length})
-              </button>
-              <button
-                onClick={() => setActiveTab("audit")}
-                className={cn(
-                  "px-3 py-1.5 rounded-md font-medium whitespace-nowrap transition-colors cursor-pointer",
-                  activeTab === "audit"
-                    ? "bg-[var(--ink)] text-white font-semibold"
-                    : "bg-[var(--bg)] text-[var(--ink-2)] hover:text-[var(--ink)] border border-[var(--line)]"
-                )}
-              >
-                Audit Log (142)
-              </button>
-              <button
-                onClick={() => setActiveTab("security")}
-                className={cn(
-                  "px-3 py-1.5 rounded-md font-medium whitespace-nowrap transition-colors cursor-pointer",
-                  activeTab === "security"
-                    ? "bg-[var(--ink)] text-white font-semibold"
-                    : "bg-[var(--bg)] text-[var(--ink-2)] hover:text-[var(--ink)] border border-[var(--line)]"
-                )}
-              >
-                Security & 2FA
-              </button>
-            </div>
-
-            {/* Search */}
-            <div className="relative sm:w-60">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--ink-3)]" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search team member..."
-                className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--bg)] border border-[var(--line)] rounded-md text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none"
-              />
-            </div>
-
-          </div>
-
-          {/* CONTENT: People as Rows (Section 5.6.1: People as rows, on both desktop & mobile) */}
-          <div className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] overflow-hidden shadow-2xs divide-y divide-[var(--line)]">
-            {filteredUsers.map((user) => (
-              <div
-                key={user.id}
-                className="p-4 sm:px-5 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[var(--selected)]/30 transition-colors"
-              >
-                {/* Person details */}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2.5 flex-wrap">
-                    <span className="font-semibold text-[15px] text-[var(--ink)]">
-                      {user.name}
-                    </span>
-                    <span className="text-xs px-2 py-0.5 rounded bg-[var(--selected)] text-[var(--ink-2)] border border-[var(--line)] font-medium">
-                      {user.role}
-                    </span>
-                    {user.twoFactorEnabled && (
-                      <span className="text-[11px] text-emerald-600 font-medium flex items-center gap-1">
-                        <Lock className="w-3 h-3" />
-                        <span>2FA Enabled</span>
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="text-xs text-[var(--ink-3)] mt-1 flex items-center gap-2 flex-wrap">
-                    <span>{user.email}</span>
-                    <span>·</span>
-                    <span>Assigned: {user.assignedComplexes}</span>
-                    <span>·</span>
-                    <span>{user.lastActive}</span>
-                  </div>
-                </div>
-
-                {/* Status + Actions */}
-                <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
-                  <StatusText status={user.status} />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => alert(`Managing permissions for ${user.name}`)}
-                    className="text-xs border border-[var(--line)]"
-                  >
-                    Manage
-                  </Button>
-                </div>
-              </div>
-            ))}
-
-            {filteredUsers.length === 0 && (
-              <div className="text-center py-16 text-[var(--ink-3)] text-xs">
-                No team members match your search.
-              </div>
-            )}
-          </div>
-
-          {/* Governance Notes */}
-          <div className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] p-4 text-xs text-[var(--ink-2)] space-y-1">
-            <span className="font-semibold text-[var(--ink)] block">
-              GDPR & Compliance Protocol
-            </span>
-            <p className="leading-relaxed">
-              All portfolio managers operate under role-based access control (RBAC). In accordance with Dutch data protection authority (Autoriteit Persoonsgegevens) requirements, export actions and leaseholder identity inspections are logged to the immutable audit trail.
-            </p>
-          </div>
-
-        </main>
-          </div>
-
-          {/* Ask EstateOS Side Panel (40% width on right side) */}
-          <AskEstateOSPanel
-            currentPageName="Admin"
-            selectedContext="Team Administration & Governance"
-          />
+          <AskEstateOSPanel currentPageName="Admin" selectedContext="Team & access" />
         </div>
       </div>
 
-      {/* 3. Mobile Bottom Tab Bar */}
       <MobileTabBar />
 
-      {/* 4. Full-Screen on Mobile / Dialog on Desktop Invite Person Form (Section 5.6.1) */}
-      <InvitePersonForm
-        isOpen={isInviteFormOpen}
-        onClose={() => setIsInviteFormOpen(false)}
-        onInvite={handleInviteUser}
+      <ProfileBuilder
+        isOpen={builder.open}
+        sections={sections}
+        profile={builder.profile}
+        onClose={() => setBuilder((b) => ({ ...b, open: false }))}
+        onSaved={saved}
       />
-
-
     </div>
   );
 }
 
 export default function AdminPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-sm text-[var(--ink-3)]">Loading Admin...</div>}>
+    <Suspense fallback={<div className="p-8 text-sm text-[var(--ink-3)]">Loading…</div>}>
       <AdminContent />
     </Suspense>
   );

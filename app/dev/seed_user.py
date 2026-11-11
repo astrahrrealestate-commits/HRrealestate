@@ -30,7 +30,9 @@ def add_allowed_user(email: str, name: str = "", role: str = "manager", invited_
             print("Error: No company found in database. Run dev seed first.")
             return False
 
-        existing = session.scalars(select(AllowedUser).where(AllowedUser.email == clean_email)).first()
+        existing = session.scalars(
+            select(AllowedUser).where(AllowedUser.company_id == company.id, AllowedUser.email == clean_email)
+        ).first()
 
         if existing:
             existing.is_active = True
@@ -104,7 +106,12 @@ if __name__ == "__main__":
         engine = make_engine(str(settings.database_url))
         with Session(engine) as session, session.begin():
             for rm in ["vipint9902@gmail.com", "suryanstyagi.work@gmail.com"]:
-                u = session.scalar(select(AllowedUser).where(AllowedUser.email == rm))
+                company = session.scalars(select(Company).limit(1)).first()  # the dev company, as add_allowed_user
+                u = session.scalar(
+                    select(AllowedUser).where(AllowedUser.company_id == company.id, AllowedUser.email == rm)
+                    if company
+                    else select(AllowedUser).where(AllowedUser.email == rm)
+                )
                 if u:
                     session.delete(u)
                     print(f"Removed '{rm}' from allowed users.")

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, time
 from typing import Any
 
-from sqlalchemy import ForeignKey, Index, String, UniqueConstraint, false, func, text
+from sqlalchemy import ARRAY, ForeignKey, Index, String, UniqueConstraint, false, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.contracts import Channel, InteractiveChannel, OutboundMode
@@ -75,9 +75,18 @@ class AllowedUser(Base, CompanyScoped):
     """Whitelist of authorized users permitted to log in to EstateOS."""
 
     __tablename__ = "allowed_users"
+    __company_id_leading_index__ = True
+    __table_args__ = (
+        # One profile per address within a company; the login looks an address up across companies (and refuses one
+        # that more than one company has whitelisted).
+        Index("uq_allowed_users_company_email_lower", "company_id", func.lower(text("email")), unique=True),
+        Index("ix_allowed_users_email_lower", func.lower(text("email"))),
+    )
 
-    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(320))
     display_name: Mapped[str] = mapped_column(String(200))
+    # "superadmin" manages profiles and sees every section; any other role sees `sections` (NULL = every section).
     role: Mapped[str] = mapped_column(String(50), default="manager", server_default="manager")
+    sections: Mapped[list[str] | None] = mapped_column(ARRAY(String(32)))
     is_active: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
     invited_by: Mapped[str | None] = mapped_column(String(320))

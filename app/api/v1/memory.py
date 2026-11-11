@@ -13,6 +13,7 @@ from sqlalchemy import Engine, update
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_csrf, require_principal
 from app.api.v1.schemas import CreateMemoryIn, MemoryItemOut, UpdateMemoryIn
 from app.context import memory_items
@@ -20,7 +21,7 @@ from app.core.logging import get_logger
 from app.db.enums import FeedKind, MemoryKind, MemoryScope, MemoryStatus
 from app.db.models import OwnerFeed
 
-router = APIRouter(prefix="/memory", tags=["memory"])
+router = APIRouter(prefix="/memory", tags=["memory"], dependencies=[Depends(require_section("settings"))])
 log = get_logger(__name__)
 NOT_FOUND = "not found"
 

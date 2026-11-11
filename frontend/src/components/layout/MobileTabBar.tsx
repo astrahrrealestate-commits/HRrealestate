@@ -21,8 +21,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { needsYouCount, ThreadCountTarget } from "@/lib/selectors";
-import { MOCK_INBOX_THREADS } from "@/data/inboxMockData";
 import { useLanguage } from "@/context/LanguageContext";
+import { useAuth } from "@/context/AuthContext";
 
 interface MobileTabBarProps {
   pendingCount?: number;
@@ -33,6 +33,7 @@ interface MobileTabBarProps {
 export function MobileTabBar({ pendingCount, threads, className }: MobileTabBarProps) {
   const pathname = usePathname() || "/";
   const { t } = useLanguage();
+  const { user, canAccess } = useAuth();
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [isConnectionsOpen, setIsConnectionsOpen] = useState(false);
 
@@ -56,26 +57,24 @@ export function MobileTabBar({ pendingCount, threads, className }: MobileTabBarP
       : needsYouCount(threads || []);
 
   const mainTabs = [
-    { label: t("nav.dashboard"), href: "/", icon: Home },
+    { label: t("nav.dashboard") || "Today", section: "dashboard", href: "/", icon: Home },
     {
-      label: t("nav.messages"),
+      label: t("nav.messages") || "Inbox",
+      section: "inbox",
       href: "/inbox",
       icon: Inbox,
       badge: effectiveCount > 0 ? effectiveCount : undefined,
     },
-    { label: t("nav.maintenance"), href: "/maintenance", icon: Wrench },
-    { label: t("nav.properties"), href: "/properties", icon: Building2 },
-  ];
+    { label: t("nav.maintenance") || "Maintenance", section: "maintenance", href: "/maintenance", icon: Wrench },
+    { label: t("nav.properties") || "Properties", section: "properties", href: "/properties", icon: Building2 },
+  ].filter((tab) => canAccess(tab.section));
 
   const moreItems = [
-    { label: t("nav.tenants"), href: "/tenants", icon: Users },
-    { label: t("nav.contacts"), href: "/contacts", icon: Contact },
-    // { label: "Money", href: "/money", icon: Coins },
-    // Hidden from navigation:
-    // { label: "Reports", href: "/reports", icon: BarChart3 },
-    // { label: "Settings", href: "/settings", icon: Settings },
-    // { label: "Admin", href: "/admin", icon: ShieldCheck },
-  ];
+    { label: t("nav.tenants") || "Tenants", section: "tenants", href: "/tenants", icon: Users },
+    { label: t("nav.contacts") || "Contacts", section: "contacts", href: "/contacts", icon: Contact },
+    { label: "Money", section: "money", href: "/money", icon: Coins },
+    ...(user?.isAdmin ? [{ label: "Team & access", section: "admin", href: "/admin", icon: ShieldCheck }] : []),
+  ].filter((item) => canAccess(item.section));
 
   const isMoreActive = moreItems.some((item) => pathname.startsWith(item.href));
 
@@ -84,9 +83,10 @@ export function MobileTabBar({ pendingCount, threads, className }: MobileTabBarP
       {/* Bottom Tab Bar (Section 5.6): height 56px + safe-area-inset, md:hidden */}
       <nav
         className={cn(
-          "fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-[var(--line)] bg-[var(--pane)] pb-[env(safe-area-inset-bottom)] md:hidden select-none",
+          "fixed inset-x-0 bottom-0 z-40 grid border-t border-[var(--line)] bg-[var(--pane)] pb-[env(safe-area-inset-bottom)] md:hidden select-none",
           className
         )}
+        style={{ gridTemplateColumns: `repeat(${mainTabs.length + 1}, minmax(0, 1fr))` }}
       >
         {mainTabs.map((tab) => {
           const isActive =

@@ -1,7 +1,7 @@
 """Dashboard session auth: Google ID token -> signed httpOnly cookie -> `Principal` (company comes from here only)."""
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Annotated, Any, Protocol, cast
 from uuid import UUID
@@ -15,9 +15,10 @@ from sqlalchemy import Connection, Engine, func, select
 from sqlalchemy.orm import Session
 
 from app.api.v1.ratelimit import auth_limit
+from app.api.v1.sections import Access
 from app.core.errors import EstateOSError
 from app.core.settings import Settings
-from app.db.models import AllowedUser, OwnerAccount
+from app.db.models.tenancy import AllowedUser, OwnerAccount
 
 log = structlog.get_logger(__name__)
 COOKIE = "eo_session"
@@ -40,6 +41,8 @@ class Principal:
     company_id: UUID
     owner_id: UUID
     email: str
+    # Filled from the whitelist row on every request (`require_principal`), never from the cookie.
+    access: Access = field(default_factory=Access)
 
 
 class IdTokenVerifier(Protocol):
@@ -138,6 +141,26 @@ def owner_matches(engine: Engine | Connection, principal: Principal) -> bool:
     with Session(engine) as session:
         email = session.scalar(stmt)
     return email is not None and email.lower() == principal.email.lower()
+
+
+def access_for(engine: Engine | Connection, principal: Principal) -> Access | None:
+    """The profile's role and sections from its whitelist row; None when that row was switched off or removed. A
+    company that has no whitelist rows at all (an owner who signs in with a Google ID token, never through the
+    whitelist) keeps full access; once a company has any row, a session without one is refused."""
+    stmt = select(AllowedUser.role, AllowedUser.sections, AllowedUser.is_active).where(
+        AllowedUser.company_id == principal.company_id, func.lower(AllowedUser.email) == principal.email.lower()
+    )
+    with Session(engine) as session:
+        row = session.execute(stmt).first()
+        if row is None:
+            whitelisted = session.scalar(
+                select(func.count(AllowedUser.id)).where(AllowedUser.company_id == principal.company_id)
+            )
+            return None if whitelisted else Access()
+    role, sections, is_active = row
+    if not is_active:
+        return None
+    return Access(role=role, sections=None if sections is None else frozenset(sections))
 
 
 def _secure(settings: Settings) -> bool:
@@ -243,7 +266,11 @@ async def require_principal(request: Request) -> Principal:
     if not await run_in_threadpool(owner_matches, request.app.state.engine, principal):
         log.info("dashboard_session_owner_gone", owner_id=str(principal.owner_id))
         raise HTTPException(status_code=401, detail="not authenticated")
-    return principal
+    access = await run_in_threadpool(access_for, request.app.state.engine, principal)
+    if access is None:
+        log.info("dashboard_session_profile_off", owner_id=str(principal.owner_id))
+        raise HTTPException(status_code=401, detail="not authenticated")
+    return replace(principal, access=access)
 
 
 def require_csrf(

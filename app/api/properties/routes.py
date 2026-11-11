@@ -15,10 +15,15 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.db.models import Lease, LeaseParty, Person, Unit
 
-router = APIRouter(prefix="/api/properties", tags=["properties"], dependencies=[Depends(require_session)])
+router = APIRouter(
+    prefix="/api/properties",
+    tags=["properties"],
+    dependencies=[Depends(require_section("properties", also_read=("reports", "dashboard")))],
+)
 
 
 class UnitItem(BaseModel):

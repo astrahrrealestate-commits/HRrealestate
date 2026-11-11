@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    admin,
     agent,
     auth,
     brixx,
@@ -42,3 +43,4 @@ api_v1_router.include_router(diligence.router)
 api_v1_router.include_router(brixx.router)
 api_v1_router.include_router(search.router)
 api_v1_router.include_router(channels.router)
+api_v1_router.include_router(admin.router)

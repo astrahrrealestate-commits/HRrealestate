@@ -9,6 +9,9 @@ export interface AuthUser {
   name: string;
   role: string;
   company_id?: string;
+  /** Section keys this profile may open (every section for a superadmin). */
+  sections: string[];
+  isAdmin: boolean;
 }
 
 interface AuthContextType {
@@ -17,6 +20,9 @@ interface AuthContextType {
   isAuthenticated: boolean;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  /** Whether the signed-in profile may open a section ("admin" = team management). True while nobody is known
+   * (local development without a session, or the API offline): the API refuses what is not allowed. */
+  canAccess: (section: string) => boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -25,6 +31,7 @@ const AuthContext = createContext<AuthContextType>({
   isAuthenticated: false,
   logout: async () => {},
   refreshUser: async () => {},
+  canAccess: () => true,
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -51,6 +58,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             name: data.name || data.email.split("@")[0],
             role: data.role || "manager",
             company_id: data.company_id,
+            sections: Array.isArray(data.sections) ? data.sections : [],
+            isAdmin: data.is_admin === true,
           });
           return;
         }
@@ -96,6 +105,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.push("/login");
   };
 
+  const canAccess = (section: string) => {
+    if (isLoading) return false; // never flash a restricted person's nav while their profile loads
+    if (!user) return true;
+    if (section === "admin") return user.isAdmin;
+    return user.isAdmin || user.sections.includes(section);
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -104,6 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!user,
         logout,
         refreshUser: fetchCurrentUser,
+        canAccess,
       }}
     >
       {children}
