@@ -40,6 +40,7 @@ import {
 } from "@/data/contactsMockData";
 import {
   getContactsList,
+  getTenants,
   getContactCommunications,
   sendContactWhatsAppMessage,
   generateEmailDrafts,
@@ -132,7 +133,35 @@ function TenantsContent() {
     async function loadTenants() {
       setIsLoadingContacts(true);
       try {
-        const list = await getContactsList("tenant");
+        let list = await getContactsList("tenant");
+        if (!list || list.length === 0) {
+          const fallback = await getTenants("all");
+          if (fallback.data && fallback.data.tenants) {
+            list = fallback.data.tenants.map((t: any) => ({
+              id: t.id,
+              name: t.name,
+              category: "tenant",
+              tradeOrRole: "Tenant",
+              unitRole: t.unitLabel || "Tenant",
+              email: t.email || "",
+              phone: t.phone || "",
+              propertyAddress: t.unitLabel || "",
+              residentialAddress: t.unitLabel || "",
+              agreementPeriod: t.leaseStart ? `${t.leaseStart} — ${t.leaseEnd}` : "",
+              status: "active",
+              rentStatus: t.rentStatus || "up_to_date",
+              openTicketsCount: 0,
+              notes: "",
+              trade: "",
+              source: "directory",
+              unclassified: false,
+              documents: [],
+              emails: [],
+              whatsappMessages: [],
+              leases: [],
+            }));
+          }
+        }
         if (isMounted && list) {
           setDbContacts(list);
         }
