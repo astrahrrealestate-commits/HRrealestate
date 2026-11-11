@@ -81,12 +81,14 @@ Still open (fix in this order):
   everything, decide whether they get it, and scope its tools per section. An address whitelisted in two companies
   cannot sign in (`ambiguous_account`): an admin who whitelists a stranger's address can lock that person out until
   the row is removed; add a company picker before a second company exists.
-- **The owner's Google OAuth credentials** live in one plaintext file for the whole installation
-  (`channels/google_auth.py`), not per company, and that module logs the account email and the file path.
+- **The owner's Google OAuth credentials** live in one plaintext file (mode 0600) for the whole installation
+  (`channels/google_auth.py`), not per company. The module no longer logs the account email, the file path or the
+  token-exchange response body.
 - **The SPA falls back to bundled mock data** (`frontend/src/data/mockData`) when an API call fails, so an outage or a
   401 looks like an empty or demo dashboard instead of an error.
-- **Demo defaults remain in the maintenance list and approve context** (a default contractor and phone number), and the
-  owner's ticket edits are kept in memory per company rather than as case events. The "AI draft" options in contacts
+- **The owner's maintenance ticket edits** are kept in memory per company rather than as case events. (The list and the
+  approve context no longer invent a contractor, phone, budget cap, SLA or trade: they read the case's own
+  `request_contractor` action, and the approve path no longer looks a contractor up by name across companies.) The "AI draft" options in contacts
   are fixed templates.
 - **Rent is unknown.** Amounts and arrears are reported as 0 / `unknown` until the BRIXX rent mirror exists.
 - The SSE endpoint has no per-owner connection cap, and v1 rate limits are per process.

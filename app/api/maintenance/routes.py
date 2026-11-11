@@ -17,22 +17,20 @@ from sqlalchemy.orm import Session
 from app.api.deps import WorkflowClient, get_engine, get_workflow_client
 from app.api.inbox.summary import safe_name
 from app.api.maintenance import dispatch
+from app.api.maintenance.live import contractor_of, live_tickets
 from app.api.v1 import enqueue
 from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import decide_limit
-from app.contracts import ActionType, CaseState, Category, Channel, Direction, Urgency
+from app.contracts import CaseState, Channel, Urgency
 from app.core.ids import case_ref
 from app.core.logging import get_logger
-from app.db.enums import ActionStatus, ApprovalStatus, CaseEventKind
+from app.db.enums import CaseEventKind
 from app.db.models import (
     ActionRow,
-    Approval,
     Case,
     CaseEvent,
-    CaseLink,
     ChannelIdentity,
-    MessageRow,
     Person,
     Unit,
 )
@@ -63,8 +61,8 @@ class MaintenanceTicketItem(BaseModel):
     category: str = Field(description="electrical, plumbing, heating, appliance, structural")
     contractorName: str
     contractorTrade: str
-    contractorPhone: str | None = "+31 6 88 12 34 56"
-    contractorEmail: str | None = "dispatch@chahalbouw.nl"
+    contractorPhone: str | None = None
+    contractorEmail: str | None = None
     urgency: str = Field(description="emergency, high, normal, low")
     status: str = Field(description="pending_approval, dispatched, scheduled, completed")
     slaRemaining: str = Field(description="Remaining SLA time or overdue status")
@@ -227,209 +225,10 @@ def get_maintenance_tickets(
     status: str = Query(default="all", description="all, pending_approval, dispatched, scheduled, completed"),
     category: str = Query(default="all", description="all, electrical, plumbing, heating, appliance, structural"),
 ) -> MaintenanceTicketsResponse:
-    live_tickets: list[dict[str, Any]] = []
-    try:
-        with Session(engine) as session:
-            cases = (
-                session.query(Case)
-                .filter(Case.company_id == principal.company_id, Case.category == Category.maintenance)
-                .order_by(Case.opened_at.desc())
-                .all()
-            )
-            for case in cases:
-                unit = session.get(Unit, case.unit_id) if case.unit_id else None
-                unit_label = (unit.address or unit.label) if unit else "Keizersgracht 42-A"
-                person = session.get(Person, case.primary_person_id) if case.primary_person_id else None
-                tenant_name = person.display_name if person else "Tenant"
+    with Session(engine) as session:
+        live = live_tickets(session, principal.company_id)
 
-                tenant_identities = (
-                    session.query(ChannelIdentity).filter(ChannelIdentity.person_id == case.primary_person_id).all()
-                    if case.primary_person_id
-                    else []
-                )
-                tenant_phone = next(
-                    (
-                        ci.identity
-                        for ci in tenant_identities
-                        if ci.channel == Channel.whatsapp or ci.identity.startswith("+")
-                    ),
-                    "+91 94569 16996",
-                )
-
-                actions = session.query(ActionRow).filter(ActionRow.case_id == case.id).all()
-                contractor_action = next((a for a in actions if a.type == ActionType.request_contractor), None)
-
-                contractor_name = "Kevin van Dijk"
-                contractor_trade = "Plumber"
-                contractor_phone = "+31 6 88 12 34 56"
-                contractor_email = "dispatch@chahalbouw.nl"
-                contractor_draft = ""
-
-                # Look up registered contractor Kevin van Dijk from database
-                kevin_p = (
-                    session.query(Person)
-                    .filter(Person.company_id == principal.company_id, Person.display_name.ilike("%kevin%"))
-                    .first()
-                )
-                if kevin_p:
-                    contractor_name = kevin_p.display_name
-                    contractor_trade = (kevin_p.trade or "Plumber").title()
-                    c_idents = session.query(ChannelIdentity).filter(ChannelIdentity.person_id == kevin_p.id).all()
-                    c_ph = next(
-                        (
-                            ci.identity
-                            for ci in c_idents
-                            if ci.channel == Channel.whatsapp or ci.identity.startswith("+")
-                        ),
-                        None,
-                    )
-                    if c_ph:
-                        contractor_phone = c_ph
-                    c_ml = next(
-                        (ci.identity for ci in c_idents if ci.channel == Channel.gmail or "@" in ci.identity), None
-                    )
-                    if c_ml:
-                        contractor_email = c_ml
-
-                if contractor_action:
-                    cp = contractor_action.payload or {}
-                    variants = cp.get("body_variants") or []
-                    if variants:
-                        contractor_draft = variants[0]
-
-                if not contractor_draft:
-                    contractor_draft = (
-                        f"Hi {contractor_name},\n\n"
-                        f"Emergency repair request for {unit_label}:\n"
-                        f"The resident reported an urgent water leak under the kitchen sink with water pooling. "
-                        f"Please confirm your earliest ETA/arrival window to inspect and carry out repairs.\n\n"
-                        f"Authorized budget cap: € 650. Tenant contact: {tenant_name} ({tenant_phone}).\n\n"
-                        f"Best regards,\nHarjot Singh — EstateOS"
-                    )
-
-                reply_action = next((a for a in actions if a.type == ActionType.reply_draft), None)
-                tenant_draft = ""
-                if reply_action and reply_action.payload:
-                    rp = reply_action.payload
-                    r_variants = rp.get("body_variants") or []
-                    if r_variants:
-                        tenant_draft = r_variants[0]
-                    elif rp.get("text"):
-                        tenant_draft = rp["text"]
-                    elif rp.get("body"):
-                        tenant_draft = rp["body"]
-
-                clean_issue_title: str | None = None
-                if not tenant_draft:
-                    issue_ref = clean_issue_title.lower() if clean_issue_title else "maintenance request"
-                    tenant_draft = (
-                        f"Hi {tenant_name},\n\n"
-                        f"Thank you for reporting this issue ({issue_ref}). We have logged an emergency work order and "
-                        f"assigned our approved contractor, {contractor_name}. "
-                        "They will reach out shortly to coordinate access.\n\n"
-                        f"Best regards,\nHarjot Singh — EstateOS"
-                    )
-
-                links = session.query(CaseLink).filter(CaseLink.case_id == case.id).all()
-                msg_ids = [link.message_id for link in links]
-                orig_msg = (
-                    session.query(MessageRow)
-                    .filter(MessageRow.id.in_(msg_ids), MessageRow.direction == Direction.inbound)
-                    .order_by(MessageRow.sent_at.asc())
-                    .first()
-                    if msg_ids
-                    else None
-                )
-
-                # Determine clean issue title
-                raw_summary = case.summary or ""
-                if any(w in raw_summary.lower() for w in ["leak", "water", "pipe", "sink"]):
-                    clean_issue_title = "Water leak under kitchen sink"
-                elif any(w in raw_summary.lower() for w in ["electric", "power", "short"]):
-                    clean_issue_title = "Kitchen electrical short circuit"
-                elif any(w in raw_summary.lower() for w in ["boiler", "heat", "radiator"]):
-                    clean_issue_title = "Central heating boiler error"
-                else:
-                    first_sentence = raw_summary.split(".")[0].strip()
-                    clean_issue_title = first_sentence[:60] if first_sentence else "Emergency maintenance request"
-
-                # Check if work order has already been approved / dispatched
-                has_approved_action = False
-                if case.state in (CaseState.waiting_on_third_party, CaseState.closed, CaseState.resolved):
-                    has_approved_action = True
-                elif contractor_action:
-                    appr = (
-                        session.query(Approval)
-                        .filter(Approval.action_id == contractor_action.id, Approval.status == ApprovalStatus.approved)
-                        .first()
-                    )
-                    if appr:
-                        has_approved_action = True
-                else:
-                    for a in actions:
-                        if a.status == ActionStatus.approved:
-                            has_approved_action = True
-                            break
-                        appr = (
-                            session.query(Approval)
-                            .filter(Approval.action_id == a.id, Approval.status == ApprovalStatus.approved)
-                            .first()
-                        )
-                        if appr:
-                            has_approved_action = True
-                            break
-
-                # Also check if outbound work order email exists in messages
-                if not has_approved_action:
-                    tag = f"#{case_ref(case.id)}"
-                    outbounds = (
-                        session.query(MessageRow)
-                        .filter(
-                            MessageRow.company_id == principal.company_id,
-                            MessageRow.direction == Direction.outbound,
-                            MessageRow.meta.is_not(None),
-                        )
-                        .all()
-                    )
-                    for om in outbounds:
-                        subj = str(om.meta.get("subject", "")) if isinstance(om.meta, dict) else ""
-                        to_val = om.meta.get("to", []) if isinstance(om.meta, dict) else []
-                        to_str = " ".join(to_val) if isinstance(to_val, list) else str(to_val)
-                        if tag.lower() in subj.lower() or "chahalbouw.nl" in to_str.lower():
-                            has_approved_action = True
-                            break
-
-                ticket_status = "dispatched" if has_approved_action else "pending_approval"
-
-                live_tickets.append(
-                    {
-                        "id": str(case.id),
-                        "ticketNumber": f"#{case_ref(case.id)}",
-                        "issueTitle": clean_issue_title,
-                        "unitLabel": unit_label,
-                        "tenantName": tenant_name,
-                        "tenantPhone": tenant_phone,
-                        "category": "plumbing",
-                        "contractorName": contractor_name,
-                        "contractorTrade": contractor_trade,
-                        "contractorPhone": contractor_phone,
-                        "contractorEmail": contractor_email,
-                        "urgency": case.urgency.value if case.urgency else "emergency",
-                        "status": ticket_status,
-                        "slaRemaining": "45m SLA" if ticket_status == "pending_approval" else "Dispatched",
-                        "isOverdue": False,
-                        "poBudgetCap": "€ 650",
-                        "reportedAt": case.opened_at.strftime("%H:%M") if case.opened_at else "Just now",
-                        "notes": case.summary,
-                        "originalMessage": orig_msg.text if orig_msg else case.summary,
-                        "contractorDraft": contractor_draft,
-                        "tenantDraft": tenant_draft,
-                    }
-                )
-    except Exception as exc:
-        log.warning("maintenance.live_tickets_failed", error=str(exc))
-
-    all_tickets = list(live_tickets)
+    all_tickets = list(live)
     tickets = list(all_tickets)
 
     if urgency != "all":
@@ -444,7 +243,7 @@ def get_maintenance_tickets(
         emergencyCount=len([t for t in all_tickets if t["urgency"] == "emergency"]),
         dispatchedCount=len([t for t in all_tickets if t["status"] == "dispatched"]),
         overdueCount=len([t for t in all_tickets if t.get("isOverdue")]),
-        totalPoBudgetEur=0.0 if not all_tickets else 2150.00,
+        totalPoBudgetEur=0.0,
     )
 
     items = [MaintenanceTicketItem(**t) for t in tickets]
@@ -563,7 +362,7 @@ def update_maintenance_ticket(
                     "unitLabel": updates.get("unitLabel") or ((unit.address or unit.label) if unit else "Unknown unit"),
                     "tenantName": tenant.display_name if tenant else "Unknown tenant",
                     "tenantPhone": "",
-                    "category": updates.get("category", "plumbing"),
+                    "category": updates.get("category", "other"),
                     "contractorName": updates.get("contractorName", ""),
                     "contractorTrade": updates.get("contractorTrade", ""),
                     "contractorPhone": updates.get("contractorPhone", ""),
@@ -653,10 +452,12 @@ def _case_context(session: Session, case: Case, ctx: dict[str, str]) -> None:
     if tenant:
         ctx["tenantName"] = tenant.display_name
         ctx["tenantPhone"] = _first_identity(session, tenant.id, phone=True) or ctx["tenantPhone"]
-    kevin = session.query(Person).filter(Person.display_name.ilike("%kevin%")).first()
-    if kevin:
-        ctx["contractorEmail"] = _first_identity(session, kevin.id, phone=False) or ctx["contractorEmail"]
-        ctx["contractorPhone"] = _first_identity(session, kevin.id, phone=True) or ctx["contractorPhone"]
+    actions = list(session.scalars(select(ActionRow).where(ActionRow.case_id == case.id)).all())
+    contractor = contractor_of(session, case, actions)
+    if contractor:
+        ctx["contractorName"] = contractor.display_name
+        ctx["contractorEmail"] = _first_identity(session, contractor.id, phone=False) or ""
+        ctx["contractorPhone"] = _first_identity(session, contractor.id, phone=True) or ""
 
 
 def _record_dispatch_state(session: Session, case: Case, contractor_name: str, at: datetime) -> None:
@@ -779,12 +580,12 @@ def approve_ticket_dispatch(
     body = body or ApproveDispatchRequest()
     ctx = {
         "ticketNumber": ticket_id if ticket_id.startswith("#") else f"#{ticket_id[:4]}",
-        "unitLabel": "Keizersgracht 42-A",
-        "contractorName": "Kevin van Dijk",
-        "contractorEmail": "dispatch@chahalbouw.nl",
-        "contractorPhone": "+31 6 88 12 34 56",
-        "tenantName": "Vipin Tyagi",
-        "tenantPhone": "+31 6 94 56 16 99",
+        "unitLabel": "Unknown unit",
+        "contractorName": "",
+        "contractorEmail": "",
+        "contractorPhone": "",
+        "tenantName": "Unknown tenant",
+        "tenantPhone": "",
     }
     decided = _approve_live_case(engine, principal.company_id, ticket_id, body, ctx)
     if decided is None:
@@ -795,7 +596,7 @@ def approve_ticket_dispatch(
     ticket = _seeded_ticket(principal.company_id, ticket_id) or {
         "id": ticket_id,
         **ctx,
-        "poBudgetCap": "€ 650",
+        "poBudgetCap": "",
         "status": "pending_approval",
     }
     ticket["status"] = "dispatched"
