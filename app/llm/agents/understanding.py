@@ -21,6 +21,9 @@ UNDERSTANDING = AgentSpec(
 )
 
 
+MAX_UNDERSTANDING_BODY_CHARS: int = 10_000
+
+
 def understanding_prompt(
     text: str,
     channel: Channel,
@@ -28,5 +31,9 @@ def understanding_prompt(
     attachments: Sequence[AttachmentMeta] = (),
 ) -> str:
     """The email subject is sender-controlled, so it is rendered inside the untrusted <message> block."""
+    if len(text) > MAX_UNDERSTANDING_BODY_CHARS:
+        text = text[:MAX_UNDERSTANDING_BODY_CHARS] + "\n\n...[content truncated for triage]"
+    if subject and len(subject) > 500:
+        subject = subject[:500] + "..."
     body = f"Subject: {subject}\n\n{text}" if subject else text
     return f"Channel: {channel.value}\n{attachments_block(attachments)}\n{data_block('message', body)}"

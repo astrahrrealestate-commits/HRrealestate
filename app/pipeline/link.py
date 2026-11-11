@@ -18,8 +18,8 @@ from app.contracts import CaseState, Category, Urgency
 from app.core.errors import AgentFailedError
 from app.core.logging import get_logger
 from app.core.settings import Settings
-from app.db.enums import LinkMethod
-from app.db.models import AttachmentRow, CaseLink, MessageRow, Person, PersonProfile, UnderstandingRow
+from app.db.enums import LinkMethod, PersonKind
+from app.db.models import AttachmentRow, CaseLink, LeaseParty, MessageRow, Person, PersonProfile, UnderstandingRow
 from app.llm.agents.case_summary import CASE_SUMMARY, case_summary_prompt
 from app.llm.agents.link_check import LINK_CHECK, CandidateCase, accept_link, link_check_prompt
 from app.llm.calls import CallContext, run_agent
@@ -73,7 +73,25 @@ def _load(session: Session, message_id: UUID) -> _Facts | LinkResult | None:
     if category is Category.spam and (not msg.text.strip() or _has_attachments(session, msg)):
         category = Category.other  # a photo or file with no words is never dropped as spam: Harjot sees it
     body = und.body if und else {}
-    requires_reply = bool(body.get("requires_reply", category is not Category.spam))
+
+    # Non-Actionable Fallback on Crash:
+    # When understanding failed (und is None) or is unreadable, check if sender is an established property contact
+    is_known_contact = False
+    if msg.person_id:
+        person = session.get(Person, msg.person_id)
+        if person and getattr(person, "kind", None) in (PersonKind.tenant, PersonKind.contractor):
+            is_known_contact = True
+        elif session.scalar(
+            select(LeaseParty.id).where(LeaseParty.company_id == msg.company_id, LeaseParty.person_id == msg.person_id)
+        ) is not None:
+            is_known_contact = True
+
+    if und is None and not is_known_contact:
+        # Unlinked stranger/marketing sender with failed understanding: do not require reply or open a primary triage case
+        requires_reply = False
+    else:
+        requires_reply = bool(body.get("requires_reply", category is not Category.spam))
+
     suspicious = bool((body.get("suspicious") or {}).get("flag", False))
     return _Facts(
         msg.id,
