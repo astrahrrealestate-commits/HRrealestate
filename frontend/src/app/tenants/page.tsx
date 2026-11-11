@@ -151,7 +151,7 @@ function TenantsView({ tenants: MOCK_TENANTS }: { tenants: TenantProfile[] }) {
 
       // Search query
       if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
+        const q = searchQuery.trim().toLowerCase();
         const matchesName = tenant.name.toLowerCase().includes(q);
         const matchesUnit = tenant.unitLabel.toLowerCase().includes(q);
         const matchesEmail = (tenant.email ?? "").toLowerCase().includes(q);

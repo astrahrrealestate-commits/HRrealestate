@@ -176,3 +176,10 @@ def test_poll_pages_identical_created_at_without_skips() -> None:
             frames, cursor = events.poll_frames(MagicMock(), uuid4(), cursor)
             seen += [UUID(f.split("|")[1].split("\n")[0]) for f in frames]
     assert seen == [UUID(int=1), UUID(int=2), UUID(int=3)]
+
+
+def test_events_refuse_an_owner_who_holds_too_many_streams(client: TestClient) -> None:
+    with patch.object(events, "SLOTS", events.StreamSlots(cap=0, ttl=60.0)):
+        response = client.get("/api/v1/events")
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "30"

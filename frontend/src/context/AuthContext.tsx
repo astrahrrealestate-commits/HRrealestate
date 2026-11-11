@@ -23,7 +23,13 @@ interface AuthContextType {
   /** Whether the signed-in profile may open a section ("admin" = team management). True while nobody is known
    * (local development without a session, or the API offline): the API refuses what is not allowed. */
   canAccess: (section: string) => boolean;
+  /** The Super Agent answers from the whole portfolio, so only a profile that opens every data section may use it
+   * (the API enforces the same rule). */
+  canUseAgent: boolean;
 }
+
+/** Mirrors DATA_SECTION_KEYS in app/api/v1/sections.py: every section except settings. */
+const AGENT_SECTIONS = ["dashboard", "inbox", "properties", "tenants", "contacts", "maintenance", "money", "reports"];
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
@@ -32,6 +38,7 @@ const AuthContext = createContext<AuthContextType>({
   logout: async () => {},
   refreshUser: async () => {},
   canAccess: () => true,
+  canUseAgent: true,
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -96,6 +103,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return user.isAdmin || user.sections.includes(section);
   };
 
+  const canUseAgent = !user || user.isAdmin || AGENT_SECTIONS.every((section) => user.sections.includes(section));
+
   return (
     <AuthContext.Provider
       value={{
@@ -105,6 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout,
         refreshUser: fetchCurrentUser,
         canAccess,
+        canUseAgent,
       }}
     >
       {children}

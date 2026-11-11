@@ -15,10 +15,11 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from app.api.v1.auth import Principal
-from app.contracts import Category, Channel, Urgency
+from app.contracts import ActionType, Category, Channel, Urgency
 from app.core.settings import Settings
 from app.db.enums import CaseEventKind, PersonKind, SendStatus, WaitStatus
 from app.db.models import (
+    ActionRow,
     Case,
     CaseEvent,
     ChannelIdentity,
@@ -214,6 +215,53 @@ def test_maintenance_tickets_list_this_companys_cases(portfolio: Portfolio) -> N
     for key in ("ticketNumber", "issueTitle", "unitLabel", "contractorName", "poBudgetCap", "slaRemaining"):
         assert key in ticket
     assert "Their burst pipe" not in str(data)
+
+
+def test_a_ticket_with_no_recorded_facts_shows_none_instead_of_invented_ones(portfolio: Portfolio) -> None:
+    data = portfolio.client.get("/api/maintenance/tickets").json()
+    ticket = next(t for t in data["tickets"] if t["id"] == str(portfolio.maintenance_case))
+    assert ticket["issueTitle"] == "Burst pipe"
+    assert (ticket["contractorName"], ticket["contractorPhone"], ticket["contractorEmail"]) == ("", "", "")
+    assert (ticket["poBudgetCap"], ticket["slaRemaining"], ticket["tenantPhone"]) == ("", "", "")
+    assert (ticket["category"], ticket["unitLabel"]) == ("other", "Unknown unit")
+    assert data["stats"]["totalPoBudgetEur"] == 0
+    rendered = str(ticket)
+    for invented in ("Kevin", "chahalbouw", "650", "kitchen sink", "Keizersgracht", "+31 6 88", "+91"):
+        assert invented not in rendered
+
+
+def test_the_contractor_comes_from_the_requested_action_and_sets_the_category(portfolio: Portfolio) -> None:
+    with Session(portfolio.engine) as s:
+        person = Person(
+            company_id=portfolio.company, kind=PersonKind.contractor, display_name="Piet Loodgieter",
+            trade="plumber", valid_from=SINCE,
+        )  # fmt: skip
+        s.add(person)
+        s.flush()
+        s.add(
+            ChannelIdentity(
+                company_id=portfolio.company, person_id=person.id, channel=Channel.whatsapp,
+                identity="+31699999999", valid_from=SINCE,
+            )
+        )  # fmt: skip
+        s.add(
+            ActionRow(
+                company_id=portfolio.company, case_id=portfolio.maintenance_case, type=ActionType.request_contractor,
+                payload={
+                    "kind": "request_contractor",
+                    "contractor_person_id": str(person.id),
+                    "body_variants": ["Hoi Piet, graag langskomen."],
+                },
+                rationale="r", context_ref=[],
+            )
+        )  # fmt: skip
+        s.commit()
+    data = portfolio.client.get("/api/maintenance/tickets").json()
+    ticket = next(t for t in data["tickets"] if t["id"] == str(portfolio.maintenance_case))
+    assert (ticket["contractorName"], ticket["contractorTrade"], ticket["contractorPhone"]) == (
+        "Piet Loodgieter", "Plumber", "+31699999999",
+    )  # fmt: skip
+    assert (ticket["category"], ticket["contractorDraft"]) == ("plumbing", "Hoi Piet, graag langskomen.")
 
 
 def test_maintenance_tickets_filtering(portfolio: Portfolio) -> None:

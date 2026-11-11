@@ -45,6 +45,7 @@ import {
   isUrgent,
 } from "@/lib/selectors";
 import { useSuperAgent } from "@/context/SuperAgentContext";
+import { useAuth } from "@/context/AuthContext";
 import { getPortfolio, getTenantProfiles } from "@/lib/portfolioApi";
 import type { TenantProfile } from "@/types/portfolio";
 import type { PropertyComplex } from "@/types/portfolio";
@@ -518,6 +519,8 @@ export default function TodayPage() {
 
   // Briefing mode: Daily pulse vs Weekly recap
   const [briefingKind, setBriefingKind] = useState<"daily" | "weekly">("daily");
+  const { user } = useAuth();
+  const firstName = user?.name?.trim().split(/\s+/)[0] ?? "";
   const [briefingData, setBriefingData] = useState<{
     headline: string;
     summarySentence: string;
@@ -564,7 +567,7 @@ export default function TodayPage() {
                   {briefingKind === "daily" ? `${todayFormatted} · Amsterdam (CET)` : "9 Oct – 15 Oct (Weekly Review) · Amsterdam (CET)"}
                 </span>
                 <h1 className="font-heading font-bold text-[28px] sm:text-[32px] text-[var(--ink)] tracking-tight leading-none mt-1">
-                  {briefingKind === "daily" ? "Good morning, Harjot" : "Weekly executive review, Harjot"}
+                  {briefingKind === "daily" ? "Good morning" : "Weekly executive review"}{firstName ? `, ${firstName}` : ""}
                 </h1>
               </div>
 

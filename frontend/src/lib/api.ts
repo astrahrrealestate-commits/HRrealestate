@@ -192,11 +192,14 @@ export async function getInboxThreads(
   return { threads: [], isLive: false };
 }
 
-/**
- * Triggers an on-demand sync from Gmail to fetch new incoming emails and run the AI pipeline.
- * POST /api/inbox/sync
- */
-export async function syncGmailInbox(): Promise<{ synced: boolean; newMessages: number; message: string }> {
+type SyncResult = { synced: boolean; newMessages: number; message: string };
+
+const SYNC_MIN_GAP_MS = 10_000; // the server allows 6 syncs a minute per owner; page loads and polling must share them
+let syncInFlight: Promise<SyncResult> | null = null;
+let lastSyncAt = 0;
+let lastSyncResult: SyncResult | null = null;
+
+async function postInboxSync(): Promise<SyncResult> {
   try {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/sync`, {
       method: "POST",
@@ -206,10 +209,33 @@ export async function syncGmailInbox(): Promise<{ synced: boolean; newMessages: 
     if (res.ok) {
       return await res.json();
     }
+    if (res.status === 429) {
+      return { synced: false, newMessages: 0, message: "Sync is rate limited. Try again in a minute." };
+    }
   } catch (err) {
     console.warn("Failed to trigger inbox sync:", err);
   }
   return { synced: false, newMessages: 0, message: "Sync timed out or backend unreachable." };
+}
+
+/**
+ * Triggers an on-demand sync from Gmail to fetch new incoming emails and run the AI pipeline.
+ * POST /api/inbox/sync. Calls made while one is running share it, and calls within SYNC_MIN_GAP_MS of the last
+ * answer reuse that answer, so repeated page loads and the polling timer cannot trip the server's rate limit.
+ */
+export async function syncGmailInbox(): Promise<SyncResult> {
+  if (syncInFlight) return syncInFlight;
+  if (lastSyncResult && Date.now() - lastSyncAt < SYNC_MIN_GAP_MS) return lastSyncResult;
+  syncInFlight = postInboxSync().then((result) => {
+    lastSyncAt = Date.now();
+    lastSyncResult = result;
+    return result;
+  });
+  try {
+    return await syncInFlight;
+  } finally {
+    syncInFlight = null;
+  }
 }
 
 /**
@@ -415,16 +441,16 @@ export async function getDashboardRadar(): Promise<{ items: StalledItem[]; total
         const mappedItems: StalledItem[] = data.items.map((item: any, idx: number) => ({
           id: item.id || `stall-${idx}`,
           type: item.partyRole?.toLowerCase().includes("contractor") ? "contractor_stalled" : "unpaid_rent",
-          unitLabel: item.unitLabel || "Keizersgracht 42-A",
+          unitLabel: item.unitLabel || "Unknown unit",
           partyName: item.partyName || "Unknown Party",
           partyRole: item.partyRole || "Party",
-          contact: item.contact || "+31 6 00 00 00 00",
+          contact: item.contact || "",
           subject: item.issueSummary || "Awaiting response",
-          amount: item.amount || 2450.0,
-          remindersSentCount: item.chasersSent ?? 1,
-          lastMessageSent: `${item.daysWaiting ?? 2} days ago`,
-          daysStalled: item.daysWaiting ?? 2,
-          statusBadge: `${item.chasersSent ?? 1} reminders sent`,
+          amount: item.amount ?? 0,
+          remindersSentCount: item.chasersSent ?? 0,
+          lastMessageSent: `${item.daysWaiting ?? 0} days ago`,
+          daysStalled: item.daysWaiting ?? 0,
+          statusBadge: `${item.chasersSent ?? 0} reminders sent`,
           proposedActionLabel: item.proposedActionLabel || "Send follow-up",
           proposedActionDraft: `Beste ${item.partyName || "relatie"}, kunt u een update sturen? Groet, H R Real Estate.`,
         }));
@@ -1645,4 +1671,3 @@ export async function getRentAnalytics(): Promise<RentAnalyticsResponse | null> 
   }
   return null;
 }
-
