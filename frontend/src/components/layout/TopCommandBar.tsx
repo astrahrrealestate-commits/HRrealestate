@@ -4,6 +4,7 @@ import React, { useRef, useEffect } from "react";
 import { Sparkles, Search, X, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSuperAgent } from "@/context/SuperAgentContext";
+import { useAuth } from "@/context/AuthContext";
 
 interface TopCommandBarProps {
   onAskAgent?: () => void;
@@ -25,6 +26,7 @@ export function TopCommandBar({
   hideSearch = false,
 }: TopCommandBarProps) {
   const superAgent = useSuperAgent();
+  const { canUseAgent } = useAuth();
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -72,7 +74,8 @@ export function TopCommandBar({
           </button>
         )}
 
-        {/* Super Agent Core pill button */}
+        {/* Super Agent Core pill button (hidden for profiles that do not open every section) */}
+        {canUseAgent && (
         <button
           type="button"
           onClick={onAskAgent || superAgent.toggleOpen}
@@ -90,6 +93,7 @@ export function TopCommandBar({
             Core
           </span>
         </button>
+        )}
       </div>
     </header>
   );

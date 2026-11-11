@@ -6,9 +6,9 @@ export const INITIAL_METRICS: PulseMetrics = {
   openRentTotalEur: 0,
   overdueRentEur: 0,
   overdueTenantsCount: 0,
-  occupancyPercentage: 100,
-  totalUnits: 40,
-  occupiedUnits: 40,
+  occupancyPercentage: 0,
+  totalUnits: 0,
+  occupiedUnits: 0,
   autonomousActionsWeek: 0,
   hoursSavedWeek: 0,
 };

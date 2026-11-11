@@ -71,24 +71,23 @@ the build when a route answers an anonymous caller without being listed as publi
   localhost and plain-http public URLs and the fake Google Chat verifier
 
 Still open (fix in this order):
-- **Profiles limit sections, not actions, and not the Super Agent** (ADR 0012). A member sees only the sections a
-  superadmin switched on; every router is guarded per request and a test walks the OpenAPI document to keep it so.
-  Anyone who holds a section that offers approve/send can approve and send; `reports`/`dashboard` profiles read the
-  lists their pages summarise without message bodies, drafts, phone numbers or emails (the feed, calendar and
-  attachments follow the same rule). That is a view limit only while the Super Agent (`/api/agent`,
-  `/api/v1/agent`) is ungated: it answers from the whole portfolio whatever the profile, so a restricted profile can
-  ask it for the hidden data: before inviting anyone who should not see
-  everything, decide whether they get it, and scope its tools per section. An address whitelisted in two companies
-  cannot sign in (`ambiguous_account`): an admin who whitelists a stranger's address can lock that person out until
-  the row is removed; add a company picker before a second company exists.
+- **Profiles limit sections, not actions** (ADR 0012). A member sees only the sections a superadmin switched on; every
+  router is guarded per request and a test walks the OpenAPI document to keep it so. Anyone who holds a section that
+  offers approve/send can approve and send; `reports`/`dashboard` profiles read the lists their pages summarise
+  without message bodies, drafts, phone numbers or emails (the feed, calendar and attachments follow the same rule).
+  The Super Agent (`/api/agent`, `/api/v1/agent`) answers from the whole portfolio, so it is refused (403, and its
+  button is hidden) unless the profile opens every data section (`Access.can_use_agent`); scoping its tools per
+  section would lift that. An address whitelisted in two companies cannot sign in (`ambiguous_account`): an admin who
+  whitelists a stranger's address can lock that person out until the row is removed; add a company picker before a
+  second company exists.
 - **The owner's Google OAuth credentials** live in one plaintext file (mode 0600) for the whole installation
   (`channels/google_auth.py`), not per company. The module no longer logs the account email, the file path or the
   token-exchange response body.
-- **The SPA falls back to bundled mock data** (`frontend/src/data/mockData`) when an API call fails, so an outage or a
-  401 looks like an empty or demo dashboard instead of an error.
+- **The SPA's offline fallbacks** (`frontend/src/data/mockData`) are empty or zero (no invented units, rent or
+  contacts), but an API failure still shows them quietly with `isLive: false` instead of an error banner.
 - **The owner's maintenance ticket edits** are kept in memory per company rather than as case events. (The list and the
   approve context no longer invent a contractor, phone, budget cap, SLA or trade: they read the case's own
   `request_contractor` action, and the approve path no longer looks a contractor up by name across companies.) The "AI draft" options in contacts
   are fixed templates.
 - **Rent is unknown.** Amounts and arrears are reported as 0 / `unknown` until the BRIXX rent mirror exists.
-- The SSE endpoint has no per-owner connection cap, and v1 rate limits are per process.
+- v1 rate limits and the per-owner cap of 4 live event streams (`stream_slots.py`) are per process.

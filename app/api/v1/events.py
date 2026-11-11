@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_principal
 from app.api.v1.schemas import FeedItem
+from app.api.v1.stream_slots import StreamSlots
 from app.api.v1.turn_events import TURN_POLL_SECONDS, TurnPoller
 from app.pipeline.read_repo import MAX_PAGE, BadCursorError, Cursor, feed_page, parse_cursor
 
@@ -30,6 +31,8 @@ POLL_INTERVAL_S = 1.5
 PING_INTERVAL_S = 15.0
 SSE_START_LAG = timedelta(seconds=5)
 MAX_LIFETIME_S = 15 * 60.0
+MAX_STREAMS_PER_OWNER = 4  # a few tabs and a reconnect overlap; more is a runaway client
+SLOTS = StreamSlots(cap=MAX_STREAMS_PER_OWNER, ttl=MAX_LIFETIME_S + 60.0)
 
 log = structlog.get_logger(__name__)
 router = APIRouter(
@@ -170,14 +173,28 @@ async def get_feed(
     )
 
 
+async def _holding(stream: AsyncIterator[str], owner_id: UUID, token: int) -> AsyncIterator[str]:
+    """Yield the stream, then give the owner's place back however it ended."""
+    try:
+        async for chunk in stream:
+            yield chunk
+    finally:
+        SLOTS.release(owner_id, token)
+
+
 @router.get("/events")
 async def get_events(
     request: Request, principal: Annotated[Principal, Depends(require_principal)]
 ) -> StreamingResponse:
+    token = SLOTS.acquire(principal.owner_id)
+    if token is None:
+        raise HTTPException(status_code=429, detail="too many open event streams", headers={"Retry-After": "30"})
     after = start_cursor(request.headers.get("last-event-id"))
     engine = request.app.state.engine
     turns = TurnPoller(engine, principal.company_id, principal.owner_id)
     stream = event_stream(request, engine, principal.company_id, after, turns=turns, full=_sees_cards(principal))
     return StreamingResponse(
-        stream, media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+        _holding(stream, principal.owner_id, token),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

@@ -100,11 +100,10 @@ def test_only_admins_reach_the_admin_api(client: TestClient) -> None:
 
 
 # What a profile with only `contacts` can still reach: its own section and the pages everyone needs. The Super Agent
-# and the search palette are shared tools (search filters its hits by section; the agent is a documented gap).
+# is not among them: it answers from the whole portfolio, so only a profile that opens every data section may use it.
+# The search palette is shared (it filters its hits by section).
 SHARED_PREFIXES = (
     "/api/contacts",
-    "/api/agent",
-    "/api/v1/agent",
     "/api/v1/auth/session",
     "/api/v1/me",
     "/api/v1/search",
@@ -136,6 +135,21 @@ def test_a_contacts_only_profile_is_refused_on_every_other_route(client: TestCli
                 if response.status_code != 403 and not path.startswith(SHARED_PREFIXES):
                     reachable.append(f"{response.status_code} {verb.upper()} {path}")
     assert reachable == [], "not behind a section guard: " + ", ".join(reachable)
+
+
+def test_the_super_agent_needs_every_data_section_because_it_answers_from_the_whole_portfolio(
+    client: TestClient,
+) -> None:
+    ask = {"query": "who is late with rent?"}
+    with _as(Access(role="member", sections=frozenset({"contacts", "reports"}))):
+        assert client.post("/api/agent/ask", json=ask, headers=CSRF).status_code == 403
+        assert client.get("/api/agent/conversations").status_code == 403
+    data_sections = frozenset(SECTION_KEYS - {"settings"})
+    with _as(Access(role="member", sections=data_sections)):
+        assert client.post("/api/agent/ask", json=ask, headers=CSRF).status_code != 403
+        assert client.get("/api/agent/conversations").status_code != 403
+    with _as(Access(role="superadmin")):
+        assert client.get("/api/agent/conversations").status_code != 403
 
 
 def test_company_pause_and_resume_are_for_admins_even_with_every_section(client: TestClient) -> None:

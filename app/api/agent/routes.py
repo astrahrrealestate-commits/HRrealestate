@@ -23,6 +23,7 @@ from app.api.agent.property_scope import property_scope
 from app.api.agent.rent_guard import rent_data_answer
 from app.api.agent.steps import asks_for_clarification, display_steps
 from app.api.deps import get_engine, get_settings_dep
+from app.api.v1.access import require_agent
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import ask_limit
 from app.channels.calendar import get_calendar_client
@@ -68,7 +69,7 @@ from app.pipeline.rag import search_hybrid
 from app.superagent.chat import chat_answer
 from app.superagent.research import ResearchResult, run_research
 
-router = APIRouter(prefix="/api/agent", tags=["agent"], dependencies=[Depends(require_session)])
+router = APIRouter(prefix="/api/agent", tags=["agent"], dependencies=[Depends(require_agent)])
 log = get_logger(__name__)
 
 
