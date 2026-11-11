@@ -102,7 +102,7 @@ function ContactsContent() {
   const { t } = useLanguage();
 
   // Left Sidebar Filter state
-  const [filterAudience, setFilterAudience] = useState<"all" | "tenant" | "contractor" | "other">("all");
+  const [filterAudience, setFilterAudience] = useState<"all" | "tenant" | "contractor">("all");
   const [contactForm, setContactForm] = useState<{ open: boolean; contact: ContactItem | null }>({
     open: false,
     contact: null,
@@ -136,7 +136,7 @@ function ContactsContent() {
     async function loadContacts() {
       setIsLoadingContacts(true);
       try {
-        const list = await getContactsList(filterAudience === "other" ? "all" : filterAudience);
+        const list = await getContactsList(filterAudience);
         if (isMounted && list) {
           setDbContacts(list);
         }
@@ -364,12 +364,13 @@ function ContactsContent() {
     }
   };
 
-  // Filtered contacts in the left 220px list (re-evaluates when allAvailableContacts loads)
+  // Filtered contacts in the left 220px list (strictly portfolio contacts: Tenants & Contractors)
   const filteredContacts = useMemo(() => {
     return allAvailableContacts.filter((contact) => {
+      // Must be a tenant or contractor
+      if (contact.category !== "tenant" && contact.category !== "contractor") return false;
       if (filterAudience === "tenant" && contact.category !== "tenant") return false;
       if (filterAudience === "contractor" && contact.category !== "contractor") return false;
-      if (filterAudience === "other" && (contact.category === "tenant" || contact.category === "contractor")) return false;
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -531,21 +532,6 @@ function ContactsContent() {
                         )}
                       >
                         {t("Contractors")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFilterAudience("other");
-                          setIsFilterDropdownOpen(false);
-                        }}
-                        className={cn(
-                          "px-3 py-2 text-[12px] text-left transition-colors cursor-pointer",
-                          filterAudience === "other"
-                            ? "bg-[#f3f4f6] text-[#111827] font-semibold"
-                            : "text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]"
-                        )}
-                      >
-                        Other
                       </button>
                     </div>
                   )}
