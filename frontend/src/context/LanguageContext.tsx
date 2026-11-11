@@ -127,8 +127,6 @@ export const DICTIONARY: Translations = {
   "collected on time": { en: "collected on time", nl: "op tijd geïncasseerd" },
   "in arrears": { en: "in arrears", nl: "met achterstand" },
   "Rent overdue": { en: "Rent overdue", nl: "Achterstallige huur" },
-  "Rent up to date": { en: "Rent up to date", nl: "Huur op tijd" },
-  "Overdue": { en: "Overdue", nl: "Achterstand" },
   "Monthly": { en: "Monthly", nl: "Maandelijks" },
   "Yearly": { en: "Yearly", nl: "Jaarlijks" },
   "Minimize": { en: "Minimize", nl: "Minimaliseren" },

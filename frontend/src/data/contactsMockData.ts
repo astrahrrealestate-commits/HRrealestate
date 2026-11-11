@@ -72,6 +72,7 @@ export interface ContactItem {
   agreementPeriod: string;
   preferredChannel?: "gmail" | "whatsapp";
   status: "active" | "inactive" | "pending";
+  rentStatus?: "up_to_date" | "overdue" | string;
   openTicketsCount: number;
   rating?: number;
   notes?: string;
