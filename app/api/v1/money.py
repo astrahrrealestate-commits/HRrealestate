@@ -81,6 +81,9 @@ class MonthAnalytics(BaseModel):
     paidTenants: int
     overdueCount: int
     collectionRate: float
+    occupiedUnits: int = 110
+    totalUnits: int = 110
+    occupancyRate: float = 100.0
 
 
 class PreviousMonthAnalytics(BaseModel):
@@ -88,6 +91,7 @@ class PreviousMonthAnalytics(BaseModel):
     totalCollected: float
     collectionRate: float
     momChangePct: float
+    occupancyRate: float = 100.0
 
 
 class HistoricalTrendPoint(BaseModel):
@@ -97,6 +101,9 @@ class HistoricalTrendPoint(BaseModel):
     collected: float
     overdue: float
     rate: float
+    occupiedUnits: int
+    totalUnits: int = 110
+    occupancyRate: float
 
 
 class RentAnalyticsResponse(BaseModel):
@@ -304,6 +311,7 @@ def get_rent_analytics(
             raise HTTPException(status_code=404, detail="no rent analytics recorded")
 
         # Trend points
+        PORTFOLIO_TOTAL_UNITS = 110
         trend: list[HistoricalTrendPoint] = [
             HistoricalTrendPoint(
                 month=MONTH_NAMES[s.billing_month.month - 1],
@@ -312,6 +320,9 @@ def get_rent_analytics(
                 collected=round(float(s.total_collected_rent_cents) / 100.0, 2),
                 overdue=round(float(s.total_overdue_rent_cents) / 100.0, 2),
                 rate=float(s.collection_rate_pct),
+                occupiedUnits=s.total_tenants_count,
+                totalUnits=PORTFOLIO_TOTAL_UNITS,
+                occupancyRate=round((float(s.total_tenants_count) / float(PORTFOLIO_TOTAL_UNITS)) * 100.0, 1),
             )
             for s in summaries
         ]
@@ -330,6 +341,9 @@ def get_rent_analytics(
                 totalCollected=round(float(previous_summary.total_collected_rent_cents) / 100.0, 2),
                 collectionRate=float(previous_summary.collection_rate_pct),
                 momChangePct=mom_change,
+                occupancyRate=round(
+                    (float(previous_summary.total_tenants_count) / float(PORTFOLIO_TOTAL_UNITS)) * 100.0, 1
+                ),
             )
             if previous_summary
             else None
@@ -344,6 +358,11 @@ def get_rent_analytics(
             paidTenants=current_summary.paid_tenants_count,
             overdueCount=current_summary.overdue_tenants_count,
             collectionRate=float(current_summary.collection_rate_pct),
+            occupiedUnits=current_summary.total_tenants_count,
+            totalUnits=PORTFOLIO_TOTAL_UNITS,
+            occupancyRate=round(
+                (float(current_summary.total_tenants_count) / float(PORTFOLIO_TOTAL_UNITS)) * 100.0, 1
+            ),
         )
 
         return RentAnalyticsResponse(

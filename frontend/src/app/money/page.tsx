@@ -8,22 +8,19 @@ import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { Button } from "@/components/ui/Button";
 import {
   Search,
-  Filter,
   Check,
   ChevronDown,
   X,
   AlertTriangle,
   Clock,
-  CheckCircle2,
   Calendar,
   Building,
-  CreditCard,
   ChevronRight,
   Download,
   TrendingUp,
   TrendingDown,
-  Send,
-  Sparkles,
+  BarChart3,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MOCK_TRANSACTIONS, MoneyTransaction } from "@/data/moneyMockData";
@@ -40,9 +37,9 @@ import {
 } from "@/lib/api";
 
 type TenantRentTab = "all" | "paid" | "overdue" | "pending";
+type ChartViewMode = "revenue" | "occupancy";
 
 function formatMonthLabel(monthStr: string): string {
-  // e.g. "2026-11" -> "November 2026"
   try {
     const [year, m] = monthStr.split("-").map(Number);
     const date = new Date(year, m - 1, 1);
@@ -123,6 +120,7 @@ function MoneyContent() {
   ]);
   const [isMonthDropdownOpen, setIsMonthDropdownOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TenantRentTab>("all");
+  const [chartView, setChartView] = useState<ChartViewMode>("revenue");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTx, setSelectedTx] = useState<MoneyTransaction | null>(null);
 
@@ -174,7 +172,6 @@ function MoneyContent() {
     if (ledgerItems.length > 0) {
       return ledgerItems.map(ledgerItemToTransaction);
     }
-    // Fallback only if database returned empty
     return MOCK_TRANSACTIONS.filter((t) => t.category === "rent" || t.type === "rent_receivable");
   }, [ledgerItems]);
 
@@ -200,10 +197,12 @@ function MoneyContent() {
       }
     });
 
-    // In portfolio with 110 units, scaled portfolio totals from analytics or calculated
     const portfolioScheduled = analytics?.currentMonth?.totalScheduled || 165734.0;
     const portfolioCollected = analytics?.currentMonth?.totalCollected || (portfolioScheduled - overdueAmount);
     const collectionRate = analytics?.currentMonth?.collectionRate || (totalScheduled > 0 ? (totalCollected / totalScheduled) * 100 : 98.0);
+    const occupiedUnits = analytics?.currentMonth?.occupiedUnits ?? 110;
+    const totalUnits = analytics?.currentMonth?.totalUnits ?? 110;
+    const occupancyRate = analytics?.currentMonth?.occupancyRate ?? 100.0;
 
     return {
       totalScheduled: portfolioScheduled,
@@ -213,9 +212,13 @@ function MoneyContent() {
       paidCount,
       pendingCount,
       collectionRate,
+      occupiedUnits,
+      totalUnits,
+      occupancyRate,
       momChangePct: analytics?.previousMonth?.momChangePct ?? -1.95,
       previousMonthCollected: analytics?.previousMonth?.totalCollected ?? 165734.0,
       previousRate: analytics?.previousMonth?.collectionRate ?? 100.0,
+      previousOccupancyRate: analytics?.previousMonth?.occupancyRate ?? 100.0,
     };
   }, [allTransactions, analytics]);
 
@@ -279,12 +282,10 @@ function MoneyContent() {
   // Filtered transactions for the tenant view
   const filteredTransactions = useMemo(() => {
     return allTransactions.filter((tx) => {
-      // Tab filter (strictly tenants!)
       if (activeTab === "paid" && tx.status !== "paid") return false;
       if (activeTab === "overdue" && tx.status !== "overdue") return false;
       if (activeTab === "pending" && tx.status !== "pending") return false;
 
-      // Search query filter
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchesRef = tx.reference.toLowerCase().includes(q);
@@ -327,18 +328,18 @@ function MoneyContent() {
     URL.revokeObjectURL(url);
   };
 
-  // Historical trend points (defaults to 6 months if loading)
+  // Historical trend points (with revenue + occupancy)
   const trendPoints: HistoricalTrendPoint[] = useMemo(() => {
     if (analytics?.historicalTrend && analytics.historicalTrend.length > 0) {
       return analytics.historicalTrend;
     }
     return [
-      { month: "Jun", billingMonth: "2026-06", scheduled: 162000, collected: 162000, overdue: 0, rate: 100 },
-      { month: "Jul", billingMonth: "2026-07", scheduled: 163500, collected: 163500, overdue: 0, rate: 100 },
-      { month: "Aug", billingMonth: "2026-08", scheduled: 164000, collected: 164000, overdue: 0, rate: 100 },
-      { month: "Sep", billingMonth: "2026-09", scheduled: 165000, collected: 163150, overdue: 1850, rate: 98.8 },
-      { month: "Oct", billingMonth: "2026-10", scheduled: 165734, collected: 165734, overdue: 0, rate: 100 },
-      { month: "Nov", billingMonth: "2026-11", scheduled: 165734, collected: 162494, overdue: 3240, rate: 98.0 },
+      { month: "Jun", billingMonth: "2026-06", scheduled: 162000, collected: 162000, overdue: 0, rate: 100, occupiedUnits: 104, totalUnits: 110, occupancyRate: 94.5 },
+      { month: "Jul", billingMonth: "2026-07", scheduled: 163500, collected: 163500, overdue: 0, rate: 100, occupiedUnits: 106, totalUnits: 110, occupancyRate: 96.4 },
+      { month: "Aug", billingMonth: "2026-08", scheduled: 164000, collected: 164000, overdue: 0, rate: 100, occupiedUnits: 107, totalUnits: 110, occupancyRate: 97.3 },
+      { month: "Sep", billingMonth: "2026-09", scheduled: 165000, collected: 163150, overdue: 1850, rate: 98.8, occupiedUnits: 108, totalUnits: 110, occupancyRate: 98.2 },
+      { month: "Oct", billingMonth: "2026-10", scheduled: 165734, collected: 165734, overdue: 0, rate: 100, occupiedUnits: 110, totalUnits: 110, occupancyRate: 100.0 },
+      { month: "Nov", billingMonth: "2026-11", scheduled: 165734, collected: 162494, overdue: 3240, rate: 98.0, occupiedUnits: 110, totalUnits: 110, occupancyRate: 100.0 },
     ];
   }, [analytics]);
 
@@ -366,14 +367,14 @@ function MoneyContent() {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <h1 className="font-heading font-bold text-[24px] sm:text-[28px] text-[var(--ink)] tracking-tight">
+                    <h1 className="font-heading font-semibold text-[22px] sm:text-[24px] text-[var(--ink)] tracking-tight">
                       {t("Tenant Rent & Collections Ledger")}
                     </h1>
-                    <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                    <span className="px-2 py-0.5 rounded text-[11px] font-mono text-[var(--ink-2)] border border-[var(--line)] bg-[var(--selected)]/40">
                       Live Mirror
                     </span>
                   </div>
-                  <p className="text-xs sm:text-[13px] text-[var(--ink-2)]">
+                  <p className="text-xs text-[var(--ink-2)]">
                     Real-time lease collection tracking, settled receipts, and tenant arrears management.
                   </p>
                 </div>
@@ -385,9 +386,9 @@ function MoneyContent() {
                     <button
                       type="button"
                       onClick={() => setIsMonthDropdownOpen(!isMonthDropdownOpen)}
-                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)]/40 text-xs font-semibold text-[var(--ink)] transition-colors cursor-pointer shadow-2xs"
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)]/40 text-xs font-medium text-[var(--ink)] transition-colors cursor-pointer shadow-2xs"
                     >
-                      <Calendar className="w-3.5 h-3.5 text-[var(--ink-2)]" />
+                      <Calendar className="w-3.5 h-3.5 text-[var(--ink-3)]" />
                       <span>{formatMonthLabel(selectedMonth)}</span>
                       <ChevronDown className="w-3.5 h-3.5 text-[var(--ink-3)]" />
                     </button>
@@ -438,24 +439,24 @@ function MoneyContent() {
                     className="text-xs border border-[var(--line)] gap-1.5"
                     title="Export Rent Roll to CSV"
                   >
-                    <Download className="w-3.5 h-3.5 text-[var(--ink-2)]" />
+                    <Download className="w-3.5 h-3.5 text-[var(--ink-3)]" />
                     <span className="hidden sm:inline">Export CSV</span>
                   </Button>
                 </div>
               </div>
 
-              {/* KPI StatLine Cards (Single row, clean typography) */}
+              {/* KPI StatLine Cards: Quiet, monochrome, high-trust typography */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                 {/* 1. Scheduled Rent */}
                 <div className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] p-4 shadow-2xs space-y-1">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)] block">
                     Scheduled Rent ({trendPoints.find((p) => p.billingMonth === selectedMonth)?.month || "Nov"})
                   </span>
-                  <div className="text-xl sm:text-2xl font-mono font-bold text-[var(--ink)] tracking-tight">
+                  <div className="text-xl sm:text-2xl font-mono font-semibold text-[var(--ink)] tracking-tight tabular-nums">
                     € {aggregates.totalScheduled.toLocaleString("nl-NL", { minimumFractionDigits: 2 })}
                   </div>
                   <span className="text-[11px] text-[var(--ink-3)] block font-mono">
-                    110 portfolio units
+                    {aggregates.totalUnits} portfolio units
                   </span>
                 </div>
 
@@ -464,120 +465,190 @@ function MoneyContent() {
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)] block">
                     Collected Rent
                   </span>
-                  <div className="text-xl sm:text-2xl font-mono font-bold text-emerald-600 tracking-tight">
+                  <div className="text-xl sm:text-2xl font-mono font-semibold text-[var(--ink)] tracking-tight tabular-nums">
                     € {aggregates.totalCollected.toLocaleString("nl-NL", { minimumFractionDigits: 2 })}
                   </div>
-                  <span className="text-[11px] text-emerald-600 font-semibold block font-mono">
+                  <span className="text-[11px] text-[var(--ink-2)] block font-mono">
                     {aggregates.collectionRate.toFixed(1)}% collected on time
                   </span>
                 </div>
 
                 {/* 3. Overdue Arrears */}
                 <div className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] p-4 shadow-2xs space-y-1">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--accent-ink)] block flex items-center gap-1">
-                    <AlertTriangle className="w-3.5 h-3.5" />
-                    <span>Overdue Arrears</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)] block">
+                    Overdue Arrears
                   </span>
-                  <div className="text-xl sm:text-2xl font-mono font-bold text-[var(--accent-ink)] tracking-tight">
+                  <div className="text-xl sm:text-2xl font-mono font-semibold text-[var(--ink)] tracking-tight tabular-nums">
                     € {aggregates.overdueTotal.toLocaleString("nl-NL", { minimumFractionDigits: 2 })}
                   </div>
-                  <span className="text-[11px] text-[var(--accent-ink)] font-semibold block font-mono">
+                  <span className="text-[11px] text-[var(--ink-2)] block font-mono">
                     {aggregates.overdueCount} {aggregates.overdueCount === 1 ? "tenant" : "tenants"} in arrears
                   </span>
                 </div>
 
-                {/* 4. MoM Collection Comparison */}
+                {/* 4. Occupancy / MoM Growth */}
                 <div className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] p-4 shadow-2xs space-y-1">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)] block">
-                    MoM vs Previous Month
+                    Portfolio Occupancy
                   </span>
-                  <div className="text-xl sm:text-2xl font-mono font-bold text-[var(--ink)] tracking-tight flex items-center gap-1.5">
-                    {aggregates.momChangePct >= 0 ? (
-                      <TrendingUp className="w-5 h-5 text-emerald-600" />
-                    ) : (
-                      <TrendingDown className="w-5 h-5 text-amber-500" />
-                    )}
-                    <span>
-                      {aggregates.momChangePct >= 0 ? "+" : ""}
-                      {aggregates.momChangePct.toFixed(1)}%
-                    </span>
+                  <div className="text-xl sm:text-2xl font-mono font-semibold text-[var(--ink)] tracking-tight flex items-center gap-1.5 tabular-nums">
+                    <span>{aggregates.occupancyRate.toFixed(1)}%</span>
                   </div>
                   <span className="text-[11px] text-[var(--ink-3)] block font-mono">
-                    Oct: {aggregates.previousRate.toFixed(1)}% settled (€ {aggregates.previousMonthCollected.toLocaleString("nl-NL")})
+                    {aggregates.occupiedUnits} / {aggregates.totalUnits} leased units
                   </span>
                 </div>
               </div>
 
-              {/* Month-over-Month (MoM) Collections Interactive Trend Chart */}
+              {/* Dual Visual Trends: Monthly Revenue Trend OR Portfolio Occupancy Trend */}
               <div className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] p-5 sm:p-6 shadow-2xs space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                
+                {/* Chart Header + View Switcher */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-[14px] font-bold text-[var(--ink)] tracking-tight">
-                      Monthly Rent Collections & Efficiency (Last 6 Months)
+                    <h3 className="text-[14px] font-semibold text-[var(--ink)] tracking-tight">
+                      {chartView === "revenue"
+                        ? "Monthly Rent Revenue & Collection Trend (Last 6 Months)"
+                        : "Portfolio Occupancy Progression (Last 6 Months)"}
                     </h3>
                     <p className="text-xs text-[var(--ink-3)]">
-                      Comparing scheduled lease commitments against collected receipts. Click a bar to filter ledger.
+                      {chartView === "revenue"
+                        ? "Comparing scheduled lease commitments against collected receipts. Click a bar to filter ledger."
+                        : "Tracking occupied residential units over time (growing from 94.5% to 100.0%)."}
                     </p>
                   </div>
-                  <div className="flex items-center gap-4 text-xs font-mono">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-3 h-3 rounded-xs bg-[#0A1B2F]" />
-                      <span className="text-[var(--ink-2)]">Collected</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-3 h-3 rounded-xs bg-amber-500" />
-                      <span className="text-[var(--accent-ink)] font-semibold">Overdue Arrears</span>
-                    </div>
+
+                  {/* Switcher Toggle (Revenue vs Occupancy) */}
+                  <div className="inline-flex items-center p-0.5 bg-[var(--selected)]/60 rounded-md border border-[var(--line)] self-start sm:self-auto text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setChartView("revenue")}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer",
+                        chartView === "revenue"
+                          ? "bg-[var(--ink)] text-white shadow-xs"
+                          : "text-[var(--ink-2)] hover:text-[var(--ink)]"
+                      )}
+                    >
+                      <BarChart3 className="w-3.5 h-3.5" />
+                      <span>Revenue</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChartView("occupancy")}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer",
+                        chartView === "occupancy"
+                          ? "bg-[var(--ink)] text-white shadow-xs"
+                          : "text-[var(--ink-2)] hover:text-[var(--ink)]"
+                      )}
+                    >
+                      <Users className="w-3.5 h-3.5" />
+                      <span>Occupancy</span>
+                    </button>
                   </div>
                 </div>
 
+                {/* Chart Legend (Monochrome, understated) */}
+                <div className="flex items-center gap-4 text-xs font-mono text-[var(--ink-2)]">
+                  {chartView === "revenue" ? (
+                    <>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-xs bg-[#0A1B2F]" />
+                        <span>Collected</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-xs bg-[#94A3B8]" />
+                        <span>Overdue Arrears</span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-xs bg-[#0A1B2F]" />
+                        <span>Leased Units ({aggregates.occupiedUnits}/110)</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-xs bg-[#E2E8F0]" />
+                        <span>Vacant Capacity</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+
                 {/* Interactive Bar Chart Visualization */}
-                <div className="pt-4 pb-2">
+                <div className="pt-2 pb-1">
                   <div className="grid grid-cols-6 gap-2 sm:gap-4 h-44 items-end border-b border-[var(--line)] pb-2">
                     {trendPoints.map((point) => {
                       const isSelected = selectedMonth === point.billingMonth;
-                      const collectedHeightPct = (point.collected / maxTrendScheduled) * 100;
-                      const overdueHeightPct = (point.overdue / maxTrendScheduled) * 100;
+                      
+                      if (chartView === "revenue") {
+                        const collectedHeightPct = (point.collected / maxTrendScheduled) * 100;
+                        const overdueHeightPct = (point.overdue / maxTrendScheduled) * 100;
 
-                      return (
-                        <button
-                          key={point.billingMonth}
-                          type="button"
-                          onClick={() => setSelectedMonth(point.billingMonth)}
-                          className={cn(
-                            "flex flex-col items-center justify-end h-full group transition-transform focus:outline-none cursor-pointer rounded-t-md p-1",
-                            isSelected && "bg-[var(--selected)]/60 ring-2 ring-[var(--ink)]"
-                          )}
-                          title={`${point.month}: € ${point.collected.toLocaleString("nl-NL")} collected (${point.rate}% efficiency)`}
-                        >
-                          {/* Rate Pill Above Bar */}
-                          <div className="mb-2 text-[10px] sm:text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded bg-[var(--selected)] group-hover:bg-[var(--ink)] group-hover:text-white transition-colors">
-                            {point.rate.toFixed(1)}%
-                          </div>
-
-                          {/* Stacked Bars */}
-                          <div className="w-full max-w-[48px] flex flex-col justify-end rounded-t overflow-hidden">
-                            {point.overdue > 0 && (
-                              <div
-                                style={{ height: `${Math.max(overdueHeightPct, 6)}%` }}
-                                className="w-full bg-amber-500 transition-all rounded-t-xs"
-                              />
+                        return (
+                          <button
+                            key={point.billingMonth}
+                            type="button"
+                            onClick={() => setSelectedMonth(point.billingMonth)}
+                            className={cn(
+                              "flex flex-col items-center justify-end h-full group transition-transform focus:outline-none cursor-pointer rounded-t p-1",
+                              isSelected && "bg-[var(--selected)]/60 ring-1 ring-[var(--ink)]"
                             )}
-                            <div
-                              style={{ height: `${collectedHeightPct}%` }}
-                              className={cn(
-                                "w-full transition-all",
-                                isSelected ? "bg-emerald-600" : "bg-[#0A1B2F] group-hover:bg-[#153457]"
+                            title={`${point.month}: € ${point.collected.toLocaleString("nl-NL")} collected (${point.rate}% efficiency)`}
+                          >
+                            <div className="mb-2 text-[10px] sm:text-[11px] font-mono font-medium px-1.5 py-0.5 rounded text-[var(--ink)] bg-[var(--selected)] border border-[var(--line)]">
+                              {point.rate.toFixed(1)}%
+                            </div>
+
+                            <div className="w-full max-w-[44px] flex flex-col justify-end rounded-t overflow-hidden">
+                              {point.overdue > 0 && (
+                                <div
+                                  style={{ height: `${Math.max(overdueHeightPct, 6)}%` }}
+                                  className="w-full bg-[#94A3B8] transition-all rounded-t-xs"
+                                />
                               )}
-                            />
-                          </div>
-                        </button>
-                      );
+                              <div
+                                style={{ height: `${collectedHeightPct}%` }}
+                                className="w-full bg-[#0A1B2F] group-hover:bg-[#1E293B] transition-all"
+                              />
+                            </div>
+                          </button>
+                        );
+                      } else {
+                        // Occupancy View Mode (Scale: 90% to 100% or full 100%)
+                        const occRate = point.occupancyRate ?? 100;
+                        const occHeightPct = ((occRate - 85) / 15) * 100; // Calibrated for clear visual increase
+
+                        return (
+                          <button
+                            key={point.billingMonth}
+                            type="button"
+                            onClick={() => setSelectedMonth(point.billingMonth)}
+                            className={cn(
+                              "flex flex-col items-center justify-end h-full group transition-transform focus:outline-none cursor-pointer rounded-t p-1",
+                              isSelected && "bg-[var(--selected)]/60 ring-1 ring-[var(--ink)]"
+                            )}
+                            title={`${point.month}: ${point.occupiedUnits || 110}/110 units leased (${occRate}%)`}
+                          >
+                            <div className="mb-2 text-[10px] sm:text-[11px] font-mono font-medium px-1.5 py-0.5 rounded text-[var(--ink)] bg-[var(--selected)] border border-[var(--line)]">
+                              {occRate.toFixed(1)}%
+                            </div>
+
+                            <div className="w-full max-w-[44px] flex flex-col justify-end rounded-t overflow-hidden">
+                              <div
+                                style={{ height: `${Math.max(occHeightPct, 20)}%` }}
+                                className="w-full bg-[#0A1B2F] group-hover:bg-[#1E293B] transition-all"
+                              />
+                            </div>
+                          </button>
+                        );
+                      }
                     })}
                   </div>
 
                   {/* Month Labels Axis */}
-                  <div className="grid grid-cols-6 gap-2 sm:gap-4 pt-2 text-center text-xs font-semibold text-[var(--ink-2)]">
+                  <div className="grid grid-cols-6 gap-2 sm:gap-4 pt-2 text-center text-xs font-mono text-[var(--ink-2)]">
                     {trendPoints.map((point) => (
                       <div
                         key={point.billingMonth}
@@ -588,6 +659,11 @@ function MoneyContent() {
                         onClick={() => setSelectedMonth(point.billingMonth)}
                       >
                         {point.month}
+                        <span className="block text-[10px] text-[var(--ink-3)]">
+                          {chartView === "revenue"
+                            ? `€${Math.round(point.collected / 1000)}k`
+                            : `${point.occupiedUnits || 110}u`}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -597,7 +673,7 @@ function MoneyContent() {
               {/* Controls Bar: Tenant Tabs + Search Input */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] p-3 shadow-2xs">
                 
-                {/* Strict Tenant Tabs */}
+                {/* Strict Tenant Tabs (Monochrome styling) */}
                 <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar text-xs">
                   <button
                     type="button"
@@ -617,7 +693,7 @@ function MoneyContent() {
                     className={cn(
                       "px-3 py-1.5 rounded-md font-medium whitespace-nowrap transition-colors cursor-pointer",
                       activeTab === "paid"
-                        ? "bg-emerald-600 text-white font-semibold"
+                        ? "bg-[var(--ink)] text-white font-semibold"
                         : "bg-[var(--bg)] text-[var(--ink-2)] hover:text-[var(--ink)] border border-[var(--line)]"
                     )}
                   >
@@ -629,7 +705,7 @@ function MoneyContent() {
                     className={cn(
                       "px-3 py-1.5 rounded-md font-medium whitespace-nowrap transition-colors cursor-pointer",
                       activeTab === "overdue"
-                        ? "bg-[var(--accent)] text-black font-semibold"
+                        ? "bg-[var(--ink)] text-white font-semibold"
                         : "bg-[var(--bg)] text-[var(--ink-2)] hover:text-[var(--ink)] border border-[var(--line)]"
                     )}
                   >
@@ -674,11 +750,11 @@ function MoneyContent() {
 
               </div>
 
-              {/* DESKTOP TABLE VIEW (>= 768px) */}
+              {/* DESKTOP TABLE VIEW (>= 768px): Quiet, restrained monochrome palette */}
               <div className="hidden md:block bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] overflow-hidden shadow-2xs">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-[var(--line)] bg-[var(--selected)]/30 text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)]">
+                    <tr className="border-b border-[var(--line)] bg-[var(--selected)]/20 text-[11px] font-mono uppercase tracking-wider text-[var(--ink-3)]">
                       <th className="py-3 px-4">Status</th>
                       <th className="py-3 px-4">Invoice Reference</th>
                       <th className="py-3 px-4">Tenant & Unit</th>
@@ -695,22 +771,22 @@ function MoneyContent() {
                         <tr
                           key={tx.id}
                           onClick={() => handleRowClick(tx)}
-                          className="hover:bg-[var(--selected)]/40 transition-colors cursor-pointer h-14"
+                          className="hover:bg-[var(--selected)]/30 transition-colors cursor-pointer h-14"
                         >
-                          {/* Status Badge */}
+                          {/* Status Tag (Quiet, monochrome) */}
                           <td className="py-3 px-4">
                             {isOverdue ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-[var(--accent)]/15 text-[var(--accent-ink)] border border-[var(--accent)]/30">
-                                <AlertTriangle className="w-3 h-3" />
+                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono font-medium text-[var(--ink)] bg-[var(--selected)] border border-[var(--line)]">
+                                <span className="w-1.5 h-1.5 rounded-full bg-[var(--ink)]" />
                                 <span>{tx.overdueDays}d overdue</span>
                               </span>
                             ) : tx.status === "paid" ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-emerald-600 bg-emerald-500/10 border border-emerald-500/20">
-                                <CheckCircle2 className="w-3 h-3" />
+                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono font-medium text-[var(--ink-2)] bg-[var(--selected)]/40 border border-[var(--line)]">
+                                <Check className="w-3 h-3 text-[var(--ink-2)]" />
                                 <span>PAID</span>
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-[var(--ink-2)] bg-[var(--selected)] border border-[var(--line)]">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono text-[var(--ink-3)] bg-[var(--selected)]/20 border border-[var(--line)]">
                                 <Clock className="w-3 h-3" />
                                 <span>Pending</span>
                               </span>
@@ -719,7 +795,7 @@ function MoneyContent() {
 
                           {/* Invoice Reference */}
                           <td className="py-3 px-4">
-                            <span className="font-mono text-[12px] font-semibold text-[var(--ink)] block">
+                            <span className="font-mono text-[12px] font-medium text-[var(--ink)] block">
                               {tx.reference}
                             </span>
                             <span className="text-[11px] text-[var(--ink-3)] block truncate max-w-xs">
@@ -729,7 +805,7 @@ function MoneyContent() {
 
                           {/* Tenant & Unit */}
                           <td className="py-3 px-4">
-                            <span className="font-semibold text-[13px] text-[var(--ink)] block">
+                            <span className="font-medium text-[13px] text-[var(--ink)] block">
                               {tx.counterparty}
                             </span>
                             <span className="text-[11px] text-[var(--ink-3)] block truncate max-w-xs">
@@ -738,7 +814,7 @@ function MoneyContent() {
                           </td>
 
                           {/* Contract Rent Amount */}
-                          <td className="py-3 px-4 font-mono font-bold text-[14px] text-[var(--ink)] tabular-nums">
+                          <td className="py-3 px-4 font-mono font-semibold text-[14px] text-[var(--ink)] tabular-nums">
                             € {tx.amountEur.toLocaleString("nl-NL", { minimumFractionDigits: 2 })}
                           </td>
 
@@ -746,7 +822,7 @@ function MoneyContent() {
                           <td className="py-3 px-4">
                             {tx.paidDate ? (
                               <div>
-                                <span className="font-mono text-emerald-600 font-semibold block">
+                                <span className="font-mono text-[var(--ink)] font-medium block">
                                   {tx.paidDate}
                                 </span>
                                 <span className="text-[10px] text-[var(--ink-3)] block font-mono">
@@ -755,10 +831,10 @@ function MoneyContent() {
                               </div>
                             ) : (
                               <div>
-                                <span className="font-mono text-[var(--accent-ink)] font-semibold block">
+                                <span className="font-mono text-[var(--ink)] font-medium block">
                                   Due {tx.dueDate}
                                 </span>
-                                <span className="text-[10px] text-[var(--accent-ink)] block">
+                                <span className="text-[10px] text-[var(--ink-3)] block font-mono">
                                   {tx.overdueDays} days in arrears
                                 </span>
                               </div>
@@ -766,7 +842,7 @@ function MoneyContent() {
                           </td>
 
                           {/* Settlement Channel */}
-                          <td className="py-3 px-4 text-right text-[11px] font-medium text-[var(--ink-2)]">
+                          <td className="py-3 px-4 text-right text-[11px] font-mono text-[var(--ink-2)]">
                             {tx.paymentMethod}
                           </td>
                         </tr>
@@ -796,10 +872,10 @@ function MoneyContent() {
                     >
                       <div className="min-w-0 flex-1 pr-3">
                         <div className="flex items-center justify-between">
-                          <span className="font-semibold text-[14px] text-[var(--ink)] truncate">
+                          <span className="font-medium text-[14px] text-[var(--ink)] truncate">
                             {tx.counterparty}
                           </span>
-                          <span className="font-mono font-bold text-[14px] text-[var(--ink)] tabular-nums shrink-0">
+                          <span className="font-mono font-semibold text-[14px] text-[var(--ink)] tabular-nums shrink-0">
                             € {tx.amountEur.toLocaleString("nl-NL", { minimumFractionDigits: 2 })}
                           </span>
                         </div>
@@ -809,11 +885,11 @@ function MoneyContent() {
                             {tx.unitLabel} · {tx.reference}
                           </span>
                           {isOverdue ? (
-                            <span className="text-[var(--accent-ink)] font-semibold shrink-0">
+                            <span className="text-[var(--ink)] font-mono shrink-0">
                               {tx.overdueDays}d overdue
                             </span>
                           ) : tx.paidDate ? (
-                            <span className="text-emerald-600 font-semibold shrink-0">
+                            <span className="text-[var(--ink-2)] font-mono shrink-0">
                               {tx.paidDate}
                             </span>
                           ) : (

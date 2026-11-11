@@ -1572,6 +1572,9 @@ export interface HistoricalTrendPoint {
   collected: number;
   overdue: number;
   rate: number;
+  occupiedUnits?: number;
+  totalUnits?: number;
+  occupancyRate?: number;
 }
 
 export interface MonthAnalytics {
@@ -1583,6 +1586,9 @@ export interface MonthAnalytics {
   paidTenants: number;
   overdueCount: number;
   collectionRate: number;
+  occupiedUnits?: number;
+  totalUnits?: number;
+  occupancyRate?: number;
 }
 
 export interface PreviousMonthAnalytics {
@@ -1590,6 +1596,7 @@ export interface PreviousMonthAnalytics {
   totalCollected: number;
   collectionRate: number;
   momChangePct: number;
+  occupancyRate?: number;
 }
 
 export interface RentAnalyticsResponse {

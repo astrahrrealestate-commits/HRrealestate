@@ -266,10 +266,10 @@ def seed_rent_data() -> None:
 
         # 3. Seed Monthly Rent Summaries (June through November 2026) for MoM Comparison & Charting
         summaries = [
-            (date(2026, 6, 1), 16200000, 16200000, 0, 110, 110, 0, Decimal("100.0")),
-            (date(2026, 7, 1), 16350000, 16350000, 0, 110, 110, 0, Decimal("100.0")),
-            (date(2026, 8, 1), 16400000, 16400000, 0, 110, 110, 0, Decimal("100.0")),
-            (date(2026, 9, 1), 16500000, 16315000, 185000, 110, 109, 1, Decimal("98.8")),
+            (date(2026, 6, 1), 16200000, 16200000, 0, 104, 104, 0, Decimal("100.0")),
+            (date(2026, 7, 1), 16350000, 16350000, 0, 106, 106, 0, Decimal("100.0")),
+            (date(2026, 8, 1), 16400000, 16400000, 0, 107, 107, 0, Decimal("100.0")),
+            (date(2026, 9, 1), 16500000, 16315000, 185000, 108, 107, 1, Decimal("98.8")),
             (date(2026, 10, 1), 16573400, 16573400, 0, 110, 110, 0, Decimal("100.0")),
             (date(2026, 11, 1), 16573400, 16249400, 324000, 110, 108, 2, Decimal("98.0")),
         ]
@@ -300,6 +300,9 @@ def seed_rent_data() -> None:
                 s_row.total_scheduled_rent_cents = sched
                 s_row.total_collected_rent_cents = coll
                 s_row.total_overdue_rent_cents = overdue
+                s_row.total_tenants_count = tot_t
+                s_row.paid_tenants_count = paid_t
+                s_row.overdue_tenants_count = overdue_t
                 s_row.collection_rate_pct = rate
 
     print("\n[+] Tenant rent payments and monthly summaries successfully seeded into PostgreSQL!")
@@ -307,3 +310,4 @@ def seed_rent_data() -> None:
 
 if __name__ == "__main__":
     seed_rent_data()
+
