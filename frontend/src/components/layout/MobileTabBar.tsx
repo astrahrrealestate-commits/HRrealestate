@@ -71,7 +71,7 @@ export function MobileTabBar({ pendingCount, threads, className }: MobileTabBarP
     { label: "Tenants", section: "tenants", href: "/tenants", icon: Users },
     { label: "Contacts", section: "contacts", href: "/contacts", icon: Contact },
     ...(user?.isAdmin ? [{ label: "Team & access", section: "admin", href: "/admin", icon: ShieldCheck }] : []),
-    // { label: "Money", href: "/money", icon: Coins },
+    { label: "Money", section: "money", href: "/money", icon: Coins },
     // Hidden from navigation:
     // { label: "Reports", href: "/reports", icon: BarChart3 },
     // { label: "Settings", href: "/settings", icon: Settings },
