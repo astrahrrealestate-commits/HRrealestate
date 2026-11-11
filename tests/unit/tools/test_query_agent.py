@@ -1,12 +1,12 @@
 """Unit and red-team security tests for the Custom Query Agent."""
 
 from unittest.mock import MagicMock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
 from app.core.settings import Settings
-from app.tools.query_agent.agent import SQLQueryProposal, format_answer, run_query_agent
+from app.tools.query_agent.agent import SQLQueryProposal, format_answer, run_query_agent, sanitize_rows_for_display
 from app.tools.query_agent.executor import execute_readonly_query
 from app.tools.query_agent.validator import SQLSecurityError, validate_and_wrap_sql
 
@@ -245,3 +245,56 @@ def test_common_operators_and_keywords_are_not_rejected_as_functions(sql: str):
 def test_banned_functions_stay_rejected_inside_an_and(sql: str):
     with pytest.raises(SQLSecurityError):
         validate_and_wrap_sql(sql, max_limit=50)
+
+
+def test_sanitize_rows_for_display_strips_internal_ids_and_formats_values():
+    case_uuid = UUID("01a1ca59-c6cb-7e02-bd67-f86ff1b72267")
+    raw_row = {
+        "lease_id": "01a19be8-29ae-7cf0-b698-4b5dbbdea65e",
+        "unit_id": "01a19be8-0000-0000-0000-000000000001",
+        "case_id": case_uuid,
+        "unit_address": "Keizersgracht 42-A, 1015 CR Amsterdam",
+        "unit_label": "Keizersgracht 42-A",
+        "tenant_name": "Vipin Tyagi",
+        "valid_from": "2026-11-02",
+        "opened_at": "2026-11-11 11:24:03.646025+00:00",
+        "is_active": True,
+    }
+    cols, display_rows = sanitize_rows_for_display([raw_row, dict(raw_row)])
+
+    assert cols == ["Ticket", "Property", "Tenant", "Lease Start", "Opened", "Status"]
+    assert len(display_rows) == 1
+    row = display_rows[0]
+    assert row["Ticket"] == "#b72267"
+    assert row["Property"] == "Keizersgracht 42-A, 1015 CR Amsterdam"
+    assert row["Tenant"] == "Vipin Tyagi"
+    assert row["Lease Start"] == "02 Nov 2026"
+    assert row["Opened"] == "11 Nov 2026, 11:24"
+    assert row["Status"] == "Active"
+
+
+def test_format_answer_renders_clean_bullets_without_pipes_or_uuids():
+    rows = [
+        {
+            "case_id": "01a1ca59-c6cb-7e02-bd67-f86ff1b72267",
+            "unit_address": "Keizersgracht 42-B, 1015 CS Amsterdam",
+            "tenant_name": "Anouk de Jong",
+            "urgency": "emergency",
+            "opened_at": "2026-11-11 11:24:03.646025+00:00",
+            "summary": "Water leaking from upstairs ceiling.",
+        },
+        {
+            "case_id": "01a1af60-2b7b-78f0-9bf0-22a937afccdb",
+            "unit_address": "Keizersgracht 42-A, 1015 CR Amsterdam",
+            "tenant_name": "Vipin Tyagi",
+            "urgency": "high",
+            "opened_at": "2026-11-10 09:15:00+00:00",
+            "summary": "Heating stopped working.",
+        },
+    ]
+    ans = format_answer("show open tickets", rows, 2)
+    assert " | " not in ans
+    assert "01a1ca59-c6cb-7e02-bd67-f86ff1b72267" not in ans
+    assert "#b72267" in ans
+    assert "11 Nov 2026, 11:24" in ans
+    assert "Anouk de Jong" in ans

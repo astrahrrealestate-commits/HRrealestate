@@ -662,3 +662,146 @@ def test_open_question_falls_back_to_the_plain_chat_answer_when_research_returns
         res = client.post(URL, json={"query": "hey, how is it going?"})
     assert res.status_code == 200
     assert "all quiet today" in res.json()["answer"]
+
+
+def test_list_active_leases_returns_data_table_preview_card_without_sql_in_steps():
+    """Verify analytics list queries route to query_agent and return structured data_table cards."""
+    from app.tools.query_agent.agent import QueryAgentResponse
+
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    fake_rows = [
+        {
+            "Tenant": "Vipin Tyagi",
+            "Property": "Keizersgracht 42-A, 1015 CR Amsterdam",
+            "Lease Start": "02 Nov 2026",
+            "Lease End": "31 Dec 2026",
+            "Status": "Active",
+        },
+        {
+            "Tenant": "Anouk de Jong",
+            "Property": "Keizersgracht 42-B, 1015 CS Amsterdam",
+            "Lease Start": "01 Jan 2025",
+            "Lease End": "31 Dec 2026",
+            "Status": "Active",
+        },
+    ]
+    fake_qres = QueryAgentResponse(
+        ok=True,
+        answer="There are **2 active leases** across Keizersgracht 42-A and 42-B.",
+        sql="SELECT tenant_name, unit_address FROM v_active_leases WHERE is_active = TRUE LIMIT 50",
+        rows=fake_rows,
+        row_count=2,
+        duration_ms=12.4,
+        columns=["Tenant", "Property", "Lease Start", "Lease End", "Status"],
+        display_rows=fake_rows,
+    )
+
+    with (
+        patch("app.api.agent.routes.Session", return_value=create_mock_session()),
+        patch("app.tools.query_agent.agent.run_query_agent", return_value=fake_qres) as mock_qagent,
+        TestClient(app) as client,
+    ):
+        res = client.post(URL, json={"query": "List active leases"})
+
+    assert res.status_code == 200
+    mock_qagent.assert_called_once()
+    data = res.json()
+    assert data["previewCard"] is not None
+    assert data["previewCard"]["type"] == "data_table"
+    assert data["previewCard"]["badgeLabel"] == "LEASES"
+    assert len(data["previewCard"]["rows"]) == 2
+    assert all("SELECT " not in s for s in data["steps"])
+    assert any(a["payload"] == "/tenants" for a in data["actions"])
+
+
+def test_open_tickets_and_rent_queries_never_synthesize_fake_entities():
+    """Verify neither rent queries nor ticket typos ever synthesize fake hardcoded cards or contacts."""
+    from app.tools.query_agent.agent import QueryAgentResponse
+
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    empty_qres = QueryAgentResponse(
+        ok=True,
+        answer='I queried your portfolio records for *"show all open ticketes"*, but found 0 matching entries.',
+        sql="SELECT * FROM v_case_overview LIMIT 50",
+        rows=[],
+        row_count=0,
+        duration_ms=8.0,
+        columns=[],
+        display_rows=[],
+    )
+
+    with (
+        patch("app.api.agent.routes.Session", return_value=create_mock_session()),
+        patch("app.tools.query_agent.agent.run_query_agent", return_value=empty_qres),
+        patch("app.api.agent.routes.run_agent", side_effect=Exception("offline")),
+        patch("app.api.agent.routes.fake_concierge", return_value={"in_scope": False, "steps": [], "reply": None}),
+        TestClient(app) as client,
+    ):
+        res_tickets = client.post(URL, json={"query": "show all open ticketes"})
+        res_rent = client.post(URL, json={"query": "Who owes rent?"})
+
+    for res in (res_tickets, res_rent):
+        assert res.status_code == 200
+        body = res.text
+        assert "Pieter Bakker" not in body
+        assert "Singel 102" not in body
+        assert "Praveen Rostova" not in body
+        assert "1.450" not in body
+
+
+def test_clean_executive_answer_formats_case_uuids_and_iso_timestamps():
+    """Verify defense-in-depth cleanup formats raw UUIDs and timestamps while keeping URLs and normal prose intact."""
+    from app.api.agent.routes import _clean_executive_answer
+
+    raw = (
+        "Opening cases. **Case id**: 01a1ca59-c6cb-7e02-bd67-f86ff1b72267 | "
+        "**Opened at**: 2026-11-11 11:24:03.646025+00:00\n"
+        "- #c80c5a\u202f|\u202fNormal other\u202f|\u202fLease extension\n"
+        "Details: https://example.com/tickets/01a1ca59-c6cb-7e02-bd67-f86ff1b72267"
+    )
+    cleaned = _clean_executive_answer(raw)
+    assert "Opening cases" not in cleaned
+    assert "**Ticket #b72267**" in cleaned
+    assert "|" not in cleaned
+    assert "11 Nov 2026, 11:24" in cleaned
+    assert "https://example.com/tickets/01a1ca59-c6cb-7e02-bd67-f86ff1b72267" in cleaned
+
+
+def test_open_view_only_priority_question_triggers_research_prose():
+    """Verify advisory questions planned as open_view only still invoke research prose instead of empty card copy."""
+    from app.superagent.research import ResearchResult
+
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    fake_plan = ConciergePlan(
+        in_scope=True,
+        steps=[PlanStep(intent=Intent.open_view, case_id=None, task_ref=None, text=None, view="cases")],
+        reply=None,
+    )
+    mock_result = StepResult(
+        intent=Intent.open_view,
+        ok=True,
+        summary="Opening cases.",
+        data=None,
+        view="cases",
+    )
+    researched = ResearchResult(
+        "Start with Ticket #b72267 (Emergency water leak at Keizersgracht 42-B).",
+        ("Checked active cases (3 rows)",),
+    )
+
+    with (
+        patch("app.api.agent.routes.Session", return_value=create_mock_session()),
+        patch("app.api.agent.routes.run_agent") as mock_run_agent,
+        patch("app.api.agent.routes.run_plan", return_value=[mock_result]),
+        patch("app.api.agent.routes.assemble_answer", return_value="Opening cases."),
+        patch("app.api.agent.routes._research_answer", return_value=researched) as mock_res,
+        TestClient(app) as client,
+    ):
+        mock_run_agent.return_value.output = fake_plan
+        res = client.post(URL, json={"query": "What should I do first?"})
+
+    assert res.status_code == 200
+    data = res.json()
+    mock_res.assert_called_once()
+    assert "Start with Ticket #b72267" in data["answer"]
+    assert "Checked active cases (3 rows)" in data["steps"]
