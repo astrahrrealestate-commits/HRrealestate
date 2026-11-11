@@ -1,6 +1,6 @@
 # Project context (auto)
 
-Generated: 2026-11-10T07:08:39.612Z
+Generated: 2026-11-11T07:19:04.562Z
 
 ## Detected stack
 
@@ -10,10 +10,21 @@ Generated: 2026-11-10T07:08:39.612Z
 ## Git
 
 - Branch: `main`
-- HEAD: `47114e4`
+- HEAD: `91432dc`
 
 ## Recent commits
 
+- `91432dc` fix(access): reports and dashboard profiles read summaries, and an email is unique per company _(Aditya Jain, 2026-11-11)_
+- `62a2e18` feat(access): named team profiles with per-section access, and contacts added by hand _(Aditya Jain, 2026-11-10)_
+- `664528f` test(api): reset cached WhatsApp media credentials in the prod docs test _(Aditya Jain, 2026-11-10)_
+- `bda74ce` fix(dashboard): build Open rent from the tenants and drop the invented 142 _(Aditya Jain, 2026-11-10)_
+- `069fd53` fix(connections): show real WhatsApp and BRIXX state, handle Esc, and stop reporting offline as disconnected _(Aditya Jain, 2026-11-10)_
+- `a15281b` fix(reports): build the Reports page from live data and make Copy as CSV safe _(Aditya Jain, 2026-11-10)_
+- `dafdf22` feat(api): report the WhatsApp setup status so the Connections panel stops faking it _(Aditya Jain, 2026-11-10)_
+- `a27454a` fix(auth): name a signed-in owner by their Google name when no whitelist row exists _(Aditya Jain, 2026-11-10)_
+- `a2404eb` feat(dashboard): global search palette and memory restatement dedup _(Aditya Jain, 2026-11-10)_
+- `9c0bdec` feat(translation): translate Dutch to English on demand with a local model, cached in Postgres _(Aditya Jain, 2026-11-10)_
+- `b1d7091` docs: QA bug list from the 2026-11-09 E2E run, refresh generated project context _(Aditya Jain, 2026-11-10)_
 - `47114e4` fix(portfolio): make the View messages, View tickets and Contact tenant links land on what they name _(Aditya Jain, 2026-11-10)_
 - `7bcf338` fix(dashboard): the emergency card shows its own ticket and no invented figures _(Aditya Jain, 2026-11-10)_
 - `cc2fae5` fix(superagent): say when a draft is for another channel, and that it cannot rewrite drafts _(Aditya Jain, 2026-11-10)_
@@ -23,20 +34,18 @@ Generated: 2026-11-10T07:08:39.612Z
 - `225e5cd` fix(superagent): say what a task is, and let "done #ref" really close it _(Aditya Jain, 2026-11-10)_
 - `52aae1e` fix(superagent): say there is no rent data instead of answering "0" _(Aditya Jain, 2026-11-10)_
 - `127de5d` fix(superagent): answer a question about a street for that street _(Aditya Jain, 2026-11-10)_
-- `fca66dc` fix(superagent): the degraded fallback no longer answers a different question or invents facts _(Aditya Jain, 2026-11-10)_
-- `34d2ca2` fix(superagent): a new chat starts with no focus and no remembered property _(Aditya Jain, 2026-11-10)_
-- `a214731` fix(dashboard): take the occupancy block from the real portfolio _(Aditya Jain, 2026-11-10)_
-- `d2c7c71` feat(portfolio): read Properties and Tenants from the API instead of a mock file _(Aditya Jain, 2026-11-10)_
-- `691be1b` fix(inbox): show every time on the company's local clock, 24 h _(Aditya Jain, 2026-11-10)_
-- `b41009c` fix(inbox): make the filter badges count what the list would show _(Aditya Jain, 2026-11-10)_
-- `5c61afa` fix(inbox): search the whole thread, the sender's email and phone, not only subject and snippet _(Aditya Jain, 2026-11-10)_
-- `df16bc8` fix(inbox): make the More actions button open a menu _(Aditya Jain, 2026-11-10)_
-- `3256921` fix(inbox): name a thread's unit from the company's own units, not a keyword table _(Aditya Jain, 2026-11-10)_
-- `8556f6d` fix(inbox): keep what the owner typed when switching threads or when the list refreshes _(Aditya Jain, 2026-11-10)_
-- `f0da0b8` fix(inbox): stop saying "All clear" while loading, on an error, or when a search finds nothing _(Aditya Jain, 2026-11-10)_
 
 ## Inferred recent decisions
 
+- `91432dc` fix(access): reports and dashboard profiles read summaries, and an email is unique per company
+- `62a2e18` feat(access): named team profiles with per-section access, and contacts added by hand
+- `bda74ce` fix(dashboard): build Open rent from the tenants and drop the invented 142
+- `069fd53` fix(connections): show real WhatsApp and BRIXX state, handle Esc, and stop reporting offline as disconnected
+- `a15281b` fix(reports): build the Reports page from live data and make Copy as CSV safe
+- `dafdf22` feat(api): report the WhatsApp setup status so the Connections panel stops faking it
+- `a27454a` fix(auth): name a signed-in owner by their Google name when no whitelist row exists
+- `a2404eb` feat(dashboard): global search palette and memory restatement dedup
+- `9c0bdec` feat(translation): translate Dutch to English on demand with a local model, cached in Postgres
 - `47114e4` fix(portfolio): make the View messages, View tickets and Contact tenant links land on what they name
 - `7bcf338` fix(dashboard): the emergency card shows its own ticket and no invented figures
 - `cc2fae5` fix(superagent): say when a draft is for another channel, and that it cannot rewrite drafts
@@ -46,30 +55,19 @@ Generated: 2026-11-10T07:08:39.612Z
 - `225e5cd` fix(superagent): say what a task is, and let "done #ref" really close it
 - `52aae1e` fix(superagent): say there is no rent data instead of answering "0"
 - `127de5d` fix(superagent): answer a question about a street for that street
-- `fca66dc` fix(superagent): the degraded fallback no longer answers a different question or invents facts
-- `34d2ca2` fix(superagent): a new chat starts with no focus and no remembered property
-- `a214731` fix(dashboard): take the occupancy block from the real portfolio
-- `d2c7c71` feat(portfolio): read Properties and Tenants from the API instead of a mock file
-- `691be1b` fix(inbox): show every time on the company's local clock, 24 h
-- `b41009c` fix(inbox): make the filter badges count what the list would show
-- `5c61afa` fix(inbox): search the whole thread, the sender's email and phone, not only subject and snippet
-- `df16bc8` fix(inbox): make the More actions button open a menu
-- `3256921` fix(inbox): name a thread's unit from the company's own units, not a keyword table
-- `8556f6d` fix(inbox): keep what the owner typed when switching threads or when the list refreshes
-- `f0da0b8` fix(inbox): stop saying "All clear" while loading, on an error, or when a search finds nothing
 
 ## Hotspots
 
-- 56x — `docs/PROGRESS.md`
+- 60x — `docs/PROGRESS.md`
 - 45x — `app/api/agent/routes.py`
-- 34x — `pyproject.toml`
-- 32x — `app/core/settings.py`
+- 35x — `pyproject.toml`
+- 34x — `app/api/inbox/routes.py`
+- 33x — `app/core/settings.py`
 - 31x — `frontend/src/components/assistant/AskEstateOSPanel.tsx`
-- 31x — `app/api/inbox/routes.py`
-- 27x — `docs/dashboard-api.md`
+- 30x — `docs/dashboard-api.md`
+- 27x — `tests/unit/api/__snapshots__/test_openapi_snapshot.ambr`
 - 27x — `app/workflows/runtime.py`
 - 26x — `.env.example`
-- 24x — `Makefile`
 
 ## Top-level tree
 
@@ -112,7 +110,11 @@ Generated: 2026-11-10T07:08:39.612Z
 .claude/skills/retro/
 .claude/skills/ship/
 .claude/worktrees/
+.claude/worktrees/m-founderos-lessons/
 .coverage
+.data/
+.data/models/
+.data/models/opus-mt-nl-en/
 .dockerignore
 .env
 .env.example
@@ -147,6 +149,7 @@ Generated: 2026-11-10T07:08:39.612Z
 .hypothesis/constants/05f6f9f5ce335b00
 .hypothesis/constants/0663b6384f92d284
 .hypothesis/constants/066dcc2451d28d3d
+.hypothesis/constants/06fc84a8ded75372
 .hypothesis/constants/071c066c9f36a75d
 .hypothesis/constants/0741646aec08f0a4
 .hypothesis/constants/074d319453979af0
@@ -157,6 +160,7 @@ Generated: 2026-11-10T07:08:39.612Z
 .hypothesis/constants/07a463fdfd5276cc
 .hypothesis/constants/07bc5cdea903258b
 .hypothesis/constants/07c5d8e751b4052c
+.hypothesis/constants/08399c98e11d72f3
 .hypothesis/constants/08678ced6d7ac7a0
 .hypothesis/constants/0874b1af030e7f6e
 .hypothesis/constants/0878fa11a1d66210
@@ -268,10 +272,4 @@ Generated: 2026-11-10T07:08:39.612Z
 .hypothesis/constants/1ca62d6cef2fe2d1
 .hypothesis/constants/1dc1ab6c5c65cc09
 .hypothesis/constants/1dfd9aafce590564
-.hypothesis/constants/1e2dcf6c724e1fb6
-.hypothesis/constants/1e2dfba909fef86b
-.hypothesis/constants/1e313a366ae620ea
-.hypothesis/constants/1e566dbb32834f38
-.hypothesis/constants/1e5d0a2f24149f22
-.hypothesis/constants/1ec744f92449aa78
 ```
