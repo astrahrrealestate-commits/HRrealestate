@@ -392,3 +392,33 @@ def test_a_reports_or_dashboard_profile_gets_no_card_text_from_the_feed_or_the_c
         approve = client.post("/api/calendar/events/00000000-0000-0000-0000-000000000001/approve", headers=CSRF)
         assert approve.status_code == 403
         assert client.get("/api/inbox/attachments/00000000-0000-0000-0000-000000000001").status_code == 403
+
+
+def test_the_first_profile_of_a_legacy_company_does_not_lock_its_owner_out(
+    migrated_engine: Engine, pg_url: str
+) -> None:
+    from app.db.models import OwnerAccount
+
+    with Session(migrated_engine, expire_on_commit=False) as s:
+        company = Company(name="Legacy BV")
+        s.add(company)
+        s.commit()
+    try:
+        with Session(migrated_engine) as s, s.begin():
+            owner = OwnerAccount(
+                company_id=company.id, display_name="Old Owner", whatsapp_e164="+31600000002", email="old@legacy.test"
+            )
+            s.add(owner)
+            s.flush()
+            principal = Principal(company_id=company.id, owner_id=owner.id, email="old@legacy.test")
+        app, settings = build_app(migrated_engine, pg_url)
+        with signed_in(app, settings, principal) as client:
+            assert _create(client, "clerk@legacy.test").status_code == 201
+            assert client.get("/api/contacts").status_code == 200  # still signed in, now through a profile of their own
+            me = client.get("/api/auth/me").json()
+            profiles = {p["email"]: p for p in client.get(PROFILES).json()}
+        assert (me["authenticated"], me["is_admin"], me["name"]) == (True, True, "Old Owner")
+        assert (profiles["old@legacy.test"]["role"], profiles["old@legacy.test"]["is_active"]) == ("superadmin", True)
+        assert set(profiles) == {"old@legacy.test", "clerk@legacy.test"}
+    finally:
+        purge_company(migrated_engine, company.id)

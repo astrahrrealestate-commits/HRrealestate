@@ -76,6 +76,29 @@ def seed_dev_tenant(
                     )
                 )
 
+        # The dev sign-in ("Continue as dev owner") is the company's owner account: it needs a profile of its own,
+        # or the whitelist above would sign it out (`access_for`). Nobody is reactivated, only missing rows added.
+        for own in session.scalars(select(OwnerAccount).where(OwnerAccount.company_id == company_id)):
+            own_email = (own.email or "").strip().lower()
+            if (
+                own_email
+                and session.scalar(
+                    select(AllowedUser.id).where(AllowedUser.company_id == company_id, AllowedUser.email == own_email)
+                )
+                is None
+            ):
+                session.add(
+                    AllowedUser(
+                        id=uuid4(),
+                        company_id=company_id,
+                        email=own_email,
+                        display_name=own.display_name,
+                        role="owner",
+                        is_active=True,
+                        invited_by="system",
+                    )
+                )
+
         # Remove non-staff accounts from login whitelist if previously seeded
         for removed_email in ["vipint9902@gmail.com", "suryanstyagi.work@gmail.com"]:
             to_remove = session.scalar(
