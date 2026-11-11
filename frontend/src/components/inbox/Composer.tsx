@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Sparkles, Check, RotateCcw, Send, MessageSquare, Mail, Maximize2, X, ExternalLink, Loader2, UserRound, Mic, MicOff } from "lucide-react";
 import Link from "next/link";
+import { FlagUK, FlagNL } from "@/components/ui/FlagIcons";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { DraftOption } from "@/types/dashboard";
@@ -433,7 +434,10 @@ export function Composer({
               )}
               title={speechLang === "nl" ? "Voice language: Nederlands (click to switch to English)" : "Voice language: English (click to switch to Nederlands)"}
             >
-              <span>{speechLang === "nl" ? "🇳🇱 NL" : "🇬🇧 EN"}</span>
+              <span className="inline-flex items-center gap-1">
+                {speechLang === "nl" ? <FlagNL className="w-3.5 h-2.5" /> : <FlagUK className="w-3.5 h-2.5" />}
+                <span>{speechLang === "nl" ? "NL" : "EN"}</span>
+              </span>
             </button>
 
             {isListening && (

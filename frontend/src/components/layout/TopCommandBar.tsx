@@ -5,6 +5,7 @@ import { Sparkles, Search, X, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { FlagUK, FlagNL } from "@/components/ui/FlagIcons";
 import { useAuth } from "@/context/AuthContext";
 
 interface TopCommandBarProps {
@@ -69,28 +70,28 @@ export function TopCommandBar({
             type="button"
             onClick={() => setLanguage("en")}
             className={cn(
-              "px-2 py-0.5 rounded-full transition-all cursor-pointer flex items-center gap-1",
+              "px-2.5 py-1 rounded-full transition-all cursor-pointer flex items-center gap-1.5",
               language === "en"
                 ? "bg-white/20 text-white shadow-xs font-bold"
                 : "hover:text-slate-200"
             )}
             title="English"
           >
-            <span>🇬🇧</span>
+            <FlagUK className="w-3.5 h-2.5" />
             <span>EN</span>
           </button>
           <button
             type="button"
             onClick={() => setLanguage("nl")}
             className={cn(
-              "px-2 py-0.5 rounded-full transition-all cursor-pointer flex items-center gap-1",
+              "px-2.5 py-1 rounded-full transition-all cursor-pointer flex items-center gap-1.5",
               language === "nl"
                 ? "bg-white/20 text-white shadow-xs font-bold"
                 : "hover:text-slate-200"
             )}
             title="Nederlands"
           >
-            <span>🇳🇱</span>
+            <FlagNL className="w-3.5 h-2.5" />
             <span>NL</span>
           </button>
         </div>

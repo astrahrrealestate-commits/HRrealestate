@@ -81,6 +81,7 @@ export interface AssistantMessage {
 
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { FlagUK, FlagNL } from "@/components/ui/FlagIcons";
 import { BACKEND_BASE_URL, apiFetch } from "@/lib/backend";
 
 interface AskEstateOSPanelProps {
@@ -1081,7 +1082,10 @@ export function AskEstateOSPanel({
                     )}
                     title={speechLang === "nl" ? "Voice language: Nederlands (tap to switch to English)" : "Voice language: English (tap to switch to Nederlands)"}
                   >
-                    <span>{speechLang === "nl" ? "🇳🇱 NL" : "🇬🇧 EN"}</span>
+                    <span className="inline-flex items-center gap-1">
+                      {speechLang === "nl" ? <FlagNL className="w-3.5 h-2.5" /> : <FlagUK className="w-3.5 h-2.5" />}
+                      <span>{speechLang === "nl" ? "NL" : "EN"}</span>
+                    </span>
                   </button>
 
                   {isListening && (
@@ -2530,7 +2534,10 @@ export function AskEstateOSPanel({
                     )}
                     title={speechLang === "nl" ? "Voice language: Nederlands (click to switch to English)" : "Voice language: English (click to switch to Nederlands)"}
                   >
-                    <span>{speechLang === "nl" ? "🇳🇱 NL" : "🇬🇧 EN"}</span>
+                    <span className="inline-flex items-center gap-1">
+                      {speechLang === "nl" ? <FlagNL className="w-3.5 h-2.5" /> : <FlagUK className="w-3.5 h-2.5" />}
+                      <span>{speechLang === "nl" ? "NL" : "EN"}</span>
+                    </span>
                   </button>
 
                   {isListening && (
