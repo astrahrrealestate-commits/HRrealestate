@@ -438,10 +438,10 @@ function MoneyContent() {
                     size="sm"
                     onClick={handleExportCSV}
                     className="text-xs border border-[var(--line)] gap-1.5"
-                    title="Export Rent Roll to CSV"
+                    title={t("Export Rent Roll to CSV")}
                   >
                     <Download className="w-3.5 h-3.5 text-[var(--ink-3)]" />
-                    <span className="hidden sm:inline">Export CSV</span>
+                    <span className="hidden sm:inline">{t("Export CSV")}</span>
                   </Button>
                 </div>
               </div>
@@ -451,52 +451,52 @@ function MoneyContent() {
                 {/* 1. Scheduled Rent */}
                 <div className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] p-4 shadow-2xs space-y-1">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)] block">
-                    Scheduled Rent ({trendPoints.find((p) => p.billingMonth === selectedMonth)?.month || "Nov"})
+                    {t("Scheduled Rent")} ({trendPoints.find((p) => p.billingMonth === selectedMonth)?.month || "Nov"})
                   </span>
                   <div className="text-xl sm:text-2xl font-mono font-semibold text-[var(--ink)] tracking-tight tabular-nums">
                     € {aggregates.totalScheduled.toLocaleString("nl-NL", { minimumFractionDigits: 2 })}
                   </div>
                   <span className="text-[11px] text-[var(--ink-3)] block font-mono">
-                    {aggregates.totalUnits} portfolio units
+                    {aggregates.totalUnits} {t("portfolio units")}
                   </span>
                 </div>
 
                 {/* 2. Collected Rent */}
                 <div className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] p-4 shadow-2xs space-y-1">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)] block">
-                    Collected Rent
+                    {t("Collected Rent")}
                   </span>
                   <div className="text-xl sm:text-2xl font-mono font-semibold text-[var(--ink)] tracking-tight tabular-nums">
                     € {aggregates.totalCollected.toLocaleString("nl-NL", { minimumFractionDigits: 2 })}
                   </div>
                   <span className="text-[11px] text-[var(--ink-2)] block font-mono">
-                    {aggregates.collectionRate.toFixed(1)}% collected on time
+                    {aggregates.collectionRate.toFixed(1)}% {t("collected on time")}
                   </span>
                 </div>
 
                 {/* 3. Overdue Arrears */}
                 <div className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] p-4 shadow-2xs space-y-1">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)] block">
-                    Overdue Arrears
+                    {t("Overdue Arrears")}
                   </span>
                   <div className="text-xl sm:text-2xl font-mono font-semibold text-[var(--ink)] tracking-tight tabular-nums">
                     € {aggregates.overdueTotal.toLocaleString("nl-NL", { minimumFractionDigits: 2 })}
                   </div>
                   <span className="text-[11px] text-[var(--ink-2)] block font-mono">
-                    {aggregates.overdueCount} {aggregates.overdueCount === 1 ? "tenant" : "tenants"} in arrears
+                    {aggregates.overdueCount} {aggregates.overdueCount === 1 ? t("tenant") : t("tenants")} {t("in arrears")}
                   </span>
                 </div>
 
                 {/* 4. Occupancy / MoM Growth */}
                 <div className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] p-4 shadow-2xs space-y-1">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)] block">
-                    Portfolio Occupancy
+                    {t("Portfolio Occupancy")}
                   </span>
                   <div className="text-xl sm:text-2xl font-mono font-semibold text-[var(--ink)] tracking-tight flex items-center gap-1.5 tabular-nums">
                     <span>{aggregates.occupancyRate.toFixed(1)}%</span>
                   </div>
                   <span className="text-[11px] text-[var(--ink-3)] block font-mono">
-                    {aggregates.occupiedUnits} / {aggregates.totalUnits} leased units
+                    {aggregates.occupiedUnits} / {aggregates.totalUnits} {t("leased units")}
                   </span>
                 </div>
               </div>
@@ -509,13 +509,13 @@ function MoneyContent() {
                   <div>
                     <h3 className="text-[14px] font-semibold text-[var(--ink)] tracking-tight">
                       {chartView === "revenue"
-                        ? "Monthly Rent Revenue & Collection Trend (Last 6 Months)"
-                        : "Portfolio Occupancy Progression (Last 6 Months)"}
+                        ? t("Monthly Rent Revenue & Collection Trend (Last 6 Months)")
+                        : t("Portfolio Occupancy Progression (Last 6 Months)")}
                     </h3>
                     <p className="text-xs text-[var(--ink-3)]">
                       {chartView === "revenue"
-                        ? "Comparing scheduled lease commitments against collected receipts. Click a bar to filter ledger."
-                        : "Tracking occupied residential units over time (growing from 94.5% to 100.0%)."}
+                        ? t("Comparing scheduled lease commitments against collected receipts. Click a bar to filter ledger.")
+                        : t("Tracking occupied residential units over time (growing from 94.5% to 100.0%).")}
                     </p>
                   </div>
 
@@ -532,7 +532,7 @@ function MoneyContent() {
                       )}
                     >
                       <BarChart3 className="w-3.5 h-3.5" />
-                      <span>Revenue</span>
+                      <span>{t("Revenue")}</span>
                     </button>
                     <button
                       type="button"
@@ -545,7 +545,7 @@ function MoneyContent() {
                       )}
                     >
                       <Users className="w-3.5 h-3.5" />
-                      <span>Occupancy</span>
+                      <span>{t("Occupancy")}</span>
                     </button>
                   </div>
                 </div>
@@ -557,25 +557,25 @@ function MoneyContent() {
                       <>
                         <div className="flex items-center gap-2">
                           <span className="w-4 h-0.5 border-t border-dashed border-[#94A3B8]" />
-                          <span>Scheduled Target</span>
+                          <span>{t("Scheduled Target")}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="w-4 h-0.5 bg-[#0A1B2F]" />
-                          <span className="font-semibold text-[var(--ink)]">Settled Rent</span>
+                          <span className="font-semibold text-[var(--ink)]">{t("Settled Rent")}</span>
                         </div>
                       </>
                     ) : (
                       <>
                         <div className="flex items-center gap-2">
                           <span className="w-4 h-0.5 bg-[#0A1B2F]" />
-                          <span className="font-semibold text-[var(--ink)]">Portfolio Occupancy Rate (%)</span>
+                          <span className="font-semibold text-[var(--ink)]">{t("Portfolio Occupancy Rate (%)")}</span>
                         </div>
                       </>
                     )}
                   </div>
 
                   <span className="text-[11px] text-[var(--ink-3)] hidden sm:inline">
-                    Click node to select cycle
+                    {t("Click node to select cycle")}
                   </span>
                 </div>
 
@@ -653,7 +653,7 @@ function MoneyContent() {
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search tenant, unit, invoice..."
+                      placeholder={t("Search tenant, unit, invoice...")}
                       className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--bg)] border border-[var(--line)] rounded-md text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none focus:border-[var(--ink-2)]"
                     />
                     {searchQuery && (
@@ -675,12 +675,12 @@ function MoneyContent() {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-[var(--line)] bg-[var(--selected)]/20 text-[11px] font-mono uppercase tracking-wider text-[var(--ink-3)]">
-                      <th className="py-3 px-4">Status</th>
-                      <th className="py-3 px-4">Invoice Reference</th>
-                      <th className="py-3 px-4">Tenant & Unit</th>
-                      <th className="py-3 px-4">Contract Rent</th>
-                      <th className="py-3 px-4">Settlement / Due Date</th>
-                      <th className="py-3 px-4 text-right">Payment Channel</th>
+                      <th className="py-3 px-4">{t("Status")}</th>
+                      <th className="py-3 px-4">{t("Invoice Reference")}</th>
+                      <th className="py-3 px-4">{t("Tenant & Unit")}</th>
+                      <th className="py-3 px-4">{t("Contract Rent")}</th>
+                      <th className="py-3 px-4">{t("Settlement / Due Date")}</th>
+                      <th className="py-3 px-4 text-right">{t("Payment Channel")}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--line)]/60 text-xs">
@@ -698,17 +698,17 @@ function MoneyContent() {
                             {isOverdue ? (
                               <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono font-medium text-[var(--ink)] bg-[var(--selected)] border border-[var(--line)]">
                                 <span className="w-1.5 h-1.5 rounded-full bg-[var(--ink)]" />
-                                <span>{tx.overdueDays}d overdue</span>
+                                <span>{tx.overdueDays}d {t("overdue")}</span>
                               </span>
                             ) : tx.status === "paid" ? (
                               <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono font-medium text-[var(--ink-2)] bg-[var(--selected)]/40 border border-[var(--line)]">
                                 <Check className="w-3 h-3 text-[var(--ink-2)]" />
-                                <span>PAID</span>
+                                <span>{t("PAID")}</span>
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono text-[var(--ink-3)] bg-[var(--selected)]/20 border border-[var(--line)]">
                                 <Clock className="w-3 h-3" />
-                                <span>Pending</span>
+                                <span>{t("Pending")}</span>
                               </span>
                             )}
                           </td>
@@ -746,16 +746,16 @@ function MoneyContent() {
                                   {tx.paidDate}
                                 </span>
                                 <span className="text-[10px] text-[var(--ink-3)] block font-mono">
-                                  Due {tx.dueDate}
+                                  {t("Due")} {tx.dueDate}
                                 </span>
                               </div>
                             ) : (
                               <div>
                                 <span className="font-mono text-[var(--ink)] font-medium block">
-                                  Due {tx.dueDate}
+                                  {t("Due")} {tx.dueDate}
                                 </span>
                                 <span className="text-[10px] text-[var(--ink-3)] block font-mono">
-                                  {tx.overdueDays} days in arrears
+                                  {tx.overdueDays} {t("days in arrears")}
                                 </span>
                               </div>
                             )}
@@ -806,14 +806,14 @@ function MoneyContent() {
                           </span>
                           {isOverdue ? (
                             <span className="text-[var(--ink)] font-mono shrink-0">
-                              {tx.overdueDays}d overdue
+                              {tx.overdueDays}d {t("overdue")}
                             </span>
                           ) : tx.paidDate ? (
                             <span className="text-[var(--ink-2)] font-mono shrink-0">
                               {tx.paidDate}
                             </span>
                           ) : (
-                            <span className="shrink-0 font-mono">Due {tx.dueDate}</span>
+                            <span className="shrink-0 font-mono">{t("Due")} {tx.dueDate}</span>
                           )}
                         </div>
                       </div>
@@ -825,7 +825,7 @@ function MoneyContent() {
 
                 {filteredTransactions.length === 0 && (
                   <div className="text-center py-12 text-[var(--ink-3)] text-xs">
-                    {isLoading ? "Loading..." : "No tenant rent records found."}
+                    {isLoading ? t("Loading...") : t("No tenant rent records found.")}
                   </div>
                 )}
               </div>

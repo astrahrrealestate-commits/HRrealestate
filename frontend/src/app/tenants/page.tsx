@@ -626,7 +626,7 @@ function TenantsContent() {
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 p-4 bg-white border-b border-[#e5e7eb]">
                     <div className="p-2.5 rounded-[8px] bg-[#f8fafc] border border-[#e2e8f0]">
                       <div className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider">
-                        Monthly Rent
+                        {t("Monthly Rent")}
                       </div>
                       <div className="text-[14px] font-bold text-[#0f172a] mt-1 font-mono">
                         € 2.450,-
@@ -635,7 +635,7 @@ function TenantsContent() {
 
                     <div className="p-2.5 rounded-[8px] bg-[#f8fafc] border border-[#e2e8f0]">
                       <div className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider">
-                        Security Deposit
+                        {t("Security Deposit")}
                       </div>
                       <div className="text-[14px] font-bold text-[#0f172a] mt-1 font-mono">
                         € 4.900,-
@@ -644,7 +644,7 @@ function TenantsContent() {
 
                     <div className="p-2.5 rounded-[8px] bg-[#f8fafc] border border-[#e2e8f0]">
                       <div className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider">
-                        Lease Commencement
+                        {t("Lease Commencement")}
                       </div>
                       <div className="text-[13px] font-semibold text-[#0f172a] mt-1 font-mono">
                         01-01-2025
@@ -653,7 +653,7 @@ function TenantsContent() {
 
                     <div className="p-2.5 rounded-[8px] bg-[#f8fafc] border border-[#e2e8f0]">
                       <div className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider">
-                        Lease Expiry
+                        {t("Lease Expiry")}
                       </div>
                       <div className="text-[13px] font-semibold text-[#0f172a] mt-1 font-mono">
                         31-12-2026
@@ -662,20 +662,20 @@ function TenantsContent() {
 
                     <div className="p-2.5 rounded-[8px] bg-[#f8fafc] border border-[#e2e8f0]">
                       <div className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider">
-                        Identity & Vetting
+                        {t("Identity & Vetting")}
                       </div>
                       <div className="inline-flex items-center gap-1 text-[12px] font-bold text-[#16a34a] mt-1">
                         <ShieldCheck className="w-3.5 h-3.5 text-[#16a34a]" />
-                        <span>iDIN Verified</span>
+                        <span>{t("iDIN Verified")}</span>
                       </div>
                     </div>
 
                     <div className="p-2.5 rounded-[8px] bg-[#f8fafc] border border-[#e2e8f0]">
                       <div className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider">
-                        Payment Status
+                        {t("Payment Status")}
                       </div>
                       <div className="text-[12px] font-bold text-emerald-700 mt-1">
-                        Rent up to date
+                        {t("Rent up to date")}
                       </div>
                     </div>
                   </div>

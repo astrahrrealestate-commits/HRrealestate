@@ -705,7 +705,7 @@ export default function TodayPage() {
                     : "text-[var(--ink-2)] hover:text-[var(--ink)] hover:bg-[var(--pane)] border border-transparent hover:border-[var(--line)]"
                 )}
               >
-                <span>All</span>
+                <span>{t("All")}</span>
               </button>
 
               <button
@@ -726,7 +726,7 @@ export default function TodayPage() {
                     )}
                   />
                 )}
-                <span>Urgent</span>
+                <span>{t("Urgent")}</span>
                 {currentUrgentCount > 0 && (
                   <span
                     className={cn(
@@ -751,7 +751,7 @@ export default function TodayPage() {
                     : "text-[var(--ink-2)] hover:text-[var(--ink)] hover:bg-[var(--pane)] border border-transparent hover:border-[var(--line)]"
                 )}
               >
-                <span>Needs you</span>
+                <span>{t("Needs you")}</span>
                 <span
                   className={cn(
                     "font-mono text-[10.5px] px-1.5 py-0.2 rounded-full",
@@ -774,7 +774,7 @@ export default function TodayPage() {
                     : "text-[var(--ink-2)] hover:text-[var(--ink)] hover:bg-[var(--pane)] border border-transparent hover:border-[var(--line)]"
                 )}
               >
-                <span>Waiting</span>
+                <span>{t("Waiting")}</span>
                 <span
                   className={cn(
                     "font-mono text-[10.5px] px-1.5 py-0.2 rounded-full",
@@ -797,7 +797,7 @@ export default function TodayPage() {
                     : "text-[var(--ink-2)] hover:text-[var(--ink)] hover:bg-[var(--pane)] border border-transparent hover:border-[var(--line)]"
                 )}
               >
-                <span>New leads</span>
+                <span>{t("New leads")}</span>
                 <span
                   className={cn(
                     "font-mono text-[10.5px] px-1.5 py-0.2 rounded-full",
@@ -820,7 +820,7 @@ export default function TodayPage() {
                     : "text-[var(--ink-2)] hover:text-[var(--ink)] hover:bg-[var(--pane)] border border-transparent hover:border-[var(--line)]"
                 )}
               >
-                <span>Overview</span>
+                <span>{t("Overview")}</span>
               </button>
             </div>
           </div>
@@ -1203,60 +1203,60 @@ export default function TodayPage() {
           <section id="section-needs-you" className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] overflow-hidden">
             <div className="px-4 sm:px-5 py-3 border-b border-[var(--line)] bg-[var(--pane)]">
               <SectionHeader
-                title="Needs you"
-                actionText="Open Inbox →"
+                title={t("Needs you")}
+                actionText={t("Open Inbox →")}
                 actionHref="/inbox"
               />
             </div>
 
             <div className="divide-y divide-[var(--line)]">
               {needsYouThreads.length > 0 ? (
-                needsYouThreads.slice(0, activeSection === "all" ? 5 : 50).map((t) => {
+                needsYouThreads.slice(0, activeSection === "all" ? 5 : 50).map((thread) => {
                   const rowItem: ThreadRowItem = {
-                    id: t.id,
-                    contactName: t.senderName,
-                    channel: t.channel,
-                    unit: t.unitLabel,
-                    subject: t.subject || t.issueTitle || t.caseRef,
-                    snippet: t.latestSnippet,
+                    id: thread.id,
+                    contactName: thread.senderName,
+                    channel: thread.channel,
+                    unit: thread.unitLabel,
+                    subject: thread.subject || thread.issueTitle || thread.caseRef,
+                    snippet: thread.latestSnippet,
                     hasDraft: Boolean(
-                      t.draftProposal?.drafts?.length ||
-                      t.draftProposal?.whatsappDrafts?.length ||
-                      t.draftProposal?.gmailDrafts?.length
+                      thread.draftProposal?.drafts?.length ||
+                      thread.draftProposal?.whatsappDrafts?.length ||
+                      thread.draftProposal?.gmailDrafts?.length
                     ),
-                    lastAt: t.receivedAt,
-                    urgent: isUrgent(t),
+                    lastAt: thread.receivedAt,
+                    urgent: isUrgent(thread),
                     status: "needs_you",
-                    count: t.messages?.length || 1,
+                    count: thread.messages?.length || 1,
                   };
 
-                  const isMaintenance = t.category === "maintenance" && t.recipientRole !== "contractor";
+                  const isMaintenance = thread.category === "maintenance" && thread.recipientRole !== "contractor";
 
                   return (
-                    <div key={t.id} className="group">
+                    <div key={thread.id} className="group">
                       <ThreadRow
                         t={rowItem}
-                        onSelect={() => router.push(`/inbox?thread=${t.id}`)}
-                        onDone={() => showToast(`Thread ${t.senderName} marked as done.`)}
-                        onSnooze={() => showToast(`Thread ${t.senderName} snoozed until tomorrow 09:00.`)}
+                        onSelect={() => router.push(`/inbox?thread=${thread.id}`)}
+                        onDone={() => showToast(`Thread ${thread.senderName} marked as done.`)}
+                        onSnooze={() => showToast(`Thread ${thread.senderName} snoozed until tomorrow 09:00.`)}
                       />
-                      {/* For maintenance messages: strictly isolated by thread ID (t.id) */}
+                      {/* For maintenance messages: strictly isolated by thread ID (thread.id) */}
                       {isMaintenance && (() => {
                         const mTicket = maintenanceTickets.find(
-                          (mt) => mt.ticketNumber === t.ticketNumber || mt.ticketNumber === `#${t.ticketNumber?.replace('#', '')}`
+                          (mt) => mt.ticketNumber === thread.ticketNumber || mt.ticketNumber === `#${thread.ticketNumber?.replace('#', '')}`
                         ) || {
                           ...DEFAULT_TICKET_TEMPLATE,
-                          id: `m-${t.id}`,
-                          ticketNumber: t.ticketNumber || `#0${t.id.replace(/\D/g, '').slice(-2) || '15'}`,
-                          unitLabel: t.unitLabel || DEFAULT_TICKET_TEMPLATE.unitLabel,
-                          tenantName: t.senderName || DEFAULT_TICKET_TEMPLATE.tenantName,
-                          tenantPhone: t.senderContact || DEFAULT_TICKET_TEMPLATE.tenantPhone,
-                          issueTitle: t.subject || t.latestSnippet || DEFAULT_TICKET_TEMPLATE.issueTitle,
+                          id: `m-${thread.id}`,
+                          ticketNumber: thread.ticketNumber || `#0${thread.id.replace(/\D/g, '').slice(-2) || '15'}`,
+                          unitLabel: thread.unitLabel || DEFAULT_TICKET_TEMPLATE.unitLabel,
+                          tenantName: thread.senderName || DEFAULT_TICKET_TEMPLATE.tenantName,
+                          tenantPhone: thread.senderContact || DEFAULT_TICKET_TEMPLATE.tenantPhone,
+                          issueTitle: thread.subject || thread.latestSnippet || DEFAULT_TICKET_TEMPLATE.issueTitle,
                         };
 
-                        const tChannel = t.channel === "gmail" ? "gmail" : "whatsapp";
-                        const isReplied = Boolean(tenantReplySentMap[t.id]);
-                        const isDispatched = Boolean(contractorDispatchedMap[t.id]);
+                        const tChannel = thread.channel === "gmail" ? "gmail" : "whatsapp";
+                        const isReplied = Boolean(tenantReplySentMap[thread.id]);
+                        const isDispatched = Boolean(contractorDispatchedMap[thread.id]);
 
                         return (
                           <div className="bg-[var(--bg)]/50 border-b border-[var(--line)] px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -1281,14 +1281,14 @@ export default function TodayPage() {
                                 title="View/Edit ticket details on this page"
                               >
                                 <Ticket className="w-3 h-3 text-[var(--accent-ink)]" />
-                                <span>Ticket Details</span>
+                                <span>{t("Ticket Details")}</span>
                               </button>
 
                               <button
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleSendTenantReply(mTicket, tChannel, t.id);
+                                  handleSendTenantReply(mTicket, tChannel, thread.id);
                                 }}
                                 className={cn(
                                   "inline-flex items-center gap-1 px-2.5 py-1 rounded border text-xs font-semibold transition-colors cursor-pointer",
@@ -1302,14 +1302,14 @@ export default function TodayPage() {
                                 ) : (
                                   <Mail className="w-3 h-3 text-[#EA4335]" />
                                 )}
-                                <span>{isReplied ? "Replied" : `Reply (${tChannel === "whatsapp" ? "WhatsApp" : "Email"})`}</span>
+                                <span>{isReplied ? t("Replied") : `${t("Reply")} (${tChannel === "whatsapp" ? "WhatsApp" : "Email"})`}</span>
                               </button>
 
                               <button
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleDispatchContractor(mTicket, t.id);
+                                  handleDispatchContractor(mTicket, thread.id);
                                 }}
                                 disabled={isDispatched}
                                 className={cn(
@@ -1320,7 +1320,7 @@ export default function TodayPage() {
                                 )}
                               >
                                 <Wrench className="w-3 h-3 text-[var(--accent)]" />
-                                <span>{isDispatched ? "Dispatched" : "Dispatch"}</span>
+                                <span>{isDispatched ? t("Dispatched") : t("Dispatch")}</span>
                               </button>
                             </div>
                           </div>
@@ -1343,7 +1343,7 @@ export default function TodayPage() {
           <section id="section-waiting" className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] overflow-hidden">
             <div className="px-4 sm:px-5 py-3 border-b border-[var(--line)] bg-[var(--pane)]">
               <SectionHeader
-                title="Waiting on others"
+                title={t("Waiting on others")}
                 count={radarItems.length}
               />
             </div>
@@ -1387,7 +1387,7 @@ export default function TodayPage() {
                         icon={isNudged ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Send className="w-3.5 h-3.5 text-[var(--ink-3)]" />}
                         className="text-xs border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] shadow-2xs"
                       >
-                        {isNudged ? "Nudged" : "Send nudge"}
+                        {isNudged ? t("Nudged") : t("Send nudge")}
                       </Button>
                     </div>
                   </div>
@@ -1402,9 +1402,9 @@ export default function TodayPage() {
           <section id="section-leads" className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] overflow-hidden">
             <div className="px-4 sm:px-5 py-3 border-b border-[var(--line)] bg-[var(--pane)]">
               <SectionHeader
-                title="New leads"
+                title={t("New leads")}
                 count={leadItems.length}
-                actionText="Open all →"
+                actionText={t("Open all →")}
                 actionHref="/inbox?audience=inquiries"
               />
             </div>
@@ -1445,7 +1445,7 @@ export default function TodayPage() {
                       }}
                       className="text-xs border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] shadow-2xs"
                     >
-                      Review
+                      {t("Review")}
                     </Button>
                   </div>
                 </div>
@@ -1464,7 +1464,7 @@ export default function TodayPage() {
                 <div>
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ink-3)]">
-                      Open rent
+                      {t("Open rent")}
                     </span>
                     <span className="font-mono text-[15px] font-semibold text-[var(--ink)] tabular-nums">
                       {agingTotal > 0 ? formatCurrency(agingTotal) : "—"}
@@ -1502,7 +1502,7 @@ export default function TodayPage() {
                   href="/money"
                   className="text-xs font-medium text-[var(--ink)] hover:underline underline-offset-4 inline-flex items-center gap-1 pt-1"
                 >
-                  <span>Review rent aging</span>
+                  <span>{t("Review rent aging")}</span>
                   <ArrowRight className="w-3 h-3" />
                 </Link>
               </div>
@@ -1512,7 +1512,7 @@ export default function TodayPage() {
                 <div>
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ink-3)]">
-                      Occupancy
+                      {t("Occupancy")}
                     </span>
                     <span className="font-mono text-[15px] font-semibold text-[var(--ink)] tabular-nums">
                       {occupancyHeadline}
@@ -1554,7 +1554,7 @@ export default function TodayPage() {
                 <div>
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ink-3)]">
-                      Handled this week
+                      {t("Handled this week")}
                     </span>
                     <span className="font-mono text-[15px] font-semibold text-[var(--ink)] tabular-nums">
                       {metrics.autonomousActionsWeek || 142}
@@ -1584,7 +1584,7 @@ export default function TodayPage() {
                   onClick={() => showToast("Opening autonomous operations ledger...")}
                   className="text-xs font-medium text-[var(--ink)] hover:underline underline-offset-4 inline-flex items-center gap-1 pt-1 text-left cursor-pointer"
                 >
-                  <span>View autonomous ledger</span>
+                  <span>{t("View autonomous ledger")}</span>
                   <ArrowRight className="w-3 h-3" />
                 </button>
               </div>
