@@ -1,11 +1,11 @@
 """Quote checker (spec 2026-10-31): agreed rate cards, decision-day price snapshots, quotes and their reviews."""
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import ForeignKey, Index, Numeric, String, UniqueConstraint
+from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -107,3 +107,60 @@ class QuoteReview(Base, CompanyScoped):
     overcharge: Mapped[Decimal]
     late_days: Mapped[int]
     report: Mapped[dict[str, Any]] = mapped_column(JSONB)
+
+
+class TenantRentPayment(Base, CompanyScoped):
+    """Monthly rent tracking per tenant and unit with contract rent, paid timestamps, and overdue status."""
+
+    __tablename__ = "tenant_rent_payments"
+    __company_id_leading_index__ = True
+    __table_args__ = (
+        UniqueConstraint("company_id", "lease_id", "billing_month", name="uq_tenant_monthly_rent"),
+        Index("ix_rent_company_month", "company_id", "billing_month"),
+        Index("ix_rent_status", "company_id", "status"),
+        Index("ix_rent_tenant", "company_id", "tenant_id"),
+    )
+
+    invoice_number: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("people.id"), index=True)
+    unit_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("units.id"), index=True)
+    lease_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("leases.id"), index=True)
+
+    billing_month: Mapped[date] = mapped_column(Date)  # First day of the cycle month e.g. 2026-11-01
+    contract_rent_cents: Mapped[int] = mapped_column(BigInteger)  # Euro cents e.g. 185000 for €1,850.00
+    amount_paid_cents: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+
+    due_date: Mapped[date] = mapped_column(Date)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    status: Mapped[str] = mapped_column(
+        String(20), default="pending", server_default="pending"
+    )  # paid, pending, overdue, partial
+    overdue_days: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+    payment_method: Mapped[str] = mapped_column(
+        String(50), default="SEPA Direct Debit", server_default="SEPA Direct Debit"
+    )
+    transaction_reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class MonthlyRentSummary(Base, CompanyScoped):
+    """Pre-aggregated monthly rent rollups for fast month-over-month comparisons and charting."""
+
+    __tablename__ = "monthly_rent_summaries"
+    __company_id_leading_index__ = True
+    __table_args__ = (
+        UniqueConstraint("company_id", "billing_month", name="uq_monthly_rent_summary"),
+        Index("ix_rent_summary_month", "company_id", "billing_month"),
+    )
+
+    billing_month: Mapped[date] = mapped_column(Date)  # First day of the month e.g. 2026-11-01
+    total_scheduled_rent_cents: Mapped[int] = mapped_column(BigInteger)
+    total_collected_rent_cents: Mapped[int] = mapped_column(BigInteger)
+    total_overdue_rent_cents: Mapped[int] = mapped_column(BigInteger)
+
+    total_tenants_count: Mapped[int] = mapped_column(Integer)
+    paid_tenants_count: Mapped[int] = mapped_column(Integer)
+    overdue_tenants_count: Mapped[int] = mapped_column(Integer)
+    collection_rate_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2))

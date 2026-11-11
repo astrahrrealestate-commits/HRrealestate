@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSuperAgent } from "@/context/SuperAgentContext";
+import { useLanguage } from "@/context/LanguageContext";
 import {
   ContactItem,
   ContactEmailItem,
@@ -98,9 +99,10 @@ function ContactsContent() {
   const searchParams = useSearchParams();
   const contactParam = searchParams.get("contact");
   const superAgent = useSuperAgent();
+  const { t } = useLanguage();
 
   // Left Sidebar Filter state
-  const [filterAudience, setFilterAudience] = useState<"all" | "tenant" | "contractor" | "other">("all");
+  const [filterAudience, setFilterAudience] = useState<"all" | "tenant" | "contractor">("all");
   const [contactForm, setContactForm] = useState<{ open: boolean; contact: ContactItem | null }>({
     open: false,
     contact: null,
@@ -134,7 +136,7 @@ function ContactsContent() {
     async function loadContacts() {
       setIsLoadingContacts(true);
       try {
-        const list = await getContactsList(filterAudience === "other" ? "all" : filterAudience);
+        const list = await getContactsList(filterAudience);
         if (isMounted && list) {
           setDbContacts(list);
         }
@@ -362,12 +364,13 @@ function ContactsContent() {
     }
   };
 
-  // Filtered contacts in the left 220px list (re-evaluates when allAvailableContacts loads)
+  // Filtered contacts in the left 220px list (strictly portfolio contacts: Tenants & Contractors)
   const filteredContacts = useMemo(() => {
     return allAvailableContacts.filter((contact) => {
+      // Must be a tenant or contractor
+      if (contact.category !== "tenant" && contact.category !== "contractor") return false;
       if (filterAudience === "tenant" && contact.category !== "tenant") return false;
       if (filterAudience === "contractor" && contact.category !== "contractor") return false;
-      if (filterAudience === "other" && (contact.category === "tenant" || contact.category === "contractor")) return false;
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -413,40 +416,14 @@ function ContactsContent() {
   }, [openEmailId, filteredEmails, liveEmails]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#1B1B1B] text-[#111215] font-sans antialiased">
-      {/* 1. Left Nav (Desktop Sidebar - #1B1B1B dark theme) */}
+    <div className="flex h-screen w-screen overflow-hidden bg-[#0A1B2F] text-[#111215] font-sans antialiased">
+      {/* 1. Left Nav (Desktop Sidebar - #0A1B2F dark blue theme) */}
       <Sidebar />
 
       {/* 2. Content Workspace */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#1B1B1B]">
-        {/* Top Bar matching CSS spec */}
-        <header className="h-[48px] bg-[#1B1B1B] border-b border-[#27272a] px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shrink-0">
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-[#94a3b8] font-normal">EstateOS</span>
-            <span className="text-[#64748b]">/</span>
-            <span className="text-white font-medium tracking-tight">Contacts</span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={superAgent.toggleOpen}
-              className={cn(
-                "inline-flex items-center gap-1.5 h-[30px] px-3 rounded-full text-xs font-semibold transition-all cursor-pointer select-none",
-                superAgent.isOpen
-                  ? "bg-[#1a73e8] text-white shadow-[0_0_12px_rgba(26,115,232,0.4)]"
-                  : "bg-white/10 hover:bg-white/15 text-white border border-white/15"
-              )}
-              title="Toggle Super Agent Right-Side Panel"
-            >
-              <Sparkles className={cn("w-3.5 h-3.5 text-[#1a73e8]", superAgent.isOpen && "text-white animate-ai-star")} />
-              <span>Super Agent</span>
-              <span className="text-[10px] uppercase font-mono px-1.5 py-0.2 rounded-full bg-white/20 text-white ml-0.5">
-                Core
-              </span>
-            </button>
-          </div>
-        </header>
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0A1B2F]">
+        {/* Top Bar with language switcher and Super Agent */}
+        <TopCommandBar pageTitle="Contacts" hideSearch />
 
         {/* WORKSPACE BODY ROW */}
         <div className="flex-1 flex flex-row overflow-hidden min-h-0 w-full relative">
@@ -467,12 +444,12 @@ function ContactsContent() {
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-[10.5px] font-bold text-[#64748b] tracking-[0.06em] uppercase">
                     {filterAudience === "all"
-                      ? "All Contacts"
+                      ? t("All Contacts")
                       : filterAudience === "tenant"
-                      ? "Tenants"
+                      ? t("Tenants")
                       : filterAudience === "contractor"
-                      ? "Contractors"
-                      : "Other"}
+                      ? t("Contractors")
+                      : t("Other")}
                   </div>
                   <button
                     type="button"
@@ -482,7 +459,7 @@ function ContactsContent() {
                     className="inline-flex items-center gap-1 h-[22px] px-2 rounded-[6px] bg-[#111215] text-white text-[10.5px] font-semibold hover:bg-[#27272a] transition-colors cursor-pointer"
                   >
                     <Plus className="w-3 h-3" />
-                    Add
+                    <span>Add</span>
                   </button>
                 </div>
 
@@ -491,7 +468,7 @@ function ContactsContent() {
                   <Search className="w-3.5 h-3.5 text-[#94a3b8] absolute left-2.5 pointer-events-none" />
                   <input
                     type="text"
-                    placeholder="Search..."
+                    placeholder={t("Search...")}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full h-[30px] pl-7 pr-8 text-[12px] text-[#111215] bg-white border border-[#d5d9e0] rounded-[6px] outline-none focus:border-[#94a3b8] focus:ring-1 focus:ring-black/5 transition-all placeholder:text-[#94a3b8]"
@@ -503,7 +480,7 @@ function ContactsContent() {
                       "absolute right-0 top-0 bottom-0 w-[30px] flex items-center justify-center text-[#64748b] hover:text-[#1e293b] hover:bg-[#e2e8f0] rounded-r-[6px] transition-colors cursor-pointer",
                       filterAudience !== "all" && "text-[#3b82f6]"
                     )}
-                    title="Filter contacts"
+                    title={t("Filter contacts", "Contacten filteren")}
                   >
                     <Filter className="w-3.5 h-3.5" />
                   </button>
@@ -524,7 +501,7 @@ function ContactsContent() {
                             : "text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]"
                         )}
                       >
-                        All Contacts
+                        {t("All Contacts")}
                       </button>
                       <button
                         type="button"
@@ -539,7 +516,7 @@ function ContactsContent() {
                             : "text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]"
                         )}
                       >
-                        Tenants
+                        {t("Tenants")}
                       </button>
                       <button
                         type="button"
@@ -554,22 +531,7 @@ function ContactsContent() {
                             : "text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]"
                         )}
                       >
-                        Contractors
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFilterAudience("other");
-                          setIsFilterDropdownOpen(false);
-                        }}
-                        className={cn(
-                          "px-3 py-2 text-[12px] text-left transition-colors cursor-pointer",
-                          filterAudience === "other"
-                            ? "bg-[#f3f4f6] text-[#111827] font-semibold"
-                            : "text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]"
-                        )}
-                      >
-                        Other
+                        {t("Contractors")}
                       </button>
                     </div>
                   )}
@@ -791,7 +753,7 @@ function ContactsContent() {
                     )}
                   >
                     <Mail className="w-3.5 h-3.5" />
-                    <span>Mail Inbox</span>
+                    <span>{t("Mail Inbox", "E-mail Inbox")}</span>
                   </button>
 
                   <button
@@ -805,7 +767,7 @@ function ContactsContent() {
                     )}
                   >
                     <MessageSquare className="w-3.5 h-3.5" />
-                    <span>WhatsApp</span>
+                    <span>{t("WhatsApp")}</span>
                   </button>
 
                   <button
@@ -819,7 +781,7 @@ function ContactsContent() {
                     )}
                   >
                     <FileText className="w-3.5 h-3.5" />
-                    <span>Brixx Data</span>
+                    <span>{t("Brixx Data", "Brixx Gegevens")}</span>
                   </button>
 
                   <button
@@ -833,7 +795,7 @@ function ContactsContent() {
                     )}
                   >
                     <Wrench className="w-3.5 h-3.5" />
-                    <span>Ticket Rates</span>
+                    <span>{t("Ticket Rates", "Reparaties")}</span>
                   </button>
                 </div>
 
@@ -857,7 +819,7 @@ function ContactsContent() {
                               : "bg-white text-[#4b515d] border border-[#e5e7eb] hover:bg-[#f8fafc] hover:text-[#111215]"
                           )}
                         >
-                          All
+                          {t("All")}
                         </button>
 
                         {/* Category Dropdown Pill */}
@@ -875,7 +837,7 @@ function ContactsContent() {
                                 : "bg-white text-[#4b515d] border border-[#e5e7eb] hover:bg-[#f8fafc] hover:text-[#111215]"
                             )}
                           >
-                            <span>{mailCategoryFilter === "all" ? "Category" : `Category: ${mailCategoryFilter}`}</span>
+                            <span>{mailCategoryFilter === "all" ? t("Category") : `${t("Category")}: ${t(mailCategoryFilter)}`}</span>
                             <ChevronDown className="w-2.5 h-2.5 opacity-70" />
                           </button>
 
@@ -896,7 +858,7 @@ function ContactsContent() {
                                       : "text-[#334155] hover:bg-[#f1f5f9] hover:text-[#0f172a]"
                                   )}
                                 >
-                                  {cat === "all" ? "All Categories" : cat.replace("_", " ")}
+                                  {cat === "all" ? t("All Categories") : t(cat.replace("_", " "))}
                                 </button>
                               ))}
                             </div>
@@ -918,7 +880,7 @@ function ContactsContent() {
                                 : "bg-white text-[#4b515d] border border-[#e5e7eb] hover:bg-[#f8fafc] hover:text-[#111215]"
                             )}
                           >
-                            <span className="capitalize">{mailPriorityFilter === "all" ? "Priority" : `Priority: ${mailPriorityFilter}`}</span>
+                            <span className="capitalize">{mailPriorityFilter === "all" ? t("Priority", "Prioriteit") : `${t("Priority", "Prioriteit")}: ${t(mailPriorityFilter)}`}</span>
                             <ChevronDown className="w-2.5 h-2.5 opacity-70" />
                           </button>
 
@@ -937,7 +899,7 @@ function ContactsContent() {
                                     : "text-[#334155] hover:bg-[#f1f5f9]"
                                 )}
                               >
-                                All Priorities
+                                {t("All Priorities")}
                               </button>
                               <button
                                 type="button"
@@ -953,7 +915,7 @@ function ContactsContent() {
                                 )}
                               >
                                 <span className="w-2 h-2 rounded-full bg-red-600" />
-                                <span>Emergency</span>
+                                <span>{t("Emergency")}</span>
                               </button>
                               <button
                                 type="button"
@@ -969,7 +931,7 @@ function ContactsContent() {
                                 )}
                               >
                                 <span className="w-2 h-2 rounded-full bg-amber-500" />
-                                <span>High</span>
+                                <span>{t("High")}</span>
                               </button>
                               <button
                                 type="button"

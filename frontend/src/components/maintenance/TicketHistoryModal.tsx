@@ -25,6 +25,7 @@ import { Pill } from "@/components/ui/Pill";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import { getTicketHistory } from "@/lib/api";
+import { useLanguage } from "@/context/LanguageContext";
 
 interface TimelineEvent {
   id: string;
@@ -81,6 +82,7 @@ export function TicketHistoryModal({
   onShowToast,
 }: TicketHistoryModalProps) {
   const router = useRouter();
+  const { t } = useLanguage();
   const [activeFilter, setActiveFilter] = useState<"all" | "messages" | "po" | "audit">("all");
   const [copied, setCopied] = useState<boolean>(false);
 
@@ -272,25 +274,25 @@ export function TicketHistoryModal({
         {/* Overview Metadata Bar */}
         <div className="px-6 py-3 bg-[#F6F6F4] border-b border-[#E8E8E5] grid grid-cols-2 sm:grid-cols-4 gap-3 text-[12px]">
           <div>
-            <span className="text-[#666666] block">Tenant</span>
+            <span className="text-[#666666] block">{t("Tenant")}</span>
             <span className="font-semibold text-[#0A0A0A] truncate block">
               {ticket.tenantName}
             </span>
           </div>
           <div>
-            <span className="text-[#666666] block">Contractor</span>
+            <span className="text-[#666666] block">{t("Contractor", "Aannemer")}</span>
             <span className="font-semibold text-[#0A0A0A] truncate block">
               {ticket.contractorName}
             </span>
           </div>
           <div>
-            <span className="text-[#666666] block">Authorized PO Cap</span>
+            <span className="text-[#666666] block">{t("Authorized PO Cap", "Geautoriseerd budget")}</span>
             <span className="font-semibold text-[#0A0A0A] block">
               {ticket.poBudgetCap} excl. BTW
             </span>
           </div>
           <div>
-            <span className="text-[#666666] block">Target SLA</span>
+            <span className="text-[#666666] block">{t("Target SLA", "Doel-SLA")}</span>
             <span className="font-mono font-bold text-[#0A0A0A] block">
               {ticket.slaRemaining}
             </span>
@@ -301,10 +303,10 @@ export function TicketHistoryModal({
         <div className="px-6 py-2.5 border-b border-[#E8E8E5] bg-[#FFFFFF] flex items-center justify-between gap-3 overflow-x-auto">
           <div className="inline-flex rounded-[9px] bg-[#F0F0EE] p-[3px] text-[12.5px] font-semibold">
             {[
-              { id: "all", label: `All events (${events.length})` },
-              { id: "messages", label: "Messages & attachments" },
-              { id: "po", label: "Contractor & PO" },
-              { id: "audit", label: "Audit & state machine" },
+              { id: "all", label: `${t("All")} (${events.length})` },
+              { id: "messages", label: t("Messages", "Berichten") },
+              { id: "po", label: t("Contractor & PO", "Aannemer & Inkooporders") },
+              { id: "audit", label: t("Audit & state machine", "Audit & statustracking") },
             ].map((tab) => (
               <button
                 key={tab.id}

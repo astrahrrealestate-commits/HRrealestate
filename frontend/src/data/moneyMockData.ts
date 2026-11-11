@@ -12,7 +12,10 @@ export interface MoneyTransaction {
   paidDate?: string;
   status: "paid" | "pending" | "overdue";
   overdueDays?: number;
-  paymentMethod: "ING Direct Debit (SEPA)" | "Bank Transfer" | "iDEAL";
+  paymentMethod: "ING Direct Debit (SEPA)" | "Bank Transfer" | "iDEAL" | string;
+  tenantPhone?: string;
+  tenantEmail?: string;
+  unitAddress?: string;
   notes?: string;
   aiSuggestedAction?: string;
 }

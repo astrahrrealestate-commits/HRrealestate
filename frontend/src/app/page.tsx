@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { ArrowRight, Check, Send, AlertTriangle, ShieldCheck, ChevronDown, Ticket, Wrench, Mail, MessageSquare, Pencil, Clock, Shield } from "lucide-react";
+import { ArrowRight, Check, Send, AlertTriangle, ShieldCheck, ChevronDown, Ticket, Wrench, Mail, MessageSquare, Pencil, Clock, Shield, Sparkles } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
@@ -14,6 +14,7 @@ import { StatLine, StatItem } from "@/components/ui/StatLine";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { Button } from "@/components/ui/Button";
 import { formatCurrency, cn } from "@/lib/utils";
+import { useLanguage } from "@/context/LanguageContext";
 import {
   getInboxThreads,
   getDashboardPulse,
@@ -22,6 +23,7 @@ import {
   getAutonomousLogs,
   getDashboardBriefing,
   syncGmailInbox,
+  approveInboxDraft,
   approveMaintenanceTicket,
   getMaintenanceTickets,
   updateMaintenanceTicket,
@@ -52,6 +54,7 @@ import { ticketRef } from "@/lib/caseRef";
 export default function TodayPage() {
   const router = useRouter();
   const superAgent = useSuperAgent();
+  const { t } = useLanguage();
 
   // State
   const [threads, setThreads] = useState<InboxThread[]>([]);
@@ -167,14 +170,116 @@ export default function TodayPage() {
     setIsEditModalOpen(false);
   };
 
-  const handleSendTenantReply = (
+  // In-flight action lock ref to prevent rapid multiple clicks (Rows 42, 43)
+  const actionLockRef = React.useRef<Record<string, boolean>>({});
+
+  const handleSendTenantReply = async (
     ticket: MaintenanceTicket,
     channel: "whatsapp" | "gmail" | string,
     key?: string
   ) => {
     const targetKey = key || ticket.id || ticket.ticketNumber;
+    if (actionLockRef.current[`reply-${targetKey}`]) return;
+
+    // Row 36: Check that outgoing reply is not empty
+    const currentText = customTenantReplyText[targetKey] ?? ticket.tenantDraft ?? "";
+    if (customTenantReplyText[targetKey] !== undefined && !customTenantReplyText[targetKey].trim()) {
+      showToast("Cannot send an empty reply. Please enter a message.");
+      return;
+    }
+    if (!currentText.trim()) {
+      showToast("Cannot send an empty reply. Please enter a message.");
+      return;
+    }
+
+    actionLockRef.current[`reply-${targetKey}`] = true;
     setTenantReplySentMap((prev) => ({ ...prev, [targetKey]: true }));
-    showToast(`Reply sent to ${ticket.tenantName} via ${channel === "whatsapp" ? "WhatsApp" : "Email"}.`);
+
+    // Find the thread context in live threads list
+    const matchedThread =
+      threads.find(
+        (t) => t.id === targetKey || t.ticketNumber === ticket.ticketNumber || t.id === ticket.id
+      ) || topUrgentThread;
+
+    // Copy draft message to clipboard so user can paste immediately in Gmail or WhatsApp
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(currentText.trim());
+      } catch {
+        // Non-fatal if clipboard permission blocked
+      }
+    }
+
+    // Helper to extract or decode direct Gmail thread ID
+    const getGmailThreadId = (threadOrKey?: string | null): string | null => {
+      if (!threadOrKey) return null;
+      // 1. Direct hex thread id (e.g. 18b2f90a12345678 or 16-20 hex characters)
+      if (/^[a-f0-9]{16,20}$/i.test(threadOrKey)) {
+        return threadOrKey;
+      }
+      // 2. Decode base64 thread_key ("gmail:...")
+      try {
+        const padded = threadOrKey.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (threadOrKey.length % 4)) % 4);
+        const decoded = typeof window !== "undefined" ? window.atob(padded) : Buffer.from(padded, "base64").toString("utf-8");
+        if (decoded.startsWith("gmail:")) {
+          const ref = decoded.slice(6);
+          if (/^[a-f0-9]{16,20}$/i.test(ref)) {
+            return ref;
+          }
+        }
+      } catch {
+        // Not base64
+      }
+      return null;
+    };
+
+    // Open channel-specific reply window (Gmail reply chain / compose, or WhatsApp)
+    const tenantContact = matchedThread?.senderContact || ticket.tenantPhone || "vipint9902@gmail.com";
+    const isEmail = channel === "gmail" || tenantContact.includes("@");
+
+    if (isEmail) {
+      const gmailThreadId =
+        getGmailThreadId(matchedThread?.externalThreadId) ||
+        getGmailThreadId(matchedThread?.id) ||
+        getGmailThreadId((matchedThread as any)?.thread_key);
+
+      if (gmailThreadId) {
+        // Open the existing conversation thread in Gmail directly
+        const gmailThreadUrl = `https://mail.google.com/mail/u/0/#inbox/${gmailThreadId}`;
+        window.open(gmailThreadUrl, "_blank");
+        showToast(`Draft copied to clipboard & opened Gmail reply chain for ${ticket.tenantName}.`);
+      } else {
+        // New email or no external thread ID: open Gmail compose with subject and prefilled body
+        const subject = matchedThread?.subject
+          ? matchedThread.subject.toLowerCase().startsWith("re:")
+            ? matchedThread.subject
+            : `Re: ${matchedThread.subject}`
+          : `Re: Maintenance ${ticket.ticketNumber} - ${ticket.unitLabel}`;
+        const gmailComposeUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(tenantContact)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(currentText.trim())}`;
+        window.open(gmailComposeUrl, "_blank");
+        showToast(`Draft copied to clipboard & opened Gmail compose for ${ticket.tenantName}.`);
+      }
+    } else {
+      const cleanPhone = tenantContact.replace(/[^0-9]/g, "");
+      const waUrl = cleanPhone
+        ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(currentText.trim())}`
+        : `https://web.whatsapp.com/send?text=${encodeURIComponent(currentText.trim())}`;
+      window.open(waUrl, "_blank");
+      showToast(`Draft copied to clipboard & opened in WhatsApp for ${ticket.tenantName}.`);
+    }
+
+    // Mark thread as approved in local UI state without silent backend sending
+    setThreads((prev) =>
+      prev.map((t) =>
+        t.id === targetKey || t.ticketNumber === ticket.ticketNumber
+          ? { ...t, status: "approved" as const }
+          : t
+      )
+    );
+
+    setTimeout(() => {
+      delete actionLockRef.current[`reply-${targetKey}`];
+    }, 1200);
   };
 
   const handleDispatchContractor = async (
@@ -182,9 +287,35 @@ export default function TodayPage() {
     key?: string
   ) => {
     const targetKey = key || ticket.id || ticket.ticketNumber;
+    if (actionLockRef.current[`dispatch-${targetKey}`]) return;
+
+    // Row 37: Check that work order details are not empty
+    const currentOrder = customContractorText[ticket.ticketNumber] ?? ticket.contractorDraft ?? "";
+    if (customContractorText[ticket.ticketNumber] !== undefined && !customContractorText[ticket.ticketNumber].trim()) {
+      showToast("Cannot dispatch empty work order. Please enter details.");
+      return;
+    }
+    if (!currentOrder.trim()) {
+      showToast("Cannot dispatch empty work order. Please enter details.");
+      return;
+    }
+
+    actionLockRef.current[`dispatch-${targetKey}`] = true;
     setContractorDispatchedMap((prev) => ({ ...prev, [targetKey]: true }));
-    showToast(`Work order dispatched to ${ticket.contractorName}${ticket.poBudgetCap ? ` (${ticket.poBudgetCap} cap)` : ""}.`);
+    // Copy work order to clipboard
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(currentOrder.trim());
+      } catch {
+        // Non-fatal
+      }
+    }
+
+    // Persist work order text to ticket if changed
     try {
+      await updateMaintenanceTicket(ticket.ticketNumber, {
+        contractorDraft: currentOrder.trim(),
+      });
       await approveMaintenanceTicket(ticket.id || ticket.ticketNumber, {
         dispatchContractor: true,
         notifyTenant: false,
@@ -193,6 +324,28 @@ export default function TodayPage() {
     } catch {
       // Graceful
     }
+
+    // Open Contractor Channel (WhatsApp or Email) for human review and dispatch
+    const contractorPhone = ticket.contractorPhone || "+31 6 88 12 34 56";
+    const contractorEmail = ticket.contractorEmail || "dispatch@chahalbouw.nl";
+
+    if (contractorPhone) {
+      const cleanPhone = contractorPhone.replace(/[^0-9]/g, "");
+      const waUrl = cleanPhone
+        ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(currentOrder.trim())}`
+        : `https://web.whatsapp.com/send?text=${encodeURIComponent(currentOrder.trim())}`;
+      window.open(waUrl, "_blank");
+      showToast(`Work order copied to clipboard & opened in WhatsApp for ${ticket.contractorName}.`);
+    } else if (contractorEmail) {
+      const subject = `Work Order ${ticket.ticketNumber} - ${ticket.unitLabel} [Cap: ${ticket.poBudgetCap}]`;
+      const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(contractorEmail)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(currentOrder.trim())}`;
+      window.open(gmailUrl, "_blank");
+      showToast(`Work order copied to clipboard & opened in Gmail for ${ticket.contractorName}.`);
+    }
+
+    setTimeout(() => {
+      delete actionLockRef.current[`dispatch-${targetKey}`];
+    }, 1200);
   };
 
   const handleApproveBoth = async (
@@ -213,11 +366,47 @@ export default function TodayPage() {
     } catch {
       // Graceful
     }
+
+    setTimeout(() => {
+      delete actionLockRef.current[`dispatch-${targetKey}`];
+    }, 1200);
   };
 
-  const handleSendNudge = (item: StalledItem) => {
+  const handleSendNudge = async (item: StalledItem) => {
+    if (actionLockRef.current[`nudge-${item.id}`]) return;
+    actionLockRef.current[`nudge-${item.id}`] = true;
     setNudgedItemIds((prev) => ({ ...prev, [item.id]: true }));
-    showToast(`Nudge sent to ${item.partyName} (${item.unitLabel}) via ${item.contact.includes("@") ? "Email" : "WhatsApp"}.`);
+
+    const reminderText =
+      item.proposedActionDraft ||
+      `Beste ${item.partyName}, vriendelijke herinnering over ${item.subject} voor ${item.unitLabel}. Graag vernemen wij je reactie. Met vriendelijke groet, Harjot (EstateOS)`;
+
+    // Copy reminder text to clipboard
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(reminderText.trim());
+      } catch {
+        // Non-fatal
+      }
+    }
+
+    if (item.contact.includes("@")) {
+      const subject = `Herinnering: ${item.subject} (${item.unitLabel})`;
+      const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(item.contact)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(reminderText.trim())}`;
+      window.open(gmailUrl, "_blank");
+      showToast(`Nudge copied to clipboard & opened in Gmail for ${item.partyName}.`);
+    } else {
+      const cleanPhone = item.contact.replace(/[^0-9]/g, "");
+      const waUrl = cleanPhone
+        ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(reminderText.trim())}`
+        : `https://web.whatsapp.com/send?text=${encodeURIComponent(reminderText.trim())}`;
+      window.open(waUrl, "_blank");
+      showToast(`Nudge copied to clipboard & opened in WhatsApp for ${item.partyName}.`);
+    }
+
+    setTimeout(() => {
+      delete actionLockRef.current[`nudge-${item.id}`];
+    }, 1200);
   };
 
   // Selectors: Single source of truth (Section 2.5 D1 & 6.4)
@@ -262,42 +451,46 @@ export default function TodayPage() {
     setTodayFormatted(format(new Date(), "EEEE d MMMM"));
   }, []);
 
-  // Lead rows fallback
-  const leadItems: ProspectiveInquiry[] = inquiries.length > 0 ? inquiries.slice(0, 3) : [
-    {
-      id: "lead-1",
-      name: "Sanne Meijer",
-      contact: "sanne.meijer@uva.nl",
-      channel: "gmail",
-      unit: "Pieter Floriszstraat 1 C",
-      moveIn: "1 Nov 2026",
-      request: "Viewing Thursday 15:00 slot",
-      qualification: "3.2x income verified (UvA lecturer)",
-      status: "AI draft ready",
-    },
-    {
-      id: "lead-2",
-      name: "Lucas van Dijk",
-      contact: "+31 6 81 29 44 10",
-      channel: "whatsapp",
-      unit: "Singel 412 Studio",
-      moveIn: "1 Nov 2026",
-      request: "Studio availability & viewing inquiry",
-      qualification: "Preliminary criteria met",
-      status: "AI draft ready",
-    },
-    {
-      id: "lead-3",
-      name: "Elena Rostova",
-      contact: "elena.rostova@booking.com",
-      channel: "gmail",
-      unit: "Keizersgracht 42-B",
-      moveIn: "15 Nov 2026",
-      request: "Viewing & expat registration query",
-      qualification: "Booking.com Senior Software Engineer",
-      status: "AI draft ready",
-    },
-  ];
+  // Lead rows fallback with dynamic slicing (20-50 limit when leads tab is active, Row 56)
+  const leadItems: ProspectiveInquiry[] = useMemo(() => {
+    const limit = activeSection === "all" ? 3 : 50;
+    if (inquiries.length > 0) return inquiries.slice(0, limit);
+    return [
+      {
+        id: "lead-1",
+        name: "Sanne Meijer",
+        contact: "sanne.meijer@uva.nl",
+        channel: "gmail",
+        unit: "Pieter Floriszstraat 1 C",
+        moveIn: "1 Nov 2026",
+        request: "Viewing Thursday 15:00 slot",
+        qualification: "3.2x income verified (UvA lecturer)",
+        status: "AI draft ready",
+      },
+      {
+        id: "lead-2",
+        name: "Lucas van Dijk",
+        contact: "+31 6 81 29 44 10",
+        channel: "whatsapp",
+        unit: "Singel 412 Studio",
+        moveIn: "1 Nov 2026",
+        request: "Studio availability & viewing inquiry",
+        qualification: "Preliminary criteria met",
+        status: "AI draft ready",
+      },
+      {
+        id: "lead-3",
+        name: "Elena Rostova",
+        contact: "elena.rostova@booking.com",
+        channel: "gmail",
+        unit: "Keizersgracht 42-B",
+        moveIn: "15 Nov 2026",
+        request: "Viewing & expat registration query",
+        qualification: "Booking.com Senior Software Engineer",
+        status: "AI draft ready",
+      },
+    ];
+  }, [inquiries, activeSection]);
 
   // Open rent by days overdue, from the tenants' own overdue rent. Empty until rent payments are mirrored.
   const overdueTenants = (tenants ?? []).filter((t) => t.rentStatus === "overdue" && t.overdueDays > 0 && (t.monthlyRentEur ?? 0) > 0);
@@ -348,19 +541,19 @@ export default function TodayPage() {
   }, [briefingKind]);
 
   return (
-    <div className="h-dvh bg-[#1B1B1B] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
+    <div className="h-dvh bg-[#0A1B2F] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
       {/* 1. Left Nav (Desktop Sidebar) */}
       <Sidebar pendingCount={currentNeedsYouCount} />
 
       {/* 2. Main Canvas */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#1B1B1B]">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0A1B2F]">
         <TopCommandBar
           pageTitle="Main Dashboard"
         />
 
         {/* WORKSPACE ROW with 40% Super Agent */}
         <div className="flex-1 flex flex-row overflow-hidden min-h-0 w-full relative">
-          <div className="flex-1 m-0 mr-[10px] mb-[10px] bg-white rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden relative">
+          <div className="flex-1 m-0 mr-[10px] mb-[10px] bg-white rounded-[14px] border border-[#162B45] shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden relative">
             <main className="flex-1 w-full max-w-[960px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-12 space-y-7 overflow-y-auto">
 
           {/* Top Briefing Header with Daily / Weekly Switcher */}
@@ -368,7 +561,7 @@ export default function TodayPage() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <span className="text-[13px] font-medium text-[var(--ink-3)] block tracking-tight">
-                  {briefingKind === "daily" ? todayFormatted : "WEEK 40 EXECUTIVE RECAP · Friday 16:00 CET"}
+                  {briefingKind === "daily" ? `${todayFormatted} · Amsterdam (CET)` : "9 Oct – 15 Oct (Weekly Review) · Amsterdam (CET)"}
                 </span>
                 <h1 className="font-heading font-bold text-[28px] sm:text-[32px] text-[var(--ink)] tracking-tight leading-none mt-1">
                   {briefingKind === "daily" ? "Good morning, Harjot" : "Weekly executive review, Harjot"}
@@ -630,17 +823,6 @@ export default function TodayPage() {
                 <span>Overview</span>
               </button>
             </div>
-
-            {/* Active Filter Reset Indicator */}
-            {activeSection !== "all" && (
-              <button
-                type="button"
-                onClick={() => setActiveSection("all")}
-                className="text-[11px] font-medium text-[var(--ink-3)] hover:text-[var(--ink)] underline underline-offset-2 shrink-0 cursor-pointer"
-              >
-                Show all sections
-              </button>
-            )}
           </div>
 
           {/* Emergency Alert Card with In-Place Maintenance Ticket & Channel-Aware Actions */}
@@ -880,7 +1062,7 @@ export default function TodayPage() {
                             onClick={() => handleSendTenantReply(ticket, tenantChannel, emergencyKey)}
                             disabled={isTenantReplied}
                             className={cn(
-                              "px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs",
+                              "min-w-[175px] justify-center px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs",
                               isTenantReplied
                                 ? "bg-emerald-100 text-emerald-800 cursor-default"
                                 : "bg-[var(--ink)] text-white hover:bg-[var(--ink)]/90"
@@ -909,16 +1091,23 @@ export default function TodayPage() {
                               <Wrench className="w-4 h-4 text-[var(--accent-ink)]" />
                               <span>2. Work Order ({ticket.contractorName})</span>
                             </span>
-                            <span
-                              className={cn(
-                                "text-xs font-semibold px-2.5 py-0.5 rounded-full border",
-                                isContractorDispatched
-                                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                  : "bg-blue-50 text-blue-700 border-blue-200"
-                              )}
-                            >
-                              {isContractorDispatched ? "✓ Dispatched" : (ticket.poBudgetCap ? `Cap: ${ticket.poBudgetCap}` : "No cap recorded")}
-                            </span>
+                            {(() => {
+                              const isUnavailable = (ticket as any).status === "contractor_unavailable" || (ticket as any).contractorStatus === "unavailable";
+                              return (
+                                <span
+                                  className={cn(
+                                    "text-xs font-semibold px-2.5 py-0.5 rounded-full border",
+                                    isUnavailable
+                                      ? "bg-rose-50 text-rose-700 border-rose-200"
+                                      : isContractorDispatched
+                                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                      : "bg-blue-50 text-blue-700 border-blue-200"
+                                  )}
+                                >
+                                  {isUnavailable ? "⚠ Contractor Unavailable" : isContractorDispatched ? "✓ Dispatched" : (ticket.poBudgetCap ? `Cap: ${ticket.poBudgetCap}` : "No cap recorded")}
+                                </span>
+                              );
+                            })()}
                           </div>
                           {/* Expanded 6-row textarea with min-h-[145px] so full work order is visible without scrolling */}
                           <textarea
@@ -945,7 +1134,7 @@ export default function TodayPage() {
                             onClick={() => handleDispatchContractor(ticket, emergencyKey)}
                             disabled={isContractorDispatched}
                             className={cn(
-                              "px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs",
+                              "min-w-[175px] justify-center px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs",
                               isContractorDispatched
                                 ? "bg-emerald-100 text-emerald-800 cursor-default"
                                 : "bg-[var(--ink)] text-white hover:bg-[var(--ink)]/90"
@@ -976,7 +1165,7 @@ export default function TodayPage() {
                             <span>Ticket {ticket.ticketNumber} fully approved & dispatched to contractor and tenant.</span>
                           </span>
                         ) : (
-                          <span>Review the two drafts above or approve and dispatch both in one click.</span>
+                          <span>Review the two drafts above to send directly to tenant and dispatch to contractor.</span>
                         )}
                       </div>
 
@@ -992,17 +1181,6 @@ export default function TodayPage() {
                           <Pencil className="w-3.5 h-3.5 text-[var(--accent-ink)]" />
                           <span>Edit Ticket Details</span>
                         </button>
-
-                        {!(isContractorDispatched && isTenantReplied) && (
-                          <button
-                            type="button"
-                            onClick={() => handleApproveBoth(ticket, tenantChannel, emergencyKey)}
-                            className="px-4 py-2 rounded-lg bg-[var(--ink)] text-white text-xs font-bold hover:bg-[var(--ink)]/90 transition-all cursor-pointer flex items-center gap-2 shadow-xs"
-                          >
-                            <Check className="w-3.5 h-3.5 text-[var(--accent)]" />
-                            <span>Approve & Dispatch Both</span>
-                          </button>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -1033,7 +1211,7 @@ export default function TodayPage() {
 
             <div className="divide-y divide-[var(--line)]">
               {needsYouThreads.length > 0 ? (
-                needsYouThreads.slice(0, 5).map((t) => {
+                needsYouThreads.slice(0, activeSection === "all" ? 5 : 50).map((t) => {
                   const rowItem: ThreadRowItem = {
                     id: t.id,
                     contactName: t.senderName,
@@ -1171,7 +1349,7 @@ export default function TodayPage() {
             </div>
 
             <div className="divide-y divide-[var(--line)]">
-              {radarItems.slice(0, 3).map((item) => {
+              {radarItems.slice(0, activeSection === "all" ? 3 : 50).map((item) => {
                 const isNudged = nudgedItemIds[item.id];
                 return (
                   <div
@@ -1442,6 +1620,19 @@ export default function TodayPage() {
       )}
 
 
+
+      {/* Floating Mobile Super Agent Button */}
+      {!superAgent.isOpen && (
+        <button
+          type="button"
+          onClick={() => superAgent.setIsOpen(true)}
+          className="md:hidden fixed bottom-18 right-4 z-40 w-12 h-12 rounded-full bg-gradient-to-tr from-blue-600 to-cyan-400 text-white shadow-[0_4px_20px_rgba(0,229,255,0.45)] flex items-center justify-center cursor-pointer hover:scale-105 active:scale-95 transition-all"
+          title="Open Super Agent"
+          aria-label="Open Super Agent"
+        >
+          <Sparkles className="w-5 h-5 text-white animate-ai-star" />
+        </button>
+      )}
 
       {/* Mobile Bottom Tab Bar */}
       <MobileTabBar pendingCount={currentNeedsYouCount} />

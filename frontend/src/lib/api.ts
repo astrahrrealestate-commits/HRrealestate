@@ -1523,3 +1523,126 @@ export async function translateToEnglish(text: string): Promise<TranslateResult 
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Tenant Rent & Collections Ledger
+// ---------------------------------------------------------------------------
+
+export interface RentLedgerItem {
+  id: string;
+  invoiceNumber: string;
+  tenantId: string;
+  tenantName: string;
+  tenantEmail?: string | null;
+  tenantPhone?: string | null;
+  unitId: string;
+  unitLabel: string;
+  unitAddress?: string | null;
+  leaseId: string;
+  billingMonth: string;
+  contractRentEur: number;
+  amountPaidEur: number;
+  dueDate: string;
+  paidAt?: string | null;
+  paidAtIso?: string | null;
+  status: "paid" | "overdue" | "pending" | "partial";
+  overdueDays: number;
+  paymentMethod: string;
+  transactionReference?: string | null;
+  notes?: string | null;
+  aiSuggestedAction?: string | null;
+}
+
+export interface RentLedgerResponse {
+  items: RentLedgerItem[];
+  totalCount: number;
+  month: string;
+  availableMonths: string[];
+  totalScheduledEur: number;
+  totalCollectedEur: number;
+  totalOverdueEur: number;
+  overdueCount: number;
+  collectionRatePct: number;
+}
+
+export interface HistoricalTrendPoint {
+  month: string;
+  billingMonth: string;
+  scheduled: number;
+  collected: number;
+  overdue: number;
+  rate: number;
+  occupiedUnits?: number;
+  totalUnits?: number;
+  occupancyRate?: number;
+}
+
+export interface MonthAnalytics {
+  billingMonth: string;
+  totalScheduled: number;
+  totalCollected: number;
+  totalOverdue: number;
+  totalTenants: number;
+  paidTenants: number;
+  overdueCount: number;
+  collectionRate: number;
+  occupiedUnits?: number;
+  totalUnits?: number;
+  occupancyRate?: number;
+}
+
+export interface PreviousMonthAnalytics {
+  billingMonth: string;
+  totalCollected: number;
+  collectionRate: number;
+  momChangePct: number;
+  occupancyRate?: number;
+}
+
+export interface RentAnalyticsResponse {
+  currentMonth: MonthAnalytics;
+  previousMonth?: PreviousMonthAnalytics | null;
+  historicalTrend: HistoricalTrendPoint[];
+}
+
+export async function getRentLedger(params: {
+  month?: string;
+  status?: string;
+  search?: string;
+} = {}): Promise<RentLedgerResponse | null> {
+  const query = new URLSearchParams();
+  if (params.month) query.set("month", params.month);
+  if (params.status && params.status !== "all") query.set("status", params.status);
+  if (params.search) query.set("search", params.search);
+
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/v1/money/rent-ledger?${query.toString()}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (res.ok) {
+      return (await res.json()) as RentLedgerResponse;
+    }
+  } catch (err) {
+    console.warn("Failed to fetch rent ledger:", err);
+  }
+  return null;
+}
+
+export async function getRentAnalytics(): Promise<RentAnalyticsResponse | null> {
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/v1/money/analytics`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (res.ok) {
+      return (await res.json()) as RentAnalyticsResponse;
+    }
+  } catch (err) {
+    console.warn("Failed to fetch rent analytics:", err);
+  }
+  return null;
+}
+

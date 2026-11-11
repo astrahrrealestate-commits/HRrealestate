@@ -31,6 +31,7 @@ import { PageStateShell } from "@/components/portfolio/PageStateShell";
 import { DocumentViewerModal, DocumentItem } from "@/components/ui/DocumentViewerModal";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import { useSuperAgent } from "@/context/SuperAgentContext";
+import { useLanguage } from "@/context/LanguageContext";
 
 function findMatchingTenant(allTenants: TenantProfile[], query: string): TenantProfile | null {
   if (!query) return null;
@@ -69,6 +70,7 @@ function TenantsView({ tenants: MOCK_TENANTS }: { tenants: TenantProfile[] }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const superAgent = useSuperAgent();
+  const { t } = useLanguage();
 
   // URL state synchronization: ?tenant=id
   const tenantParam = searchParams.get("tenant");
@@ -184,12 +186,12 @@ function TenantsView({ tenants: MOCK_TENANTS }: { tenants: TenantProfile[] }) {
   const isMobileDetailScreen = Boolean(tenantParam && isMobile);
 
   return (
-    <div className="h-dvh bg-[#1B1B1B] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
+    <div className="h-dvh bg-[#0A1B2F] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
       {/* 1. Left Nav (Desktop Sidebar) */}
       <Sidebar />
 
       {/* 2. Main Content Canvas */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#1B1B1B]">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0A1B2F]">
         <TopCommandBar
           pageTitle="Tenants"
           hideSearch={true}
@@ -233,7 +235,7 @@ function TenantsView({ tenants: MOCK_TENANTS }: { tenants: TenantProfile[] }) {
                       : "text-[var(--ink-3)] hover:text-[var(--ink)]"
                   )}
                 >
-                  All ({stats.total})
+                  {t("All")} ({stats.total})
                 </button>
                 <button
                   onClick={() => setActiveTab("up_to_date")}
@@ -244,7 +246,7 @@ function TenantsView({ tenants: MOCK_TENANTS }: { tenants: TenantProfile[] }) {
                       : "text-[var(--ink-3)] hover:text-[var(--ink)]"
                   )}
                 >
-                  Up to date ({stats.upToDate})
+                  {t("Up to date", "Betaald")} ({stats.upToDate})
                 </button>
                 <button
                   onClick={() => setActiveTab("overdue")}
@@ -255,7 +257,7 @@ function TenantsView({ tenants: MOCK_TENANTS }: { tenants: TenantProfile[] }) {
                       : "text-[var(--ink-3)] hover:text-[var(--ink)]"
                   )}
                 >
-                  Overdue ({stats.overdue})
+                  {t("Overdue")} ({stats.overdue})
                 </button>
               </div>
 
@@ -266,7 +268,7 @@ function TenantsView({ tenants: MOCK_TENANTS }: { tenants: TenantProfile[] }) {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search tenant name, unit, phone..."
+                  placeholder={t("Search tenants...")}
                   className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--bg)] border border-[var(--line)] rounded-md text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none focus:border-[var(--ink-2)]"
                 />
                 {searchQuery && (

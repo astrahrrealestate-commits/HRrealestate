@@ -394,6 +394,18 @@ def test_a_reports_or_dashboard_profile_gets_no_card_text_from_the_feed_or_the_c
         assert client.get("/api/inbox/attachments/00000000-0000-0000-0000-000000000001").status_code == 403
 
 
+def test_the_rent_ledger_needs_the_money_section(team: Team) -> None:
+    paths = ("/api/v1/money/rent-ledger", "/api/v1/money/analytics")
+    with signed_in(team.app, team.settings, team.clerk) as client:  # contacts only
+        assert [client.get(p).status_code for p in paths] == [403, 403]
+    cashier = add_person_to_team(
+        team.engine, team.company.id, f"cash-{uuid4().hex[:6]}@t.test", role="member", sections=["money"]
+    )
+    with signed_in(team.app, team.settings, cashier) as client:
+        assert client.get(paths[0]).status_code == 200
+        assert client.get(paths[1]).status_code in (200, 404)  # 404: no month recorded yet
+
+
 def test_the_first_profile_of_a_legacy_company_does_not_lock_its_owner_out(
     migrated_engine: Engine, pg_url: str
 ) -> None:

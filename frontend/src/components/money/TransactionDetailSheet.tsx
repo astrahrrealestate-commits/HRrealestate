@@ -5,6 +5,7 @@ import { X, ArrowUpRight, ArrowDownRight, CheckCircle2, AlertTriangle, Clock, Bu
 import { Button } from "@/components/ui/Button";
 import { MoneyTransaction } from "@/data/moneyMockData";
 import { useSuperAgent } from "@/context/SuperAgentContext";
+import { useLanguage } from "@/context/LanguageContext";
 
 interface TransactionDetailSheetProps {
   transaction: MoneyTransaction | null;
@@ -23,6 +24,7 @@ export function TransactionDetailSheet({
   onAction,
 }: TransactionDetailSheetProps) {
   const superAgent = useSuperAgent();
+  const { t } = useLanguage();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -137,6 +139,9 @@ export function TransactionDetailSheet({
               <div>
                 <span className="text-[var(--ink-3)] block">Target Property</span>
                 <span className="font-medium text-[var(--ink)]">{transaction.unitLabel}</span>
+                {transaction.unitAddress && (
+                  <span className="text-[11px] text-[var(--ink-3)] block">{transaction.unitAddress}</span>
+                )}
               </div>
               <div>
                 <span className="text-[var(--ink-3)] block">Settlement Channel</span>
@@ -150,6 +155,18 @@ export function TransactionDetailSheet({
                 <span className="text-[var(--ink-3)] block">Settlement Date</span>
                 <span className="font-mono text-[var(--ink-2)]">{transaction.paidDate || "Unsettled"}</span>
               </div>
+              {transaction.tenantPhone && (
+                <div>
+                  <span className="text-[var(--ink-3)] block">WhatsApp / Phone</span>
+                  <span className="font-mono text-[var(--ink)]">{transaction.tenantPhone}</span>
+                </div>
+              )}
+              {transaction.tenantEmail && (
+                <div>
+                  <span className="text-[var(--ink-3)] block">Email</span>
+                  <span className="text-[var(--ink)] truncate block">{transaction.tenantEmail}</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -187,32 +204,73 @@ export function TransactionDetailSheet({
             onClick={onClose}
             className="text-xs border border-[var(--line)]"
           >
-            Close
+            {t("Close")}
           </Button>
 
           {isOverdue ? (
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => {
-                if (onAction) onAction(transaction.aiSuggestedAction || "Send formal reminder");
-                onClose();
-              }}
-              className="text-xs bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-black font-semibold"
-            >
-              ✦ Send payment nudge
-            </Button>
+            <div className="flex items-center gap-2">
+              {transaction.tenantPhone && (
+                <a
+                  href={`https://wa.me/${transaction.tenantPhone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
+                    `Beste ${transaction.counterparty},\n\nDit is een vriendelijke herinnering over de huurbetaling voor ${transaction.unitLabel} van € ${transaction.amountEur.toLocaleString("nl-NL")} (factuur ${transaction.reference}).\n\nGraag vernemen we of de overboeking reeds voldaan is.\n\nMet vriendelijke groet,\nEstateOS Beheer`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+                  title="Open WhatsApp with prefilled reminder"
+                >
+                  <Send className="w-3 h-3" />
+                  <span>WhatsApp Nudge</span>
+                </a>
+              )}
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  if (onAction) onAction(transaction.aiSuggestedAction || "Send formal reminder");
+                  onClose();
+                }}
+                className="text-xs bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-black font-semibold"
+              >
+                ✦ {t("Open in Inbox")}
+              </Button>
+            </div>
           ) : (
             <Button
               variant="ghost"
               size="sm"
               onClick={() => {
-                alert(`Downloaded bank statement for ${transaction.reference}`);
+                const receiptContent = `========================================================
+ESTATEOS FINANCIAL RECEIPT & TRANSACTION PROOF
+========================================================
+Reference ID    : ${transaction.reference}
+Transaction ID  : ${transaction.id}
+Due Date        : ${transaction.dueDate}
+Paid Date       : ${transaction.paidDate || "N/A"}
+Counterparty    : ${transaction.counterparty}
+Property / Unit : ${transaction.unitLabel}
+Category        : ${transaction.category}
+Amount          : € ${Math.abs(transaction.amountEur).toLocaleString("nl-NL", { minimumFractionDigits: 2 })}
+Direction       : ${transaction.direction === "inflow" ? "INFLOW / RENT RECEIVED" : "OUTFLOW / EXPENSE"}
+Status          : ${transaction.status.toUpperCase()}
+Generated At    : ${new Date().toISOString()}
+========================================================
+Verified and exported via EstateOS Financial Module
+========================================================`;
+                const blob = new Blob([receiptContent], { type: "text/plain;charset=utf-8" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `Receipt_${transaction.reference || transaction.id}.txt`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
                 onClose();
               }}
-              className="text-xs border border-[var(--line)]"
+              className="text-xs border border-[var(--line)] cursor-pointer"
             >
-              Export receipt
+              {t("Export receipt", "Betaalbewijs exporteren")}
             </Button>
           )}
         </div>

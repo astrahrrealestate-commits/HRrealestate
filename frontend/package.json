@@ -9,11 +9,13 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "apexcharts": "^8.8.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
     "lucide-react": "^1.56.0",
     "next": "16.4.2",
     "react": "19.3.0",
+    "react-apexcharts": "^2.2.0",
     "react-dom": "19.3.0",
     "tailwind-merge": "^3.7.0"
   },

@@ -7,7 +7,15 @@ from app.db.models.dashboard import AgentConversation, AgentPageState, AgentTurn
 from app.db.models.diligence import DDDocumentRead, DDReview, DDReviewDocument
 from app.db.models.directory import ChannelIdentity, DirectoryImport, Lease, LeaseParty, Person, PersonProfile, Unit
 from app.db.models.documents import DocumentChunk, DocumentLink, DriveReorgItem, DriveReorgPlan
-from app.db.models.finance import PriceSnapshot, QuoteLineRow, QuoteReview, QuoteRow, VendorRate
+from app.db.models.finance import (
+    MonthlyRentSummary,
+    PriceSnapshot,
+    QuoteLineRow,
+    QuoteReview,
+    QuoteRow,
+    TenantRentPayment,
+    VendorRate,
+)
 from app.db.models.ingestion import AttachmentRow, MessageRow, RawEvent
 from app.db.models.memory import MemoryItem
 from app.db.models.message_rag import MessageChunk, MessageIndexState
@@ -57,6 +65,7 @@ __all__ = [
     "MessageRow",
     "MetricSnapshot",
     "ModelCall",
+    "MonthlyRentSummary",
     "Outcome",
     "OwnerAccount",
     "OwnerFeed",
@@ -71,6 +80,7 @@ __all__ = [
     "RawEvent",
     "Send",
     "TaskRow",
+    "TenantRentPayment",
     "Timer",
     "Translation",
     "UnderstandingRow",

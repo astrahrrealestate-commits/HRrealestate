@@ -34,10 +34,18 @@ import {
   ThumbsDown,
   MoreVertical,
   List,
+  Mic,
+  MicOff,
+  X,
+  Home,
+  Search,
+  Pencil,
+  ChevronDown,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { askAgent, approveInboxDraft, approveStandingRule, AssistantCard, CardAction, PreviewCardData, updateAgentConversation } from "@/lib/api";
+import { askAgent, approveInboxDraft, approveStandingRule, AssistantCard, CardAction, PreviewCardData, updateAgentConversation, getInboxThreads } from "@/lib/api";
+import { InboxThread } from "@/types/inbox";
 import { formatClock } from "@/lib/clock";
 
 export interface AssistantAction {
@@ -72,6 +80,7 @@ export interface AssistantMessage {
 }
 
 import { useSuperAgent } from "@/context/SuperAgentContext";
+import { useLanguage } from "@/context/LanguageContext";
 import { BACKEND_BASE_URL, apiFetch } from "@/lib/backend";
 
 interface AskEstateOSPanelProps {
@@ -91,6 +100,7 @@ export function AskEstateOSPanel({
 }: AskEstateOSPanelProps) {
   const router = useRouter();
   const superAgent = useSuperAgent();
+  const { t, language } = useLanguage();
   const isOpen = propIsOpen !== undefined ? propIsOpen : superAgent.isOpen;
   const onClose = propOnClose || (() => superAgent.setIsOpen(false));
   const currentPageName = propPageName || superAgent.currentPageName || "Today";
@@ -105,6 +115,21 @@ export function AskEstateOSPanel({
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [showFewerSuggestions, setShowFewerSuggestions] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [selectedPriorityFilter, setSelectedPriorityFilter] = useState<string>("All Priorities");
+  const [selectedChannelFilter, setSelectedChannelFilter] = useState<string>("All Message Type");
+  const [isPriorityModalOpen, setIsPriorityModalOpen] = useState(false);
+  const [isChannelModalOpen, setIsChannelModalOpen] = useState(false);
+  const [expandedCardIds, setExpandedCardIds] = useState<Record<string, boolean>>({});
+  const [liveThreads, setLiveThreads] = useState<InboxThread[]>([]);
+
+  useEffect(() => {
+    getInboxThreads({}).then((res) => {
+      if (res && Array.isArray(res.threads)) {
+        setLiveThreads(res.threads);
+      }
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     try {
@@ -128,6 +153,140 @@ export function AskEstateOSPanel({
   };
 
   const isDark = theme === "dark";
+  const [speechLang, setSpeechLang] = useState<"en" | "nl">("en"); // English default, toggleable to Dutch
+  const [isListening, setIsListening] = useState(false);
+  const [isPausingToAutoSend, setIsPausingToAutoSend] = useState(false);
+  const recognitionRef = useRef<any>(null);
+  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const latestSpokenQueryRef = useRef<string>("");
+  const handleSendQueryRef = useRef<(q: string) => void>(() => {});
+
+  // Cancel any active auto-send silence timer
+  const cancelAutoSend = () => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    setIsPausingToAutoSend(false);
+  };
+
+  // Clean up speech recognition on unmount
+  useEffect(() => {
+    return () => {
+      cancelAutoSend();
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {}
+      }
+    };
+  }, []);
+
+  const toggleVoiceInput = (overrideLang?: "en" | "nl") => {
+    if (typeof window === "undefined") return;
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRec) {
+      alert("Speech recognition is not supported in this browser. Please use Google Chrome, Microsoft Edge, or Safari.");
+      return;
+    }
+    if (isListening) {
+      cancelAutoSend();
+      try {
+        recognitionRef.current?.stop();
+      } catch {}
+      setIsListening(false);
+      return;
+    }
+    try {
+      const activeLang = overrideLang || speechLang;
+      const recognition = new SpeechRec();
+      // 'nl-NL' for Dutch, 'en-US' for English
+      recognition.lang = activeLang === "nl" ? "nl-NL" : "en-US";
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+
+      // Retain existing text as base prefix
+      const basePrefix = inputQuery.trim() ? inputQuery.trim() + " " : "";
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        cancelAutoSend();
+      };
+
+      recognition.onresult = (event: any) => {
+        let interimTranscript = "";
+        let finalTranscript = "";
+
+        for (let i = 0; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript + " ";
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+
+        const liveText = (finalTranscript + interimTranscript).trim();
+        if (liveText) {
+          const combined = basePrefix + liveText;
+          setInputQuery(combined);
+          latestSpokenQueryRef.current = combined;
+
+          // Reset silence timer on every new spoken token
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
+          }
+          setIsPausingToAutoSend(true);
+
+          // After 1.8s of silence / pause, auto-send chat query!
+          silenceTimerRef.current = setTimeout(() => {
+            const queryToSend = latestSpokenQueryRef.current.trim();
+            if (queryToSend) {
+              try {
+                recognitionRef.current?.stop();
+              } catch {}
+              setIsListening(false);
+              setIsPausingToAutoSend(false);
+              setInputQuery("");
+              latestSpokenQueryRef.current = "";
+              handleSendQueryRef.current(queryToSend);
+            }
+          }, 1800);
+        }
+      };
+
+      recognition.onend = () => {
+        // Recognition completed
+        setIsListening(false);
+      };
+
+      recognition.onerror = (e: any) => {
+        console.warn("Speech recognition warning:", e);
+        cancelAutoSend();
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.error("Speech recognition could not start:", err);
+      cancelAutoSend();
+      setIsListening(false);
+    }
+  };
+
+  const handleToggleLang = () => {
+    cancelAutoSend();
+    const nextLang = speechLang === "nl" ? "en" : "nl";
+    setSpeechLang(nextLang);
+    if (isListening && recognitionRef.current) {
+      try {
+        recognitionRef.current.abort();
+      } catch {}
+      setIsListening(false);
+      setTimeout(() => toggleVoiceInput(nextLang), 100);
+    }
+  };
 
   const [sendingCardId, setSendingCardId] = useState<string | null>(null);
   const [approvingCalendarId, setApprovingCalendarId] = useState<string | null>(null);
@@ -337,6 +496,8 @@ export function AskEstateOSPanel({
     }
   };
 
+  handleSendQueryRef.current = handleSendQuery;
+
   const handleApproveCalendar = async (cardId: string, eventId?: string | null, payloadUrl?: string | null) => {
     setApprovingCalendarId(cardId);
     try {
@@ -463,31 +624,770 @@ export function AskEstateOSPanel({
 
 
 
+  // Conversations list for mobile drawer (falls back to mockup reference items if none in state)
+  const displayConversations = React.useMemo(() => {
+    if (superAgent.conversations && superAgent.conversations.length > 0) {
+      return superAgent.conversations.map((c) => ({
+        id: c.id,
+        title: c.title || "Untitled Chat",
+        date: c.last_turn_at
+          ? new Date(c.last_turn_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+          : "Today",
+      }));
+    }
+    return [
+      { id: "conv-1", title: "Create draft approval message", date: "12 Oct" },
+      { id: "conv-2", title: "Ticket raised issues", date: "11 Oct" },
+    ];
+  }, [superAgent.conversations]);
+
   if (!isOpen) return null;
 
   return (
     <>
+      {/* ============================================================== */}
+      {/* MOBILE SUPER AGENT (100% matched to reference image design)    */}
+      {/* Activates exclusively on mobile screens (md:hidden)           */}
+      {/* ============================================================== */}
+      <div className="md:hidden fixed inset-0 z-50 bg-[#05070e] flex flex-col justify-between overflow-hidden text-white font-sans select-text">
+        {/* Glowing Turquoise & Blue Aurora Backdrop (Exact radiant aura from mockup) */}
+        <div
+          className="absolute -top-[12%] -left-[15%] w-[130%] h-[60%] pointer-events-none"
+          style={{
+            background: "radial-gradient(ellipse 85% 65% at 20% 15%, #00e5ff 0%, #1d4ed8 48%, #05070e 85%, transparent 100%)",
+            filter: "blur(48px)",
+            opacity: 0.9,
+          }}
+        />
+        <div
+          className="absolute top-0 right-0 w-[85%] h-[42%] pointer-events-none"
+          style={{
+            background: "radial-gradient(circle at 85% 15%, #2563eb 0%, transparent 70%)",
+            filter: "blur(55px)",
+            opacity: 0.65,
+          }}
+        />
+        {/* Subtle dark texture overlay */}
+        <div className="absolute inset-0 bg-[radial-gradient(#ffffff0a_1px,transparent_1px)] [background-size:18px_18px] pointer-events-none opacity-40" />
 
+        {/* Top Navigation Bar: Unified Single Row Header */}
+        <div className="relative z-10 pt-[max(env(safe-area-inset-top),14px)] px-5 pb-2 shrink-0">
+          <div className="flex items-center justify-between gap-3">
+            {/* Left: 3-bar Hamburger (Opens History Drawer) */}
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="flex flex-col gap-1 p-1 text-white hover:opacity-80 transition-opacity cursor-pointer shrink-0"
+              title="Menu & Conversation History"
+            >
+              <span className="w-4.5 h-[2px] bg-white rounded-full"></span>
+              <span className="w-3.5 h-[2px] bg-white rounded-full"></span>
+              <span className="w-4 h-[2px] bg-white rounded-full"></span>
+            </button>
 
-      {/* Main Assistant Panel:
-          1. Center Mode (40% default): floating centered modal spotlight
-          2. Docked Mode (30%): right sidecar docked flush against the screen
-          3. Fullscreen Mode: expanded modal
-      */}
+            {/* Center: Dynamic Executive Co-Pilot Status */}
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center shadow-[0_0_10px_rgba(0,229,255,0.4)] shrink-0">
+                <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+              </div>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-[13.5px] font-semibold text-white tracking-tight truncate">
+                  Executive Copilot
+                </span>
+                <span className="w-1.5 h-1.5 rounded-full bg-[#00e5ff] animate-pulse shadow-[0_0_8px_#00e5ff] shrink-0" />
+              </div>
+            </div>
+
+            {/* Right: + New & Close (X) Buttons together in the same row */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={superAgent.startNewChat}
+                className="text-[11px] font-medium text-slate-200 hover:text-white px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/20 border border-white/10 flex items-center gap-1 transition-colors cursor-pointer"
+                title="Start a new chat"
+              >
+                <Plus className="w-3 h-3 stroke-[2.5]" />
+                <span>New</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                title="Close Super Agent"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Mobile Main Body: Hero Greeting & Reticle OR Active Conversation Stream */}
+        {messages.length <= 1 ? (
+          <div className="relative z-10 flex-1 flex flex-col justify-between px-6 pt-8 pb-3 overflow-y-auto">
+            {/* Hero Greeting Headline */}
+            <div>
+              <h1 className="text-[35px] font-bold text-white tracking-tight leading-[1.18] font-sans">
+                Hello Harjhot<br />
+                How can I help you<br />
+                today?
+              </h1>
+            </div>
+
+            {/* Centered Ambient Glowing Cyan Reticle */}
+            <div className="my-auto py-8 flex items-center justify-center relative w-full">
+              <div className="w-full flex items-center justify-center relative">
+                <div className="flex-1 border-t border-dashed border-[#00e5ff]/50"></div>
+                <div className="relative mx-3 flex items-center justify-center">
+                  <div className="w-7 h-7 flex items-center justify-center relative">
+                    <div className="absolute w-full h-[1.5px] border-t border-dashed border-[#00e5ff]/70"></div>
+                    <div className="absolute h-full w-[1.5px] border-l border-dashed border-[#00e5ff]/70"></div>
+                    <div className="w-1.5 h-1.5 rounded-full bg-[#00e5ff] shadow-[0_0_12px_#00e5ff,0_0_24px_#00e5ff]"></div>
+                  </div>
+                </div>
+                <div className="flex-1 border-t border-dashed border-[#00e5ff]/50"></div>
+              </div>
+            </div>
+
+            {/* Suggestions Header & Rounded Action Chips */}
+            <div className="mt-auto mb-2">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-[#94a3b8] mb-2.5">
+                <Sparkles className="w-3.5 h-3.5 text-[#94a3b8] fill-[#94a3b8]" />
+                <span>Suggestions</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => handleSendQuery("Check unread messages and summarize urgent ones")}
+                  className="px-4 py-2 rounded-full bg-[#091526]/90 hover:bg-[#10223d] border border-[#1b3152] text-white text-xs font-medium flex items-center gap-2 shadow-sm transition-all cursor-pointer active:scale-95"
+                >
+                  <MessageSquare className="w-3.5 h-3.5 text-[#38bdf8]" />
+                  <span>Unread Messages</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSendQuery("Review active maintenance tickets and dispatch status")}
+                  className="px-4 py-2 rounded-full bg-[#091526]/90 hover:bg-[#10223d] border border-[#1b3152] text-white text-xs font-medium flex items-center gap-2 shadow-sm transition-all cursor-pointer active:scale-95"
+                >
+                  <Wrench className="w-3.5 h-3.5 text-[#38bdf8]" />
+                  <span>Maintenance Ticket</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="relative z-10 flex-1 overflow-y-auto px-4 py-3 space-y-3.5">
+            {messages.slice(1).map((m) => (
+              <div key={m.id} className="w-full">
+                {m.sender === "user" ? (
+                  <div className="ml-auto items-end flex flex-col max-w-[85%] text-[13px] leading-relaxed">
+                    <div className="p-3 rounded-2xl shadow-md bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-br-xs">
+                      <p className="whitespace-pre-wrap">{m.text}</p>
+                    </div>
+                    <span className="text-[10px] text-white/40 mt-1 px-1">{m.timestamp}</span>
+                  </div>
+                ) : (
+                  <div className="mr-auto items-start flex flex-col w-full text-[13px] leading-relaxed space-y-3 select-text">
+                    <div className="text-slate-100 leading-relaxed font-sans text-[13.5px] select-text">
+                      <p className="whitespace-pre-wrap">
+                        {m.text.includes("matching conversation")
+                          ? "I found unread messages today across WhatsApp and Gmail. Showing the latest messages requiring your immediate action:"
+                          : m.text}
+                      </p>
+                    </div>
+
+                    {/* Filter Pills & Interactive Cards (Matches Mockup) */}
+                    {(() => {
+                      const rawCards = (m.previewCards && m.previewCards.length > 0)
+                        ? m.previewCards
+                        : (m.previewCard ? [m.previewCard] : []);
+
+                      // Find the user query that directly triggered this assistant turn
+                      const prevUserMsg = [...messages.slice(0, messages.indexOf(m))]
+                        .reverse()
+                        .find((item) => item.sender === "user")?.text.toLowerCase() || "";
+
+                      // Only trigger unread cards if the user specifically asked for messages/unread, or if backend returned retrieval matches
+                      const isUnreadQuery =
+                        /unread|messages|inbox|conversations/i.test(prevUserMsg) ||
+                        m.text.toLowerCase().includes("matching conversation") ||
+                        m.text.toLowerCase().includes("found unread messages");
+
+                      const isGeneralHelpQuery = /what (can|u can) do|who are you|hello|hi\b/i.test(prevUserMsg);
+
+                      const mappedLive: PreviewCardData[] = (liveThreads && liveThreads.length > 0)
+                        ? liveThreads.slice(0, 3).map((t) => {
+                            const isCrit = t.urgency === "emergency" || t.urgency === "high";
+                            return {
+                              type: "case_summary",
+                              actionId: t.id,
+                              caseId: t.ticketNumber || t.caseRef,
+                              title: t.senderName,
+                              subtitle: t.latestSnippet || t.caseSummary || "",
+                              recipient: t.senderName,
+                              unitLabel: t.unitLabel || "Centrum Portfolio",
+                              body: t.latestSnippet || t.caseSummary || "No recent snippet available",
+                              badgeLabel: isCrit ? "Critical" : "Normal",
+                              badgeColor: isCrit ? "rose" : "blue",
+                              channel: t.channel || "whatsapp",
+                              subject: t.subject || "Direct Message",
+                              status: isCrit ? "Critical" : "Normal",
+                            };
+                          })
+                        : [];
+
+                      const cardsList: PreviewCardData[] = rawCards.length > 0
+                        ? rawCards
+                        : (isUnreadQuery && !isGeneralHelpQuery)
+                        ? (mappedLive.length > 0
+                            ? mappedLive
+                            : [
+                                {
+                                  type: "case_summary",
+                                  actionId: "msg-praveen",
+                                  caseId: "case-praveen",
+                                  title: "Praveen Rostova",
+                                  subtitle: "Emergency kitchen drain pipe rupture detected beneath the sink unit; active water is pooling rapidly onto the oak hardwood floor",
+                                  recipient: "Praveen Rostova",
+                                  unitLabel: "Unit 4B · Parkview Residencies",
+                                  body: "Emergency kitchen drain pipe rupture detected beneath the sink unit; active water is pooling rapidly onto the oak hardwood floor",
+                                  badgeLabel: "Critical",
+                                  badgeColor: "rose",
+                                  channel: "whatsapp",
+                                  subject: "Emergency Kitchen Drain Leak",
+                                  status: "Critical",
+                                },
+                                {
+                                  type: "case_summary",
+                                  actionId: "msg-elena",
+                                  caseId: "case-elena",
+                                  title: "Elena Rostova",
+                                  subtitle: "Inquiry regarding formal 12-month lease renewal starting January 1st, 2027; tenant accepts the proposed +4.0% market rate",
+                                  recipient: "Elena Rostova",
+                                  unitLabel: "Unit 4B · Parkview Residencies",
+                                  body: "Inquiry regarding formal 12-month lease renewal starting January 1st, 2027; tenant accepts the proposed +4.0% market rate",
+                                  badgeLabel: "Critical",
+                                  badgeColor: "rose",
+                                  channel: "gmail",
+                                  subject: "Lease renewal inquiry",
+                                  status: "Critical",
+                                },
+                              ])
+                        : [];
+
+                      if (cardsList.length === 0) return null;
+
+                      const filtered = cardsList.filter((card) => {
+                        if (selectedPriorityFilter !== "All Priorities") {
+                          const cardPriority = (card.badgeLabel || card.status || "Normal").toLowerCase();
+                          if (!cardPriority.includes(selectedPriorityFilter.toLowerCase())) return false;
+                        }
+                        if (selectedChannelFilter !== "All Message Type") {
+                          const cardChan = (card.channel || "").toLowerCase();
+                          if (!cardChan.includes(selectedChannelFilter.toLowerCase())) return false;
+                        }
+                        return true;
+                      });
+
+                      return (
+                        <div className="w-full space-y-3 pt-1">
+                          {/* Filter Pills Row */}
+                          <div className="flex items-center gap-2 pt-1 pb-1">
+                            <button
+                              type="button"
+                              onClick={() => setIsPriorityModalOpen(true)}
+                              className="px-3.5 py-1.5 rounded-full bg-[#0E2138] border border-[#162B45] text-xs font-medium text-slate-300 flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer"
+                            >
+                              <span>{selectedPriorityFilter}</span>
+                              <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setIsChannelModalOpen(true)}
+                              className="px-3.5 py-1.5 rounded-full bg-[#0E2138] border border-[#162B45] text-xs font-medium text-slate-300 flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer"
+                            >
+                              <span>{selectedChannelFilter}</span>
+                              <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+                            </button>
+                          </div>
+
+                          {/* Cards List */}
+                          <div className="space-y-3">
+                            {filtered.map((card, cIdx) => {
+                              const cardKey = card.actionId || card.caseId || `card-${cIdx}`;
+                              const senderName = card.recipient || card.title || "Tenant Contact";
+                              const unitText = card.unitLabel || "Centrum Portfolio";
+                              const priority = card.badgeLabel || "Critical";
+                              const isCritical = priority.toLowerCase().includes("critical") || priority.toLowerCase().includes("urgent");
+                              const channel = (card.channel || "whatsapp").toLowerCase();
+                              const isWhatsApp = channel.includes("whatsapp");
+                              const isExpanded = expandedCardIds[cardKey];
+                              const bodyText = card.body || card.subtitle || card.title || "";
+                              const isLong = bodyText.length > 90;
+
+                              return (
+                                <div
+                                  key={cardKey}
+                                  className="p-4 rounded-2xl bg-[#0E2138]/95 border border-[#162B45] space-y-3 shadow-md"
+                                >
+                                  {/* Header: Avatar, Name, Unit, Timestamp, Priority Badge */}
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="flex items-center gap-2.5">
+                                      <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-slate-700 to-slate-600 flex items-center justify-center font-semibold text-xs text-white shrink-0">
+                                        {senderName.slice(0, 2).toUpperCase()}
+                                      </div>
+                                      <div>
+                                        <div className="font-semibold text-sm text-white">{senderName}</div>
+                                        <div className="text-[11px] text-slate-400">{unitText}</div>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex flex-col items-end gap-1 shrink-0">
+                                      <span className="text-[11px] text-slate-500">18h ago</span>
+                                      <span
+                                        className={cn(
+                                          "text-[11px] font-semibold",
+                                          isCritical ? "text-[#ef4444]" : "text-emerald-400"
+                                        )}
+                                      >
+                                        {priority}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  {/* Message Body with Show More */}
+                                  <div className="text-[13px] leading-relaxed text-slate-200">
+                                    <span>{isExpanded || !isLong ? bodyText : `${bodyText.slice(0, 90)}... `}</span>
+                                    {isLong && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setExpandedCardIds((prev) => ({ ...prev, [cardKey]: !prev[cardKey] }))}
+                                        className="text-cyan-400 font-medium hover:underline ml-1 cursor-pointer"
+                                      >
+                                        {isExpanded ? "Show less" : "Show more"}
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  {/* Action Buttons: Reply, Forward, and Channel Badge */}
+                                  <div className="flex items-center justify-between pt-1 border-t border-white/5 text-xs">
+                                    <div className="flex items-center gap-4">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (isWhatsApp) {
+                                            const phone = (card as any).phone || "+31688123456";
+                                            window.open(`https://wa.me/${phone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(bodyText)}`, "_blank");
+                                          } else {
+                                            const email = (card as any).email || "vipint9902@gmail.com";
+                                            window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}&su=${encodeURIComponent("Re: " + (card.subject || "Message"))}&body=${encodeURIComponent(bodyText)}`, "_blank");
+                                          }
+                                        }}
+                                        className="flex items-center gap-1.5 text-cyan-400 hover:text-cyan-300 font-medium cursor-pointer"
+                                      >
+                                        <CornerDownRight className="w-3.5 h-3.5" />
+                                        <span>Reply</span>
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+                                            navigator.clipboard.writeText(bodyText);
+                                          }
+                                        }}
+                                        className="flex items-center gap-1.5 text-slate-400 hover:text-slate-200 font-medium cursor-pointer"
+                                      >
+                                        <SendHorizontal className="w-3.5 h-3.5" />
+                                        <span>Forward</span>
+                                      </button>
+                                    </div>
+
+                                    <div className="flex items-center gap-1.5 text-slate-400 text-xs">
+                                      {isWhatsApp ? (
+                                        <>
+                                          <MessageSquare className="w-3.5 h-3.5 text-[#25D366]" />
+                                          <span>WhatsApp</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Mail className="w-3.5 h-3.5 text-[#EA4335]" />
+                                          <span>Gmail</span>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    <span className="text-[10px] text-white/40 mt-1 px-1">{m.timestamp}</span>
+                  </div>
+                )}
+              </div>
+            ))}
+            {isTyping && (
+              <div className="flex items-center gap-2 text-xs text-cyan-300 py-1">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Super Agent is thinking...</span>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+        )}
+
+        {/* Floating Voice & Text Dock (Without + button; New Chat is in the drawer) */}
+        <div className="relative z-10 px-4 pb-[max(env(safe-area-inset-bottom),16px)] pt-1 shrink-0">
+          <div className="bg-[#0A1B2F]/95 backdrop-blur-2xl border border-[#162B45] rounded-2xl p-3 shadow-[0_12px_36px_rgba(0,0,0,0.8)]">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSendQuery(inputQuery);
+              }}
+              className="flex flex-col gap-2"
+            >
+              <textarea
+                rows={1}
+                value={inputQuery}
+                onChange={(e) => {
+                  cancelAutoSend();
+                  setInputQuery(e.target.value);
+                }}
+                onKeyDown={(e) => {
+                  cancelAutoSend();
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendQuery(inputQuery);
+                  }
+                }}
+                placeholder="Talk to your super agent and get your job done"
+                className="w-full text-[13px] bg-transparent outline-none resize-none text-white placeholder:text-slate-500 leading-normal"
+              />
+              <div className="flex items-center justify-between pt-1">
+                {/* Left: Language selector & Listening status */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleToggleLang}
+                    className={cn(
+                      "text-[11px] font-semibold px-2.5 py-1 rounded-full border transition-all cursor-pointer flex items-center gap-1 select-none",
+                      speechLang === "nl"
+                        ? "bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-[0_0_8px_rgba(245,158,11,0.25)]"
+                        : "bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-[0_0_8px_rgba(0,229,255,0.25)]"
+                    )}
+                    title={speechLang === "nl" ? "Voice language: Nederlands (tap to switch to English)" : "Voice language: English (tap to switch to Nederlands)"}
+                  >
+                    <span>{speechLang === "nl" ? "🇳🇱 NL" : "🇬🇧 EN"}</span>
+                  </button>
+
+                  {isListening && (
+                    <span className="text-[11px] text-cyan-300 font-medium animate-pulse flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping inline-block" />
+                      {isPausingToAutoSend
+                        ? "⚡ Sending..."
+                        : speechLang === "nl"
+                        ? "Luisteren (NL)..."
+                        : "Listening (EN)..."}
+                    </span>
+                  )}
+                </div>
+
+                {/* Right: White Circular Mic Button & Send Button */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleVoiceInput()}
+                    className={cn(
+                      "w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-lg",
+                      isListening
+                        ? "bg-[#00e5ff] text-black shadow-[0_0_18px_#00e5ff] animate-pulse ring-2 ring-cyan-300"
+                        : "bg-white text-black hover:bg-slate-100 active:scale-95"
+                    )}
+                    title={isListening ? "Listening... Tap to stop" : `Tap to Speak (${speechLang === "nl" ? "Dutch" : "English"})`}
+                  >
+                    {isListening ? (
+                      <MicOff className="w-4 h-4 stroke-[2.5]" />
+                    ) : (
+                      <Mic className="w-4 h-4 stroke-[2.5]" />
+                    )}
+                  </button>
+                  {/* Dark Circular Send Button */}
+                  <button
+                    type="submit"
+                    disabled={!inputQuery.trim() || isTyping}
+                    className={cn(
+                      "w-8 h-8 rounded-full bg-[#2a2b31] flex items-center justify-center transition-all cursor-pointer",
+                      inputQuery.trim()
+                        ? "text-white hover:bg-blue-600 active:scale-95"
+                        : "text-slate-500 cursor-not-allowed opacity-60"
+                    )}
+                    title="Send"
+                  >
+                    <ArrowUp className="w-4 h-4 stroke-[2.5]" />
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+          {/* iOS / Android Navigation Gesture Bar */}
+          <div className="mt-2.5 flex justify-center">
+            <div className="h-1 w-32 bg-white/30 rounded-full"></div>
+          </div>
+        </div>
+
+        {/* ============================================================== */}
+        {/* MOBILE SLIDE-OVER DRAWER (Matches uploaded UI image 100%)       */}
+        {/* ============================================================== */}
+        {isMobileMenuOpen && (
+          <div className="absolute inset-0 z-50 bg-[#0A1B2F] flex flex-col justify-between p-6 pt-[max(env(safe-area-inset-top),20px)] pb-[max(env(safe-area-inset-bottom),20px)] animate-in fade-in slide-in-from-left-4 duration-200">
+            <div>
+              {/* Header: Logo [HR] RealEstate OS & Actions */}
+              <div className="flex items-center justify-between pb-6">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg border border-white/20 bg-white/5 flex items-center justify-center font-bold text-xs tracking-wider text-white">
+                    HR
+                  </div>
+                  <span className="font-bold text-[18px] text-white tracking-tight">RealEstate OS</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      setTimeout(() => inputRef.current?.focus(), 150);
+                    }}
+                    className="w-9 h-9 rounded-full bg-[#222429] hover:bg-[#2c2f36] text-white/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                    title="Search"
+                  >
+                    <Search className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="w-9 h-9 rounded-full bg-[#222429] hover:bg-[#2c2f36] text-white/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                    title="Close Menu"
+                  >
+                    <div className="flex flex-col gap-1">
+                      <span className="w-4 h-[2px] bg-white rounded-full"></span>
+                      <span className="w-3 h-[2px] bg-white rounded-full"></span>
+                      <span className="w-3.5 h-[2px] bg-white rounded-full"></span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Navigation Items */}
+              <nav className="space-y-4 pt-1 pb-6 border-b border-white/5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    onClose();
+                    router.push("/");
+                  }}
+                  className="flex items-center gap-3 text-white/90 hover:text-white text-[15px] font-medium transition-colors w-full text-left py-1 cursor-pointer"
+                >
+                  <Home className="w-5 h-5 text-white/70" />
+                  <span>Dashboard</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    onClose();
+                    router.push("/contacts");
+                  }}
+                  className="flex items-center gap-3 text-white/90 hover:text-white text-[15px] font-medium transition-colors w-full text-left py-1 cursor-pointer"
+                >
+                  <UserRound className="w-5 h-5 text-white/70" />
+                  <span>Contacts</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    onClose();
+                    router.push("/inbox");
+                  }}
+                  className="flex items-center gap-3 text-white/90 hover:text-white text-[15px] font-medium transition-colors w-full text-left py-1 cursor-pointer"
+                >
+                  <MessageSquare className="w-5 h-5 text-white/70" />
+                  <span>Messages</span>
+                </button>
+              </nav>
+
+              {/* Past Conversations List */}
+              <div className="pt-5">
+                <div className="text-[13px] font-medium text-[#64748B] mb-3">
+                  Conversations
+                </div>
+                <div className="space-y-3.5 overflow-y-auto max-h-[46vh] pr-1">
+                  {displayConversations.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => {
+                        if (c.id.startsWith("conv-")) {
+                          handleSendQuery(c.title);
+                        } else {
+                          superAgent.selectConversation(c.id);
+                        }
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between text-left text-[14px] text-white hover:text-cyan-300 transition-colors py-1 cursor-pointer group"
+                    >
+                      <span className="truncate pr-3 font-normal group-hover:underline">{c.title}</span>
+                      <span className="text-[12px] text-[#64748B] shrink-0 font-normal">{c.date}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Bar: Profile Avatar & New Chat Blue Pill Button */}
+            <div className="flex items-center justify-between pt-4 border-t border-white/5">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-amber-600 to-amber-400 flex items-center justify-center text-white font-bold text-sm shadow-sm">
+                  H
+                </div>
+                <span className="font-semibold text-[15px] text-white">Hi, Harjhot</span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  superAgent.startNewChat();
+                  setIsMobileMenuOpen(false);
+                }}
+                className="bg-[#2563eb] hover:bg-blue-600 text-white font-semibold text-xs px-4 py-2.5 rounded-full flex items-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                <span>New Chat</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================== */}
+        {/* PRIORITY FILTER BOTTOM SHEET (Matches mockup image 1)          */}
+        {/* ============================================================== */}
+        {isPriorityModalOpen && (
+          <div className="absolute inset-0 z-50 flex flex-col justify-end">
+            <div
+              className="absolute inset-0 bg-black/70 backdrop-blur-xs transition-opacity"
+              onClick={() => setIsPriorityModalOpen(false)}
+            />
+            <div className="relative w-full bg-[#151619] border-t border-white/10 rounded-t-[22px] p-6 pb-[max(env(safe-area-inset-bottom),24px)] space-y-5 shadow-2xl animate-in slide-in-from-bottom duration-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-white tracking-tight">Priority</h3>
+                <button
+                  type="button"
+                  onClick={() => setIsPriorityModalOpen(false)}
+                  className="w-8 h-8 rounded-full bg-[#24262b] text-white/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                {["All Priorities", "Critical", "High", "Normal", "Low"].map((p) => {
+                  const isSelected = selectedPriorityFilter === p;
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => {
+                        setSelectedPriorityFilter(p);
+                        setIsPriorityModalOpen(false);
+                      }}
+                      className={cn(
+                        "px-5 py-2.5 rounded-full text-xs font-semibold transition-all cursor-pointer",
+                        isSelected
+                          ? "bg-[#2563eb] text-white shadow-md"
+                          : "bg-[#24262b] text-slate-200 hover:bg-[#2e3137]"
+                      )}
+                    >
+                      {p}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================== */}
+        {/* MESSAGE TYPE FILTER BOTTOM SHEET                               */}
+        {/* ============================================================== */}
+        {isChannelModalOpen && (
+          <div className="absolute inset-0 z-50 flex flex-col justify-end">
+            <div
+              className="absolute inset-0 bg-black/70 backdrop-blur-xs transition-opacity"
+              onClick={() => setIsChannelModalOpen(false)}
+            />
+            <div className="relative w-full bg-[#151619] border-t border-white/10 rounded-t-[22px] p-6 pb-[max(env(safe-area-inset-bottom),24px)] space-y-5 shadow-2xl animate-in slide-in-from-bottom duration-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-white tracking-tight">Message Type</h3>
+                <button
+                  type="button"
+                  onClick={() => setIsChannelModalOpen(false)}
+                  className="w-8 h-8 rounded-full bg-[#24262b] text-white/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                {["All Message Type", "WhatsApp", "Gmail"].map((chan) => {
+                  const isSelected = selectedChannelFilter === chan;
+                  return (
+                    <button
+                      key={chan}
+                      type="button"
+                      onClick={() => {
+                        setSelectedChannelFilter(chan);
+                        setIsChannelModalOpen(false);
+                      }}
+                      className={cn(
+                        "px-5 py-2.5 rounded-full text-xs font-semibold transition-all cursor-pointer",
+                        isSelected
+                          ? "bg-[#2563eb] text-white shadow-md"
+                          : "bg-[#24262b] text-slate-200 hover:bg-[#2e3137]"
+                      )}
+                    >
+                      {chan}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ============================================================== */}
+      {/* DESKTOP SUPER AGENT (100% original layout on md: and larger)   */}
+      {/* ============================================================== */}
       <aside
         id="aiSidePanel"
         className={cn(
-          "bg-white flex flex-col justify-between font-sans shrink-0 overflow-hidden relative transition-all duration-300",
+          "hidden md:flex bg-white flex-col justify-between font-sans shrink-0 overflow-hidden relative transition-all duration-300",
           isFullScreen
-            ? "absolute inset-0 z-30 m-0 mr-[10px] mb-[10px] h-[calc(100%-10px)] rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)] animate-in fade-in duration-200"
-            : "fixed inset-0 z-50 md:relative md:inset-auto md:z-10 w-full md:w-[420px] xl:w-[450px] shrink-0 m-0 md:mr-[10px] md:mb-[10px] h-full md:h-[calc(100%-10px)] rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)]"
+            ? "absolute inset-0 z-30 m-0 mr-[10px] mb-[10px] h-[calc(100%-10px)] rounded-[14px] border border-[#162B45] shadow-[0_2px_8px_rgba(0,0,0,0.2)] animate-in fade-in duration-200"
+            : "fixed inset-0 z-50 md:relative md:inset-auto md:z-10 w-full md:w-[420px] xl:w-[450px] shrink-0 m-0 md:mr-[10px] md:mb-[10px] h-full md:h-[calc(100%-10px)] rounded-[14px] border border-[#162B45] shadow-[0_2px_8px_rgba(0,0,0,0.2)]"
         )}
       >
         {/* 1. Header Bar with Clean Icon Controls (No Text Clutter, No Overlap) */}
         <div
           className={cn(
             "h-[48px] px-3 sm:px-4 border-b flex items-center justify-between flex-shrink-0 transition-colors",
-            isDark ? "bg-[#0E1113] border-[#1A1F24]" : "bg-[#FFFFFF] border-[#E8E8E5]"
+            isDark ? "bg-[#0E1113] border-[#1A1F24]" : "bg-[#FFFFFF] border-[#E8E8E5]",
+            "max-md:bg-black/30 max-md:border-b max-md:border-white/10 max-md:backdrop-blur-xl max-md:pt-[env(safe-area-inset-top,0px)] max-md:h-[calc(52px+env(safe-area-inset-top,0px))]"
           )}
         >
           {/* Left: Mobile Back Button + Sparkles Icon */}
@@ -499,7 +1399,8 @@ export function AskEstateOSPanel({
                 "md:hidden p-1.5 -ml-1 rounded-[8px] transition-colors cursor-pointer",
                 isDark
                   ? "text-[#9CA3AF] hover:text-white hover:bg-[#1A1F24]"
-                  : "text-[#6B7280] hover:text-[#0A0A0A] hover:bg-[#F0F0EE]"
+                  : "text-[#6B7280] hover:text-[#0A0A0A] hover:bg-[#F0F0EE]",
+                "max-md:text-white max-md:hover:bg-white/15"
               )}
               title="Back"
             >
@@ -510,11 +1411,17 @@ export function AskEstateOSPanel({
             <div
               className={cn(
                 "w-7 h-7 rounded-full flex items-center justify-center shrink-0",
-                isDark ? "bg-[#1a73e8]/20 text-[#60a5fa]" : "bg-[#eff6ff] text-[#1a73e8]"
+                isDark ? "bg-[#1a73e8]/20 text-[#60a5fa]" : "bg-[#eff6ff] text-[#1a73e8]",
+                "max-md:bg-cyan-500/25 max-md:text-cyan-300 max-md:shadow-[0_0_12px_rgba(0,229,255,0.4)]"
               )}
               title="Super Agent"
             >
-              <Sparkles className="w-4 h-4 text-[#1a73e8] animate-ai-star" />
+              <Sparkles className="w-4 h-4 text-[#1a73e8] max-md:text-cyan-300 animate-ai-star" />
+            </div>
+
+            <div className="md:hidden flex items-center gap-1.5 pl-0.5">
+              <span className="text-[13px] font-semibold text-white tracking-wide">Jarvis</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_#00e5ff]" />
             </div>
           </div>
 
@@ -739,7 +1646,8 @@ export function AskEstateOSPanel({
             <div
               className={cn(
                 "flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-5 text-[13.5px] leading-relaxed min-w-0 w-full transition-colors",
-                isDark ? "bg-[#0E1113]" : "bg-[#FFFFFF]"
+                isDark ? "bg-[#0E1113]" : "bg-[#FFFFFF]",
+                "max-md:bg-transparent max-md:p-3 max-md:pt-4"
               )}
             >
               <div className="max-w-[760px] mx-auto w-full space-y-4">
@@ -758,7 +1666,8 @@ export function AskEstateOSPanel({
                     "px-4 py-2.5 rounded-[20px] text-[13.5px] leading-relaxed break-words [overflow-wrap:anywhere]",
                     isDark
                       ? "bg-[#20272E] border border-[#2E3742] text-[#F9FAFB]"
-                      : "bg-[#F3F4F6] border border-[#E5E7EB] text-[#111827]"
+                      : "bg-[#F3F4F6] border border-[#E5E7EB] text-[#111827]",
+                    "max-md:bg-cyan-500/20 max-md:border-cyan-400/35 max-md:text-white max-md:backdrop-blur-md max-md:shadow-[0_4px_16px_rgba(0,229,255,0.15)]"
                   )}
                 >
                   <p className="whitespace-pre-line leading-relaxed">{msg.text}</p>
@@ -769,10 +1678,14 @@ export function AskEstateOSPanel({
                   <div
                     className={cn(
                       "whitespace-pre-line leading-relaxed break-words [overflow-wrap:anywhere] min-w-0 max-w-full",
-                      isDark ? "text-[#E5E7EB]" : "text-[#111827]"
+                      isDark ? "text-[#E5E7EB]" : "text-[#111827]",
+                      "max-md:text-white/95 max-md:drop-shadow-xs"
                     )}
                     dangerouslySetInnerHTML={{
-                      __html: formatMarkdown(msg.text, isDark),
+                      __html: formatMarkdown(
+                        msg.id === "initial-msg" ? t("agent.welcome_sub", msg.text) : msg.text,
+                        isDark
+                      ),
                     }}
                   />
 
@@ -855,7 +1768,8 @@ export function AskEstateOSPanel({
                           key={pCard.actionId || pCard.caseId || `preview-${cardIdx}`}
                           className={cn(
                             "rounded-[10px] border p-3.5 space-y-2.5 shadow-xs animate-in fade-in-50 duration-150 min-w-0 max-w-full overflow-hidden transition-colors",
-                            isDark ? "bg-[#15181C] border-[#222830]" : "bg-[#FBFBFA] border-[#E8E8E5]"
+                            isDark ? "bg-[#15181C] border-[#222830]" : "bg-[#FBFBFA] border-[#E8E8E5]",
+                            "max-md:bg-black/55 max-md:border-white/15 max-md:backdrop-blur-xl max-md:shadow-[0_8px_32px_rgba(0,0,0,0.5)] max-md:rounded-[16px]"
                           )}
                         >
                     {pCard.type === "draft_message" && pCard.personaName && (
@@ -1166,7 +2080,7 @@ export function AskEstateOSPanel({
                             "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border",
                             isDark ? "bg-amber-500/15 text-amber-400 border-amber-500/30" : "bg-amber-50 text-amber-800 border-amber-200"
                           )}>
-                            {pCard.badgeLabel || "NOTICE"}
+                            {t(pCard.badgeLabel || "NOTICE")}
                           </span>
                           <span className={cn("text-[10.5px] font-mono", isDark ? "text-[#64748B]" : "text-[#888888]")}>
                             {pCard.unitLabel || "Action Required"}
@@ -1174,19 +2088,19 @@ export function AskEstateOSPanel({
                         </div>
 
                         <div className={cn("text-[13px] font-semibold", isDark ? "text-[#F9FAFB]" : "text-[#0A0A0A]")}>
-                          {pCard.title || "Action Notice"}
+                          {t(pCard.title || "Action Notice")}
                         </div>
 
                         <div className={cn(
                           "p-2.5 rounded-[8px] text-[12px] leading-relaxed font-sans break-words [overflow-wrap:anywhere] border",
                           isDark ? "bg-[#0E1113] border-amber-500/20 text-[#E2E8F0]" : "bg-[#FFFBEB] border-amber-200 text-[#78350F]"
                         )}>
-                          {pCard.body}
+                          {t(pCard.body || "")}
                         </div>
 
                         <div className={cn("pt-1 flex items-center justify-between gap-2 border-t", isDark ? "border-[#1E2328]" : "border-[#E8E8E5]")}>
                           <span className={cn("text-[10px] font-mono", isDark ? "text-[#64748B]" : "text-[#888888]")}>
-                            Status: {pCard.status || "Pending Review"}
+                            {t("Status")}: {t(pCard.status || "pending")}
                           </span>
                           <div className="flex items-center gap-2">
                             {pCard.caseId && (
@@ -1200,7 +2114,7 @@ export function AskEstateOSPanel({
                                     : "bg-[#0A0A0A] hover:bg-[#222222] border-[#0A0A0A] text-[#FFFFFF]"
                                 )}
                               >
-                                Retry Draft
+                                {t("Retry Draft")}
                               </button>
                             )}
                             <button
@@ -1208,7 +2122,7 @@ export function AskEstateOSPanel({
                               onClick={() => handleNavigate(pCard?.targetUrl || `/inbox?thread=case-${pCard?.caseId || ""}`)}
                               className="text-[11px] text-[#1a73e8] hover:underline flex items-center gap-1 cursor-pointer font-medium"
                             >
-                              <span>Open in Inbox</span>
+                              <span>{t("Open in Inbox")}</span>
                               <ExternalLink className="w-3 h-3" />
                             </button>
                           </div>
@@ -1466,7 +2380,7 @@ export function AskEstateOSPanel({
                             </>
                           ) : (
                             <>
-                              <span>{act.label}</span>
+                              <span>{t(act.label)}</span>
                               <CornerDownRight className="w-3 h-3" />
                             </>
                           )}
@@ -1516,7 +2430,8 @@ export function AskEstateOSPanel({
         <div
           className={cn(
             "px-4 sm:px-6 pt-1 flex-shrink-0 transition-colors bg-transparent",
-            isFullScreen ? "pb-6 sm:pb-7" : "pb-3.5 sm:pb-4"
+            isFullScreen ? "pb-6 sm:pb-7" : "pb-3.5 sm:pb-4",
+            "max-md:px-3 max-md:pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]"
           )}
         >
           <div className="max-w-[760px] mx-auto w-full space-y-2.5">
@@ -1532,7 +2447,8 @@ export function AskEstateOSPanel({
                       "px-3.5 py-1 rounded-full border text-[12px] font-normal transition-all whitespace-nowrap cursor-pointer shrink-0 shadow-2xs hover:scale-[1.02] active:scale-[0.98]",
                       isDark
                         ? "bg-[#14181C] hover:bg-[#1E242B] border-[#222830] text-[#94a3b8] hover:text-white hover:border-[#1a73e8]/40"
-                        : "bg-[#F8FAFD] hover:bg-[#eff6ff] border-[#DCE2EA] text-[#444746] hover:text-[#1a73e8] hover:border-[#1a73e8]/40"
+                        : "bg-[#F8FAFD] hover:bg-[#eff6ff] border-[#DCE2EA] text-[#444746] hover:text-[#1a73e8] hover:border-[#1a73e8]/40",
+                      "max-md:bg-black/45 max-md:border-white/20 max-md:text-white/85 max-md:backdrop-blur-lg max-md:hover:border-cyan-400"
                     )}
                   >
                     {chip}
@@ -1549,40 +2465,96 @@ export function AskEstateOSPanel({
                 "border-[1.5px] rounded-[20px] p-2.5 pb-2 flex flex-col gap-1.5 transition-all shadow-2xs",
                 isDark
                   ? "bg-[#14181C] border-[#222830] focus-within:border-[#1a73e8] focus-within:bg-[#181D22]"
-                  : "bg-[#f8fafd] border-[#dce2ea] focus-within:border-[#1a73e8] focus-within:bg-white"
+                  : "bg-[#f8fafd] border-[#dce2ea] focus-within:border-[#1a73e8] focus-within:bg-white",
+                "max-md:bg-black/60 max-md:border-white/20 max-md:backdrop-blur-2xl max-md:shadow-[0_8px_32px_rgba(0,0,0,0.6)] max-md:rounded-[24px] max-md:focus-within:border-cyan-400 max-md:focus-within:bg-black/75"
               )}
             >
               <textarea
                 ref={inputRef}
                 rows={1}
                 value={inputQuery}
-                onChange={(e) => setInputQuery(e.target.value)}
+                onChange={(e) => {
+                  cancelAutoSend();
+                  setInputQuery(e.target.value);
+                }}
                 onKeyDown={(e) => {
+                  cancelAutoSend();
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     handleSendQuery(inputQuery);
                   }
                 }}
-                placeholder="Ask Super Agent across portfolio, maintenance, arrears..."
+                placeholder={t("agent.ask_placeholder")}
                 className={cn(
                   "w-full text-[13px] bg-transparent outline-none resize-none leading-relaxed",
                   isDark
                     ? "text-[#FFFFFF] placeholder:text-[#64748B]"
-                    : "text-[#1f1f1f] placeholder:text-[#444746]"
+                    : "text-[#1f1f1f] placeholder:text-[#444746]",
+                  "max-md:text-white max-md:placeholder:text-white/50"
                 )}
               />
 
-              <div className="flex items-center justify-end pt-0.5">
+              <div className="flex items-center justify-between pt-0.5">
+                {/* Voice Input Mic Button & Speech Language Switcher */}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => toggleVoiceInput()}
+                    className={cn(
+                      "p-1.5 rounded-full transition-all cursor-pointer flex items-center justify-center shrink-0",
+                      isListening
+                        ? "bg-cyan-500 text-black shadow-[0_0_15px_rgba(0,229,255,0.7)] animate-pulse ring-2 ring-cyan-300"
+                        : isDark
+                        ? "text-slate-400 hover:text-white hover:bg-white/10"
+                        : "text-[#5f6368] hover:text-[#1a73e8] hover:bg-slate-100"
+                    )}
+                    title={isListening ? "Listening... click to stop" : `Voice input (${speechLang === "nl" ? "Dutch" : "English"})`}
+                    aria-label="Voice input"
+                  >
+                    {isListening ? (
+                      <MicOff className="w-4 h-4 stroke-[2.5]" />
+                    ) : (
+                      <Mic className="w-4 h-4 stroke-[2]" />
+                    )}
+                  </button>
+
+                  {/* Speech Language Switcher */}
+                  <button
+                    type="button"
+                    onClick={handleToggleLang}
+                    className={cn(
+                      "text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all cursor-pointer flex items-center gap-1 select-none",
+                      speechLang === "nl"
+                        ? "bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/25"
+                        : "bg-blue-500/15 text-blue-400 border-blue-500/30 hover:bg-blue-500/25"
+                    )}
+                    title={speechLang === "nl" ? "Voice language: Nederlands (click to switch to English)" : "Voice language: English (click to switch to Nederlands)"}
+                  >
+                    <span>{speechLang === "nl" ? "🇳🇱 NL" : "🇬🇧 EN"}</span>
+                  </button>
+
+                  {isListening && (
+                    <span className="text-[11px] text-cyan-400 font-medium animate-pulse flex items-center gap-1 pl-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping inline-block" />
+                      {isPausingToAutoSend
+                        ? "⚡ Sending..."
+                        : speechLang === "nl"
+                        ? "Luisteren (Dutch)..."
+                        : "Listening (English)..."}
+                    </span>
+                  )}
+                </div>
+
                 <button
                   type="submit"
                   disabled={!inputQuery.trim() || isTyping}
                   className={cn(
                     "w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0",
                     inputQuery.trim()
-                      ? "bg-[#1a73e8] hover:bg-[#1557b0] text-white shadow-[0_2px_6px_rgba(26,115,232,0.3)] hover:scale-105 active:scale-95"
+                      ? "bg-[#1a73e8] max-md:bg-gradient-to-r max-md:from-cyan-400 max-md:to-blue-600 max-md:text-black hover:bg-[#1557b0] text-white shadow-[0_2px_6px_rgba(26,115,232,0.3)] max-md:shadow-[0_0_12px_rgba(0,229,255,0.4)] hover:scale-105 active:scale-95"
                       : isDark
-                      ? "bg-[#1c2227] text-[#64748b] cursor-not-allowed opacity-60"
-                      : "bg-[#e8eaed] text-[#5f6368] cursor-not-allowed opacity-70"
+                      ? "bg-[#1c2227] max-md:bg-white/10 text-[#64748b] max-md:text-white/30 cursor-not-allowed opacity-60"
+                      : "bg-[#e8eaed] max-md:bg-white/10 text-[#5f6368] max-md:text-white/30 cursor-not-allowed opacity-70"
                   )}
                   title="Send query"
                 >

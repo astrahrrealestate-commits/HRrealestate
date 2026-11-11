@@ -71,10 +71,10 @@ function AdminContent() {
   const activeCount = profiles?.filter((p) => p.is_active).length ?? 0;
 
   return (
-    <div className="h-dvh bg-[#1B1B1B] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
+    <div className="h-dvh bg-[#0A1B2F] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
       <Sidebar />
 
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#1B1B1B]">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0A1B2F]">
         <TopCommandBar pageTitle="Team & access" hideSearch={true} />
 
         <div className="flex-1 flex flex-row overflow-hidden min-h-0 w-full relative">

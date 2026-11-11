@@ -33,6 +33,7 @@ import { euro, specLine, UNKNOWN } from "@/lib/portfolioFormat";
 import { PageStateShell } from "@/components/portfolio/PageStateShell";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import { useSuperAgent } from "@/context/SuperAgentContext";
+import { useLanguage } from "@/context/LanguageContext";
 
 function findMatchingUnitAndComplex(
   complexes: PropertyComplex[],
@@ -82,6 +83,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
   const router = useRouter();
   const searchParams = useSearchParams();
   const superAgent = useSuperAgent();
+  const { t } = useLanguage();
 
   // URL state synchronization: ?complex=comp-id&unit=unit-id
   const complexParam = searchParams.get("complex");
@@ -179,8 +181,8 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
   const filteredUnits = useMemo(() => {
     return activeComplex.units.filter((unit) => {
       // Tab filter
-      if (activeTab === "occupied" && unit.status !== "occupied") return false;
-      if (activeTab === "vacant" && unit.status === "occupied") return false;
+      if (activeTab === "occupied" && unit.status === "vacant") return false;
+      if (activeTab === "vacant" && unit.status !== "vacant") return false;
 
       // Search query
       if (searchQuery.trim()) {
@@ -256,12 +258,12 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
   const isMobileComplexList = !isMobileComplexScreen && !isMobileUnitScreen;
 
   return (
-    <div className="h-dvh bg-[#1B1B1B] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
+    <div className="h-dvh bg-[#0A1B2F] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
       {/* 1. Left Nav (Desktop Sidebar) */}
       <Sidebar />
 
       {/* 2. Main Content Canvas */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#1B1B1B]">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0A1B2F]">
         <TopCommandBar
           pageTitle="Properties"
           hideSearch={true}
@@ -369,7 +371,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                         : "text-[var(--ink-3)] hover:text-[var(--ink)]"
                     )}
                   >
-                    All ({activeComplex.units.length})
+                    {t("All")} ({activeComplex.units.length})
                   </button>
                   <button
                     onClick={() => setActiveTab("occupied")}
@@ -380,7 +382,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                         : "text-[var(--ink-3)] hover:text-[var(--ink)]"
                     )}
                   >
-                    Occupied ({activeComplex.units.filter((u) => u.status === "occupied").length})
+                    {t("Occupied")} ({activeComplex.units.filter((u) => u.status !== "vacant").length})
                   </button>
                   <button
                     onClick={() => setActiveTab("vacant")}
@@ -391,7 +393,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                         : "text-[var(--ink-3)] hover:text-[var(--ink)]"
                     )}
                   >
-                    Vacant / Notice ({activeComplex.units.filter((u) => u.status !== "occupied").length})
+                    {t("Vacant")} ({activeComplex.units.filter((u) => u.status === "vacant").length})
                   </button>
                 </div>
 
@@ -402,7 +404,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search unit, tenant, lockbox..."
+                    placeholder={t("Search properties...", "Zoek eenheden...")}
                     className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--bg)] border border-[var(--line)] rounded-md text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none focus:border-[var(--ink-2)]"
                   />
                   {searchQuery && (
@@ -766,7 +768,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                         : "bg-[var(--bg)] text-[var(--ink-2)] border border-[var(--line)]"
                     )}
                   >
-                    Occupied ({activeComplex.units.filter((u) => u.status === "occupied").length})
+                    Occupied ({activeComplex.units.filter((u) => u.status !== "vacant").length})
                   </button>
                   <button
                     onClick={() => setActiveTab("vacant")}
@@ -777,7 +779,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                         : "bg-[var(--bg)] text-[var(--ink-2)] border border-[var(--line)]"
                     )}
                   >
-                    Vacant ({activeComplex.units.filter((u) => u.status !== "occupied").length})
+                    Vacant ({activeComplex.units.filter((u) => u.status === "vacant").length})
                   </button>
                 </div>
 

@@ -2896,6 +2896,110 @@
           ]
         }
       },
+      "/api/v1/money/analytics": {
+        "get": {
+          "description": "Returns current vs previous month rent aggregates and 6-month historical trend for charting.",
+          "operationId": "get_rent_analytics_api_v1_money_analytics_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/RentAnalyticsResponse"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Get Rent Collections Analytics",
+          "tags": [
+            "money"
+          ]
+        }
+      },
+      "/api/v1/money/rent-ledger": {
+        "get": {
+          "description": "List rent payment rows strictly for tenants and units with status, timestamps, and contract amounts.",
+          "operationId": "get_rent_ledger_api_v1_money_rent_ledger_get",
+          "parameters": [
+            {
+              "description": "Billing month in YYYY-MM format",
+              "in": "query",
+              "name": "month",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Billing month in YYYY-MM format",
+                "title": "Month"
+              }
+            },
+            {
+              "description": "Filter by status: all, paid, overdue, pending",
+              "in": "query",
+              "name": "status",
+              "required": false,
+              "schema": {
+                "default": "all",
+                "description": "Filter by status: all, paid, overdue, pending",
+                "title": "Status",
+                "type": "string"
+              }
+            },
+            {
+              "description": "Filter by tenant name, unit or invoice reference",
+              "in": "query",
+              "name": "search",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Filter by tenant name, unit or invoice reference",
+                "title": "Search"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/RentLedgerResponse"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Get Tenant Rent Ledger",
+          "tags": [
+            "money"
+          ]
+        }
+      },
       "/api/v1/persona": {
         "get": {
           "operationId": "get_persona_api_v1_persona_get",
@@ -4935,6 +5039,59 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "HistoricalTrendPoint": {
+        "properties": {
+          "billingMonth": {
+            "title": "Billingmonth",
+            "type": "string"
+          },
+          "collected": {
+            "title": "Collected",
+            "type": "number"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "occupancyRate": {
+            "title": "Occupancyrate",
+            "type": "number"
+          },
+          "occupiedUnits": {
+            "title": "Occupiedunits",
+            "type": "integer"
+          },
+          "overdue": {
+            "title": "Overdue",
+            "type": "number"
+          },
+          "rate": {
+            "title": "Rate",
+            "type": "number"
+          },
+          "scheduled": {
+            "title": "Scheduled",
+            "type": "number"
+          },
+          "totalUnits": {
+            "default": 110,
+            "title": "Totalunits",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "month",
+          "billingMonth",
+          "scheduled",
+          "collected",
+          "overdue",
+          "rate",
+          "occupiedUnits",
+          "occupancyRate"
+        ],
+        "title": "HistoricalTrendPoint",
+        "type": "object"
+      },
       "HitKind": {
         "enum": [
           "person",
@@ -5327,6 +5484,69 @@
           "quote"
         ],
         "title": "MismatchSide",
+        "type": "object"
+      },
+      "MonthAnalytics": {
+        "properties": {
+          "billingMonth": {
+            "title": "Billingmonth",
+            "type": "string"
+          },
+          "collectionRate": {
+            "title": "Collectionrate",
+            "type": "number"
+          },
+          "occupancyRate": {
+            "default": 100.0,
+            "title": "Occupancyrate",
+            "type": "number"
+          },
+          "occupiedUnits": {
+            "default": 110,
+            "title": "Occupiedunits",
+            "type": "integer"
+          },
+          "overdueCount": {
+            "title": "Overduecount",
+            "type": "integer"
+          },
+          "paidTenants": {
+            "title": "Paidtenants",
+            "type": "integer"
+          },
+          "totalCollected": {
+            "title": "Totalcollected",
+            "type": "number"
+          },
+          "totalOverdue": {
+            "title": "Totaloverdue",
+            "type": "number"
+          },
+          "totalScheduled": {
+            "title": "Totalscheduled",
+            "type": "number"
+          },
+          "totalTenants": {
+            "title": "Totaltenants",
+            "type": "integer"
+          },
+          "totalUnits": {
+            "default": 110,
+            "title": "Totalunits",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "billingMonth",
+          "totalScheduled",
+          "totalCollected",
+          "totalOverdue",
+          "totalTenants",
+          "paidTenants",
+          "overdueCount",
+          "collectionRate"
+        ],
+        "title": "MonthAnalytics",
         "type": "object"
       },
       "OutboundMode": {
@@ -5781,6 +6001,39 @@
           "status"
         ],
         "title": "PlanStatusOut",
+        "type": "object"
+      },
+      "PreviousMonthAnalytics": {
+        "properties": {
+          "billingMonth": {
+            "title": "Billingmonth",
+            "type": "string"
+          },
+          "collectionRate": {
+            "title": "Collectionrate",
+            "type": "number"
+          },
+          "momChangePct": {
+            "title": "Momchangepct",
+            "type": "number"
+          },
+          "occupancyRate": {
+            "default": 100.0,
+            "title": "Occupancyrate",
+            "type": "number"
+          },
+          "totalCollected": {
+            "title": "Totalcollected",
+            "type": "number"
+          }
+        },
+        "required": [
+          "billingMonth",
+          "totalCollected",
+          "collectionRate",
+          "momChangePct"
+        ],
+        "title": "PreviousMonthAnalytics",
         "type": "object"
       },
       "ProfileIn": {
@@ -6470,6 +6723,261 @@
           "n"
         ],
         "title": "RecheckOut",
+        "type": "object"
+      },
+      "RentAnalyticsResponse": {
+        "properties": {
+          "currentMonth": {
+            "$ref": "#/components/schemas/MonthAnalytics"
+          },
+          "historicalTrend": {
+            "items": {
+              "$ref": "#/components/schemas/HistoricalTrendPoint"
+            },
+            "title": "Historicaltrend",
+            "type": "array"
+          },
+          "previousMonth": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PreviousMonthAnalytics"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "currentMonth",
+          "historicalTrend"
+        ],
+        "title": "RentAnalyticsResponse",
+        "type": "object"
+      },
+      "RentLedgerItem": {
+        "properties": {
+          "aiSuggestedAction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aisuggestedaction"
+          },
+          "amountPaidEur": {
+            "title": "Amountpaideur",
+            "type": "number"
+          },
+          "billingMonth": {
+            "title": "Billingmonth",
+            "type": "string"
+          },
+          "contractRentEur": {
+            "title": "Contractrenteur",
+            "type": "number"
+          },
+          "dueDate": {
+            "title": "Duedate",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "invoiceNumber": {
+            "title": "Invoicenumber",
+            "type": "string"
+          },
+          "leaseId": {
+            "title": "Leaseid",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "overdueDays": {
+            "title": "Overduedays",
+            "type": "integer"
+          },
+          "paidAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paidat"
+          },
+          "paidAtIso": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paidatiso"
+          },
+          "paymentMethod": {
+            "title": "Paymentmethod",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tenantEmail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenantemail"
+          },
+          "tenantId": {
+            "title": "Tenantid",
+            "type": "string"
+          },
+          "tenantName": {
+            "title": "Tenantname",
+            "type": "string"
+          },
+          "tenantPhone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenantphone"
+          },
+          "transactionReference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transactionreference"
+          },
+          "unitAddress": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unitaddress"
+          },
+          "unitId": {
+            "title": "Unitid",
+            "type": "string"
+          },
+          "unitLabel": {
+            "title": "Unitlabel",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "invoiceNumber",
+          "tenantId",
+          "tenantName",
+          "unitId",
+          "unitLabel",
+          "leaseId",
+          "billingMonth",
+          "contractRentEur",
+          "amountPaidEur",
+          "dueDate",
+          "status",
+          "overdueDays",
+          "paymentMethod"
+        ],
+        "title": "RentLedgerItem",
+        "type": "object"
+      },
+      "RentLedgerResponse": {
+        "properties": {
+          "availableMonths": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Availablemonths",
+            "type": "array"
+          },
+          "collectionRatePct": {
+            "title": "Collectionratepct",
+            "type": "number"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RentLedgerItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "overdueCount": {
+            "title": "Overduecount",
+            "type": "integer"
+          },
+          "totalCollectedEur": {
+            "title": "Totalcollectedeur",
+            "type": "number"
+          },
+          "totalCount": {
+            "title": "Totalcount",
+            "type": "integer"
+          },
+          "totalOverdueEur": {
+            "title": "Totaloverdueeur",
+            "type": "number"
+          },
+          "totalScheduledEur": {
+            "title": "Totalscheduledeur",
+            "type": "number"
+          }
+        },
+        "required": [
+          "items",
+          "totalCount",
+          "month",
+          "availableMonths",
+          "totalScheduledEur",
+          "totalCollectedEur",
+          "totalOverdueEur",
+          "overdueCount",
+          "collectionRatePct"
+        ],
+        "title": "RentLedgerResponse",
         "type": "object"
       },
       "ReorgItemStatus": {

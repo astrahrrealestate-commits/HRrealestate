@@ -9,7 +9,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import Engine, func, or_, select
+from sqlalchemy import Engine, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
@@ -20,7 +20,7 @@ from app.contracts import CaseState
 from app.core.ids import case_ref
 from app.core.rent_data import RENT_DATA_AVAILABLE
 from app.db.enums import SendStatus
-from app.db.models import Approval, Case, Lease, Person, Send, Unit, WaitRow
+from app.db.models import Approval, Case, Lease, Person, Send, TenantRentPayment, Unit, WaitRow
 
 router = APIRouter(
     prefix="/api/dashboard",
@@ -167,14 +167,55 @@ def get_pulse_metrics(
                 Send.company_id == cid, Send.status == SendStatus.sent, Send.attempted_at >= now - timedelta(days=7)
             )
         )
+
+        # Query live tenant rent ledger metrics for current/latest billing cycle
+        open_rent_eur = 0.0
+        overdue_rent_eur = 0.0
+        overdue_tenants_cnt = 0
+        rent_available = RENT_DATA_AVAILABLE
+
+        latest_billing_month = session.scalar(
+            select(func.max(TenantRentPayment.billing_month)).where(TenantRentPayment.company_id == cid)
+        )
+        if latest_billing_month is not None:
+            rent_stats = session.execute(
+                select(
+                    func.sum(TenantRentPayment.contract_rent_cents),
+                    func.sum(
+                        case(
+                            (
+                                TenantRentPayment.status == "overdue",
+                                TenantRentPayment.contract_rent_cents - TenantRentPayment.amount_paid_cents,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    func.count(
+                        case(
+                            (TenantRentPayment.status == "overdue", 1),
+                        )
+                    ),
+                ).where(
+                    TenantRentPayment.company_id == cid,
+                    TenantRentPayment.billing_month == latest_billing_month,
+                )
+            ).first()
+            if rent_stats and rent_stats[0] is not None:
+                scheduled_cents = rent_stats[0] or 0
+                overdue_cents = rent_stats[1] or 0
+                overdue_tenants_cnt = int(rent_stats[2] or 0)
+                open_rent_eur = round(float(scheduled_cents) / 100.0, 2)
+                overdue_rent_eur = round(float(overdue_cents) / 100.0, 2)
+                rent_available = True
+
     total, leased = total_units or 0, occupied or 0
     return PulseMetricsResponse(
         needsYouCount=pending or 0,
         emergencyCount=emergencies or 0,
-        openRentTotalEur=0.0,
-        overdueRentEur=0.0,
-        overdueTenantsCount=0,
-        rentDataAvailable=RENT_DATA_AVAILABLE,
+        openRentTotalEur=open_rent_eur,
+        overdueRentEur=overdue_rent_eur,
+        overdueTenantsCount=overdue_tenants_cnt,
+        rentDataAvailable=rent_available,
         occupancyPercentage=round(leased / total * 100, 1) if total else 0.0,
         totalUnits=total,
         occupiedUnits=leased,
