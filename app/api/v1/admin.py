@@ -10,7 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import Engine, or_, select
+from sqlalchemy import Engine, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -20,7 +20,7 @@ from app.api.v1.auth import Principal, email_fingerprint
 from app.api.v1.sections import ADMIN_ROLES, SECTION_KEYS, SECTIONS
 from app.contracts.message import normalise_identity
 from app.core.logging import get_logger
-from app.db.models import AllowedUser
+from app.db.models import AllowedUser, OwnerAccount
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 log = get_logger(__name__)
@@ -122,6 +122,35 @@ def list_profiles(who: Admin, engine: Engine_) -> list[ProfileOut]:
         return [_profile(r) for r in rows]
 
 
+def _ensure_own_profile(session: Session, who: Principal) -> None:
+    """A company with no whitelist rows lets its owner in without one (`access_for`). The first profile ends that, so
+    the owner gets a superadmin row of their own in the same transaction; otherwise adding a colleague signs the
+    owner out."""
+    mine = session.scalar(
+        select(AllowedUser.id).where(
+            AllowedUser.company_id == who.company_id, func.lower(AllowedUser.email) == who.email.lower()
+        )
+    )
+    if mine is not None:
+        return
+    name = session.scalar(
+        select(OwnerAccount.display_name).where(
+            OwnerAccount.id == who.owner_id, OwnerAccount.company_id == who.company_id
+        )
+    )
+    session.add(
+        AllowedUser(
+            company_id=who.company_id,
+            email=who.email.lower(),
+            display_name=name or who.email.split("@")[0].title(),
+            role="superadmin",
+            is_active=True,
+            invited_by="system",
+        )
+    )
+    session.flush()
+
+
 @router.post("/profiles", status_code=201, summary="Create a profile")
 def create_profile(body: ProfileIn, who: Admin, engine: Engine_) -> ProfileOut:
     email, sections = _checked_email(body.email), _member_sections(body.role, body.sections)
@@ -130,6 +159,7 @@ def create_profile(body: ProfileIn, who: Admin, engine: Engine_) -> ProfileOut:
         raise HTTPException(status_code=422, detail="a profile needs a name")
     try:
         with Session(engine) as session, session.begin():
+            _ensure_own_profile(session, who)
             row = AllowedUser(
                 company_id=who.company_id,
                 email=email,

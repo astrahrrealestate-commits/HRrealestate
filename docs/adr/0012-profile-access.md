@@ -20,7 +20,9 @@ maintenance person before they write, or to name and classify one that already d
   re-reads the owner row) and puts `Principal.access` on the principal; nothing about access is in the cookie. So a
   change, switching a profile off, or deleting its row applies on the person's next request. A company with no
   whitelist rows at all keeps full access (an owner who signs in with a Google ID token); once it has any row, a
-  session without one is refused. `require_section(section, also=..., also_read=...)` guards every router:
+  session without one is refused. So creating the first profile also gives the creating owner a superadmin row of
+  their own in the same transaction (otherwise adding a colleague signs the owner out), and the dev seed adds a row
+  for the company's owner account, which "Continue as dev owner" signs in as. `require_section(section, also=..., also_read=...)` guards every router:
   dashboard (`/api/dashboard`, `/api/v1/work`, the SSE feed: any section), inbox (`/api/inbox`, `/api/v1/inbox`,
   `cases`, `decisions`, `reviews`, `documents`; maintenance may also use the workflow ones), properties
   (`/api/properties`, `diligence`), tenants, contacts, maintenance (`/api/maintenance`, `/api/calendar`), money
