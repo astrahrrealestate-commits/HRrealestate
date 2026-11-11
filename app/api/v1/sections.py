@@ -22,6 +22,7 @@ SECTIONS: tuple[Section, ...] = (
     Section("settings", "Settings", "Memory rules, persona and integrations"),
 )
 SECTION_KEYS: frozenset[str] = frozenset(s.key for s in SECTIONS)
+DATA_SECTION_KEYS: frozenset[str] = SECTION_KEYS - {"settings"}  # what the Super Agent reads from
 ADMIN_ROLES: frozenset[str] = frozenset({"owner", "superadmin"})  # full access, and the only ones who manage profiles
 
 
@@ -38,6 +39,11 @@ class Access:
 
     def can(self, section: str) -> bool:
         return self.is_admin or self.sections is None or section in self.sections
+
+    @property
+    def can_use_agent(self) -> bool:
+        """The Super Agent answers from the whole portfolio, so it is for profiles that open every data section."""
+        return self.is_admin or self.sections is None or self.sections >= DATA_SECTION_KEYS
 
     def visible_sections(self) -> list[str]:
         return [s.key for s in SECTIONS if self.can(s.key)]

@@ -23,6 +23,8 @@ SPEC_TABLES = {
     "calendar_events",
     # quote checker (spec 2026-10-31)
     "vendor_rates", "price_snapshots", "quotes", "quote_lines", "quote_reviews",
+    # rent ledger (migration 0041)
+    "tenant_rent_payments", "monthly_rent_summaries",
     # message RAG (migration 0024)
     "message_chunks", "message_index_state",
     # due diligence lite (spec 2026-10-31)

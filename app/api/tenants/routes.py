@@ -89,8 +89,10 @@ def _item(session: Session, person: Person, today: date) -> TenantItem:
         )
         .order_by(TenantRentPayment.billing_month.desc())
     ).first()
-    monthly_rent = (float(rent_record.contract_rent_cents) / 100.0) if rent_record else 1650.0
-    status_str = "up_to_date" if (not rent_record or rent_record.status == "paid") else ("overdue" if rent_record.status == "overdue" else "up_to_date")
+    monthly_rent = float(rent_record.contract_rent_cents) / 100.0 if rent_record else 0.0
+    status_str = (
+        RENT_UNKNOWN if rent_record is None else ("overdue" if rent_record.status == "overdue" else "up_to_date")
+    )
     overdue_days_val = rent_record.overdue_days if rent_record else 0
 
     return TenantItem(
@@ -99,8 +101,8 @@ def _item(session: Session, person: Person, today: date) -> TenantItem:
         phone=next((i.identity for i in identities if i.channel == Channel.whatsapp), ""),
         email=next((i.identity for i in identities if i.channel == Channel.gmail), ""),
         unitLabel=label,
-        leaseStart=f"{start:%d-%m-%Y}" if start else "01-01-2025",
-        leaseEnd=f"{end:%d-%m-%Y}" if end else "31-12-2026",
+        leaseStart=f"{start:%d-%m-%Y}" if start else "",
+        leaseEnd=f"{end:%d-%m-%Y}" if end else "",
         monthlyRentEur=monthly_rent,
         rentStatus=status_str,
         overdueDays=overdue_days_val,

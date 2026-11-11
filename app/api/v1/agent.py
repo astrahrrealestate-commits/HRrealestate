@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import WorkflowClient, get_engine, get_workflow_client
 from app.api.v1 import enqueue
+from app.api.v1.access import require_agent_v1
 from app.api.v1.auth import Principal, require_csrf, require_principal
 from app.api.v1.ratelimit import agent_limit, page_limit
 from app.api.v1.schemas import AgentMessageIn, AgentMessageOut, ConversationOut, TurnOut
@@ -22,7 +23,7 @@ from app.core.errors import NotFoundError
 from app.core.logging import get_logger
 from app.pipeline import concierge_turns, page_state, read_turns
 
-router = APIRouter(tags=["agent"])
+router = APIRouter(tags=["agent"], dependencies=[Depends(require_agent_v1)])
 log = get_logger(__name__)
 NOT_FOUND = "not found"
 START_FAILED = "could not start the assistant; try again"

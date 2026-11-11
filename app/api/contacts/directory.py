@@ -171,11 +171,6 @@ def list_contacts(
     stmt = select(Person).where(Person.company_id == company_id).order_by(func.lower(Person.display_name), Person.id)
     if audience in ("tenant", "contractor"):
         stmt = stmt.where(Person.kind == PersonKind(audience))
-    elif audience == "other":
-        stmt = stmt.where(Person.kind == PersonKind.other)
-    else:
-        # "all" strictly returns portfolio contacts: real Tenants and Contractors only
-        stmt = stmt.where(Person.kind.in_([PersonKind.tenant, PersonKind.contractor]))
     with Session(engine) as session:
         people = [p for p in session.scalars(stmt) if p.display_name.strip()]
         ids = [p.id for p in people]

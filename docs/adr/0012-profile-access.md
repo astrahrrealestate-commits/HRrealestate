@@ -20,7 +20,9 @@ maintenance person before they write, or to name and classify one that already d
   re-reads the owner row) and puts `Principal.access` on the principal; nothing about access is in the cookie. So a
   change, switching a profile off, or deleting its row applies on the person's next request. A company with no
   whitelist rows at all keeps full access (an owner who signs in with a Google ID token); once it has any row, a
-  session without one is refused. `require_section(section, also=..., also_read=...)` guards every router:
+  session without one is refused. So creating the first profile also gives the creating owner a superadmin row of
+  their own in the same transaction (otherwise adding a colleague signs the owner out), and the dev seed adds a row
+  for the company's owner account, which "Continue as dev owner" signs in as. `require_section(section, also=..., also_read=...)` guards every router:
   dashboard (`/api/dashboard`, `/api/v1/work`, the SSE feed: any section), inbox (`/api/inbox`, `/api/v1/inbox`,
   `cases`, `decisions`, `reviews`, `documents`; maintenance may also use the workflow ones), properties
   (`/api/properties`, `diligence`), tenants, contacts, maintenance (`/api/maintenance`, `/api/calendar`), money
@@ -39,8 +41,8 @@ maintenance person before they write, or to name and classify one that already d
   and Maintenance; others get the cards with an empty payload. The calendar is readable by Dashboard without
   attendees and lockbox codes, and writable only by Maintenance or Inbox; attachments need Inbox. Holding the section
   itself (`tenants`, `maintenance`, `inbox`) returns everything.
-  **This is a view limit, not a wall, while the Super Agent is ungated** (below): any profile can ask it for the same
-  data in words.
+  The Super Agent is closed to any profile that does not hold every data section (below), so it is no way round
+  these limits.
   Reports may read only the dashboard `logs`; ticket history, the v1 inbox/cases/activity and the other dashboard
   routes need their own section. The Dashboard page's "needs you" cards therefore show the headline; opening a thread
   to read or answer it needs Inbox.
@@ -63,9 +65,9 @@ maintenance person before they write, or to name and classify one that already d
   queries instead of two per person.
 
 ## Consequences
-- **The Super Agent is not section-gated** (`/api/agent`, `/api/v1/agent`). It answers from the whole portfolio, so a
-  member with only `contacts` can still ask it about rent or maintenance. The admin page says so. Gating it needs its
-  own design (per-section tool scopes); recorded in security.md.
+- **The Super Agent is for profiles that open every data section** (`/api/agent`, `/api/v1/agent`; admins always).
+  It answers from the whole portfolio, so a profile with fewer sections gets a 403 (`Access.can_use_agent`) instead of
+  a way round its limits. Per-section tool scopes would let narrower profiles use it; not built.
 - Approving and sending are allowed for anyone who holds the section that offers them (inbox, or maintenance for the
   workflow routes); pausing the company is admin-only.
 - An email is unique **within a company** (migration 0040: `(company_id, lower(email))`), so a 409 on create says

@@ -18,6 +18,8 @@ import {
   LogOut,
   Search,
   ShieldCheck,
+  UserPlus,
+  Coins,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { needsYouCount, ThreadCountTarget } from "@/lib/selectors";
@@ -226,23 +228,6 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
             </Link>
           )}
 
-          {/* Team & access: superadmins only */}
-          {user?.isAdmin && (
-            <Link
-              href="/admin"
-              title="Team & access"
-              className={cn(
-                "w-full flex items-center min-h-[38px] rounded-xl text-[13.5px] transition-colors justify-center xl:justify-start px-2 xl:px-3 font-medium gap-2.5 border border-transparent",
-                pathname.startsWith("/admin")
-                  ? "bg-white/10 text-white"
-                  : "text-zinc-400 hover:text-white hover:bg-white/5"
-              )}
-            >
-              <ShieldCheck className="w-4 h-4 flex-shrink-0" strokeWidth={1.75} />
-              <span className="hidden xl:inline truncate">Team & access</span>
-            </Link>
-          )}
-
           {/* Connections Trigger Button */}
           <button
             type="button"
@@ -275,6 +260,26 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
                   {user?.role || "Owner"}
                 </span>
               </div>
+              {user?.isAdmin && (
+                <div className="py-1 border-b border-[#222830] mb-1">
+                  <Link
+                    href="/admin"
+                    onClick={() => setIsUserMenuOpen(false)}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white hover:bg-white/5 transition-colors"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Team & access</span>
+                  </Link>
+                  <Link
+                    href="/admin?new=1"
+                    onClick={() => setIsUserMenuOpen(false)}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white hover:bg-white/5 transition-colors"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" />
+                    <span>Add a profile</span>
+                  </Link>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => {
@@ -292,7 +297,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
           <div
             onClick={() => setIsUserMenuOpen((prev) => !prev)}
             className="p-2.5 xl:p-3 flex items-center justify-between gap-2.5 bg-white/[0.02] hover:bg-white/[0.06] transition-colors cursor-pointer select-none"
-            title="User Profile & Sign Out"
+            title={user?.isAdmin ? "Profile, team & access, sign out" : "Profile & sign out"}
           >
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-7 h-7 xl:w-8 xl:h-8 rounded-full bg-[#162B45] border border-white/10 flex items-center justify-center text-[11px] font-bold text-slate-200 flex-shrink-0">

@@ -42,12 +42,12 @@ The project **already contains high-performance specialized tools and sub-agents
 ```mermaid
 flowchart TD
     User["User Query (Natural Language)"] --> Analyzer["1. Intent & Routing Analyzer"]
-    
+
     Analyzer -->|"Casual / Quick Lookup (<800ms)"| FastPath["Fast Path (Single Pass)"]
     FastPath --> DirectAnswer["Direct Conversational Answer"]
-    
+
     Analyzer -->|"Complex Multi-Step Task"| Orchestrator["2. Jarvis Dynamic Orchestrator (ReAct Loop)"]
-    
+
     subgraph ToolRegistry ["Registered Sub-Agent Tools"]
         DB["PostgreSQL Query Agent\n(Leases, Arrears, Units)"]
         MsgRAG["Message RAG\n(Tenant WhatsApps & Emails)"]
@@ -56,19 +56,19 @@ flowchart TD
         Drafter["Proposer / Drafting Agent\n(WhatsApp & Gmail Drafts)"]
         Cal["Calendar Agent\n(Inspections & Appointments)"]
     end
-    
+
     Orchestrator --> DB
     Orchestrator --> MsgRAG
     Orchestrator --> DocRAG
     Orchestrator --> LiveGoogle
-    
+
     DB & MsgRAG & DocRAG & LiveGoogle -->|"Data Synthesis"| Orchestrator
-    
+
     Orchestrator --> Drafter
     Orchestrator --> Cal
-    
+
     Drafter & Cal --> CardGen["3. Interactive Action Card Generator"]
-    
+
     CardGen --> Response["4. Final Response (Warm Executive Voice + Action Cards)"]
 ```
 
@@ -112,9 +112,21 @@ from app.pipeline.rag import search_hybrid
 from app.llm.agents.proposer import propose_draft_reply
 
 tools = [
-    Tool(run_query_agent, name="query_database", description="Run safe read-only SQL for units, leases, arrears, and tickets"),
-    Tool(search_message_rag, name="search_communications", description="Search tenant and contractor WhatsApp/Email messages"),
-    Tool(search_hybrid, name="search_documents", description="Search signed PDF contracts, leases, and Google Drive files"),
+    Tool(
+        run_query_agent,
+        name="query_database",
+        description="Run safe read-only SQL for units, leases, arrears, and tickets",
+    ),
+    Tool(
+        search_message_rag,
+        name="search_communications",
+        description="Search tenant and contractor WhatsApp/Email messages",
+    ),
+    Tool(
+        search_hybrid,
+        name="search_documents",
+        description="Search signed PDF contracts, leases, and Google Drive files",
+    ),
     Tool(propose_draft_reply, name="draft_message", description="Draft a WhatsApp or Gmail message for owner approval"),
 ]
 ```
@@ -144,4 +156,3 @@ Connect intermediate agent thoughts to the existing `steps: string[]` in `SuperA
 | **Multi-Agent Actions** | Cannot chain query + draft | Seamlessly queries database, checks chat, and drafts action cards |
 | **Handling Missing Data** | Fails with *"No data found"* | Asks clarifying questions; offers live Drive/Gmail search |
 | **Safety Model** | Blocked at planner level | Full read access; explicit 1-click confirmation on write actions |
-

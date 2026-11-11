@@ -69,6 +69,13 @@ def _status(lease_end: date | None, today: date) -> str:
     return "occupied"
 
 
+def _for_viewer(item: UnitItem, principal: Principal) -> UnitItem:
+    """The tenant's phone and email belong to the Tenants section (ADR 0012); Properties alone sees the unit."""
+    if principal.access.can("tenants"):
+        return item
+    return item.model_copy(update={"tenantPhone": None, "tenantEmail": None})
+
+
 def _item(session: Session, unit: Unit, today: date) -> UnitItem:
     """The unit with its current lease: one that has not ended (open-ended, or ending today or later)."""
     lease = session.scalars(
@@ -84,8 +91,8 @@ def _item(session: Session, unit: Unit, today: date) -> UnitItem:
     tenant = None
     tenant_phone = None
     tenant_email = None
-    monthly_rent = 1650.0
-    rent_status = "up_to_date"
+    monthly_rent = 0.0
+    rent_status = None
 
     if lease is not None:
         tenant = session.scalars(
@@ -119,21 +126,18 @@ def _item(session: Session, unit: Unit, today: date) -> UnitItem:
             ).first()
             if rent_record:
                 monthly_rent = float(rent_record.contract_rent_cents) / 100.0
-                rent_status = "up_to_date" if rent_record.status == "paid" else ("overdue" if rent_record.status == "overdue" else "up_to_date")
+                rent_status = "overdue" if rent_record.status == "overdue" else "up_to_date"
 
-    open_tickets = session.scalar(
-        select(func.count(Case.id))
-        .where(
-            Case.company_id == unit.company_id,
-            Case.unit_id == unit.id,
-            Case.state != CaseState.resolved,
+    open_tickets = (
+        session.scalar(
+            select(func.count(Case.id)).where(
+                Case.company_id == unit.company_id,
+                Case.unit_id == unit.id,
+                Case.state != CaseState.resolved,
+            )
         )
-    ) or 0
-
-    lbl = unit.label.lower()
-    floor_str = "Ground Floor" if ("-a" in lbl or " 1 " in lbl or "ground" in lbl) else ("1st Floor" if "-b" in lbl else ("2nd Floor" if "-c" in lbl else "1st Floor"))
-    area_sqm = 85 if "-a" in lbl else (78 if "-b" in lbl else (65 if "-c" in lbl else 72))
-    lockbox = "4201" if not unit.label else f"42{abs(hash(unit.label)) % 900 + 100}"
+        or 0
+    )
 
     return UnitItem(
         id=str(unit.id),
@@ -145,13 +149,10 @@ def _item(session: Session, unit: Unit, today: date) -> UnitItem:
         currentTenant=tenant.display_name if tenant else None,
         tenantPhone=tenant_phone,
         tenantEmail=tenant_email,
-        leaseStart=f"{lease.valid_from:%d-%m-%Y}" if lease is not None and lease.valid_from else "01-01-2025",
-        leaseEnd=f"{lease.valid_to:%d-%m-%Y}" if lease is not None and lease.valid_to else "31-12-2026",
-        lockboxCode=lockbox,
-        floor=floor_str,
-        livingAreaSqm=area_sqm,
-        depositEur=monthly_rent * 2.0 if lease is not None else None,
-        rentStatus=rent_status if lease is not None else None,
+        leaseStart=f"{lease.valid_from:%d-%m-%Y}" if lease is not None and lease.valid_from else None,
+        leaseEnd=f"{lease.valid_to:%d-%m-%Y}" if lease is not None and lease.valid_to else None,
+        lockboxCode=None,
+        rentStatus=rent_status,
         activeTicketCount=open_tickets,
     )
 
@@ -174,7 +175,7 @@ def get_properties(
             .where(Unit.company_id == principal.company_id, Unit.valid_to.is_(None))
             .order_by(Unit.label.asc())
         ).all()
-        items = [_item(session, unit, today) for unit in units]
+        items = [_for_viewer(_item(session, unit, today), principal) for unit in units]
     occupied = sum(i.status in ("occupied", "notice_given") for i in items)
     shown = items if status == "all" else [i for i in items if i.status == status]
     return PropertiesResponse(
@@ -201,4 +202,4 @@ def get_unit_details(
         unit = session.scalars(select(Unit).where(Unit.id == wanted, Unit.company_id == principal.company_id)).first()
         if unit is None:
             raise HTTPException(status_code=404, detail="Unit not found")
-        return _item(session, unit, datetime.now(UTC).date())
+        return _for_viewer(_item(session, unit, datetime.now(UTC).date()), principal)

@@ -133,10 +133,14 @@ class TenantRentPayment(Base, CompanyScoped):
     due_date: Mapped[date] = mapped_column(Date)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")  # paid, pending, overdue, partial
+    status: Mapped[str] = mapped_column(
+        String(20), default="pending", server_default="pending"
+    )  # paid, pending, overdue, partial
     overdue_days: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
-    payment_method: Mapped[str] = mapped_column(String(50), default="SEPA Direct Debit", server_default="SEPA Direct Debit")
+    payment_method: Mapped[str] = mapped_column(
+        String(50), default="SEPA Direct Debit", server_default="SEPA Direct Debit"
+    )
     transaction_reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -160,4 +164,3 @@ class MonthlyRentSummary(Base, CompanyScoped):
     paid_tenants_count: Mapped[int] = mapped_column(Integer)
     overdue_tenants_count: Mapped[int] = mapped_column(Integer)
     collection_rate_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2))
-

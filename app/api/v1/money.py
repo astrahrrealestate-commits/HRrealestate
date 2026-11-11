@@ -4,24 +4,24 @@ Dedicated exclusively to tenant rent management, overdue tracking,
 and Month-over-Month (MoM) collection analytics.
 """
 
-from datetime import UTC, date, datetime
-from decimal import Decimal
+from datetime import date, datetime
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy import Engine, case, distinct, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
+from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.contracts import Channel
 from app.core.logging import get_logger
 from app.db.models.directory import ChannelIdentity, Person, Unit
 from app.db.models.finance import MonthlyRentSummary, TenantRentPayment
 
-router = APIRouter(prefix="/money", tags=["money"])
+router = APIRouter(prefix="/money", tags=["money"], dependencies=[Depends(require_section("money"))])
 log = get_logger(__name__)
 
 SessionPrincipal = Annotated[Principal, Depends(require_session)]
@@ -310,8 +310,11 @@ def get_rent_analytics(
         if not summaries:
             raise HTTPException(status_code=404, detail="no rent analytics recorded")
 
-        # Trend points
-        PORTFOLIO_TOTAL_UNITS = 110
+        # The company's current units: occupancy is tenants paying over the units that exist, not a fixed number.
+        total_units = (
+            session.scalar(select(func.count(Unit.id)).where(Unit.company_id == cid, Unit.valid_to.is_(None))) or 0
+        )
+        portfolio_units = max(total_units, 1)
         trend: list[HistoricalTrendPoint] = [
             HistoricalTrendPoint(
                 month=MONTH_NAMES[s.billing_month.month - 1],
@@ -321,8 +324,8 @@ def get_rent_analytics(
                 overdue=round(float(s.total_overdue_rent_cents) / 100.0, 2),
                 rate=float(s.collection_rate_pct),
                 occupiedUnits=s.total_tenants_count,
-                totalUnits=PORTFOLIO_TOTAL_UNITS,
-                occupancyRate=round((float(s.total_tenants_count) / float(PORTFOLIO_TOTAL_UNITS)) * 100.0, 1),
+                totalUnits=portfolio_units,
+                occupancyRate=round((float(s.total_tenants_count) / float(portfolio_units)) * 100.0, 1),
             )
             for s in summaries
         ]
@@ -341,9 +344,7 @@ def get_rent_analytics(
                 totalCollected=round(float(previous_summary.total_collected_rent_cents) / 100.0, 2),
                 collectionRate=float(previous_summary.collection_rate_pct),
                 momChangePct=mom_change,
-                occupancyRate=round(
-                    (float(previous_summary.total_tenants_count) / float(PORTFOLIO_TOTAL_UNITS)) * 100.0, 1
-                ),
+                occupancyRate=round((float(previous_summary.total_tenants_count) / float(portfolio_units)) * 100.0, 1),
             )
             if previous_summary
             else None
@@ -359,10 +360,8 @@ def get_rent_analytics(
             overdueCount=current_summary.overdue_tenants_count,
             collectionRate=float(current_summary.collection_rate_pct),
             occupiedUnits=current_summary.total_tenants_count,
-            totalUnits=PORTFOLIO_TOTAL_UNITS,
-            occupancyRate=round(
-                (float(current_summary.total_tenants_count) / float(PORTFOLIO_TOTAL_UNITS)) * 100.0, 1
-            ),
+            totalUnits=portfolio_units,
+            occupancyRate=round((float(current_summary.total_tenants_count) / float(portfolio_units)) * 100.0, 1),
         )
 
         return RentAnalyticsResponse(

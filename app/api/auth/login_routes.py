@@ -50,7 +50,6 @@ class AuthMeResponse(BaseModel):
     name: str | None = None
     role: str | None = None
     company_id: str | None = None
-    token: str | None = None
     sections: list[str] = []
     is_admin: bool = False
 
@@ -195,8 +194,7 @@ async def login_callback(
         session_token = issue_session(settings, principal, datetime.now(UTC))
         log.info("auth.login.success", email_hash=email_fingerprint(email), role=allowed.role)
 
-    redirect_url = f"{settings.frontend_base_url.rstrip('/')}/?session_token={session_token}"
-    response = RedirectResponse(url=redirect_url, status_code=303)
+    response = RedirectResponse(url=f"{settings.frontend_base_url.rstrip('/')}/", status_code=303)
     set_session_cookie(response, settings, session_token)
     response.delete_cookie(LOGIN_COOKIE, path="/")
     return response
@@ -209,12 +207,8 @@ def get_current_user_profile(
     request: Request,
 ) -> AuthMeResponse:
     """The signed-in owner, with the same checks as the dashboard guard: a valid session whose owner row still exists
-    with the same email. Supports cookie, X-Session-Token, or Bearer auth. Answers `authenticated=false` when absent."""
-    token = request.cookies.get(COOKIE) or request.headers.get("X-Session-Token")
-    if not token:
-        auth_h = request.headers.get("Authorization", "")
-        if auth_h.startswith("Bearer "):
-            token = auth_h[7:].strip()
+    with the same email. Anything else answers `authenticated=false` (it never errors, so the SPA can ask freely)."""
+    token = request.cookies.get(COOKIE)
     if not token:
         return AuthMeResponse(authenticated=False)
     try:
@@ -249,7 +243,6 @@ def get_current_user_profile(
         name=display_name,
         role=access.role,
         company_id=str(principal.company_id),
-        token=token,
         sections=access.visible_sections(),
         is_admin=access.is_admin,
     )

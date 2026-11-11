@@ -44,10 +44,8 @@ def upgrade() -> None:
             f"{duplicates} allowed_users email(s) differ only in case within one company; keep one row each "
             "before running migration 0040"
         )
-    op.execute(f"DROP INDEX IF EXISTS {OLD}")
-    op.execute(f"DROP INDEX IF EXISTS {COMPANY_ONLY}")  # the per-company key below leads with company_id
-    op.execute(f"DROP INDEX IF EXISTS {PER_COMPANY}")
-    op.execute(f"DROP INDEX IF EXISTS {LOGIN_LOOKUP}")
+    op.drop_index(OLD, table_name=TABLE)
+    op.drop_index(COMPANY_ONLY, table_name=TABLE)  # the per-company key below leads with company_id
     op.create_index(PER_COMPANY, TABLE, ["company_id", sa.text("lower(email)")], unique=True)
     op.create_index(LOGIN_LOOKUP, TABLE, [sa.text("lower(email)")], unique=False)
 

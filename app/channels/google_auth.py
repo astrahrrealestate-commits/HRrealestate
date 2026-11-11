@@ -5,6 +5,7 @@ Produces a long-lived credentials file with automatic refresh token support.
 """
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -94,8 +95,8 @@ async def exchange_code_for_tokens(settings: Settings, code: str) -> dict[str, A
             },
         )
         if token_resp.status_code != 200:
-            log.error("google_auth.token_exchange_failed", status=token_resp.status_code, body=token_resp.text)
-            raise ValueError(f"Failed to exchange Google OAuth code: {token_resp.text}")
+            log.error("google_auth.token_exchange_failed", status=token_resp.status_code)
+            raise ValueError(f"Failed to exchange Google OAuth code (HTTP {token_resp.status_code})")
 
         token_data = token_resp.json()
         access_token = token_data.get("access_token")
@@ -138,9 +139,11 @@ def save_owner_credentials(settings: Settings, credentials_dict: dict[str, Any])
     """Saves credentials dictionary to unified path."""
     path = get_credentials_path(settings)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(credentials_dict, f, indent=2)
-    log.info("google_auth.credentials_saved", path=str(path), email=credentials_dict.get("email"))
+    path.chmod(0o600)
+    log.info("google_auth.credentials_saved")
     return path
 
 
@@ -178,7 +181,7 @@ def disconnect_owner(settings: Settings) -> bool:
     if path.exists():
         try:
             path.unlink()
-            log.info("google_auth.disconnected", path=str(path))
+            log.info("google_auth.disconnected")
             return True
         except Exception as exc:
             log.error("google_auth.disconnect_failed", error=str(exc))

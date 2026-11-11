@@ -174,7 +174,7 @@ def set_session_cookie(response: Response, settings: Settings, token: str) -> No
         token,
         max_age=settings.dashboard_session_ttl_min * 60,
         httponly=True,
-        samesite="strict" if settings.env == "prod" else "lax",
+        samesite="strict",
         secure=_secure(settings),
         domain=settings.dashboard_cookie_domain,
         path="/",
@@ -185,7 +185,7 @@ def clear_session_cookie(response: Response, settings: Settings) -> None:
     response.delete_cookie(
         COOKIE,
         httponly=True,
-        samesite="strict" if settings.env == "prod" else "lax",
+        samesite="strict",
         secure=_secure(settings),
         domain=settings.dashboard_cookie_domain,
         path="/",
@@ -200,25 +200,6 @@ def email_fingerprint(email: str) -> str:
 def default_dev_principal(engine: Engine | Connection) -> Principal | None:
     """Resolve the default owner account for local dev when the session cookie is absent or invalid."""
     with Session(engine) as session:
-        # 1. Prefer Harjot in the primary platform company (whitelisted in AllowedUser)
-        allowed = session.scalars(select(AllowedUser).where(AllowedUser.email == "harjot@estateos.internal")).first()
-        if not allowed:
-            allowed = session.scalars(select(AllowedUser).where(AllowedUser.is_active.is_(True))).first()
-        if allowed:
-            owner = session.scalars(
-                select(OwnerAccount).where(
-                    OwnerAccount.company_id == allowed.company_id,
-                    func.lower(OwnerAccount.email) == allowed.email.lower(),
-                )
-            ).first()
-            if not owner:
-                owner = session.scalars(
-                    select(OwnerAccount).where(OwnerAccount.company_id == allowed.company_id)
-                ).first()
-            if owner:
-                return Principal(company_id=allowed.company_id, owner_id=owner.id, email=allowed.email)
-            return Principal(company_id=allowed.company_id, owner_id=allowed.company_id, email=allowed.email)
-        # 2. Fallback to first owner
         owner = session.scalars(select(OwnerAccount).limit(1)).first()
         if owner:
             return Principal(company_id=owner.company_id, owner_id=owner.id, email=owner.email or "dev@estateos.nl")
@@ -242,13 +223,8 @@ def _dev_principal_or_401(request: Request) -> Principal:
 
 
 def cookie_principal(request: Request) -> Principal:
-    """The signed-cookie checks alone (no I/O): signature, age. 401 when missing or invalid.
-    Accepts eo_session cookie, X-Session-Token header, or Authorization: Bearer token."""
-    token = request.cookies.get(COOKIE) or request.headers.get("X-Session-Token")
-    if not token:
-        auth_h = request.headers.get("Authorization", "")
-        if auth_h.startswith("Bearer "):
-            token = auth_h[7:].strip()
+    """The signed-cookie checks alone (no I/O): signature, age. 401 when missing or invalid."""
+    token = request.cookies.get(COOKIE)
     if not token:
         return _dev_principal_or_401(request)
     try:

@@ -1,6 +1,6 @@
 # EstateOS QA Testing Package
 
-Welcome to the EstateOS QA Testing Build.  
+Welcome to the EstateOS QA Testing Build.
 This package is fully self-contained: it includes the frontend, backend, background AI workers, and the database with all API keys and migrations pre-configured.
 
 You do **not** need Node.js, Python, or PostgreSQL installed on your computer.
@@ -18,7 +18,7 @@ You do **not** need Node.js, Python, or PostgreSQL installed on your computer.
 1. Make sure all files (`estateos-bundle.tar`, `compose.test.yml`, `start-test.bat`) are in the **same folder**.
 2. **Double-click `start-test.bat`**.
 3. Wait ~30–45 seconds while it loads the images and starts the containers.
-4. Open your browser and go to:  
+4. Open your browser and go to:
    👉 **http://localhost:3000**
 
 ---
@@ -27,7 +27,7 @@ You do **not** need Node.js, Python, or PostgreSQL installed on your computer.
 Make sure all files (`estateos-bundle.tar`, `compose.test.yml`, `start-test.command`, `start-test.sh`) are in the **same folder**.
 
 #### Method 1 (Double-Click):
-* **Double-click `start-test.command`** in Finder.  
+* **Double-click `start-test.command`** in Finder.
 *(Terminal will open automatically, load images, and start the app).*
 
 #### Method 2 (Via Terminal):
@@ -41,7 +41,7 @@ Make sure all files (`estateos-bundle.tar`, `compose.test.yml`, `start-test.comm
    ```bash
    chmod +x start-test.sh && ./start-test.sh
    ```
-4. Open your browser and go to:  
+4. Open your browser and go to:
    👉 **http://localhost:3000**
 
 ---
@@ -66,4 +66,3 @@ Make sure all files (`estateos-bundle.tar`, `compose.test.yml`, `start-test.comm
   ```bash
   docker compose -f compose.test.yml down
   ```
-

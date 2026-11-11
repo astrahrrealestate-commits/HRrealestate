@@ -74,18 +74,7 @@ def issue_login_state(settings: Settings) -> str:
 
 def verify_login_state(settings: Settings, state: str, cookie: str | None) -> None:
     """Raises AuthError unless `state` is a fresh, genuine login state and equals the browser's cookie."""
-    if not state:
-        raise AuthError("missing login state")
-    # In dev/test environments, cross-port redirects (3000 -> 8000) may cause some browsers to drop the cookie;
-    # if cookie is absent, verify the cryptographic signature and timestamp of the state token.
-    if not cookie and settings.env != "prod":
-        try:
-            _login_serializer(settings).loads(state, max_age=MAX_AGE_S)
-            return
-        except BadData:
-            raise AuthError("invalid login state") from None
-
-    if not cookie or not secrets.compare_digest(state.encode(), cookie.encode()):
+    if not state or not cookie or not secrets.compare_digest(state.encode(), cookie.encode()):
         raise AuthError("login state does not match this browser")
     try:
         _login_serializer(settings).loads(state, max_age=MAX_AGE_S)

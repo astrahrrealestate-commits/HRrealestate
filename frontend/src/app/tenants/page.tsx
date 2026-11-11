@@ -351,9 +351,9 @@ function TenantsContent() {
   const filteredContacts = useMemo(() => {
     return dbContacts.filter((contact) => {
       if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
+        const q = searchQuery.trim().toLowerCase();
         const matchesName = contact.name.toLowerCase().includes(q);
-        const matchesEmail = contact.email.toLowerCase().includes(q);
+        const matchesEmail = (contact.email ?? "").toLowerCase().includes(q);
         const matchesUnit = (contact.unitRole || "").toLowerCase().includes(q);
         if (!matchesName && !matchesEmail && !matchesUnit) return false;
       }

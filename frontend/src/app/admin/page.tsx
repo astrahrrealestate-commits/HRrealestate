@@ -1,6 +1,7 @@
 "use client";
 
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
@@ -21,7 +22,15 @@ function AdminContent() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [builder, setBuilder] = useState<{ open: boolean; profile: Profile | null }>({ open: false, profile: null });
+  const router = useRouter();
+  const wantsNew = useSearchParams().get("new") === "1";
+  const [builder, setBuilder] = useState<{ open: boolean; profile: Profile | null }>({ open: wantsNew, profile: null });
+
+  // "Add a profile" in the user menu lands here with ?new=1: the builder is already open, and the flag is dropped
+  // so a refresh does not reopen it.
+  useEffect(() => {
+    if (wantsNew) router.replace("/admin");
+  }, [wantsNew, router]);
 
   const load = useCallback(async () => {
     setLoadError(null);
