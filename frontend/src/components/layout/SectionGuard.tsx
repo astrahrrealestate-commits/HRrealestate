@@ -17,7 +17,15 @@ export function SectionGuard({ children }: { children: React.ReactNode }) {
   const section = sectionForPath(pathname);
 
   if (section === null) return <>{children}</>;
-  if (isLoading) return <div className="p-8 text-xs text-zinc-400">Loading…</div>;
+  if (isLoading) {
+    // The page still renders (hidden) so Next can validate the segment; showing it waits for the profile.
+    return (
+      <>
+        <div className="p-8 text-xs text-zinc-400">Loading…</div>
+        <div hidden>{children}</div>
+      </>
+    );
+  }
   if (canAccess(section)) return <>{children}</>;
 
   const firstOpen = (user?.sections ?? []).find((key): key is SectionKey => key in SECTION_HOME);
