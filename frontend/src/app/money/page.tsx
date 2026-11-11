@@ -372,11 +372,11 @@ function MoneyContent() {
                       {t("Tenant Rent & Collections Ledger")}
                     </h1>
                     <span className="px-2 py-0.5 rounded text-[11px] font-mono text-[var(--ink-2)] border border-[var(--line)] bg-[var(--selected)]/40">
-                      Live Mirror
+                      {t("Live Mirror")}
                     </span>
                   </div>
                   <p className="text-xs text-[var(--ink-2)]">
-                    Real-time lease collection tracking, settled receipts, and tenant arrears management.
+                    {t("Real-time lease collection tracking, settled receipts, and tenant arrears management.")}
                   </p>
                 </div>
 

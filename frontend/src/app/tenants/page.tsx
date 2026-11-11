@@ -604,7 +604,7 @@ function TenantsContent() {
                       <div className="px-6 py-2 pb-3.5 bg-[#f0f5fb] border-t border-[#e1e7f0] flex flex-col">
                         <div className="flex items-baseline gap-2 py-1 border-b border-[#e4ecf7]">
                           <span className="font-semibold text-[11.5px] text-[#64748b] min-w-[140px] shrink-0">
-                            Property Address:
+                            {t("Property Address:")}
                           </span>
                           <span className="text-[12px] text-[#111215] font-medium leading-snug">
                             {activeContact.propertyAddress || activeContact.address || "Keizersgracht 42, 1015 CR Amsterdam"}
@@ -612,7 +612,7 @@ function TenantsContent() {
                         </div>
                         <div className="flex items-baseline gap-2 py-1">
                           <span className="font-semibold text-[11.5px] text-[#64748b] min-w-[140px] shrink-0">
-                            Residential Address:
+                            {t("Residential Address:")}
                           </span>
                           <span className="text-[12px] text-[#111215] font-medium leading-snug">
                             {activeContact.residentialAddress || activeContact.address || "Keizersgracht 42, 1015 CR Amsterdam"}
@@ -712,7 +712,7 @@ function TenantsContent() {
                       )}
                     >
                       <MessageSquare className="w-4 h-4" />
-                      <span>WhatsApp</span>
+                      <span>{t("WhatsApp")}</span>
                       {liveWhatsApp.length > 0 && (
                         <span className="text-[10.5px] px-1.5 py-0.2 rounded-full bg-[#f1f5f9] text-[#475569] font-mono">
                           {liveWhatsApp.length}
@@ -731,7 +731,7 @@ function TenantsContent() {
                       )}
                     >
                       <FileText className="w-4 h-4" />
-                      <span>Brixx</span>
+                      <span>{t("Brixx")}</span>
                     </button>
 
                     <button
@@ -745,7 +745,7 @@ function TenantsContent() {
                       )}
                     >
                       <Wrench className="w-4 h-4" />
-                      <span>Tickets</span>
+                      <span>{t("Tickets")}</span>
                     </button>
                   </div>
 
@@ -791,7 +791,7 @@ function TenantsContent() {
                                         : "text-[#334155] hover:bg-[#f1f5f9] hover:text-[#0f172a]"
                                     )}
                                   >
-                                    {cat === "all" ? "All Categories" : t(cat)}
+                                    {cat === "all" ? t("All Categories") : t(cat)}
                                   </button>
                                 ))}
                               </div>
@@ -809,7 +809,7 @@ function TenantsContent() {
                                 : "bg-white text-[#4b515d] border border-[#e5e7eb] hover:bg-[#f8fafc] hover:text-[#111215]"
                             )}
                           >
-                            <span>Unread</span>
+                            <span>{t("Unread")}</span>
                           </button>
                         </div>
 
@@ -818,7 +818,7 @@ function TenantsContent() {
                           <Search className="w-3.5 h-3.5 text-[#94a3b8] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                           <input
                             type="text"
-                            placeholder="Search in emails..."
+                            placeholder={t("Search in emails...")}
                             value={mailSearch}
                             onChange={(e) => setMailSearch(e.target.value)}
                             className="w-full h-[28px] pl-7 pr-3 text-[11.5px] bg-white border border-[#d5d9e0] rounded-[5px] outline-none focus:border-[#94a3b8] focus:ring-1 focus:ring-black/5"
@@ -835,7 +835,7 @@ function TenantsContent() {
                             className="inline-flex items-center gap-1.5 text-xs text-[#475569] font-medium hover:text-[#0f172a] mb-2 cursor-pointer"
                           >
                             <ArrowLeft className="w-3.5 h-3.5" />
-                            <span>Back to messages</span>
+                            <span>{t("Back to messages")}</span>
                           </button>
 
                           <div className="border border-[#e2e8f0] rounded-xl p-5 bg-white space-y-4 shadow-2xs">

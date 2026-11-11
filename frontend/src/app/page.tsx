@@ -429,20 +429,20 @@ export default function TodayPage() {
   const statLineItems: StatItem[] = useMemo(() => [
     {
       count: currentNeedsYouCount,
-      label: "need you",
+      label: t("need you"),
       href: "/inbox",
     },
     {
       count: currentUrgentCount,
-      label: "urgent",
+      label: t("urgent"),
       urgent: currentUrgentCount > 0,
       href: "/inbox",
     },
     {
       count: metrics.autonomousActionsWeek,
-      label: "handled this week",
+      label: t("handled this week"),
     },
-  ], [currentNeedsYouCount, currentUrgentCount, metrics.autonomousActionsWeek]);
+  ], [currentNeedsYouCount, currentUrgentCount, metrics.autonomousActionsWeek, t]);
 
   // Today Date & Greeting - Defer evaluation to client mount to prevent Next.js prerender error
   const [todayFormatted, setTodayFormatted] = useState<string>("Thursday 15 October");
@@ -891,7 +891,7 @@ export default function TodayPage() {
                       title="View and Edit Maintenance Ticket on this page"
                     >
                       <Ticket className="w-3.5 h-3.5 text-[var(--accent-ink)]" />
-                      <span>{ticket.ticketNumber} Details</span>
+                      <span>{ticket.ticketNumber} {t("Details")}</span>
                     </button>
 
                     {/* Expand/Collapse In-Place Card */}
@@ -902,7 +902,7 @@ export default function TodayPage() {
                       aria-expanded={isEmergencyExpanded}
                       title="Toggle in-place ticket context"
                     >
-                      <span>{isEmergencyExpanded ? "Hide" : "Details"}</span>
+                      <span>{isEmergencyExpanded ? t("Hide") : t("Details")}</span>
                       <ChevronDown
                         className={cn(
                           "w-3.5 h-3.5 transition-transform duration-200",
@@ -935,8 +935,8 @@ export default function TodayPage() {
                       )}
                       <span>
                         {isTenantReplied
-                          ? `Replied (${tenantChannel === "whatsapp" ? "WhatsApp" : "Email"})`
-                          : `Reply Tenant (${tenantChannel === "whatsapp" ? "WhatsApp" : "Email"})`}
+                          ? `${t("Replied")} (${tenantChannel === "whatsapp" ? "WhatsApp" : "Email"})`
+                          : `${t("Reply Tenant")} (${tenantChannel === "whatsapp" ? "WhatsApp" : "Email"})`}
                       </span>
                     </button>
 
@@ -959,8 +959,8 @@ export default function TodayPage() {
                       <Wrench className="w-3.5 h-3.5 text-[var(--accent)]" />
                       <span>
                         {isContractorDispatched
-                          ? "Contractor Dispatched"
-                          : `Dispatch to ${ticket.contractorName || "Contractor"}`}
+                          ? t("Contractor Dispatched")
+                          : `${t("Dispatch to")} ${ticket.contractorName || t("Contractor")}`}
                       </span>
                     </button>
                   </div>
