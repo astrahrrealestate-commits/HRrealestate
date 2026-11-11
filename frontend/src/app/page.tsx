@@ -696,7 +696,7 @@ export default function TodayPage() {
           </div>
 
           {/* Section Navigation & Quick Filter Bar */}
-          <div className="sticky top-0 z-20 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-2.5 bg-[var(--bg)]/95 backdrop-blur-xs border-y border-[var(--line)] flex items-center justify-between gap-3 overflow-x-auto no-scrollbar">
+          <div className="sticky top-2 z-20 my-2 px-3 py-1.5 bg-[var(--pane)]/95 backdrop-blur-md border border-[var(--line)] rounded-2xl shadow-xs flex items-center justify-between gap-3 overflow-x-auto no-scrollbar">
             <div className="flex items-center gap-1.5 min-w-max">
               <button
                 type="button"
