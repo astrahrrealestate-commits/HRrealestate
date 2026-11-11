@@ -25,6 +25,7 @@ import {
 import { cn } from "@/lib/utils";
 import { MOCK_TRANSACTIONS, MoneyTransaction } from "@/data/moneyMockData";
 import { TransactionDetailSheet } from "@/components/money/TransactionDetailSheet";
+import { RentAnalyticsLineChart } from "@/components/money/RentAnalyticsLineChart";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -549,124 +550,43 @@ function MoneyContent() {
                   </div>
                 </div>
 
-                {/* Chart Legend (Monochrome, understated) */}
-                <div className="flex items-center gap-4 text-xs font-mono text-[var(--ink-2)]">
-                  {chartView === "revenue" ? (
-                    <>
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2.5 h-2.5 rounded-xs bg-[#0A1B2F]" />
-                        <span>Collected</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2.5 h-2.5 rounded-xs bg-[#94A3B8]" />
-                        <span>Overdue Arrears</span>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2.5 h-2.5 rounded-xs bg-[#0A1B2F]" />
-                        <span>Leased Units ({aggregates.occupiedUnits}/110)</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2.5 h-2.5 rounded-xs bg-[#E2E8F0]" />
-                        <span>Vacant Capacity</span>
-                      </div>
-                    </>
-                  )}
+                {/* Chart Legend (Apex Line Chart - Monochrome & Understated) */}
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono text-[var(--ink-2)] border-b border-[var(--line)] pb-3">
+                  <div className="flex items-center gap-4">
+                    {chartView === "revenue" ? (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <span className="w-4 h-0.5 border-t border-dashed border-[#94A3B8]" />
+                          <span>Scheduled Target</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="w-4 h-0.5 bg-[#0A1B2F]" />
+                          <span className="font-semibold text-[var(--ink)]">Settled Rent</span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <span className="w-4 h-0.5 bg-[#0A1B2F]" />
+                          <span className="font-semibold text-[var(--ink)]">Portfolio Occupancy Rate (%)</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <span className="text-[11px] text-[var(--ink-3)] hidden sm:inline">
+                    Click node to select cycle
+                  </span>
                 </div>
 
-                {/* Interactive Bar Chart Visualization */}
-                <div className="pt-2 pb-1">
-                  <div className="grid grid-cols-6 gap-2 sm:gap-4 h-44 items-end border-b border-[var(--line)] pb-2">
-                    {trendPoints.map((point) => {
-                      const isSelected = selectedMonth === point.billingMonth;
-                      
-                      if (chartView === "revenue") {
-                        const collectedHeightPct = (point.collected / maxTrendScheduled) * 100;
-                        const overdueHeightPct = (point.overdue / maxTrendScheduled) * 100;
-
-                        return (
-                          <button
-                            key={point.billingMonth}
-                            type="button"
-                            onClick={() => setSelectedMonth(point.billingMonth)}
-                            className={cn(
-                              "flex flex-col items-center justify-end h-full group transition-transform focus:outline-none cursor-pointer rounded-t p-1",
-                              isSelected && "bg-[var(--selected)]/60 ring-1 ring-[var(--ink)]"
-                            )}
-                            title={`${point.month}: € ${point.collected.toLocaleString("nl-NL")} collected (${point.rate}% efficiency)`}
-                          >
-                            <div className="mb-2 text-[10px] sm:text-[11px] font-mono font-medium px-1.5 py-0.5 rounded text-[var(--ink)] bg-[var(--selected)] border border-[var(--line)]">
-                              {point.rate.toFixed(1)}%
-                            </div>
-
-                            <div className="w-full max-w-[44px] flex flex-col justify-end rounded-t overflow-hidden">
-                              {point.overdue > 0 && (
-                                <div
-                                  style={{ height: `${Math.max(overdueHeightPct, 6)}%` }}
-                                  className="w-full bg-[#94A3B8] transition-all rounded-t-xs"
-                                />
-                              )}
-                              <div
-                                style={{ height: `${collectedHeightPct}%` }}
-                                className="w-full bg-[#0A1B2F] group-hover:bg-[#1E293B] transition-all"
-                              />
-                            </div>
-                          </button>
-                        );
-                      } else {
-                        // Occupancy View Mode (Scale: 90% to 100% or full 100%)
-                        const occRate = point.occupancyRate ?? 100;
-                        const occHeightPct = ((occRate - 85) / 15) * 100; // Calibrated for clear visual increase
-
-                        return (
-                          <button
-                            key={point.billingMonth}
-                            type="button"
-                            onClick={() => setSelectedMonth(point.billingMonth)}
-                            className={cn(
-                              "flex flex-col items-center justify-end h-full group transition-transform focus:outline-none cursor-pointer rounded-t p-1",
-                              isSelected && "bg-[var(--selected)]/60 ring-1 ring-[var(--ink)]"
-                            )}
-                            title={`${point.month}: ${point.occupiedUnits || 110}/110 units leased (${occRate}%)`}
-                          >
-                            <div className="mb-2 text-[10px] sm:text-[11px] font-mono font-medium px-1.5 py-0.5 rounded text-[var(--ink)] bg-[var(--selected)] border border-[var(--line)]">
-                              {occRate.toFixed(1)}%
-                            </div>
-
-                            <div className="w-full max-w-[44px] flex flex-col justify-end rounded-t overflow-hidden">
-                              <div
-                                style={{ height: `${Math.max(occHeightPct, 20)}%` }}
-                                className="w-full bg-[#0A1B2F] group-hover:bg-[#1E293B] transition-all"
-                              />
-                            </div>
-                          </button>
-                        );
-                      }
-                    })}
-                  </div>
-
-                  {/* Month Labels Axis */}
-                  <div className="grid grid-cols-6 gap-2 sm:gap-4 pt-2 text-center text-xs font-mono text-[var(--ink-2)]">
-                    {trendPoints.map((point) => (
-                      <div
-                        key={point.billingMonth}
-                        className={cn(
-                          "cursor-pointer hover:text-[var(--ink)]",
-                          selectedMonth === point.billingMonth && "text-[var(--ink)] font-bold underline underline-offset-4"
-                        )}
-                        onClick={() => setSelectedMonth(point.billingMonth)}
-                      >
-                        {point.month}
-                        <span className="block text-[10px] text-[var(--ink-3)]">
-                          {chartView === "revenue"
-                            ? `€${Math.round(point.collected / 1000)}k`
-                            : `${point.occupiedUnits || 110}u`}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+                {/* Apex Line Graph */}
+                <div className="w-full pt-1">
+                  <RentAnalyticsLineChart
+                    trendPoints={trendPoints}
+                    selectedMonth={selectedMonth}
+                    onSelectMonth={setSelectedMonth}
+                    chartView={chartView}
+                  />
                 </div>
               </div>
 
