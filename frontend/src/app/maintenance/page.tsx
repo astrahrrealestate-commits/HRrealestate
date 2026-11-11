@@ -575,12 +575,12 @@ function MaintenanceContent() {
                 <table className="w-full text-left border-collapse table-fixed">
                   <thead>
                     <tr className="border-b border-[var(--line)] text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)] bg-[var(--bg)]/90 sticky top-0 z-10">
-                      <th className="py-2.5 px-3.5 font-medium w-[32%]">Ticket / Issue</th>
-                      <th className="py-2.5 px-3 font-medium w-[18%]">Unit</th>
-                      <th className="py-2.5 px-3 font-medium w-[12%]">Category</th>
-                      <th className="py-2.5 px-3 font-medium w-[18%]">Contractor</th>
-                      <th className="py-2.5 px-3 font-medium w-[10%]">Budget Cap</th>
-                      <th className="py-2.5 px-3.5 font-medium text-right w-[10%]">Status / SLA</th>
+                      <th className="py-2.5 px-3.5 font-medium w-[32%]">{t("Ticket / Issue")}</th>
+                      <th className="py-2.5 px-3 font-medium w-[18%]">{t("Unit")}</th>
+                      <th className="py-2.5 px-3 font-medium w-[12%]">{t("Category")}</th>
+                      <th className="py-2.5 px-3 font-medium w-[18%]">{t("Contractor")}</th>
+                      <th className="py-2.5 px-3 font-medium w-[10%]">{t("Budget Cap")}</th>
+                      <th className="py-2.5 px-3.5 font-medium text-right w-[10%]">{t("Status / SLA")}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--line)] text-[13.5px]">

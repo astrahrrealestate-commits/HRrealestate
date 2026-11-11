@@ -694,9 +694,9 @@ function ContactsContent() {
                         </a>
                         <span className="text-[#94a3b8] text-[9px] select-none">•</span>
                         <div className="inline-flex items-center gap-1">
-                          <span className="font-semibold text-[#64748b]">Agreement Duration:</span>
+                          <span className="font-semibold text-[#64748b]">{t("Agreement Duration:")}</span>
                           <span className="font-medium text-[#111215]">
-                            {activeContact.agreementPeriod || "Not on file"}
+                            {activeContact.agreementPeriod || t("Not on file")}
                           </span>
                         </div>
                       </div>
@@ -722,7 +722,7 @@ function ContactsContent() {
                     <div className="px-6 py-2 pb-3.5 bg-[#f0f5fb] border-t border-[#e1e7f0] flex flex-col">
                       <div className="flex items-baseline gap-2 py-1 border-b border-[#e4ecf7]">
                         <span className="font-semibold text-[11.5px] text-[#64748b] min-w-[140px] shrink-0">
-                          Property Address:
+                          {t("Property Address:")}
                         </span>
                         <span className="text-[12px] text-[#111215] font-medium leading-snug">
                           {activeContact.propertyAddress || activeContact.address || "14-22 St. Mark's Square, London EC1A 1BB"}
@@ -730,7 +730,7 @@ function ContactsContent() {
                       </div>
                       <div className="flex items-baseline gap-2 py-1">
                         <span className="font-semibold text-[11.5px] text-[#64748b] min-w-[140px] shrink-0">
-                          Residential Address:
+                          {t("Residential Address:")}
                         </span>
                         <span className="text-[12px] text-[#111215] font-medium leading-snug">
                           {activeContact.residentialAddress || activeContact.address || "14-22 St. Mark's Square, Unit 12, London EC1A 1BB"}
@@ -947,7 +947,7 @@ function ContactsContent() {
                                 )}
                               >
                                 <span className="w-2 h-2 rounded-full bg-blue-500" />
-                                <span>Normal</span>
+                                <span>{t("Normal")}</span>
                               </button>
                               <button
                                 type="button"
@@ -963,7 +963,7 @@ function ContactsContent() {
                                 )}
                               >
                                 <span className="w-2 h-2 rounded-full bg-zinc-400" />
-                                <span>Low</span>
+                                <span>{t("Low")}</span>
                               </button>
                             </div>
                           )}
@@ -992,7 +992,7 @@ function ContactsContent() {
                               )}
                             />
                           </span>
-                          <span className="text-[11.5px] font-medium text-[#4b515d]">Unread</span>
+                          <span className="text-[11.5px] font-medium text-[#4b515d]">{t("Unread")}</span>
                         </label>
 
                         {/* Search mail */}
@@ -1000,7 +1000,7 @@ function ContactsContent() {
                           <Search className="w-3.5 h-3.5 text-[#8b929e] absolute left-2.5 pointer-events-none" />
                           <input
                             type="text"
-                            placeholder="Search mail..."
+                            placeholder={t("Search in emails...")}
                             value={mailSearch}
                             onChange={(e) => setMailSearch(e.target.value)}
                             className="w-[160px] focus:w-[200px] transition-all h-[26px] pl-[30px] pr-2.5 text-[12px] text-[#111215] bg-white border border-[#e5e7eb] rounded-full outline-none placeholder:text-[#8b929e]"

@@ -4,6 +4,7 @@ import React, { useMemo } from "react";
 import dynamic from "next/dynamic";
 import type { ApexOptions } from "apexcharts";
 import { HistoricalTrendPoint } from "@/lib/api";
+import { useLanguage } from "@/context/LanguageContext";
 
 // Dynamic import with SSR disabled to ensure window object is ready
 const Chart = dynamic(() => import("react-apexcharts"), {
@@ -28,6 +29,8 @@ export function RentAnalyticsLineChart({
   onSelectMonth,
   chartView,
 }: RentAnalyticsLineChartProps) {
+  const { t } = useLanguage();
+
   const categories = useMemo(() => {
     return trendPoints.map((p) => p.month);
   }, [trendPoints]);
@@ -36,23 +39,23 @@ export function RentAnalyticsLineChart({
     if (chartView === "revenue") {
       return [
         {
-          name: "Scheduled Rent",
+          name: t("Scheduled Rent"),
           data: trendPoints.map((p) => p.scheduled),
         },
         {
-          name: "Collected Rent",
+          name: t("Collected Rent"),
           data: trendPoints.map((p) => p.collected),
         },
       ];
     } else {
       return [
         {
-          name: "Occupancy Rate (%)",
+          name: t("Occupancy Rate (%)"),
           data: trendPoints.map((p) => p.occupancyRate ?? 100),
         },
       ];
     }
-  }, [trendPoints, chartView]);
+  }, [trendPoints, chartView, t]);
 
   const options: ApexOptions = useMemo(() => {
     const isRevenue = chartView === "revenue";
@@ -137,7 +140,7 @@ export function RentAnalyticsLineChart({
             if (isRevenue) {
               return `€ ${val.toLocaleString("nl-NL", { minimumFractionDigits: 2 })}`;
             }
-            return `${val.toFixed(1)}% occupied`;
+            return `${val.toFixed(1)}% ${t("occupied")}`;
           },
         },
       },
@@ -155,13 +158,13 @@ export function RentAnalyticsLineChart({
                 fontSize: "10px",
                 fontFamily: "var(--font-mono, monospace)",
               },
-              text: "Selected",
+              text: t("Selected"),
             },
           },
         ],
       },
     };
-  }, [categories, chartView, onSelectMonth, selectedMonth, trendPoints]);
+  }, [categories, chartView, onSelectMonth, selectedMonth, t, trendPoints]);
 
   return (
     <div className="w-full">

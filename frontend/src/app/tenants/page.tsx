@@ -5,878 +5,1215 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
-import { Button } from "@/components/ui/Button";
-import { StatusText } from "@/components/ui/StatusText";
+import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import {
   Search,
-  Check,
-  ChevronDown,
-  ArrowLeft,
-  X,
-  Phone,
+  Paperclip,
   Mail,
-  Calendar,
+  MessageSquare,
   FileText,
-  AlertTriangle,
-  ChevronRight,
-  ExternalLink,
+  Wrench,
+  Send,
+  CheckCheck,
+  ChevronDown,
+  ChevronUp,
+  ArrowLeft,
+  Sparkles,
+  RotateCw,
+  CheckCircle2,
+  CornerDownRight,
+  Mic,
+  Filter,
+  Phone,
+  Plus,
+  Pencil,
   ShieldCheck,
-  Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { TenantProfile } from "@/types/portfolio";
-import { getTenantProfiles } from "@/lib/portfolioApi";
-import { euro, UNKNOWN } from "@/lib/portfolioFormat";
-import { PageStateShell } from "@/components/portfolio/PageStateShell";
-import { DocumentViewerModal, DocumentItem } from "@/components/ui/DocumentViewerModal";
-import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useLanguage } from "@/context/LanguageContext";
+import {
+  ContactItem,
+  ContactEmailItem,
+  ContactWhatsAppMessage,
+  AIDraftVariant,
+} from "@/data/contactsMockData";
+import {
+  getContactsList,
+  getContactCommunications,
+  sendContactWhatsAppMessage,
+  generateEmailDrafts,
+  sendEmailReply,
+  generateWhatsAppDrafts,
+} from "@/lib/api";
+import { formatClock } from "@/lib/clock";
+import { ContactFormModal } from "@/components/contacts/ContactFormModal";
+import type { SavedContact } from "@/lib/contactsWriteApi";
 
-function findMatchingTenant(allTenants: TenantProfile[], query: string): TenantProfile | null {
-  if (!query) return null;
-  const q = query.trim().toLowerCase();
-  if (!q) return null;
-
-  // 1. Exact ID match
-  const exactId = allTenants.find((t) => t.id.toLowerCase() === q);
-  if (exactId) return exactId;
-
-  // 2. Name match (exact or substring)
-  const byName = allTenants.find((t) => t.name.toLowerCase().includes(q));
-  if (byName) return byName;
-
-  // 3. Unit label, email or phone match
-  const byUnit = allTenants.find(
-    (t) =>
-      t.unitLabel.toLowerCase().includes(q) ||
-      (t.email ?? "").toLowerCase().includes(q) ||
-      (q.replace(/[^0-9]/g, "").length >= 4 &&
-        (t.phone ?? "").replace(/[^0-9]/g, "").includes(q.replace(/[^0-9]/g, "")))
-  );
-  if (byUnit) return byUnit;
-
-  return null;
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+  }
+  return name.slice(0, 2).toUpperCase();
 }
 
-function rentStatusLabel(status: TenantProfile["rentStatus"]): string {
-  if (status === "up_to_date") return "Rent up to date";
-  if (status === "grace_period") return "In grace period";
-  if (status === "overdue") return "Overdue";
-  return "Rent status unknown";
+function getEmailPriority(email: ContactEmailItem): "emergency" | "high" | "normal" | "low" {
+  if (email.priority) return email.priority;
+  if (email.category === "maintenance" || email.category === "complaint") return "high";
+  if (email.category === "payment") return "normal";
+  return "low";
 }
 
-function TenantsView({ tenants: MOCK_TENANTS }: { tenants: TenantProfile[] }) {
+function PriorityBadge({ priority }: { priority: "emergency" | "high" | "normal" | "low" }) {
+  switch (priority) {
+    case "emergency":
+      return (
+        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight bg-red-50 text-red-700 border border-red-200 shrink-0">
+          Emergency
+        </span>
+      );
+    case "high":
+      return (
+        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight bg-amber-50 text-amber-700 border border-amber-200 shrink-0">
+          High
+        </span>
+      );
+    case "normal":
+      return (
+        <span className="px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-tight bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
+          Normal
+        </span>
+      );
+    case "low":
+    default:
+      return (
+        <span className="px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-tight bg-zinc-100 text-zinc-600 border border-zinc-200 shrink-0">
+          Low
+        </span>
+      );
+  }
+}
+
+function TenantsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const tenantParam = searchParams.get("tenant") || searchParams.get("contact");
   const superAgent = useSuperAgent();
   const { t } = useLanguage();
 
-  // URL state synchronization: ?tenant=id
-  const tenantParam = searchParams.get("tenant");
-
-  const [activeTab, setActiveTab] = useState<"all" | "up_to_date" | "overdue">("all");
+  const [contactForm, setContactForm] = useState<{ open: boolean; contact: ContactItem | null }>({
+    open: false,
+    contact: null,
+  });
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedTenantId, setSelectedTenantId] = useState<string>(
-    tenantParam || MOCK_TENANTS[0].id
-  );
-  const [isAskAgentOpen, setIsAskAgentOpen] = useState(false);
-  const [activePreviewDoc, setActivePreviewDoc] = useState<DocumentItem | null>(null);
 
-  // Sync state if URL changes
+  // Live Tenants loaded from database directory
+  const [dbContacts, setDbContacts] = useState<ContactItem[]>([]);
+  const [isLoadingContacts, setIsLoadingContacts] = useState<boolean>(true);
+
+  // A contact just added or classified: show it in the list and open it.
+  const handleContactSaved = (saved: SavedContact) => {
+    setDbContacts((prev) => {
+      const rest = prev.filter((c) => c.id !== saved.id);
+      return [...rest, saved].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    });
+    setSelectedContactId(saved.id);
+    setOpenEmailId(null);
+    router.push(`/tenants?tenant=${saved.id}`);
+  };
+
+  const [selectedContactId, setSelectedContactId] = useState<string>(
+    tenantParam || ""
+  );
+
   useEffect(() => {
-    if (tenantParam) {
-      const matched = findMatchingTenant(MOCK_TENANTS, tenantParam);
-      if (matched) {
-        setSelectedTenantId(matched.id);
-        if (matched.rentStatus === "overdue" && activeTab === "up_to_date") {
-          setActiveTab("overdue");
-        } else if (matched.rentStatus === "up_to_date" && activeTab === "overdue") {
-          setActiveTab("up_to_date");
+    let isMounted = true;
+    async function loadTenants() {
+      setIsLoadingContacts(true);
+      try {
+        const list = await getContactsList("tenant");
+        if (isMounted && list) {
+          setDbContacts(list);
         }
+      } finally {
+        if (isMounted) setIsLoadingContacts(false);
       }
     }
-  }, [tenantParam, activeTab]);
+    loadTenants();
+    return () => { isMounted = false; };
+  }, []);
 
-  // Listen for instant custom navigation events (handles same-page Super Agent clicks)
+  // Profile Card Collapsed/Expanded state (#f0f5fb subtle blue)
+  const [isProfileExpanded, setIsProfileExpanded] = useState(true);
+
+  // Detail pane tabs: "mails" | "whatsapp" | "brixx" | "tickets"
+  const [activeTab, setActiveTab] = useState<"mails" | "whatsapp" | "brixx" | "tickets">("mails");
+
+  // Mail filter state: Category & 4 Priorities
+  const [mailCategoryFilter, setMailCategoryFilter] = useState<string>("all");
+  const [mailPriorityFilter, setMailPriorityFilter] = useState<"all" | "emergency" | "high" | "normal" | "low">("all");
+  const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
+  const [isPriorityMenuOpen, setIsPriorityMenuOpen] = useState(false);
+  const [onlyUnread, setOnlyUnread] = useState(false);
+  const [mailSearch, setMailSearch] = useState("");
+
+  // Open email thread item
+  const [openEmailId, setOpenEmailId] = useState<string | null>(null);
+
+  // Sync state if URL changes or database contacts finish loading
   useEffect(() => {
-    const handleCustomNav = (e: Event) => {
-      const customEvent = e as CustomEvent<{ url: string }>;
-      const url = customEvent?.detail?.url;
-      if (url && url.includes("/tenants")) {
-        const match = url.match(/[?&]tenant=([^&]+)/);
-        if (match) {
-          const target = decodeURIComponent(match[1]);
-          const matched = findMatchingTenant(MOCK_TENANTS, target);
-          if (matched) {
-            setSelectedTenantId(matched.id);
-            if (matched.rentStatus === "overdue" && activeTab === "up_to_date") {
-              setActiveTab("overdue");
-            } else if (matched.rentStatus === "up_to_date" && activeTab === "overdue") {
-              setActiveTab("up_to_date");
-            }
-          }
-        }
-      }
-    };
-    window.addEventListener("estateos:navigate", handleCustomNav);
-    return () => window.removeEventListener("estateos:navigate", handleCustomNav);
-  }, [activeTab]);
+    if (dbContacts.length === 0) return;
+    if (tenantParam && dbContacts.some((c) => c.id === tenantParam)) {
+      setSelectedContactId(tenantParam);
+    } else if (!dbContacts.some((c) => c.id === selectedContactId)) {
+      setSelectedContactId(dbContacts[0].id);
+    }
+  }, [tenantParam, dbContacts]);
 
-  // Derived active tenant
-  const activeTenant = useMemo(() => {
+  // Derived active tenant contact
+  const activeContact = useMemo(() => {
+    if (dbContacts.length === 0) return null;
     return (
-      findMatchingTenant(MOCK_TENANTS, selectedTenantId) ||
-      MOCK_TENANTS[0]
+      dbContacts.find((c) => c.id === selectedContactId) ||
+      dbContacts[0]
     );
-  }, [selectedTenantId]);
+  }, [dbContacts, selectedContactId]);
 
+  // Live Communications state (Gmail & WhatsApp)
+  const [liveEmails, setLiveEmails] = useState<ContactEmailItem[]>([]);
+  const [liveWhatsApp, setLiveWhatsApp] = useState<ContactWhatsAppMessage[]>([]);
+  const [whatsappInput, setWhatsappInput] = useState("");
+  const [isSendingWhatsApp, setIsSendingWhatsApp] = useState(false);
+
+  // AI Draft Reply State per Email
+  const [emailDraftChoices, setEmailDraftChoices] = useState<Record<string, string>>({});
+  const [emailDraftCustomText, setEmailDraftCustomText] = useState<Record<string, string>>({});
+  const [isGeneratingEmailDraft, setIsGeneratingEmailDraft] = useState<Record<string, boolean>>({});
+  const [isSendingEmailReply, setIsSendingEmailReply] = useState<Record<string, boolean>>({});
+  const [sentEmailSuccess, setSentEmailSuccess] = useState<Record<string, boolean>>({});
+
+  // WhatsApp Draft State
+  const [whatsAppDrafts, setWhatsAppDrafts] = useState<AIDraftVariant[]>([]);
+  const [isGeneratingWhatsAppDrafts, setIsGeneratingWhatsAppDrafts] = useState(false);
+
+  // Update Super Agent Context
   useEffect(() => {
     superAgent.setCurrentPageName("Tenants");
-    if (activeTenant) {
+    if (activeContact) {
       superAgent.setSelectedContext(
-        `Tenant: ${activeTenant.name} (${activeTenant.unitLabel}) [Status: ${activeTenant.rentStatus}, Rent: ${euro(activeTenant.monthlyRentEur)}/mo, Phone: ${activeTenant.phone ?? UNKNOWN}]`
+        `Tenant Profile: ${activeContact.name} · Unit: ${activeContact.unitRole || "N/A"} · Phone: ${activeContact.phone} · Email: ${activeContact.email}`
       );
-    } else {
-      superAgent.setSelectedContext("Tenant Directory (110 active tenants)");
     }
-  }, [activeTenant, superAgent.setCurrentPageName, superAgent.setSelectedContext]);
+  }, [activeContact?.id]);
 
-  // Filtered tenants list
-  const filteredTenants = useMemo(() => {
-    return MOCK_TENANTS.filter((tenant) => {
-      // Tab filter
-      if (activeTab === "up_to_date" && tenant.rentStatus !== "up_to_date") return false;
-      if (activeTab === "overdue" && tenant.rentStatus !== "overdue" && tenant.rentStatus !== "grace_period") return false;
+  // Fetch Live Communications when active tenant changes
+  useEffect(() => {
+    if (!activeContact) return;
+    let isMounted = true;
 
-      // Search query
+    async function fetchLiveComms() {
+      if (!activeContact) return;
+      try {
+        const comms = await getContactCommunications(
+          activeContact.id,
+          activeContact.email || undefined,
+          activeContact.phone || undefined
+        );
+        if (isMounted && comms) {
+          setLiveEmails(comms.emails || []);
+          setLiveWhatsApp(comms.whatsapp_messages || []);
+          setWhatsAppDrafts(comms.suggested_whatsapp_drafts || []);
+        }
+      } catch (err) {
+        // Silently preserve current state when backend is offline
+      }
+    }
+
+    fetchLiveComms();
+    const interval = setInterval(fetchLiveComms, 8000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [activeContact?.id, activeContact?.email, activeContact?.phone]);
+
+  const handleSelectEmailDraft = (emailId: string, variant: AIDraftVariant) => {
+    setEmailDraftChoices((prev) => ({ ...prev, [emailId]: variant.id }));
+    setEmailDraftCustomText((prev) => ({ ...prev, [emailId]: variant.body }));
+  };
+
+  const handleGenerateEmailDrafts = async (email: ContactEmailItem) => {
+    if (!activeContact) return;
+    setIsGeneratingEmailDraft((prev) => ({ ...prev, [email.id]: true }));
+    try {
+      const generated = await generateEmailDrafts(activeContact.id, email.id);
+      if (generated && generated.length > 0) {
+        setLiveEmails((prev) =>
+          prev.map((e) => (e.id === email.id ? { ...e, draftVariants: generated } : e))
+        );
+        setEmailDraftChoices((prev) => ({ ...prev, [email.id]: generated[0].id }));
+        setEmailDraftCustomText((prev) => ({ ...prev, [email.id]: generated[0].body }));
+      }
+    } catch (err) {
+      console.error("Failed to generate drafts:", err);
+    } finally {
+      setIsGeneratingEmailDraft((prev) => ({ ...prev, [email.id]: false }));
+    }
+  };
+
+  const handleSendEmailReply = async (email: ContactEmailItem) => {
+    if (!activeContact) return;
+    const textToSend =
+      emailDraftCustomText[email.id] !== undefined
+        ? emailDraftCustomText[email.id]
+        : email.draftVariants?.[0]?.body;
+
+    if (!textToSend || !textToSend.trim() || isSendingEmailReply[email.id]) return;
+
+    setIsSendingEmailReply((prev) => ({ ...prev, [email.id]: true }));
+    const replySubject = email.subject.startsWith("Re:") ? email.subject : `Re: ${email.subject}`;
+
+    try {
+      const res = await sendEmailReply(
+        activeContact.id,
+        email.id,
+        replySubject,
+        textToSend,
+        emailDraftChoices[email.id] || "d1"
+      );
+      if (res && res.success) {
+        setSentEmailSuccess((prev) => ({ ...prev, [email.id]: true }));
+        const outboundMsg: ContactEmailItem = {
+          id: res.message_id,
+          sender: "EstateOS (You)",
+          senderEmail: "harjot@estateos.internal",
+          subject: replySubject,
+          snippet: textToSend.slice(0, 100),
+          body: textToSend,
+          date: "Today",
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          category: email.category,
+          priority: getEmailPriority(email),
+        };
+        setLiveEmails((prev) => [outboundMsg, ...prev]);
+        setOpenEmailId(null);
+      }
+    } catch (err) {
+      console.error("Failed to send reply:", err);
+    } finally {
+      setIsSendingEmailReply((prev) => ({ ...prev, [email.id]: false }));
+    }
+  };
+
+  const handleSendWhatsApp = async () => {
+    if (!activeContact || !whatsappInput.trim() || isSendingWhatsApp) return;
+    setIsSendingWhatsApp(true);
+    const text = whatsappInput.trim();
+
+    try {
+      const res = await sendContactWhatsAppMessage(activeContact.id, text);
+      if (res && res.success) {
+        const newMsg: ContactWhatsAppMessage = {
+          id: res.message_id,
+          sender: "owner",
+          text: text,
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          date: "Today",
+          status: "sent",
+        };
+        setLiveWhatsApp((prev) => [...prev, newMsg]);
+        setWhatsappInput("");
+      }
+    } catch (err) {
+      console.error("Failed to send WhatsApp message:", err);
+    } finally {
+      setIsSendingWhatsApp(false);
+    }
+  };
+
+  const handleGenerateWhatsAppDrafts = async () => {
+    if (!activeContact || isGeneratingWhatsAppDrafts) return;
+    setIsGeneratingWhatsAppDrafts(true);
+    try {
+      const drafts = await generateWhatsAppDrafts(activeContact.id);
+      if (drafts && drafts.length > 0) {
+        setWhatsAppDrafts(drafts);
+      }
+    } catch (err) {
+      console.error("Failed to generate WhatsApp drafts:", err);
+    } finally {
+      setIsGeneratingWhatsAppDrafts(false);
+    }
+  };
+
+  // Filtered contacts list
+  const filteredContacts = useMemo(() => {
+    return dbContacts.filter((contact) => {
       if (searchQuery.trim()) {
         const q = searchQuery.trim().toLowerCase();
-        const matchesName = tenant.name.toLowerCase().includes(q);
-        const matchesUnit = tenant.unitLabel.toLowerCase().includes(q);
-        const matchesEmail = (tenant.email ?? "").toLowerCase().includes(q);
-        const matchesPhone = (tenant.phone ?? "").toLowerCase().includes(q);
-        if (!matchesName && !matchesUnit && !matchesEmail && !matchesPhone) {
-          return false;
-        }
+        const matchesName = contact.name.toLowerCase().includes(q);
+        const matchesEmail = (contact.email ?? "").toLowerCase().includes(q);
+        const matchesUnit = (contact.unitRole || "").toLowerCase().includes(q);
+        if (!matchesName && !matchesEmail && !matchesUnit) return false;
       }
       return true;
     });
-  }, [activeTab, searchQuery]);
+  }, [dbContacts, searchQuery]);
 
-  // Aggregate stats
-  const stats = useMemo(() => {
-    const total = MOCK_TENANTS.length;
-    const overdue = MOCK_TENANTS.filter((t) => t.rentStatus === "overdue").length;
-    const upToDate = MOCK_TENANTS.filter((t) => t.rentStatus === "up_to_date").length;
-    const unknown = MOCK_TENANTS.filter((t) => t.rentStatus === "unknown").length;
-    return { total, overdue, upToDate, unknown };
-  }, [MOCK_TENANTS]);
+  // Filtered emails
+  const filteredEmails = useMemo(() => {
+    return liveEmails.filter((email) => {
+      if (onlyUnread && !email.isUnread) return false;
+      if (mailPriorityFilter !== "all" && getEmailPriority(email) !== mailPriorityFilter) {
+        return false;
+      }
+      if (mailCategoryFilter !== "all" && email.category !== mailCategoryFilter) {
+        return false;
+      }
+      if (mailSearch.trim()) {
+        const q = mailSearch.toLowerCase();
+        const matchesSubject = email.subject.toLowerCase().includes(q);
+        const matchesSnippet = email.snippet.toLowerCase().includes(q);
+        const matchesCategory = (email.category || "").toLowerCase().includes(q);
+        if (!matchesSubject && !matchesSnippet && !matchesCategory) return false;
+      }
+      return true;
+    });
+  }, [liveEmails, onlyUnread, mailCategoryFilter, mailPriorityFilter, mailSearch]);
 
-  const handleSelectTenant = (tenant: TenantProfile) => {
-    setSelectedTenantId(tenant.id);
-    router.push(`/tenants?tenant=${tenant.id}`);
-  };
-
-  const handleMobileBack = () => {
-    router.push("/tenants");
-  };
-
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
-  const isMobileDetailScreen = Boolean(tenantParam && isMobile);
+  const activeOpenEmail = useMemo(() => {
+    if (!openEmailId) return null;
+    return liveEmails.find((e) => e.id === openEmailId) || null;
+  }, [openEmailId, liveEmails]);
 
   return (
-    <div className="h-dvh bg-[#0A1B2F] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
-      {/* 1. Left Nav (Desktop Sidebar) */}
+    <div className="flex h-dvh bg-[var(--bg)] overflow-hidden font-sans">
       <Sidebar />
 
-      {/* 2. Main Content Canvas */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0A1B2F]">
-        <TopCommandBar
-          pageTitle="Tenants"
-          hideSearch={true}
-        />
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <TopCommandBar />
 
-        {/* WORKSPACE ROW with 40% Super Agent */}
-        <div className="flex-1 flex flex-row overflow-hidden min-h-0 w-full relative">
-          <div className="flex-1 m-0 mr-[10px] mb-[10px] bg-white rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden relative">
-
-        {/* ------------------------------------------------------------- */}
-        {/* DESKTOP LAYOUT (>= 768px): List on Left + Detail on Right    */}
-        {/* Left Column: 400px (Tabs + Search + Row list)                 */}
-        {/* Right Column: flex-1 (Flat detail + Documents + Sticky Footer)*/}
-        {/* ------------------------------------------------------------- */}
-        <div className="hidden md:flex flex-1 overflow-hidden">
-
-          {/* COLUMN 1: List (400px) */}
-          <div className="w-[400px] shrink-0 border-r border-[var(--line)] bg-[var(--pane)] flex flex-col">
-
-            {/* Header: Controls (Max 3 tabs, 1 search bar, no cards in cards) */}
-            <div className="p-4 border-b border-[var(--line)] space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-[17px] font-heading font-semibold text-[var(--ink)] tracking-tight">
-                    Tenant Directory
-                  </h2>
-                  <div className="text-[12px] text-[var(--ink-3)] font-mono">
-                    {stats.total} total · {stats.overdue} overdue · {stats.upToDate} up to date{stats.unknown > 0 ? ` · ${stats.unknown} rent unknown` : ""}
-                  </div>
-                </div>
-              </div>
-
-              {/* 3 Tabs */}
-              <div className="inline-flex w-full rounded-lg border border-[var(--line)] p-0.5 bg-[var(--bg)] text-xs">
-                <button
-                  onClick={() => setActiveTab("all")}
-                  className={cn(
-                    "flex-1 py-1 rounded-md font-medium transition-colors cursor-pointer text-center",
-                    activeTab === "all"
-                      ? "bg-[var(--pane)] text-[var(--ink)] shadow-2xs font-semibold"
-                      : "text-[var(--ink-3)] hover:text-[var(--ink)]"
-                  )}
-                >
-                  {t("All")} ({stats.total})
-                </button>
-                <button
-                  onClick={() => setActiveTab("up_to_date")}
-                  className={cn(
-                    "flex-1 py-1 rounded-md font-medium transition-colors cursor-pointer text-center",
-                    activeTab === "up_to_date"
-                      ? "bg-[var(--pane)] text-[var(--ink)] shadow-2xs font-semibold"
-                      : "text-[var(--ink-3)] hover:text-[var(--ink)]"
-                  )}
-                >
-                  {t("Up to date", "Betaald")} ({stats.upToDate})
-                </button>
-                <button
-                  onClick={() => setActiveTab("overdue")}
-                  className={cn(
-                    "flex-1 py-1 rounded-md font-medium transition-colors cursor-pointer text-center",
-                    activeTab === "overdue"
-                      ? "bg-[var(--pane)] text-[var(--accent-ink)] shadow-2xs font-semibold"
-                      : "text-[var(--ink-3)] hover:text-[var(--ink)]"
-                  )}
-                >
-                  {t("Overdue")} ({stats.overdue})
-                </button>
-              </div>
-
-              {/* 1 Search Input */}
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--ink-3)]" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={t("Search tenants...")}
-                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--bg)] border border-[var(--line)] rounded-md text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none focus:border-[var(--ink-2)]"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery("")}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--ink-3)] hover:text-[var(--ink)]"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* List Rows */}
-            <div className="flex-1 overflow-y-auto divide-y divide-[var(--line)]/60">
-              {filteredTenants.map((tenant) => {
-                const isSelected = tenant.id === activeTenant?.id;
-                const isOverdue = tenant.rentStatus === "overdue";
-
-                return (
-                  <button
-                    key={tenant.id}
-                    onClick={() => handleSelectTenant(tenant)}
-                    className={cn(
-                      "w-full text-left p-3.5 transition-colors relative flex flex-col gap-1 cursor-pointer",
-                      isSelected
-                        ? "bg-[var(--selected)] border-l-[3px] border-l-[var(--ink)]"
-                        : "hover:bg-[var(--selected)]/40 border-l-[3px] border-l-transparent"
-                    )}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-[14px] font-semibold text-[var(--ink)] truncate">
-                        {tenant.name}
-                      </span>
-                      {isOverdue ? (
-                        <span className="text-[11px] font-semibold text-[var(--accent-ink)] shrink-0">
-                          {tenant.overdueDays}d overdue
-                        </span>
-                      ) : (
-                        <span className="text-[11px] text-[var(--ink-3)] shrink-0">
-                          {rentStatusLabel(tenant.rentStatus)}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="text-[12px] text-[var(--ink-2)] truncate">
-                      {tenant.unitLabel}
-                    </div>
-
-                    <div className="flex items-center justify-between text-[11px] text-[var(--ink-3)] font-mono pt-0.5">
-                      <span>{tenant.monthlyRentEur == null ? UNKNOWN : `${euro(tenant.monthlyRentEur)} / mo`}</span>
-                      <span>Lease: {tenant.leaseEnd ?? UNKNOWN}</span>
-                    </div>
-                  </button>
-                );
-              })}
-
-              {filteredTenants.length === 0 && (
-                <div className="text-center py-16 text-[var(--ink-3)] text-xs">
-                  No tenants match your search filter.
-                </div>
+        <div className="flex-1 flex min-h-0 relative">
+          <main className="flex-1 flex min-h-0 overflow-hidden bg-white">
+            {/* PANEL 1: TENANT LIST (220px) */}
+            <div
+              className={cn(
+                "w-full md:w-[220px] shrink-0 border-r border-[#e8e9eb] bg-[#fafafa] flex flex-col overflow-hidden",
+                tenantParam && "hidden md:flex"
               )}
-            </div>
-          </div>
-
-          {/* COLUMN 2: Detail Pane (flex-1) with Sticky Footer */}
-          {activeTenant && (
-            <div className="flex-1 bg-[var(--pane)] flex flex-col justify-between overflow-hidden">
-
-              {/* Detail Content (Scrollable) */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-6 max-w-4xl">
-
-                {/* Header */}
-                <div className="border-b border-[var(--line)] pb-5">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h2 className="text-[22px] font-heading font-bold text-[var(--ink)] tracking-tight">
-                        {activeTenant.name}
-                      </h2>
-                      <p className="text-[14px] text-[var(--ink-2)] mt-0.5 font-medium">
-                        {activeTenant.unitLabel}{activeTenant.complexName ? ` · ${activeTenant.complexName}` : ""}
-                      </p>
-                    </div>
-
-                    <div>
-                      {activeTenant.rentStatus === "overdue" ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold bg-[var(--accent)]/15 text-[var(--accent-ink)] border border-[var(--accent)]/30">
-                          <AlertTriangle className="w-3.5 h-3.5" />
-                          <span>{activeTenant.overdueDays} Days Overdue{activeTenant.overdueAmountEur == null ? "" : ` (${euro(activeTenant.overdueAmountEur)})`}</span>
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium text-[var(--ink-2)] bg-[var(--selected)] border border-[var(--line)]">
-                          <span>{rentStatusLabel(activeTenant.rentStatus)}</span>
-                        </span>
-                      )}
-                    </div>
+            >
+              {/* Header */}
+              <div className="p-[14px_12px_10px] shrink-0 border-b border-[#e8e9eb] space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[10.5px] font-bold text-[#64748b] tracking-[0.06em] uppercase">
+                    Tenants
                   </div>
-                </div>
-
-                {/* Plain 2-column key/value rows (Section 5.5: Zero cards in cards) */}
-                <div className="space-y-3">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ink-3)] block">
-                    Lease & Tenancy Specs
-                  </span>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-y-3 gap-x-6 text-xs">
-                    <div>
-                      <span className="text-[var(--ink-3)] block">Monthly Rent</span>
-                      <span className="font-mono text-sm font-semibold text-[var(--ink)]">
-                        {euro(activeTenant.monthlyRentEur)}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[var(--ink-3)] block">Security Deposit</span>
-                      <span className="font-mono text-sm text-[var(--ink-2)]">
-                        {euro(activeTenant.depositEur)}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[var(--ink-3)] block">Lease Commencement</span>
-                      <span className="font-medium text-[var(--ink)]">
-                        {activeTenant.leaseStart ?? UNKNOWN}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[var(--ink-3)] block">Lease Expiry</span>
-                      <span className="font-medium text-[var(--ink)]">
-                        {activeTenant.leaseEnd ?? UNKNOWN}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[var(--ink-3)] block">Identity & Vetting</span>
-                      {activeTenant.idVerified ? (
-                        <span className="font-medium text-emerald-600 flex items-center gap-1 pt-0.5">
-                          <ShieldCheck className="w-3.5 h-3.5" />
-                          <span>iDIN Verified</span>
-                        </span>
-                      ) : (
-                        <span className="font-medium text-[var(--ink-2)] pt-0.5 block">{UNKNOWN}</span>
-                      )}
-                    </div>
-                    <div>
-                      <span className="text-[var(--ink-3)] block">Payment Status</span>
-                      <span className="font-medium text-[var(--ink)]">
-                        {activeTenant.rentStatus === "overdue" ? (
-                          <span className="text-[var(--accent-ink)] font-semibold">Overdue ({activeTenant.overdueDays}d)</span>
-                        ) : (
-                          rentStatusLabel(activeTenant.rentStatus)
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Direct Contact Channels */}
-                <div className="border-t border-[var(--line)] pt-5 space-y-3">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ink-3)] block">
-                    Contact Channels
-                  </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                    <div className="flex items-center gap-2 text-[var(--ink)]">
-                      <Phone className="w-4 h-4 text-[var(--ink-3)] shrink-0" />
-                      <span className="font-mono">{activeTenant.phone ?? UNKNOWN}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-[var(--ink)]">
-                      <Mail className="w-4 h-4 text-[var(--ink-3)] shrink-0" />
-                      <span>{activeTenant.email ?? UNKNOWN}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Notes (Plain text italic, no box) */}
-                {activeTenant.notes && (
-                  <div className="border-t border-[var(--line)] pt-5 space-y-1">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ink-3)] block">
-                      Case & Tenancy Notes
-                    </span>
-                    <p className="text-xs text-[var(--ink-2)] italic leading-relaxed">
-                      {activeTenant.notes}
-                    </p>
-                  </div>
-                )}
-
-                {/* Documents List (Section 5.6.1: 640px dialog on desktop / Full-screen viewer on mobile) */}
-                <div className="border-t border-[var(--line)] pt-5 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ink-3)] block">
-                      Filed Documents ({activeTenant.documents.length})
-                    </span>
-                    <span className="text-[11px] text-[var(--ink-3)]">
-                      Tap document to preview
-                    </span>
-                  </div>
-
-                  <div className="divide-y divide-[var(--line)] border border-[var(--line)] rounded-lg overflow-hidden bg-[var(--pane)]">
-                    {activeTenant.documents.length === 0 && (
-                      <p className="text-xs text-[var(--ink-3)] italic">No documents filed.</p>
-                    )}
-                    {activeTenant.documents.map((doc) => (
-                      <div
-                        key={doc.id}
-                        onClick={() => setActivePreviewDoc(doc)}
-                        className="p-3.5 flex items-center justify-between hover:bg-[var(--selected)]/50 transition-colors cursor-pointer"
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <FileText className="w-4 h-4 text-[var(--ink-2)] shrink-0" />
-                          <div className="min-w-0">
-                            <span className="text-xs font-semibold text-[var(--ink)] block truncate">
-                              {doc.title}
-                            </span>
-                            <span className="text-[11px] text-[var(--ink-3)] block">
-                              {doc.date} · {doc.size} {doc.pages ? `· ${doc.pages} pages` : ""}
-                            </span>
-                          </div>
-                        </div>
-
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setActivePreviewDoc(doc);
-                          }}
-                          className="text-xs border border-[var(--line)]"
-                        >
-                          Preview
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-              </div>
-
-              {/* Sticky Footer: One primary orange action only if AI proposal exists, otherwise ghost (Section 5.5) */}
-              <div className="p-4 border-t border-[var(--line)] bg-[var(--pane)] flex items-center justify-between gap-3 shrink-0">
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => router.push(`/inbox?search=${encodeURIComponent(activeTenant.name)}`)}
-                    className="text-xs border border-[var(--line)] text-[var(--ink-2)]"
-                  >
-                    View messages
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => router.push(`/properties?unit=${encodeURIComponent(activeTenant.unitLabel)}`)}
-                    className="text-xs border border-[var(--line)] text-[var(--ink-2)]"
-                  >
-                    View unit
-                  </Button>
-                </div>
-
-                {activeTenant.rentStatus === "overdue" ? (
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => router.push(`/inbox?search=${encodeURIComponent(activeTenant.name)}`)}
-                    className="text-xs bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-black font-semibold"
-                  >
-                    ✦ Send rent reminder
-                  </Button>
-                ) : (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => router.push(`/inbox?search=${encodeURIComponent(activeTenant.name)}`)}
-                    className="text-xs border border-[var(--line)]"
-                  >
-                    Contact tenant
-                  </Button>
-                )}
-              </div>
-
-            </div>
-          )}
-        </div>
-
-        {/* ------------------------------------------------------------- */}
-        {/* MOBILE LAYOUT (< 768px): List then Full Detail Screen          */}
-        {/* Screen 1: Tenants List (when ?tenant is not in URL)           */}
-        {/* Screen 2: Tenant Detail Screen (when ?tenant=id is in URL)    */}
-        {/* ------------------------------------------------------------- */}
-        <div className="md:hidden flex-1 flex flex-col min-w-0">
-
-          {/* SCREEN 1: Mobile Tenants List */}
-          {!isMobileDetailScreen && (
-            <div className="flex-1 flex flex-col bg-[var(--bg)] pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
-              {/* Header stats */}
-              <div className="p-4 border-b border-[var(--line)] bg-[var(--pane)] space-y-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ink-3)] block">
-                  Tenant Directory
-                </span>
-                <div className="text-[14px] text-[var(--ink)] font-semibold">
-                  {stats.total} Active Residents
-                </div>
-                <div className="text-xs text-[var(--ink-3)]">
-                  {stats.overdue} overdue · {stats.upToDate} up to date{stats.unknown > 0 ? ` · ${stats.unknown} rent unknown` : ""}
-                </div>
-              </div>
-
-              {/* Controls: Scrollable Tabs + Search input */}
-              <div className="p-3 border-b border-[var(--line)] bg-[var(--pane)] space-y-2">
-                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar text-xs">
                   <button
-                    onClick={() => setActiveTab("all")}
-                    className={cn(
-                      "px-3 py-1.5 rounded-md font-medium whitespace-nowrap transition-colors",
-                      activeTab === "all"
-                        ? "bg-[var(--ink)] text-white"
-                        : "bg-[var(--bg)] text-[var(--ink-2)] border border-[var(--line)]"
-                    )}
+                    type="button"
+                    onClick={() => setContactForm({ open: true, contact: null })}
+                    title="Add tenant"
+                    aria-label="Add tenant"
+                    className="inline-flex items-center gap-1 h-[22px] px-2 rounded-[6px] bg-[#111215] text-white text-[10.5px] font-semibold hover:bg-[#27272a] transition-colors cursor-pointer"
                   >
-                    All ({stats.total})
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("up_to_date")}
-                    className={cn(
-                      "px-3 py-1.5 rounded-md font-medium whitespace-nowrap transition-colors",
-                      activeTab === "up_to_date"
-                        ? "bg-[var(--ink)] text-white"
-                        : "bg-[var(--bg)] text-[var(--ink-2)] border border-[var(--line)]"
-                    )}
-                  >
-                    Up to date ({stats.upToDate})
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("overdue")}
-                    className={cn(
-                      "px-3 py-1.5 rounded-md font-medium whitespace-nowrap transition-colors",
-                      activeTab === "overdue"
-                        ? "bg-[var(--accent)] text-black font-semibold"
-                        : "bg-[var(--bg)] text-[var(--ink-2)] border border-[var(--line)]"
-                    )}
-                  >
-                    Overdue ({stats.overdue})
+                    <Plus className="w-3 h-3" />
+                    <span>Add</span>
                   </button>
                 </div>
 
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--ink-3)]" />
+                {/* Search Bar */}
+                <div className="relative flex items-center">
+                  <Search className="w-3.5 h-3.5 text-[#94a3b8] absolute left-2.5 pointer-events-none" />
                   <input
                     type="text"
+                    placeholder={t("Search...")}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search tenant name or unit..."
-                    className="w-full pl-8 pr-3 py-2 text-sm bg-[var(--bg)] border border-[var(--line)] rounded-md text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none"
+                    className="w-full h-[30px] pl-7 pr-3 text-[12px] text-[#111215] bg-white border border-[#d5d9e0] rounded-[6px] outline-none focus:border-[#94a3b8] focus:ring-1 focus:ring-black/5 transition-all placeholder:text-[#94a3b8]"
                   />
                 </div>
               </div>
 
-              {/* Mobile Rows List (Section 5.6: List rows at least 64px tall, two lines) */}
-              <div className="divide-y divide-[var(--line)] bg-[var(--pane)]">
-                {filteredTenants.map((tenant) => (
-                  <button
-                    key={tenant.id}
-                    onClick={() => handleSelectTenant(tenant)}
-                    className="w-full text-left p-4 flex items-center justify-between hover:bg-[var(--selected)]/40 active:bg-[var(--selected)] transition-colors cursor-pointer min-h-[64px]"
-                  >
-                    <div className="min-w-0 flex-1 pr-3">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-[15px] text-[var(--ink)] truncate">
-                          {tenant.name}
+              {/* Contact items scroll */}
+              <div className="flex-1 overflow-y-auto py-1.5">
+                {isLoadingContacts && dbContacts.length === 0 && (
+                  <div className="p-3 space-y-2">
+                    {[1, 2, 3, 4].map((i) => (
+                      <div key={i} className="h-9 bg-zinc-200/50 animate-pulse rounded-[6px]" />
+                    ))}
+                  </div>
+                )}
+
+                {filteredContacts.map((contact) => {
+                  const isSelected = contact.id === activeContact?.id;
+                  const initials = getInitials(contact.name);
+
+                  return (
+                    <div
+                      key={contact.id}
+                      onClick={() => {
+                        setSelectedContactId(contact.id);
+                        setOpenEmailId(null);
+                        router.push(`/tenants?tenant=${contact.id}`);
+                      }}
+                      className={cn(
+                        "flex items-center gap-[9px] px-[10px] py-[7px] mx-[6px] my-[1px] rounded-[6px] cursor-pointer transition-colors select-none",
+                        isSelected ? "bg-[#e9eaec]" : "hover:bg-[#eceef1]"
+                      )}
+                    >
+                      {/* Avatar */}
+                      <div className="w-[26px] h-[26px] rounded-full bg-[#d5d9e0] text-[#374151] font-bold text-[9px] flex items-center justify-center shrink-0 border-[1.5px] border-[#d5d9e0]">
+                        {initials}
+                      </div>
+
+                      {/* Name & Unit */}
+                      <div className="flex-1 min-w-0 flex flex-col">
+                        <span
+                          className={cn(
+                            "text-[13px] truncate leading-tight",
+                            isSelected ? "text-[#0f172a] font-bold" : "text-[#475569] hover:text-[#0f172a]"
+                          )}
+                        >
+                          {contact.name}
                         </span>
-                        {tenant.rentStatus === "overdue" ? (
-                          <span className="text-xs font-semibold text-[var(--accent-ink)] shrink-0">
-                            {tenant.overdueDays}d overdue
-                          </span>
-                        ) : (
-                          <span className="text-xs text-[var(--ink-3)] shrink-0">
-                            {rentStatusLabel(tenant.rentStatus)}
+                        {contact.tradeOrRole && (
+                          <span className="text-[10.5px] text-[#94a3b8] truncate font-medium mt-0.5">
+                            {contact.unitRole || contact.tradeOrRole}
                           </span>
                         )}
                       </div>
-                      <div className="text-xs text-[var(--ink-3)] mt-0.5 truncate">
-                        {tenant.unitLabel} · {euro(tenant.monthlyRentEur)}
-                      </div>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-[var(--ink-3)] shrink-0 ml-1" />
-                  </button>
-                ))}
+                  );
+                })}
+
+                {!isLoadingContacts && filteredContacts.length === 0 && (
+                  <div className="text-center py-12 text-[#94a3b8] text-xs">
+                    No tenants found.
+                  </div>
+                )}
               </div>
             </div>
-          )}
 
-          {/* SCREEN 2: Mobile Tenant Detail Screen */}
-          {isMobileDetailScreen && activeTenant && (
-            <div className="flex-1 flex flex-col bg-[var(--pane)] h-full">
-              {/* Header with Back Arrow to Tenants List */}
-              <div className="h-14 px-4 border-b border-[var(--line)] flex items-center justify-between shrink-0 bg-[var(--pane)]">
-                <div className="flex items-center gap-2 min-w-0">
-                  <button
-                    onClick={handleMobileBack}
-                    className="p-1 -ml-1 text-[var(--ink-2)] hover:text-[var(--ink)] cursor-pointer"
-                    aria-label="Back to tenant list"
-                  >
-                    <ArrowLeft className="w-5 h-5" />
-                  </button>
-                  <div className="min-w-0">
-                    <h2 className="text-[15px] font-bold text-[var(--ink)] truncate">
-                      {activeTenant.name}
-                    </h2>
-                    <p className="text-[11px] text-[var(--ink-3)] truncate">
-                      {activeTenant.unitLabel}
-                    </p>
-                  </div>
-                </div>
-
-                {activeTenant.rentStatus === "overdue" ? (
-                  <span className="text-xs font-semibold text-[var(--accent-ink)]">
-                    {activeTenant.overdueDays}d overdue
-                  </span>
-                ) : (
-                  <span className="text-xs text-[var(--ink-3)]">
-                    {rentStatusLabel(activeTenant.rentStatus)}
-                  </span>
-                )}
+            {/* PANEL 2: TENANT DETAIL */}
+            <div
+              className={cn(
+                "flex-1 flex flex-col overflow-hidden relative",
+                !tenantParam && "hidden md:flex"
+              )}
+            >
+              {/* Back button on mobile */}
+              <div className="md:hidden px-4 py-2 border-b border-[#e8e9eb] bg-[#fafafa]">
+                <button
+                  type="button"
+                  onClick={() => router.push("/tenants")}
+                  className="inline-flex items-center gap-1.5 text-xs text-[#475569] font-medium"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>All Tenants</span>
+                </button>
               </div>
 
-              {/* Scrollable Tenant Profile */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-5">
-                <div>
-                  <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ink-3)] block mb-1">
-                    Lease Specs
-                  </span>
-                  <div className="grid grid-cols-2 gap-y-3 text-sm">
-                    <div>
-                      <span className="text-xs text-[var(--ink-3)] block">Monthly Rent</span>
-                      <span className="font-mono font-semibold text-[var(--ink)]">
-                        {euro(activeTenant.monthlyRentEur)}
-                      </span>
+              {!activeContact ? (
+                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-[#94a3b8] text-sm bg-white">
+                  {isLoadingContacts ? (
+                    <div className="flex items-center gap-2 text-xs text-[#64748b]">
+                      <RotateCw className="w-4 h-4 animate-spin text-[#1a73e8]" />
+                      <span>Loading database directory...</span>
                     </div>
-                    <div>
-                      <span className="text-xs text-[var(--ink-3)] block">Security Deposit</span>
-                      <span className="font-mono text-[var(--ink-2)]">
-                        {euro(activeTenant.depositEur)}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-xs text-[var(--ink-3)] block">Commencement</span>
-                      <span className="font-medium text-[var(--ink)]">{activeTenant.leaseStart ?? UNKNOWN}</span>
-                    </div>
-                    <div>
-                      <span className="text-xs text-[var(--ink-3)] block">Expiry</span>
-                      <span className="font-medium text-[var(--ink)]">{activeTenant.leaseEnd ?? UNKNOWN}</span>
-                    </div>
-                  </div>
+                  ) : (
+                    <p>No tenant selected.</p>
+                  )}
                 </div>
+              ) : (
+                <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
+                  {/* Profile Card (Matching subtle blue #f0f5fb for top and expanded body) */}
+                  <div className="bg-[#f0f5fb] border-b border-[#e1e7f0] transition-colors">
+                    <div className="flex items-center gap-3.5 px-6 py-3.5 bg-[#f0f5fb]">
+                      {/* 44px Avatar */}
+                      <div className="w-[44px] h-[44px] rounded-full bg-[#27272a] text-white font-bold text-[15px] flex items-center justify-center shrink-0 border-2 border-[#d5d9e0]">
+                        {getInitials(activeContact.name)}
+                      </div>
 
-                {/* Contact Information */}
-                <div className="border-t border-[var(--line)] pt-3">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ink-3)] block mb-2">
-                    Direct Contact
-                  </span>
-                  <div className="space-y-1.5 text-xs text-[var(--ink)]">
-                    <div className="flex items-center gap-2">
-                      <Phone className="w-3.5 h-3.5 text-[var(--ink-3)]" />
-                      <span className="font-mono">{activeTenant.phone ?? UNKNOWN}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Mail className="w-3.5 h-3.5 text-[var(--ink-3)]" />
-                      <span>{activeTenant.email ?? UNKNOWN}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Notes */}
-                {activeTenant.notes && (
-                  <div className="border-t border-[var(--line)] pt-3">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ink-3)] block mb-1">
-                      Notes
-                    </span>
-                    <p className="text-xs text-[var(--ink-2)] italic leading-relaxed">
-                      {activeTenant.notes}
-                    </p>
-                  </div>
-                )}
-
-                {/* Filed Documents (Full-screen preview on mobile per Section 5.6.1) */}
-                <div className="border-t border-[var(--line)] pt-3 space-y-2">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ink-3)] block">
-                    Documents ({activeTenant.documents.length})
-                  </span>
-
-                  <div className="divide-y divide-[var(--line)] border border-[var(--line)] rounded-lg overflow-hidden bg-[var(--pane)]">
-                    {activeTenant.documents.length === 0 && (
-                      <p className="text-xs text-[var(--ink-3)] italic">No documents filed.</p>
-                    )}
-                    {activeTenant.documents.map((doc) => (
-                      <div
-                        key={doc.id}
-                        onClick={() => setActivePreviewDoc(doc)}
-                        className="p-3 flex items-center justify-between hover:bg-[var(--selected)]/50 active:bg-[var(--selected)] transition-colors cursor-pointer"
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0 pr-2">
-                          <FileText className="w-4 h-4 text-[var(--ink-2)] shrink-0" />
-                          <div className="min-w-0">
-                            <span className="text-xs font-semibold text-[var(--ink)] block truncate">
-                              {doc.title}
+                      {/* Summary */}
+                      <div className="flex-1 min-w-0 flex flex-col gap-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[14px] font-bold text-[#111215] tracking-[-0.01em]">
+                            {activeContact.name}
+                          </span>
+                          <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold rounded-full capitalize bg-[#f0fdf4] text-[#16a34a] border border-[#bbf7d0]">
+                            Tenant
+                          </span>
+                          <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold rounded-full capitalize bg-[#f0fdf4] text-[#16a34a] border border-[#bbf7d0]">
+                            Rent up to date
+                          </span>
+                          {activeContact.unitRole && (
+                            <span className="text-[11px] text-[#64748b] font-medium">
+                              · {activeContact.unitRole}
                             </span>
-                            <span className="text-[11px] text-[var(--ink-3)] block">
-                              {doc.date} · {doc.size}
+                          )}
+                        </div>
+
+                        {/* Phone + Email + Agreement Inline Row */}
+                        <div className="flex items-center gap-2.5 flex-wrap text-[11.5px] text-[#4b515d]">
+                          {activeContact.phone && (
+                            <>
+                              <a
+                                href={`tel:${activeContact.phone}`}
+                                className="inline-flex items-center gap-1 hover:text-[#111215] transition-colors"
+                              >
+                                <Phone className="w-3 h-3 text-[#64748b]" />
+                                <span>{activeContact.phone}</span>
+                              </a>
+                              <span className="text-[#94a3b8] text-[9px] select-none">•</span>
+                            </>
+                          )}
+                          {activeContact.email && (
+                            <>
+                              <a
+                                href={`mailto:${activeContact.email}`}
+                                className="inline-flex items-center gap-1 hover:text-[#111215] transition-colors truncate max-w-[220px]"
+                              >
+                                <Mail className="w-3 h-3 text-[#64748b]" />
+                                <span>{activeContact.email}</span>
+                              </a>
+                              <span className="text-[#94a3b8] text-[9px] select-none">•</span>
+                            </>
+                          )}
+                          <div className="inline-flex items-center gap-1">
+                            <span className="font-semibold text-[#64748b]">Agreement Duration:</span>
+                            <span className="font-medium text-[#111215]">
+                              {activeContact.agreementPeriod || "Since 01 Jan 2025 (to 31 Dec 2026)"}
                             </span>
                           </div>
                         </div>
-
-                        <ChevronRight className="w-4 h-4 text-[var(--ink-3)] shrink-0" />
                       </div>
-                    ))}
+
+                      {/* Chevron Toggle Button */}
+                      <button
+                        type="button"
+                        onClick={() => setIsProfileExpanded((prev) => !prev)}
+                        className="w-7 h-7 rounded-full bg-white border border-[#d5d9e0] text-[#64748b] flex items-center justify-center hover:bg-[#f8fafc] hover:text-[#0f172a] transition-all cursor-pointer shrink-0"
+                        title={isProfileExpanded ? "Collapse address details" : "Expand address details"}
+                      >
+                        {isProfileExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </button>
+                    </div>
+
+                    {/* Expandable details */}
+                    {isProfileExpanded && (
+                      <div className="px-6 py-2 pb-3.5 bg-[#f0f5fb] border-t border-[#e1e7f0] flex flex-col">
+                        <div className="flex items-baseline gap-2 py-1 border-b border-[#e4ecf7]">
+                          <span className="font-semibold text-[11.5px] text-[#64748b] min-w-[140px] shrink-0">
+                            {t("Property Address:")}
+                          </span>
+                          <span className="text-[12px] text-[#111215] font-medium leading-snug">
+                            {activeContact.propertyAddress || activeContact.address || "Keizersgracht 42, 1015 CR Amsterdam"}
+                          </span>
+                        </div>
+                        <div className="flex items-baseline gap-2 py-1">
+                          <span className="font-semibold text-[11.5px] text-[#64748b] min-w-[140px] shrink-0">
+                            {t("Residential Address:")}
+                          </span>
+                          <span className="text-[12px] text-[#111215] font-medium leading-snug">
+                            {activeContact.residentialAddress || activeContact.address || "Keizersgracht 42, 1015 CR Amsterdam"}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
+
+                  {/* LEASE & TENANCY SPECS (All 6 requested metrics) */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 p-4 bg-white border-b border-[#e5e7eb]">
+                    <div className="p-2.5 rounded-[8px] bg-[#f8fafc] border border-[#e2e8f0]">
+                      <div className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider">
+                        {t("Monthly Rent")}
+                      </div>
+                      <div className="text-[14px] font-bold text-[#0f172a] mt-1 font-mono">
+                        € 2.450,-
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 rounded-[8px] bg-[#f8fafc] border border-[#e2e8f0]">
+                      <div className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider">
+                        {t("Security Deposit")}
+                      </div>
+                      <div className="text-[14px] font-bold text-[#0f172a] mt-1 font-mono">
+                        € 4.900,-
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 rounded-[8px] bg-[#f8fafc] border border-[#e2e8f0]">
+                      <div className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider">
+                        {t("Lease Commencement")}
+                      </div>
+                      <div className="text-[13px] font-semibold text-[#0f172a] mt-1 font-mono">
+                        01-01-2025
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 rounded-[8px] bg-[#f8fafc] border border-[#e2e8f0]">
+                      <div className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider">
+                        {t("Lease Expiry")}
+                      </div>
+                      <div className="text-[13px] font-semibold text-[#0f172a] mt-1 font-mono">
+                        31-12-2026
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 rounded-[8px] bg-[#f8fafc] border border-[#e2e8f0]">
+                      <div className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider">
+                        {t("Identity & Vetting")}
+                      </div>
+                      <div className="inline-flex items-center gap-1 text-[12px] font-bold text-[#16a34a] mt-1">
+                        <ShieldCheck className="w-3.5 h-3.5 text-[#16a34a]" />
+                        <span>{t("iDIN Verified")}</span>
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 rounded-[8px] bg-[#f8fafc] border border-[#e2e8f0]">
+                      <div className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider">
+                        {t("Payment Status")}
+                      </div>
+                      <div className="text-[12px] font-bold text-emerald-700 mt-1">
+                        {t("Rent up to date")}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Tabs Bar */}
+                  <div className="px-6 flex items-center border-b border-[#e5e7eb] bg-white sticky top-0 z-10">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("mails")}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 py-[9px] px-[14px] pb-[11px] text-[13px] font-medium border-b-2 transition-all cursor-pointer whitespace-nowrap",
+                        activeTab === "mails"
+                          ? "border-[#0f172a] text-[#0f172a] font-semibold"
+                          : "border-transparent text-[#64748b] hover:text-[#0f172a]"
+                      )}
+                    >
+                      <Mail className="w-4 h-4" />
+                      <span>{t("Mails")}</span>
+                      {liveEmails.length > 0 && (
+                        <span className="text-[10.5px] px-1.5 py-0.2 rounded-full bg-[#f1f5f9] text-[#475569] font-mono">
+                          {liveEmails.length}
+                        </span>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("whatsapp")}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 py-[9px] px-[14px] pb-[11px] text-[13px] font-medium border-b-2 transition-all cursor-pointer whitespace-nowrap",
+                        activeTab === "whatsapp"
+                          ? "border-[#0f172a] text-[#0f172a] font-semibold"
+                          : "border-transparent text-[#64748b] hover:text-[#0f172a]"
+                      )}
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                      <span>{t("WhatsApp")}</span>
+                      {liveWhatsApp.length > 0 && (
+                        <span className="text-[10.5px] px-1.5 py-0.2 rounded-full bg-[#f1f5f9] text-[#475569] font-mono">
+                          {liveWhatsApp.length}
+                        </span>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("brixx")}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 py-[9px] px-[14px] pb-[11px] text-[13px] font-medium border-b-2 transition-all cursor-pointer whitespace-nowrap",
+                        activeTab === "brixx"
+                          ? "border-[#0f172a] text-[#0f172a] font-semibold"
+                          : "border-transparent text-[#64748b] hover:text-[#0f172a]"
+                      )}
+                    >
+                      <FileText className="w-4 h-4" />
+                      <span>{t("Brixx")}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("tickets")}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 py-[9px] px-[14px] pb-[11px] text-[13px] font-medium border-b-2 transition-all cursor-pointer whitespace-nowrap",
+                        activeTab === "tickets"
+                          ? "border-[#0f172a] text-[#0f172a] font-semibold"
+                          : "border-transparent text-[#64748b] hover:text-[#0f172a]"
+                      )}
+                    >
+                      <Wrench className="w-4 h-4" />
+                      <span>{t("Tickets")}</span>
+                    </button>
+                  </div>
+
+                  {/* TAB VIEW 1: Mails (Gmail-style) */}
+                  {activeTab === "mails" && (
+                    <div className="flex-1 flex flex-col bg-white">
+                      {/* Search & Action Bar */}
+                      <div className="px-6 py-3 border-b border-[#e5e7eb] flex items-center justify-between gap-3 flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {/* Category Filter */}
+                          <div className="relative">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsCategoryMenuOpen((prev) => !prev);
+                                setIsPriorityMenuOpen(false);
+                              }}
+                              className={cn(
+                                "inline-flex items-center gap-1 h-[27px] px-[11px] text-[11.5px] font-medium rounded-full transition-all cursor-pointer whitespace-nowrap",
+                                mailCategoryFilter !== "all"
+                                  ? "bg-[#0f172a] text-white font-semibold"
+                                  : "bg-white text-[#4b515d] border border-[#e5e7eb] hover:bg-[#f8fafc] hover:text-[#111215]"
+                              )}
+                            >
+                              <span>{mailCategoryFilter === "all" ? t("Category") : `${t("Category")}: ${t(mailCategoryFilter)}`}</span>
+                              <ChevronDown className="w-2.5 h-2.5 opacity-70" />
+                            </button>
+
+                            {isCategoryMenuOpen && (
+                              <div className="absolute top-[calc(100%+5px)] left-0 min-w-[150px] bg-white border border-[#e2e8f0] rounded-[8px] shadow-[0_8px_24px_rgba(15,23,42,0.1)] p-1 z-50 flex flex-col">
+                                {["all", "lease", "payment", "maintenance", "complaint", "admin"].map((cat) => (
+                                  <button
+                                    key={cat}
+                                    type="button"
+                                    onClick={() => {
+                                      setMailCategoryFilter(cat);
+                                      setIsCategoryMenuOpen(false);
+                                    }}
+                                    className={cn(
+                                      "px-2.5 py-1.5 text-[11.5px] rounded-[5px] text-left capitalize transition-colors cursor-pointer",
+                                      mailCategoryFilter === cat
+                                        ? "bg-[#f8fafc] text-[#0f172a] font-semibold"
+                                        : "text-[#334155] hover:bg-[#f1f5f9] hover:text-[#0f172a]"
+                                    )}
+                                  >
+                                    {cat === "all" ? t("All Categories") : t(cat)}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Unread Toggle */}
+                          <button
+                            type="button"
+                            onClick={() => setOnlyUnread((prev) => !prev)}
+                            className={cn(
+                              "inline-flex items-center gap-1 h-[27px] px-[11px] text-[11.5px] font-medium rounded-full transition-all cursor-pointer whitespace-nowrap",
+                              onlyUnread
+                                ? "bg-[#0f172a] text-white font-semibold shadow-2xs"
+                                : "bg-white text-[#4b515d] border border-[#e5e7eb] hover:bg-[#f8fafc] hover:text-[#111215]"
+                            )}
+                          >
+                            <span>{t("Unread")}</span>
+                          </button>
+                        </div>
+
+                        {/* Search in Emails */}
+                        <div className="relative w-full sm:w-[220px]">
+                          <Search className="w-3.5 h-3.5 text-[#94a3b8] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <input
+                            type="text"
+                            placeholder={t("Search in emails...")}
+                            value={mailSearch}
+                            onChange={(e) => setMailSearch(e.target.value)}
+                            className="w-full h-[28px] pl-7 pr-3 text-[11.5px] bg-white border border-[#d5d9e0] rounded-[5px] outline-none focus:border-[#94a3b8] focus:ring-1 focus:ring-black/5"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Detail View of an Opened Email */}
+                      {activeOpenEmail ? (
+                        <div className="p-6 space-y-4">
+                          <button
+                            type="button"
+                            onClick={() => setOpenEmailId(null)}
+                            className="inline-flex items-center gap-1.5 text-xs text-[#475569] font-medium hover:text-[#0f172a] mb-2 cursor-pointer"
+                          >
+                            <ArrowLeft className="w-3.5 h-3.5" />
+                            <span>{t("Back to messages")}</span>
+                          </button>
+
+                          <div className="border border-[#e2e8f0] rounded-xl p-5 bg-white space-y-4 shadow-2xs">
+                            <div className="flex items-start justify-between gap-4 border-b border-[#f1f5f9] pb-4">
+                              <div>
+                                <h3 className="text-base font-bold text-[#0f172a]">
+                                  {activeOpenEmail.subject}
+                                </h3>
+                                <div className="flex items-center gap-2 mt-1 text-xs text-[#64748b]">
+                                  <span className="font-semibold text-[#1e293b]">
+                                    {activeOpenEmail.sender}
+                                  </span>
+                                  <span>&lt;{activeOpenEmail.senderEmail}&gt;</span>
+                                  <span>•</span>
+                                  <span>{activeOpenEmail.date} at {activeOpenEmail.time}</span>
+                                </div>
+                              </div>
+                              <PriorityBadge priority={getEmailPriority(activeOpenEmail)} />
+                            </div>
+
+                            <div className="text-[13px] text-[#334155] leading-relaxed whitespace-pre-wrap py-2">
+                              {activeOpenEmail.body}
+                            </div>
+
+                            {/* AI Draft Response Variants */}
+                            <div className="border-t border-[#f1f5f9] pt-4 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-[#0f172a] uppercase tracking-wider flex items-center gap-1.5">
+                                  <Sparkles className="w-3.5 h-3.5 text-[#2563eb]" />
+                                  AI Suggested Replies
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleGenerateEmailDrafts(activeOpenEmail)}
+                                  disabled={isGeneratingEmailDraft[activeOpenEmail.id]}
+                                  className="text-[11px] font-semibold text-[#2563eb] hover:underline cursor-pointer"
+                                >
+                                  {isGeneratingEmailDraft[activeOpenEmail.id] ? "Drafting..." : "Regenerate variants"}
+                                </button>
+                              </div>
+
+                              {activeOpenEmail.draftVariants && activeOpenEmail.draftVariants.length > 0 && (
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                                  {activeOpenEmail.draftVariants.map((v) => (
+                                    <div
+                                      key={v.id}
+                                      onClick={() => handleSelectEmailDraft(activeOpenEmail.id, v)}
+                                      className={cn(
+                                        "p-3 rounded-lg border text-left cursor-pointer transition-colors text-[11.5px]",
+                                        emailDraftChoices[activeOpenEmail.id] === v.id
+                                          ? "border-[#2563eb] bg-[#eff6ff] text-[#1e3a8a]"
+                                          : "border-[#e2e8f0] bg-white hover:bg-[#f8fafc] text-[#475569]"
+                                      )}
+                                    >
+                                      <div className="font-bold mb-1">{v.label}</div>
+                                      <p className="line-clamp-3 text-[11px]">{v.body}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              <div className="space-y-2 pt-2">
+                                <textarea
+                                  rows={4}
+                                  value={
+                                    emailDraftCustomText[activeOpenEmail.id] !== undefined
+                                      ? emailDraftCustomText[activeOpenEmail.id]
+                                      : activeOpenEmail.draftVariants?.[0]?.body || ""
+                                  }
+                                  onChange={(e) =>
+                                    setEmailDraftCustomText((prev) => ({
+                                      ...prev,
+                                      [activeOpenEmail.id]: e.target.value,
+                                    }))
+                                  }
+                                  className="w-full p-2.5 text-[12px] border border-[#e2e8f0] rounded-[6px] outline-none focus:border-[#2563eb]"
+                                  placeholder="Type custom reply or customize the AI draft..."
+                                />
+                                <div className="flex justify-end">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSendEmailReply(activeOpenEmail)}
+                                    disabled={isSendingEmailReply[activeOpenEmail.id]}
+                                    className="px-4 py-1.5 rounded-[6px] bg-[#0f172a] text-white text-[12px] font-semibold hover:bg-[#1e293b] transition-colors cursor-pointer"
+                                  >
+                                    {isSendingEmailReply[activeOpenEmail.id] ? "Sending..." : "Approve & Send Reply"}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        /* Email list view */
+                        <div className="divide-y divide-[#f1f5f9]">
+                          {filteredEmails.map((email) => (
+                            <div
+                              key={email.id}
+                              onClick={() => setOpenEmailId(email.id)}
+                              className="px-6 py-3.5 hover:bg-[#f8fafc] cursor-pointer transition-colors flex items-center justify-between gap-4"
+                            >
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold text-[13px] text-[#0f172a] truncate">
+                                    {email.subject}
+                                  </span>
+                                  {email.category && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#f1f5f9] text-[#475569] border border-[#e2e8f0] uppercase tracking-wider">
+                                      {email.category}
+                                    </span>
+                                  )}
+                                  <PriorityBadge priority={getEmailPriority(email)} />
+                                </div>
+                                <p className="text-[12px] text-[#64748b] truncate mt-0.5">
+                                  {email.snippet || email.body}
+                                </p>
+                              </div>
+                              <span className="text-[11px] text-[#94a3b8] font-mono shrink-0">
+                                {email.time || email.date}
+                              </span>
+                            </div>
+                          ))}
+
+                          {filteredEmails.length === 0 && (
+                            <div className="text-center py-20 text-[#94a3b8] text-xs">
+                              No email messages on file for this tenant.
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* TAB VIEW 2: WhatsApp Chat */}
+                  {activeTab === "whatsapp" && (
+                    <div className="flex-1 flex flex-col min-h-[500px] bg-[#e5ddd5] overflow-hidden">
+                      <div className="flex-1 overflow-y-auto p-4 sm:p-5 flex flex-col gap-2.5">
+                        {liveWhatsApp && liveWhatsApp.length > 0 ? (
+                          liveWhatsApp.map((msg) => {
+                            const isTenant = msg.sender === "tenant";
+
+                            return (
+                              <div
+                                key={msg.id}
+                                className={cn(
+                                  "flex flex-col max-w-[72%]",
+                                  isTenant ? "mr-auto items-start" : "ml-auto items-end"
+                                )}
+                              >
+                                <div
+                                  className={cn(
+                                    "px-3 py-2 rounded-[8px] text-[13px] leading-relaxed shadow-xs break-words",
+                                    isTenant
+                                      ? "bg-white text-[#111215] rounded-tl-[2px]"
+                                      : "bg-[#e2f7cb] text-[#111215] rounded-tr-[2px]"
+                                  )}
+                                >
+                                  {msg.text}
+                                </div>
+                                <div className="flex items-center gap-1 text-[10px] text-black/40 font-mono mt-0.5 px-1 self-end">
+                                  <span>{msg.time}</span>
+                                  {!isTenant && <CheckCheck className="w-3 h-3 text-[#2563eb]" />}
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div className="text-center py-20 text-[#64748b] text-xs">
+                            No previous WhatsApp messages recorded in database for this tenant.
+                          </div>
+                        )}
+                      </div>
+
+                      {/* WhatsApp Chat Bar — Subtle AI Blue theme */}
+                      <div className="p-3 bg-[#f0f7ff] border-t border-[#bfdbfe] flex flex-col gap-2 shrink-0">
+                        <div className="flex items-center justify-between gap-2 flex-wrap px-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[11px] font-semibold text-[#1d4ed8] flex items-center gap-1">
+                              <Sparkles className="w-3 h-3 text-[#2563eb] animate-wa-sparkle" />
+                              AI Draft:
+                            </span>
+                            {whatsAppDrafts.length > 0 ? (
+                              whatsAppDrafts.map((d, i) => (
+                                <button
+                                  key={d.id || i}
+                                  type="button"
+                                  onClick={() => setWhatsappInput(d.body)}
+                                  className="inline-flex items-center gap-1 h-[26px] px-2.5 rounded-full text-[11px] font-semibold bg-[#eff6ff] hover:bg-[#dbeafe] border border-[#bfdbfe] text-[#1d4ed8] transition-all cursor-pointer shadow-2xs"
+                                  title={d.body}
+                                >
+                                  <span>{d.label || `Draft ${i + 1}`}</span>
+                                </button>
+                              ))
+                            ) : (
+                              <span className="text-[11px] text-[#64748b]">Click generate for suggested replies</span>
+                            )}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={handleGenerateWhatsAppDrafts}
+                            disabled={isGeneratingWhatsAppDrafts}
+                            className="inline-flex items-center gap-1 h-[26px] px-2.5 rounded-full text-[11px] font-medium text-[#1e40af] bg-white border border-[#bfdbfe] hover:bg-[#eff6ff] disabled:opacity-50 transition-colors cursor-pointer"
+                          >
+                            <RotateCw
+                              className={cn(
+                                "w-3 h-3 text-[#2563eb]",
+                                isGeneratingWhatsAppDrafts && "animate-spin"
+                              )}
+                            />
+                            <span>{isGeneratingWhatsAppDrafts ? "Drafting..." : "Generate AI Drafts"}</span>
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-2.5">
+                          <div className="flex-1 flex items-center bg-white border-[1.5px] border-[#93c5fd] focus-within:border-[#2563eb] rounded-[24px] px-3.5 py-1 gap-2 min-h-[42px] shadow-[0_1px_4px_rgba(37,99,235,0.08)] transition-all">
+                            <input
+                              type="text"
+                              value={whatsappInput}
+                              onChange={(e) => setWhatsappInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  handleSendWhatsApp();
+                                }
+                              }}
+                              placeholder={`Message ${activeContact.name} via WhatsApp...`}
+                              className="flex-1 text-[13px] bg-transparent outline-none text-[#111215] placeholder:text-[#8696a0]"
+                            />
+                            <button
+                              type="button"
+                              className="text-[#2563eb] hover:text-[#1d4ed8] p-1 cursor-pointer transition-colors"
+                              title="Voice input"
+                            >
+                              <Mic className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={handleSendWhatsApp}
+                            disabled={isSendingWhatsApp || !whatsappInput.trim()}
+                            className="w-[40px] h-[40px] rounded-full bg-[#2563eb] hover:bg-[#1d4ed8] active:scale-95 text-white flex items-center justify-center shadow-[0_2px_8px_rgba(37,99,235,0.3)] transition-all cursor-pointer shrink-0 disabled:opacity-50"
+                          >
+                            <Send className="w-4 h-4 ml-0.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB VIEW 3: Brixx Data */}
+                  {activeTab === "brixx" && (
+                    <div className="flex-1 flex flex-col p-6 space-y-4 bg-white">
+                      <div>
+                        <h3 className="text-sm font-semibold text-[#111215]">
+                          Brixx Tenancy Agreements & Rent Schedules
+                        </h3>
+                        <p className="text-xs text-[#64748b] mt-0.5">
+                          Active contracts and financial guarantees recorded for {activeContact.name}
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {activeContact.leases && activeContact.leases.length > 0 ? (
+                          activeContact.leases.map((lease) => (
+                            <div
+                              key={lease.id}
+                              className="p-4 rounded-xl border border-[#e2e8f0] bg-[#fafafa] space-y-3"
+                            >
+                              <div className="flex items-start justify-between">
+                                <div>
+                                  <h4 className="text-xs font-bold text-[#111215]">{lease.title}</h4>
+                                  <p className="text-[11px] font-mono text-[#64748b] mt-0.5">{lease.period}</p>
+                                </div>
+                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#f0fdf4] text-[#16a34a] border border-[#bbf7d0] capitalize">
+                                  {lease.status.replace("_", " ")}
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-[#e2e8f0]">
+                                <div>
+                                  <span className="text-[10px] text-[#64748b] uppercase font-bold block">
+                                    MONTHLY RENT
+                                  </span>
+                                  <span className="font-mono font-bold text-[#111215]">{lease.monthlyRent}</span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-[#64748b] uppercase font-bold block">
+                                    DEPOSIT HELD
+                                  </span>
+                                  <span className="font-mono text-[#334155]">{lease.deposit}</span>
+                                </div>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="col-span-2 text-center py-12 text-[#94a3b8] text-xs border border-dashed border-[#e2e8f0] rounded-xl">
+                            No lease agreements currently on file.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB VIEW 4: Tickets */}
+                  {activeTab === "tickets" && (
+                    <div className="flex-1 flex flex-col p-6 space-y-4 bg-white">
+                      {activeContact.name === "Vipin Tyagi" ? (
+                        <div className="p-4 rounded-[8px] border border-[#e2e8f0] bg-white space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-red-50 text-red-700 border border-red-200">
+                                High Urgency
+                              </span>
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-800 border border-amber-200">
+                                Dispatched
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-[#94a3b8] font-mono">Opened 05 Nov 2026</span>
+                          </div>
+                          <div>
+                            <h4 className="text-[14px] font-bold text-[#0f172a]">
+                              Heating System Malfunction
+                            </h4>
+                            <p className="text-[12.5px] text-[#475569] mt-1 leading-relaxed">
+                              Tenant Vipin Tyagi reported that the apartment heating at Keizersgracht 42-A stopped working, causing the unit to become very cold. Contractor Kevin van Dijk (Plumber) has been dispatched via WhatsApp.
+                            </p>
+                          </div>
+                          <div className="text-[11px] text-[#64748b] font-medium pt-2 border-t border-[#f1f5f9]">
+                            Unit: Keizersgracht 42-A · Assigned: Kevin van Dijk (Plumber)
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white border border-dashed border-[#e2e8f0] rounded-[8px]">
+                          <div className="w-12 h-12 rounded-full bg-[#f1f5f9] flex items-center justify-center text-[#64748b] mb-3">
+                            <Wrench className="w-5 h-5 stroke-[1.5]" />
+                          </div>
+                          <h3 className="text-sm font-semibold text-[#111215]">No active ticket repairs</h3>
+                          <p className="text-xs text-[#64748b] max-w-sm mt-1">
+                            There are currently no open work orders or contractor dispatches logged for {activeContact.name}.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-              </div>
-
-              {/* Sticky Footer: Sits at the very bottom above home indicator */}
-              <div className="p-3 border-t border-[var(--line)] bg-[var(--pane)] flex items-center justify-between gap-2 shrink-0">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => router.push(`/inbox?search=${encodeURIComponent(activeTenant.name)}`)}
-                  className="flex-1 text-xs border border-[var(--line)] py-2.5"
-                >
-                  Messages
-                </Button>
-                {activeTenant.rentStatus === "overdue" ? (
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => router.push(`/inbox?search=${encodeURIComponent(activeTenant.name)}`)}
-                    className="flex-1 text-xs bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-black font-semibold py-2.5"
-                  >
-                    ✦ Send reminder
-                  </Button>
-                ) : (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => router.push(`/properties?unit=${encodeURIComponent(activeTenant.unitLabel)}`)}
-                    className="flex-1 text-xs border border-[var(--line)] py-2.5"
-                  >
-                    View unit
-                  </Button>
-                )}
-              </div>
+              )}
             </div>
-          )}
+          </main>
 
-        </div>
-          </div>
-
-          {/* Ask EstateOS Side Panel (40% width on right side) */}
           <AskEstateOSPanel
             currentPageName="Tenants"
-            selectedContext={
-              activeTenant
-                ? `Tenant: ${activeTenant.name} (${activeTenant.unitLabel})`
-                : "Tenants Directory"
-            }
+            selectedContext={`Tenant Profile: ${activeContact?.name || "All Tenants"} · Phone: ${activeContact?.phone || "N/A"} · Email: ${activeContact?.email || "N/A"}`}
+            onActionTriggered={(actionType, payload) => {
+              if (actionType === "navigate" && typeof payload === "string") {
+                router.push(payload);
+              }
+            }}
           />
         </div>
       </div>
 
-      {/* 3. Mobile Bottom Tab Bar - Hidden on full Tenant Detail Screen */}
-      {!isMobileDetailScreen && <MobileTabBar />}
+      <MobileTabBar />
 
-      {/* 4. Full-screen on mobile / 640px dialog on desktop Document Viewer (Section 5.6.1) */}
-      <DocumentViewerModal
-        document={activePreviewDoc}
-        onClose={() => setActivePreviewDoc(null)}
-        entityName={activeTenant?.name}
-        unitLabel={activeTenant?.unitLabel}
+      <ContactFormModal
+        isOpen={contactForm.open}
+        contact={contactForm.contact}
+        onClose={() => setContactForm((f) => ({ ...f, open: false }))}
+        onSaved={handleContactSaved}
       />
-
-
     </div>
   );
 }
 
-function TenantsContent() {
-  const [state, setState] = useState<
-    { status: "loading" } | { status: "error" } | { status: "ready"; tenants: TenantProfile[] }
-  >({ status: "loading" });
-
-  useEffect(() => {
-    let isMounted = true;
-    const load = () =>
-      getTenantProfiles().then((result) => {
-        if (!isMounted) return;
-        if (result.ok) setState({ status: "ready", tenants: result.data });
-        else setState((prev) => (prev.status === "ready" ? prev : { status: "error" }));
-      });
-    void load();
-    const poll = setInterval(load, 30000);
-    return () => {
-      isMounted = false;
-      clearInterval(poll);
-    };
-  }, []);
-
-  if (state.status === "loading") return <PageStateShell title="Tenants" message="Loading tenants…" />;
-  if (state.status === "error") return <PageStateShell title="Tenants" message="Can't reach the server. Retrying…" alert />;
-  if (state.tenants.length === 0) return <PageStateShell title="Tenants" message="No tenants recorded yet." />;
-  return <TenantsView tenants={state.tenants} />;
-}
-
 export default function TenantsPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-sm text-[var(--ink-3)]">Loading Tenants...</div>}>
+    <Suspense fallback={<div className="p-8 text-xs text-zinc-400">Loading tenants...</div>}>
       <TenantsContent />
     </Suspense>
   );
