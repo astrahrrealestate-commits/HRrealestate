@@ -80,6 +80,8 @@ export interface AssistantMessage {
 }
 
 import { useSuperAgent } from "@/context/SuperAgentContext";
+import { useVoiceInput } from "@/hooks/useVoiceInput";
+import { TranslationToggle } from "@/components/inbox/TranslationToggle";
 import { useLanguage } from "@/context/LanguageContext";
 import { BACKEND_BASE_URL, apiFetch } from "@/lib/backend";
 
@@ -153,138 +155,41 @@ export function AskEstateOSPanel({
   };
 
   const isDark = theme === "dark";
-  const [speechLang, setSpeechLang] = useState<"en" | "nl">("en"); // English default, toggleable to Dutch
-  const [isListening, setIsListening] = useState(false);
-  const [isPausingToAutoSend, setIsPausingToAutoSend] = useState(false);
-  const recognitionRef = useRef<any>(null);
-  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const latestSpokenQueryRef = useRef<string>("");
   const handleSendQueryRef = useRef<(q: string) => void>(() => {});
-
-  // Cancel any active auto-send silence timer
-  const cancelAutoSend = () => {
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-    setIsPausingToAutoSend(false);
-  };
-
-  // Clean up speech recognition on unmount
-  useEffect(() => {
-    return () => {
-      cancelAutoSend();
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.abort();
-        } catch {}
+  const {
+    isListening,
+    isPausing: isPausingToAutoSend,
+    error: voiceError,
+    speechLang,
+    setSpeechLang,
+    startListening,
+    stopListening,
+    toggleVoiceInput: toggleVoice,
+    cancelPause,
+  } = useVoiceInput({
+    initialLang: "en",
+    silenceTimeoutMs: 1800, // after 1.8s of silence the spoken question is sent on its own
+    onTranscript: (text) => setInputQuery(text),
+    onSilencePause: (text) => {
+      const queryToSend = text.trim();
+      if (queryToSend) {
+        setInputQuery("");
+        handleSendQueryRef.current(queryToSend);
       }
-    };
-  }, []);
+    },
+  });
 
-  const toggleVoiceInput = (overrideLang?: "en" | "nl") => {
-    if (typeof window === "undefined") return;
-    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRec) {
-      alert("Speech recognition is not supported in this browser. Please use Google Chrome, Microsoft Edge, or Safari.");
-      return;
-    }
-    if (isListening) {
-      cancelAutoSend();
-      try {
-        recognitionRef.current?.stop();
-      } catch {}
-      setIsListening(false);
-      return;
-    }
-    try {
-      const activeLang = overrideLang || speechLang;
-      const recognition = new SpeechRec();
-      // 'nl-NL' for Dutch, 'en-US' for English
-      recognition.lang = activeLang === "nl" ? "nl-NL" : "en-US";
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
+  // Typing cancels a pending auto-send; the shared hook owns the recognition session itself.
+  const cancelAutoSend = cancelPause;
 
-      // Retain existing text as base prefix
-      const basePrefix = inputQuery.trim() ? inputQuery.trim() + " " : "";
-
-      recognition.onstart = () => {
-        setIsListening(true);
-        cancelAutoSend();
-      };
-
-      recognition.onresult = (event: any) => {
-        let interimTranscript = "";
-        let finalTranscript = "";
-
-        for (let i = 0; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript + " ";
-          } else {
-            interimTranscript += event.results[i][0].transcript;
-          }
-        }
-
-        const liveText = (finalTranscript + interimTranscript).trim();
-        if (liveText) {
-          const combined = basePrefix + liveText;
-          setInputQuery(combined);
-          latestSpokenQueryRef.current = combined;
-
-          // Reset silence timer on every new spoken token
-          if (silenceTimerRef.current) {
-            clearTimeout(silenceTimerRef.current);
-          }
-          setIsPausingToAutoSend(true);
-
-          // After 1.8s of silence / pause, auto-send chat query!
-          silenceTimerRef.current = setTimeout(() => {
-            const queryToSend = latestSpokenQueryRef.current.trim();
-            if (queryToSend) {
-              try {
-                recognitionRef.current?.stop();
-              } catch {}
-              setIsListening(false);
-              setIsPausingToAutoSend(false);
-              setInputQuery("");
-              latestSpokenQueryRef.current = "";
-              handleSendQueryRef.current(queryToSend);
-            }
-          }, 1800);
-        }
-      };
-
-      recognition.onend = () => {
-        // Recognition completed
-        setIsListening(false);
-      };
-
-      recognition.onerror = (e: any) => {
-        console.warn("Speech recognition warning:", e);
-        cancelAutoSend();
-        setIsListening(false);
-      };
-
-      recognitionRef.current = recognition;
-      recognition.start();
-    } catch (err) {
-      console.error("Speech recognition could not start:", err);
-      cancelAutoSend();
-      setIsListening(false);
-    }
-  };
+  const toggleVoiceInput = (overrideLang?: "en" | "nl") => toggleVoice(inputQuery, overrideLang);
 
   const handleToggleLang = () => {
-    cancelAutoSend();
     const nextLang = speechLang === "nl" ? "en" : "nl";
     setSpeechLang(nextLang);
-    if (isListening && recognitionRef.current) {
-      try {
-        recognitionRef.current.abort();
-      } catch {}
-      setIsListening(false);
-      setTimeout(() => toggleVoiceInput(nextLang), 100);
+    if (isListening) {
+      stopListening();
+      setTimeout(() => startListening(inputQuery, nextLang), 100);
     }
   };
 
@@ -1094,6 +999,9 @@ export function AskEstateOSPanel({
                         : "Listening (EN)..."}
                     </span>
                   )}
+                  {voiceError && !isListening && (
+                    <span className="text-[11px] text-amber-300 font-medium">{voiceError}</span>
+                  )}
                 </div>
 
                 {/* Right: White Circular Mic Button & Send Button */}
@@ -1688,6 +1596,11 @@ export function AskEstateOSPanel({
                       ),
                     }}
                   />
+
+                {/* The agent writes English; a Dutch dashboard offers the Dutch for it on demand. */}
+                {language === "nl" && msg.id !== "initial-msg" && msg.text.trim() && (
+                  <TranslationToggle text={msg.text} language="en" />
+                )}
 
                 {/* Read citation: subtle inline text */}
                 {msg.readSource && (
@@ -2542,6 +2455,9 @@ export function AskEstateOSPanel({
                         ? "Luisteren (Dutch)..."
                         : "Listening (English)..."}
                     </span>
+                  )}
+                  {voiceError && !isListening && (
+                    <span className="text-[11px] text-amber-500 font-medium pl-1">{voiceError}</span>
                   )}
                 </div>
 

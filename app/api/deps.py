@@ -46,8 +46,9 @@ def get_storage(request: Request) -> ObjectStorage:
     return storage_for(request.app.state)
 
 
-def get_translator(request: Request) -> Translator:
-    return cast(Translator, request.app.state.translator)
+def get_translators(request: Request) -> dict[str, Translator]:
+    """Translators keyed by target language: 'en' translates Dutch, 'nl' translates English."""
+    return cast(dict[str, Translator], request.app.state.translators)
 
 
 def ingest_deps_for(state: Any) -> IngestDeps:

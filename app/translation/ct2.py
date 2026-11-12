@@ -16,9 +16,16 @@ _EOS = "</s>"  # the converted model does not add it itself (add_source_eos is f
 
 
 class Ct2Translator:
-    engine = "opus-mt-nl-en"
-
-    def __init__(self, model_dir: Path, *, threads: int = 2, beam_size: int = 4, loader: Loader | None = None) -> None:
+    def __init__(
+        self,
+        model_dir: Path,
+        *,
+        engine: str = "opus-mt-nl-en",
+        threads: int = 2,
+        beam_size: int = 4,
+        loader: Loader | None = None,
+    ) -> None:
+        self.engine = engine
         self._dir = model_dir
         self._threads = threads
         self._beam = beam_size

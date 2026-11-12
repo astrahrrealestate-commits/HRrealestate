@@ -42,3 +42,13 @@ count. Calling an LLM per message and per draft view is slow and costs money on 
 - Quality is good for ordinary Dutch and weaker for slang or mixed Dutch/English; the original is always shown.
 - A model change should bump `engine` so old rows stay attributable; stale rows can be deleted safely (they refill).
 - Not covered yet: documents/OCR text, invoices, and owner-side Super Agent text (already English).
+
+## Amendment (2026-11-12): English to Dutch
+The dashboard now translates both ways: the owner reads Dutch messages in English, and English text (owner-written
+drafts, agent replies) can be shown or sent in Dutch. Second model `opus-mt-en-nl` (same OPUS-MT family, CTranslate2
+int8, pinned revision of `manancode/opus-mt-en-nl-ctranslate2-android` with SHA-256 checks; the gaudi en-nl repo has
+no model.bin). The pin and hashes come from a one-time download, hash and smoke-test of the files on 2026-11-12
+(correct Dutch for three English property-management sentences), done in the session that wrote this amendment. `translations` gained `target_lang` (migration 0042, unique per company + source hash + target), and
+`text_en` became `text_translated`. `POST /api/inbox/translate` takes `target: en|nl` (default `en`) and returns
+`text`; thread listings annotate cached Dutch on English texts as `bodyDutch` / `dutchMeaning`. Everything else
+(lazy, cached, display-only, sentence splitting, limits) is unchanged and shared by both directions.

@@ -25,7 +25,7 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { formatClock, localDayNumber, localParts } from "@/lib/clock";
 import { EditTicketModal } from "@/components/maintenance/EditTicketModal";
-import { EnglishToggle } from "@/components/inbox/EnglishToggle";
+import { TranslationToggle } from "@/components/inbox/TranslationToggle";
 import { MaintenanceTicket, updateMaintenanceTicket } from "@/lib/api";
 import { BACKEND_BASE_URL } from "@/lib/backend";
 
@@ -437,7 +437,7 @@ export function InboxConversationView({
                     </div>
                   </div>
 
-                  <EnglishToggle text={msg.body} language={msg.language} cachedEnglish={msg.bodyEnglish} align="right" />
+                  <TranslationToggle text={msg.body} language={msg.language} cachedEnglish={msg.bodyEnglish} cachedDutch={msg.bodyDutch} align="right" />
                 </div>
               ) : (
                 // Incoming bubble (left, --selected fill, no border)
@@ -542,7 +542,7 @@ export function InboxConversationView({
                     </div>
                   </div>
 
-                  <EnglishToggle text={msg.body} language={msg.language} cachedEnglish={msg.bodyEnglish} />
+                  <TranslationToggle text={msg.body} language={msg.language} cachedEnglish={msg.bodyEnglish} cachedDutch={msg.bodyDutch} />
                 </div>
               )}
             </React.Fragment>

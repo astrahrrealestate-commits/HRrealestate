@@ -66,5 +66,32 @@ def test_erasing_a_person_deletes_the_translations_of_their_messages_only(
         erase_person(s, company, person_id)
 
     with Session(migrated_engine) as s:
-        remaining = s.scalars(select(Translation.text_en).where(Translation.company_id == company)).all()
+        remaining = s.scalars(select(Translation.text_translated).where(Translation.company_id == company)).all()
+    assert remaining == [f"EN({KEPT_TEXT})"]
+
+
+def test_erasing_a_person_also_deletes_english_to_dutch_rows(migrated_engine: Engine, company: UUID) -> None:
+    """An en->nl row is keyed by the English source, but its Dutch output may be the message sent to the erased
+    person, so erasure drops the whole en->nl cache for the company (it refills on the next translate)."""
+    with Session(migrated_engine) as s:
+        person = Person(company_id=company, kind=PersonKind.tenant, display_name="Jan", valid_from=date(2026, 1, 1))
+        s.add(person)
+        s.flush()
+        raw = RawEvent(company_id=company, provider=Channel.gmail, provider_msg_id="pd", payload={})
+        s.add(raw)
+        s.flush()
+        s.add(MessageRow(company_id=company, raw_event_id=raw.id, channel=Channel.gmail, provider_msg_id="pd",
+                         thread_ref="t", sender_identity="x@y.test", direction=Direction.outbound,
+                         sent_at=datetime(2026, 1, 1, tzinfo=UTC), text="EN(We will send the plumber today.)",
+                         person_id=person.id))  # fmt: skip
+        s.commit()
+        person_id = person.id
+    translate_cached(migrated_engine, Echo(), company, "We will send the plumber today.", target="nl")
+    translate_cached(migrated_engine, Echo(), company, KEPT_TEXT)
+
+    with Session(migrated_engine) as s, s.begin():
+        erase_person(s, company, person_id)
+
+    with Session(migrated_engine) as s:
+        remaining = s.scalars(select(Translation.text_translated).where(Translation.company_id == company)).all()
     assert remaining == [f"EN({KEPT_TEXT})"]

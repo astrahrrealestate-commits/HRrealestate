@@ -53,8 +53,9 @@ frontend: env frontend-install ## dashboard dev server on http://localhost:3000 
 frontend-build: frontend-install ## production build of the dashboard (type-check included)
 	cd frontend && npm run build
 
-translation-model: ## download the local Dutch to English model into .data/models (the Docker image bakes its own)
-	$(UV) python -m app.translation.fetch .data/models/opus-mt-nl-en
+translation-model: ## download the local translation models into .data/models (the Docker image bakes its own)
+	$(UV) python -m app.translation.fetch .data/models/opus-mt-nl-en nl-en
+	$(UV) python -m app.translation.fetch .data/models/opus-mt-en-nl en-nl
 
 requirements: ## regenerate requirements.txt / requirements-dev.txt for pip users from uv.lock (uv.lock stays the source of truth)
 	uv export --frozen --no-hashes --no-dev --no-emit-project -o requirements.txt

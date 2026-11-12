@@ -312,8 +312,10 @@ runs on the in-memory fake; prod refuses `BRIXX_PROVIDER=fake` and a missing tok
 | `BRIXX_SYNC_INTERVAL_MINUTES` | default 15; only the staleness window of the status API uses it (stale after 3 intervals), the cron itself is fixed at every 15 minutes |
 | `BRIXX_TIMEOUT_SEC` | default 60 |
 
-3. **Check.** `make live-check k=brixx` arrives with mirror Phase B (discovery and first load). Until then, after the
-   worker runs, read `GET /api/v1/brixx/status` (dashboard session): `last_run.status` is `succeeded`, `stale` is
+3. **Check.** `make live-check k=brixx` (tests/live/test_live_brixx.py) calls the real Data API with the configured
+   token: it lists the readable tables and describes one, metadata only, never row data. It stops and lists what is
+   missing until `BRIXX_PROVIDER=api` and `BRIXX_TOKEN` are set. Then, after the worker runs, read
+   `GET /api/v1/brixx/status` (dashboard session): `last_run.status` is `succeeded`, `stale` is
    false and no table has a `last_error`. A `BrixxAuthError` there means the token, the header form or the whitelist
    is wrong; it is not retried, and the other tables carry on.
 4. **Rotate the token after go-live.** The current token was exposed in a chat transcript on 2026-10-31. Once the

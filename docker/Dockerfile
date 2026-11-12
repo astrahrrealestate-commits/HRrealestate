@@ -12,10 +12,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --frozen --no-dev --no-install-project
-# The local Dutch to English model (ADR 0011): pinned revision, checksum-verified, ~160 MB. Fetched before the app is
-# copied, so code changes never download it again.
+# The local translation models (ADR 0011): pinned revisions, checksum-verified, ~160 MB each. Fetched before the app
+# is copied, so code changes never download them again.
 COPY app/translation/fetch.py /tmp/fetch_translation_model.py
-RUN /app/.venv/bin/python /tmp/fetch_translation_model.py /app/models/opus-mt-nl-en
+RUN /app/.venv/bin/python /tmp/fetch_translation_model.py /app/models/opus-mt-nl-en nl-en && \
+    /app/.venv/bin/python /tmp/fetch_translation_model.py /app/models/opus-mt-en-nl en-nl
 COPY alembic.ini ./
 COPY app ./app
 
@@ -28,7 +29,8 @@ COPY --from=builder /app /app
 # Unused in prod (prod refuses fake providers and local storage); prod hardening runs with a read-only root (M8).
 RUN mkdir /app/.data && chown 10001 /app/.data
 ENV PATH="/app/.venv/bin:${PATH}" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
-    TRANSLATION_MODEL_DIR=/app/models/opus-mt-nl-en
+    TRANSLATION_MODEL_DIR=/app/models/opus-mt-nl-en \
+    TRANSLATION_MODEL_DIR_EN_NL=/app/models/opus-mt-en-nl
 USER estateos
 EXPOSE 8000
 CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

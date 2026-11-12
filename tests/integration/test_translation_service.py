@@ -46,10 +46,10 @@ def test_dutch_text_is_translated_and_stored(migrated_engine: Engine, companies:
     tr = CountingTranslator()
     result = translate_cached(migrated_engine, tr, a, DUTCH)
     assert result is not None
-    assert (result.text_en, result.cached, result.language) == (f"EN({DUTCH})", False, "nl")
+    assert (result.text, result.cached, result.language) == (f"EN({DUTCH})", False, "nl")
     with Session(migrated_engine) as s:
         row = s.scalars(select(Translation).where(Translation.company_id == a)).one()
-    assert (row.text_en, row.engine, row.source_lang) == (f"EN({DUTCH})", "fake-nl-en", "nl")
+    assert (row.text_translated, row.engine, row.source_lang) == (f"EN({DUTCH})", "fake-nl-en", "nl")
 
 
 def test_second_request_for_same_text_does_not_run_the_model(
@@ -107,3 +107,33 @@ def test_text_that_is_not_dutch_is_not_translated_or_stored(
     tr = CountingTranslator()
     assert translate_cached(migrated_engine, tr, a, "Bonjour, le chauffage ne marche pas.") is None
     assert tr.segments == []
+
+
+ENGLISH = "Good morning, could you please send the plumber to the kitchen?"
+
+
+def test_english_text_is_translated_to_dutch_when_target_is_nl(
+    migrated_engine: Engine, companies: tuple[UUID, UUID]
+) -> None:
+    a, _ = companies
+    tr = CountingTranslator()
+    result = translate_cached(migrated_engine, tr, a, ENGLISH, target="nl")
+    assert result is not None
+    assert (result.text, result.cached, result.language) == (f"EN({ENGLISH})", False, "en")
+    with Session(migrated_engine) as s:
+        row = s.scalars(select(Translation).where(Translation.company_id == a)).one()
+    assert (row.text_translated, row.source_lang, row.target_lang) == (f"EN({ENGLISH})", "en", "nl")
+
+
+def test_dutch_text_with_target_nl_is_not_translated(migrated_engine: Engine, companies: tuple[UUID, UUID]) -> None:
+    a, _ = companies
+    tr = CountingTranslator()
+    assert translate_cached(migrated_engine, tr, a, DUTCH, target="nl") is None
+    assert tr.segments == []
+
+
+def test_directions_cache_separately(migrated_engine: Engine, companies: tuple[UUID, UUID]) -> None:
+    a, _ = companies
+    translate_cached(migrated_engine, CountingTranslator(), a, DUTCH)
+    assert cached_translations(migrated_engine, a, [DUTCH], target="nl") == {}
+    assert cached_translations(migrated_engine, a, [DUTCH], target="en") == {source_hash(DUTCH): f"EN({DUTCH})"}

@@ -77,7 +77,9 @@ def _world(engine: Engine, pg_url: str, translator: FakeTranslator | BrokenTrans
         s.commit()
         settings = Settings(database_url=pg_url, env="test", _env_file=None)  # type: ignore[call-arg]
         owner = Principal(company_id=company.id, owner_id=uuid4(), email="harjot@example.test")
-        app = create_app(settings, engine=engine, workflow_client=FakeClient(), translator=translator)
+        app = create_app(
+            settings, engine=engine, workflow_client=FakeClient(), translator=translator, translator_en_nl=translator
+        )
         with TestClient(as_owner(app, owner)) as client:
             yield World(
                 client, engine, company.id, translator if isinstance(translator, FakeTranslator) else FakeTranslator()
@@ -105,17 +107,44 @@ def test_translate_returns_english_then_serves_it_from_the_cache(world: World) -
     first = world.client.post("/api/inbox/translate", json={"text": TENANT_NL}).json()
     assert first["language"] == "nl"
     assert first["cached"] is False
-    assert first["textEn"].startswith("EN[Goedemorgen")
+    assert first["text"].startswith("EN[Goedemorgen")
     again = world.client.post("/api/inbox/translate", json={"text": TENANT_NL}).json()
     assert again["cached"] is True
-    assert again["textEn"] == first["textEn"]
+    assert again["text"] == first["text"]
     assert len(world.translator.segments) == 2  # two sentences, translated once
 
 
 def test_english_text_comes_back_without_a_translation(world: World) -> None:
     body = world.client.post("/api/inbox/translate", json={"text": "Thanks, that works for me."}).json()
-    assert body == {"language": "en", "textEn": None, "cached": False}
+    assert body == {"language": "en", "target": "en", "text": None, "cached": False}
     assert world.translator.segments == []
+
+
+def test_english_text_is_translated_to_dutch_when_target_is_nl(world: World) -> None:
+    english = "Good morning, the plumber will come to the kitchen tomorrow."
+    first = world.client.post("/api/inbox/translate", json={"text": english, "target": "nl"}).json()
+    assert (first["language"], first["target"], first["cached"]) == ("en", "nl", False)
+    assert first["text"].startswith("EN[Good morning")  # the fake echoes; the real model is opus-mt-en-nl
+    again = world.client.post("/api/inbox/translate", json={"text": english, "target": "nl"}).json()
+    assert again["cached"] is True
+
+
+def test_dutch_text_with_target_nl_comes_back_without_a_translation(world: World) -> None:
+    body = world.client.post("/api/inbox/translate", json={"text": TENANT_NL, "target": "nl"}).json()
+    assert body == {"language": "nl", "target": "nl", "text": None, "cached": False}
+
+
+def test_threads_carry_cached_dutch_on_english_messages(world: World) -> None:
+    english = "Thanks for the message, we will send a plumber today to fix this."
+    with Session(world.engine) as s:
+        s.scalars(select(MessageRow).where(MessageRow.company_id == world.company_id)).one().text = english
+        s.commit()
+    world.client.post("/api/inbox/translate", json={"text": english, "target": "nl"})
+    thread = _thread(world)
+    [message] = thread["messages"]
+    assert message["language"] == "en"
+    assert message["bodyDutch"].startswith("EN[Thanks")
+    assert "bodyEnglish" not in message
 
 
 def test_blank_and_oversized_text_are_rejected(world: World) -> None:
@@ -160,7 +189,7 @@ def test_other_companys_cache_is_not_served(world: World, migrated_engine: Engin
         from app.translation.service import source_hash
 
         s.add(Translation(company_id=other.id, source_hash=source_hash(TENANT_NL), source_lang="nl",
-                          text_en="LEAK", engine="x"))  # fmt: skip
+                          text_translated="LEAK", target_lang="en", engine="x"))  # fmt: skip
         s.commit()
         try:
             assert (

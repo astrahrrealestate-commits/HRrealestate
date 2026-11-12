@@ -72,6 +72,7 @@ def create_app(
     id_token_verifier: dashboard_auth.IdTokenVerifier | None = None,
     storage: ObjectStorage | None = None,
     translator: Translator | None = None,
+    translator_en_nl: Translator | None = None,
 ) -> FastAPI:
 
     settings = settings or get_settings()
@@ -97,7 +98,10 @@ def create_app(
 
         api.state.storage = storage
 
-        api.state.translator = translator or Ct2Translator(settings.translation_model_dir)  # model loads on first use
+        api.state.translators = {  # keyed by target language; each model loads on first use
+            "en": translator or Ct2Translator(settings.translation_model_dir),
+            "nl": translator_en_nl or Ct2Translator(settings.translation_model_dir_en_nl, engine="opus-mt-en-nl"),
+        }
 
         api.state.workflow_client = workflow_client or DBOSClient(
             system_database_url=settings.dbos_database_url, lazy=True

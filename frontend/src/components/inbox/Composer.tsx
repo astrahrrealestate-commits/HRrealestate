@@ -7,8 +7,8 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { DraftOption } from "@/types/dashboard";
 import { DraftPersona } from "@/types/inbox";
-import { createGmailDraft } from "@/lib/api";
-import { EnglishToggle } from "@/components/inbox/EnglishToggle";
+import { createGmailDraft, translateText } from "@/lib/api";
+import { TranslationToggle } from "@/components/inbox/TranslationToggle";
 import { formatClock } from "@/lib/clock";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 
@@ -74,6 +74,9 @@ export function Composer({
   const [fullEditText, setFullEditText] = useState("");
   const [undoSeconds, setUndoSeconds] = useState(30);
   const [isDraftingGmail, setIsDraftingGmail] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [lastTranslation, setLastTranslation] = useState<{ from: string; to: string } | null>(null);
+  const [translateNotice, setTranslateNotice] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const typedByThread = useRef<Record<string, string>>({});
   const key = threadKey ?? "";
@@ -81,6 +84,7 @@ export function Composer({
   const isDutchThread = (detectedLanguage || "").toLowerCase().includes("dutch") || drafts.some((d) => d.language === "nl");
   const {
     isListening,
+    error: voiceError,
     speechLang,
     setSpeechLang,
     toggleVoiceInput,
@@ -99,9 +103,27 @@ export function Composer({
   const editContent = (value: string) => {
     typedByThread.current[key] = value;
     setContent(value);
+    setTranslateNotice(null);
   };
   const forgetTyped = () => {
     delete typedByThread.current[key];
+  };
+  // Replace the box with the Dutch for what is in it; "Undo translation" brings the original back.
+  const translateContentToDutch = async () => {
+    const original = content.trim();
+    if (!original || isTranslating) return;
+    setIsTranslating(true);
+    setTranslateNotice(null);
+    const result = await translateText(original, "nl");
+    if (result?.text) {
+      setLastTranslation({ from: content, to: result.text });
+      editContent(result.text);
+    } else if (result && result.language !== "en") {
+      setTranslateNotice("The text does not read as English, so there is nothing to translate.");
+    } else {
+      setTranslateNotice("Translation is not available right now.");
+    }
+    setIsTranslating(false);
   };
   const handleRejectClick = () => {
     forgetTyped();
@@ -436,6 +458,20 @@ export function Composer({
               <span>{speechLang === "nl" ? "🇳🇱 NL" : "🇬🇧 EN"}</span>
             </button>
 
+            {/* Translate the box to Dutch: owner types English, the tenant reads Dutch. Local model, cached. */}
+            {content.trim() && (
+              <button
+                type="button"
+                onClick={() => void translateContentToDutch()}
+                disabled={isTranslating}
+                className="text-[10.5px] font-bold px-2 py-0.5 rounded-full border transition-all cursor-pointer flex items-center gap-1 select-none bg-[var(--pane)] hover:bg-[var(--selected)] text-[var(--ink-2)] hover:text-[var(--ink)] border-[var(--line)] disabled:opacity-60"
+                title="Translate the text in the box to Dutch before sending"
+              >
+                {isTranslating ? <Loader2 className="w-3 h-3 animate-spin" /> : <span>→ 🇳🇱</span>}
+                <span>{isTranslating ? "Vertalen…" : "Translate to Dutch"}</span>
+              </button>
+            )}
+
             {isListening && (
               <span className="text-[11.5px] text-cyan-600 dark:text-cyan-400 font-medium animate-pulse flex items-center gap-1.5 pl-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-ping inline-block" />
@@ -446,14 +482,35 @@ export function Composer({
                 </span>
               </span>
             )}
+
+            {voiceError && !isListening && (
+              <span className="text-[11.5px] text-amber-600 dark:text-amber-400 font-medium pl-1">{voiceError}</span>
+            )}
+            {translateNotice && !isTranslating && (
+              <span className="text-[11.5px] text-amber-600 dark:text-amber-400 font-medium pl-1">{translateNotice}</span>
+            )}
           </div>
 
-          {/* English for the text in the box: a Dutch draft, edited or not. Translated only when opened. */}
-          <EnglishToggle
+          {/* Translation for the text in the box: English for a Dutch draft, Dutch for an English one. */}
+          <TranslationToggle
             text={content}
-            language={drafts.some((d) => d.language === "nl") ? "nl" : undefined}
+            language={drafts.find((d) => d.text.trim() === content.trim())?.language
+              ?? (drafts.some((d) => d.language === "nl") ? "nl" : undefined)}
             cachedEnglish={drafts.find((d) => d.text.trim() === content.trim())?.englishMeaning}
+            cachedDutch={drafts.find((d) => d.text.trim() === content.trim())?.dutchMeaning}
           />
+          {lastTranslation && content === lastTranslation.to && (
+            <button
+              type="button"
+              onClick={() => {
+                editContent(lastTranslation.from);
+                setLastTranslation(null);
+              }}
+              className="pl-2 text-xs text-[var(--ink-3)] underline hover:text-[var(--ink)] cursor-pointer"
+            >
+              Undo translation
+            </button>
+          )}
         </div>
 
         {/* Bottom Bar: Action proposal & Buttons */}

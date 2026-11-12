@@ -16,6 +16,7 @@ export interface DraftOption {
   inResponseTo?: string; // Exact quote of the message this draft replies to
   language?: "nl" | "en" | "unknown";
   englishMeaning?: string; // cached English of a Dutch draft
+  dutchMeaning?: string; // cached Dutch of an English draft
 }
 
 export interface MultiPartyDrafts {

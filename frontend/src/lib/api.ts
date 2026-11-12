@@ -152,6 +152,7 @@ export async function getInboxThreads(
                   timeFormatted: m.timeFormatted || (m.timestamp || "Today"),
                   body: m.body || m.content || "",
                   bodyEnglish: m.bodyEnglish || undefined,
+                  bodyDutch: m.bodyDutch || undefined,
                   language: m.language,
                   channel: m.channel || channel,
                   replyTo: m.replyTo,
@@ -1528,20 +1529,21 @@ export async function generateWhatsAppDrafts(
 
 export interface TranslateResult {
   language: "nl" | "en" | "unknown";
-  textEn: string | null;
+  target: "en" | "nl";
+  text: string | null;
   cached: boolean;
 }
 
 /**
  * POST /api/inbox/translate. Resolves null when the server cannot translate (model missing, offline).
- * The server runs the model once per distinct text, so asking again is cheap.
+ * The server runs the model once per distinct text and direction, so asking again is cheap.
  */
-export async function translateToEnglish(text: string): Promise<TranslateResult | null> {
+export async function translateText(text: string, target: "en" | "nl" = "en"): Promise<TranslateResult | null> {
   try {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/translate`, {
       method: "POST",
       headers: { Accept: "application/json", "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, target }),
       signal: AbortSignal.timeout(30000),
     });
     return res.ok ? ((await res.json()) as TranslateResult) : null;
@@ -1549,6 +1551,9 @@ export async function translateToEnglish(text: string): Promise<TranslateResult 
     return null;
   }
 }
+
+/** Back-compat alias for callers that only need Dutch to English. */
+export const translateToEnglish = (text: string) => translateText(text, "en");
 
 // ---------------------------------------------------------------------------
 // Tenant Rent & Collections Ledger

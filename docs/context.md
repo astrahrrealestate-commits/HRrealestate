@@ -1,6 +1,6 @@
 # Project context (auto)
 
-Generated: 2026-11-11T07:19:04.562Z
+Generated: 2026-11-12T06:16:55.465Z
 
 ## Detected stack
 
@@ -9,65 +9,58 @@ Generated: 2026-11-11T07:19:04.562Z
 
 ## Git
 
-- Branch: `main`
-- HEAD: `91432dc`
+- Branch: `m-client-ready-sweep`
+- HEAD: `f83e293`
 
 ## Recent commits
 
-- `91432dc` fix(access): reports and dashboard profiles read summaries, and an email is unique per company _(Aditya Jain, 2026-11-11)_
-- `62a2e18` feat(access): named team profiles with per-section access, and contacts added by hand _(Aditya Jain, 2026-11-10)_
-- `664528f` test(api): reset cached WhatsApp media credentials in the prod docs test _(Aditya Jain, 2026-11-10)_
-- `bda74ce` fix(dashboard): build Open rent from the tenants and drop the invented 142 _(Aditya Jain, 2026-11-10)_
-- `069fd53` fix(connections): show real WhatsApp and BRIXX state, handle Esc, and stop reporting offline as disconnected _(Aditya Jain, 2026-11-10)_
-- `a15281b` fix(reports): build the Reports page from live data and make Copy as CSV safe _(Aditya Jain, 2026-11-10)_
-- `dafdf22` feat(api): report the WhatsApp setup status so the Connections panel stops faking it _(Aditya Jain, 2026-11-10)_
-- `a27454a` fix(auth): name a signed-in owner by their Google name when no whitelist row exists _(Aditya Jain, 2026-11-10)_
-- `a2404eb` feat(dashboard): global search palette and memory restatement dedup _(Aditya Jain, 2026-11-10)_
-- `9c0bdec` feat(translation): translate Dutch to English on demand with a local model, cached in Postgres _(Aditya Jain, 2026-11-10)_
-- `b1d7091` docs: QA bug list from the 2026-11-09 E2E run, refresh generated project context _(Aditya Jain, 2026-11-10)_
-- `47114e4` fix(portfolio): make the View messages, View tickets and Contact tenant links land on what they name _(Aditya Jain, 2026-11-10)_
-- `7bcf338` fix(dashboard): the emergency card shows its own ticket and no invented figures _(Aditya Jain, 2026-11-10)_
-- `cc2fae5` fix(superagent): say when a draft is for another channel, and that it cannot rewrite drafts _(Aditya Jain, 2026-11-10)_
-- `92e1b21` fix(superagent): proper sentences in the suggested prompts and the urgent count _(Aditya Jain, 2026-11-10)_
-- `b6fbe70` fix(superagent): ticket refs that differ, and no ticket cards under a clarifying question _(Aditya Jain, 2026-11-10)_
-- `a419193` fix(superagent): stop showing pipeline debug and invented work steps to the owner _(Aditya Jain, 2026-11-10)_
-- `225e5cd` fix(superagent): say what a task is, and let "done #ref" really close it _(Aditya Jain, 2026-11-10)_
-- `52aae1e` fix(superagent): say there is no rent data instead of answering "0" _(Aditya Jain, 2026-11-10)_
-- `127de5d` fix(superagent): answer a question about a street for that street _(Aditya Jain, 2026-11-10)_
+- `f83e293` chore(deps): google-genai 3.1.0 in the lock, and the merge notes _(Aditya Jain, 2026-11-11)_
+- `01adfe0` chore(merge): dependabot dependency-review-action 5.0.0 _(Aditya Jain, 2026-11-11)_
+- `142eed5` chore(merge): dependabot docker astral-sh/uv 0.13.7 _(Aditya Jain, 2026-11-11)_
+- `3f490d8` chore(merge): wip/brixx-uncommitted-snapshot (archived patch under docs/wip) _(Aditya Jain, 2026-11-11)_
+- `2b855cb` chore(merge): experiment-superagent-ui, Tenant Directory and Dutch translations _(Aditya Jain, 2026-11-11)_
+- `a47672f` fix(i18n): wire Dutch translations for money subheaders, maintenance table headers, emergency action bar, and email category filters _(Suryansh Tyagi, 2026-11-11)_
+- `91bbc0a` feat(i18n): add comprehensive Dutch translations for filters, money, charts, and tenancy cards _(Suryansh Tyagi, 2026-11-11)_
+- `f7ee171` chore(merge): origin/main into the experiment-superagent-ui merge _(Aditya Jain, 2026-11-11)_
+- `05a526f` chore(merge): experiment-superagent-ui (rent ledger, Money page, i18n, voice, mobile Super Agent) _(Aditya Jain, 2026-11-11)_
+- `f6efd6e` feat(tenants): match exact contacts UI, colors, logic, and tabs filtered strictly to tenants _(Suryansh Tyagi, 2026-11-11)_
+- `427cdd2` chore(merge): bring origin/main into m-bugfix-sweep _(Aditya Jain, 2026-11-11)_
+- `1a5d24a` fix: gate the Super Agent, cap event streams, and stop the SPA inventing greetings, sync 429s and fallback figures _(Aditya Jain, 2026-11-11)_
+- `dbea035` feat(tenants): redesign Tenant Directory to mirror Contacts layout with tenancy specs and live comms _(Suryansh Tyagi, 2026-11-11)_
+- `bd1c410` fix(maintenance): list real contractor, drop invented cap and SLA, and stop a cross-company contractor lookup _(Aditya Jain, 2026-11-11)_
+- `987ff3f` fix(properties): resolve lease status logic, dynamic case ticket counts, and occupied tab filtering _(Suryansh Tyagi, 2026-11-11)_
+- `f248aba` fix(access): the dev owner and the first profile's creator keep their own profile _(Aditya Jain, 2026-11-11)_
+- `c384492` docs: refresh generated project context _(Aditya Jain, 2026-11-11)_
+- `e4e17b5` feat(portfolio): connect properties and tenants with live contact channels, rent ledger, and unit specs _(Suryansh Tyagi, 2026-11-11)_
+- `ac5d37c` feat(frontend): Money back in the navigation, Team & access and Add a profile in the user menu _(Aditya Jain, 2026-11-11)_
+- `84f15e2` fix(frontend): render the page behind the section guard's loading state _(Aditya Jain, 2026-11-11)_
 
 ## Inferred recent decisions
 
-- `91432dc` fix(access): reports and dashboard profiles read summaries, and an email is unique per company
-- `62a2e18` feat(access): named team profiles with per-section access, and contacts added by hand
-- `bda74ce` fix(dashboard): build Open rent from the tenants and drop the invented 142
-- `069fd53` fix(connections): show real WhatsApp and BRIXX state, handle Esc, and stop reporting offline as disconnected
-- `a15281b` fix(reports): build the Reports page from live data and make Copy as CSV safe
-- `dafdf22` feat(api): report the WhatsApp setup status so the Connections panel stops faking it
-- `a27454a` fix(auth): name a signed-in owner by their Google name when no whitelist row exists
-- `a2404eb` feat(dashboard): global search palette and memory restatement dedup
-- `9c0bdec` feat(translation): translate Dutch to English on demand with a local model, cached in Postgres
-- `47114e4` fix(portfolio): make the View messages, View tickets and Contact tenant links land on what they name
-- `7bcf338` fix(dashboard): the emergency card shows its own ticket and no invented figures
-- `cc2fae5` fix(superagent): say when a draft is for another channel, and that it cannot rewrite drafts
-- `92e1b21` fix(superagent): proper sentences in the suggested prompts and the urgent count
-- `b6fbe70` fix(superagent): ticket refs that differ, and no ticket cards under a clarifying question
-- `a419193` fix(superagent): stop showing pipeline debug and invented work steps to the owner
-- `225e5cd` fix(superagent): say what a task is, and let "done #ref" really close it
-- `52aae1e` fix(superagent): say there is no rent data instead of answering "0"
-- `127de5d` fix(superagent): answer a question about a street for that street
+- `a47672f` fix(i18n): wire Dutch translations for money subheaders, maintenance table headers, emergency action bar, and email category filters
+- `91bbc0a` feat(i18n): add comprehensive Dutch translations for filters, money, charts, and tenancy cards
+- `f6efd6e` feat(tenants): match exact contacts UI, colors, logic, and tabs filtered strictly to tenants
+- `1a5d24a` fix: gate the Super Agent, cap event streams, and stop the SPA inventing greetings, sync 429s and fallback figures
+- `dbea035` feat(tenants): redesign Tenant Directory to mirror Contacts layout with tenancy specs and live comms
+- `bd1c410` fix(maintenance): list real contractor, drop invented cap and SLA, and stop a cross-company contractor lookup
+- `987ff3f` fix(properties): resolve lease status logic, dynamic case ticket counts, and occupied tab filtering
+- `f248aba` fix(access): the dev owner and the first profile's creator keep their own profile
+- `e4e17b5` feat(portfolio): connect properties and tenants with live contact channels, rent ledger, and unit specs
+- `ac5d37c` feat(frontend): Money back in the navigation, Team & access and Add a profile in the user menu
+- `84f15e2` fix(frontend): render the page behind the section guard's loading state
 
 ## Hotspots
 
-- 60x — `docs/PROGRESS.md`
-- 45x — `app/api/agent/routes.py`
+- 62x — `docs/PROGRESS.md`
+- 46x — `app/api/agent/routes.py`
+- 37x — `frontend/src/components/assistant/AskEstateOSPanel.tsx`
 - 35x — `pyproject.toml`
 - 34x — `app/api/inbox/routes.py`
 - 33x — `app/core/settings.py`
-- 31x — `frontend/src/components/assistant/AskEstateOSPanel.tsx`
 - 30x — `docs/dashboard-api.md`
 - 27x — `tests/unit/api/__snapshots__/test_openapi_snapshot.ambr`
 - 27x — `app/workflows/runtime.py`
-- 26x — `.env.example`
+- 26x — `frontend/src/lib/api.ts`
 
 ## Top-level tree
 
@@ -110,10 +103,12 @@ Generated: 2026-11-11T07:19:04.562Z
 .claude/skills/retro/
 .claude/skills/ship/
 .claude/worktrees/
+.claude/worktrees/m-bugfix-sweep/
 .claude/worktrees/m-founderos-lessons/
 .coverage
 .data/
 .data/models/
+.data/models/opus-mt-en-nl/
 .data/models/opus-mt-nl-en/
 .dockerignore
 .env
@@ -131,6 +126,7 @@ Generated: 2026-11-11T07:19:04.562Z
 .hypothesis/constants/01b8e3c637b8109e
 .hypothesis/constants/020b42d5c9ec5bd3
 .hypothesis/constants/021cab0b131c3d27
+.hypothesis/constants/02341df55f048e14
 .hypothesis/constants/025364ce523ac2e3
 .hypothesis/constants/0299ab0ecd7b9af7
 .hypothesis/constants/02af8e2877328043
@@ -149,6 +145,7 @@ Generated: 2026-11-11T07:19:04.562Z
 .hypothesis/constants/05f6f9f5ce335b00
 .hypothesis/constants/0663b6384f92d284
 .hypothesis/constants/066dcc2451d28d3d
+.hypothesis/constants/06b16bf0adda75ba
 .hypothesis/constants/06fc84a8ded75372
 .hypothesis/constants/071c066c9f36a75d
 .hypothesis/constants/0741646aec08f0a4
@@ -210,10 +207,12 @@ Generated: 2026-11-11T07:19:04.562Z
 .hypothesis/constants/11b9c5c92cd45506
 .hypothesis/constants/11ce61e7d98bef38
 .hypothesis/constants/11ed984919a4c108
+.hypothesis/constants/1214fb91a3ec0ce5
 .hypothesis/constants/123e9576de3051b0
 .hypothesis/constants/12af14c4068abbfb
 .hypothesis/constants/12ca5a8a7e159b1d
 .hypothesis/constants/12fc7ebb940e41f5
+.hypothesis/constants/1309a78a70d3b814
 .hypothesis/constants/136b95391794680f
 .hypothesis/constants/1372f01307654ad7
 .hypothesis/constants/13a9da2a7533455a
@@ -245,6 +244,7 @@ Generated: 2026-11-11T07:19:04.562Z
 .hypothesis/constants/18ac05979d68b886
 .hypothesis/constants/18b75e180da594de
 .hypothesis/constants/18cbaebcf558e677
+.hypothesis/constants/18dac4c9f22a7e70
 .hypothesis/constants/18e8e4f038c394a2
 .hypothesis/constants/192242756f9e15d5
 .hypothesis/constants/196704790a8481a7
@@ -265,11 +265,4 @@ Generated: 2026-11-11T07:19:04.562Z
 .hypothesis/constants/1bdd85f9d037852f
 .hypothesis/constants/1be411ee2443de67
 .hypothesis/constants/1be8d5608ceaab27
-.hypothesis/constants/1c0df7e4b973cf7a
-.hypothesis/constants/1c196534129813c5
-.hypothesis/constants/1c1ae9dd04497256
-.hypothesis/constants/1c72227e927f1610
-.hypothesis/constants/1ca62d6cef2fe2d1
-.hypothesis/constants/1dc1ab6c5c65cc09
-.hypothesis/constants/1dfd9aafce590564
 ```
