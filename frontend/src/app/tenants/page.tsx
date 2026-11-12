@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, Suspense } from "react";
+import React, { useState, useMemo, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
@@ -23,11 +23,13 @@ import {
   CheckCircle2,
   CornerDownRight,
   Mic,
+  MicOff,
   Filter,
   Phone,
   Plus,
   Pencil,
   ShieldCheck,
+  Info,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSuperAgent } from "@/context/SuperAgentContext";
@@ -50,6 +52,8 @@ import {
 import { formatClock } from "@/lib/clock";
 import { ContactFormModal } from "@/components/contacts/ContactFormModal";
 import type { SavedContact } from "@/lib/contactsWriteApi";
+import { useVoiceInput } from "@/hooks/useVoiceInput";
+import { FlagUK, FlagNL } from "@/components/ui/FlagIcons";
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -70,26 +74,30 @@ function PriorityBadge({ priority }: { priority: "emergency" | "high" | "normal"
   switch (priority) {
     case "emergency":
       return (
-        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight bg-red-50 text-red-700 border border-red-200 shrink-0">
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-tight bg-white text-[var(--ink)] border border-[var(--line)] shrink-0">
+          <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
           Emergency
         </span>
       );
     case "high":
       return (
-        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight bg-amber-50 text-amber-700 border border-amber-200 shrink-0">
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-tight bg-white text-[var(--ink)] border border-[var(--line)] shrink-0">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
           High
         </span>
       );
     case "normal":
       return (
-        <span className="px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-tight bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-tight bg-white text-[var(--ink-2)] border border-[var(--line)] shrink-0">
+          <span className="w-1.5 h-1.5 rounded-full bg-[#2563eb]" />
           Normal
         </span>
       );
     case "low":
     default:
       return (
-        <span className="px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-tight bg-zinc-100 text-zinc-600 border border-zinc-200 shrink-0">
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-tight bg-white text-[var(--ink-3)] border border-[var(--line)] shrink-0">
+          <span className="w-1.5 h-1.5 rounded-full bg-zinc-400" />
           Low
         </span>
       );
@@ -173,11 +181,32 @@ function TenantsContent() {
     return () => { isMounted = false; };
   }, []);
 
-  // Profile Card Collapsed/Expanded state (#f0f5fb subtle blue)
-  const [isProfileExpanded, setIsProfileExpanded] = useState(true);
+  // Profile Card Collapsed/Expanded state (#f0f5fb subtle blue; null = collapsed on <md mobile, expanded on >=md desktop)
+  const [isProfileExpanded, setIsProfileExpanded] = useState<boolean | null>(null);
+  const [mobileInfoPref, setMobileInfoPref] = useState<{ contactId: string; expanded: boolean }>({
+    contactId: "",
+    expanded: true,
+  });
+  const whatsappTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleToggleProfileExpanded = () => {
+    setIsProfileExpanded((prev) => {
+      if (prev === null) {
+        return typeof window !== "undefined" && window.innerWidth >= 768 ? false : true;
+      }
+      return !prev;
+    });
+  };
 
   // Detail pane tabs: "mails" | "whatsapp" | "brixx" | "tickets"
   const [activeTab, setActiveTab] = useState<"mails" | "whatsapp" | "brixx" | "tickets">("mails");
+
+  const handleSelectTab = (tab: "mails" | "whatsapp" | "brixx" | "tickets", contactId?: string) => {
+    setActiveTab(tab);
+    if (contactId) {
+      setMobileInfoPref({ contactId, expanded: false });
+    }
+  };
 
   // Mail filter state: Category & 4 Priorities
   const [mailCategoryFilter, setMailCategoryFilter] = useState<string>("all");
@@ -209,6 +238,9 @@ function TenantsContent() {
     );
   }, [dbContacts, selectedContactId]);
 
+  const isMobileInfoExpanded =
+    activeContact && mobileInfoPref.contactId === activeContact.id ? mobileInfoPref.expanded : true;
+
   // Live Communications state (Gmail & WhatsApp)
   const [liveEmails, setLiveEmails] = useState<ContactEmailItem[]>([]);
   const [liveWhatsApp, setLiveWhatsApp] = useState<ContactWhatsAppMessage[]>([]);
@@ -226,6 +258,72 @@ function TenantsContent() {
   const [whatsAppDrafts, setWhatsAppDrafts] = useState<AIDraftVariant[]>([]);
   const [isGeneratingWhatsAppDrafts, setIsGeneratingWhatsAppDrafts] = useState(false);
 
+  // Voice-to-text dictation state (shared between Email and WhatsApp composers)
+  const [voiceTarget, setVoiceTarget] = useState<"whatsapp" | "email" | null>(null);
+  const voiceTargetRef = useRef<"whatsapp" | "email" | null>(null);
+  const openEmailIdRef = useRef<string | null>(null);
+  openEmailIdRef.current = openEmailId;
+
+  const {
+    isListening,
+    speechLang,
+    setSpeechLang,
+    startListening,
+    stopListening,
+  } = useVoiceInput({
+    initialLang: "nl",
+    onTranscript: (liveText) => {
+      if (voiceTargetRef.current === "whatsapp") {
+        setWhatsappInput(liveText);
+      } else if (voiceTargetRef.current === "email" && openEmailIdRef.current) {
+        const targetEmailId = openEmailIdRef.current;
+        setEmailDraftCustomText((prev) => ({
+          ...prev,
+          [targetEmailId]: liveText,
+        }));
+      }
+    },
+  });
+
+  useEffect(() => {
+    if (!isListening) {
+      voiceTargetRef.current = null;
+      setVoiceTarget(null);
+    }
+  }, [isListening]);
+
+  useEffect(() => {
+    if (isListening) {
+      stopListening();
+    }
+    voiceTargetRef.current = null;
+    setVoiceTarget(null);
+  }, [activeTab, activeContact?.id, openEmailId]);
+
+  const handleToggleDictation = (target: "whatsapp" | "email", existingText: string) => {
+    if (isListening && voiceTargetRef.current === target) {
+      stopListening();
+      voiceTargetRef.current = null;
+      setVoiceTarget(null);
+      return;
+    }
+    if (isListening) {
+      stopListening();
+    }
+    voiceTargetRef.current = target;
+    setVoiceTarget(target);
+    startListening(existingText);
+  };
+
+  const handleToggleSpeechLang = () => {
+    if (isListening) {
+      stopListening();
+      voiceTargetRef.current = null;
+      setVoiceTarget(null);
+    }
+    setSpeechLang((prev) => (prev === "nl" ? "en" : "nl"));
+  };
+
   // Update Super Agent Context
   useEffect(() => {
     superAgent.setCurrentPageName("Tenants");
@@ -235,6 +333,14 @@ function TenantsContent() {
       );
     }
   }, [activeContact?.id]);
+
+  // Auto-grow WhatsApp typing box as user types or selects an AI draft
+  useEffect(() => {
+    const el = whatsappTextareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
+  }, [whatsappInput, activeTab]);
 
   // Fetch Live Communications when active tenant changes
   useEffect(() => {
@@ -293,6 +399,9 @@ function TenantsContent() {
 
   const handleSendEmailReply = async (email: ContactEmailItem) => {
     if (!activeContact) return;
+    if (isListening) {
+      stopListening();
+    }
     const textToSend =
       emailDraftCustomText[email.id] !== undefined
         ? emailDraftCustomText[email.id]
@@ -337,6 +446,9 @@ function TenantsContent() {
 
   const handleSendWhatsApp = async () => {
     if (!activeContact || !whatsappInput.trim() || isSendingWhatsApp) return;
+    if (isListening) {
+      stopListening();
+    }
     setIsSendingWhatsApp(true);
     const text = whatsappInput.trim();
 
@@ -464,7 +576,7 @@ function TenantsContent() {
               </div>
 
               {/* Contact items scroll */}
-              <div className="flex-1 overflow-y-auto py-1.5">
+              <div className="flex-1 overflow-y-auto py-1.5 pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-1.5">
                 {isLoadingContacts && dbContacts.length === 0 && (
                   <div className="p-3 space-y-2">
                     {[1, 2, 3, 4].map((i) => (
@@ -483,6 +595,7 @@ function TenantsContent() {
                       onClick={() => {
                         setSelectedContactId(contact.id);
                         setOpenEmailId(null);
+                        setMobileInfoPref({ contactId: contact.id, expanded: true });
                         router.push(`/tenants?tenant=${contact.id}`);
                       }}
                       className={cn(
@@ -505,7 +618,8 @@ function TenantsContent() {
                         >
                           <span className="truncate">{contact.name}</span>
                           {contact.rentStatus === "overdue" && (
-                            <span className="shrink-0 text-[9.5px] font-semibold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded-full uppercase ml-1">
+                            <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold text-rose-700 uppercase ml-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
                               {t("Overdue", "Overdue")}
                             </span>
                           )}
@@ -531,20 +645,63 @@ function TenantsContent() {
             {/* PANEL 2: TENANT DETAIL */}
             <div
               className={cn(
-                "flex-1 flex flex-col overflow-hidden relative",
+                "flex-1 flex flex-col min-h-0 overflow-hidden relative pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0",
                 !tenantParam && "hidden md:flex"
               )}
             >
-              {/* Back button on mobile */}
-              <div className="md:hidden px-4 py-2 border-b border-[#e8e9eb] bg-[#fafafa]">
-                <button
-                  type="button"
-                  onClick={() => router.push("/tenants")}
-                  className="inline-flex items-center gap-1.5 text-xs text-[#475569] font-medium"
-                >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>All Tenants</span>
-                </button>
+              {/* Compact sticky bar on mobile: Back + Name + Info dropdown */}
+              <div className="md:hidden flex items-center justify-between gap-2 px-3 py-2 border-b border-[#e8e9eb] bg-[#fafafa] shrink-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => router.push("/tenants")}
+                    className="inline-flex items-center gap-1 text-xs text-[#475569] font-medium shrink-0 py-0.5 pr-1"
+                    aria-label="Back to All Tenants"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    {!activeContact && <span>All Tenants</span>}
+                  </button>
+                  {activeContact && (
+                    <>
+                      <div className="w-7 h-7 rounded-full bg-[#27272a] text-white font-bold text-[10px] flex items-center justify-center shrink-0">
+                        {getInitials(activeContact.name)}
+                      </div>
+                      <span className="text-[13px] font-bold text-[#111215] truncate">
+                        {activeContact.name}
+                      </span>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[9.5px] font-semibold rounded-full capitalize bg-white text-[#1e293b] border border-[#e2e8f0] shrink-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        Tenant
+                      </span>
+                    </>
+                  )}
+                </div>
+                {activeContact && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setMobileInfoPref({
+                        contactId: activeContact.id,
+                        expanded: !isMobileInfoExpanded,
+                      })
+                    }
+                    className={cn(
+                      "inline-flex items-center gap-1 h-[26px] px-2.5 rounded-full text-[11px] font-semibold border transition-colors shrink-0 cursor-pointer",
+                      isMobileInfoExpanded
+                        ? "bg-[#e0edff] text-[#1d4ed8] border-[#bfdbfe]"
+                        : "bg-white text-[#475569] border-[#d5d9e0]"
+                    )}
+                    aria-expanded={isMobileInfoExpanded}
+                  >
+                    <Info className="w-3 h-3" />
+                    <span>{isMobileInfoExpanded ? "Hide info" : "Info"}</span>
+                    {isMobileInfoExpanded ? (
+                      <ChevronUp className="w-3 h-3" />
+                    ) : (
+                      <ChevronDown className="w-3 h-3" />
+                    )}
+                  </button>
+                )}
               </div>
 
               {!activeContact ? (
@@ -559,30 +716,43 @@ function TenantsContent() {
                   )}
                 </div>
               ) : (
-                <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
-                  {/* Profile Card (Matching subtle blue #f0f5fb for top and expanded body) */}
-                  <div className="bg-[#f0f5fb] border-b border-[#e1e7f0] transition-colors">
-                    <div className="flex items-center gap-3.5 px-6 py-3.5 bg-[#f0f5fb]">
-                      {/* 44px Avatar */}
-                      <div className="w-[44px] h-[44px] rounded-full bg-[#27272a] text-white font-bold text-[15px] flex items-center justify-center shrink-0 border-2 border-[#d5d9e0]">
+                <div
+                  className={cn(
+                    "flex-1 flex flex-col min-h-0",
+                    activeTab === "whatsapp" ? "overflow-hidden" : "overflow-y-auto"
+                  )}
+                >
+                  {/* Profile Card (desktop always shown; on mobile shown first or via Info dropdown) */}
+                  <div
+                    className={cn(
+                      "bg-[#f0f5fb] border-b border-[#e1e7f0] transition-colors shrink-0",
+                      !isMobileInfoExpanded && "hidden md:block"
+                    )}
+                  >
+                    <div className="flex items-center gap-3 px-3.5 py-2.5 sm:px-6 sm:py-3.5 bg-[#f0f5fb]">
+                      {/* 44px Avatar (desktop) */}
+                      <div className="hidden md:flex w-[44px] h-[44px] rounded-full bg-[#27272a] text-white font-bold text-[15px] items-center justify-center shrink-0 border-2 border-[#d5d9e0]">
                         {getInitials(activeContact.name)}
                       </div>
 
                       {/* Summary */}
                       <div className="flex-1 min-w-0 flex flex-col gap-1">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[14px] font-bold text-[#111215] tracking-[-0.01em]">
+                          <span className="hidden md:inline text-[14px] font-bold text-[#111215] tracking-[-0.01em]">
                             {activeContact.name}
                           </span>
-                          <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold rounded-full capitalize bg-[#f0fdf4] text-[#16a34a] border border-[#bbf7d0]">
+                          <span className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-0.5 text-[10.5px] font-semibold rounded-full capitalize bg-white text-[#1e293b] border border-[#e2e8f0]">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#2563eb]" />
                             Tenant
                           </span>
                           {activeContact.rentStatus === "overdue" ? (
-                            <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold rounded-full capitalize bg-[#fef2f2] text-[#dc2626] border border-[#fecaca]">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-[10.5px] font-semibold rounded-full capitalize bg-white text-[#1e293b] border border-[#e2e8f0]">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
                               {t("Rent overdue", "Rent overdue")}
                             </span>
                           ) : (
-                            <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold rounded-full capitalize bg-[#f0fdf4] text-[#16a34a] border border-[#bbf7d0]">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-[10.5px] font-semibold rounded-full capitalize bg-white text-[#1e293b] border border-[#e2e8f0]">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                               {t("Rent up to date", "Rent up to date")}
                             </span>
                           )}
@@ -628,42 +798,54 @@ function TenantsContent() {
                         </div>
                       </div>
 
-                      {/* Chevron Toggle Button */}
+                      {/* Chevron Toggle Button (Desktop) */}
                       <button
                         type="button"
-                        onClick={() => setIsProfileExpanded((prev) => !prev)}
-                        className="w-7 h-7 rounded-full bg-white border border-[#d5d9e0] text-[#64748b] flex items-center justify-center hover:bg-[#f8fafc] hover:text-[#0f172a] transition-all cursor-pointer shrink-0"
-                        title={isProfileExpanded ? "Collapse address details" : "Expand address details"}
+                        onClick={handleToggleProfileExpanded}
+                        className="hidden md:flex w-7 h-7 rounded-full bg-white border border-[#d5d9e0] text-[#64748b] items-center justify-center hover:bg-[#f8fafc] hover:text-[#0f172a] transition-all cursor-pointer shrink-0"
+                        title={isProfileExpanded === false ? "Expand address details" : "Collapse address details"}
                       >
-                        {isProfileExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        {isProfileExpanded === null || isProfileExpanded ? (
+                          <ChevronUp className="w-4 h-4" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4" />
+                        )}
                       </button>
                     </div>
 
-                    {/* Expandable details */}
-                    {isProfileExpanded && (
-                      <div className="px-6 py-2 pb-3.5 bg-[#f0f5fb] border-t border-[#e1e7f0] flex flex-col">
-                        <div className="flex items-baseline gap-2 py-1 border-b border-[#e4ecf7]">
-                          <span className="font-semibold text-[11.5px] text-[#64748b] min-w-[140px] shrink-0">
-                            {t("Property Address:")}
-                          </span>
-                          <span className="text-[12px] text-[#111215] font-medium leading-snug">
-                            {activeContact.propertyAddress || activeContact.address || "Keizersgracht 42, 1015 CR Amsterdam"}
-                          </span>
-                        </div>
-                        <div className="flex items-baseline gap-2 py-1">
-                          <span className="font-semibold text-[11.5px] text-[#64748b] min-w-[140px] shrink-0">
-                            {t("Residential Address:")}
-                          </span>
-                          <span className="text-[12px] text-[#111215] font-medium leading-snug">
-                            {activeContact.residentialAddress || activeContact.address || "Keizersgracht 42, 1015 CR Amsterdam"}
-                          </span>
-                        </div>
+                    {/* Expandable address details (always shown when mobile Info is open; toggled by chevron on desktop) */}
+                    <div
+                      className={cn(
+                        "px-3.5 sm:px-6 py-2 pb-3 bg-[#f0f5fb] border-t border-[#e1e7f0] flex-col",
+                        isProfileExpanded === false ? "flex md:hidden" : "flex"
+                      )}
+                    >
+                      <div className="flex items-baseline gap-2 py-1 border-b border-[#e4ecf7]">
+                        <span className="font-semibold text-[11.5px] text-[#64748b] min-w-[140px] shrink-0">
+                          {t("Property Address:")}
+                        </span>
+                        <span className="text-[12px] text-[#111215] font-medium leading-snug">
+                          {activeContact.propertyAddress || activeContact.address || "Keizersgracht 42, 1015 CR Amsterdam"}
+                        </span>
                       </div>
-                    )}
+                      <div className="flex items-baseline gap-2 py-1">
+                        <span className="font-semibold text-[11.5px] text-[#64748b] min-w-[140px] shrink-0">
+                          {t("Residential Address:")}
+                        </span>
+                        <span className="text-[12px] text-[#111215] font-medium leading-snug">
+                          {activeContact.residentialAddress || activeContact.address || "Keizersgracht 42, 1015 CR Amsterdam"}
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* LEASE & TENANCY SPECS (All 6 requested metrics) */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 p-4 bg-white border-b border-[#e5e7eb]">
+                  {/* LEASE & TENANCY SPECS (Desktop always shown; on mobile shown first or via Info dropdown) */}
+                  <div
+                    className={cn(
+                      "grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3 p-3.5 sm:p-4 bg-white border-b border-[#e5e7eb] shrink-0",
+                      isMobileInfoExpanded ? "grid" : "hidden md:grid"
+                    )}
+                  >
                     <div className="p-2.5 rounded-[8px] bg-[#f8fafc] border border-[#e2e8f0]">
                       <div className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider">
                         {t("Monthly Rent")}
@@ -721,10 +903,10 @@ function TenantsContent() {
                   </div>
 
                   {/* Tabs Bar */}
-                  <div className="px-6 flex items-center border-b border-[#e5e7eb] bg-white sticky top-0 z-10">
+                  <div className="px-3 sm:px-6 flex items-center border-b border-[#e5e7eb] bg-white sticky top-0 z-10 overflow-x-auto no-scrollbar shrink-0">
                     <button
                       type="button"
-                      onClick={() => setActiveTab("mails")}
+                      onClick={() => handleSelectTab("mails", activeContact.id)}
                       className={cn(
                         "inline-flex items-center gap-1.5 py-[9px] px-[14px] pb-[11px] text-[13px] font-medium border-b-2 transition-all cursor-pointer whitespace-nowrap",
                         activeTab === "mails"
@@ -743,7 +925,7 @@ function TenantsContent() {
 
                     <button
                       type="button"
-                      onClick={() => setActiveTab("whatsapp")}
+                      onClick={() => handleSelectTab("whatsapp", activeContact.id)}
                       className={cn(
                         "inline-flex items-center gap-1.5 py-[9px] px-[14px] pb-[11px] text-[13px] font-medium border-b-2 transition-all cursor-pointer whitespace-nowrap",
                         activeTab === "whatsapp"
@@ -762,7 +944,7 @@ function TenantsContent() {
 
                     <button
                       type="button"
-                      onClick={() => setActiveTab("brixx")}
+                      onClick={() => handleSelectTab("brixx", activeContact.id)}
                       className={cn(
                         "inline-flex items-center gap-1.5 py-[9px] px-[14px] pb-[11px] text-[13px] font-medium border-b-2 transition-all cursor-pointer whitespace-nowrap",
                         activeTab === "brixx"
@@ -776,7 +958,7 @@ function TenantsContent() {
 
                     <button
                       type="button"
-                      onClick={() => setActiveTab("tickets")}
+                      onClick={() => handleSelectTab("tickets", activeContact.id)}
                       className={cn(
                         "inline-flex items-center gap-1.5 py-[9px] px-[14px] pb-[11px] text-[13px] font-medium border-b-2 transition-all cursor-pointer whitespace-nowrap",
                         activeTab === "tickets"
@@ -789,14 +971,31 @@ function TenantsContent() {
                     </button>
                   </div>
 
-                  {/* TAB VIEW 1: Mails (Gmail-style) */}
+                  {/* TAB VIEW 1: Mail Inbox (matching Contacts Mail Inbox UI) */}
                   {activeTab === "mails" && (
-                    <div className="flex-1 flex flex-col bg-white">
-                      {/* Search & Action Bar */}
-                      <div className="px-6 py-3 border-b border-[#e5e7eb] flex items-center justify-between gap-3 flex-wrap">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {/* Category Filter */}
-                          <div className="relative">
+                    <div className="flex-1 flex flex-col min-h-0">
+                      {/* Mail Toolbar */}
+                      <div className="px-3.5 sm:px-6 py-2.5 flex items-center justify-between gap-2.5 border-b border-[#e5e7eb] flex-wrap bg-white">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {/* All Pill */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMailCategoryFilter("all");
+                              setMailPriorityFilter("all");
+                            }}
+                            className={cn(
+                              "inline-flex items-center h-[27px] px-[11px] text-[11.5px] rounded-full transition-all cursor-pointer whitespace-nowrap",
+                              mailCategoryFilter === "all" && mailPriorityFilter === "all"
+                                ? "bg-[#121316] text-white font-semibold"
+                                : "bg-white text-[#4b515d] border border-[#e5e7eb] hover:bg-[#f8fafc] hover:text-[#111215]"
+                            )}
+                          >
+                            {t("All")}
+                          </button>
+
+                          {/* Category Dropdown Pill */}
+                          <div className="relative inline-block">
                             <button
                               type="button"
                               onClick={() => {
@@ -816,7 +1015,7 @@ function TenantsContent() {
 
                             {isCategoryMenuOpen && (
                               <div className="absolute top-[calc(100%+5px)] left-0 min-w-[150px] bg-white border border-[#e2e8f0] rounded-[8px] shadow-[0_8px_24px_rgba(15,23,42,0.1)] p-1 z-50 flex flex-col">
-                                {["all", "lease", "payment", "maintenance", "complaint", "admin"].map((cat) => (
+                                {["all", "lease", "payment", "maintenance", "complaint", "contractor_update", "admin"].map((cat) => (
                                   <button
                                     key={cat}
                                     type="button"
@@ -831,176 +1030,449 @@ function TenantsContent() {
                                         : "text-[#334155] hover:bg-[#f1f5f9] hover:text-[#0f172a]"
                                     )}
                                   >
-                                    {cat === "all" ? t("All Categories") : t(cat)}
+                                    {cat === "all" ? t("All Categories") : t(cat.replace("_", " "))}
                                   </button>
                                 ))}
                               </div>
                             )}
                           </div>
 
-                          {/* Unread Toggle */}
-                          <button
-                            type="button"
-                            onClick={() => setOnlyUnread((prev) => !prev)}
-                            className={cn(
-                              "inline-flex items-center gap-1 h-[27px] px-[11px] text-[11.5px] font-medium rounded-full transition-all cursor-pointer whitespace-nowrap",
-                              onlyUnread
-                                ? "bg-[#0f172a] text-white font-semibold shadow-2xs"
-                                : "bg-white text-[#4b515d] border border-[#e5e7eb] hover:bg-[#f8fafc] hover:text-[#111215]"
+                          {/* 4 Priorities Dropdown Pill */}
+                          <div className="relative inline-block">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsPriorityMenuOpen((prev) => !prev);
+                                setIsCategoryMenuOpen(false);
+                              }}
+                              className={cn(
+                                "inline-flex items-center gap-1 h-[27px] px-[11px] text-[11.5px] font-medium rounded-full transition-all cursor-pointer whitespace-nowrap",
+                                mailPriorityFilter !== "all"
+                                  ? "bg-[#0f172a] text-white font-semibold"
+                                  : "bg-white text-[#4b515d] border border-[#e5e7eb] hover:bg-[#f8fafc] hover:text-[#111215]"
+                              )}
+                            >
+                              <span className="capitalize">
+                                {mailPriorityFilter === "all" ? t("Priority", "Prioriteit") : `${t("Priority", "Prioriteit")}: ${t(mailPriorityFilter)}`}
+                              </span>
+                              <ChevronDown className="w-2.5 h-2.5 opacity-70" />
+                            </button>
+
+                            {isPriorityMenuOpen && (
+                              <div className="absolute top-[calc(100%+5px)] left-0 min-w-[150px] bg-white border border-[#e2e8f0] rounded-[8px] shadow-[0_8px_24px_rgba(15,23,42,0.1)] p-1 z-50 flex flex-col">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setMailPriorityFilter("all");
+                                    setIsPriorityMenuOpen(false);
+                                  }}
+                                  className={cn(
+                                    "px-2.5 py-1.5 text-[11.5px] rounded-[5px] text-left transition-colors cursor-pointer",
+                                    mailPriorityFilter === "all"
+                                      ? "bg-[#f8fafc] text-[#0f172a] font-semibold"
+                                      : "text-[#334155] hover:bg-[#f1f5f9]"
+                                  )}
+                                >
+                                  {t("All Priorities")}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setMailPriorityFilter("emergency");
+                                    setIsPriorityMenuOpen(false);
+                                  }}
+                                  className={cn(
+                                    "px-2.5 py-1.5 text-[11.5px] rounded-[5px] text-left transition-colors cursor-pointer flex items-center gap-1.5",
+                                    mailPriorityFilter === "emergency"
+                                      ? "bg-red-50 text-red-800 font-semibold"
+                                      : "text-red-700 hover:bg-red-50/50"
+                                  )}
+                                >
+                                  <span className="w-2 h-2 rounded-full bg-red-600" />
+                                  <span>{t("Emergency")}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setMailPriorityFilter("high");
+                                    setIsPriorityMenuOpen(false);
+                                  }}
+                                  className={cn(
+                                    "px-2.5 py-1.5 text-[11.5px] rounded-[5px] text-left transition-colors cursor-pointer flex items-center gap-1.5",
+                                    mailPriorityFilter === "high"
+                                      ? "bg-amber-50 text-amber-800 font-semibold"
+                                      : "text-amber-700 hover:bg-amber-50/50"
+                                  )}
+                                >
+                                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                                  <span>{t("High")}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setMailPriorityFilter("normal");
+                                    setIsPriorityMenuOpen(false);
+                                  }}
+                                  className={cn(
+                                    "px-2.5 py-1.5 text-[11.5px] rounded-[5px] text-left transition-colors cursor-pointer flex items-center gap-1.5",
+                                    mailPriorityFilter === "normal"
+                                      ? "bg-blue-50 text-blue-800 font-semibold"
+                                      : "text-blue-700 hover:bg-blue-50/50"
+                                  )}
+                                >
+                                  <span className="w-2 h-2 rounded-full bg-blue-500" />
+                                  <span>{t("Normal")}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setMailPriorityFilter("low");
+                                    setIsPriorityMenuOpen(false);
+                                  }}
+                                  className={cn(
+                                    "px-2.5 py-1.5 text-[11.5px] rounded-[5px] text-left transition-colors cursor-pointer flex items-center gap-1.5",
+                                    mailPriorityFilter === "low"
+                                      ? "bg-zinc-100 text-zinc-900 font-semibold"
+                                      : "text-zinc-600 hover:bg-zinc-100/60"
+                                  )}
+                                >
+                                  <span className="w-2 h-2 rounded-full bg-zinc-400" />
+                                  <span>{t("Low")}</span>
+                                </button>
+                              </div>
                             )}
-                          >
-                            <span>{t("Unread")}</span>
-                          </button>
+                          </div>
                         </div>
 
-                        {/* Search in Emails */}
-                        <div className="relative w-full sm:w-[220px]">
-                          <Search className="w-3.5 h-3.5 text-[#94a3b8] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                          <input
-                            type="text"
-                            placeholder={t("Search in emails...")}
-                            value={mailSearch}
-                            onChange={(e) => setMailSearch(e.target.value)}
-                            className="w-full h-[28px] pl-7 pr-3 text-[11.5px] bg-white border border-[#d5d9e0] rounded-[5px] outline-none focus:border-[#94a3b8] focus:ring-1 focus:ring-black/5"
-                          />
+                        {/* Right: Unread Toggle Switch + Search */}
+                        <div className="flex items-center gap-3">
+                          <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={onlyUnread}
+                              onChange={(e) => setOnlyUnread(e.target.checked)}
+                              className="hidden"
+                            />
+                            <span
+                              className={cn(
+                                "w-[28px] h-[16px] rounded-full relative transition-colors shrink-0",
+                                onlyUnread ? "bg-[#111111]" : "bg-[#d1d5db]"
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  "absolute top-[2px] left-[2px] w-[12px] h-[12px] bg-white rounded-full transition-transform",
+                                  onlyUnread && "translate-x-[12px]"
+                                )}
+                              />
+                            </span>
+                            <span className="text-[11.5px] font-medium text-[#4b515d]">{t("Unread")}</span>
+                          </label>
+
+                          {/* Search mail */}
+                          <div className="relative flex items-center">
+                            <Search className="w-3.5 h-3.5 text-[#8b929e] absolute left-2.5 pointer-events-none" />
+                            <input
+                              type="text"
+                              placeholder={t("Search in emails...")}
+                              value={mailSearch}
+                              onChange={(e) => setMailSearch(e.target.value)}
+                              className="w-[160px] focus:w-[200px] transition-all h-[26px] pl-[30px] pr-2.5 text-[12px] text-[#111215] bg-white border border-[#e5e7eb] rounded-full outline-none placeholder:text-[#8b929e]"
+                            />
+                          </div>
                         </div>
                       </div>
 
-                      {/* Detail View of an Opened Email */}
+                      {/* Email Thread Opened View (Like Gmail / Contacts: full thread viewer inside) */}
                       {activeOpenEmail ? (
-                        <div className="p-6 space-y-4">
-                          <button
-                            type="button"
-                            onClick={() => setOpenEmailId(null)}
-                            className="inline-flex items-center gap-1.5 text-xs text-[#475569] font-medium hover:text-[#0f172a] mb-2 cursor-pointer"
-                          >
-                            <ArrowLeft className="w-3.5 h-3.5" />
-                            <span>{t("Back to messages")}</span>
-                          </button>
+                        <div className="flex-1 flex flex-col overflow-y-auto bg-white p-3.5 sm:p-6 pb-8 space-y-4">
+                          {/* Top bar with back to inbox */}
+                          <div className="flex items-center justify-between border-b border-[#e5e7eb] pb-3">
+                            <button
+                              type="button"
+                              onClick={() => setOpenEmailId(null)}
+                              className="inline-flex items-center gap-1.5 text-xs text-[#475569] hover:text-[#0f172a] font-medium cursor-pointer"
+                            >
+                              <ArrowLeft className="w-3.5 h-3.5" />
+                              <span>Back to email list</span>
+                            </button>
 
-                          <div className="border border-[#e2e8f0] rounded-xl p-5 bg-white space-y-4 shadow-2xs">
-                            <div className="flex items-start justify-between gap-4 border-b border-[#f1f5f9] pb-4">
+                            <div className="flex items-center gap-2">
+                              {activeOpenEmail.category && (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#f1f5f9] text-[#475569] border border-[#e2e8f0] uppercase tracking-wider">
+                                  {activeOpenEmail.category.replace("_", " ")}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Thread Subject Title */}
+                          <h2 className="text-base sm:text-lg font-bold text-[#111215] tracking-tight">
+                            {activeOpenEmail.subject}
+                          </h2>
+
+                          {/* Sender info */}
+                          <div className="flex items-start justify-between text-xs pt-1 border-b border-[#f3f4f6] pb-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-[#111215] text-white font-bold text-xs flex items-center justify-center shrink-0">
+                                {getInitials(activeOpenEmail.sender)}
+                              </div>
                               <div>
-                                <h3 className="text-base font-bold text-[#0f172a]">
-                                  {activeOpenEmail.subject}
-                                </h3>
-                                <div className="flex items-center gap-2 mt-1 text-xs text-[#64748b]">
-                                  <span className="font-semibold text-[#1e293b]">
-                                    {activeOpenEmail.sender}
-                                  </span>
-                                  <span>&lt;{activeOpenEmail.senderEmail}&gt;</span>
-                                  <span>•</span>
-                                  <span>{activeOpenEmail.date} at {activeOpenEmail.time}</span>
+                                <div className="font-semibold text-[#111215] text-xs">
+                                  {activeOpenEmail.sender}
+                                </div>
+                                <div className="text-[#64748b] text-[11px] font-mono">
+                                  &lt;{activeOpenEmail.senderEmail}&gt; · to me
                                 </div>
                               </div>
-                              <PriorityBadge priority={getEmailPriority(activeOpenEmail)} />
                             </div>
+                            <span className="text-[11px] text-[#8b929e] font-mono">
+                              {activeOpenEmail.date} at {activeOpenEmail.time}
+                            </span>
+                          </div>
 
-                            <div className="text-[13px] text-[#334155] leading-relaxed whitespace-pre-wrap py-2">
-                              {activeOpenEmail.body}
-                            </div>
+                          {/* Message Body */}
+                          <div className="text-[13px] text-[#334155] leading-relaxed whitespace-pre-line py-2">
+                            {activeOpenEmail.body}
+                          </div>
 
-                            {/* AI Draft Response Variants */}
-                            <div className="border-t border-[#f1f5f9] pt-4 space-y-3">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold text-[#0f172a] uppercase tracking-wider flex items-center gap-1.5">
-                                  <Sparkles className="w-3.5 h-3.5 text-[#2563eb]" />
-                                  AI Suggested Replies
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleGenerateEmailDrafts(activeOpenEmail)}
-                                  disabled={isGeneratingEmailDraft[activeOpenEmail.id]}
-                                  className="text-[11px] font-semibold text-[#2563eb] hover:underline cursor-pointer"
-                                >
-                                  {isGeneratingEmailDraft[activeOpenEmail.id] ? "Drafting..." : "Regenerate variants"}
-                                </button>
+                          {/* Attachments */}
+                          {activeOpenEmail.hasAttachments && (
+                            <div className="py-2 flex items-center gap-2">
+                              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] text-xs text-[#334155]">
+                                <Paperclip className="w-3.5 h-3.5 text-[#64748b]" />
+                                <span>lease_addendum_2024.pdf</span>
+                                <span className="text-[#94a3b8] text-[10px]">(2.4 MB)</span>
                               </div>
+                            </div>
+                          )}
 
-                              {activeOpenEmail.draftVariants && activeOpenEmail.draftVariants.length > 0 && (
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                                  {activeOpenEmail.draftVariants.map((v) => (
-                                    <div
-                                      key={v.id}
-                                      onClick={() => handleSelectEmailDraft(activeOpenEmail.id, v)}
+                          {/* Proposer Agent AI Draft Reply Box */}
+                          <div className="mt-4 pt-4 border-t border-[#e2e8f0] space-y-3 bg-[#f8fafc] p-4 rounded-xl border">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-1.5 text-xs font-semibold text-[#111215]">
+                                <Sparkles className="w-3.5 h-3.5 text-[#1a73e8]" />
+                                <span>AI Draft Reply (Proposer Agent)</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleGenerateEmailDrafts(activeOpenEmail)}
+                                disabled={isGeneratingEmailDraft[activeOpenEmail.id]}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium text-[#1e293b] bg-white border border-[#cbd5e1] hover:bg-[#f1f5f9] disabled:opacity-50 transition-colors cursor-pointer shadow-2xs"
+                              >
+                                <RotateCw
+                                  className={cn(
+                                    "w-3 h-3 text-[#64748b]",
+                                    isGeneratingEmailDraft[activeOpenEmail.id] && "animate-spin text-[#1a73e8]"
+                                  )}
+                                />
+                                <span>
+                                  {isGeneratingEmailDraft[activeOpenEmail.id] ? "Drafting..." : "Generate AI Draft"}
+                                </span>
+                              </button>
+                            </div>
+
+                            {/* 3 Selectable Draft Variant Pills */}
+                            {activeOpenEmail.draftVariants && activeOpenEmail.draftVariants.length > 0 ? (
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {activeOpenEmail.draftVariants.map((variant, idx) => {
+                                  const isSelected =
+                                    (emailDraftChoices[activeOpenEmail.id] || activeOpenEmail.draftVariants![0].id) === variant.id;
+                                  return (
+                                    <button
+                                      key={variant.id || idx}
+                                      type="button"
+                                      onClick={() => handleSelectEmailDraft(activeOpenEmail.id, variant)}
                                       className={cn(
-                                        "p-3 rounded-lg border text-left cursor-pointer transition-colors text-[11.5px]",
-                                        emailDraftChoices[activeOpenEmail.id] === v.id
-                                          ? "border-[#2563eb] bg-[#eff6ff] text-[#1e3a8a]"
-                                          : "border-[#e2e8f0] bg-white hover:bg-[#f8fafc] text-[#475569]"
+                                        "px-2.5 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer border",
+                                        isSelected
+                                          ? "bg-[#111215] text-white border-[#111215] shadow-2xs"
+                                          : "bg-white border-[#cbd5e1] text-[#475569] hover:bg-[#f1f5f9]"
                                       )}
                                     >
-                                      <div className="font-bold mb-1">{v.label}</div>
-                                      <p className="line-clamp-3 text-[11px]">{v.body}</p>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
+                                      {variant.label || `Option ${idx + 1}`}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
 
-                              <div className="space-y-2 pt-2">
-                                <textarea
-                                  rows={4}
-                                  value={
-                                    emailDraftCustomText[activeOpenEmail.id] !== undefined
-                                      ? emailDraftCustomText[activeOpenEmail.id]
-                                      : activeOpenEmail.draftVariants?.[0]?.body || ""
+                            {/* Editable Textarea */}
+                            <textarea
+                              rows={4}
+                              value={
+                                emailDraftCustomText[activeOpenEmail.id] !== undefined
+                                  ? emailDraftCustomText[activeOpenEmail.id]
+                                  : activeOpenEmail.draftVariants?.[0]?.body || ""
+                              }
+                              onChange={(e) =>
+                                setEmailDraftCustomText((prev) => ({
+                                  ...prev,
+                                  [activeOpenEmail.id]: e.target.value,
+                                }))
+                              }
+                              placeholder="Type or customize your email reply to this thread..."
+                              className="w-full p-2.5 rounded-lg text-xs leading-relaxed bg-white border border-[#cbd5e1] text-[#111215] placeholder:text-[#94a3b8] focus:outline-none focus:ring-1 focus:ring-[#1a73e8] resize-y"
+                            />
+
+                            {/* Send & Voice Dictation Footer */}
+                            <div className="flex items-center justify-between gap-3 pt-1 flex-wrap">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const currentEmailBody =
+                                      emailDraftCustomText[activeOpenEmail.id] !== undefined
+                                        ? emailDraftCustomText[activeOpenEmail.id]
+                                        : activeOpenEmail.draftVariants?.[0]?.body || "";
+                                    handleToggleDictation("email", currentEmailBody);
+                                  }}
+                                  className={cn(
+                                    "px-2.5 py-1 rounded-full text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 shrink-0 border select-none",
+                                    isListening && voiceTarget === "email"
+                                      ? "bg-cyan-500 text-black border-cyan-400 shadow-[0_0_12px_rgba(0,229,255,0.6)] animate-pulse font-semibold ring-2 ring-cyan-300"
+                                      : "bg-white hover:bg-[#f1f5f9] text-[#334155] hover:text-[#111215] border-[#cbd5e1]"
+                                  )}
+                                  title={
+                                    isListening && voiceTarget === "email"
+                                      ? "Listening... click to stop"
+                                      : `Voice dictation (${speechLang === "nl" ? "Dutch" : "English"})`
                                   }
-                                  onChange={(e) =>
-                                    setEmailDraftCustomText((prev) => ({
-                                      ...prev,
-                                      [activeOpenEmail.id]: e.target.value,
-                                    }))
+                                  aria-label="Voice dictation for email reply"
+                                >
+                                  {isListening && voiceTarget === "email" ? (
+                                    <MicOff className="w-3.5 h-3.5 text-black stroke-[2.5]" />
+                                  ) : (
+                                    <Mic className="w-3.5 h-3.5 text-[#1a73e8] stroke-[2]" />
+                                  )}
+                                  <span>{isListening && voiceTarget === "email" ? "Listening..." : "Dictate"}</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={handleToggleSpeechLang}
+                                  className={cn(
+                                    "text-[10.5px] font-bold px-2 py-0.5 rounded-full border transition-all cursor-pointer flex items-center gap-1 select-none",
+                                    speechLang === "nl"
+                                      ? "bg-amber-500/15 text-amber-700 border-amber-500/30 hover:bg-amber-500/25"
+                                      : "bg-blue-500/15 text-blue-700 border-blue-500/30 hover:bg-blue-500/25"
+                                  )}
+                                  title={
+                                    speechLang === "nl"
+                                      ? "Voice language: Nederlands (click to switch to English)"
+                                      : "Voice language: English (click to switch to Nederlands)"
                                   }
-                                  className="w-full p-2.5 text-[12px] border border-[#e2e8f0] rounded-[6px] outline-none focus:border-[#2563eb]"
-                                  placeholder="Type custom reply or customize the AI draft..."
-                                />
-                                <div className="flex justify-end">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSendEmailReply(activeOpenEmail)}
-                                    disabled={isSendingEmailReply[activeOpenEmail.id]}
-                                    className="px-4 py-1.5 rounded-[6px] bg-[#0f172a] text-white text-[12px] font-semibold hover:bg-[#1e293b] transition-colors cursor-pointer"
-                                  >
-                                    {isSendingEmailReply[activeOpenEmail.id] ? "Sending..." : "Approve & Send Reply"}
-                                  </button>
-                                </div>
+                                >
+                                  {speechLang === "nl" ? <FlagNL className="w-3.5 h-2.5" /> : <FlagUK className="w-3.5 h-2.5" />}
+                                  <span>{speechLang === "nl" ? "NL" : "EN"}</span>
+                                </button>
+
+                                {isListening && voiceTarget === "email" ? (
+                                  <span className="text-[11px] text-cyan-700 font-medium animate-pulse flex items-center gap-1.5 pl-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-ping inline-block" />
+                                    <span>
+                                      {speechLang === "nl"
+                                        ? "Luisteren (Nederlands)..."
+                                        : "Listening (English)..."}
+                                    </span>
+                                  </span>
+                                ) : (
+                                  <span className="text-[11px] text-[#64748b]">
+                                    Replying directly to: {activeOpenEmail.subject.startsWith("Re:") ? activeOpenEmail.subject : `Re: ${activeOpenEmail.subject}`}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                {sentEmailSuccess[activeOpenEmail.id] && (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600">
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    Sent via Mail
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleSendEmailReply(activeOpenEmail)}
+                                  disabled={
+                                    isSendingEmailReply[activeOpenEmail.id] ||
+                                    !(emailDraftCustomText[activeOpenEmail.id] || activeOpenEmail.draftVariants?.[0]?.body)
+                                  }
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-white bg-[#111215] hover:bg-black disabled:opacity-50 transition-colors cursor-pointer shadow-2xs"
+                                >
+                                  <Send className="w-3.5 h-3.5" />
+                                  <span>{isSendingEmailReply[activeOpenEmail.id] ? "Sending..." : "Send via Mail"}</span>
+                                </button>
                               </div>
                             </div>
                           </div>
                         </div>
                       ) : (
-                        /* Email list view */
-                        <div className="divide-y divide-[#f1f5f9]">
+                        /* Flat Mail List (matching Contacts UI) */
+                        <div className="flex-1 overflow-y-auto divide-y divide-[#f3f4f6]">
                           {filteredEmails.map((email) => (
                             <div
                               key={email.id}
-                              onClick={() => setOpenEmailId(email.id)}
-                              className="px-6 py-3.5 hover:bg-[#f8fafc] cursor-pointer transition-colors flex items-center justify-between gap-4"
+                              onClick={() => {
+                                setOpenEmailId(email.id);
+                                setMobileInfoPref({ contactId: activeContact.id, expanded: false });
+                              }}
+                              className={cn(
+                                "flex items-center justify-between gap-3 px-3.5 sm:px-7 py-2.5 min-h-[44px] cursor-pointer transition-colors select-none",
+                                email.isUnread
+                                  ? "bg-[#fafbff] hover:bg-[#f3f5fb]"
+                                  : "bg-white hover:bg-[#f9fafb]"
+                              )}
                             >
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-bold text-[13px] text-[#0f172a] truncate">
-                                    {email.subject}
+                              {/* Left: Category Badge + Subject */}
+                              <div className="flex-1 min-w-0 flex items-center gap-2.5">
+                                {email.category && (
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#f1f5f9] text-[#475569] border border-[#e2e8f0] uppercase tracking-wider shrink-0">
+                                    {email.category.replace("_", " ")}
                                   </span>
-                                  {email.category && (
-                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#f1f5f9] text-[#475569] border border-[#e2e8f0] uppercase tracking-wider">
-                                      {email.category}
-                                    </span>
+                                )}
+
+                                <span
+                                  className={cn(
+                                    "text-[13px] truncate",
+                                    email.isUnread
+                                      ? "text-[#111215] font-semibold"
+                                      : "text-[#4b515d]"
                                   )}
-                                  <PriorityBadge priority={getEmailPriority(email)} />
-                                </div>
-                                <p className="text-[12px] text-[#64748b] truncate mt-0.5">
-                                  {email.snippet || email.body}
-                                </p>
+                                >
+                                  {email.subject}
+                                </span>
+                                <span className="text-[#94a3b8] text-[12px] truncate hidden md:inline font-normal">
+                                  — {email.snippet}
+                                </span>
                               </div>
-                              <span className="text-[11px] text-[#94a3b8] font-mono shrink-0">
-                                {email.time || email.date}
-                              </span>
+
+                              {/* Right: Reply Pill + Timestamp */}
+                              <div className="flex items-center gap-2.5 shrink-0">
+                                {email.hasAttachments && (
+                                  <Paperclip className="w-3.5 h-3.5 text-[#94a3b8]" />
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenEmailId(email.id);
+                                    setMobileInfoPref({ contactId: activeContact.id, expanded: false });
+                                  }}
+                                  className="inline-flex items-center gap-1 h-[24px] px-2.5 rounded-full text-[11px] font-medium border border-[#e5e7eb] text-[#8b929e] hover:text-[#111215] hover:bg-[#f1f5f9] transition-colors cursor-pointer"
+                                >
+                                  <CornerDownRight className="w-3 h-3" />
+                                  <span>Reply</span>
+                                </button>
+
+                                <span className="text-[11px] text-[#8b929e] font-mono min-w-[36px] text-right">
+                                  {email.time}
+                                </span>
+                              </div>
                             </div>
                           ))}
 
                           {filteredEmails.length === 0 && (
-                            <div className="text-center py-20 text-[#94a3b8] text-xs">
+                            <div className="text-center py-16 text-[#94a3b8] text-xs">
                               No email messages on file for this tenant.
                             </div>
                           )}
@@ -1011,8 +1483,8 @@ function TenantsContent() {
 
                   {/* TAB VIEW 2: WhatsApp Chat */}
                   {activeTab === "whatsapp" && (
-                    <div className="flex-1 flex flex-col min-h-[500px] bg-[#e5ddd5] overflow-hidden">
-                      <div className="flex-1 overflow-y-auto p-4 sm:p-5 flex flex-col gap-2.5">
+                    <div className="flex-1 flex flex-col min-h-0 md:min-h-[420px] bg-[#e5ddd5] overflow-hidden">
+                      <div className="flex-1 min-h-0 overflow-y-auto p-3.5 sm:p-5 flex flex-col gap-2.5">
                         {liveWhatsApp && liveWhatsApp.length > 0 ? (
                           liveWhatsApp.map((msg) => {
                             const isTenant = msg.sender === "tenant";
@@ -1021,7 +1493,7 @@ function TenantsContent() {
                               <div
                                 key={msg.id}
                                 className={cn(
-                                  "flex flex-col max-w-[72%]",
+                                  "flex flex-col max-w-[82%] sm:max-w-[72%]",
                                   isTenant ? "mr-auto items-start" : "ml-auto items-end"
                                 )}
                               >
@@ -1043,17 +1515,17 @@ function TenantsContent() {
                             );
                           })
                         ) : (
-                          <div className="text-center py-20 text-[#64748b] text-xs">
+                          <div className="text-center py-12 sm:py-20 text-[#64748b] text-xs">
                             No previous WhatsApp messages recorded in database for this tenant.
                           </div>
                         )}
                       </div>
 
                       {/* WhatsApp Chat Bar — Subtle AI Blue theme */}
-                      <div className="p-3 bg-[#f0f7ff] border-t border-[#bfdbfe] flex flex-col gap-2 shrink-0">
-                        <div className="flex items-center justify-between gap-2 flex-wrap px-1">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[11px] font-semibold text-[#1d4ed8] flex items-center gap-1">
+                      <div className="p-2.5 sm:p-3 bg-[#f0f7ff] border-t border-[#bfdbfe] flex flex-col gap-2 shrink-0">
+                        <div className="flex items-center justify-between gap-2 px-0.5">
+                          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar min-w-0 flex-1 py-0.5">
+                            <span className="text-[11px] font-semibold text-[#1d4ed8] flex items-center gap-1 shrink-0">
                               <Sparkles className="w-3 h-3 text-[#2563eb] animate-wa-sparkle" />
                               AI Draft:
                             </span>
@@ -1063,14 +1535,14 @@ function TenantsContent() {
                                   key={d.id || i}
                                   type="button"
                                   onClick={() => setWhatsappInput(d.body)}
-                                  className="inline-flex items-center gap-1 h-[26px] px-2.5 rounded-full text-[11px] font-semibold bg-[#eff6ff] hover:bg-[#dbeafe] border border-[#bfdbfe] text-[#1d4ed8] transition-all cursor-pointer shadow-2xs"
+                                  className="inline-flex items-center gap-1 h-[26px] px-2.5 rounded-full text-[11px] font-semibold bg-[#eff6ff] hover:bg-[#dbeafe] border border-[#bfdbfe] text-[#1d4ed8] transition-all cursor-pointer shadow-2xs whitespace-nowrap shrink-0"
                                   title={d.body}
                                 >
                                   <span>{d.label || `Draft ${i + 1}`}</span>
                                 </button>
                               ))
                             ) : (
-                              <span className="text-[11px] text-[#64748b]">Click generate for suggested replies</span>
+                              <span className="text-[11px] text-[#64748b] whitespace-nowrap">Generate replies →</span>
                             )}
                           </div>
 
@@ -1078,7 +1550,7 @@ function TenantsContent() {
                             type="button"
                             onClick={handleGenerateWhatsAppDrafts}
                             disabled={isGeneratingWhatsAppDrafts}
-                            className="inline-flex items-center gap-1 h-[26px] px-2.5 rounded-full text-[11px] font-medium text-[#1e40af] bg-white border border-[#bfdbfe] hover:bg-[#eff6ff] disabled:opacity-50 transition-colors cursor-pointer"
+                            className="inline-flex items-center gap-1 h-[26px] px-2.5 rounded-full text-[11px] font-medium text-[#1e40af] bg-white border border-[#bfdbfe] hover:bg-[#eff6ff] disabled:opacity-50 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
                           >
                             <RotateCw
                               className={cn(
@@ -1086,50 +1558,98 @@ function TenantsContent() {
                                 isGeneratingWhatsAppDrafts && "animate-spin"
                               )}
                             />
-                            <span>{isGeneratingWhatsAppDrafts ? "Drafting..." : "Generate AI Drafts"}</span>
+                            <span className="hidden sm:inline">{isGeneratingWhatsAppDrafts ? "Drafting..." : "Generate AI Drafts"}</span>
+                            <span className="sm:hidden">{isGeneratingWhatsAppDrafts ? "Drafting..." : "Drafts"}</span>
                           </button>
                         </div>
 
-                        <div className="flex items-center gap-2.5">
-                          <div className="flex-1 flex items-center bg-white border-[1.5px] border-[#93c5fd] focus-within:border-[#2563eb] rounded-[24px] px-3.5 py-1 gap-2 min-h-[42px] shadow-[0_1px_4px_rgba(37,99,235,0.08)] transition-all">
-                            <input
-                              type="text"
+                        <div className="flex items-end gap-2">
+                          <div className="flex-1 min-w-0 flex items-end bg-white border-[1.5px] border-[#93c5fd] focus-within:border-[#2563eb] rounded-[22px] pl-3.5 pr-2 py-1.5 gap-1.5 min-h-[42px] shadow-[0_1px_4px_rgba(37,99,235,0.08)] transition-all">
+                            <textarea
+                              ref={whatsappTextareaRef}
+                              rows={1}
                               value={whatsappInput}
                               onChange={(e) => setWhatsappInput(e.target.value)}
                               onKeyDown={(e) => {
-                                if (e.key === "Enter") {
+                                if (e.key === "Enter" && !e.shiftKey) {
                                   e.preventDefault();
                                   handleSendWhatsApp();
                                 }
                               }}
                               placeholder={`Message ${activeContact.name} via WhatsApp...`}
-                              className="flex-1 text-[13px] bg-transparent outline-none text-[#111215] placeholder:text-[#8696a0]"
+                              className="flex-1 min-w-0 max-h-[96px] overflow-y-auto text-[14px] sm:text-[13px] leading-[1.35] bg-transparent outline-none text-[#111215] placeholder:text-[#8696a0] resize-none py-0.5"
                             />
-                            <button
-                              type="button"
-                              className="text-[#2563eb] hover:text-[#1d4ed8] p-1 cursor-pointer transition-colors"
-                              title="Voice input"
-                            >
-                              <Mic className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center gap-1 shrink-0 pb-0.5">
+                              <button
+                                type="button"
+                                onClick={handleToggleSpeechLang}
+                                className={cn(
+                                  "text-[10px] font-bold px-1.5 py-0.5 rounded-full border transition-all cursor-pointer flex items-center gap-1 select-none shrink-0",
+                                  speechLang === "nl"
+                                    ? "bg-amber-500/15 text-amber-700 border-amber-500/30 hover:bg-amber-500/25"
+                                    : "bg-blue-500/15 text-blue-700 border-blue-500/30 hover:bg-blue-500/25"
+                                )}
+                                title={
+                                  speechLang === "nl"
+                                    ? "Voice language: Nederlands (click to switch to English)"
+                                    : "Voice language: English (click to switch to Nederlands)"
+                                }
+                              >
+                                {speechLang === "nl" ? <FlagNL className="w-3 h-2" /> : <FlagUK className="w-3 h-2" />}
+                                <span>{speechLang === "nl" ? "NL" : "EN"}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleDictation("whatsapp", whatsappInput)}
+                                className={cn(
+                                  "p-1.5 rounded-full cursor-pointer transition-all shrink-0 flex items-center justify-center",
+                                  isListening && voiceTarget === "whatsapp"
+                                    ? "bg-cyan-500 text-black shadow-[0_0_12px_rgba(0,229,255,0.7)] animate-pulse ring-2 ring-cyan-300"
+                                    : "text-[#2563eb] hover:text-[#1d4ed8] hover:bg-[#eff6ff]"
+                                )}
+                                title={
+                                  isListening && voiceTarget === "whatsapp"
+                                    ? "Listening... click to stop"
+                                    : `Voice dictation (${speechLang === "nl" ? "Dutch" : "English"})`
+                                }
+                                aria-label="Voice input for WhatsApp"
+                              >
+                                {isListening && voiceTarget === "whatsapp" ? (
+                                  <MicOff className="w-4 h-4 stroke-[2.5]" />
+                                ) : (
+                                  <Mic className="w-4 h-4" />
+                                )}
+                              </button>
+                            </div>
                           </div>
 
                           <button
                             type="button"
                             onClick={handleSendWhatsApp}
                             disabled={isSendingWhatsApp || !whatsappInput.trim()}
+                            aria-label="Send WhatsApp message"
                             className="w-[40px] h-[40px] rounded-full bg-[#2563eb] hover:bg-[#1d4ed8] active:scale-95 text-white flex items-center justify-center shadow-[0_2px_8px_rgba(37,99,235,0.3)] transition-all cursor-pointer shrink-0 disabled:opacity-50"
                           >
                             <Send className="w-4 h-4 ml-0.5" />
                           </button>
                         </div>
+                        {isListening && voiceTarget === "whatsapp" && (
+                          <div className="text-[11px] text-cyan-700 font-medium animate-pulse flex items-center gap-1.5 px-2">
+                            <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-ping inline-block" />
+                            <span>
+                              {speechLang === "nl"
+                                ? "Luisteren naar spraak (Nederlands)..."
+                                : "Listening to speech (English)..."}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
 
                   {/* TAB VIEW 3: Brixx Data */}
                   {activeTab === "brixx" && (
-                    <div className="flex-1 flex flex-col p-6 space-y-4 bg-white">
+                    <div className="flex-1 flex flex-col p-3.5 sm:p-6 space-y-4 bg-white">
                       <div>
                         <h3 className="text-sm font-semibold text-[#111215]">
                           Brixx Tenancy Agreements & Rent Schedules
@@ -1183,15 +1703,17 @@ function TenantsContent() {
 
                   {/* TAB VIEW 4: Tickets */}
                   {activeTab === "tickets" && (
-                    <div className="flex-1 flex flex-col p-6 space-y-4 bg-white">
+                    <div className="flex-1 flex flex-col p-3.5 sm:p-6 space-y-4 bg-white">
                       {activeContact.name === "Vipin Tyagi" ? (
                         <div className="p-4 rounded-[8px] border border-[#e2e8f0] bg-white space-y-3">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-red-50 text-red-700 border border-red-200">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-white text-[#0f172a] border border-[#e2e8f0]">
+                                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
                                 High Urgency
                               </span>
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-800 border border-amber-200">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-white text-[#0f172a] border border-[#e2e8f0]">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                                 Dispatched
                               </span>
                             </div>

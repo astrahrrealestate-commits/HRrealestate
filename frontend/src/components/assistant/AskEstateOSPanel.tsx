@@ -25,6 +25,7 @@ import {
   Sun,
   Moon,
   UserRound,
+  UserCheck,
   ArrowUp,
   Mic,
   MicOff,
@@ -37,6 +38,7 @@ import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { askAgent, approveInboxDraft, approveStandingRule, AssistantCard, PreviewCardData, updateAgentConversation } from "@/lib/api";
 import { formatClock } from "@/lib/clock";
+import { AstraIcon, AstraWordmark } from "@/components/ui/AstraBrand";
 
 export interface AssistantAction {
   label: string;
@@ -310,9 +312,12 @@ export function AskEstateOSPanel({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
-  // Dynamic workflow suggestions from latest assistant turn, or context-aware section starters
+  // Dynamic workflow suggestions from the latest real assistant turn only (never leak old turn pills), or context-aware starters
   const lastAssistantMsg = React.useMemo(() => {
-    return [...messages].reverse().find((m) => m.sender === "assistant" && m.suggestedPrompts && m.suggestedPrompts.length > 0);
+    const latest = [...messages]
+      .reverse()
+      .find((m) => m.sender === "assistant" && m.id !== "initial-msg" && m.id !== "welcome");
+    return latest?.suggestedPrompts && latest.suggestedPrompts.length > 0 ? latest : undefined;
   }, [messages]);
 
   const suggestedChips = React.useMemo(() => {
@@ -706,7 +711,7 @@ export function AskEstateOSPanel({
                   className={cn("flex items-center gap-1.5 text-[10.5px] font-medium", cardDark ? "text-[#94A3B8]" : "text-[#6B7280]")}
                   title={`Drafted using the persona file "${pCard.personaName}" (version ${pCard.personaVersion ?? 1})`}
                 >
-                  <UserRound className="w-3 h-3 shrink-0" />
+                  <UserCheck className="w-3.5 h-3.5 text-[#1a73e8] shrink-0" />
                   <span>Acting as Harjot</span>
                   <span className="font-normal opacity-80 truncate">· {pCard.personaName} v{pCard.personaVersion ?? 1}</span>
                 </div>
@@ -767,42 +772,148 @@ export function AskEstateOSPanel({
                       )}
 
                       {cols.length > 0 && tableRows.length > 0 && (
-                        <div className={cn("rounded-[8px] border overflow-x-auto max-w-full", innerBoxCls)}>
-                          <table className="w-full text-left border-collapse text-[11.5px]">
-                            <thead>
-                              <tr className={cn("border-b", cardDark ? "border-[#1E2328] bg-[#11161C]/80" : "border-[#E8E8E5] bg-[#F8FAFC]")}>
-                                {cols.map((colName) => (
-                                  <th
-                                    key={colName}
-                                    className={cn(
-                                      "px-2.5 py-2 text-[10px] font-mono uppercase tracking-wider font-semibold whitespace-nowrap",
-                                      cardDark ? "text-[#94A3B8]" : "text-[#6B7280]"
-                                    )}
-                                  >
-                                    {colName}
-                                  </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody className={cn("divide-y", cardDark ? "divide-[#1E2328]" : "divide-[#F0F0EE]")}>
-                              {tableRows.map((rowObj, rIdx) => (
-                                <tr
-                                  key={rIdx}
-                                  className={cn(
-                                    "transition-colors",
-                                    cardDark ? "hover:bg-[#192028]/70" : "hover:bg-[#F9FAFB]"
-                                  )}
-                                >
+                        isFullScreen ? (
+                          <div className={cn("rounded-[8px] border overflow-x-auto max-w-full", innerBoxCls)}>
+                            <table className="w-full text-left border-collapse text-[11.5px]">
+                              <thead>
+                                <tr className={cn("border-b", cardDark ? "border-[#1E2328] bg-[#11161C]/80" : "border-[#E8E8E5] bg-[#F8FAFC]")}>
                                   {cols.map((colName) => (
-                                    <td key={colName} className="px-2.5 py-2 align-top">
-                                      {renderTableCellValue(colName, rowObj?.[colName], cardDark)}
-                                    </td>
+                                    <th
+                                      key={colName}
+                                      className={cn(
+                                        "px-2.5 py-2 text-[10px] font-mono uppercase tracking-wider font-semibold whitespace-nowrap",
+                                        cardDark ? "text-[#94A3B8]" : "text-[#6B7280]"
+                                      )}
+                                    >
+                                      {colName}
+                                    </th>
                                   ))}
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+                              </thead>
+                              <tbody className={cn("divide-y", cardDark ? "divide-[#1E2328]" : "divide-[#F0F0EE]")}>
+                                {tableRows.map((rowObj, rIdx) => (
+                                  <tr
+                                    key={rIdx}
+                                    className={cn(
+                                      "transition-colors",
+                                      cardDark ? "hover:bg-[#192028]/70" : "hover:bg-[#F9FAFB]"
+                                    )}
+                                  >
+                                    {cols.map((colName) => (
+                                      <td key={colName} className="px-2.5 py-2 align-top">
+                                        {renderTableCellValue(colName, rowObj?.[colName], cardDark)}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {tableRows.map((rowObj, rIdx) => {
+                              const statusKey = cols.find((c) =>
+                                ["urgency", "priority", "status", "state", "verdict"].includes(c.toLowerCase())
+                              );
+                              const idKey = cols.find((c) =>
+                                ["ticket", "id", "ref", "code", "reference"].includes(c.toLowerCase()) ||
+                                /^#[0-9a-f]{5,8}$/i.test(String(rowObj?.[c] ?? ""))
+                              );
+                              const titleKey =
+                                cols.find((c) =>
+                                  ["tenant", "name", "contractor", "subject", "title", "person"].includes(c.toLowerCase())
+                                ) || cols.find((c) => c !== statusKey && c !== idKey);
+                              const detailCols = cols.filter(
+                                (c) => c !== statusKey && c !== idKey && c !== titleKey
+                              );
+                              const statusRaw = statusKey ? String(rowObj?.[statusKey] ?? "").trim() : "";
+                              const statusLow = statusRaw.toLowerCase();
+                              const statusDotColor =
+                                ["emergency", "urgent", "overcharge", "overdue"].includes(statusLow)
+                                  ? "bg-red-500"
+                                  : ["high", "p1", "waiting on owner", "waiting on third party", "proposed"].includes(statusLow)
+                                    ? "bg-amber-500"
+                                    : ["active", "fair", "confirmed", "resolved", "open"].includes(statusLow)
+                                      ? "bg-emerald-500"
+                                      : "bg-blue-500";
+
+                              return (
+                                <div
+                                  key={rIdx}
+                                  className={cn(
+                                    "rounded-[10px] border p-2.5 space-y-1.5 transition-colors",
+                                    cardDark
+                                      ? "bg-[#11161C]/90 border-[#262F3A]"
+                                      : "bg-[#FFFFFF] border-[#E8E8E5] hover:border-[#CBD5E1]"
+                                  )}
+                                >
+                                  <div className="flex items-start justify-between gap-2 min-w-0">
+                                    <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                      {idKey && rowObj?.[idKey] && (
+                                        <span
+                                          className={cn(
+                                            "font-mono text-[10.5px] font-semibold px-1.5 py-0.5 rounded border shrink-0",
+                                            cardDark
+                                              ? "bg-[#1A1F26] border-[#262F3A] text-sky-300"
+                                              : "bg-[#F8FAFC] border-[#E2E8F0] text-[#0F172A]"
+                                          )}
+                                        >
+                                          {String(rowObj[idKey])}
+                                        </span>
+                                      )}
+                                      {titleKey && rowObj?.[titleKey] && (
+                                        <span
+                                          className={cn(
+                                            "text-[12.5px] font-semibold leading-snug break-words",
+                                            cardDark ? "text-[#F3F4F6]" : "text-[#0A0A0A]"
+                                          )}
+                                        >
+                                          {String(rowObj[titleKey])}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {statusRaw && (
+                                      <span
+                                        className={cn(
+                                          "inline-flex items-center gap-1.5 text-[10.5px] font-medium px-2 py-0.5 rounded-full border shrink-0 capitalize whitespace-nowrap",
+                                          cardDark
+                                            ? "bg-[#1A1F26] border-[#262F3A] text-[#E2E8F0]"
+                                            : "bg-[#FFFFFF] border-[#E2E8F0] text-[#334155]"
+                                        )}
+                                      >
+                                        <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", statusDotColor)} />
+                                        {statusRaw}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {detailCols.length > 0 && (
+                                    <div className="space-y-0.5">
+                                      {detailCols.map((colName) => {
+                                        const val = rowObj?.[colName];
+                                        if (val === null || val === undefined || String(val).trim() === "") return null;
+                                        return (
+                                          <div
+                                            key={colName}
+                                            className={cn(
+                                              "text-[11.5px] leading-snug break-words",
+                                              cardDark ? "text-[#94A3B8]" : "text-[#475569]"
+                                            )}
+                                          >
+                                            <span className={cn("text-[10px] uppercase tracking-wider font-mono mr-1.5", cardDark ? "text-[#64748B]" : "text-[#94A3B8]")}>
+                                              {colName}:
+                                            </span>
+                                            <span>{String(val)}</span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )
                       )}
 
                       <div className={cn("pt-1 flex items-center justify-end border-t", cardDark ? "border-[#1E2328]/60" : "border-[#E8E8E5]")}>
@@ -1224,17 +1335,17 @@ export function AskEstateOSPanel({
                   </div>
                 </div>
               ) : pCard.type === "notice" ? (
-                <div className="space-y-2.5">
-                  <div className="flex items-center justify-between text-[11px]">
+                <div className="space-y-2.5 min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] min-w-0">
                     <span
                       className={cn(
-                        "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border",
+                        "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border shrink-0",
                         cardDark ? "bg-amber-500/15 text-amber-400 border-amber-500/30" : "bg-amber-50 text-amber-800 border-amber-200"
                       )}
                     >
                       {t(pCard.badgeLabel || "NOTICE")}
                     </span>
-                    <span className={cn("text-[10.5px] font-mono", cardDark ? "text-[#64748B]" : "text-[#888888]")}>
+                    <span className={cn("text-[10.5px] font-mono truncate min-w-0 max-w-full", cardDark ? "text-[#64748B]" : "text-[#888888]")}>
                       {pCard.unitLabel || "Action Required"}
                     </span>
                   </div>
@@ -1252,17 +1363,17 @@ export function AskEstateOSPanel({
                     {t(pCard.body || "")}
                   </div>
 
-                  <div className={cn("pt-1 flex items-center justify-between gap-2 border-t", cardDark ? "border-[#1E2328]" : "border-[#E8E8E5]")}>
-                    <span className={cn("text-[10px] font-mono", cardDark ? "text-[#64748B]" : "text-[#888888]")}>
+                  <div className={cn("pt-1.5 flex flex-wrap items-center justify-between gap-2 border-t", cardDark ? "border-[#1E2328]" : "border-[#E8E8E5]")}>
+                    <span className={cn("text-[10.5px] font-mono shrink-0", cardDark ? "text-[#64748B]" : "text-[#888888]")}>
                       {t("Status")}: {t(pCard.status || "pending")}
                     </span>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       {pCard.caseId && (
                         <button
                           type="button"
                           onClick={() => handleSendQuery(`draft a reply for case ${pCard?.caseId}`)}
                           className={cn(
-                            "px-2.5 py-1 rounded-[6px] border text-[11px] font-medium transition-colors cursor-pointer",
+                            "px-2.5 py-1 rounded-[6px] border text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap",
                             cardDark
                               ? "bg-[#181818] hover:bg-[#222222] border-[#262626] text-[#FFFFFF]"
                               : "bg-[#0A0A0A] hover:bg-[#222222] border-[#0A0A0A] text-[#FFFFFF]"
@@ -1274,10 +1385,10 @@ export function AskEstateOSPanel({
                       <button
                         type="button"
                         onClick={() => handleNavigate(pCard?.targetUrl || `/inbox?thread=case-${pCard?.caseId || ""}`)}
-                        className="text-[11px] text-[#1a73e8] hover:underline flex items-center gap-1 cursor-pointer font-medium"
+                        className="text-[11px] text-[#1a73e8] hover:underline flex items-center gap-1 cursor-pointer font-medium whitespace-nowrap"
                       >
                         <span>{t("Open in Inbox")}</span>
-                        <ExternalLink className="w-3 h-3" />
+                        <ExternalLink className="w-3 h-3 shrink-0" />
                       </button>
                     </div>
                   </div>
@@ -1299,17 +1410,24 @@ export function AskEstateOSPanel({
                         : pCard.externalUrl;
 
                   return (
-                    <div className="space-y-2.5">
-                      <div className="flex items-center justify-between text-[11px] gap-2">
-                        <span
-                          className={cn(
-                            "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border shrink-0",
-                            cardDark ? "bg-[#1F252C] text-[#CBD5E1] border-[#29323B]" : "bg-[#FFFFFF] text-[#4B5563] border-[#E8E8E5]"
+                    <div className="space-y-2.5 min-w-0">
+                      <div className="flex flex-wrap items-center justify-between text-[11px] gap-2 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <span
+                            className={cn(
+                              "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border shrink-0",
+                              cardDark ? "bg-[#1F252C] text-[#CBD5E1] border-[#29323B]" : "bg-[#FFFFFF] text-[#4B5563] border-[#E8E8E5]"
+                            )}
+                          >
+                            Draft · {pCard.channel || "whatsapp"}
+                          </span>
+                          {pCard.unitLabel && (
+                            <span className={cn("font-medium truncate min-w-0", cardDark ? "text-[#F3F4F6]" : "text-[#0A0A0A]")}>
+                              {pCard.unitLabel}
+                            </span>
                           )}
-                        >
-                          Draft · {pCard.channel || "whatsapp"}
-                        </span>
-                        <span className="font-mono text-[10.5px] truncate text-right">
+                        </div>
+                        <span className="font-mono text-[10.5px] truncate max-w-full text-right">
                           {pCard.recipient ? (
                             <span className={cardDark ? "text-[#94A3B8]" : "text-[#6B7280]"}>{pCard.recipient}</span>
                           ) : (
@@ -1323,7 +1441,7 @@ export function AskEstateOSPanel({
                       {rawVariants.length > 1 && (
                         <div
                           className={cn(
-                            "flex items-center gap-1 p-1 rounded-[7px] border w-fit",
+                            "flex flex-wrap items-center gap-1 p-1 rounded-[7px] border w-fit max-w-full",
                             cardDark ? "bg-[#141920] border-[#222933]" : "bg-[#F3F4F6] border-[#E5E7EB]"
                           )}
                         >
@@ -1427,7 +1545,7 @@ export function AskEstateOSPanel({
                           )}
                         </div>
 
-                        <div className="flex items-center gap-2.5">
+                        <div className="flex flex-wrap items-center gap-2.5">
                           {pCard.threadSearchUrl && (
                             <button
                               type="button"
@@ -1437,13 +1555,13 @@ export function AskEstateOSPanel({
                                 }
                               }}
                               className={cn(
-                                "text-[11px] flex items-center gap-1 transition-colors cursor-pointer",
+                                "text-[11px] flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap",
                                 cardDark ? "text-[#94A3B8] hover:text-[#E2E8F0]" : "text-[#6B7280] hover:text-[#0A0A0A]"
                               )}
                               title={`View thread history in ${pCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}`}
                             >
                               <span>View Thread</span>
-                              <ExternalLink className="w-3 h-3" />
+                              <ExternalLink className="w-3 h-3 shrink-0" />
                             </button>
                           )}
 
@@ -1459,12 +1577,12 @@ export function AskEstateOSPanel({
                               handleNavigate(urlWithDraft);
                             }}
                             className={cn(
-                              "text-[11px] flex items-center gap-1 transition-colors cursor-pointer",
+                              "text-[11px] flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap",
                               cardDark ? "text-[#888888] hover:text-[#FFFFFF]" : "text-[#6B7280] hover:text-[#0A0A0A]"
                             )}
                           >
                             <span>Open in Inbox</span>
-                            <ExternalLink className="w-3 h-3" />
+                            <ExternalLink className="w-3 h-3 shrink-0" />
                           </button>
                         </div>
                       </div>
@@ -1619,15 +1737,13 @@ export function AskEstateOSPanel({
               <span className="w-4 h-[2px] bg-white rounded-full"></span>
             </button>
 
-            {/* Center: Dynamic Executive Co-Pilot Status */}
+            {/* Center: Dynamic Astra Co-Pilot Status */}
             <div className="flex items-center gap-2 min-w-0">
-              <div className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center shadow-[0_0_10px_rgba(0,229,255,0.4)] shrink-0">
-                <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+              <div className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-300 flex items-center justify-center shadow-[0_0_10px_rgba(0,229,255,0.4)] shrink-0">
+                <AstraIcon className="w-3.5 h-3.5 animate-pulse" />
               </div>
               <div className="flex items-center gap-1.5 min-w-0">
-                <span className="text-[13.5px] font-semibold text-white tracking-tight truncate">
-                  Executive Copilot
-                </span>
+                <AstraWordmark variant="dark" className="text-[12.5px] truncate" />
                 <span className="w-1.5 h-1.5 rounded-full bg-[#00e5ff] animate-pulse shadow-[0_0_8px_#00e5ff] shrink-0" />
               </div>
             </div>
@@ -1648,7 +1764,7 @@ export function AskEstateOSPanel({
                 type="button"
                 onClick={onClose}
                 className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-                title="Close Super Agent"
+                title="Close Astra"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1686,7 +1802,7 @@ export function AskEstateOSPanel({
             {/* Suggestions Header & Rounded Action Chips */}
             <div className="mt-auto mb-2">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-[#94a3b8] mb-2.5">
-                <Sparkles className="w-3.5 h-3.5 text-[#94a3b8] fill-[#94a3b8]" />
+                <AstraIcon className="w-3.5 h-3.5 text-[#94a3b8]" />
                 <span>Suggestions</span>
               </div>
               <div className="flex flex-wrap items-center gap-2.5">
@@ -1746,7 +1862,7 @@ export function AskEstateOSPanel({
             {isTyping && (
               <div className="flex items-center gap-2 text-xs text-cyan-300 py-1">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Super Agent is thinking...</span>
+                <span>Astra is thinking...</span>
               </div>
             )}
             <div ref={messagesEndRef} />
@@ -1793,7 +1909,7 @@ export function AskEstateOSPanel({
                     handleSendQuery(inputQuery);
                   }
                 }}
-                placeholder="Talk to your super agent and get your job done"
+                placeholder="Talk to Astra and get your job done"
                 className="w-full text-[13px] bg-transparent outline-none resize-none text-white placeholder:text-slate-500 leading-normal"
               />
               <div className="flex items-center justify-between pt-1">
@@ -2017,7 +2133,7 @@ export function AskEstateOSPanel({
           "hidden md:flex bg-white flex-col justify-between font-sans shrink-0 overflow-hidden relative transition-all duration-300",
           isFullScreen
             ? "absolute inset-0 z-30 m-0 mr-[10px] mb-[10px] h-[calc(100%-10px)] rounded-[14px] border border-[#162B45] shadow-[0_2px_8px_rgba(0,0,0,0.2)] animate-in fade-in duration-200"
-            : "fixed inset-0 z-50 md:relative md:inset-auto md:z-10 w-full md:w-[420px] xl:w-[450px] shrink-0 m-0 md:mr-[10px] md:mb-[10px] h-full md:h-[calc(100%-10px)] rounded-[14px] border border-[#162B45] shadow-[0_2px_8px_rgba(0,0,0,0.2)]"
+            : "fixed inset-0 z-50 md:relative md:inset-auto md:z-10 w-full md:w-[390px] xl:w-[420px] shrink-0 m-0 md:mr-[10px] md:mb-[10px] h-full md:h-[calc(100%-10px)] rounded-[14px] border border-[#162B45] shadow-[0_2px_8px_rgba(0,0,0,0.2)]"
         )}
       >
         {/* 1. Header Bar with Clean Icon Controls (No Text Clutter, No Overlap) */}
@@ -2045,21 +2161,24 @@ export function AskEstateOSPanel({
               <ArrowLeft className="w-5 h-5 stroke-[2]" />
             </button>
 
-            {/* AI Sparkles Icon */}
+            {/* Astra Icon & Stylized Wordmark */}
             <div
               className={cn(
                 "w-7 h-7 rounded-full flex items-center justify-center shrink-0",
                 isDark ? "bg-[#1a73e8]/20 text-[#60a5fa]" : "bg-[#eff6ff] text-[#1a73e8]",
                 "max-md:bg-cyan-500/25 max-md:text-cyan-300 max-md:shadow-[0_0_12px_rgba(0,229,255,0.4)]"
               )}
-              title="Super Agent"
+              title="Astra"
             >
-              <Sparkles className="w-4 h-4 text-[#1a73e8] max-md:text-cyan-300 animate-ai-star" />
+              <AstraIcon className="w-4 h-4 text-[#1a73e8] max-md:text-cyan-300 animate-ai-star" />
             </div>
 
-            <div className="md:hidden flex items-center gap-1.5 pl-0.5">
-              <span className="text-[13px] font-semibold text-white tracking-wide">Jarvis</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_#00e5ff]" />
+            <div className="flex items-center gap-1.5 pl-0.5">
+              <AstraWordmark
+                variant={isDark ? "dark" : "light"}
+                className="text-[12.5px]"
+              />
+              <span className="w-1.5 h-1.5 rounded-full bg-[#1a73e8] max-md:bg-cyan-400 animate-pulse shadow-[0_0_8px_rgba(26,115,232,0.5)]" />
             </div>
           </div>
 
@@ -2677,22 +2796,14 @@ function formatMarkdown(text: string, isDark: boolean = false): string {
     `<code class="px-1.5 py-0.5 rounded font-mono text-[12px] break-all border ${codeClass}">$1</code>`
   );
 
-  // 6. Bold: **text**
-  const boldClass = isDark ? "text-[#FFFFFF]" : "text-[#0A0A0A]";
-  clean = clean.replace(/\*\*(.*?)\*\*/g, `<strong class="${boldClass} font-semibold">$1</strong>`);
-
-  // 7. Italics: *text*
-  const italicClass = isDark ? "text-[#CCCCCC]" : "text-[#4B5563]";
-  clean = clean.replace(/\*(.*?)\*/g, `<em class="${italicClass}">$1</em>`);
-
-  // 8. Structured Headings: ### Header
+  // 6. Structured Headings: ### Header
   const headingClass = isDark ? "text-[#94A3B8]" : "text-[#374151]";
   clean = clean.replace(
     /^###\s+(.*?)$/gm,
     `<div class="text-[11.5px] font-semibold uppercase tracking-wider ${headingClass} mt-3 mb-1.5 flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span><span>$1</span></div>`
   );
 
-  // 9. Executive Callout Quotes: Group contiguous escaped blockquote lines (`^&gt;`) into a cohesive card
+  // 7. Executive Callout Quotes: Group contiguous escaped blockquote lines (`^&gt;`) into a cohesive card
   const quoteBoxClass = isDark
     ? "border-amber-500/80 bg-amber-500/10 text-[#E2E8F0]"
     : "border-amber-500/80 bg-amber-50/70 text-[#1E293B]";
@@ -2709,7 +2820,7 @@ function formatMarkdown(text: string, isDark: boolean = false): string {
     }
   );
 
-  // 10. Numbered Step Lists: 1. ...
+  // 8. Numbered Step Lists: 1. ... (before bold/italics so inline emphasis inside list items still renders)
   const numBadgeClass = isDark
     ? "bg-[#20272F] text-[#94A3B8]"
     : "bg-[#E5E7EB] text-[#374151]";
@@ -2718,11 +2829,19 @@ function formatMarkdown(text: string, isDark: boolean = false): string {
     `<div class="flex items-start gap-2.5 my-1.5"><span class="flex items-center justify-center w-4 h-4 rounded-full ${numBadgeClass} text-[10px] font-semibold shrink-0 mt-0.5">$1</span><span class="break-words min-w-0 flex-1">$2</span></div>`
   );
 
-  // 11. Bullet list: • or - (Using CSS class text-amber-500 rather than hex literal so no regex ever collides)
+  // 9. Bullet list: •, -, or single * (before bold/italics so `* **Name**: ...` renders cleanly as a bullet)
   clean = clean.replace(
-    /^([•\-])\s+(.*?)$/gm,
+    /^([•\-]|\*(?!\*))\s+(.*?)$/gm,
     '<div class="flex items-start gap-2 my-1"><span class="text-amber-500 font-bold shrink-0">•</span><span class="break-words min-w-0 flex-1">$2</span></div>'
   );
+
+  // 10. Bold: **text**
+  const boldClass = isDark ? "text-[#FFFFFF]" : "text-[#0A0A0A]";
+  clean = clean.replace(/\*\*(.*?)\*\*/g, `<strong class="${boldClass} font-semibold">$1</strong>`);
+
+  // 11. Italics: *text*
+  const italicClass = isDark ? "text-[#CCCCCC]" : "text-[#4B5563]";
+  clean = clean.replace(/\*(.*?)\*/g, `<em class="${italicClass}">$1</em>`);
 
   return clean;
 }

@@ -31,9 +31,10 @@ from app.context import memory_items
 from app.context.compiler import compile_concierge_context
 from app.context.selection import rank_cases
 from app.context.super_agent_prompt import build_super_agent_system_prompt
-from app.contracts import ActionType, Channel, ConciergePlan, Direction, Intent
+from app.contracts import ActionType, Channel, ConciergePlan, Direction, Intent, PlanStep
 from app.core.errors import NotFoundError
 from app.core.ids import case_ref as short_case_ref
+from app.core.ids import new_id
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import MemoryKind, MemoryScope, MemoryStatus, PersonKind, TurnStatus
@@ -51,6 +52,7 @@ from app.db.models import (
     MemoryItem,
     MessageRow,
     Person,
+    UnderstandingRow,
     Unit,
 )
 from app.db.models.calendar import CalendarEventRow
@@ -62,7 +64,7 @@ from app.llm.budget import CONCIERGE_PURPOSE
 from app.llm.calls import CallContext, run_agent
 from app.llm.embeddings import build_embedder
 from app.llm.fakes_concierge import fake_concierge
-from app.pipeline import case_repo, owner_commands, work_repo
+from app.pipeline import case_repo, owner_commands, understand, work_repo
 from app.pipeline.concierge import StepResult, run_plan
 from app.pipeline.concierge_outcome import assemble_answer, task_brief
 from app.pipeline.document_search import DocFilter
@@ -241,7 +243,8 @@ def _case_label(session: Session, case: Case) -> str:
     person = session.get(Person, case.primary_person_id) if case.primary_person_id else None
     addr = (unit.address or unit.label) if unit else "General"
     name = person.display_name if person else "Unknown sender"
-    return f"{name} · {addr} ({case.category.value})"
+    cat = case.category.value if case.category else "general"
+    return f"{name} · {addr} ({cat})"
 
 
 def _system_prompt(
@@ -915,6 +918,83 @@ def _clean_executive_answer(text: str) -> str:
     return cleaned
 
 
+_EXPLICIT_DRAFT_ASK_RE = re.compile(
+    r"\b(draft|drafts|drafted|prepare|write\s+(?:a|an|me|back)|show\s+(?:me\s+)?(?:the\s+)?draft)\b"
+)
+_PRIORITIZE_RE = re.compile(
+    r"\b(?:whome?|who|which\s+(?:one|ticket|tickets|case|cases|tenant|tenants|message|messages|person|unit|property)"
+    r"|what\s+(?:should\s+i|to|needs))\b.*\b(?:first|priorit\w*|most\s+(?:important|urgent)|urgent|important)\b"
+    r"|\b(?:most\s+important|most\s+urgent|highest\s+priority|top\s+priority|priorit(?:y|ize|ise)"
+    r"|reply\s+first|respond\s+first|do\s+first)\b"
+)
+_MULTI_DRAFT_RE = re.compile(
+    r"\b(?:these\s+(?:tickets?|ticketes|cases?)|those\s+(?:tickets?|ticketes|cases?)|both|"
+    r"all(?:\s+of)?(?:\s+the|\s+open)?\s+(?:tickets?|ticketes|cases?)|"
+    r"(?:replies|drafts|drafted\s+(?:replies|messages|drafts)|messages|responses)\s+(?:for|to)\s+"
+    r"(?:these|those|them|all|open|the\s+open|every|each|(?:the\s+)?(?:tickets|ticketes|cases)))\b"
+)
+_UNSUPPORTED_PILL_RE = re.compile(
+    r"\b(send\s+(?:whatsapp|gmail|email|reply\s+now|now)|"
+    r"(?:make\s+(?:it|reply)\s+)?(?:firmer|shorter|longer|softer|friendlier)|"
+    r"rewrite|rephrase|reword|translate|"
+    r"open\s+ticket\s+drawer|show\s+leak\s+photos|draft\s+plumber\s+order)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_prioritization_query(q_low: str) -> bool:
+    if _EXPLICIT_DRAFT_ASK_RE.search(q_low):
+        return False
+    return bool(_PRIORITIZE_RE.search(q_low))
+
+
+def _is_multi_draft_request(q_low: str) -> bool:
+    return bool(_MULTI_DRAFT_RE.search(q_low))
+
+
+def _sanitize_suggestions(
+    raw_suggestions: Sequence[str],
+    target_cards: Sequence[PreviewCardData],
+    q_low: str,
+) -> list[str]:
+    """Strip unsafe/unsupported/channel-mismatched pills and always pad to 3 executable suggestions."""
+    draft_msg_cards = [c for c in target_cards if c.type == "draft_message"]
+    draft_channels = {(c.channel or "").lower() for c in draft_msg_cards if c.channel}
+
+    cleaned: list[str] = []
+    for item in raw_suggestions:
+        pill = item.strip()
+        if not pill:
+            continue
+        p_low = pill.lower()
+        if _UNSUPPORTED_PILL_RE.search(p_low):
+            continue
+        if draft_channels == {"gmail"} and "whatsapp" in p_low:
+            continue
+        if draft_channels == {"whatsapp"} and ("gmail" in p_low or "email" in p_low):
+            continue
+        if pill not in cleaned:
+            cleaned.append(pill)
+
+    if draft_msg_cards or any(c.type == "notice" for c in target_cards):
+        fallback_pills = ["Show open tickets", "What should I do first?", "Open in Inbox"]
+    elif _is_prioritization_query(q_low):
+        fallback_pills = ["Draft replies for tickets", "Show open tickets", "List active leases"]
+    elif any(k in q_low for k in ["rent", "arrear", "invoice", "money", "overdue"]):
+        fallback_pills = ["Draft payment reminder", "Show lease PDF", "Open in Money"]
+    elif any(k in q_low for k in ["leak", "boiler", "repair", "maintenance", "ticket", "priority"]):
+        fallback_pills = ["What should I do first?", "Draft replies for tickets", "List active leases"]
+    elif any(k in q_low for k in ["lease", "contract", "doc", "pdf"]):
+        fallback_pills = ["Show open tickets", "Show tenant contact", "Open lease view"]
+    else:
+        fallback_pills = ["List active leases", "Show open tickets", "What should I do first?"]
+
+    for fp in fallback_pills:
+        if fp not in cleaned:
+            cleaned.append(fp)
+    return cleaned[:3]
+
+
 def _build_query_preview_card(
     question: str,
     display_rows: list[dict[str, Any]],
@@ -1186,6 +1266,7 @@ def _finish_agent_response(
     now: datetime,
     briefs: list[CaseBrief],
     preview_cards: list[PreviewCardData] | None = None,
+    turn_id: UUID | None = None,
 ) -> AskAgentResponse:
     ans_text = _clean_executive_answer(ans_text)
     effective_preview_cards = (
@@ -1193,6 +1274,7 @@ def _finish_agent_response(
         if (preview_cards is not None and len(preview_cards) > 0)
         else ([preview_card] if preview_card else [])
     )
+    suggestions = _sanitize_suggestions(suggestions, effective_preview_cards, req.query.lower())
     with Session(engine) as session:
         conv = session.get(AgentConversation, conv_id)
         if not conv:  # ask_agent created or loaded it for the signed-in owner moments ago
@@ -1217,6 +1299,7 @@ def _finish_agent_response(
         session.add(user_turn)
 
         agent_turn = AgentTurn(
+            id=turn_id or new_id(),
             company_id=conv.company_id,
             conversation_id=conv.id,
             text=req.query,
@@ -1753,21 +1836,37 @@ def ask_agent(
 
         # Specific Task Trigger: Natural Language Analytics / Custom Query Agent (PostgreSQL)
         is_draft_or_action_cmd = bool(
-            re.search(r"\b(draft|reply|send|chase|remind|escalate|snooze|approve|email|whatsapp|message)\b", q_low)
-        )
-        is_count_or_list_query = not is_draft_or_action_cmd and bool(
             re.search(
-                r"\b(how many|count of|total number|list all|show all|which units|which contractors|which tenants"
-                r"|total cases|total open|open tickets count|hoeveel|overzicht)\b"
-                r"|\b(?:list|show|display|give me|get|find)\s+(?:all\s+|my\s+)?"
-                r"(?:active\s+|open\s+|current\s+|all\s+|recent\s+)?"
-                r"(?:leases|tickets|ticketes|cases|tenants|units|contractors|tasks|visits|quotes)\b"
-                r"|\b(?:active leases|open tickets|open ticketes|open cases|all leases|all tickets"
-                r"|all tenants|all contractors|all units|maintenance tickets|maintnace tickets"
-                r"|maintenace tickets)\b",
+                r"\b(draft|drafted|reply|send|chase|remind|escalate|snooze|approve|email|whatsapp|message)\b",
                 q_low,
             )
         )
+        is_count_or_list_query = (
+            not is_draft_or_action_cmd
+            and not _is_prioritization_query(q_low)
+            and bool(
+                re.search(
+                    r"\b(how many|count of|total number|list all|show all|which units|which contractors|which tenants"
+                    r"|total cases|total open|open tickets count|hoeveel|overzicht)\b"
+                    r"|\b(?:list|show|display|give me|get|find)\s+(?:all\s+|my\s+)?"
+                    r"(?:active\s+|open\s+|current\s+|all\s+|recent\s+)?"
+                    r"(?:leases?|tickets?|ticketes|cases?|tenants?|units?|contractors?|tasks?|visits?|quotes?)\b"
+                    r"|\b(?:what|which)\s+(?:are\s+(?:the\s+|my\s+)?|do\s+i\s+have\s+|"
+                    r"open\s+|active\s+|current\s+|all\s+)?"
+                    r"(?:leases?|tickets?|ticketes|cases?|tenants?|units?|contractors?|tasks?|visits?|quotes?)"
+                    r"(?:\s+(?:i\s+have|do\s+i\s+have|are\s+(?:open|active|available)))?\b"
+                    r"|\bdo\s+i\s+have\b.*\b(?:leases?|tickets?|ticketes|cases?|tenants?|units?|contractors?|tasks?|visits?|quotes?)\b"
+                    r"|\b(?:active leases?|open tickets?|open ticketes|open cases?|all leases|all tickets"
+                    r"|all tenants|all contractors|all units|maintenance tickets?|maintnace tickets?"
+                    r"|maintenace tickets?)\b",
+                    q_low,
+                )
+            )
+        )
+        if is_count_or_list_query and re.search(
+            r"\b(?:what|which)\b.*\b(?:status|happened|details|wrong|with)\b", q_low
+        ):
+            is_count_or_list_query = False
         is_database_keyword = any(k in q_low for k in ["query database", "sql query", "postgres", "run query"])
         if is_count_or_list_query or is_database_keyword:
             try:
@@ -1803,7 +1902,7 @@ def ask_agent(
                     if "lease" in q_low or "tenant" in q_low:
                         q_suggestions = ["Show open tickets", "Which leases expire soon?", "What should I do first?"]
                     elif "ticket" in q_low or "case" in q_low or "maint" in q_low:
-                        q_suggestions = ["What should I do first?", "List active leases", "Draft plumber order"]
+                        q_suggestions = ["What should I do first?", "Draft replies for tickets", "List active leases"]
                     else:
                         q_suggestions = ["List active leases", "Show open tickets", "What should I do first?"]
                     return _finish_agent_response(
@@ -1922,7 +2021,55 @@ def ask_agent(
         else:
             plan = None
 
-    # 2. Dispatch plan through the real concierge pipeline executor
+    # 2. Guard plan steps, compute property scope, expand multi-drafts, understand un-triaged messages, and dispatch
+    turn_id = new_id()
+    with Session(engine) as scope_session:
+        company_units = [
+            (u.label, u.address)
+            for u in scope_session.scalars(select(Unit).where(Unit.company_id == company_id, Unit.valid_to.is_(None)))
+        ]
+    scope = property_scope(req.query, company_units, briefs)
+
+    # Guard: prioritization queries ("whom to reply first", "which ticket is most important") must rank/advise,
+    # never invoke draft_reply/show_drafts against an arbitrary or un-understood ticket.
+    if plan and plan.in_scope and _is_prioritization_query(q_low):
+        filtered_steps = [s for s in plan.steps if s.intent not in (Intent.draft_reply, Intent.show_drafts)]
+        if len(filtered_steps) != len(plan.steps):
+            plan = plan.model_copy(update={"steps": filtered_steps}) if filtered_steps else None
+
+    auto_expanded_cids: set[UUID] = set()
+    _draft_intents = (Intent.draft_reply, Intent.show_drafts)
+    if (
+        plan
+        and plan.in_scope
+        and plan.steps
+        and scope.kind != "unknown"
+        and any(s.intent in _draft_intents for s in plan.steps)
+        and _is_multi_draft_request(q_low)
+    ):
+        target_pool = list(scope.briefs) if scope.kind == "scoped" else list(briefs)
+        urgency_pos = {b.case_id: idx for idx, b in enumerate(target_pool)}
+        existing_cids = {s.case_id for s in plan.steps if s.intent in _draft_intents and s.case_id is not None}
+        expanded_steps = list(plan.steps)
+        draft_step_count = sum(1 for s in expanded_steps if s.intent in _draft_intents)
+        for b in target_pool:
+            if draft_step_count >= 3 or len(expanded_steps) >= 4:
+                break
+            if b.case_id not in existing_cids:
+                expanded_steps.append(
+                    PlanStep(intent=Intent.show_drafts, case_id=b.case_id, task_ref=None, text=None, view=None)
+                )
+                existing_cids.add(b.case_id)
+                auto_expanded_cids.add(b.case_id)
+                draft_step_count += 1
+        # Order draft steps by urgency rank (emergency > high > normal) while preserving relative order of non-drafts
+        draft_steps_sorted = sorted(
+            [s for s in expanded_steps if s.intent in _draft_intents],
+            key=lambda s: urgency_pos.get(s.case_id, 999) if s.case_id is not None else 999,
+        )
+        other_steps = [s for s in expanded_steps if s.intent not in _draft_intents]
+        plan = plan.model_copy(update={"steps": (draft_steps_sorted + other_steps)[:4]})
+
     ans_text: str = ""
     try:
         if plan and plan.in_scope and plan.steps:
@@ -1934,6 +2081,56 @@ def ask_agent(
                         known_cases_list.append(f_cid)
                 except ValueError:
                     log.warning("api.superagent.focus_case_invalid", conversation_id=str(conv.id))
+
+            # Ensure the latest inbound message on any targeted draft/show_drafts case has an UnderstandingRow
+            # so Super Agent requests never get stuck on "still being processed".
+            known_set = set(known_cases_list)
+            draft_case_ids: list[UUID] = []
+            for st in plan.steps:
+                if (
+                    st.intent in _draft_intents
+                    and st.case_id is not None
+                    and st.case_id in known_set
+                    and st.case_id not in draft_case_ids
+                ):
+                    draft_case_ids.append(st.case_id)
+            if draft_case_ids:
+                msgs_to_understand: list[UUID] = []
+                with Session(engine) as und_sess:
+                    for d_cid in draft_case_ids:
+                        latest_msg = und_sess.scalars(
+                            select(MessageRow)
+                            .join(CaseLink, CaseLink.message_id == MessageRow.id)
+                            .where(
+                                CaseLink.company_id == company_id,
+                                CaseLink.case_id == d_cid,
+                                MessageRow.company_id == company_id,
+                                MessageRow.direction == Direction.inbound,
+                            )
+                            .order_by(MessageRow.sent_at.desc(), MessageRow.id.desc())
+                            .limit(1)
+                        ).first()
+                        if isinstance(latest_msg, MessageRow):
+                            existing_und = und_sess.scalars(
+                                select(UnderstandingRow)
+                                .where(
+                                    UnderstandingRow.company_id == company_id,
+                                    UnderstandingRow.message_id == latest_msg.id,
+                                )
+                                .limit(1)
+                            ).first()
+                            if not isinstance(existing_und, UnderstandingRow):
+                                msgs_to_understand.append(latest_msg.id)
+                for mid in msgs_to_understand:
+                    try:
+                        understand.understand_message(engine, settings, mid)
+                    except Exception as und_err:
+                        log.warning(
+                            "api.superagent.inline_understand_failed",
+                            message_id=str(mid),
+                            error=str(und_err),
+                        )
+
             results = run_plan(
                 engine,
                 settings,
@@ -1942,6 +2139,7 @@ def ask_agent(
                 question=req.query,
                 now=now,
                 brief_cases=known_cases_list,
+                turn_id=turn_id,
                 research=make_researcher(engine, settings),
             )
             ans_text = assemble_answer(results)
@@ -2016,25 +2214,37 @@ def ask_agent(
     # 3. Build step badge labels and inspect any generated proposal cards / actions
     step_descriptions: list[str] = list(research_steps)
     dropped_warnings: list[str] = []
+    skipped_auto_notes: list[str] = []
+    draft_cards: list[PreviewCardData] = []
+    seen_draft_keys: set[str] = set()
     preview_card = None
     action_buttons: list[ActionButtonData] = []
     q_low = req.query.lower()
 
-    for r in results:
+    for idx, r in enumerate(results):
+        step_case_id = plan.steps[idx].case_id if (plan and idx < len(plan.steps)) else None
         # Check if step executed successfully or was rejected/dropped
         if not r.ok:
             intent_name = r.intent.value.replace("_", " ")
             summary_low = r.summary.lower()
-            if "need more detail" in summary_low:
-                explanation = "Action requires a specific case or task reference."
-            elif "not found" in summary_low:
-                explanation = "The referenced case or task was not found."
-            elif "open that case" in summary_low or "not shown" in summary_low:
-                explanation = "Open that ticket first to access its details."
+            is_benign_auto_skip = (
+                step_case_id is not None
+                and step_case_id in auto_expanded_cids
+                and ("does not need a reply" in summary_low or "nothing to reply to" in summary_low)
+            )
+            if is_benign_auto_skip:
+                skipped_auto_notes.append("1 open case needed no reply")
             else:
-                explanation = r.summary
-            step_descriptions.append(f"⚠️ Could not {intent_name}: {explanation}")
-            dropped_warnings.append(f"• **Could not {intent_name}**: {explanation}")
+                if "need more detail" in summary_low:
+                    explanation = "Action requires a specific case or task reference."
+                elif "not found" in summary_low:
+                    explanation = "The referenced case or task was not found."
+                elif "open that case" in summary_low or "not shown" in summary_low:
+                    explanation = "Open that ticket first to access its details."
+                else:
+                    explanation = r.summary
+                step_descriptions.append(f"⚠️ Could not {intent_name}: {explanation}")
+                dropped_warnings.append(f"• **Could not {intent_name}**: {explanation}")
         else:
             if r.intent == Intent.answer:
                 if r.data and isinstance(r.data.get("steps"), list):
@@ -2161,22 +2371,27 @@ def ask_agent(
                     )
                 )
 
-        # Check if a proposal was drafted
+        # Check if a proposal was drafted (collect all draft/notice cards, up to 3)
         if (
             r.intent in (Intent.draft_reply, Intent.show_drafts, Intent.chase_now)
             and r.data
             and "approval_ids" in r.data
-            and not preview_card
+            and len(draft_cards) < 3
         ):
             approval_ids = r.data.get("approval_ids", [])
             prefer_contractor = any(
                 w in req.query.lower()
                 for w in ["contractor", "plumber", "monteur", "loodgieter", "work order", "conractore", "contractore"]
             )
-            preview_card = _resolve_draft_card(engine, approval_ids=approval_ids, prefer_contractor=prefer_contractor)
+            resolved_card = _resolve_draft_card(engine, approval_ids=approval_ids, prefer_contractor=prefer_contractor)
+            if resolved_card:
+                dedup_key = resolved_card.actionId or resolved_card.caseId or f"draft-{len(draft_cards)}"
+                if dedup_key not in seen_draft_keys:
+                    seen_draft_keys.add(dedup_key)
+                    draft_cards.append(resolved_card)
 
         # Check for case status snapshot card
-        if r.intent == Intent.case_status and r.data and not preview_card:
+        if r.intent == Intent.case_status and r.data and not preview_card and not draft_cards:
             status_cid = r.data.get("case_id") or cid_str or (str(briefs[0].case_id) if briefs else None)
             unit_lbl_step = (
                 r.summary.split(":")[0]
@@ -2193,6 +2408,11 @@ def ask_agent(
                 caseId=str(status_cid) if status_cid else None,
                 targetUrl=f"/maintenance?ticket={status_cid}" if status_cid else "/maintenance",
             )
+
+    if draft_cards:
+        urgency_rank = {str(b.case_id): idx for idx, b in enumerate(briefs)}
+        draft_cards.sort(key=lambda c: urgency_rank.get(c.caseId or "", 999))
+        preview_card = draft_cards[0]
 
     # If user specifically asked about contractor draft and no card was resolved yet, resolve it directly
     prefer_contractor = any(
@@ -2239,17 +2459,10 @@ def ask_agent(
     ):
         ans_text = "**Action Notice:**\n\n" + "\n".join(dropped_warnings)
 
-    preview_cards_list: list[PreviewCardData] = []
-    if preview_card:
-        preview_cards_list.append(preview_card)
+    preview_cards_list: list[PreviewCardData] = (
+        list(draft_cards) if draft_cards else ([preview_card] if preview_card else [])
+    )
 
-    # A question that names a street is answered for that street, or says the portfolio has no such property
-    with Session(engine) as scope_session:
-        company_units = [
-            (u.label, u.address)
-            for u in scope_session.scalars(select(Unit).where(Unit.company_id == company_id, Unit.valid_to.is_(None)))
-        ]
-    scope = property_scope(req.query, company_units, briefs)
     card_briefs = list(scope.briefs) if scope.kind == "scoped" else list(briefs)
     if scope.kind == "unknown":
         ans_text = f"I don't have a property on {scope.street} in your portfolio."
@@ -2260,7 +2473,9 @@ def ask_agent(
         suggested_action = None
 
     # Populate dynamic navigation and micro-cards for priority/maintenance inquiries from real DB state
-    if any(k in q_low for k in ["priority", "first", "ticket", "maintenance", "repair", "urgent", "emergency"]):
+    if _is_prioritization_query(q_low) or any(
+        k in q_low for k in ["priority", "first", "ticket", "maintenance", "repair", "urgent", "emergency"]
+    ):
         if not preview_card and card_briefs and not asks_for_clarification(_clean_executive_answer(ans_text)):
             # Smartly cap at top 3 cases ordered by priority
             top_briefs = card_briefs[:3]
@@ -2400,58 +2615,81 @@ def ask_agent(
             )
         )
 
-    # If drafting was requested and preview_card is active, ensure the answer text clearly introduces the draft
-    if (
-        preview_card
-        and preview_card.type == "draft_message"
-        and (
-            not ans_text
-            or any(
-                k in ans_text.lower()
-                for k in [
-                    "which",
-                    "are you",
-                    "can you",
-                    "sorry",
-                    "blocking sla",
-                    "details",
-                    "i only answer",
-                    "only answer",
-                    "send `help`",
-                ]
-            )
+    # Ensure answer text clearly introduces single or multiple draft cards without dumping duplicate Draft 1 blocks
+    draft_msg_cards = [c for c in preview_cards_list if c.type == "draft_message"]
+    draft_or_notice_cards = [c for c in preview_cards_list if c.type in ("draft_message", "notice")]
+    details_removed_note = (
+        "\n\nContact, bank or payment details and links in your request were removed before drafting."
+        if "Contact, bank or payment details" in ans_text
+        else ""
+    )
+
+    if len(draft_or_notice_cards) > 1 and draft_msg_cards:
+        bullet_lines = []
+        for d_card in draft_or_notice_cards:
+            unit_name = d_card.unitLabel or d_card.title or "Portfolio Case"
+            if d_card.type == "draft_message":
+                chan_label = "WhatsApp" if (d_card.channel or "").lower() == "whatsapp" else "Gmail"
+                bullet_lines.append(f"• **{unit_name}** ({chan_label})")
+            else:
+                bullet_lines.append(f"• **{unit_name}** (Notice — review in Inbox)")
+        n_d = len(draft_msg_cards)
+        noun = "reply" if n_d == 1 else "replies"
+        skipped_note = f" ({'; '.join(skipped_auto_notes)})" if skipped_auto_notes else ""
+        ans_text = (
+            f"Here {'is' if n_d == 1 else 'are'} the {n_d} draft {noun} ready for your review{skipped_note}:\n\n"
+            + "\n".join(bullet_lines)
+            + "\n\nReview each draft and tap **Accept and send** below."
+            + details_removed_note
+        )
+    elif len(draft_msg_cards) == 1 and (
+        not ans_text
+        or "Draft 1:" in ans_text
+        or any(
+            k in ans_text.lower()
+            for k in [
+                "which",
+                "are you",
+                "can you",
+                "sorry",
+                "blocking sla",
+                "details",
+                "i only answer",
+                "only answer",
+                "send `help`",
+            ]
         )
     ):
-        target_name = preview_card.unitLabel or "Portfolio"
-        if plan and any(s.intent == Intent.show_drafts for s in plan.steps):
+        target_name = draft_msg_cards[0].unitLabel or "Portfolio"
+        if plan and any(s.intent == Intent.show_drafts for s in plan.steps) and "reply drafted" not in ans_text.lower():
             ans_text = (
                 f"Here is the draft reply waiting for **{target_name}**. "
-                "You can review the message and tap **Accept and send** below."
+                "You can review the message and tap **Accept and send** below." + details_removed_note
             )
         else:
             ans_text = (
                 f"I have prepared a draft reply for **{target_name}**. "
-                "You can review the message and tap **Accept and send** below."
+                "You can review the message and tap **Accept and send** below." + details_removed_note
             )
 
-    if preview_card and preview_card.type == "draft_message":
-        note = channel_note(req.query, preview_card.channel, preview_card.recipient)
+    if len(draft_msg_cards) == 1:
+        note = channel_note(req.query, draft_msg_cards[0].channel, draft_msg_cards[0].recipient)
         if note:
             ans_text = f"{note}\n\n{ans_text}"
 
     # Filter out duplicate Approvals button if a draft card is already shown (draft card has Accept and send)
-    if preview_card and preview_card.type == "draft_message":
+    if draft_msg_cards:
         action_buttons = [b for b in action_buttons if "approval" not in b.label.lower()]
 
-    step_descriptions = display_steps(
-        step_descriptions, has_draft_card=bool(preview_card and preview_card.type == "draft_message")
-    )
+    step_descriptions = display_steps(step_descriptions, has_draft_card=bool(draft_msg_cards))
 
     suggested_action = action_buttons[0].label if action_buttons else None
 
     if not _clean_executive_answer(ans_text).strip():  # cards without a sentence, or a property with nothing open
         if scope.kind == "scoped" and not card_briefs:
             ans_text = "No open cases found for the property you named."
+        elif skipped_auto_notes and not preview_cards_list:
+            ans_text = "None of the open cases currently need a new reply."
         elif preview_cards_list:
             tail = " for the property you named." if scope.kind == "scoped" else "."
             n_cards = len(preview_cards_list)
@@ -2459,27 +2697,12 @@ def ask_agent(
             verb = "is the" if n_cards == 1 else f"are the {n_cards}"
             ans_text = f"Here {verb} highest-priority {noun}{tail}"
 
-    # Determine 3 dynamic workflow suggestions (2-3 words each)
-    suggestions: list[str] = []
-    if plan and getattr(plan, "suggestions", None):
-        suggestions = [s.strip() for s in plan.suggestions if s.strip()][:3]
-
-    if not suggestions or len(suggestions) < 3:
-        if preview_card and preview_card.type == "draft_message":
-            fallback_pills = ["Open in Inbox", "Show open tickets", "What should I do first?"]
-        elif any(k in q_low for k in ["rent", "arrear", "invoice", "money", "overdue"]):
-            fallback_pills = ["Draft payment reminder", "Show lease PDF", "Open in Money"]
-        elif any(k in q_low for k in ["leak", "boiler", "repair", "maintenance", "ticket", "priority"]):
-            fallback_pills = ["Draft plumber order", "Show leak photos", "Open ticket drawer"]
-        elif any(k in q_low for k in ["lease", "contract", "doc", "pdf"]):
-            fallback_pills = ["Draft rent increase", "Show tenant contact", "Open lease view"]
-        else:
-            fallback_pills = ["List active leases", "Check open tickets", "Show today summary"]
-        merged = suggestions + [p for p in fallback_pills if p not in suggestions]
-        suggestions = merged[:3]
-
-    # Build polymorphic AssistantCardData list from preview_cards_list
+    # Build polymorphic AssistantCardData list and 3 safe, executable workflow suggestions
     target_cards = preview_cards_list if preview_cards_list else ([preview_card] if preview_card else [])
+    raw_suggestions = (
+        [s.strip() for s in plan.suggestions if s.strip()] if (plan and getattr(plan, "suggestions", None)) else []
+    )
+    suggestions = _sanitize_suggestions(raw_suggestions, target_cards, q_low)
     cards_list = _build_cards_list(target_cards)
 
     return _finish_agent_response(
@@ -2498,7 +2721,8 @@ def ask_agent(
         suggestions=suggestions,
         now=now,
         briefs=briefs,
-        preview_cards=preview_cards_list if preview_cards_list else ([preview_card] if preview_card else []),
+        preview_cards=target_cards,
+        turn_id=turn_id,
     )
 
 

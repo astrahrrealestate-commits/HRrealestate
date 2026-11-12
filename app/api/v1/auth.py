@@ -306,9 +306,10 @@ async def create_session(body: SessionRequest, request: Request, response: Respo
         log.info("dashboard_login_unknown_owner", email_hash=email_fingerprint(email))
         raise HTTPException(status_code=403, detail="not an owner account")
     settings: Settings = state.settings
-    set_session_cookie(response, settings, issue_session(settings, principal, datetime.now(UTC)))
+    token = issue_session(settings, principal, datetime.now(UTC))
+    set_session_cookie(response, settings, token)
     log.info("dashboard_login", email_hash=email_fingerprint(email))
-    return {"email": principal.email, "company_id": str(principal.company_id)}
+    return {"email": principal.email, "company_id": str(principal.company_id), "session_token": token}
 
 
 @router.delete("/auth/session", status_code=204, dependencies=[Depends(require_csrf)])

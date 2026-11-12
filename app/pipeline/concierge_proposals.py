@@ -243,9 +243,11 @@ def _redrafted(step: PlanStep, result: redraft.Redraft, guidance: Guidance, head
 
 
 def show_drafts(ctx: Ctx, step: PlanStep) -> StepResult:
-    """Finds pending reply_draft actions for the case so the frontend can render the in-chat draft card."""
+    """Finds pending reply_draft actions for the case so the frontend can render the in-chat draft card,
+    or automatically drafts one via `draft_reply` when missing or only a fallback notice exists."""
     if step.case_id is None:
         return failed(step, NEED_DETAIL)
+    pending_approvals: list[UUID] = []
     with Session(ctx.engine) as session:
         message_id = _latest_inbound(session, ctx, step.case_id)
         if message_id is None:
@@ -293,11 +295,17 @@ def show_drafts(ctx: Ctx, step: PlanStep) -> StepResult:
             )
             return StepResult(step.intent, True, summary, data, None)
 
-        if pending_approvals:
-            data = {
-                "approval_ids": [str(a) for a in pending_approvals],
-                "case_id": str(step.case_id),
-            }
-            return StepResult(step.intent, True, "Here is the pending notice for this case.", data, None)
+        has_fallback_notice = bool(pending_approvals) and message_id is None
 
-        return failed(step, "No pending draft found for this case. You can ask me to draft one.")
+    if has_fallback_notice:
+        data = {
+            "approval_ids": [str(a) for a in pending_approvals],
+            "case_id": str(step.case_id),
+        }
+        return StepResult(step.intent, True, "Here is the pending notice for this case.", data, None)
+
+    if message_id is not None:
+        draft_res = draft_reply(ctx, step)
+        return StepResult(step.intent, draft_res.ok, draft_res.summary, draft_res.data, None)
+
+    return failed(step, "No pending draft found for this case. You can ask me to draft one.")

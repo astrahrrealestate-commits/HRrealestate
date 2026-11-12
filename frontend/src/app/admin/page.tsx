@@ -202,8 +202,8 @@ function AdminContent() {
               </div>
 
               <p className="text-xs text-[var(--ink-3)] leading-relaxed">
-                A change applies on the person&apos;s next click. Sections limit the pages and the data behind them; the
-                Super Agent answers from the whole portfolio, so give it only to people you trust with all of it.
+                A change applies on the person&apos;s next click. Sections limit the pages and the data behind them;
+                Astra answers from the whole portfolio, so give it only to people you trust with all of it.
               </p>
             </main>
           </div>

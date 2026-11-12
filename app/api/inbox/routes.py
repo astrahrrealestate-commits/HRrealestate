@@ -239,7 +239,12 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
         und_row = session.query(UnderstandingRow).filter(UnderstandingRow.message_id == latest_msg.id).first()
         und_body = und_row.body if und_row and isinstance(und_row.body, dict) else {}
         und_entities = und_body.get("entities") or {}
-        und_intent = und_body.get("intent") or case.summary or "Incoming communication analyzed by Gemini AI agent."
+        raw_intent = und_body.get("intent") or case.summary or "Incoming communication analyzed by Gemini AI agent."
+        und_intent = (
+            raw_intent.replace("_", " ").strip().capitalize()
+            if isinstance(raw_intent, str) and "_" in raw_intent and " " not in raw_intent.strip()
+            else raw_intent
+        )
 
         detected_lang_label = {"nl": "Dutch (detected)", "en": "English (detected)"}.get(
             detect_language(latest_msg.text or ""), "Language not detected"
@@ -297,7 +302,7 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
                         "id": f"wd{idx}",
                         "label": f"WhatsApp {idx} (Quick Confirmation)" if idx == 1 else f"WhatsApp {idx} (Detailed)",
                         "channel": "whatsapp",
-                        "text": text if len(text) < 160 else text.split("\n\n")[0],
+                        "text": text,
                         "confidence": 98 if idx == 1 else 95,
                     }
                 )

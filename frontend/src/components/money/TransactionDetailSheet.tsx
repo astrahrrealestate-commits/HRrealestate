@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useEffect } from "react";
-import { X, ArrowUpRight, ArrowDownRight, CheckCircle2, AlertTriangle, Clock, Building, Calendar, CreditCard, Send, Sparkles } from "lucide-react";
+import { X, ArrowUpRight, ArrowDownRight, CheckCircle2, AlertTriangle, Clock, Building, Calendar, CreditCard, Send } from "lucide-react";
+import { AstraIcon } from "@/components/ui/AstraBrand";
 import { Button } from "@/components/ui/Button";
 import { MoneyTransaction } from "@/data/moneyMockData";
 import { useSuperAgent } from "@/context/SuperAgentContext";
@@ -65,15 +66,15 @@ export function TransactionDetailSheet({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {/* 1-Click Fast Toggle to Super Agent (Unified Right Rail) */}
+            {/* 1-Click Fast Toggle to Astra (Unified Right Rail) */}
             <button
               type="button"
               onClick={() => superAgent.setIsOpen(true)}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-emerald-400 bg-[#161A1D] hover:bg-[#1E2328] border border-[#252B32] rounded-lg transition-colors cursor-pointer"
-              title="Ask Super Agent about this invoice"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-cyan-300 bg-[#161A1D] hover:bg-[#1E2328] border border-[#252B32] rounded-lg transition-colors cursor-pointer"
+              title="Ask Astra about this invoice"
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Ask Agent</span>
+              <AstraIcon className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="hidden sm:inline tracking-wide">Ask Astra</span>
             </button>
 
             <button

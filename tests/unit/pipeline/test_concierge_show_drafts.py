@@ -79,3 +79,40 @@ def test_show_drafts_returns_pending_reply_draft(mock_ctx):
         assert res.data is not None
         assert res.data["approval_ids"] == [str(appr_id)]
         assert res.data["case_id"] == str(case_id)
+
+
+def test_show_drafts_auto_drafts_when_no_pending_reply_exists(mock_ctx):
+    """When inbound exists without pending reply_draft (e.g. only a notice), show_drafts runs draft_reply."""
+    case_id = uuid4()
+    msg_id = uuid4()
+    new_appr_id = uuid4()
+
+    mock_sess = MagicMock()
+    mock_sess.__enter__.return_value = mock_sess
+    mock_sess.scalar.return_value = msg_id
+    mock_sess.scalars.side_effect = [
+        [],  # _message_actions
+        [],  # case fallback ActionRow query
+        [],  # _pending_ids
+    ]
+
+    draft_result = cp.StepResult(
+        intent=Intent.show_drafts,
+        ok=True,
+        summary="Reply drafted.",
+        data={"approval_ids": [str(new_appr_id)], "case_id": str(case_id)},
+        view="approvals",
+    )
+
+    mock_ctx.engine.connect = MagicMock()
+    with (
+        patch("app.pipeline.concierge_proposals.Session", return_value=mock_sess),
+        patch("app.pipeline.concierge_proposals.draft_reply", return_value=draft_result) as mock_draft,
+    ):
+        step = PlanStep(intent=Intent.show_drafts, case_id=case_id, task_ref=None, text=None, view=None)
+        res = cp.show_drafts(mock_ctx, step)
+
+    mock_draft.assert_called_once_with(mock_ctx, step)
+    assert res.ok
+    assert res.view is None  # Still keeps owner in chat
+    assert res.data == {"approval_ids": [str(new_appr_id)], "case_id": str(case_id)}

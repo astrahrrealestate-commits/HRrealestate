@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, Suspense } from "react";
+import React, { useState, useMemo, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
@@ -23,10 +23,12 @@ import {
   CheckCircle2,
   CornerDownRight,
   Mic,
+  MicOff,
   Filter,
   Phone,
   Plus,
   Pencil,
+  Info,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSuperAgent } from "@/context/SuperAgentContext";
@@ -48,6 +50,8 @@ import {
 import { formatClock } from "@/lib/clock";
 import { ContactFormModal } from "@/components/contacts/ContactFormModal";
 import type { SavedContact } from "@/lib/contactsWriteApi";
+import { useVoiceInput } from "@/hooks/useVoiceInput";
+import { FlagUK, FlagNL } from "@/components/ui/FlagIcons";
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -68,26 +72,30 @@ function PriorityBadge({ priority }: { priority: "emergency" | "high" | "normal"
   switch (priority) {
     case "emergency":
       return (
-        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight bg-red-50 text-red-700 border border-red-200 shrink-0">
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-tight bg-white text-[var(--ink)] border border-[var(--line)] shrink-0">
+          <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
           Emergency
         </span>
       );
     case "high":
       return (
-        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight bg-amber-50 text-amber-700 border border-amber-200 shrink-0">
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-tight bg-white text-[var(--ink)] border border-[var(--line)] shrink-0">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
           High
         </span>
       );
     case "normal":
       return (
-        <span className="px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-tight bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-tight bg-white text-[var(--ink-2)] border border-[var(--line)] shrink-0">
+          <span className="w-1.5 h-1.5 rounded-full bg-[#2563eb]" />
           Normal
         </span>
       );
     case "low":
     default:
       return (
-        <span className="px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-tight bg-zinc-100 text-zinc-600 border border-zinc-200 shrink-0">
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-tight bg-white text-[var(--ink-3)] border border-[var(--line)] shrink-0">
+          <span className="w-1.5 h-1.5 rounded-full bg-zinc-400" />
           Low
         </span>
       );
@@ -148,11 +156,32 @@ function ContactsContent() {
     return () => { isMounted = false; };
   }, [filterAudience]);
 
-  // Profile Card Collapsed/Expanded state (both use #f0f5fb subtle blue)
-  const [isProfileExpanded, setIsProfileExpanded] = useState(true);
+  // Profile Card Collapsed/Expanded state (null = collapsed on <md mobile, expanded on >=md desktop)
+  const [isProfileExpanded, setIsProfileExpanded] = useState<boolean | null>(null);
+  const [mobileInfoPref, setMobileInfoPref] = useState<{ contactId: string; expanded: boolean }>({
+    contactId: "",
+    expanded: true,
+  });
+  const whatsappTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleToggleProfileExpanded = () => {
+    setIsProfileExpanded((prev) => {
+      if (prev === null) {
+        return typeof window !== "undefined" && window.innerWidth >= 768 ? false : true;
+      }
+      return !prev;
+    });
+  };
 
   // Detail pane tabs: "mails" | "whatsapp" | "brixx" | "tickets"
   const [activeTab, setActiveTab] = useState<"mails" | "whatsapp" | "brixx" | "tickets">("mails");
+
+  const handleSelectTab = (tab: "mails" | "whatsapp" | "brixx" | "tickets", contactId?: string) => {
+    setActiveTab(tab);
+    if (contactId) {
+      setMobileInfoPref({ contactId, expanded: false });
+    }
+  };
 
   // Mail filter state: Category & 4 Priorities
   const [mailCategoryFilter, setMailCategoryFilter] = useState<string>("all");
@@ -184,6 +213,9 @@ function ContactsContent() {
     );
   }, [allAvailableContacts, selectedContactId]);
 
+  const isMobileInfoExpanded =
+    activeContact && mobileInfoPref.contactId === activeContact.id ? mobileInfoPref.expanded : true;
+
   // Live Communications state (Gmail & WhatsApp)
   const [liveEmails, setLiveEmails] = useState<ContactEmailItem[]>([]);
   const [liveWhatsApp, setLiveWhatsApp] = useState<ContactWhatsAppMessage[]>([]);
@@ -201,6 +233,84 @@ function ContactsContent() {
   const [whatsAppDrafts, setWhatsAppDrafts] = useState<AIDraftVariant[]>([]);
   const [isGeneratingWhatsAppDrafts, setIsGeneratingWhatsAppDrafts] = useState(false);
 
+  // Voice-to-text dictation state (shared between Email and WhatsApp composers)
+  const [voiceTarget, setVoiceTarget] = useState<"whatsapp" | "email" | null>(null);
+  const voiceTargetRef = useRef<"whatsapp" | "email" | null>(null);
+  const voiceEmailIdRef = useRef<string | null>(null);
+
+  const {
+    isListening,
+    speechLang,
+    setSpeechLang,
+    startListening,
+    stopListening,
+  } = useVoiceInput({
+    initialLang: "nl",
+    onTranscript: (liveText) => {
+      if (voiceTargetRef.current === "whatsapp") {
+        setWhatsappInput(liveText);
+      } else if (voiceTargetRef.current === "email" && voiceEmailIdRef.current) {
+        const targetEmailId = voiceEmailIdRef.current;
+        setEmailDraftCustomText((prev) => ({
+          ...prev,
+          [targetEmailId]: liveText,
+        }));
+      }
+    },
+  });
+
+  const activeVoiceTarget = isListening ? voiceTarget : null;
+  const isListeningRef = useRef(false);
+  const stopListeningRef = useRef(stopListening);
+
+  useEffect(() => {
+    isListeningRef.current = isListening;
+    stopListeningRef.current = stopListening;
+    if (!isListening) {
+      voiceTargetRef.current = null;
+      voiceEmailIdRef.current = null;
+    }
+  }, [isListening, stopListening]);
+
+  useEffect(() => {
+    voiceTargetRef.current = null;
+    voiceEmailIdRef.current = null;
+    if (isListeningRef.current) {
+      stopListeningRef.current();
+    }
+  }, [activeTab, activeContact?.id, openEmailId]);
+
+  const handleToggleDictation = (
+    target: "whatsapp" | "email",
+    existingText: string,
+    emailId?: string
+  ) => {
+    if (isListening && voiceTargetRef.current === target) {
+      stopListening();
+      voiceTargetRef.current = null;
+      voiceEmailIdRef.current = null;
+      setVoiceTarget(null);
+      return;
+    }
+    if (isListening) {
+      stopListening();
+    }
+    voiceTargetRef.current = target;
+    voiceEmailIdRef.current = target === "email" ? emailId ?? null : null;
+    setVoiceTarget(target);
+    startListening(existingText);
+  };
+
+  const handleToggleSpeechLang = () => {
+    if (isListening) {
+      stopListening();
+      voiceTargetRef.current = null;
+      voiceEmailIdRef.current = null;
+      setVoiceTarget(null);
+    }
+    setSpeechLang((prev) => (prev === "nl" ? "en" : "nl"));
+  };
+
   // Sync state & update SuperAgent context if active contact changes
   useEffect(() => {
     if (activeContact) {
@@ -214,6 +324,14 @@ function ContactsContent() {
       );
     }
   }, [activeContact?.id]);
+
+  // Auto-grow WhatsApp typing box as user types or selects an AI draft
+  useEffect(() => {
+    const el = whatsappTextareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
+  }, [whatsappInput, activeTab]);
 
   // Live background polling for live communications (updates every 8s)
   useEffect(() => {
@@ -270,6 +388,9 @@ function ContactsContent() {
 
   const handleSendEmailReply = async (email: ContactEmailItem) => {
     if (!activeContact) return;
+    if (isListening) {
+      stopListening();
+    }
     const textToSend =
       emailDraftCustomText[email.id] !== undefined
         ? emailDraftCustomText[email.id]
@@ -330,6 +451,9 @@ function ContactsContent() {
   const handleSendWhatsApp = async () => {
     if (!activeContact) return;
     if (!whatsappInput.trim() || isSendingWhatsApp) return;
+    if (isListening) {
+      stopListening();
+    }
     const textToSend = whatsappInput.trim();
     setWhatsappInput("");
     setIsSendingWhatsApp(true);
@@ -416,7 +540,7 @@ function ContactsContent() {
   }, [openEmailId, filteredEmails, liveEmails]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#0A1B2F] text-[#111215] font-sans antialiased">
+    <div className="flex h-dvh w-full overflow-hidden bg-[#0A1B2F] text-[#111215] font-sans antialiased">
       {/* 1. Left Nav (Desktop Sidebar - #0A1B2F dark blue theme) */}
       <Sidebar />
 
@@ -427,10 +551,10 @@ function ContactsContent() {
 
         {/* WORKSPACE BODY ROW */}
         <div className="flex-1 flex flex-row overflow-hidden min-h-0 w-full relative">
-          {/* MAIN CONTAINER (14px rounded corners preserved) */}
+          {/* MAIN CONTAINER (14px rounded corners preserved on desktop, full-bleed on mobile) */}
           <main
             id="mainContainer"
-            className="flex-1 m-0 mr-[10px] mb-[10px] bg-white rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-row overflow-hidden relative transition-all duration-300"
+            className="flex-1 m-0 md:mr-[10px] md:mb-[10px] bg-white md:rounded-[14px] md:border md:border-[#27272a] md:shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-row overflow-hidden relative transition-all duration-300"
           >
             {/* PANEL 1: CONTACTS LIST SIDEBAR (220px, subtle neutral #fafafa) */}
             <div
@@ -539,7 +663,7 @@ function ContactsContent() {
               </div>
 
               {/* Contact items scroll */}
-              <div className="flex-1 overflow-y-auto py-1.5">
+              <div className="flex-1 overflow-y-auto py-1.5 pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-1.5">
                 {isLoadingContacts && allAvailableContacts.length === 0 && (
                   <div className="p-3 space-y-2">
                     {[1, 2, 3, 4].map((i) => (
@@ -558,6 +682,7 @@ function ContactsContent() {
                       onClick={() => {
                         setSelectedContactId(contact.id);
                         setOpenEmailId(null);
+                        setMobileInfoPref({ contactId: contact.id, expanded: true });
                         router.push(`/contacts?contact=${contact.id}`);
                       }}
                       className={cn(
@@ -605,20 +730,72 @@ function ContactsContent() {
             {/* PANEL 2: CONTACT DETAIL */}
             <div
               className={cn(
-                "flex-1 flex flex-col overflow-hidden relative",
+                "flex-1 flex flex-col min-h-0 overflow-hidden relative pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0",
                 !contactParam && "hidden md:flex"
               )}
             >
-              {/* Back button on mobile */}
-              <div className="md:hidden px-4 py-2 border-b border-[#e8e9eb] bg-[#fafafa]">
-                <button
-                  type="button"
-                  onClick={() => router.push("/contacts")}
-                  className="inline-flex items-center gap-1.5 text-xs text-[#475569] font-medium"
-                >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>All Contacts</span>
-                </button>
+              {/* Compact sticky bar on mobile: Back + Name + Info dropdown */}
+              <div className="md:hidden flex items-center justify-between gap-2 px-3 py-2 border-b border-[#e8e9eb] bg-[#fafafa] shrink-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => router.push("/contacts")}
+                    className="inline-flex items-center gap-1 text-xs text-[#475569] font-medium shrink-0 py-0.5 pr-1"
+                    aria-label="Back to All Contacts"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    {!activeContact && <span>All Contacts</span>}
+                  </button>
+                  {activeContact && (
+                    <>
+                      <div className="w-7 h-7 rounded-full bg-[#27272a] text-white font-bold text-[10px] flex items-center justify-center shrink-0">
+                        {getInitials(activeContact.name)}
+                      </div>
+                      <span className="text-[13px] font-bold text-[#111215] truncate">
+                        {activeContact.name}
+                      </span>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[9.5px] font-semibold rounded-full capitalize bg-white text-[#1e293b] border border-[#e2e8f0] shrink-0">
+                        <span
+                          className={cn(
+                            "w-1.5 h-1.5 rounded-full",
+                            activeContact.category === "tenant"
+                              ? "bg-emerald-500"
+                              : activeContact.category === "contractor"
+                              ? "bg-[#2563eb]"
+                              : "bg-slate-400"
+                          )}
+                        />
+                        {activeContact.category}
+                      </span>
+                    </>
+                  )}
+                </div>
+                {activeContact && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setMobileInfoPref({
+                        contactId: activeContact.id,
+                        expanded: !isMobileInfoExpanded,
+                      })
+                    }
+                    className={cn(
+                      "inline-flex items-center gap-1 h-[26px] px-2.5 rounded-full text-[11px] font-semibold border transition-colors shrink-0 cursor-pointer",
+                      isMobileInfoExpanded
+                        ? "bg-[#e0edff] text-[#1d4ed8] border-[#bfdbfe]"
+                        : "bg-white text-[#475569] border-[#d5d9e0]"
+                    )}
+                    aria-expanded={isMobileInfoExpanded}
+                  >
+                    <Info className="w-3 h-3" />
+                    <span>{isMobileInfoExpanded ? "Hide info" : "Info"}</span>
+                    {isMobileInfoExpanded ? (
+                      <ChevronUp className="w-3 h-3" />
+                    ) : (
+                      <ChevronDown className="w-3 h-3" />
+                    )}
+                  </button>
+                )}
               </div>
 
               {!activeContact ? (
@@ -633,33 +810,47 @@ function ContactsContent() {
                   )}
                 </div>
               ) : (
-              <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
-                {/* Profile Card (Matching subtle blue #f0f5fb for top and expanded body) */}
-                <div className="bg-[#f0f5fb] border-b border-[#e1e7f0] transition-colors">
-                  <div className="flex items-center gap-3.5 px-6 py-3.5 bg-[#f0f5fb]">
-                    {/* 44px Avatar */}
-                    <div className="w-[44px] h-[44px] rounded-full bg-[#27272a] text-white font-bold text-[15px] flex items-center justify-center shrink-0 border-2 border-[#d5d9e0]">
+              <div
+                className={cn(
+                  "flex-1 flex flex-col min-h-0",
+                  activeTab === "whatsapp" ? "overflow-hidden" : "overflow-y-auto"
+                )}
+              >
+                {/* Profile Card (desktop always shown; on mobile shown first or via Info dropdown) */}
+                <div
+                  className={cn(
+                    "bg-[#f0f5fb] border-b border-[#e1e7f0] transition-colors shrink-0",
+                    !isMobileInfoExpanded && "hidden md:block"
+                  )}
+                >
+                  <div className="flex items-center gap-3 px-3.5 py-2.5 sm:px-6 sm:py-3.5 bg-[#f0f5fb]">
+                    {/* 44px Avatar (desktop) */}
+                    <div className="hidden md:flex w-[44px] h-[44px] rounded-full bg-[#27272a] text-white font-bold text-[15px] items-center justify-center shrink-0 border-2 border-[#d5d9e0]">
                       {getInitials(activeContact.name)}
                     </div>
 
                     {/* Summary */}
                     <div className="flex-1 min-w-0 flex flex-col gap-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[14px] font-bold text-[#111215] tracking-[-0.01em]">
+                        <span className="hidden md:inline text-[14px] font-bold text-[#111215] tracking-[-0.01em]">
                           {activeContact.name}
                         </span>
-                        <span
-                          className={cn(
-                            "inline-flex items-center px-2 py-0.5 text-[10px] font-semibold rounded-full capitalize",
-                            activeContact.category === "tenant"
-                              ? "bg-[#f0fdf4] text-[#16a34a] border border-[#bbf7d0]"
-                              : "bg-[#eff6ff] text-[#2563eb] border border-[#bfdbfe]"
-                          )}
-                        >
+                        <span className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-0.5 text-[10.5px] font-semibold rounded-full capitalize bg-white text-[#1e293b] border border-[#e2e8f0]">
+                          <span
+                            className={cn(
+                              "w-1.5 h-1.5 rounded-full",
+                              activeContact.category === "tenant"
+                                ? "bg-emerald-500"
+                                : activeContact.category === "contractor"
+                                ? "bg-[#2563eb]"
+                                : "bg-slate-400"
+                            )}
+                          />
                           {activeContact.category}
                         </span>
                         {(activeContact as SavedContact).unclassified && (
-                          <span className="text-[10.5px] text-[#92400e] bg-[#fffbeb] border border-[#fde68a] rounded-full px-2 py-0.5 font-medium">
+                          <span className="inline-flex items-center gap-1.5 text-[10.5px] text-[#475569] bg-white border border-[#e2e8f0] rounded-full px-2.5 py-0.5 font-medium">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                             From messages, not classified yet
                           </span>
                         )}
@@ -702,14 +893,14 @@ function ContactsContent() {
                       </div>
                     </div>
 
-                    {/* Chevron Toggle Button */}
+                    {/* Chevron Toggle Button (Desktop) */}
                     <button
                       type="button"
-                      onClick={() => setIsProfileExpanded((prev) => !prev)}
-                      className="w-7 h-7 rounded-full bg-white border border-[#d5d9e0] text-[#64748b] flex items-center justify-center hover:bg-[#f8fafc] hover:text-[#0f172a] transition-all cursor-pointer shrink-0"
-                      title={isProfileExpanded ? "Collapse address details" : "Expand address details"}
+                      onClick={handleToggleProfileExpanded}
+                      className="hidden md:flex w-7 h-7 rounded-full bg-white border border-[#d5d9e0] text-[#64748b] items-center justify-center hover:bg-[#f8fafc] hover:text-[#0f172a] transition-all cursor-pointer shrink-0"
+                      title={isProfileExpanded === false ? "Expand address details" : "Collapse address details"}
                     >
-                      {isProfileExpanded ? (
+                      {isProfileExpanded === null || isProfileExpanded ? (
                         <ChevronUp className="w-4 h-4" />
                       ) : (
                         <ChevronDown className="w-4 h-4" />
@@ -717,9 +908,13 @@ function ContactsContent() {
                     </button>
                   </div>
 
-                  {/* Expandable details (Identical #f0f5fb background) */}
-                  {isProfileExpanded && (
-                    <div className="px-6 py-2 pb-3.5 bg-[#f0f5fb] border-t border-[#e1e7f0] flex flex-col">
+                  {/* Expandable address details (always shown when mobile Info is open; toggled by chevron on desktop) */}
+                  <div
+                    className={cn(
+                      "px-3.5 sm:px-6 py-2 pb-3 bg-[#f0f5fb] border-t border-[#e1e7f0] flex-col",
+                      isProfileExpanded === false ? "flex md:hidden" : "flex"
+                    )}
+                  >
                       <div className="flex items-baseline gap-2 py-1 border-b border-[#e4ecf7]">
                         <span className="font-semibold text-[11.5px] text-[#64748b] min-w-[140px] shrink-0">
                           {t("Property Address:")}
@@ -737,14 +932,13 @@ function ContactsContent() {
                         </span>
                       </div>
                     </div>
-                  )}
                 </div>
 
                 {/* Tabs Bar */}
-                <div className="px-6 flex items-center border-b border-[#e5e7eb] bg-white sticky top-0 z-10">
+                <div className="px-3 sm:px-6 flex items-center border-b border-[#e5e7eb] bg-white sticky top-0 z-10 overflow-x-auto no-scrollbar shrink-0">
                   <button
                     type="button"
-                    onClick={() => setActiveTab("mails")}
+                    onClick={() => handleSelectTab("mails", activeContact.id)}
                     className={cn(
                       "inline-flex items-center gap-1.5 py-[9px] px-[14px] pb-[11px] text-[13px] font-medium border-b-2 transition-all cursor-pointer whitespace-nowrap",
                       activeTab === "mails"
@@ -758,7 +952,7 @@ function ContactsContent() {
 
                   <button
                     type="button"
-                    onClick={() => setActiveTab("whatsapp")}
+                    onClick={() => handleSelectTab("whatsapp", activeContact.id)}
                     className={cn(
                       "inline-flex items-center gap-1.5 py-[9px] px-[14px] pb-[11px] text-[13px] font-medium border-b-2 transition-all cursor-pointer whitespace-nowrap",
                       activeTab === "whatsapp"
@@ -772,7 +966,7 @@ function ContactsContent() {
 
                   <button
                     type="button"
-                    onClick={() => setActiveTab("brixx")}
+                    onClick={() => handleSelectTab("brixx", activeContact.id)}
                     className={cn(
                       "inline-flex items-center gap-1.5 py-[9px] px-[14px] pb-[11px] text-[13px] font-medium border-b-2 transition-all cursor-pointer whitespace-nowrap",
                       activeTab === "brixx"
@@ -786,7 +980,7 @@ function ContactsContent() {
 
                   <button
                     type="button"
-                    onClick={() => setActiveTab("tickets")}
+                    onClick={() => handleSelectTab("tickets", activeContact.id)}
                     className={cn(
                       "inline-flex items-center gap-1.5 py-[9px] px-[14px] pb-[11px] text-[13px] font-medium border-b-2 transition-all cursor-pointer whitespace-nowrap",
                       activeTab === "tickets"
@@ -803,7 +997,7 @@ function ContactsContent() {
                 {activeTab === "mails" && (
                   <div className="flex-1 flex flex-col min-h-0">
                     {/* Mail Toolbar */}
-                    <div className="px-6 py-2.5 flex items-center justify-between gap-2.5 border-b border-[#e5e7eb] flex-wrap bg-white">
+                    <div className="px-3.5 sm:px-6 py-2.5 flex items-center justify-between gap-2.5 border-b border-[#e5e7eb] flex-wrap bg-white">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         {/* All Pill */}
                         <button
@@ -1011,7 +1205,7 @@ function ContactsContent() {
 
                     {/* Email Thread Opened View (Like Gmail: full thread viewer inside) */}
                     {activeOpenEmail ? (
-                      <div className="flex-1 flex flex-col overflow-y-auto bg-white p-6 space-y-4">
+                      <div className="flex-1 flex flex-col overflow-y-auto bg-white p-3.5 sm:p-6 pb-8 space-y-4">
                         {/* Top bar with back to inbox */}
                         <div className="flex items-center justify-between border-b border-[#e5e7eb] pb-3">
                           <button
@@ -1141,11 +1335,73 @@ function ContactsContent() {
                             className="w-full p-2.5 rounded-lg text-xs leading-relaxed bg-white border border-[#cbd5e1] text-[#111215] placeholder:text-[#94a3b8] focus:outline-none focus:ring-1 focus:ring-[#1a73e8] resize-y"
                           />
 
-                          {/* Send Footer */}
+                          {/* Send & Voice Dictation Footer */}
                           <div className="flex items-center justify-between gap-3 pt-1 flex-wrap">
-                            <span className="text-[11px] text-[#64748b]">
-                              Replying directly to: {activeOpenEmail.subject.startsWith("Re:") ? activeOpenEmail.subject : `Re: ${activeOpenEmail.subject}`}
-                            </span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const currentEmailBody =
+                                    emailDraftCustomText[activeOpenEmail.id] !== undefined
+                                      ? emailDraftCustomText[activeOpenEmail.id]
+                                      : activeOpenEmail.draftVariants?.[0]?.body || "";
+                                  handleToggleDictation("email", currentEmailBody, activeOpenEmail.id);
+                                }}
+                                className={cn(
+                                  "px-2.5 py-1 rounded-full text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 shrink-0 border select-none",
+                                  activeVoiceTarget === "email"
+                                    ? "bg-cyan-500 text-black border-cyan-400 shadow-[0_0_12px_rgba(0,229,255,0.6)] animate-pulse font-semibold ring-2 ring-cyan-300"
+                                    : "bg-white hover:bg-[#f1f5f9] text-[#334155] hover:text-[#111215] border-[#cbd5e1]"
+                                )}
+                                title={
+                                  activeVoiceTarget === "email"
+                                    ? "Listening... click to stop"
+                                    : `Voice dictation (${speechLang === "nl" ? "Dutch" : "English"})`
+                                }
+                                aria-label="Voice dictation for email reply"
+                              >
+                                {activeVoiceTarget === "email" ? (
+                                  <MicOff className="w-3.5 h-3.5 text-black stroke-[2.5]" />
+                                ) : (
+                                  <Mic className="w-3.5 h-3.5 text-[#1a73e8] stroke-[2]" />
+                                )}
+                                <span>{activeVoiceTarget === "email" ? "Listening..." : "Dictate"}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={handleToggleSpeechLang}
+                                className={cn(
+                                  "text-[10.5px] font-bold px-2 py-0.5 rounded-full border transition-all cursor-pointer flex items-center gap-1 select-none",
+                                  speechLang === "nl"
+                                    ? "bg-amber-500/15 text-amber-700 border-amber-500/30 hover:bg-amber-500/25"
+                                    : "bg-blue-500/15 text-blue-700 border-blue-500/30 hover:bg-blue-500/25"
+                                )}
+                                title={
+                                  speechLang === "nl"
+                                    ? "Voice language: Nederlands (click to switch to English)"
+                                    : "Voice language: English (click to switch to Nederlands)"
+                                }
+                              >
+                                {speechLang === "nl" ? <FlagNL className="w-3.5 h-2.5" /> : <FlagUK className="w-3.5 h-2.5" />}
+                                <span>{speechLang === "nl" ? "NL" : "EN"}</span>
+                              </button>
+
+                              {activeVoiceTarget === "email" ? (
+                                <span className="text-[11px] text-cyan-700 font-medium animate-pulse flex items-center gap-1.5 pl-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-ping inline-block" />
+                                  <span>
+                                    {speechLang === "nl"
+                                      ? "Luisteren (Nederlands)..."
+                                      : "Listening (English)..."}
+                                  </span>
+                                </span>
+                              ) : (
+                                <span className="text-[11px] text-[#64748b]">
+                                  Replying directly to: {activeOpenEmail.subject.startsWith("Re:") ? activeOpenEmail.subject : `Re: ${activeOpenEmail.subject}`}
+                                </span>
+                              )}
+                            </div>
 
                             <div className="flex items-center gap-2">
                               {sentEmailSuccess[activeOpenEmail.id] && (
@@ -1179,9 +1435,12 @@ function ContactsContent() {
                           return (
                             <div
                               key={email.id}
-                              onClick={() => setOpenEmailId(email.id)}
+                              onClick={() => {
+                                setOpenEmailId(email.id);
+                                setMobileInfoPref({ contactId: activeContact.id, expanded: false });
+                              }}
                               className={cn(
-                                "flex items-center justify-between gap-3 px-7 py-2.5 min-h-[44px] cursor-pointer transition-colors select-none",
+                                "flex items-center justify-between gap-3 px-3.5 sm:px-7 py-2.5 min-h-[44px] cursor-pointer transition-colors select-none",
                                 email.isUnread
                                   ? "bg-[#fafbff] hover:bg-[#f3f5fb]"
                                   : "bg-white hover:bg-[#f9fafb]"
@@ -1220,6 +1479,7 @@ function ContactsContent() {
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setOpenEmailId(email.id);
+                                    setMobileInfoPref({ contactId: activeContact.id, expanded: false });
                                   }}
                                   className="inline-flex items-center gap-1 h-[24px] px-2.5 rounded-full text-[11px] font-medium border border-[#e5e7eb] text-[#8b929e] hover:text-[#111215] hover:bg-[#f1f5f9] transition-colors cursor-pointer"
                                 >
@@ -1247,9 +1507,9 @@ function ContactsContent() {
 
                 {/* TAB VIEW 2: WhatsApp Tab with full WA theme & AI Blue Chat Bar */}
                 {activeTab === "whatsapp" && (
-                  <div className="flex-1 flex flex-col min-h-[500px] bg-[#e5ddd5] overflow-hidden">
+                  <div className="flex-1 flex flex-col min-h-0 md:min-h-[420px] bg-[#e5ddd5] overflow-hidden">
                     {/* Messages Area with Tiled WA Theme */}
-                    <div className="flex-1 overflow-y-auto p-4 sm:p-5 flex flex-col gap-2.5">
+                    <div className="flex-1 min-h-0 overflow-y-auto p-3.5 sm:p-5 flex flex-col gap-2.5">
                       {liveWhatsApp && liveWhatsApp.length > 0 ? (
                         liveWhatsApp.map((msg) => {
                           const isTenant = msg.sender === "tenant";
@@ -1258,7 +1518,7 @@ function ContactsContent() {
                             <div
                               key={msg.id}
                               className={cn(
-                                "flex flex-col max-w-[72%]",
+                                "flex flex-col max-w-[82%] sm:max-w-[72%]",
                                 isTenant ? "mr-auto items-start" : "ml-auto items-end"
                               )}
                             >
@@ -1280,18 +1540,18 @@ function ContactsContent() {
                           );
                         })
                       ) : (
-                        <div className="text-center py-20 text-[#64748b] text-xs">
+                        <div className="text-center py-12 sm:py-20 text-[#64748b] text-xs">
                           No previous WhatsApp messages recorded in database for this contact.
                         </div>
                       )}
                     </div>
 
                     {/* WhatsApp Chat Bar — Subtle AI Blue theme */}
-                    <div className="p-3 bg-[#f0f7ff] border-t border-[#bfdbfe] flex flex-col gap-2 shrink-0">
+                    <div className="p-2.5 sm:p-3 bg-[#f0f7ff] border-t border-[#bfdbfe] flex flex-col gap-2 shrink-0">
                       {/* AI Draft Pills */}
-                      <div className="flex items-center justify-between gap-2 flex-wrap px-1">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-[11px] font-semibold text-[#1d4ed8] flex items-center gap-1">
+                      <div className="flex items-center justify-between gap-2 px-0.5">
+                        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar min-w-0 flex-1 py-0.5">
+                          <span className="text-[11px] font-semibold text-[#1d4ed8] flex items-center gap-1 shrink-0">
                             <Sparkles className="w-3 h-3 text-[#2563eb] animate-wa-sparkle" />
                             AI Draft:
                           </span>
@@ -1301,14 +1561,14 @@ function ContactsContent() {
                                 key={d.id || i}
                                 type="button"
                                 onClick={() => setWhatsappInput(d.body)}
-                                className="inline-flex items-center gap-1 h-[26px] px-2.5 rounded-full text-[11px] font-semibold bg-[#eff6ff] hover:bg-[#dbeafe] border border-[#bfdbfe] text-[#1d4ed8] transition-all cursor-pointer shadow-2xs"
+                                className="inline-flex items-center gap-1 h-[26px] px-2.5 rounded-full text-[11px] font-semibold bg-[#eff6ff] hover:bg-[#dbeafe] border border-[#bfdbfe] text-[#1d4ed8] transition-all cursor-pointer shadow-2xs whitespace-nowrap shrink-0"
                                 title={d.body}
                               >
                                 <span>{d.label || `Draft ${i + 1}`}</span>
                               </button>
                             ))
                           ) : (
-                            <span className="text-[11px] text-[#64748b]">Click generate for suggested replies</span>
+                            <span className="text-[11px] text-[#64748b] whitespace-nowrap">Generate replies →</span>
                           )}
                         </div>
 
@@ -1316,7 +1576,7 @@ function ContactsContent() {
                           type="button"
                           onClick={handleGenerateWhatsAppDrafts}
                           disabled={isGeneratingWhatsAppDrafts}
-                          className="inline-flex items-center gap-1 h-[26px] px-2.5 rounded-full text-[11px] font-medium text-[#1e40af] bg-white border border-[#bfdbfe] hover:bg-[#eff6ff] disabled:opacity-50 transition-colors cursor-pointer"
+                          className="inline-flex items-center gap-1 h-[26px] px-2.5 rounded-full text-[11px] font-medium text-[#1e40af] bg-white border border-[#bfdbfe] hover:bg-[#eff6ff] disabled:opacity-50 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
                         >
                           <RotateCw
                             className={cn(
@@ -1324,33 +1584,70 @@ function ContactsContent() {
                               isGeneratingWhatsAppDrafts && "animate-spin"
                             )}
                           />
-                          <span>{isGeneratingWhatsAppDrafts ? "Drafting..." : "Generate AI Drafts"}</span>
+                          <span className="hidden sm:inline">{isGeneratingWhatsAppDrafts ? "Drafting..." : "Generate AI Drafts"}</span>
+                          <span className="sm:hidden">{isGeneratingWhatsAppDrafts ? "Drafting..." : "Drafts"}</span>
                         </button>
                       </div>
 
                       {/* Chat Input Pill + Mic + Circular Send Button */}
-                      <div className="flex items-center gap-2.5">
-                        <div className="flex-1 flex items-center bg-white border-[1.5px] border-[#93c5fd] focus-within:border-[#2563eb] rounded-[24px] px-3.5 py-1 gap-2 min-h-[42px] shadow-[0_1px_4px_rgba(37,99,235,0.08)] transition-all">
-                          <input
-                            type="text"
+                      <div className="flex items-end gap-2">
+                        <div className="flex-1 min-w-0 flex items-end bg-white border-[1.5px] border-[#93c5fd] focus-within:border-[#2563eb] rounded-[22px] pl-3.5 pr-2 py-1.5 gap-1.5 min-h-[42px] shadow-[0_1px_4px_rgba(37,99,235,0.08)] transition-all">
+                          <textarea
+                            ref={whatsappTextareaRef}
+                            rows={1}
                             value={whatsappInput}
                             onChange={(e) => setWhatsappInput(e.target.value)}
                             onKeyDown={(e) => {
-                              if (e.key === "Enter") {
+                              if (e.key === "Enter" && !e.shiftKey) {
                                 e.preventDefault();
                                 handleSendWhatsApp();
                               }
                             }}
                             placeholder={`Message ${activeContact.name} via WhatsApp...`}
-                            className="flex-1 text-[13px] bg-transparent outline-none text-[#111215] placeholder:text-[#8696a0]"
+                            className="flex-1 min-w-0 max-h-[96px] overflow-y-auto text-[14px] sm:text-[13px] leading-[1.35] bg-transparent outline-none text-[#111215] placeholder:text-[#8696a0] resize-none py-0.5"
                           />
-                          <button
-                            type="button"
-                            className="text-[#2563eb] hover:text-[#1d4ed8] p-1 cursor-pointer transition-colors"
-                            title="Voice input"
-                          >
-                            <Mic className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center gap-1 shrink-0 pb-0.5">
+                            <button
+                              type="button"
+                              onClick={handleToggleSpeechLang}
+                              className={cn(
+                                "text-[10px] font-bold px-1.5 py-0.5 rounded-full border transition-all cursor-pointer flex items-center gap-1 select-none shrink-0",
+                                speechLang === "nl"
+                                  ? "bg-amber-500/15 text-amber-700 border-amber-500/30 hover:bg-amber-500/25"
+                                  : "bg-blue-500/15 text-blue-700 border-blue-500/30 hover:bg-blue-500/25"
+                              )}
+                              title={
+                                speechLang === "nl"
+                                  ? "Voice language: Nederlands (click to switch to English)"
+                                  : "Voice language: English (click to switch to Nederlands)"
+                              }
+                            >
+                              {speechLang === "nl" ? <FlagNL className="w-3 h-2" /> : <FlagUK className="w-3 h-2" />}
+                              <span>{speechLang === "nl" ? "NL" : "EN"}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleDictation("whatsapp", whatsappInput)}
+                              className={cn(
+                                "p-1.5 rounded-full cursor-pointer transition-all shrink-0 flex items-center justify-center",
+                                activeVoiceTarget === "whatsapp"
+                                  ? "bg-cyan-500 text-black shadow-[0_0_12px_rgba(0,229,255,0.7)] animate-pulse ring-2 ring-cyan-300"
+                                  : "text-[#2563eb] hover:text-[#1d4ed8] hover:bg-[#eff6ff]"
+                              )}
+                              title={
+                                activeVoiceTarget === "whatsapp"
+                                  ? "Listening... click to stop"
+                                  : `Voice dictation (${speechLang === "nl" ? "Dutch" : "English"})`
+                              }
+                              aria-label="Voice input for WhatsApp"
+                            >
+                              {activeVoiceTarget === "whatsapp" ? (
+                                <MicOff className="w-4 h-4 stroke-[2.5]" />
+                              ) : (
+                                <Mic className="w-4 h-4" />
+                              )}
+                            </button>
+                          </div>
                         </div>
 
                         {/* Send Button — 40px Circle Primary Blue */}
@@ -1358,11 +1655,22 @@ function ContactsContent() {
                           type="button"
                           onClick={handleSendWhatsApp}
                           disabled={isSendingWhatsApp || !whatsappInput.trim()}
+                          aria-label="Send WhatsApp message"
                           className="w-[40px] h-[40px] rounded-full bg-[#2563eb] hover:bg-[#1d4ed8] active:scale-95 text-white flex items-center justify-center shadow-[0_2px_8px_rgba(37,99,235,0.3)] transition-all cursor-pointer shrink-0 disabled:opacity-50"
                         >
                           <Send className="w-4 h-4 ml-0.5" />
                         </button>
                       </div>
+                      {activeVoiceTarget === "whatsapp" && (
+                        <div className="text-[11px] text-cyan-700 font-medium animate-pulse flex items-center gap-1.5 px-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-ping inline-block" />
+                          <span>
+                            {speechLang === "nl"
+                              ? "Luisteren naar spraak (Nederlands)..."
+                              : "Listening to speech (English)..."}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

@@ -4,7 +4,8 @@ import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { ArrowRight, Check, Send, AlertTriangle, ShieldCheck, ChevronDown, Ticket, Wrench, Mail, MessageSquare, Pencil, Clock, Shield, Sparkles } from "lucide-react";
+import { ArrowRight, Check, Send, AlertTriangle, ShieldCheck, ChevronDown, Ticket, Wrench, Mail, MessageSquare, Pencil, Clock, Shield } from "lucide-react";
+import { AstraIcon } from "@/components/ui/AstraBrand";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
@@ -68,6 +69,9 @@ export default function TodayPage() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isAskAgentOpen, setIsAskAgentOpen] = useState(false);
   const [isEmergencyExpanded, setIsEmergencyExpanded] = useState<boolean>(true);
+  const [mobileEmergencyOpen, setMobileEmergencyOpen] = useState<boolean>(false);
+  const [mobileEmergencyTab, setMobileEmergencyTab] = useState<"tenant" | "contractor">("tenant");
+  const [mobileBriefingTextExpanded, setMobileBriefingTextExpanded] = useState<boolean>(false);
   const [nudgedItemIds, setNudgedItemIds] = useState<Record<string, boolean>>({});
   const [activeSection, setActiveSection] = useState<"all" | "urgent" | "needs_you" | "waiting" | "leads" | "overview">("all");
 
@@ -183,8 +187,10 @@ export default function TodayPage() {
     if (actionLockRef.current[`reply-${targetKey}`]) return;
 
     // Row 36: Check that outgoing reply is not empty
-    const currentText = customTenantReplyText[targetKey] ?? ticket.tenantDraft ?? "";
-    if (customTenantReplyText[targetKey] !== undefined && !customTenantReplyText[targetKey].trim()) {
+    const explicitDraft =
+      customTenantReplyText[targetKey] ?? customTenantReplyText[ticket.ticketNumber];
+    const currentText = explicitDraft ?? ticket.tenantDraft ?? "";
+    if (explicitDraft !== undefined && !explicitDraft.trim()) {
       showToast("Cannot send an empty reply. Please enter a message.");
       return;
     }
@@ -556,17 +562,17 @@ export default function TodayPage() {
 
         {/* WORKSPACE ROW with 40% Super Agent */}
         <div className="flex-1 flex flex-row overflow-hidden min-h-0 w-full relative">
-          <div className="flex-1 m-0 mr-[10px] mb-[10px] bg-white rounded-[14px] border border-[#162B45] shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden relative">
-            <main className="flex-1 w-full max-w-[960px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-12 space-y-7 overflow-y-auto">
+          <div className="flex-1 m-0 md:mr-[10px] md:mb-[10px] bg-white md:rounded-[14px] md:border md:border-[#162B45] md:shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden relative">
+            <main className="flex-1 w-full max-w-[960px] mx-auto px-3.5 sm:px-6 lg:px-8 py-4 sm:py-8 pb-[calc(6.5rem+env(safe-area-inset-bottom))] md:pb-12 space-y-4 md:space-y-7 overflow-y-auto">
 
           {/* Top Briefing Header with Daily / Weekly Switcher */}
           <div className="space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
               <div>
-                <span className="text-[13px] font-medium text-[var(--ink-3)] block tracking-tight">
+                <span className="text-[12px] sm:text-[13px] font-medium text-[var(--ink-3)] block tracking-tight">
                   {briefingKind === "daily" ? `${todayFormatted} · Amsterdam (CET)` : "9 Oct – 15 Oct (Weekly Review) · Amsterdam (CET)"}
                 </span>
-                <h1 className="font-heading font-bold text-[28px] sm:text-[32px] text-[var(--ink)] tracking-tight leading-none mt-1">
+                <h1 className="font-heading font-bold text-[24px] sm:text-[32px] text-[var(--ink)] tracking-tight leading-none mt-1">
                   {briefingKind === "daily" ? "Good morning" : "Weekly executive review"}{firstName ? `, ${firstName}` : ""}
                 </h1>
               </div>
@@ -600,8 +606,152 @@ export default function TodayPage() {
               </div>
             </div>
 
-            {/* Sparkle Briefing Sentence with linked counts */}
-            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 pt-1">
+            {/* Mobile-only: Compact 3-tile KPI strip so key counts sit cleanly at top */}
+            <div className="grid grid-cols-3 gap-2 md:hidden pt-0.5">
+              <button
+                type="button"
+                onClick={() => setActiveSection(activeSection === "needs_you" ? "all" : "needs_you")}
+                className={cn(
+                  "rounded-xl border px-3 py-2 text-left transition-colors cursor-pointer",
+                  activeSection === "needs_you"
+                    ? "bg-[var(--ink)] border-[var(--ink)] text-white"
+                    : "bg-[var(--bg)]/70 border-[var(--line)] text-[var(--ink)]"
+                )}
+              >
+                <div className="text-[18px] font-bold tabular-nums leading-tight">
+                  {currentNeedsYouCount}
+                </div>
+                <div
+                  className={cn(
+                    "text-[11px] font-medium truncate",
+                    activeSection === "needs_you" ? "text-white/80" : "text-[var(--ink-3)]"
+                  )}
+                >
+                  {t("need you")}
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveSection(activeSection === "urgent" ? "all" : "urgent")}
+                className={cn(
+                  "rounded-xl border px-3 py-2 text-left transition-colors cursor-pointer",
+                  activeSection === "urgent"
+                    ? "bg-[var(--ink)] border-[var(--ink)] text-white"
+                    : currentUrgentCount > 0
+                    ? "bg-[var(--accent)]/8 border-[var(--accent)]/25 text-[var(--accent-ink)]"
+                    : "bg-[var(--bg)]/70 border-[var(--line)] text-[var(--ink)]"
+                )}
+              >
+                <div className="text-[18px] font-bold tabular-nums leading-tight flex items-center gap-1.5">
+                  <span>{currentUrgentCount}</span>
+                  {currentUrgentCount > 0 && activeSection !== "urgent" && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)]" />
+                  )}
+                </div>
+                <div
+                  className={cn(
+                    "text-[11px] font-medium truncate",
+                    activeSection === "urgent"
+                      ? "text-white/80"
+                      : currentUrgentCount > 0
+                      ? "text-[var(--accent-ink)]"
+                      : "text-[var(--ink-3)]"
+                  )}
+                >
+                  {t("urgent")}
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveSection(activeSection === "overview" ? "all" : "overview")}
+                className={cn(
+                  "rounded-xl border px-3 py-2 text-left transition-colors cursor-pointer",
+                  activeSection === "overview"
+                    ? "bg-[var(--ink)] border-[var(--ink)] text-white"
+                    : "bg-[var(--bg)]/70 border-[var(--line)] text-[var(--ink)]"
+                )}
+              >
+                <div className="text-[18px] font-bold tabular-nums leading-tight">
+                  {metrics.autonomousActionsWeek}
+                </div>
+                <div
+                  className={cn(
+                    "text-[11px] font-medium truncate",
+                    activeSection === "overview" ? "text-white/80" : "text-[var(--ink-3)]"
+                  )}
+                >
+                  {t("handled")}
+                </div>
+              </button>
+            </div>
+
+            {/* Mobile-only: Collapsible 2-line AI Briefing Card so urgent cards show immediately above the fold */}
+            <div className="md:hidden rounded-xl border border-[var(--line)] bg-[var(--bg)]/50 p-3 space-y-2">
+              <p
+                className={cn(
+                  "text-[13px] text-[var(--ink-2)] leading-relaxed",
+                  !mobileBriefingTextExpanded && "line-clamp-2"
+                )}
+              >
+                <span className="text-[var(--accent)] font-bold mr-1.5 select-none">✦</span>
+                {briefingData?.summarySentence ? (
+                  <span>{briefingData.summarySentence} </span>
+                ) : briefingKind === "daily" ? (
+                  <>Since yesterday evening I read 22 messages and answered 17. </>
+                ) : (
+                  <>Portfolio operating at peak efficiency across all 110 units. </>
+                )}
+                <Link
+                  href="/inbox"
+                  className="font-semibold text-[var(--ink)] underline underline-offset-4 whitespace-nowrap"
+                >
+                  {currentNeedsYouCount} need your call
+                </Link>
+                {currentUrgentCount > 0 ? (
+                  <>
+                    ,{" "}
+                    <Link
+                      href="/inbox"
+                      className="font-semibold text-[var(--accent-ink)] underline underline-offset-4 whitespace-nowrap"
+                    >
+                      {currentUrgentCount} {currentUrgentCount === 1 ? "is" : "are"} urgent
+                    </Link>
+                  </>
+                ) : null}
+                .
+              </p>
+
+              <div className="flex items-center justify-between gap-2 pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => setMobileBriefingTextExpanded((prev) => !prev)}
+                  className="text-[11.5px] font-semibold text-[var(--accent-ink)] hover:underline cursor-pointer"
+                >
+                  {mobileBriefingTextExpanded ? "Show less" : "Read full briefing"}
+                </button>
+
+                {briefingData?.sections && briefingData.sections.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setIsBriefingExpanded((prev) => !prev)}
+                    className="text-[11.5px] font-semibold text-[var(--ink-2)] hover:text-[var(--ink)] flex items-center gap-1 cursor-pointer py-0.5 px-2 rounded-md bg-white border border-[var(--line)]"
+                  >
+                    <span>{isBriefingExpanded ? "Hide breakdown" : "Breakdown"}</span>
+                    <ChevronDown
+                      className={cn(
+                        "w-3 h-3 transition-transform duration-200",
+                        isBriefingExpanded && "rotate-180"
+                      )}
+                    />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Desktop Sparkle Briefing Sentence with linked counts */}
+            <div className="hidden md:flex sm:flex-row sm:items-start justify-between gap-3 pt-1">
               <p className="text-[14px] sm:text-[15px] text-[var(--ink-2)] leading-relaxed">
                 <span className="text-[var(--accent)] font-bold mr-1.5 select-none">✦</span>
                 {briefingData?.summarySentence ? (
@@ -689,14 +839,14 @@ export default function TodayPage() {
               </div>
             )}
 
-            {/* StatLine: Inline numbers separated by dividers, no boxes */}
-            <div className="pt-1">
+            {/* Desktop StatLine: Inline numbers separated by dividers, no boxes */}
+            <div className="hidden md:block pt-1">
               <StatLine items={statLineItems} />
             </div>
           </div>
 
           {/* Section Navigation & Quick Filter Bar */}
-          <div className="sticky top-2 z-20 my-2 px-3 py-1.5 bg-[var(--pane)]/95 backdrop-blur-md border border-[var(--line)] rounded-2xl shadow-xs flex items-center justify-between gap-3 overflow-x-auto no-scrollbar">
+          <div className="sticky top-0 md:top-2 z-20 -mx-3.5 sm:-mx-6 md:mx-0 md:my-2 px-3.5 sm:px-6 md:px-3 py-2 md:py-1.5 bg-white/95 md:bg-[var(--pane)]/95 backdrop-blur-md border-b md:border border-[var(--line)] rounded-none md:rounded-2xl md:shadow-xs flex items-center justify-between gap-3 overflow-x-auto no-scrollbar">
             <div className="flex items-center gap-1.5 min-w-max">
               <button
                 type="button"
@@ -858,8 +1008,285 @@ export default function TodayPage() {
                   "border-l-[4px] border-l-[var(--accent)] border-y border-r border-[var(--line)] bg-[var(--pane)] rounded-r-[var(--radius-pane)] transition-all overflow-hidden shadow-2xs"
                 )}
               >
-                {/* Main Prominent Header Bar */}
-                <div className="p-4 sm:px-5 sm:py-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                {/* Mobile-only: Clean Compact Priority Card (collapses 2-screen inline wall into single scannable card) */}
+                <div className="md:hidden p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded bg-[var(--accent)]/12 text-[var(--accent-ink)] font-bold text-[10.5px] uppercase tracking-wider shrink-0">
+                        Emergency
+                      </span>
+                      {ticket.slaRemaining && (
+                        <span className="font-mono text-[10.5px] text-[var(--accent-ink)] font-bold px-1.5 py-0.5 rounded bg-[var(--bg)] border border-[var(--line)] truncate">
+                          {ticket.slaRemaining}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setMobileEmergencyOpen((prev) => !prev)}
+                      className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-[var(--ink-2)] hover:text-[var(--ink)] py-0.5 px-2 rounded-md border border-[var(--line)] bg-[var(--bg)]/60 cursor-pointer shrink-0"
+                      aria-expanded={mobileEmergencyOpen}
+                    >
+                      <span>{mobileEmergencyOpen ? t("Hide") : t("Review")}</span>
+                      <ChevronDown
+                        className={cn(
+                          "w-3.5 h-3.5 transition-transform duration-200",
+                          mobileEmergencyOpen && "rotate-180"
+                        )}
+                      />
+                    </button>
+                  </div>
+
+                  <div
+                    onClick={() => setMobileEmergencyOpen((prev) => !prev)}
+                    className="space-y-1 cursor-pointer"
+                  >
+                    <div className="text-[14px] font-semibold text-[var(--ink)] leading-snug line-clamp-2">
+                      {topUrgentThread.unitLabel}: {topUrgentThread.subject || topUrgentThread.latestSnippet}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[11.5px] text-[var(--ink-3)] flex-wrap">
+                      <span className="font-semibold text-[var(--ink-2)]">{ticket.tenantName}</span>
+                      <span>·</span>
+                      <span className="inline-flex items-center gap-1">
+                        {tenantChannel === "whatsapp" ? (
+                          <MessageSquare className="w-3 h-3 text-[#25D366]" />
+                        ) : (
+                          <Mail className="w-3 h-3 text-[#EA4335]" />
+                        )}
+                        {tenantChannel === "whatsapp" ? "WhatsApp" : "Email"}
+                      </span>
+                      <span>·</span>
+                      <span className="font-mono">{topUrgentThread.relativeTime}</span>
+                    </div>
+                  </div>
+
+                  {!mobileEmergencyOpen && (
+                    <p className="text-[12.5px] text-[var(--ink-2)] italic line-clamp-2 pl-2.5 border-l-2 border-[var(--accent)]">
+                      &ldquo;{topUrgentThread.latestSnippet || ticket.originalMessage}&rdquo;
+                    </p>
+                  )}
+
+                  {/* Single aligned bottom action row */}
+                  <div className="grid grid-cols-3 gap-1.5 pt-2 border-t border-[var(--line)]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveEditTicket(ticket);
+                        setIsEditModalOpen(true);
+                      }}
+                      className="inline-flex items-center justify-center gap-1 px-2 py-1.5 text-[11.5px] font-semibold text-[var(--ink)] bg-[var(--bg)] hover:bg-[var(--selected)] border border-[var(--line)] rounded-lg cursor-pointer truncate"
+                    >
+                      <Ticket className="w-3.5 h-3.5 text-[var(--accent-ink)] shrink-0" />
+                      <span className="truncate">{ticket.ticketNumber}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileEmergencyOpen(true);
+                        setMobileEmergencyTab("tenant");
+                        handleSendTenantReply(ticket, tenantChannel, emergencyKey);
+                      }}
+                      className={cn(
+                        "inline-flex items-center justify-center gap-1 px-2 py-1.5 text-[11.5px] font-semibold rounded-lg border cursor-pointer truncate",
+                        isTenantReplied
+                          ? "bg-[var(--bg)] text-[var(--ink)] border-[var(--line)]"
+                          : "bg-white hover:bg-[var(--selected)] text-[var(--ink)] border-[var(--line)]"
+                      )}
+                    >
+                      {tenantChannel === "whatsapp" ? (
+                        <MessageSquare className="w-3.5 h-3.5 text-[#25D366] shrink-0" />
+                      ) : (
+                        <Mail className="w-3.5 h-3.5 text-[#EA4335] shrink-0" />
+                      )}
+                      <span className="truncate">{isTenantReplied ? t("Replied") : t("Reply")}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileEmergencyOpen(true);
+                        setMobileEmergencyTab("contractor");
+                        handleDispatchContractor(ticket, emergencyKey);
+                      }}
+                      disabled={isContractorDispatched}
+                      className={cn(
+                        "inline-flex items-center justify-center gap-1 px-2 py-1.5 text-[11.5px] font-semibold rounded-lg cursor-pointer truncate",
+                        isContractorDispatched
+                          ? "bg-[var(--bg)] text-[var(--ink)] border border-[var(--line)]"
+                          : "bg-[var(--ink)] hover:bg-[var(--ink)]/90 text-white"
+                      )}
+                    >
+                      <Wrench className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
+                      <span className="truncate">{isContractorDispatched ? t("Sent") : t("Dispatch")}</span>
+                    </button>
+                  </div>
+
+                  {/* Mobile Expanded View: Compact quote + Tabbed Drafts (1 at a time) */}
+                  {mobileEmergencyOpen && (
+                    <div className="pt-2.5 border-t border-[var(--line)] space-y-3 animate-in fade-in duration-150">
+                      <div className="rounded-lg bg-[var(--bg)]/60 border border-[var(--line)] p-3 space-y-1">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--ink-3)] block">
+                          Tenant Message ({topUrgentThread.senderContact || ticket.tenantPhone})
+                        </span>
+                        <p className="text-[13px] text-[var(--ink)] italic leading-relaxed pl-2.5 border-l-2 border-[var(--accent)]">
+                          &ldquo;{topUrgentThread.latestSnippet || ticket.originalMessage}&rdquo;
+                        </p>
+                      </div>
+
+                      {/* Segmented Draft Tabs instead of stacking two giant textareas */}
+                      <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-[var(--bg)] border border-[var(--line)]">
+                        <button
+                          type="button"
+                          onClick={() => setMobileEmergencyTab("tenant")}
+                          className={cn(
+                            "py-1.5 px-2 rounded-lg text-[11.5px] font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
+                            mobileEmergencyTab === "tenant"
+                              ? "bg-white text-[var(--ink)] shadow-2xs border border-[var(--line)]"
+                              : "text-[var(--ink-3)]"
+                          )}
+                        >
+                          {tenantChannel === "whatsapp" ? (
+                            <MessageSquare className="w-3.5 h-3.5 text-[#25D366]" />
+                          ) : (
+                            <Mail className="w-3.5 h-3.5 text-[#EA4335]" />
+                          )}
+                          <span>Tenant Reply</span>
+                          {isTenantReplied && <Check className="w-3 h-3 text-emerald-600" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMobileEmergencyTab("contractor")}
+                          className={cn(
+                            "py-1.5 px-2 rounded-lg text-[11.5px] font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
+                            mobileEmergencyTab === "contractor"
+                              ? "bg-white text-[var(--ink)] shadow-2xs border border-[var(--line)]"
+                              : "text-[var(--ink-3)]"
+                          )}
+                        >
+                          <Wrench className="w-3.5 h-3.5 text-[var(--accent-ink)]" />
+                          <span>Work Order</span>
+                          {isContractorDispatched && <Check className="w-3 h-3 text-emerald-600" />}
+                        </button>
+                      </div>
+
+                      {mobileEmergencyTab === "tenant" ? (
+                        <div className="space-y-2.5">
+                          <textarea
+                            rows={4}
+                            value={
+                              customTenantReplyText[ticket.ticketNumber] ??
+                              ticket.tenantDraft ??
+                              (tenantChannel === "whatsapp"
+                                ? topUrgentThread.draftProposal?.whatsappDrafts?.[0]?.text
+                                : topUrgentThread.draftProposal?.gmailDrafts?.[0]?.text) ??
+                              topUrgentThread.draftProposal?.drafts?.[0]?.text ??
+                              ""
+                            }
+                            onChange={(e) =>
+                              setCustomTenantReplyText((prev) => ({
+                                ...prev,
+                                [ticket.ticketNumber]: e.target.value,
+                              }))
+                            }
+                            disabled={isTenantReplied}
+                            className="w-full min-h-[104px] text-[13px] p-2.5 rounded-lg border border-[var(--line)] bg-[var(--bg)] focus:bg-white focus:outline-hidden focus:border-[var(--accent)] leading-relaxed text-[var(--ink)]"
+                            placeholder="Type reply to tenant..."
+                          />
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] text-[var(--ink-3)] truncate">
+                              To: {ticket.tenantName}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleSendTenantReply(ticket, tenantChannel, emergencyKey)}
+                              disabled={isTenantReplied}
+                              className={cn(
+                                "px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shrink-0 cursor-pointer",
+                                isTenantReplied
+                                  ? "bg-[var(--bg)] text-[var(--ink)] border border-[var(--line)] cursor-default"
+                                  : "bg-[var(--ink)] text-white"
+                              )}
+                            >
+                              {isTenantReplied ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>Sent</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Send className="w-3.5 h-3.5 text-[var(--accent)]" />
+                                  <span>Send to Tenant</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2.5">
+                          <textarea
+                            rows={4}
+                            value={customContractorText[ticket.ticketNumber] ?? ticket.contractorDraft ?? ""}
+                            onChange={(e) =>
+                              setCustomContractorText((prev) => ({
+                                ...prev,
+                                [ticket.ticketNumber]: e.target.value,
+                              }))
+                            }
+                            disabled={isContractorDispatched}
+                            className="w-full min-h-[104px] text-[13px] p-2.5 rounded-lg border border-[var(--line)] bg-[var(--bg)] focus:bg-white focus:outline-hidden focus:border-[var(--accent)] leading-relaxed text-[var(--ink)]"
+                            placeholder="Contractor work order details..."
+                          />
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] text-[var(--ink-3)] truncate">
+                              {ticket.contractorName} · {ticket.poBudgetCap ? `Cap: ${ticket.poBudgetCap}` : "No cap"}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleDispatchContractor(ticket, emergencyKey)}
+                              disabled={isContractorDispatched}
+                              className={cn(
+                                "px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shrink-0 cursor-pointer",
+                                isContractorDispatched
+                                  ? "bg-[var(--bg)] text-[var(--ink)] border border-[var(--line)] cursor-default"
+                                  : "bg-[var(--ink)] text-white"
+                              )}
+                            >
+                              {isContractorDispatched ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>Dispatched</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Wrench className="w-3.5 h-3.5 text-[var(--accent)]" />
+                                  <span>Dispatch Work Order</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="pt-2 border-t border-[var(--line)] flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveEditTicket(ticket);
+                            setIsEditModalOpen(true);
+                          }}
+                          className="px-3 py-1.5 rounded-lg border border-[var(--line)] text-xs font-semibold text-[var(--ink)] hover:bg-[var(--selected)] inline-flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Pencil className="w-3 h-3 text-[var(--accent-ink)]" />
+                          <span>Edit Ticket Details</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Desktop Prominent Header Bar */}
+                <div className="hidden md:flex p-4 sm:px-5 sm:py-3.5 flex-row items-center justify-between gap-3">
                   <div className="flex items-start sm:items-center gap-2.5 min-w-0">
                     <span className="font-bold text-[13px] text-[var(--accent-ink)] uppercase tracking-wider shrink-0 mt-0.5 sm:mt-0">
                       Emergency
@@ -926,7 +1353,7 @@ export default function TodayPage() {
                       className={cn(
                         "inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg border transition-all cursor-pointer shadow-2xs",
                         isTenantReplied
-                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                          ? "bg-[var(--bg)] text-[var(--ink-2)] border-[var(--line)]"
                           : "bg-[var(--pane)] hover:bg-[var(--selected)] text-[var(--ink)] border-[var(--line)]"
                       )}
                       title={`Send reply to tenant via ${tenantChannel === "whatsapp" ? "WhatsApp" : "Email"}`}
@@ -954,7 +1381,7 @@ export default function TodayPage() {
                       className={cn(
                         "inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer shadow-2xs",
                         isContractorDispatched
-                          ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                          ? "bg-[var(--bg)] text-[var(--ink)] border border-[var(--line)]"
                           : "bg-[var(--ink)] hover:bg-[var(--ink)]/90 text-white"
                       )}
                       title="Approve work order and dispatch ticket to contractor"
@@ -969,21 +1396,21 @@ export default function TodayPage() {
                   </div>
                 </div>
 
-                {/* Prominent Details Section: In-Place Context & Full Ticket on Same Page */}
+                {/* Prominent Details Section: In-Place Context & Full Ticket on Same Page (Desktop) */}
                 {isEmergencyExpanded && (
-                  <div className="border-t border-[var(--line)] bg-[var(--bg)]/50 px-5 sm:px-6 py-5 space-y-5 animate-in fade-in duration-150">
+                  <div className="hidden md:block border-t border-[var(--line)] bg-[var(--bg)]/50 px-5 sm:px-6 py-5 space-y-5 animate-in fade-in duration-150">
                     {/* Inbound Distress Message with Clear Channel Badge */}
                     <div className="bg-[var(--pane)] rounded-xl border border-[var(--line)] p-4 sm:p-5 shadow-xs space-y-3">
                       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] pb-2.5">
                         <div className="flex items-center gap-2 flex-wrap">
                           {tenantChannel === "whatsapp" ? (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#25D366]/10 text-[#128C7E] font-semibold text-xs border border-[#25D366]/20">
-                              <MessageSquare className="w-3.5 h-3.5" />
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[var(--bg)] text-[var(--ink)] font-semibold text-xs border border-[var(--line)]">
+                              <MessageSquare className="w-3.5 h-3.5 text-[#25D366]" />
                               <span>Inbound via WhatsApp · {topUrgentThread.senderContact || ticket.tenantPhone}</span>
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#EA4335]/10 text-[#C5221F] font-semibold text-xs border border-[#EA4335]/20">
-                              <Mail className="w-3.5 h-3.5" />
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[var(--bg)] text-[var(--ink)] font-semibold text-xs border border-[var(--line)]">
+                              <Mail className="w-3.5 h-3.5 text-[#EA4335]" />
                               <span>Inbound via Email · {topUrgentThread.senderContact}</span>
                             </span>
                           )}
@@ -1021,15 +1448,14 @@ export default function TodayPage() {
                               )}
                               <span>1. Outgoing Tenant Reply ({tenantChannel === "whatsapp" ? "WhatsApp" : "Email"})</span>
                             </span>
-                            <span
-                              className={cn(
-                                "text-xs font-semibold px-2.5 py-0.5 rounded-full border",
-                                isTenantReplied
-                                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                  : "bg-amber-50 text-amber-700 border-amber-200"
-                              )}
-                            >
-                              {isTenantReplied ? "✓ Message Sent" : "Ready to Send"}
+                            <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)]">
+                              <span
+                                className={cn(
+                                  "w-1.5 h-1.5 rounded-full",
+                                  isTenantReplied ? "bg-emerald-500" : "bg-amber-500"
+                                )}
+                              />
+                              <span>{isTenantReplied ? "Message Sent" : "Ready to Send"}</span>
                             </span>
                           </div>
                           {/* Expanded 6-row textarea with min-h-[145px] so full message is visible without scrolling */}
@@ -1067,7 +1493,7 @@ export default function TodayPage() {
                             className={cn(
                               "min-w-[175px] justify-center px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs",
                               isTenantReplied
-                                ? "bg-emerald-100 text-emerald-800 cursor-default"
+                                ? "bg-[var(--bg)] text-[var(--ink)] border border-[var(--line)] cursor-default"
                                 : "bg-[var(--ink)] text-white hover:bg-[var(--ink)]/90"
                             )}
                           >
@@ -1097,17 +1523,26 @@ export default function TodayPage() {
                             {(() => {
                               const isUnavailable = (ticket as any).status === "contractor_unavailable" || (ticket as any).contractorStatus === "unavailable";
                               return (
-                                <span
-                                  className={cn(
-                                    "text-xs font-semibold px-2.5 py-0.5 rounded-full border",
-                                    isUnavailable
-                                      ? "bg-rose-50 text-rose-700 border-rose-200"
+                                <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)]">
+                                  <span
+                                    className={cn(
+                                      "w-1.5 h-1.5 rounded-full",
+                                      isUnavailable
+                                        ? "bg-rose-500"
+                                        : isContractorDispatched
+                                        ? "bg-emerald-500"
+                                        : "bg-[var(--accent)]"
+                                    )}
+                                  />
+                                  <span>
+                                    {isUnavailable
+                                      ? "Contractor Unavailable"
                                       : isContractorDispatched
-                                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                      : "bg-blue-50 text-blue-700 border-blue-200"
-                                  )}
-                                >
-                                  {isUnavailable ? "⚠ Contractor Unavailable" : isContractorDispatched ? "✓ Dispatched" : (ticket.poBudgetCap ? `Cap: ${ticket.poBudgetCap}` : "No cap recorded")}
+                                      ? "Dispatched"
+                                      : ticket.poBudgetCap
+                                      ? `Cap: ${ticket.poBudgetCap}`
+                                      : "No cap recorded"}
+                                  </span>
                                 </span>
                               );
                             })()}
@@ -1139,7 +1574,7 @@ export default function TodayPage() {
                             className={cn(
                               "min-w-[175px] justify-center px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs",
                               isContractorDispatched
-                                ? "bg-emerald-100 text-emerald-800 cursor-default"
+                                ? "bg-[var(--bg)] text-[var(--ink)] border border-[var(--line)] cursor-default"
                                 : "bg-[var(--ink)] text-white hover:bg-[var(--ink)]/90"
                             )}
                           >
@@ -1272,7 +1707,7 @@ export default function TodayPage() {
                               </span>
                             </div>
 
-                            <div className="flex items-center gap-2">
+                            <div className="grid grid-cols-3 gap-1.5 w-full md:w-auto md:flex md:items-center md:gap-2">
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -1280,11 +1715,11 @@ export default function TodayPage() {
                                   setActiveEditTicket(mTicket);
                                   setIsEditModalOpen(true);
                                 }}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-[var(--pane)] hover:bg-[var(--selected)] border border-[var(--line)] text-xs font-medium text-[var(--ink)] transition-colors cursor-pointer"
+                                className="inline-flex items-center justify-center gap-1 px-2 md:px-2.5 py-1.5 md:py-1 rounded-lg md:rounded bg-[var(--pane)] hover:bg-[var(--selected)] border border-[var(--line)] text-[11.5px] md:text-xs font-medium text-[var(--ink)] transition-colors cursor-pointer truncate"
                                 title="View/Edit ticket details on this page"
                               >
-                                <Ticket className="w-3 h-3 text-[var(--accent-ink)]" />
-                                <span>{t("Ticket Details")}</span>
+                                <Ticket className="w-3 h-3 text-[var(--accent-ink)] shrink-0" />
+                                <span className="truncate">{t("Ticket Details")}</span>
                               </button>
 
                               <button
@@ -1294,18 +1729,19 @@ export default function TodayPage() {
                                   handleSendTenantReply(mTicket, tChannel, thread.id);
                                 }}
                                 className={cn(
-                                  "inline-flex items-center gap-1 px-2.5 py-1 rounded border text-xs font-semibold transition-colors cursor-pointer",
+                                  "inline-flex items-center justify-center gap-1 px-2 md:px-2.5 py-1.5 md:py-1 rounded-lg md:rounded border text-[11.5px] md:text-xs font-semibold transition-colors cursor-pointer truncate",
                                   isReplied
-                                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                    ? "bg-[var(--bg)] text-[var(--ink-2)] border-[var(--line)]"
                                     : "bg-[var(--pane)] hover:bg-[var(--selected)] text-[var(--ink)] border-[var(--line)]"
                                 )}
                               >
                                 {tChannel === "whatsapp" ? (
-                                  <MessageSquare className="w-3 h-3 text-[#25D366]" />
+                                  <MessageSquare className="w-3 h-3 text-[#25D366] shrink-0" />
                                 ) : (
-                                  <Mail className="w-3 h-3 text-[#EA4335]" />
+                                  <Mail className="w-3 h-3 text-[#EA4335] shrink-0" />
                                 )}
-                                <span>{isReplied ? t("Replied") : `${t("Reply")} (${tChannel === "whatsapp" ? "WhatsApp" : "Email"})`}</span>
+                                <span className="truncate md:hidden">{isReplied ? t("Replied") : t("Reply")}</span>
+                                <span className="hidden md:inline">{isReplied ? t("Replied") : `${t("Reply")} (${tChannel === "whatsapp" ? "WhatsApp" : "Email"})`}</span>
                               </button>
 
                               <button
@@ -1316,14 +1752,14 @@ export default function TodayPage() {
                                 }}
                                 disabled={isDispatched}
                                 className={cn(
-                                  "inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold transition-colors cursor-pointer",
+                                  "inline-flex items-center justify-center gap-1 px-2 md:px-2.5 py-1.5 md:py-1 rounded-lg md:rounded text-[11.5px] md:text-xs font-semibold transition-colors cursor-pointer truncate",
                                   isDispatched
-                                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                    ? "bg-[var(--bg)] text-[var(--ink-2)] border border-[var(--line)]"
                                     : "bg-[var(--ink)] hover:bg-[var(--ink)]/90 text-white"
                                 )}
                               >
-                                <Wrench className="w-3 h-3 text-[var(--accent)]" />
-                                <span>{isDispatched ? t("Dispatched") : t("Dispatch")}</span>
+                                <Wrench className="w-3 h-3 text-[var(--accent)] shrink-0" />
+                                <span className="truncate">{isDispatched ? t("Dispatched") : t("Dispatch")}</span>
                               </button>
                             </div>
                           </div>
@@ -1560,7 +1996,7 @@ export default function TodayPage() {
                       {t("Handled this week")}
                     </span>
                     <span className="font-mono text-[15px] font-semibold text-[var(--ink)] tabular-nums">
-                      {metrics.autonomousActionsWeek || 142}
+                      {metrics.autonomousActionsWeek ?? 0}
                     </span>
                   </div>
 
@@ -1616,24 +2052,24 @@ export default function TodayPage() {
 
       {/* Floating Toast */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-[#0A0A0A] text-[#FFFFFF] text-[13px] font-semibold px-4 py-2.5 rounded-[12px] shadow-lg flex items-center gap-2.5 animate-in fade-in slide-in-from-bottom-2 duration-150">
-          <Check className="w-4 h-4 text-[#1a73e8]" />
+        <div className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] left-3.5 right-3.5 md:left-auto md:bottom-6 md:right-6 z-50 bg-[#0A0A0A] text-[#FFFFFF] text-[13px] font-semibold px-4 py-2.5 rounded-[12px] shadow-lg flex items-center gap-2.5 animate-in fade-in slide-in-from-bottom-2 duration-150">
+          <Check className="w-4 h-4 text-[#1a73e8] shrink-0" />
           <span>{toastMessage}</span>
         </div>
       )}
 
 
 
-      {/* Floating Mobile Super Agent Button */}
+      {/* Floating Mobile Astra Button */}
       {!superAgent.isOpen && (
         <button
           type="button"
           onClick={() => superAgent.setIsOpen(true)}
-          className="md:hidden fixed bottom-18 right-4 z-40 w-12 h-12 rounded-full bg-gradient-to-tr from-blue-600 to-cyan-400 text-white shadow-[0_4px_20px_rgba(0,229,255,0.45)] flex items-center justify-center cursor-pointer hover:scale-105 active:scale-95 transition-all"
-          title="Open Super Agent"
-          aria-label="Open Super Agent"
+          className="md:hidden fixed bottom-[calc(4.25rem+env(safe-area-inset-bottom))] right-3.5 z-40 w-10 h-10 rounded-full bg-gradient-to-tr from-blue-600 to-cyan-400 text-white shadow-[0_4px_16px_rgba(0,229,255,0.4)] flex items-center justify-center cursor-pointer hover:scale-105 active:scale-95 transition-all"
+          title="Open Astra"
+          aria-label="Open Astra"
         >
-          <Sparkles className="w-5 h-5 text-white animate-ai-star" />
+          <AstraIcon className="w-4 h-4 text-white animate-ai-star" />
         </button>
       )}
 

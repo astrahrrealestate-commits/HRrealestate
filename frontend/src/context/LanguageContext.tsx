@@ -33,14 +33,14 @@ export const DICTIONARY: Translations = {
   "nav.manager": { en: "Manager", nl: "Beheerder" },
 
   // TopCommandBar
-  "topbar.super_agent": { en: "EstateOS Super Agent", nl: "EstateOS Super Agent" },
+  "topbar.super_agent": { en: "EstateOS Astra", nl: "EstateOS Astra" },
   "topbar.control_center": { en: "Conversational Control Center", nl: "Gespreksbeheercentrum" },
   "topbar.main_dashboard": { en: "Main Dashboard", nl: "Hoofddashboard" },
   "Main Dashboard": { en: "Main Dashboard", nl: "Hoofddashboard" },
   "topbar.sync": { en: "Sync", nl: "Synchroniseren" },
   "topbar.syncing": { en: "Syncing...", nl: "Synchroniseren..." },
   "topbar.agent_active": { en: "Active", nl: "Actief" },
-  "topbar.agent_core": { en: "Super Agent", nl: "Super Agent" },
+  "topbar.agent_core": { en: "Astra", nl: "Astra" },
 
   // Page Titles
   "Maintenance": { en: "Maintenance", nl: "Onderhoud" },
@@ -283,15 +283,15 @@ export const DICTIONARY: Translations = {
   },
   "Recent Activity": { en: "Recent Activity", nl: "Recente Activiteit" },
 
-  // Super Agent UI
-  "agent.panel_title": { en: "Super Agent", nl: "Super Agent" },
+  // Astra UI
+  "agent.panel_title": { en: "Astra", nl: "Astra" },
   "agent.welcome_sub": {
     en: "I know your queue, portfolio, and financial logs. Ask me to explain an item, find a document, check tenant arrears, or pick what to do first.",
     nl: "Ik beheer uw wachtrij, portfolio en financiën. Vraag me om een item toe te lichten, een document te zoeken, huurachterstanden te controleren of te bepalen wat als eerste moet gebeuren.",
   },
   "agent.ask_placeholder": {
-    en: "Ask Super Agent across portfolio, maintenance, arrears...",
-    nl: "Vraag Super Agent over portfolio, onderhoud, achterstanden...",
+    en: "Ask Astra across portfolio, maintenance, arrears...",
+    nl: "Vraag Astra over portfolio, onderhoud, achterstanden...",
   },
   "agent.listening_en": { en: "Listening (English)...", nl: "Luisteren (Engels)..." },
   "agent.listening_nl": { en: "Listening (Dutch)...", nl: "Luisteren (Nederlands)..." },

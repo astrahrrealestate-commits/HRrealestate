@@ -173,7 +173,7 @@ export function MemoryRulesManager() {
             </h3>
           </div>
           <p className="text-xs text-[var(--ink-2)] mt-1 max-w-xl">
-            Rules, contractor caps, and tenant preferences continuously compiled into the Super Agent and Inbox Proposer contexts.
+            Rules, contractor caps, and tenant preferences continuously compiled into Astra and Inbox Proposer contexts.
           </p>
         </div>
 

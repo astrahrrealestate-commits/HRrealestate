@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useRef, useEffect } from "react";
-import { Sparkles, Search, X, RotateCw } from "lucide-react";
+import { Search, X, RotateCw } from "lucide-react";
+import { AstraIcon, AstraWordmark } from "@/components/ui/AstraBrand";
 import { cn } from "@/lib/utils";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -53,8 +54,9 @@ export function TopCommandBar({
       {/* Left: Breadcrumbs matching reference design */}
       <div className="flex items-center gap-2 text-xs">
         <span className="text-[#94a3b8] font-normal flex items-center gap-1.5">
-          <Sparkles className="w-3.5 h-3.5 text-[#00e5ff]" />
-          <span>{t("topbar.super_agent")}</span>
+          <AstraIcon className="w-3.5 h-3.5 text-[#38bdf8]" />
+          <span className="text-slate-300">EstateOS</span>
+          <AstraWordmark variant="dark" className="text-[11px]" />
         </span>
         <span className="text-[#64748b]">/</span>
         <span className="text-white font-medium tracking-tight">
@@ -125,10 +127,10 @@ export function TopCommandBar({
               ? "bg-[#10213B] text-white border-[#162B45] shadow-[0_0_12px_rgba(0,229,255,0.25)]"
               : "bg-white/10 hover:bg-white/15 text-white border-white/15"
           )}
-          title="Super Agent Core (Ctrl+J)"
+          title="Astra (Ctrl+J)"
         >
-          <Sparkles className={cn("w-3.5 h-3.5 text-[#00e5ff] shrink-0", superAgent.isOpen && "animate-ai-star")} strokeWidth={2.25} />
-          <span className="leading-none hidden sm:inline">{t("topbar.agent_core")}</span>
+          <AstraIcon className={cn("w-3.5 h-3.5 text-[#38bdf8] shrink-0", superAgent.isOpen && "animate-ai-star")} />
+          <AstraWordmark variant="dark" className="text-[11px] hidden sm:inline" />
           <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded-full bg-white/20 text-white ml-0.5">
             {t("topbar.agent_active")}
           </span>

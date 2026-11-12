@@ -18,7 +18,7 @@ from app.api.v1.auth import Principal, require_session
 from app.contracts import ActionType, Channel, Direction
 from app.core.logging import get_logger
 from app.core.settings import Settings
-from app.db.models import ActionRow, ChannelIdentity, MessageRow, Person, UnderstandingRow
+from app.db.models import ActionRow, CaseLink, ChannelIdentity, MessageRow, Person, UnderstandingRow
 from app.pipeline import propose
 
 router = APIRouter(prefix="/api/contacts", tags=["contacts"], dependencies=[Depends(require_section("contacts"))])
@@ -104,6 +104,25 @@ class ContactCommunicationsResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # API Endpoints
 # ---------------------------------------------------------------------------
+
+
+def _action_to_draft_variants(action: ActionRow | None, labels: list[str]) -> list[DraftVariantItem]:
+    if not action or not action.payload or not isinstance(action.payload, dict):
+        return []
+    variants = action.payload.get("body_variants") or []
+    if not variants and action.payload.get("text"):
+        variants = [action.payload["text"]]
+    elif not variants and action.payload.get("body"):
+        variants = [action.payload["body"]]
+    return [
+        DraftVariantItem(
+            id=f"d{i+1}",
+            label=labels[i] if i < len(labels) else f"Option {i+1}",
+            body=str(v).strip(),
+        )
+        for i, v in enumerate(variants[:3])
+        if str(v).strip()
+    ]
 
 
 @router.get(
@@ -193,9 +212,52 @@ def get_contact_communications(
             )
 
         if live_messages:
-            # Map messages and extract understanding categories
+            # Map messages and extract understanding categories + pre-staged AI reply drafts
             mapped_emails: list[ContactEmailItemResponse] = []
             mapped_whatsapp: list[ContactWhatsAppMessageResponse] = []
+
+            msg_ids = [m.id for m in live_messages]
+            case_links = (
+                session.query(CaseLink)
+                .filter(CaseLink.company_id == company_id, CaseLink.message_id.in_(msg_ids))
+                .all()
+            )
+            case_by_msg = {cl.message_id: cl.case_id for cl in case_links}
+            case_ids = list(set(case_by_msg.values()))
+            draft_conds = [ActionRow.context_ref.overlap(msg_ids)]
+            if case_ids:
+                draft_conds.append(ActionRow.case_id.in_(case_ids))
+            candidate_draft_actions = (
+                session.scalars(
+                    select(ActionRow)
+                    .where(
+                        ActionRow.company_id == company_id,
+                        ActionRow.type == ActionType.reply_draft,
+                        or_(*draft_conds),
+                    )
+                    .order_by(ActionRow.created_at.desc())
+                ).all()
+            )
+
+            def _find_reply_action(msg_id: UUID) -> ActionRow | None:
+                direct = next((a for a in candidate_draft_actions if msg_id in (a.context_ref or [])), None)
+                if direct:
+                    return direct
+                cid = case_by_msg.get(msg_id)
+                if cid:
+                    return next((a for a in candidate_draft_actions if a.case_id == cid), None)
+                return None
+
+            email_labels = [
+                "Option 1: Direct Confirmation",
+                "Option 2: Clarification / Extra Details",
+                "Option 3: Schedule Visit / Appointment",
+            ]
+            wa_labels = [
+                "Option 1: Direct Confirmation",
+                "Option 2: Clarification / Extra Details",
+                "Option 3: Time Slot Proposal",
+            ]
 
             for msg in live_messages:
                 sent_time_str = msg.sent_at.strftime("%H:%M") if msg.sent_at else "12:00"
@@ -211,10 +273,20 @@ def get_contact_communications(
                 if und and und.category:
                     category = und.category.value if hasattr(und.category, "value") else str(und.category)
 
-                msg_subj = getattr(msg, "subject", None) or "(No Subject)"
+                meta_subject = msg.meta.get("subject") if isinstance(msg.meta, dict) else None
+                msg_subj = (
+                    (str(meta_subject).strip() if meta_subject else None)
+                    or getattr(msg, "subject", None)
+                    or "(No Subject)"
+                )
                 msg_body = msg.text or ""
 
                 if msg.channel == Channel.gmail:
+                    email_drafts = (
+                        _action_to_draft_variants(_find_reply_action(msg.id), email_labels)
+                        if msg.direction == Direction.inbound
+                        else []
+                    )
                     mapped_emails.append(
                         ContactEmailItemResponse(
                             id=str(msg.id),
@@ -228,6 +300,7 @@ def get_contact_communications(
                             isUnread=msg.direction == Direction.inbound,
                             hasAttachments=False,
                             category=category or "admin",
+                            draftVariants=email_drafts,
                         )
                     )
                 elif msg.channel == Channel.whatsapp:
@@ -249,28 +322,7 @@ def get_contact_communications(
                 (m for m in live_messages if m.channel == Channel.whatsapp and m.direction == Direction.inbound), None
             )
             if latest_inbound_wa:
-                action = session.scalars(
-                    select(ActionRow).where(
-                        ActionRow.company_id == company_id,
-                        ActionRow.context_ref.contains([latest_inbound_wa.id]),
-                        ActionRow.type == ActionType.reply_draft,
-                    ).order_by(ActionRow.created_at.desc())
-                ).first()
-                if action and action.payload:
-                    variants = action.payload.get("body_variants") or []
-                    labels = [
-                        "Option 1: Direct Confirmation",
-                        "Option 2: Clarification / Extra Details",
-                        "Option 3: Time Slot Proposal",
-                    ]
-                    suggested_wa_drafts = [
-                        DraftVariantItem(
-                            id=f"d{i+1}",
-                            label=labels[i] if i < len(labels) else f"Option {i+1}",
-                            body=v.strip(),
-                        )
-                        for i, v in enumerate(variants[:3])
-                    ]
+                suggested_wa_drafts = _action_to_draft_variants(_find_reply_action(latest_inbound_wa.id), wa_labels)
 
             return ContactCommunicationsResponse(
                 contact_id=contact_id,
@@ -462,7 +514,10 @@ def send_email_reply(contact_id: str, message_id: str, payload: SendEmailReplyRe
     "/{contact_id}/whatsapp/generate-drafts",
     response_model=GenerateDraftsResponse,
     summary="Generate 3 AI Draft Variants for WhatsApp",
-    description="Generates 3 quick chat draft replies for WhatsApp, checking existing pipeline ActionRow or invoking Proposer agent.",
+    description=(
+        "Generates 3 quick chat draft replies for WhatsApp, "
+        "checking existing pipeline ActionRow or invoking Proposer agent."
+    ),
 )
 def generate_whatsapp_drafts(
     contact_id: str,
@@ -471,7 +526,7 @@ def generate_whatsapp_drafts(
     settings: Annotated[Settings, Depends(get_settings_dep)],
     principal: Annotated[Principal, Depends(require_session)],
 ) -> GenerateDraftsResponse:
-    """Produces 3 chat-optimized WhatsApp replies: checks existing pipeline ActionRow first, or invokes live Proposer agent."""
+    """Produces 3 chat-optimized WhatsApp replies via existing ActionRow or live Proposer agent."""
     company_id = principal.company_id
     labels = [
         "Option 1: Direct Confirmation",
