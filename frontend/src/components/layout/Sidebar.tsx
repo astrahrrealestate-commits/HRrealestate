@@ -26,6 +26,7 @@ import { needsYouCount, ThreadCountTarget } from "@/lib/selectors";
 import { getInboxThreads } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { useSuperAgent } from "@/context/SuperAgentContext";
 
 interface NavItem {
   label: string;
@@ -59,6 +60,8 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
   }, []);
   const { user, logout, canAccess } = useAuth();
   const { t } = useLanguage();
+  const { isOpen: isSuperAgentOpen } = useSuperAgent();
+  const compact = isSuperAgentOpen;
 
   const displayName = user?.name || "Harjot Singh";
   const displayEmail = user?.email || "harjot@estateos.internal";
@@ -120,23 +123,38 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
   const navigationItems = allNavigationItems.filter((item) => canAccess(item.section));
 
   return (
-    <aside className="hidden md:flex flex-col justify-between select-none h-dvh sticky top-0 md:w-[72px] xl:w-[240px] flex-shrink-0 border-r border-[#162B45] bg-[#0A1B2F] transition-all z-20">
+    <aside
+      className={cn(
+        "hidden md:flex flex-col justify-between select-none h-dvh sticky top-0 flex-shrink-0 border-r border-[#162B45] bg-[#0A1B2F] transition-all duration-200 z-20",
+        compact ? "md:w-[68px]" : "md:w-[72px] xl:w-[240px]"
+      )}
+    >
       {/* Top Header & Navigation */}
       <div className="flex flex-col">
         {/* Brand Logo Header (h-14 aligned with TopCommandBar) */}
-        <div className="h-[48px] px-4 xl:px-4 flex items-center justify-between border-b border-[#162B45]">
-          <Link href="/" className="flex items-center gap-2.5 group">
+        <div
+          className={cn(
+            "h-[48px] flex items-center border-b border-[#162B45]",
+            compact ? "px-0 justify-center" : "px-4 xl:px-4 justify-between"
+          )}
+        >
+          <Link href="/" className="flex items-center gap-2.5 group" title="EstateOS">
             <div className="w-7 h-7 rounded-lg bg-white/10 border border-white/15 flex items-center justify-center text-white shadow-xs flex-shrink-0">
               <Home className="w-4 h-4 stroke-[2.25]" />
             </div>
-            <span className="hidden xl:inline font-heading font-bold text-[17px] tracking-[-0.02em] text-white">
+            <span
+              className={cn(
+                "font-heading font-bold text-[17px] tracking-[-0.02em] text-white",
+                compact ? "hidden" : "hidden xl:inline"
+              )}
+            >
               EstateOS
             </span>
           </Link>
         </div>
 
         {/* Quick Search Bar (matching reference design) */}
-        <div className="px-2.5 pt-2.5 pb-1 hidden xl:block">
+        <div className={cn("px-2.5 pt-2.5 pb-1", compact ? "hidden" : "hidden xl:block")}>
           <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#10213B] border border-[#162B45] text-slate-400 hover:text-white hover:border-[#223f66] transition-colors cursor-pointer group">
             <div className="flex items-center gap-2">
               <Search className="w-3.5 h-3.5 text-slate-400 group-hover:text-white" />
@@ -149,14 +167,14 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
         </div>
 
         {/* Section Label: WORKSPACE */}
-        <div className="px-3 pt-3 pb-1 hidden xl:block">
+        <div className={cn("px-3 pt-3 pb-1", compact ? "hidden" : "hidden xl:block")}>
           <span className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">
             {t("nav.workspace")}
           </span>
         </div>
 
         {/* Main Navigation Items */}
-        <nav className="p-2 xl:p-2.5 space-y-1">
+        <nav className={cn("space-y-1", compact ? "p-2" : "p-2 xl:p-2.5")}>
           {navigationItems.map((item) => {
             const isActive =
               item.href === "/"
@@ -171,7 +189,9 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
                 title={item.label}
                 className={cn(
                   "flex items-center min-h-[38px] rounded-xl text-[13.5px] transition-all relative group",
-                  "justify-center xl:justify-between px-2 xl:px-3",
+                  compact
+                    ? "justify-center px-2"
+                    : "justify-center xl:justify-between px-2 xl:px-3",
                   isActive
                     ? "bg-white/10 border border-white/10 text-white font-medium shadow-xs"
                     : "text-zinc-400 hover:text-white hover:bg-white/5 font-medium border border-transparent"
@@ -186,19 +206,27 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
                       )}
                       strokeWidth={isActive ? 2 : 1.75}
                     />
-                    {/* Compact badge dot for icon nav (md only) */}
+                    {/* Compact badge dot for icon nav */}
                     {item.badge !== undefined && (
-                      <span className="xl:hidden absolute -top-1 -right-1.5 w-2 h-2 rounded-full bg-[var(--accent)] ring-2 ring-[#0A1B2F]" />
+                      <span
+                        className={cn(
+                          "absolute -top-1 -right-1.5 w-2 h-2 rounded-full bg-[var(--accent)] ring-2 ring-[#0A1B2F]",
+                          compact ? "block" : "xl:hidden"
+                        )}
+                      />
                     )}
                   </div>
-                  <span className="hidden xl:inline truncate">{item.label}</span>
+                  <span className={cn("truncate", compact ? "hidden" : "hidden xl:inline")}>
+                    {item.label}
+                  </span>
                 </div>
 
                 {/* Badge matching the design screenshot */}
                 {item.badge !== undefined && (
                   <span
                     className={cn(
-                      "hidden xl:inline-flex text-[11px] tabular-nums leading-none",
+                      "text-[11px] tabular-nums leading-none",
+                      compact ? "hidden" : "hidden xl:inline-flex",
                       isActive
                         ? "text-slate-200 font-medium"
                         : "text-slate-400 group-hover:text-slate-300"
@@ -215,16 +243,21 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
 
       {/* Bottom Section: Knowledge Base, Connections & User Profile */}
       <div className="border-t border-[#162B45]">
-        <div className="p-2 xl:p-2.5 space-y-1">
+        <div className={cn("space-y-1", compact ? "p-2" : "p-2 xl:p-2.5")}>
           {/* Knowledge Base */}
           {canAccess("reports") && (
             <Link
               href="/reports"
               title={t("nav.knowledge_base") || "Knowledge Base"}
-              className="w-full flex items-center min-h-[38px] rounded-xl text-[13.5px] transition-colors justify-center xl:justify-start px-2 xl:px-3 text-slate-400 hover:text-white hover:bg-white/5 font-medium gap-2.5 border border-transparent"
+              className={cn(
+                "w-full flex items-center min-h-[38px] rounded-xl text-[13.5px] transition-colors text-slate-400 hover:text-white hover:bg-white/5 font-medium gap-2.5 border border-transparent",
+                compact ? "justify-center px-2" : "justify-center xl:justify-start px-2 xl:px-3"
+              )}
             >
               <BookOpen className="w-4 h-4 flex-shrink-0 text-slate-400" strokeWidth={1.75} />
-              <span className="hidden xl:inline truncate">{t("nav.knowledge_base") || "Knowledge Base"}</span>
+              <span className={cn("truncate", compact ? "hidden" : "hidden xl:inline")}>
+                {t("nav.knowledge_base") || "Knowledge Base"}
+              </span>
             </Link>
           )}
 
@@ -233,16 +266,29 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
             type="button"
             onClick={() => setIsConnectionsOpen(true)}
             title={t("nav.connections")}
-            className="w-full flex items-center min-h-[38px] rounded-xl text-[13.5px] transition-colors relative group justify-center xl:justify-between px-2 xl:px-3 cursor-pointer text-slate-400 hover:text-white hover:bg-white/5 font-medium border border-transparent"
+            className={cn(
+              "w-full flex items-center min-h-[38px] rounded-xl text-[13.5px] transition-colors relative group cursor-pointer text-slate-400 hover:text-white hover:bg-white/5 font-medium border border-transparent",
+              compact ? "justify-center px-2" : "justify-center xl:justify-between px-2 xl:px-3"
+            )}
           >
-            <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex items-center gap-2.5 min-w-0 relative">
               <LayoutGrid
                 className="w-4 h-4 flex-shrink-0 text-slate-400 group-hover:text-white transition-colors"
                 strokeWidth={1.75}
               />
-              <span className="hidden xl:inline truncate">{t("nav.connections")}</span>
+              {compact && (
+                <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-[#0A1B2F]" />
+              )}
+              <span className={cn("truncate", compact ? "hidden" : "hidden xl:inline")}>
+                {t("nav.connections")}
+              </span>
             </div>
-            <span className="hidden xl:inline-flex items-center gap-1.5 text-[10.5px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+            <span
+              className={cn(
+                "items-center gap-1.5 text-[10.5px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20",
+                compact ? "hidden" : "hidden xl:inline-flex"
+              )}
+            >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               {t("nav.live")}
             </span>
@@ -252,7 +298,12 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
         {/* User Profile & Logout Popover */}
         <div className="relative border-t border-[#162B45]">
           {isUserMenuOpen && (
-            <div className="absolute bottom-full left-2 right-2 mb-2 p-2 rounded-xl bg-[#0E2138] border border-[#162B45] shadow-xl z-50 animate-in fade-in slide-in-from-bottom-2 duration-150">
+            <div
+              className={cn(
+                "absolute bottom-full mb-2 p-2 rounded-xl bg-[#0E2138] border border-[#162B45] shadow-xl z-50 animate-in fade-in slide-in-from-bottom-2 duration-150",
+                compact ? "left-2 w-[220px]" : "left-2 right-2"
+              )}
+            >
               <div className="px-2 py-1.5 border-b border-[#162B45] mb-1">
                 <span className="text-xs font-semibold text-white block truncate">{displayName}</span>
                 <span className="text-[11px] text-[#94a3b8] block truncate font-mono">{displayEmail}</span>
@@ -296,14 +347,17 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
 
           <div
             onClick={() => setIsUserMenuOpen((prev) => !prev)}
-            className="p-2.5 xl:p-3 flex items-center justify-between gap-2.5 bg-white/[0.02] hover:bg-white/[0.06] transition-colors cursor-pointer select-none"
+            className={cn(
+              "flex items-center gap-2.5 bg-white/[0.02] hover:bg-white/[0.06] transition-colors cursor-pointer select-none",
+              compact ? "p-2.5 justify-center" : "p-2.5 xl:p-3 justify-between"
+            )}
             title={user?.isAdmin ? "Profile, team & access, sign out" : "Profile & sign out"}
           >
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-7 h-7 xl:w-8 xl:h-8 rounded-full bg-[#162B45] border border-white/10 flex items-center justify-center text-[11px] font-bold text-slate-200 flex-shrink-0">
                 {userInitials}
               </div>
-              <div className="hidden xl:flex flex-col min-w-0">
+              <div className={cn("flex-col min-w-0", compact ? "hidden" : "hidden xl:flex")}>
                 <span className="text-[13px] font-semibold text-white truncate leading-tight">
                   {displayName}
                 </span>
@@ -312,7 +366,13 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
                 </span>
               </div>
             </div>
-            <ChevronDown className={cn("hidden xl:block w-3.5 h-3.5 text-slate-400 flex-shrink-0 transition-transform", isUserMenuOpen && "rotate-180 text-white")} />
+            <ChevronDown
+              className={cn(
+                "w-3.5 h-3.5 text-slate-400 flex-shrink-0 transition-transform",
+                compact ? "hidden" : "hidden xl:block",
+                isUserMenuOpen && "rotate-180 text-white"
+              )}
+            />
           </div>
         </div>
       </div>

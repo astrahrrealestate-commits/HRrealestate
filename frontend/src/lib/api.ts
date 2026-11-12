@@ -788,10 +788,17 @@ export interface AssistantCard {
   targetUrl?: string | null;
   caseId?: string | null;
   actionId?: string | null;
+  columns?: string[];
+  rows?: Array<Record<string, any>>;
+  totalCount?: number | null;
+  phone?: string | null;
+  email?: string | null;
+  leaseStart?: string | null;
+  leaseEnd?: string | null;
 }
 
 export interface PreviewCardData {
-  type: "draft_message" | "case_summary" | "task_card" | "financial_item" | string;
+  type: "draft_message" | "case_summary" | "data_table" | "tenant_lease" | "task_card" | "financial_item" | string;
   channel?: string;
   recipient?: string;
   unitLabel?: string;
@@ -814,6 +821,13 @@ export interface PreviewCardData {
   variants?: string[];
   personaName?: string | null; // owner persona a draft_message was written in
   personaVersion?: number | null;
+  columns?: string[];
+  rows?: Array<Record<string, any>>;
+  totalCount?: number | null;
+  phone?: string | null;
+  email?: string | null;
+  leaseStart?: string | null;
+  leaseEnd?: string | null;
 }
 
 export interface AskAgentAction {
@@ -887,7 +901,7 @@ export async function askAgent(
   conversationId?: string | null
 ): Promise<AskAgentResponse> {
   const fallbackAns: AskAgentResponse = {
-    answer: "No active blocking SLA breaches detected. All maintenance queues are up to date.",
+    answer: "Unable to reach the EstateOS backend right now. Please verify the API connection and try again.",
     caseRefs: [],
     suggestedAction: "View Maintenance Hub",
     actions: [
@@ -899,6 +913,10 @@ export async function askAgent(
       },
     ],
     executedAt: new Date().toISOString(),
+    debugInfo: {
+      pipeline_stage: "network_error",
+      fallback_reason: "Backend request failed",
+    },
   };
 
   try {

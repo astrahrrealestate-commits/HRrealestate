@@ -12,12 +12,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Engine, or_, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_engine
+from app.api.deps import get_engine, get_settings_dep
 from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
-from app.contracts import Channel, Direction
+from app.contracts import ActionType, Channel, Direction
 from app.core.logging import get_logger
-from app.db.models import ChannelIdentity, MessageRow, Person, UnderstandingRow
+from app.core.settings import Settings
+from app.db.models import ActionRow, CaseLink, ChannelIdentity, MessageRow, Person, UnderstandingRow
+from app.pipeline import propose
 
 router = APIRouter(prefix="/api/contacts", tags=["contacts"], dependencies=[Depends(require_section("contacts"))])
 log = get_logger(__name__)
@@ -102,6 +104,25 @@ class ContactCommunicationsResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # API Endpoints
 # ---------------------------------------------------------------------------
+
+
+def _action_to_draft_variants(action: ActionRow | None, labels: list[str]) -> list[DraftVariantItem]:
+    if not action or not action.payload or not isinstance(action.payload, dict):
+        return []
+    variants = action.payload.get("body_variants") or []
+    if not variants and action.payload.get("text"):
+        variants = [action.payload["text"]]
+    elif not variants and action.payload.get("body"):
+        variants = [action.payload["body"]]
+    return [
+        DraftVariantItem(
+            id=f"d{i+1}",
+            label=labels[i] if i < len(labels) else f"Option {i+1}",
+            body=str(v).strip(),
+        )
+        for i, v in enumerate(variants[:3])
+        if str(v).strip()
+    ]
 
 
 @router.get(
@@ -191,9 +212,52 @@ def get_contact_communications(
             )
 
         if live_messages:
-            # Map messages and extract understanding categories
+            # Map messages and extract understanding categories + pre-staged AI reply drafts
             mapped_emails: list[ContactEmailItemResponse] = []
             mapped_whatsapp: list[ContactWhatsAppMessageResponse] = []
+
+            msg_ids = [m.id for m in live_messages]
+            case_links = (
+                session.query(CaseLink)
+                .filter(CaseLink.company_id == company_id, CaseLink.message_id.in_(msg_ids))
+                .all()
+            )
+            case_by_msg = {cl.message_id: cl.case_id for cl in case_links}
+            case_ids = list(set(case_by_msg.values()))
+            draft_conds = [ActionRow.context_ref.overlap(msg_ids)]
+            if case_ids:
+                draft_conds.append(ActionRow.case_id.in_(case_ids))
+            candidate_draft_actions = (
+                session.scalars(
+                    select(ActionRow)
+                    .where(
+                        ActionRow.company_id == company_id,
+                        ActionRow.type == ActionType.reply_draft,
+                        or_(*draft_conds),
+                    )
+                    .order_by(ActionRow.created_at.desc())
+                ).all()
+            )
+
+            def _find_reply_action(msg_id: UUID) -> ActionRow | None:
+                direct = next((a for a in candidate_draft_actions if msg_id in (a.context_ref or [])), None)
+                if direct:
+                    return direct
+                cid = case_by_msg.get(msg_id)
+                if cid:
+                    return next((a for a in candidate_draft_actions if a.case_id == cid), None)
+                return None
+
+            email_labels = [
+                "Option 1: Direct Confirmation",
+                "Option 2: Clarification / Extra Details",
+                "Option 3: Schedule Visit / Appointment",
+            ]
+            wa_labels = [
+                "Option 1: Direct Confirmation",
+                "Option 2: Clarification / Extra Details",
+                "Option 3: Time Slot Proposal",
+            ]
 
             for msg in live_messages:
                 sent_time_str = msg.sent_at.strftime("%H:%M") if msg.sent_at else "12:00"
@@ -209,10 +273,20 @@ def get_contact_communications(
                 if und and und.category:
                     category = und.category.value if hasattr(und.category, "value") else str(und.category)
 
-                msg_subj = getattr(msg, "subject", None) or "(No Subject)"
+                meta_subject = msg.meta.get("subject") if isinstance(msg.meta, dict) else None
+                msg_subj = (
+                    (str(meta_subject).strip() if meta_subject else None)
+                    or getattr(msg, "subject", None)
+                    or "(No Subject)"
+                )
                 msg_body = msg.text or ""
 
                 if msg.channel == Channel.gmail:
+                    email_drafts = (
+                        _action_to_draft_variants(_find_reply_action(msg.id), email_labels)
+                        if msg.direction == Direction.inbound
+                        else []
+                    )
                     mapped_emails.append(
                         ContactEmailItemResponse(
                             id=str(msg.id),
@@ -226,6 +300,7 @@ def get_contact_communications(
                             isUnread=msg.direction == Direction.inbound,
                             hasAttachments=False,
                             category=category or "admin",
+                            draftVariants=email_drafts,
                         )
                     )
                 elif msg.channel == Channel.whatsapp:
@@ -241,12 +316,21 @@ def get_contact_communications(
                         )
                     )
 
+            # Look for existing AI reply drafts for the latest inbound WhatsApp message
+            suggested_wa_drafts: list[DraftVariantItem] = []
+            latest_inbound_wa = next(
+                (m for m in live_messages if m.channel == Channel.whatsapp and m.direction == Direction.inbound), None
+            )
+            if latest_inbound_wa:
+                suggested_wa_drafts = _action_to_draft_variants(_find_reply_action(latest_inbound_wa.id), wa_labels)
+
             return ContactCommunicationsResponse(
                 contact_id=contact_id,
                 email=next(iter(target_emails), None),
                 phone=next(iter(target_phones), None),
                 emails=mapped_emails,
                 whatsapp_messages=mapped_whatsapp,
+                suggested_whatsapp_drafts=suggested_wa_drafts,
                 source="live_db",
             )
 
@@ -298,9 +382,76 @@ def generate_email_drafts(
     message_id: str,
     payload: GenerateDraftsRequest,
     engine: Annotated[Engine, Depends(get_engine)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
     principal: Annotated[Principal, Depends(require_session)],
 ) -> GenerateDraftsResponse:
-    """Produces 3 distinct reply drafts in Harjot's persona voice."""
+    """Produces 3 distinct reply drafts: checks existing pipeline ActionRow first, or invokes live Proposer agent."""
+    labels = [
+        "Option 1: Direct Confirmation",
+        "Option 2: Clarification / Extra Details",
+        "Option 3: Schedule Visit / Appointment",
+    ]
+
+    if _is_uuid(message_id):
+        msg_uuid = UUID(message_id)
+        company_id = principal.company_id
+
+        # 1. Cache hit check: if no custom guidance was supplied, return existing pipeline proposal immediately
+        if not payload.guidance:
+            with Session(engine) as session:
+                existing_action = session.scalars(
+                    select(ActionRow).where(
+                        ActionRow.company_id == company_id,
+                        ActionRow.context_ref.contains([msg_uuid]),
+                        ActionRow.type == ActionType.reply_draft,
+                    ).order_by(ActionRow.created_at.desc())
+                ).first()
+                if existing_action and existing_action.payload:
+                    variants = existing_action.payload.get("body_variants") or []
+                    if variants:
+                        return GenerateDraftsResponse(
+                            message_id=message_id,
+                            drafts=[
+                                DraftVariantItem(
+                                    id=f"d{i+1}",
+                                    label=labels[i] if i < len(labels) else f"Option {i+1}",
+                                    body=v.strip(),
+                                )
+                                for i, v in enumerate(variants[:3])
+                            ],
+                        )
+
+        # 2. Trigger Gemini Proposer agent for fresh drafts or custom guidance
+        try:
+            propose.propose_for_message(engine, settings, msg_uuid, guidance=payload.guidance)
+        except Exception as e:
+            log.warning("propose_for_email_failed", error=str(e), message_id=message_id)
+
+        # 3. Read newly generated drafts from ActionRow
+        with Session(engine) as session:
+            new_action = session.scalars(
+                select(ActionRow).where(
+                    ActionRow.company_id == company_id,
+                    ActionRow.context_ref.contains([msg_uuid]),
+                    ActionRow.type == ActionType.reply_draft,
+                ).order_by(ActionRow.created_at.desc())
+            ).first()
+            if new_action and new_action.payload:
+                variants = new_action.payload.get("body_variants") or []
+                if variants:
+                    return GenerateDraftsResponse(
+                        message_id=message_id,
+                        drafts=[
+                            DraftVariantItem(
+                                id=f"d{i+1}",
+                                label=labels[i] if i < len(labels) else f"Option {i+1}",
+                                body=v.strip(),
+                            )
+                            for i, v in enumerate(variants[:3])
+                        ],
+                    )
+
+    # 4. Contextual fallback if unlinked or model error
     subject = "uw bericht"
     with Session(engine) as session:
         if _is_uuid(message_id):
@@ -309,7 +460,7 @@ def generate_email_drafts(
                     MessageRow.id == UUID(message_id), MessageRow.company_id == principal.company_id
                 )
             ).first()
-            if msg and msg.meta.get("subject"):
+            if msg and msg.meta and msg.meta.get("subject"):
                 subject = str(msg.meta["subject"])
 
     clean_subj = subject.lower().replace("re:", "").strip()
@@ -363,28 +514,118 @@ def send_email_reply(contact_id: str, message_id: str, payload: SendEmailReplyRe
     "/{contact_id}/whatsapp/generate-drafts",
     response_model=GenerateDraftsResponse,
     summary="Generate 3 AI Draft Variants for WhatsApp",
-    description="Generates 3 quick chat draft replies for WhatsApp.",
+    description=(
+        "Generates 3 quick chat draft replies for WhatsApp, "
+        "checking existing pipeline ActionRow or invoking Proposer agent."
+    ),
 )
 def generate_whatsapp_drafts(
     contact_id: str,
     payload: GenerateDraftsRequest,
     engine: Annotated[Engine, Depends(get_engine)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+    principal: Annotated[Principal, Depends(require_session)],
 ) -> GenerateDraftsResponse:
-    """Produces 3 chat-optimized WhatsApp replies."""
+    """Produces 3 chat-optimized WhatsApp replies via existing ActionRow or live Proposer agent."""
+    company_id = principal.company_id
+    labels = [
+        "Option 1: Direct Confirmation",
+        "Option 2: Clarification / Photo",
+        "Option 3: Time Slot Proposal",
+    ]
+    latest_inbound_msg_id: UUID | None = None
+
+    with Session(engine) as session:
+        if _is_uuid(contact_id):
+            person_id = UUID(contact_id)
+            channels = session.scalars(
+                select(ChannelIdentity.identity).where(
+                    ChannelIdentity.company_id == company_id,
+                    ChannelIdentity.person_id == person_id,
+                    ChannelIdentity.channel == Channel.whatsapp,
+                )
+            ).all()
+            if channels:
+                msg = session.scalars(
+                    select(MessageRow).where(
+                        MessageRow.company_id == company_id,
+                        MessageRow.channel == Channel.whatsapp,
+                        MessageRow.direction == Direction.inbound,
+                        MessageRow.sender_identity.in_(channels),
+                    ).order_by(MessageRow.sent_at.desc(), MessageRow.created_at.desc())
+                ).first()
+                if msg:
+                    latest_inbound_msg_id = msg.id
+
+        # 1. Cache hit check: if no custom guidance was supplied, return existing ActionRow immediately
+        if latest_inbound_msg_id and not payload.guidance:
+            existing_action = session.scalars(
+                select(ActionRow).where(
+                    ActionRow.company_id == company_id,
+                    ActionRow.context_ref.contains([latest_inbound_msg_id]),
+                    ActionRow.type == ActionType.reply_draft,
+                ).order_by(ActionRow.created_at.desc())
+            ).first()
+            if existing_action and existing_action.payload:
+                variants = existing_action.payload.get("body_variants") or []
+                if variants:
+                    return GenerateDraftsResponse(
+                        message_id=str(latest_inbound_msg_id),
+                        drafts=[
+                            DraftVariantItem(
+                                id=f"d{i+1}",
+                                label=labels[i] if i < len(labels) else f"Option {i+1}",
+                                body=v.strip(),
+                            )
+                            for i, v in enumerate(variants[:3])
+                        ],
+                    )
+
+    # 2. Trigger Proposer agent for fresh drafts or custom guidance
+    if latest_inbound_msg_id:
+        try:
+            propose.propose_for_message(engine, settings, latest_inbound_msg_id, guidance=payload.guidance)
+        except Exception as e:
+            log.warning("propose_for_whatsapp_failed", error=str(e), message_id=str(latest_inbound_msg_id))
+
+        with Session(engine) as session:
+            new_action = session.scalars(
+                select(ActionRow).where(
+                    ActionRow.company_id == company_id,
+                    ActionRow.context_ref.contains([latest_inbound_msg_id]),
+                    ActionRow.type == ActionType.reply_draft,
+                ).order_by(ActionRow.created_at.desc())
+            ).first()
+            if new_action and new_action.payload:
+                variants = new_action.payload.get("body_variants") or []
+                if variants:
+                    return GenerateDraftsResponse(
+                        message_id=str(latest_inbound_msg_id),
+                        drafts=[
+                            DraftVariantItem(
+                                id=f"d{i+1}",
+                                label=labels[i] if i < len(labels) else f"Option {i+1}",
+                                body=v.strip(),
+                            )
+                            for i, v in enumerate(variants[:3])
+                        ],
+                    )
+
+    # 3. Fallback persona chat replies
     drafts = [
         DraftVariantItem(
             id="d1",
-            label="Direct Confirmation",
+            label="Option 1: Direct Confirmation",
             body="Dank voor het bericht! Ik heb het direct genoteerd en ga er vandaag mee aan de slag.",
         ),
         DraftVariantItem(
             id="d2",
-            label="Clarification / Photo",
+            label="Option 2: Clarification / Photo",
             body="Top, dank voor de update! Kun je voor de zekerheid even een duidelijke foto sturen?",
         ),
         DraftVariantItem(
             id="d3",
-            label="Time Slot Proposal",
+            label="Option 3: Time Slot Proposal",
             body="Schikt komende woensdagochtend 10:00 uur voor een inspectie ter plaatse?",
         ),
     ]

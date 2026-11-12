@@ -200,7 +200,14 @@ def email_fingerprint(email: str) -> str:
 def default_dev_principal(engine: Engine | Connection) -> Principal | None:
     """Resolve the default owner account for local dev when the session cookie is absent or invalid."""
     with Session(engine) as session:
-        owner = session.scalars(select(OwnerAccount).limit(1)).first()
+        # Prioritize real configured owner account with an email (e.g. harjot@estateos.internal)
+        owner = session.scalars(
+            select(OwnerAccount)
+            .where(OwnerAccount.email.is_not(None), OwnerAccount.email != "")
+            .order_by(OwnerAccount.id.desc())
+        ).first()
+        if not owner:
+            owner = session.scalars(select(OwnerAccount).limit(1)).first()
         if owner:
             return Principal(company_id=owner.company_id, owner_id=owner.id, email=owner.email or "dev@estateos.nl")
     return None
@@ -223,8 +230,13 @@ def _dev_principal_or_401(request: Request) -> Principal:
 
 
 def cookie_principal(request: Request) -> Principal:
-    """The signed-cookie checks alone (no I/O): signature, age. 401 when missing or invalid."""
-    token = request.cookies.get(COOKIE)
+    """The signed-cookie checks alone (no I/O): signature, age. 401 when missing or invalid.
+    Accepts eo_session cookie, X-Session-Token header, or Authorization: Bearer token."""
+    token = request.cookies.get(COOKIE) or request.headers.get("X-Session-Token")
+    if not token:
+        auth_h = request.headers.get("Authorization", "")
+        if auth_h.startswith("Bearer "):
+            token = auth_h[7:].strip()
     if not token:
         return _dev_principal_or_401(request)
     try:
@@ -294,9 +306,10 @@ async def create_session(body: SessionRequest, request: Request, response: Respo
         log.info("dashboard_login_unknown_owner", email_hash=email_fingerprint(email))
         raise HTTPException(status_code=403, detail="not an owner account")
     settings: Settings = state.settings
-    set_session_cookie(response, settings, issue_session(settings, principal, datetime.now(UTC)))
+    token = issue_session(settings, principal, datetime.now(UTC))
+    set_session_cookie(response, settings, token)
     log.info("dashboard_login", email_hash=email_fingerprint(email))
-    return {"email": principal.email, "company_id": str(principal.company_id)}
+    return {"email": principal.email, "company_id": str(principal.company_id), "session_token": token}
 
 
 @router.delete("/auth/session", status_code=204, dependencies=[Depends(require_csrf)])

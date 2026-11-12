@@ -7,6 +7,7 @@ import {
   CheckCheck,
   Clock,
   ExternalLink,
+  List,
   MoreHorizontal,
   ChevronDown,
   ChevronRight,
@@ -39,6 +40,10 @@ interface InboxConversationViewProps {
   onRejectDraft?: (threadId: string) => void;
   onSendManualReply?: (threadId: string, replyText: string, replyToMessageId?: string) => void;
   onMarkDone?: (threadId: string) => void;
+  showThreadsButton?: boolean;
+  threadCount?: number;
+  isThreadsDrawerOpen?: boolean;
+  onToggleThreadsDrawer?: () => void;
   className?: string;
 }
 
@@ -50,6 +55,10 @@ export function InboxConversationView({
   onRejectDraft,
   onSendManualReply,
   onMarkDone,
+  showThreadsButton = false,
+  threadCount = 0,
+  isThreadsDrawerOpen = false,
+  onToggleThreadsDrawer,
   className,
 }: InboxConversationViewProps) {
   const [showEarlier, setShowEarlier] = useState(false);
@@ -61,12 +70,16 @@ export function InboxConversationView({
   const timelineEndRef = useRef<HTMLDivElement>(null);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+  const mobileMoreMenuRef = useRef<HTMLDivElement>(null);
 
   // Close the More actions menu on an outside click, Escape, or when another thread opens.
   useEffect(() => {
     if (!isMoreOpen) return;
     const onPointerDown = (e: MouseEvent) => {
-      if (!moreMenuRef.current?.contains(e.target as Node)) setIsMoreOpen(false);
+      const target = e.target as Node;
+      if (!moreMenuRef.current?.contains(target) && !mobileMoreMenuRef.current?.contains(target)) {
+        setIsMoreOpen(false);
+      }
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") setIsMoreOpen(false);
@@ -106,14 +119,16 @@ export function InboxConversationView({
       const isAlreadyReplied = thread.status === "approved" || thread.status === "replied";
       setIsSent(isAlreadyReplied);
 
-      // Resolve channel drafts safely
-      const channelDrafts =
-        (thread.channel === "whatsapp"
+      // Resolve channel drafts safely (ignore empty [] arrays so fallback works)
+      const preferredDrafts =
+        thread.channel === "whatsapp"
           ? thread.draftProposal?.whatsappDrafts
-          : thread.draftProposal?.gmailDrafts) ||
-        thread.draftProposal?.drafts ||
-        thread.draftProposal?.whatsappDrafts ||
-        thread.draftProposal?.gmailDrafts ||
+          : thread.draftProposal?.gmailDrafts;
+      const channelDrafts =
+        (preferredDrafts && preferredDrafts.length > 0 ? preferredDrafts : null) ||
+        (thread.draftProposal?.drafts?.length ? thread.draftProposal.drafts : null) ||
+        (thread.draftProposal?.whatsappDrafts?.length ? thread.draftProposal.whatsappDrafts : null) ||
+        (thread.draftProposal?.gmailDrafts?.length ? thread.draftProposal.gmailDrafts : null) ||
         [];
 
       const draft = !isAlreadyReplied && channelDrafts.length > 0 ? channelDrafts[0]?.text || "" : "";
@@ -236,55 +251,170 @@ export function InboxConversationView({
         className
       )}
     >
-      {/* 1. Header (Sticky h-14, Section 5.2) */}
-      <div className="h-14 px-4 sm:px-6 border-b border-[var(--line)] bg-[var(--pane)] flex items-center justify-between shrink-0 z-10">
-        <div className="flex items-center gap-3 min-w-0">
-          {/* Mobile Back Button (Section 5.6) */}
-          <button
-            type="button"
-            onClick={onBack}
-            className="md:hidden p-1.5 -ml-1 rounded-[var(--radius-ctl)] text-[var(--ink-2)] hover:bg-[var(--selected)]"
-            title="Back to thread list"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
+      {/* 1. Header: 2-Row Clean Mobile Header + Original Desktop Header */}
+      {/* Mobile Header (< 640px) matching approved mockup */}
+      <div className="sm:hidden px-3.5 pt-2.5 pb-2.5 border-b border-[var(--line)] bg-[var(--pane)] flex flex-col gap-2 shrink-0 z-10">
+        {/* Top Row: Back arrow | Centered Avatar | Ticket Pill */}
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center">
+          <div className="flex items-center justify-start">
+            <button
+              type="button"
+              onClick={onBack}
+              className="p-1.5 -ml-1.5 rounded-full text-[var(--ink)] hover:bg-[var(--selected)] transition-colors cursor-pointer"
+              title="Back to thread list"
+              aria-label="Back to thread list"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          </div>
 
-          <Avatar name={thread.senderName} channel={thread.channel} size="sm" />
+          <Avatar name={thread.senderName} channel={thread.channel} size="default" />
 
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="font-heading font-bold text-[16px] sm:text-[18px] text-[var(--ink)] truncate leading-tight">
+          <div className="flex items-center justify-end">
+            {thread.ticketNumber ? (
+              <button
+                type="button"
+                onClick={() => setIsTicketModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold text-[var(--ink)] bg-[#F1F5F9] hover:bg-[#E2E8F0] border border-[var(--line)] transition-colors cursor-pointer"
+                title="View and Edit Maintenance Ticket details"
+              >
+                <Ticket className="w-3.5 h-3.5 text-[var(--ink-2)]" />
+                <span>Ticket</span>
+              </button>
+            ) : (
+              <span />
+            )}
+          </div>
+        </div>
+
+        {/* Bottom Row: Bold Contact Name + Unit/Ticket | [Done] [More] square pills */}
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <h2 className="font-heading font-bold text-[18px] text-[var(--ink)] truncate leading-tight">
+                {thread.senderName || thread.subject || thread.unitLabel}
+              </h2>
+              {urgentThread && <UrgentLabel />}
+            </div>
+            <p className="text-[12px] text-[var(--ink-3)] truncate leading-tight mt-0.5">
+              {thread.unitLabel}
+              {thread.ticketNumber ? ` · ${thread.ticketNumber}` : ""}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => onMarkDone?.(thread.id)}
+              className="w-8 h-8 rounded-[10px] bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[var(--ink)] flex items-center justify-center transition-colors cursor-pointer"
+              title="Mark thread done"
+              aria-label="Mark done"
+            >
+              <Check className="w-4 h-4 stroke-[2.2]" />
+            </button>
+
+            <div className="relative" ref={mobileMoreMenuRef}>
+              <button
+                type="button"
+                onClick={() => setIsMoreOpen((open) => !open)}
+                className="w-8 h-8 rounded-[10px] bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[var(--ink)] flex items-center justify-center transition-colors cursor-pointer"
+                title="More actions"
+                aria-haspopup="menu"
+                aria-expanded={isMoreOpen}
+              >
+                <MoreHorizontal className="w-4 h-4" />
+              </button>
+              {isMoreOpen && (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-full mt-1 z-30 min-w-[220px] rounded-[var(--radius-ctl)] border border-[var(--line)] bg-[var(--pane)] shadow-md py-1 text-[13px]"
+                >
+                  {thread.senderContact && (
+                    <div className="px-3 py-1.5 border-b border-[var(--line)] text-[11px] text-[var(--ink-3)] flex items-center gap-1.5 font-mono truncate">
+                      <span className={cn("inline-block w-1.5 h-1.5 rounded-full shrink-0", thread.channel === "gmail" ? "bg-[#EA4335]" : "bg-[#25D366]")} />
+                      <span className="truncate">{thread.senderContact}</span>
+                    </div>
+                  )}
+                  {[
+                    { label: "Copy ticket number", value: thread.ticketNumber },
+                    { label: "Copy sender contact", value: thread.senderContact },
+                  ].map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      role="menuitem"
+                      disabled={!item.value}
+                      onClick={() => copyToClipboard(item.value)}
+                      className="w-full text-left px-3 py-1.5 text-[var(--ink)] hover:bg-[var(--selected)] disabled:text-[var(--ink-3)] disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Desktop Header (>= 640px) */}
+      <div className="hidden sm:flex min-h-14 px-4 lg:px-6 py-2 border-b border-[var(--line)] bg-[var(--pane)] items-center justify-between gap-3 shrink-0 z-10">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          {showThreadsButton && onToggleThreadsDrawer && (
+            <>
+              <button
+                type="button"
+                onClick={onToggleThreadsDrawer}
+                className={cn(
+                  "hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[var(--radius-ctl)] border text-[12px] font-semibold transition-colors cursor-pointer shrink-0",
+                  isThreadsDrawerOpen
+                    ? "bg-[var(--ink)] text-[var(--pane)] border-[var(--ink)]"
+                    : "bg-[var(--bg)] hover:bg-[var(--selected)] text-[var(--ink)] border-[var(--line)]"
+                )}
+                title={isThreadsDrawerOpen ? "Hide threads list" : "Switch conversation thread"}
+              >
+                <List className="w-3.5 h-3.5" />
+                <span>Threads ({threadCount})</span>
+              </button>
+              <span className="hidden lg:inline-block h-5 w-px bg-[var(--line)] shrink-0" />
+            </>
+          )}
+          <Avatar name={thread.senderName} channel={thread.channel} size="sm" className="shrink-0" />
+
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 min-w-0">
+              <h2 className="font-heading font-bold text-[16px] lg:text-[18px] text-[var(--ink)] truncate leading-tight">
                 {thread.subject || thread.issueTitle || thread.unitLabel}
               </h2>
               {urgentThread && <UrgentLabel />}
             </div>
 
-            <div className="flex items-center gap-1.5 flex-wrap text-xs text-[var(--ink-3)] leading-normal mt-0.5">
-              <span className="font-semibold text-[var(--ink)]">{thread.unitLabel}</span>
+            <div className="flex items-center gap-1.5 flex-wrap text-xs text-[var(--ink-3)] leading-normal mt-0.5 min-w-0">
+              <span className="font-semibold text-[var(--ink)] truncate max-w-[160px]">{thread.unitLabel}</span>
               <span>·</span>
-              <span className="text-[var(--ink-2)] truncate max-w-[140px]">{thread.senderName}</span>
+              <span className="text-[var(--ink-2)] truncate max-w-[120px]">{thread.senderName}</span>
               {thread.senderContact && (
                 <>
                   <span>·</span>
-                  <span className="font-mono text-[11px] text-[var(--ink-2)] bg-[var(--selected)] px-1.5 py-0.5 rounded border border-[var(--line)] inline-flex items-center gap-1.5 truncate max-w-[200px]" title={thread.senderContact}>
+                  <span className="font-mono text-[11px] text-[var(--ink-2)] bg-[var(--selected)] px-1.5 py-0.5 rounded border border-[var(--line)] inline-flex items-center gap-1.5 truncate max-w-[175px]" title={thread.senderContact}>
                     <span className={cn("inline-block w-1.5 h-1.5 rounded-full shrink-0", thread.channel === "gmail" ? "bg-[#EA4335]" : "bg-[#25D366]")} />
                     <span className="truncate">{thread.senderContact}</span>
                   </span>
                 </>
               )}
-              {thread.ticketNumber && <span>· {thread.ticketNumber}</span>}
+              {thread.ticketNumber && <span className="shrink-0">· {thread.ticketNumber}</span>}
             </div>
           </div>
         </div>
 
-        {/* Header Actions */}
+        {/* Desktop Header Actions */}
         <div className="flex items-center gap-1 shrink-0">
           {thread.ticketNumber && (
             <Button
               variant="ghost"
               size="sm"
               icon={<Ticket className="w-3.5 h-3.5 text-[var(--accent-ink)]" />}
-              className="text-xs border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)]"
+              className="text-xs border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] px-2.5 h-8"
               onClick={() => setIsTicketModalOpen(true)}
               title="View and Edit Maintenance Ticket details"
             >
@@ -297,7 +427,8 @@ export function InboxConversationView({
             size="sm"
             icon={<Check className="w-3.5 h-3.5" />}
             onClick={() => onMarkDone?.(thread.id)}
-            className="text-xs"
+            className="text-xs px-2.5 h-8"
+            title="Mark thread done"
           >
             Done
           </Button>
@@ -307,7 +438,7 @@ export function InboxConversationView({
               variant="ghost"
               size="sm"
               icon={<MoreHorizontal className="w-4 h-4" />}
-              className="px-2"
+              className="px-2 h-8"
               title="More actions"
               aria-haspopup="menu"
               aria-expanded={isMoreOpen}
@@ -316,8 +447,14 @@ export function InboxConversationView({
             {isMoreOpen && (
               <div
                 role="menu"
-                className="absolute right-0 top-full mt-1 z-20 min-w-[200px] rounded-[var(--radius-ctl)] border border-[var(--line)] bg-[var(--pane)] shadow-md py-1 text-[13px]"
+                className="absolute right-0 top-full mt-1 z-20 min-w-[220px] rounded-[var(--radius-ctl)] border border-[var(--line)] bg-[var(--pane)] shadow-md py-1 text-[13px]"
               >
+                {thread.senderContact && (
+                  <div className="px-3 py-1.5 border-b border-[var(--line)] text-[11px] text-[var(--ink-3)] flex items-center gap-1.5 font-mono truncate">
+                    <span className={cn("inline-block w-1.5 h-1.5 rounded-full shrink-0", thread.channel === "gmail" ? "bg-[#EA4335]" : "bg-[#25D366]")} />
+                    <span className="truncate">{thread.senderContact}</span>
+                  </div>
+                )}
                 {[
                   { label: "Copy ticket number", value: thread.ticketNumber },
                   { label: "Copy sender contact", value: thread.senderContact },
@@ -340,7 +477,7 @@ export function InboxConversationView({
       </div>
 
       {/* 2. Timeline (The only scrolling part, Section 5.2 & 6.2) */}
-      <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4">
+      <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-3 sm:py-4 space-y-3 sm:space-y-4">
         {/* Simple line for conversation history: only visible if user clicks (user request) */}
         {earlierMessages.length > 0 && (
           <div className="flex items-center gap-3 my-2">
@@ -415,15 +552,15 @@ export function InboxConversationView({
               )}
 
               {isOwner ? (
-                // Outgoing bubble (right, white with 1px line border)
+                // Outgoing bubble (right, vibrant blue on mobile per mockup, crisp white with border on desktop)
                 <div className="flex flex-col items-end space-y-1">
-                  <div className="bg-[var(--pane)] border border-[var(--line)] text-[var(--ink)] rounded-2xl rounded-tr-xs px-4 py-2.5 max-w-[85%] sm:max-w-[75%] shadow-2xs">
+                  <div className="bg-[#1a73e8] sm:bg-[var(--pane)] sm:border sm:border-[var(--line)] text-white sm:text-[var(--ink)] rounded-2xl rounded-tr-xs px-3.5 sm:px-4 py-2.5 max-w-[85%] sm:max-w-[75%] shadow-2xs">
                     {msg.replyTo && (
-                      <div className="mb-2 pl-2.5 py-1 border-l-2 border-[var(--accent)] bg-[var(--selected)]/70 rounded-r text-xs text-left">
-                        <span className="font-semibold text-[11px] text-[var(--accent-ink)] block truncate">
+                      <div className="mb-2 pl-2.5 py-1 border-l-2 border-white/60 sm:border-[var(--accent)] bg-white/15 sm:bg-[var(--selected)]/70 rounded-r text-xs text-left">
+                        <span className="font-semibold text-[11px] text-white sm:text-[var(--accent-ink)] block truncate">
                           Replying to {msg.replyTo.sender}
                         </span>
-                        <p className="text-[11.5px] text-[var(--ink-2)] line-clamp-2 italic truncate">
+                        <p className="text-[11.5px] text-white/90 sm:text-[var(--ink-2)] line-clamp-2 italic truncate">
                           "{msg.replyTo.text}"
                         </p>
                       </div>
@@ -431,9 +568,9 @@ export function InboxConversationView({
                     <p className="text-[13.5px] leading-relaxed whitespace-pre-line select-text">
                       {msg.body}
                     </p>
-                    <div className="flex items-center justify-end gap-1 mt-1 text-[11px] font-mono text-[var(--ink-3)]">
+                    <div className="flex items-center justify-end gap-1 mt-1 text-[11px] font-mono text-white/80 sm:text-[var(--ink-3)]">
                       <span>{displayTime}</span>
-                      <CheckCheck className="w-3.5 h-3.5 text-[var(--ink-3)]" />
+                      <CheckCheck className="w-3.5 h-3.5 text-sky-200 sm:text-[var(--ink-3)]" />
                     </div>
                   </div>
 
@@ -589,13 +726,17 @@ export function InboxConversationView({
         drafts={
           isSent
             ? []
-            : (thread.channel === "whatsapp"
-                ? thread.draftProposal?.whatsappDrafts
-                : thread.draftProposal?.gmailDrafts) ||
-              thread.draftProposal?.drafts ||
-              thread.draftProposal?.whatsappDrafts ||
-              thread.draftProposal?.gmailDrafts ||
-              []
+            : (() => {
+                const preferred =
+                  thread.channel === "whatsapp"
+                    ? thread.draftProposal?.whatsappDrafts
+                    : thread.draftProposal?.gmailDrafts;
+                if (preferred && preferred.length > 0) return preferred;
+                if (thread.draftProposal?.drafts?.length) return thread.draftProposal.drafts;
+                if (thread.draftProposal?.whatsappDrafts?.length) return thread.draftProposal.whatsappDrafts;
+                if (thread.draftProposal?.gmailDrafts?.length) return thread.draftProposal.gmailDrafts;
+                return [];
+              })()
         }
         draftPersona={isSent ? undefined : thread.draftProposal?.persona}
         detectedLanguage={thread.detectedLanguage || "Dutch (detected)"}

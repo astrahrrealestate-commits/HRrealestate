@@ -6,12 +6,23 @@
  * bare `fetch` sends no cookie, so every dashboard route answers 401 outside local development.
  */
 
-export const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+export const BACKEND_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL !== undefined
+    ? process.env.NEXT_PUBLIC_API_URL
+    : typeof window !== "undefined"
+      ? ""
+      : "http://127.0.0.1:8000";
+
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 export function backendUrl(pathOrUrl: string): string {
-  return pathOrUrl.startsWith("http") ? pathOrUrl : `${BACKEND_BASE_URL}${pathOrUrl}`;
+  if (pathOrUrl.startsWith("http")) return pathOrUrl;
+  if (typeof window !== "undefined") {
+    // In browser, always use relative paths so Next.js rewrites proxy to backend
+    return pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`;
+  }
+  return `${BACKEND_BASE_URL || "http://127.0.0.1:8000"}${pathOrUrl}`;
 }
 
 type ApiHealthListener = (healthy: boolean) => void;

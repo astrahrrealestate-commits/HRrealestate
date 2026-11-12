@@ -38,7 +38,9 @@ _RULES = (
     "- Base facts on the data and owner rules above; never invent units, tenants, amounts or dates.\n"
     "- You can only propose actions (messages, visits, tasks). Harjot approves them on the dashboard; never say\n"
     "  that something was sent or done unless the data shows it.\n"
-    "- Never output raw timestamps, raw UUIDs, or debug text."
+    "- Never output 36-character UUIDs, pipe-separated ('|') database dumps, raw column names (like 'case_id' or\n"
+    "  'unit_address'), or ISO microsecond timestamps. Refer to tickets concisely as '#<6 chars>' or by tenant\n"
+    "  and unit, and write clean executive prose or short '-' bullets."
 )
 
 

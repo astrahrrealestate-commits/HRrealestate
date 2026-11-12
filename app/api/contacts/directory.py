@@ -11,7 +11,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, distinct, func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_engine
@@ -21,6 +21,7 @@ from app.contracts import CaseState, Channel
 from app.core.errors import NotFoundError
 from app.db.enums import PersonKind
 from app.db.models import Case, ChannelIdentity, Lease, LeaseParty, Person, Unit
+from app.db.models.finance import TenantRentPayment
 from app.directory.contacts import (
     CATEGORIES,
     ContactConflictError,
@@ -48,6 +49,7 @@ class ContactOut(BaseModel):
     residential_address: str = Field(alias="residentialAddress")
     agreement_period: str = Field(alias="agreementPeriod")
     status: str = "active"
+    rent_status: str = Field(default="up_to_date", alias="rentStatus")
     open_tickets_count: int = Field(default=0, alias="openTicketsCount")
     notes: str = ""
     trade: str = Field(default="", description="The stored trade or role, empty when none")
@@ -122,7 +124,24 @@ def _open_cases(session: Session, company_id: UUID, person_ids: list[UUID]) -> d
     return {person_id: count for person_id, count in rows if person_id is not None}
 
 
-def _contact(session: Session, person: Person, identities: dict[Channel, str], open_cases: int) -> ContactOut:
+def _overdue_tenants(session: Session, company_id: UUID, person_ids: list[UUID]) -> set[UUID]:
+    rows = session.scalars(
+        select(distinct(TenantRentPayment.tenant_id)).where(
+            TenantRentPayment.company_id == company_id,
+            TenantRentPayment.tenant_id.in_(person_ids),
+            TenantRentPayment.status == "overdue",
+        )
+    ).all()
+    return set(rows)
+
+
+def _contact(
+    session: Session,
+    person: Person,
+    identities: dict[Channel, str],
+    open_cases: int,
+    is_overdue: bool = False,
+) -> ContactOut:
     category = category_of(person.kind, person.trade)
     unit, address, period = _tenancy(session, person.company_id, person.id) if category == "tenant" else ("", "", "")
     role = _role_label(category, person.trade)
@@ -137,6 +156,7 @@ def _contact(session: Session, person: Person, identities: dict[Channel, str], o
         property_address=address,
         residential_address=address,
         agreement_period=period,
+        rent_status="overdue" if is_overdue else "up_to_date",
         open_tickets_count=open_cases,
         trade=person.trade or "",
         source="brixx" if person.brixx_ref else "directory",
@@ -146,11 +166,13 @@ def _contact(session: Session, person: Person, identities: dict[Channel, str], o
 
 def _one(session: Session, person: Person) -> ContactOut:
     ids = [person.id]
+    overdue_set = _overdue_tenants(session, person.company_id, ids)
     return _contact(
         session,
         person,
         _identities(session, person.company_id, ids).get(person.id, {}),
         _open_cases(session, person.company_id, ids).get(person.id, 0),
+        is_overdue=person.id in overdue_set,
     )
 
 
@@ -174,7 +196,9 @@ def list_contacts(
     with Session(engine) as session:
         people = [p for p in session.scalars(stmt) if p.display_name.strip()]
         ids = [p.id for p in people]
-        identities, cases = _identities(session, company_id, ids), _open_cases(session, company_id, ids)
+        identities = _identities(session, company_id, ids)
+        cases = _open_cases(session, company_id, ids)
+        overdue_set = _overdue_tenants(session, company_id, ids)
         seen: set[tuple[str, PersonKind]] = set()
         results: list[ContactOut] = []
         for person in people:
@@ -183,7 +207,15 @@ def list_contacts(
                 continue
             if person.brixx_ref:
                 seen.add(key)
-            results.append(_contact(session, person, identities.get(person.id, {}), cases.get(person.id, 0)))
+            results.append(
+                _contact(
+                    session,
+                    person,
+                    identities.get(person.id, {}),
+                    cases.get(person.id, 0),
+                    is_overdue=person.id in overdue_set,
+                )
+            )
         return results
 
 

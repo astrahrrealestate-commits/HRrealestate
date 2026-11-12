@@ -140,6 +140,12 @@ export function SuperAgentProvider({ children }: { children: React.ReactNode }) 
             text: t.text,
             steps: t.steps,
             previewCard: t.previewCard,
+            previewCards:
+              t.previewCards && t.previewCards.length > 0
+                ? t.previewCards
+                : t.previewCard
+                  ? [t.previewCard]
+                  : [],
             cards: t.cards,
             actions: t.actions as any,
             suggestedPrompts: t.suggestedPrompts,

@@ -238,7 +238,10 @@ def query_data(ctx: Ctx, step: PlanStep) -> StepResult:
     data = {
         "sql": response.sql,
         "rows": response.rows,
+        "columns": response.columns,
+        "display_rows": response.display_rows,
         "row_count": response.row_count,
         "duration_ms": response.duration_ms,
+        "question": query,
     }
     return StepResult(step.intent, response.ok, response.answer, data, None)

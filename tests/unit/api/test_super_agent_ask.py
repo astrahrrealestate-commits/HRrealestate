@@ -662,3 +662,470 @@ def test_open_question_falls_back_to_the_plain_chat_answer_when_research_returns
         res = client.post(URL, json={"query": "hey, how is it going?"})
     assert res.status_code == 200
     assert "all quiet today" in res.json()["answer"]
+
+
+def test_list_active_leases_returns_data_table_preview_card_without_sql_in_steps():
+    """Verify analytics list queries route to query_agent and return structured data_table cards."""
+    from app.tools.query_agent.agent import QueryAgentResponse
+
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    fake_rows = [
+        {
+            "Tenant": "Vipin Tyagi",
+            "Property": "Keizersgracht 42-A, 1015 CR Amsterdam",
+            "Lease Start": "02 Nov 2026",
+            "Lease End": "31 Dec 2026",
+            "Status": "Active",
+        },
+        {
+            "Tenant": "Anouk de Jong",
+            "Property": "Keizersgracht 42-B, 1015 CS Amsterdam",
+            "Lease Start": "01 Jan 2025",
+            "Lease End": "31 Dec 2026",
+            "Status": "Active",
+        },
+    ]
+    fake_qres = QueryAgentResponse(
+        ok=True,
+        answer="There are **2 active leases** across Keizersgracht 42-A and 42-B.",
+        sql="SELECT tenant_name, unit_address FROM v_active_leases WHERE is_active = TRUE LIMIT 50",
+        rows=fake_rows,
+        row_count=2,
+        duration_ms=12.4,
+        columns=["Tenant", "Property", "Lease Start", "Lease End", "Status"],
+        display_rows=fake_rows,
+    )
+
+    with (
+        patch("app.api.agent.routes.Session", return_value=create_mock_session()),
+        patch("app.tools.query_agent.agent.run_query_agent", return_value=fake_qres) as mock_qagent,
+        TestClient(app) as client,
+    ):
+        res = client.post(URL, json={"query": "List active leases"})
+
+    assert res.status_code == 200
+    mock_qagent.assert_called_once()
+    data = res.json()
+    assert data["previewCard"] is not None
+    assert data["previewCard"]["type"] == "data_table"
+    assert data["previewCard"]["badgeLabel"] == "LEASES"
+    assert len(data["previewCard"]["rows"]) == 2
+    assert all("SELECT " not in s for s in data["steps"])
+    assert any(a["payload"] == "/tenants" for a in data["actions"])
+
+
+def test_open_tickets_and_rent_queries_never_synthesize_fake_entities():
+    """Verify neither rent queries nor ticket typos ever synthesize fake hardcoded cards or contacts."""
+    from app.tools.query_agent.agent import QueryAgentResponse
+
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    empty_qres = QueryAgentResponse(
+        ok=True,
+        answer='I queried your portfolio records for *"show all open ticketes"*, but found 0 matching entries.',
+        sql="SELECT * FROM v_case_overview LIMIT 50",
+        rows=[],
+        row_count=0,
+        duration_ms=8.0,
+        columns=[],
+        display_rows=[],
+    )
+
+    with (
+        patch("app.api.agent.routes.Session", return_value=create_mock_session()),
+        patch("app.tools.query_agent.agent.run_query_agent", return_value=empty_qres),
+        patch("app.api.agent.routes.run_agent", side_effect=Exception("offline")),
+        patch("app.api.agent.routes.fake_concierge", return_value={"in_scope": False, "steps": [], "reply": None}),
+        TestClient(app) as client,
+    ):
+        res_tickets = client.post(URL, json={"query": "show all open ticketes"})
+        res_rent = client.post(URL, json={"query": "Who owes rent?"})
+
+    for res in (res_tickets, res_rent):
+        assert res.status_code == 200
+        body = res.text
+        assert "Pieter Bakker" not in body
+        assert "Singel 102" not in body
+        assert "Praveen Rostova" not in body
+        assert "1.450" not in body
+
+
+def test_clean_executive_answer_formats_case_uuids_and_iso_timestamps():
+    """Verify defense-in-depth cleanup formats raw UUIDs and timestamps while keeping URLs and normal prose intact."""
+    from app.api.agent.routes import _clean_executive_answer
+
+    raw = (
+        "Opening cases. **Case id**: 01a1ca59-c6cb-7e02-bd67-f86ff1b72267 | "
+        "**Opened at**: 2026-11-11 11:24:03.646025+00:00\n"
+        "- #c80c5a\u202f|\u202fNormal other\u202f|\u202fLease extension\n"
+        "Details: https://example.com/tickets/01a1ca59-c6cb-7e02-bd67-f86ff1b72267"
+    )
+    cleaned = _clean_executive_answer(raw)
+    assert "Opening cases" not in cleaned
+    assert "**Ticket #b72267**" in cleaned
+    assert "|" not in cleaned
+    assert "11 Nov 2026, 11:24" in cleaned
+    assert "https://example.com/tickets/01a1ca59-c6cb-7e02-bd67-f86ff1b72267" in cleaned
+
+
+def test_open_view_only_priority_question_triggers_research_prose():
+    """Verify advisory questions planned as open_view only still invoke research prose instead of empty card copy."""
+    from app.superagent.research import ResearchResult
+
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    fake_plan = ConciergePlan(
+        in_scope=True,
+        steps=[PlanStep(intent=Intent.open_view, case_id=None, task_ref=None, text=None, view="cases")],
+        reply=None,
+    )
+    mock_result = StepResult(
+        intent=Intent.open_view,
+        ok=True,
+        summary="Opening cases.",
+        data=None,
+        view="cases",
+    )
+    researched = ResearchResult(
+        "Start with Ticket #b72267 (Emergency water leak at Keizersgracht 42-B).",
+        ("Checked active cases (3 rows)",),
+    )
+
+    with (
+        patch("app.api.agent.routes.Session", return_value=create_mock_session()),
+        patch("app.api.agent.routes.run_agent") as mock_run_agent,
+        patch("app.api.agent.routes.run_plan", return_value=[mock_result]),
+        patch("app.api.agent.routes.assemble_answer", return_value="Opening cases."),
+        patch("app.api.agent.routes._research_answer", return_value=researched) as mock_res,
+        TestClient(app) as client,
+    ):
+        mock_run_agent.return_value.output = fake_plan
+        res = client.post(URL, json={"query": "What should I do first?"})
+
+    assert res.status_code == 200
+    data = res.json()
+    mock_res.assert_called_once()
+    assert "Start with Ticket #b72267" in data["answer"]
+    assert "Checked active cases (3 rows)" in data["steps"]
+
+
+def test_prioritization_query_strips_draft_intents_and_returns_ranking_cards():
+    """Ranking questions like 'whome to reply first important' must never route to draft_reply."""
+    from app.contracts import CaseState, Category, Urgency
+    from app.superagent.research import ResearchResult
+
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    comp_id = TEST_COMP_ID
+    urgent_cid = uuid4()
+
+    urgent_case = Case(
+        id=urgent_cid,
+        company_id=comp_id,
+        category=Category.maintenance,
+        urgency=Urgency.emergency,
+        state=CaseState.open,
+        summary="Water leak at Keizersgracht 42-B.",
+    )
+
+    def mock_scalars(query):
+        res = MagicMock()
+        q_str = str(query).lower()
+        if "from companies" in q_str:
+            res.first.return_value = Company(id=comp_id, name="EstateOS Test")
+            res.all.return_value = []
+        elif "from cases" in q_str:
+            res.all.return_value = [urgent_case]
+            res.first.return_value = urgent_case
+        else:
+            res.first.return_value = None
+            res.all.return_value = []
+        return res
+
+    mock_sess = MagicMock()
+    mock_sess.scalars.side_effect = mock_scalars
+    mock_sess.get.side_effect = with_conversation(lambda _m, _k: None)
+    mock_sess.__enter__.return_value = mock_sess
+
+    bad_plan = ConciergePlan(
+        in_scope=True,
+        steps=[PlanStep(intent=Intent.draft_reply, case_id=urgent_cid, task_ref=None, text=None, view=None)],
+        reply=None,
+        suggestions=["Send WhatsApp now", "Make reply firmer", "Open in Inbox"],
+    )
+    researched = ResearchResult(
+        "Reply to Anouk at Keizersgracht 42-B first due to the active water leak.",
+        ("Checked active cases (1 row)",),
+    )
+
+    with (
+        patch("app.api.agent.routes.Session", return_value=mock_sess),
+        patch("app.api.agent.routes.run_agent") as mock_run_agent,
+        patch("app.api.agent.routes.run_plan") as mock_run_plan,
+        patch("app.api.agent.routes._research_answer", return_value=researched) as mock_res,
+        TestClient(app) as client,
+    ):
+        mock_run_agent.return_value.output = bad_plan
+        res = client.post(URL, json={"query": "whome to reply first important"})
+
+    assert res.status_code == 200
+    data = res.json()
+    mock_run_plan.assert_not_called()
+    mock_res.assert_called_once()
+    assert "Keizersgracht 42-B" in data["answer"]
+    assert data["previewCard"] is not None
+    assert data["previewCard"]["type"] == "case_summary"
+    assert "Send WhatsApp now" not in data["suggestedPrompts"]
+    assert "Make reply firmer" not in data["suggestedPrompts"]
+
+
+def test_multi_draft_request_expands_to_three_urgency_ordered_cards():
+    """Plural requests ('give me drafted replies for these tickets') expand to up to 3 urgency-sorted draft cards."""
+    from app.contracts import CaseState, Category, Urgency
+
+    comp_id = TEST_COMP_ID
+    c_emerg = uuid4()
+    c_high = uuid4()
+    c_norm = uuid4()
+
+    ap_emerg, act_emerg = uuid4(), uuid4()
+    ap_high, act_high = uuid4(), uuid4()
+    ap_norm, act_norm = uuid4(), uuid4()
+
+    cases_list = [
+        Case(
+            id=c_norm,
+            company_id=comp_id,
+            category=Category.other,
+            urgency=Urgency.normal,
+            state=CaseState.open,
+            summary="Lease renewal C",
+        ),
+        Case(
+            id=c_high,
+            company_id=comp_id,
+            category=Category.maintenance,
+            urgency=Urgency.high,
+            state=CaseState.open,
+            summary="No heating A",
+        ),
+        Case(
+            id=c_emerg,
+            company_id=comp_id,
+            category=Category.maintenance,
+            urgency=Urgency.emergency,
+            state=CaseState.open,
+            summary="Water leak B",
+        ),
+    ]
+    get_map = {
+        (Approval, ap_emerg): Approval(id=ap_emerg, company_id=comp_id, action_id=act_emerg),
+        (ActionRow, act_emerg): ActionRow(
+            id=act_emerg,
+            company_id=comp_id,
+            case_id=c_emerg,
+            type=ActionType.reply_draft,
+            payload={"channel": "whatsapp", "to": "+31611111111", "body_variants": ["Plumber on the way B."]},
+        ),
+        (Case, c_emerg): cases_list[2],
+        (Approval, ap_high): Approval(id=ap_high, company_id=comp_id, action_id=act_high),
+        (ActionRow, act_high): ActionRow(
+            id=act_high,
+            company_id=comp_id,
+            case_id=c_high,
+            type=ActionType.reply_draft,
+            payload={"channel": "whatsapp", "to": "+31622222222", "body_variants": ["Heating tech A."]},
+        ),
+        (Case, c_high): cases_list[1],
+        (Approval, ap_norm): Approval(id=ap_norm, company_id=comp_id, action_id=act_norm),
+        (ActionRow, act_norm): ActionRow(
+            id=act_norm,
+            company_id=comp_id,
+            case_id=c_norm,
+            type=ActionType.reply_draft,
+            payload={"channel": "gmail", "to": "elena@example.nl", "body_variants": ["Lease renewal C."]},
+        ),
+        (Case, c_norm): cases_list[0],
+    }
+
+    def mock_scalars(query):
+        res = MagicMock()
+        q_str = str(query).lower()
+        if "from companies" in q_str:
+            res.first.return_value = Company(id=comp_id, name="EstateOS Test")
+            res.all.return_value = []
+        elif "from cases" in q_str:
+            res.all.return_value = cases_list
+            res.first.return_value = cases_list[0]
+        else:
+            res.first.return_value = None
+            res.all.return_value = []
+        return res
+
+    mock_sess = MagicMock()
+    mock_sess.scalars.side_effect = mock_scalars
+    mock_sess.get.side_effect = with_conversation(lambda model, pk: get_map.get((model, pk)))
+    mock_sess.__enter__.return_value = mock_sess
+
+    # Model only emitted c_norm; backend must expand to [c_emerg, c_high, c_norm]
+    partial_plan = ConciergePlan(
+        in_scope=True,
+        steps=[PlanStep(intent=Intent.show_drafts, case_id=c_norm, task_ref=None, text=None, view=None)],
+        reply=None,
+    )
+    appr_by_case = {c_emerg: ap_emerg, c_high: ap_high, c_norm: ap_norm}
+    captured_turns: list[object] = []
+
+    def fake_run_plan(_eng, _set, _cid, plan_obj, **_kwargs):
+        captured_turns.append(_kwargs.get("turn_id"))
+        return [
+            StepResult(
+                intent=s.intent,
+                ok=True,
+                summary="Draft ready\nDraft 1:\n> hi",
+                data={"approval_ids": [str(appr_by_case[s.case_id])], "case_id": str(s.case_id)},
+                view=None,
+            )
+            for s in plan_obj.steps
+        ]
+
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    with (
+        patch("app.api.agent.routes.Session", return_value=mock_sess),
+        patch("app.api.agent.routes.run_agent") as mock_run_agent,
+        patch("app.api.agent.routes.run_plan", side_effect=fake_run_plan) as mock_rp,
+        TestClient(app) as client,
+    ):
+        mock_run_agent.return_value.output = partial_plan
+        res = client.post(URL, json={"query": "give me drafted replies for these tickets"})
+
+    assert res.status_code == 200
+    data = res.json()
+    assert len(captured_turns) == 1
+    assert captured_turns[0] is not None
+    dispatched_plan = mock_rp.call_args[0][3]
+    assert [s.case_id for s in dispatched_plan.steps] == [c_emerg, c_high, c_norm]
+    assert len(data["previewCards"]) == 3
+    assert [c["caseId"] for c in data["previewCards"]] == [str(c_emerg), str(c_high), str(c_norm)]
+    assert "Draft 1:" not in data["answer"]
+    assert "3 draft replies" in data["answer"]
+
+
+def test_inline_understanding_triggered_before_draft_when_missing():
+    """If an inbound message on a targeted draft case has no UnderstandingRow, run understand_message inline first."""
+    from app.contracts import CaseState, Category, Urgency
+    from app.db.models import MessageRow
+
+    comp_id = TEST_COMP_ID
+    case_id = uuid4()
+    msg_id = uuid4()
+    case_obj = Case(
+        id=case_id,
+        company_id=comp_id,
+        category=Category.maintenance,
+        urgency=Urgency.emergency,
+        state=CaseState.open,
+        summary="Leak",
+    )
+    msg_obj = MessageRow(id=msg_id, company_id=comp_id)
+
+    def mock_scalars(query):
+        res = MagicMock()
+        q_str = str(query).lower()
+        if "from companies" in q_str:
+            res.first.return_value = Company(id=comp_id, name="EstateOS Test")
+            res.all.return_value = []
+        elif "from cases" in q_str:
+            res.all.return_value = [case_obj]
+            res.first.return_value = case_obj
+        elif "from messages" in q_str:
+            res.first.return_value = msg_obj
+            res.all.return_value = [msg_obj]
+        else:
+            res.first.return_value = None
+            res.all.return_value = []
+        return res
+
+    mock_sess = MagicMock()
+    mock_sess.scalars.side_effect = mock_scalars
+    mock_sess.get.side_effect = with_conversation(lambda _m, _k: None)
+    mock_sess.__enter__.return_value = mock_sess
+
+    draft_plan = ConciergePlan(
+        in_scope=True,
+        steps=[PlanStep(intent=Intent.draft_reply, case_id=case_id, task_ref=None, text=None, view=None)],
+        reply=None,
+    )
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    with (
+        patch("app.api.agent.routes.Session", return_value=mock_sess),
+        patch("app.api.agent.routes.understand.understand_message") as mock_understand,
+        patch("app.api.agent.routes.run_agent") as mock_run_agent,
+        patch(
+            "app.api.agent.routes.run_plan",
+            return_value=[StepResult(Intent.draft_reply, False, "nothing", None, None)],
+        ),
+        TestClient(app) as client,
+    ):
+        mock_run_agent.return_value.output = draft_plan
+        res = client.post(URL, json={"query": "draft reply for this ticket"})
+
+    assert res.status_code == 200
+    mock_understand.assert_called_once()
+    assert mock_understand.call_args[0][2] == msg_id
+
+
+def test_singular_open_ticket_query_routes_to_query_agent():
+    """Singular phrasing like 'what open ticket i have' still triggers query_agent reliably."""
+    from app.tools.query_agent.agent import QueryAgentResponse
+
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    fake_rows = [
+        {"Ticket": "#111111", "Unit": "Keizersgracht 42-B", "Urgency": "emergency", "State": "open"},
+        {"Ticket": "#222222", "Unit": "Keizersgracht 42-A", "Urgency": "high", "State": "waiting on third party"},
+    ]
+    fake_qres = QueryAgentResponse(
+        ok=True,
+        answer="You have **2 open tickets**.",
+        sql="SELECT * FROM v_case_overview LIMIT 50",
+        rows=fake_rows,
+        row_count=2,
+        duration_ms=5.1,
+        columns=["Ticket", "Unit", "Urgency", "State"],
+        display_rows=fake_rows,
+    )
+    with (
+        patch("app.api.agent.routes.Session", return_value=create_mock_session()),
+        patch("app.tools.query_agent.agent.run_query_agent", return_value=fake_qres) as mock_qa,
+        TestClient(app) as client,
+    ):
+        res = client.post(URL, json={"query": "what open ticket i have"})
+
+    assert res.status_code == 200
+    mock_qa.assert_called_once()
+    assert res.json()["previewCard"]["type"] == "data_table"
+
+
+def test_sanitize_suggestions_filters_unsafe_and_channel_mismatched_pills():
+    """Unsafe/unsupported pills and wrong-channel suggestions are stripped and padded to 3 safe items."""
+    from app.api.agent.routes import PreviewCardData, _sanitize_suggestions
+
+    gmail_card = PreviewCardData(type="draft_message", channel="gmail", unitLabel="42-C")
+    cleaned = _sanitize_suggestions(
+        [
+            "Send WhatsApp now",
+            "Make reply firmer",
+            "Draft plumber order",
+            "Show leak photos",
+            "Open ticket drawer",
+            "Check WhatsApp",
+            "Open in Inbox",
+        ],
+        [gmail_card],
+        "give me drafted replies",
+    )
+    assert len(cleaned) == 3
+    assert all("send whatsapp now" not in p.lower() for p in cleaned)
+    assert all("firmer" not in p.lower() for p in cleaned)
+    assert all("plumber order" not in p.lower() for p in cleaned)
+    assert all("leak photos" not in p.lower() for p in cleaned)
+    assert all("ticket drawer" not in p.lower() for p in cleaned)
+    assert all("whatsapp" not in p.lower() for p in cleaned)
+    assert "Open in Inbox" in cleaned

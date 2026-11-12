@@ -23,6 +23,9 @@ ALLOWED_BASE_TABLES = frozenset(
         "tasks",
         "calendar_events",
         "messages",
+        "quotes",
+        "quote_lines",
+        "quote_reviews",
     }
 )
 

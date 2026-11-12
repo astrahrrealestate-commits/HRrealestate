@@ -12,7 +12,7 @@ from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import PipelineStatus
 from app.db.models import AttachmentRow, MessageRow, OwnerAccount, UnderstandingRow
-from app.llm.agents.understanding import UNDERSTANDING, understanding_prompt
+from app.llm.agents.understanding import MAX_UNDERSTANDING_BODY_CHARS, UNDERSTANDING, understanding_prompt
 from app.llm.calls import CallContext, run_agent
 from app.llm.render import AttachmentMeta
 from app.pipeline.injection_scan import scan
@@ -49,7 +49,8 @@ def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> 
             AttachmentMeta(filename=a.filename, mime_type=a.mime_type, size_bytes=a.size_bytes) for a in attachments
         ]
         subject = msg.meta.get("subject") if msg.meta else None
-        scan_reason = scan(f"{subject or ''}\n{msg.text}")
+        clean_text = msg.text[:MAX_UNDERSTANDING_BODY_CHARS] if msg.text else ""
+        scan_reason = scan(f"{subject or ''}\n{clean_text}")
         prompt_text = understanding_prompt(
             text=msg.text,
             channel=msg.channel,

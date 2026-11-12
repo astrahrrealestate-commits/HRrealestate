@@ -1,8 +1,11 @@
 """Custom Query Agent: Translates natural language into safe, validated SQL and executes it."""
 
 import json
+import re
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -12,14 +15,79 @@ from sqlalchemy import Engine
 
 from app.contracts import PromptRef
 from app.core.errors import AgentFailedError
+from app.core.ids import case_ref
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.llm.calls import AgentSpec, CallContext, run_agent
+from app.llm.render import data_block
 from app.tools.query_agent.executor import QueryExecutionResult, execute_readonly_query
 from app.tools.query_agent.prompt import QUERY_AGENT_SYSTEM_PROMPT
 from app.tools.query_agent.validator import SQLSecurityError, validate_and_wrap_sql
 
 log = get_logger(__name__)
+
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+_ISO_DT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$")
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+_HIDDEN_ID_COLS = frozenset(
+    {
+        "company_id",
+        "id",
+        "lease_id",
+        "unit_id",
+        "person_id",
+        "primary_person_id",
+        "tenant_id",
+        "action_id",
+        "message_id",
+        "document_id",
+        "event_id",
+        "raw_event_id",
+        "import_id",
+        "source_id",
+        "quote_id",
+    }
+)
+_TICKET_REF_COLS = frozenset({"case_id", "task_id"})
+_ENUM_STYLE_COLS = frozenset({"state", "status", "urgency", "category", "event_type", "priority", "verdict"})
+
+_COLUMN_LABELS: dict[str, str] = {
+    "case_id": "Ticket",
+    "task_id": "Task",
+    "unit_address": "Property",
+    "unit_label": "Unit",
+    "tenant_name": "Tenant",
+    "contractor_name": "Contractor",
+    "display_name": "Name",
+    "valid_from": "Lease Start",
+    "valid_to": "Lease End",
+    "is_active": "Status",
+    "opened_at": "Opened",
+    "resolved_at": "Resolved",
+    "due_at": "Due",
+    "start_time": "Starts",
+    "end_time": "Ends",
+    "has_lockbox": "Lockbox",
+    "event_type": "Type",
+    "quote_date": "Quote Date",
+    "work_date": "Work Date",
+    "late_days": "Late Days",
+}
+
+_SUMMARY_SYNTHESIS_PROMPT = (
+    "You are Jarvis, the executive estate-intelligence copilot for Harjot (property owner).\n"
+    "Turn the verified query results inside <data> into a crisp, human-readable executive answer as JSON:\n"
+    '{"answer": "..."}\n'
+    "Rules:\n"
+    "- Be concise (1-3 short sentences, or a brief headline + up to 4 clean '- ' bullets highlighting key items).\n"
+    "- A structured data table card is shown directly below your answer whenever multiple records exist, so give the\n"
+    "  key takeaway (counts, urgent issues, dates, names) rather than repeating every column of every row.\n"
+    "- NEVER include 36-character UUIDs, pipe separators ('|'), raw column names like 'unit_address', or ISO\n"
+    "  microsecond timestamps.\n"
+    "- Refer to tickets as '#<6 chars>' or by tenant and property.\n"
+    "- Base every fact strictly on <data>. Never invent numbers, names, properties, or dates."
+)
 
 
 class SQLQueryProposal(BaseModel):
@@ -36,6 +104,8 @@ class QueryAgentResponse:
     row_count: int
     duration_ms: float
     error: str | None = None
+    columns: list[str] = field(default_factory=list)
+    display_rows: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _call_groq_or_gemini(
@@ -141,29 +211,210 @@ def propose_sql(
         return None
 
 
+def _human_col_label(col: str) -> str:
+    if col in _COLUMN_LABELS:
+        return _COLUMN_LABELS[col]
+    return col.replace("_", " ").strip().title()
+
+
+def _format_cell_value(col: str, val: Any, *, clip_summary: bool = True) -> str:
+    if val is None:
+        return "—"
+    if isinstance(val, bool):
+        if col == "is_active":
+            return "Active" if val else "Ended"
+        return "Yes" if val else "No"
+    if isinstance(val, datetime):
+        return val.strftime("%d %b %Y, %H:%M")
+    if isinstance(val, date):
+        return val.strftime("%d %b %Y")
+    if isinstance(val, Decimal):
+        if val == val.to_integral_value():
+            return str(int(val))
+        return f"{float(val):.2f}".rstrip("0").rstrip(".")
+    if isinstance(val, float):
+        if val.is_integer():
+            return str(int(val))
+        return f"{val:.2f}".rstrip("0").rstrip(".")
+    if isinstance(val, int):
+        return str(val)
+    if isinstance(val, UUID):
+        return f"#{case_ref(val)}"
+
+    s = str(val).strip()
+    if not s:
+        return "—"
+    if _UUID_RE.match(s):
+        return f"#{case_ref(s)}"
+    if _ISO_DT_RE.match(s):
+        try:
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            return dt.strftime("%d %b %Y, %H:%M")
+        except ValueError:
+            pass
+    if _ISO_DATE_RE.match(s):
+        try:
+            return date.fromisoformat(s).strftime("%d %b %Y")
+        except ValueError:
+            pass
+    if col in _ENUM_STYLE_COLS:
+        pretty = s.replace("_", " ").strip()
+        if col == "priority" and len(pretty) <= 3:
+            return pretty.upper()
+        return pretty.capitalize()
+
+    clean_s = " ".join(s.split())
+    if clip_summary and col == "summary" and len(clean_s) > 140:
+        return clean_s[:137].rstrip() + "..."
+    return clean_s
+
+
+def sanitize_rows_for_display(rows: list[dict[str, Any]]) -> tuple[list[str], list[dict[str, Any]]]:
+    """Strip internal IDs and redundant columns, format dates/enums cleanly, and map to human labels."""
+    if not rows:
+        return [], []
+
+    raw_cols = list(dict.fromkeys(k for r in rows for k in r))
+    kept_cols = [c for c in raw_cols if c not in _HIDDEN_ID_COLS]
+    if "unit_label" in kept_cols and "unit_address" in kept_cols:
+        all_redundant = all(
+            not r.get("unit_label")
+            or str(r.get("unit_label")).strip().lower() in str(r.get("unit_address") or "").lower()
+            for r in rows
+        )
+        if all_redundant:
+            kept_cols = [c for c in kept_cols if c != "unit_label"]
+    if not kept_cols:
+        kept_cols = raw_cols[:]
+
+    col_pairs: list[tuple[str, str]] = []
+    used_labels: set[str] = set()
+    for raw_col in kept_cols:
+        lbl = _human_col_label(raw_col)
+        if lbl in used_labels:
+            lbl = raw_col.replace("_", " ").strip().title()
+        used_labels.add(lbl)
+        col_pairs.append((raw_col, lbl))
+
+    seen: set[tuple[str, ...]] = set()
+    display_rows: list[dict[str, Any]] = []
+    for r in rows:
+        formatted = {lbl: _format_cell_value(raw_col, r.get(raw_col)) for raw_col, lbl in col_pairs}
+        sig = tuple(formatted.values())
+        if sig in seen:
+            continue
+        seen.add(sig)
+        display_rows.append(formatted)
+
+    return [lbl for _, lbl in col_pairs], display_rows
+
+
+def synthesize_query_answer(
+    question: str,
+    display_rows: list[dict[str, Any]],
+    row_count: int,
+    settings: Settings,
+) -> str | None:
+    """Turn sanitized query rows into an executive prose/bullet answer via Groq; returns None to use fallback."""
+    if (
+        settings.env == "test"
+        or settings.llm_model == "fake"
+        or not settings.groq_api_key
+        or row_count == 0
+        or not display_rows
+    ):
+        return None
+    if row_count == 1 and len(display_rows[0]) <= 1:
+        return None
+
+    payload = {
+        "question": question,
+        "total_matching_rows": row_count,
+        "rows_shown": display_rows[:15],
+    }
+    prompt = (
+        f"Owner Question: {question}\n\n"
+        f"Verified Portfolio Query Results:\n{data_block('data', json.dumps(payload, ensure_ascii=False))}\n\n"
+        'Respond ONLY with JSON: {"answer": "..."}'
+    )
+    raw = _call_groq_or_gemini(prompt, settings, system_instruction=_SUMMARY_SYNTHESIS_PROMPT)
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+        answer = str(parsed.get("answer") or "").strip()
+        return answer or None
+    except Exception as exc:
+        log.warning("query_agent.synthesis_parse_failed", error=type(exc).__name__)
+        return None
+
+
 def format_answer(question: str, rows: list[dict[str, Any]], row_count: int) -> str:
-    """Formulates a factual, grounded summary directly from returned rows."""
-    if row_count == 0:
+    """Formulates a factual, executive summary directly from sanitized rows."""
+    if row_count == 0 or not rows:
         return f'I queried your portfolio records for *"{question}"*, but found 0 matching entries.'
 
-    if row_count == 1:
-        row = rows[0]
-        # Check for simple aggregate counts
-        if len(row) == 1:
-            col_name, val = next(iter(row.items()))
-            clean_label = col_name.replace("_", " ").title()
-            return f"**Result:** **{val}** ({clean_label})"
+    if row_count == 1 and len(rows[0]) == 1:
+        col_name, val = next(iter(rows[0].items()))
+        clean_label = _human_col_label(col_name)
+        formatted_val = _format_cell_value(col_name, val, clip_summary=False)
+        return f"**Result:** **{formatted_val}** ({clean_label})"
 
-    # Multiple records: format as readable bullet points
-    lines = [f'Found **{row_count}** matching records for *"{question}"*:\n']
-    for r in rows[:10]:
-        parts = [
-            f"**{k.replace('_', ' ').capitalize()}**: {v}" for k, v in r.items() if v is not None and k != "company_id"
-        ]
-        lines.append("• " + " | ".join(parts))
+    _cols, display_rows = sanitize_rows_for_display(rows)
+    if len(display_rows) == 1:
+        lines = ["Found **1** matching record:\n"]
+        for k, v in display_rows[0].items():
+            if v and v != "—":
+                lines.append(f"- **{k}:** {v}")
+        return "\n".join(lines) if len(lines) > 1 else "Found **1** matching record."
 
-    if row_count > 10:
-        lines.append(f"\n*(Showing top 10 of {row_count} total records)*")
+    lines = [f"Found **{row_count}** matching records:\n"]
+    lead_keys = {"Ticket", "Task", "Tenant", "Contractor", "Name", "Title", "Property", "Unit"}
+    for dr in display_rows[:5]:
+        lead_parts: list[str] = []
+        meta_parts: list[str] = []
+
+        ticket_ref = dr.get("Ticket") or dr.get("Task")
+        primary = dr.get("Tenant") or dr.get("Contractor") or dr.get("Name") or dr.get("Title")
+        prop = dr.get("Property") or dr.get("Unit")
+
+        if ticket_ref and ticket_ref != "—":
+            lead_parts.append(f"**{ticket_ref}**")
+        if primary and primary != "—":
+            lead_parts.append(f"**{primary}**" if not lead_parts else primary)
+        if prop and prop != "—":
+            lead_parts.append(f"({prop})" if lead_parts else f"**{prop}**")
+
+        for k, v in dr.items():
+            if k in lead_keys or k in ("Lease Start", "Lease End") or not v or v == "—":
+                continue
+            if k == "Summary":
+                meta_parts.append(str(v))
+            else:
+                meta_parts.append(f"{k}: {v}")
+
+        l_start = dr.get("Lease Start")
+        l_end = dr.get("Lease End")
+        has_start = bool(l_start and l_start != "—")
+        has_end = bool(l_end and l_end != "—")
+        if has_start and has_end:
+            meta_parts.append(f"Lease {l_start} to {l_end}")
+        elif has_start:
+            meta_parts.append(f"From {l_start}")
+        elif has_end:
+            meta_parts.append(f"Until {l_end}")
+
+        if lead_parts:
+            bullet = "- " + " ".join(lead_parts)
+            if meta_parts:
+                bullet += " — " + ", ".join(meta_parts)
+        else:
+            non_empty = [f"**{k}:** {v}" for k, v in dr.items() if v and v != "—"]
+            bullet = "- " + ", ".join(non_empty) if non_empty else "- Record"
+        lines.append(bullet)
+
+    if row_count > 5:
+        lines.append(f"\nShowing top 5 highlights above; all {row_count} records are in the table below.")
 
     return "\n".join(lines)
 
@@ -181,7 +432,7 @@ def run_query_agent(
     2. Runs AST validation & limit wrapping (read-only enforcement).
     3. Retries on security or SQL execution errors with feedback loop (up to max_retries).
     4. Executes with RLS company context.
-    5. Formulates factual, grounded response.
+    5. Sanitizes rows and formulates a crisp executive response.
     """
     last_error: str | None = None
     last_sql: str | None = None
@@ -209,8 +460,10 @@ def run_query_agent(
             log.warning("query_agent.db_execution_error", attempt=attempt, error=last_error, sql=wrapped_sql)
             continue
 
-        # Format grounded natural language answer
-        answer = format_answer(question, exec_res.rows, exec_res.row_count)
+        cols, display_rows = sanitize_rows_for_display(exec_res.rows)
+        answer = synthesize_query_answer(question, display_rows, exec_res.row_count, settings) or format_answer(
+            question, exec_res.rows, exec_res.row_count
+        )
         return QueryAgentResponse(
             ok=True,
             answer=answer,
@@ -219,6 +472,8 @@ def run_query_agent(
             row_count=exec_res.row_count,
             duration_ms=exec_res.duration_ms,
             error=None,
+            columns=cols,
+            display_rows=display_rows,
         )
 
     return QueryAgentResponse(

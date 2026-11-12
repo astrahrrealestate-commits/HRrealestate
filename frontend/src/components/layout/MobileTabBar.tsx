@@ -17,6 +17,7 @@ import {
   Settings,
   ShieldCheck,
   LayoutGrid,
+  LogOut,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -33,7 +34,15 @@ interface MobileTabBarProps {
 export function MobileTabBar({ pendingCount, threads, className }: MobileTabBarProps) {
   const pathname = usePathname() || "/";
   const { t } = useLanguage();
-  const { user, canAccess } = useAuth();
+  const { user, logout, canAccess } = useAuth();
+  const displayName = user?.name || "Harjot Singh";
+  const displayEmail = user?.email || "harjot@estateos.internal";
+  const userInitials = displayName
+    .split(/\s+/)
+    .map((n) => n[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [isConnectionsOpen, setIsConnectionsOpen] = useState(false);
 
@@ -199,8 +208,42 @@ export function MobileTabBar({ pendingCount, threads, className }: MobileTabBarP
               })}
             </div>
 
+            {/* Account & Sign Out */}
+            <div className="pt-3 border-t border-[var(--line)] space-y-2.5">
+              <div className="flex items-center justify-between gap-3 px-1">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-full bg-[#0A1B2F] text-white flex items-center justify-center text-xs font-bold shrink-0">
+                    {userInitials}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-semibold text-[var(--ink)] truncate leading-tight">
+                      {displayName}
+                    </div>
+                    <div className="text-[11px] text-[var(--ink-3)] truncate font-mono leading-tight mt-0.5">
+                      {displayEmail}
+                    </div>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider bg-[#EFF6FF] text-[#1a73e8] border border-[#BFDBFE] shrink-0">
+                  {user?.role || "Owner"}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMoreOpen(false);
+                  void logout();
+                }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-[var(--radius-ctl)] border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 active:bg-rose-100 text-[13px] font-semibold transition-colors cursor-pointer"
+              >
+                <LogOut className="w-4 h-4 shrink-0" strokeWidth={2} />
+                <span>{t("nav.sign_out") || "Sign out"}</span>
+              </button>
+            </div>
+
             {/* Prototype sample data notice at the bottom of the sheet (Section 5.6) */}
-            <div className="pt-2 text-center text-xs text-[var(--ink-3)]">
+            <div className="pt-1 text-center text-xs text-[var(--ink-3)]">
               Prototype · sample data
             </div>
           </div>

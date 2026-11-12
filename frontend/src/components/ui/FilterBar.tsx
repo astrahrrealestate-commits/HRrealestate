@@ -110,9 +110,9 @@ export function FilterBar({
   return (
     <div className={cn("flex flex-col gap-2 w-full", className)}>
       {/* Main Bar: Tabs | Search | Filter ▾ | ⟳ */}
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 bg-[var(--pane)] border-b border-[var(--line)]">
+      <div className="flex flex-wrap items-center justify-between gap-2.5 px-3 sm:px-4 py-2.5 bg-[var(--pane)] border-b border-[var(--line)] min-w-0">
         {/* Left: View Tabs */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 min-w-0 flex-wrap">
           {tabs.map((tab) => {
             const isActive = tab.id === activeTab;
             return (
@@ -146,9 +146,9 @@ export function FilterBar({
         </div>
 
         {/* Right: Search + Filter popover + Refresh */}
-        <div className="flex items-center gap-2 flex-1 sm:flex-initial justify-end">
+        <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
           {/* Search box */}
-          <div className="relative flex-1 sm:w-56 md:w-64">
+          <div className="relative flex-1 min-w-[120px] max-w-[260px]">
             <Search className="w-4 h-4 text-[var(--ink-3)] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               ref={searchInputRef}

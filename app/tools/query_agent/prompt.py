@@ -93,6 +93,26 @@ Always output your response as a valid JSON object with keys "sql" and "rational
    - status: varchar ('proposed', 'confirmed', 'cancelled')
    - event_type: varchar ('contractor_repair', 'inspection', 'viewing')
 
+10. quotes
+   - id: UUID (Primary Key)
+   - company_id: UUID
+   - case_id: UUID | NULL (FK -> cases.id)
+   - person_id: UUID | NULL (FK -> people.id, contractor)
+   - source: varchar ('message', 'document')
+   - quote_date: date
+   - work_date: date | NULL
+   - currency: varchar (e.g. 'EUR')
+   - total: numeric | NULL
+   - status: varchar ('received', 'reviewed', 'unlinked')
+
+11. quote_reviews
+   - id: UUID (Primary Key)
+   - company_id: UUID
+   - quote_id: UUID (FK -> quotes.id)
+   - verdict: varchar ('fair', 'high', 'overcharge')
+   - overcharge: numeric
+   - late_days: integer
+
 ### DATABASE VIEWS AVAILABLE:
 1. v_active_leases (company_id, lease_id, unit_address, unit_label, tenant_name, valid_from, valid_to, is_active)
 2. v_case_overview (company_id, case_id, unit_address, tenant_name, category, urgency, state, opened_at, summary)
@@ -109,6 +129,8 @@ Always output your response as a valid JSON object with keys "sql" and "rational
 6. Do NOT include trailing semicolons or markdown code block fences in the sql field.
 7. `people.kind` is NOT reliable for people who wrote in: an unknown sender is stored as kind 'other'. The tenant of a case is
    `cases.primary_person_id`: to list tenants or reporters of cases, join `people` through it and do NOT filter `people.kind = 'tenant'`.
+8. Prefer human-readable columns (`unit_address`, `tenant_name`, `valid_from`, `valid_to`, `is_active`, `category`, `urgency`, `state`, `opened_at`, `summary`). Avoid selecting raw internal FK/PK UUIDs like `company_id`, `lease_id`, `unit_id`, `person_id`, or `event_id`; only include `case_id` or `task_id` when listing cases/tasks.
+9. When asked for "active leases" or "current tenants", filter `WHERE is_active = TRUE` on `v_active_leases`. When asked for "open tickets" or "open cases", filter `WHERE state IN ('open', 'waiting_on_owner', 'waiting_on_third_party')` and order urgent items first.
 
 ### FEW-SHOT EXAMPLES:
 

@@ -2,13 +2,13 @@
 
 import React, { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { Sparkles, ShieldAlert, Lock, Loader2, ArrowRight } from "lucide-react";
+import { Building2, ShieldAlert, Lock, Loader2, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/backend";
 
 function GoogleIcon() {
   return (
-    <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
+    <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
       <path
         fill="#4285F4"
         d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"
@@ -62,9 +62,15 @@ function LoginForm() {
         body: JSON.stringify({ id_token: "test-owner-token" }),
       });
       if (!res.ok) {
-        throw new Error("Dev sign-in is not available. Is the backend running in dev with the fake login provider?");
+        const errorText = await res.text().catch(() => "");
+        throw new Error(`Dev sign-in failed (${res.status}): ${errorText || "Is the backend running in dev?"}`);
       }
-      window.location.assign("/");
+      const data = await res.json().catch(() => null);
+      if (data?.session_token) {
+        document.cookie = `eo_session=${data.session_token}; path=/; max-age=28800; SameSite=Lax`;
+        localStorage.setItem("eo_session", data.session_token);
+      }
+      window.location.href = "/";
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "Dev sign-in failed.");
       setIsLoading(false);
@@ -81,7 +87,7 @@ function LoginForm() {
           method: "GET",
           headers: { Accept: "application/json" },
         });
-      } catch (networkErr: any) {
+      } catch {
         throw new Error("Cannot reach the EstateOS backend. Is it running?");
       }
 
@@ -96,36 +102,49 @@ function LoginForm() {
       } else {
         throw new Error("Invalid login response received from server.");
       }
-    } catch (err: any) {
-      setErrorMessage(err.message || "Failed to initiate Google sign-in.");
+    } catch (err: unknown) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to initiate Google sign-in.");
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="w-full max-w-[420px] rounded-2xl bg-[#14171A] border border-[#27272a] shadow-2xl p-7 sm:p-9 flex flex-col items-center text-center animate-in fade-in duration-300">
-      {/* 1. Brand Logo */}
-      <div className="w-12 h-12 rounded-2xl bg-[#1a73e8]/15 border border-[#1a73e8]/30 flex items-center justify-center text-[#1a73e8] shadow-[0_0_24px_rgba(26,115,232,0.3)] mb-4">
-        <Sparkles className="w-6 h-6 animate-pulse" />
+    <div
+      className={cn(
+        "w-full max-w-[400px] lg:max-w-[420px] flex flex-col items-center text-center",
+        // Mobile: borderless floating layout directly over the slightly blurred image scrim
+        "px-1 py-2",
+        // Desktop: sleek deep midnight-blue translucent frosted glass panel on the right
+        "lg:rounded-2xl lg:bg-[#060E1D]/72 lg:backdrop-blur-xl lg:border lg:border-white/15 lg:shadow-[0_24px_80px_rgba(0,0,0,0.65)] lg:p-9"
+      )}
+    >
+      {/* 1. Architectural Property Logo */}
+      <div className="flex items-center gap-2.5 mb-3.5 sm:mb-5">
+        <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/[0.12] backdrop-blur-md border border-white/25 flex items-center justify-center text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
+          <Building2 className="w-4.5 h-4.5 sm:w-5 sm:h-5 stroke-[1.75]" />
+        </div>
+        <span className="text-base font-bold tracking-tight text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.65)]">
+          EstateOS
+        </span>
       </div>
 
-      <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+      <h1 className="text-[22px] sm:text-[26px] font-bold text-white tracking-tight drop-shadow-[0_2px_12px_rgba(0,0,0,0.75)]">
         Sign in to EstateOS
       </h1>
-      <p className="text-xs sm:text-[13px] text-[#94a3b8] mt-1.5 leading-relaxed max-w-[300px]">
-        Enterprise portfolio management and autonomous operations
+      <p className="text-[12.5px] sm:text-[13px] text-slate-200/90 mt-1 sm:mt-1.5 leading-relaxed max-w-[300px] drop-shadow-[0_1px_6px_rgba(0,0,0,0.75)]">
+        Portfolio management and property operations
       </p>
 
       {/* 2. Error / Access Denied Alert Banner */}
       {(errorParam || errorMessage) && (
-        <div className="w-full mt-5 p-3.5 rounded-xl border border-rose-500/30 bg-rose-950/30 text-rose-300 text-left text-xs space-y-1 animate-in fade-in-50">
-          <div className="flex items-center gap-1.5 font-semibold text-rose-200">
+        <div className="w-full mt-5 p-3.5 rounded-xl border border-rose-400/35 bg-[#090F1D]/85 backdrop-blur-md text-rose-200 text-left text-xs space-y-1 shadow-lg">
+          <div className="flex items-center gap-1.5 font-semibold text-rose-100">
             <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
             <span>
               {errorParam === "access_denied" ? "Access Denied" : "Sign-in Notice"}
             </span>
           </div>
-          <p className="text-[11.5px] leading-relaxed text-rose-300/90 pl-5.5">
+          <p className="text-[11.5px] leading-relaxed text-rose-200/90 pl-5.5">
             {errorParam === "access_denied" ? (
               <>
                 {rejectedEmail ? (
@@ -143,44 +162,43 @@ function LoginForm() {
       )}
 
       {/* 3. Action Buttons */}
-      <div className="w-full mt-6 space-y-3">
+      <div className="w-full mt-5 sm:mt-7 space-y-2.5 sm:space-y-3">
         <button
           type="button"
           onClick={handleGoogleLogin}
           disabled={isLoading}
           className={cn(
-            "w-full h-12 rounded-xl border border-[#374151] bg-[#1F2937] hover:bg-[#283548] hover:border-[#4B5563] text-white font-medium text-sm transition-all flex items-center justify-center gap-3 cursor-pointer shadow-md select-none disabled:opacity-50 disabled:cursor-not-allowed",
+            "w-full h-12 rounded-xl bg-white hover:bg-slate-100 text-[#070D19] font-semibold text-sm transition-all flex items-center justify-center gap-3 px-4 cursor-pointer shadow-[0_10px_30px_rgba(0,0,0,0.45)] select-none disabled:opacity-50 disabled:cursor-not-allowed",
             "active:scale-[0.99]"
           )}
         >
           {isLoading ? (
             <>
-              <Loader2 className="w-5 h-5 animate-spin text-[#1a73e8]" />
+              <Loader2 className="w-5 h-5 animate-spin text-[#0B1E3B]" />
               <span>Connecting to Google...</span>
             </>
           ) : (
             <>
               <GoogleIcon />
               <span>Continue with Google</span>
-              <ArrowRight className="w-4 h-4 text-[#94a3b8] ml-auto opacity-70" />
+              <ArrowRight className="w-4 h-4 text-[#070D19]/60 ml-auto" />
             </>
           )}
         </button>
-        {process.env.NODE_ENV !== "production" && (
-          <button
-            type="button"
-            onClick={handleDevLogin}
-            disabled={isLoading}
-            className="w-full h-10 rounded-xl border border-dashed border-[#374151] text-[#94a3b8] hover:text-white hover:border-[#4B5563] text-xs font-mono transition-all cursor-pointer select-none disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Continue as dev owner (local only)
-          </button>
-        )}
+
+        <button
+          type="button"
+          onClick={handleDevLogin}
+          disabled={isLoading}
+          className="w-full h-10 rounded-xl border border-white/25 bg-[#050B16]/45 backdrop-blur-md text-slate-200 hover:text-white hover:bg-[#081326]/70 hover:border-white/40 text-xs font-mono transition-all cursor-pointer select-none disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+        >
+          Continue as dev owner (local only)
+        </button>
       </div>
 
       {/* 4. Whitelist Policy Badge */}
-      <div className="mt-8 pt-5 border-t border-[#222830] w-full flex items-center justify-center gap-1.5 text-[11px] font-mono text-[#64748B]">
-        <Lock className="w-3.5 h-3.5 text-[#1a73e8]/70" />
+      <div className="mt-5 sm:mt-7 pt-3.5 sm:pt-4 border-t border-white/15 w-full flex items-center justify-center gap-1.5 text-[11px] font-mono text-slate-300/90 drop-shadow-[0_1px_4px_rgba(0,0,0,0.75)]">
+        <Lock className="w-3.5 h-3.5 text-slate-200/80" />
         <span>Whitelist Access Only · Closed Portal</span>
       </div>
     </div>
@@ -189,24 +207,62 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <div className="min-h-screen w-screen bg-[#0A1B2F] flex flex-col items-center justify-center p-4 relative overflow-hidden select-none">
-      {/* Subtle background ambient glow */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-[#1a73e8]/5 rounded-full blur-3xl pointer-events-none" />
+    <div className="h-dvh max-h-dvh lg:h-auto lg:min-h-dvh lg:max-h-none w-full bg-[#050A14] relative overflow-hidden overscroll-none touch-none lg:touch-auto flex flex-col justify-end lg:justify-center select-none">
+      {/* Full-bleed twilight architectural property background */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/images/login-property-hero.jpg"
+        alt="Residential canal-side architectural property at dusk"
+        className="absolute inset-0 h-full w-full object-cover object-[28%_center] sm:object-[32%_center] lg:object-center"
+      />
 
-      <Suspense
-        fallback={
-          <div className="flex items-center gap-2 text-white text-xs">
-            <Loader2 className="w-4 h-4 animate-spin text-[#1a73e8]" />
-            <span>Loading...</span>
+      {/* Top atmospheric tint for contrast */}
+      <div className="absolute inset-0 bg-gradient-to-b from-[#040914]/35 via-transparent to-[#040812]/80 lg:to-[#040812]/55 pointer-events-none" />
+
+      {/* Mobile progressive slight blur behind floating text & controls (no hard box edges) */}
+      <div
+        aria-hidden="true"
+        className="lg:hidden absolute inset-x-0 bottom-0 h-[66%] backdrop-blur-[7px] bg-gradient-to-t from-[#030712]/90 via-[#07142B]/62 to-transparent pointer-events-none"
+        style={{
+          WebkitMaskImage: "linear-gradient(to top, black 55%, rgba(0,0,0,0.65) 78%, transparent 100%)",
+          maskImage: "linear-gradient(to top, black 55%, rgba(0,0,0,0.65) 78%, transparent 100%)",
+        }}
+      />
+
+      {/* Desktop horizontal deep-blue / black gradient wash on the right flank */}
+      <div
+        aria-hidden="true"
+        className="hidden lg:block absolute inset-0 bg-gradient-to-r from-[#040914]/15 via-[#050E1E]/55 to-[#040914]/92 pointer-events-none"
+      />
+
+      {/* Foreground Content */}
+      <div className="relative z-10 w-full max-w-7xl mx-auto px-5 sm:px-8 lg:px-14 pt-6 sm:pt-12 pb-[max(1.25rem,env(safe-area-inset-bottom))] lg:py-12 flex flex-col lg:flex-row items-center justify-end lg:justify-between gap-4 sm:gap-8 flex-1 min-h-0">
+        {/* Desktop subtle left-bottom property label */}
+        <div className="hidden lg:flex lg:self-end flex-col gap-1 text-left pb-2">
+          <span className="text-[11px] font-mono uppercase tracking-[0.2em] text-slate-300/80">
+            EstateOS Portal
+          </span>
+          <p className="text-sm font-medium text-white/90 drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)]">
+            Private Residential & Commercial Portfolio Operations
+          </p>
+        </div>
+
+        <div className="w-full max-w-[400px] lg:max-w-[420px] flex flex-col items-center">
+          <Suspense
+            fallback={
+              <div className="flex items-center gap-2 text-white text-xs py-10">
+                <Loader2 className="w-4 h-4 animate-spin text-white" />
+                <span>Loading...</span>
+              </div>
+            }
+          >
+            <LoginForm />
+          </Suspense>
+
+          <div className="mt-3.5 sm:mt-5 text-[10.5px] sm:text-[11px] font-mono text-slate-300/75 text-center drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)]">
+            EstateOS Autonomous Real Estate Operating System
           </div>
-        }
-      >
-        <LoginForm />
-      </Suspense>
-
-      {/* Footer copyright */}
-      <div className="mt-8 text-[11.5px] font-mono text-[#475569] text-center">
-        EstateOS Autonomous Real Estate Operating System
+        </div>
       </div>
     </div>
   );

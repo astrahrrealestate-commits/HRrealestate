@@ -39,7 +39,7 @@ function findMatchingUnitAndComplex(
   complexes: PropertyComplex[],
   unitQuery?: string | null,
   complexQuery?: string | null
-): { complex: PropertyComplex; unit: UnitDetail } | null {
+): { complex: PropertyComplex; unit: UnitDetail | null } | null {
   const uClean = (unitQuery || "").trim().toLowerCase();
   const cClean = (complexQuery || "").trim().toLowerCase();
 
@@ -50,7 +50,7 @@ function findMatchingUnitAndComplex(
     );
     if (matchedComp) {
       if (!uClean) {
-        return { complex: matchedComp, unit: matchedComp.units[0] };
+        return { complex: matchedComp, unit: null };
       }
       searchPool = [matchedComp, ...complexes.filter((c) => c.id !== matchedComp.id)];
     }
@@ -104,21 +104,27 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
       const result = findMatchingUnitAndComplex(PROPERTY_COMPLEXES, unitParam, complexParam);
       if (result) {
         setSelectedComplexId(result.complex.id);
-        setSelectedUnitId(result.unit.id);
-        // Only a deep link may move the tab, and only when it would hide the linked unit. The tab itself must
-        // not be a dependency, or clicking a tab re-runs this and snaps it back.
-        setActiveTab((tab) => {
-          if (result.unit.status === "occupied" && tab === "vacant") return "occupied";
-          if (result.unit.status !== "occupied" && tab === "occupied") return "vacant";
-          return tab;
-        });
+        if (result.unit) {
+          const matchedUnit = result.unit;
+          setSelectedUnitId(matchedUnit.id);
+          // Only a deep link may move the tab, and only when it would hide the linked unit. The tab itself must
+          // not be a dependency, or clicking a tab re-runs this and snaps it back.
+          setActiveTab((tab) => {
+            if (matchedUnit.status === "occupied" && tab === "vacant") return "occupied";
+            if (matchedUnit.status !== "occupied" && tab === "occupied") return "vacant";
+            return tab;
+          });
+        } else {
+          setSelectedUnitId(null);
+        }
       } else if (complexParam && PROPERTY_COMPLEXES.some((c) => c.id === complexParam)) {
         setSelectedComplexId(complexParam);
+        setSelectedUnitId(null);
       }
     } else {
       setSelectedUnitId(null);
     }
-  }, [complexParam, unitParam]);
+  }, [complexParam, unitParam, PROPERTY_COMPLEXES]);
 
   // Listen for instant custom navigation events (handles same-page Super Agent clicks)
   useEffect(() => {
@@ -133,18 +139,22 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
         const result = findMatchingUnitAndComplex(PROPERTY_COMPLEXES, u, c);
         if (result) {
           setSelectedComplexId(result.complex.id);
-          setSelectedUnitId(result.unit.id);
-          if (result.unit.status === "occupied" && activeTab === "vacant") {
-            setActiveTab("occupied");
-          } else if (result.unit.status === "vacant" && activeTab === "occupied") {
-            setActiveTab("vacant");
+          if (result.unit) {
+            setSelectedUnitId(result.unit.id);
+            if (result.unit.status === "occupied" && activeTab === "vacant") {
+              setActiveTab("occupied");
+            } else if (result.unit.status === "vacant" && activeTab === "occupied") {
+              setActiveTab("vacant");
+            }
+          } else {
+            setSelectedUnitId(null);
           }
         }
       }
     };
     window.addEventListener("estateos:navigate", handleCustomNav);
     return () => window.removeEventListener("estateos:navigate", handleCustomNav);
-  }, [activeTab]);
+  }, [activeTab, PROPERTY_COMPLEXES]);
 
   // Derived current complex and current unit
   const activeComplex = useMemo(() => {
@@ -215,14 +225,26 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
     return { total, occupied, vacant, notice, rate };
   }, [PROPERTY_COMPLEXES]);
 
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const sync = () => setIsMobile(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
   // Complex switch handler
   const handleSelectComplex = (complexId: string) => {
     setSelectedComplexId(complexId);
-    // When switching complex on mobile, we navigate to the complex screen
+    // When switching complex on mobile, we navigate to the complex screen (no unit auto-selected)
     const firstUnit = PROPERTY_COMPLEXES.find((c) => c.id === complexId)?.units[0]?.id;
     if (window.innerWidth < 768) {
+      setSelectedUnitId(null);
       router.push(`/properties?complex=${complexId}`);
     } else {
+      setSelectedUnitId(firstUnit || null);
       router.push(`/properties?complex=${complexId}&unit=${firstUnit || ""}`);
     }
   };
@@ -235,7 +257,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
 
   // Back handler for mobile navigation stack
   const handleMobileBack = () => {
-    if (selectedUnitId) {
+    if (unitParam || selectedUnitId) {
       // Back from Unit Screen to Complex Screen
       setSelectedUnitId(null);
       router.push(`/properties?complex=${selectedComplexId}`);
@@ -251,8 +273,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
     setTimeout(() => setCopiedLockbox(false), 2000);
   };
 
-  // Mobile navigation view state
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+  // Mobile navigation view state: complex click opens Complex Screen; only explicit unit selection opens Unit Screen
   const isMobileUnitScreen = Boolean(unitParam || (selectedUnitId && isMobile));
   const isMobileComplexScreen = Boolean(complexParam && !isMobileUnitScreen);
   const isMobileComplexList = !isMobileComplexScreen && !isMobileUnitScreen;
@@ -271,7 +292,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
 
         {/* WORKSPACE ROW with 40% Super Agent */}
         <div className="flex-1 flex flex-row overflow-hidden min-h-0 w-full relative">
-          <div className="flex-1 m-0 mr-[10px] mb-[10px] bg-white rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden relative">
+          <div className="flex-1 m-0 md:mr-[10px] md:mb-[10px] bg-white md:rounded-[14px] md:border md:border-[#27272a] md:shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden relative">
 
         {/* ------------------------------------------------------------- */}
         {/* DESKTOP LAYOUT (>= 768px): 3 Columns                         */}
@@ -281,8 +302,13 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
         {/* ------------------------------------------------------------- */}
         <div className="hidden md:flex flex-1 overflow-hidden min-w-0">
 
-          {/* COLUMN 1: Complex List (Left pane, 200px-240px) */}
-          <div className="w-[200px] xl:w-[240px] shrink-0 border-r border-[var(--line)] bg-[var(--pane)] flex flex-col">
+          {/* COLUMN 1: Complex List (Left pane, tightens smoothly when Super Agent is open) */}
+          <div
+            className={cn(
+              "shrink-0 border-r border-[var(--line)] bg-[var(--pane)] flex flex-col",
+              superAgent.isOpen ? "w-[175px] xl:w-[195px]" : "w-[200px] xl:w-[240px]"
+            )}
+          >
             <div className="p-3 xl:p-4 border-b border-[var(--line)]">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)] block mb-1">
                 Portfolio Complexes
@@ -333,25 +359,25 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
           </div>
 
           {/* COLUMN 2: Unit Grid 5 per row + Controls (Middle pane, flex-1) */}
-          <div className="flex-1 flex flex-col min-w-0 bg-[var(--pane)] border-r border-[var(--line)]">
+          <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[var(--pane)] border-r border-[var(--line)]">
             {/* Header: Title + Inline Stats + Controls (Max 3 tabs, 1 search bar, no cards in cards) */}
-            <div className="p-4 border-b border-[var(--line)] flex flex-col gap-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-[17px] font-heading font-semibold text-[var(--ink)] tracking-tight">
+            <div className="p-4 border-b border-[var(--line)] flex flex-col gap-3 min-w-0">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-[17px] font-heading font-semibold text-[var(--ink)] tracking-tight truncate">
                     {activeComplex.name}
                   </h2>
-                  <p className="text-[12px] text-[var(--ink-3)]">
+                  <p className="text-[12px] text-[var(--ink-3)] leading-snug">
                     {activeComplex.address} · {activeComplex.occupiedUnits} occupied · {activeComplex.vacantUnits} vacant
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => router.push(`/maintenance?search=${encodeURIComponent(activeComplex.name)}`)}
-                    className="text-xs border border-[var(--line)] text-[var(--ink-2)]"
+                    className="text-xs border border-[var(--line)] text-[var(--ink-2)] whitespace-nowrap"
                   >
                     Complex tickets
                   </Button>
@@ -359,13 +385,13 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
               </div>
 
               {/* Controls bar: 3 Tabs (All / Occupied / Vacant) + Search input */}
-              <div className="flex items-center justify-between gap-3 pt-1">
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 min-w-0">
                 {/* 3 Tabs */}
-                <div className="inline-flex rounded-lg border border-[var(--line)] p-0.5 bg-[var(--bg)] text-xs">
+                <div className="inline-flex rounded-lg border border-[var(--line)] p-0.5 bg-[var(--bg)] text-xs shrink-0 max-w-full overflow-x-auto no-scrollbar">
                   <button
                     onClick={() => setActiveTab("all")}
                     className={cn(
-                      "px-3 py-1 rounded-md font-medium transition-colors cursor-pointer",
+                      "px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer whitespace-nowrap",
                       activeTab === "all"
                         ? "bg-[var(--pane)] text-[var(--ink)] shadow-2xs font-semibold"
                         : "text-[var(--ink-3)] hover:text-[var(--ink)]"
@@ -376,7 +402,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                   <button
                     onClick={() => setActiveTab("occupied")}
                     className={cn(
-                      "px-3 py-1 rounded-md font-medium transition-colors cursor-pointer",
+                      "px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer whitespace-nowrap",
                       activeTab === "occupied"
                         ? "bg-[var(--pane)] text-[var(--ink)] shadow-2xs font-semibold"
                         : "text-[var(--ink-3)] hover:text-[var(--ink)]"
@@ -387,7 +413,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                   <button
                     onClick={() => setActiveTab("vacant")}
                     className={cn(
-                      "px-3 py-1 rounded-md font-medium transition-colors cursor-pointer",
+                      "px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer whitespace-nowrap",
                       activeTab === "vacant"
                         ? "bg-[var(--pane)] text-[var(--ink)] shadow-2xs font-semibold"
                         : "text-[var(--ink-3)] hover:text-[var(--ink)]"
@@ -398,14 +424,14 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                 </div>
 
                 {/* Single Search Bar */}
-                <div className="relative w-64">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--ink-3)]" />
+                <div className="relative flex-1 min-w-[160px] max-w-full sm:max-w-[260px]">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--ink-3)] pointer-events-none" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder={t("Search properties...", "Zoek eenheden...")}
-                    className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--bg)] border border-[var(--line)] rounded-md text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none focus:border-[var(--ink-2)]"
+                    className="w-full pl-8 pr-7 py-1.5 text-xs bg-[var(--bg)] border border-[var(--line)] rounded-md text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none focus:border-[var(--ink-2)]"
                   />
                   {searchQuery && (
                     <button
@@ -503,9 +529,14 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
             </div>
           </div>
 
-          {/* COLUMN 3: Unit Detail Pane (Right pane, 300px-350px) with Sticky Footer */}
+          {/* COLUMN 3: Unit Detail Pane (Right pane, tightens smoothly when Super Agent is open) */}
           {activeUnit && (
-            <div className="w-[300px] xl:w-[350px] shrink-0 bg-[var(--pane)] flex flex-col justify-between border-l border-[var(--line)]">
+            <div
+              className={cn(
+                "shrink-0 bg-[var(--pane)] flex flex-col justify-between border-l border-[var(--line)] min-w-0",
+                superAgent.isOpen ? "w-[250px] xl:w-[290px]" : "w-[300px] xl:w-[350px]"
+              )}
+            >
 
               {/* Detail Content (Scrollable) */}
               <div className="flex-1 overflow-y-auto p-4 xl:p-5 space-y-4">
@@ -659,18 +690,19 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
         {/* Screen 2: Complex Screen (5 units per row grid)                */}
         {/* Screen 3: Unit Screen (Full detail + sticky footer)            */}
         {/* ------------------------------------------------------------- */}
-        <div className="md:hidden flex-1 flex flex-col min-w-0">
+        <div className="md:hidden flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
 
           {/* SCREEN 1: Complexes List (when ?complex is not in URL) */}
           {isMobileComplexList && (
-            <div className="flex-1 flex flex-col bg-[var(--bg)] pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
+            <div className="flex-1 flex flex-col min-h-0 overflow-y-auto bg-[var(--bg)] pb-[calc(4rem+env(safe-area-inset-bottom))]">
               {/* Portfolio header */}
               <div className="p-4 border-b border-[var(--line)] bg-[var(--pane)]">
                 <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ink-3)] block mb-1">
                   Portfolio Directory
                 </span>
                 <div className="text-[14px] text-[var(--ink)] font-semibold">
-                  {portfolioStats.total} Units across 3 Complexes
+                  {portfolioStats.total} Units across {PROPERTY_COMPLEXES.length}{" "}
+                  {PROPERTY_COMPLEXES.length === 1 ? "Complex" : "Complexes"}
                 </div>
                 <div className="text-xs text-[var(--ink-3)] mt-0.5">
                   Occupancy rate: <span className="font-semibold text-[var(--ink)]">{portfolioStats.rate}</span>
@@ -714,13 +746,13 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
 
           {/* SCREEN 2: Complex Screen (when ?complex=id but no &unit=id) */}
           {isMobileComplexScreen && (
-            <div className="flex-1 flex flex-col bg-[var(--bg)] pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[var(--bg)] pb-[calc(3.5rem+env(safe-area-inset-bottom))]">
               {/* Screen Header with Back Arrow to Complexes List */}
-              <div className="h-14 px-4 border-b border-[var(--line)] bg-[var(--pane)] flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-2 min-w-0">
+              <div className="h-14 px-4 border-b border-[var(--line)] bg-[var(--pane)] flex items-center justify-between gap-2 shrink-0">
+                <div className="flex items-center gap-2.5 min-w-0">
                   <button
                     onClick={handleMobileBack}
-                    className="p-1 -ml-1 text-[var(--ink-2)] hover:text-[var(--ink)] cursor-pointer"
+                    className="p-1.5 -ml-1.5 shrink-0 text-[var(--ink-2)] hover:text-[var(--ink)] cursor-pointer"
                     aria-label="Back to complexes"
                   >
                     <ArrowLeft className="w-5 h-5" />
@@ -738,8 +770,8 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => router.push(`/inbox?search=${encodeURIComponent(activeComplex.name)}`)}
-                  className="text-xs border border-[var(--line)]"
+                  onClick={() => router.push(`/maintenance?search=${encodeURIComponent(activeComplex.name)}`)}
+                  className="text-xs border border-[var(--line)] shrink-0"
                 >
                   Tickets
                 </Button>
@@ -795,14 +827,13 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                 </div>
               </div>
 
-              {/* Mobile Unit Grid (5 units per row per Section 5.6.1) */}
+              {/* Mobile Unit Grid */}
               <div className="flex-1 p-3 overflow-y-auto">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)] block mb-2 px-1">
-                  Tap unit for full details (5 per row)
+                  Tap unit for full details
                 </span>
-                <div className="grid grid-cols-5 gap-2">
+                <div className="grid grid-cols-3 min-[420px]:grid-cols-4 gap-2.5">
                   {filteredUnits.map((unit) => {
-                    const isVacant = unit.status === "vacant";
                     const isNotice = unit.status === "notice_given";
 
                     return (
@@ -810,7 +841,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                         key={unit.id}
                         onClick={() => handleSelectUnit(unit)}
                         className={cn(
-                          "flex flex-col items-center justify-center p-2 rounded-lg border text-center h-[72px] transition-all cursor-pointer active:scale-95",
+                          "flex flex-col items-center justify-center p-2 rounded-lg border text-center min-h-[76px] min-w-0 transition-all cursor-pointer active:scale-95",
                           unit.status === "occupied"
                             ? "bg-[var(--pane)] border-[var(--line)] text-[var(--ink)]"
                             : isNotice
@@ -818,7 +849,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                             : "bg-[var(--bg)] border-dashed border-[var(--line)] text-[var(--ink-3)]"
                         )}
                       >
-                        <span className="font-mono text-[13px] font-bold leading-none block">
+                        <span className="font-mono text-[13px] font-bold leading-none block truncate max-w-full">
                           {unit.unitNumber}
                         </span>
                         <span
@@ -838,19 +869,24 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                     );
                   })}
                 </div>
+                {filteredUnits.length === 0 && (
+                  <div className="text-center py-12 text-[var(--ink-3)] text-xs">
+                    No units match your search.
+                  </div>
+                )}
               </div>
             </div>
           )}
 
           {/* SCREEN 3: Unit Screen (Full detail + sticky footer) */}
           {isMobileUnitScreen && activeUnit && (
-            <div className="flex-1 flex flex-col bg-[var(--pane)] h-full">
+            <div className="flex-1 flex flex-col bg-[var(--pane)] min-h-0 overflow-hidden pb-[calc(3.5rem+env(safe-area-inset-bottom))]">
               {/* Header with Back Arrow to Complex Screen */}
-              <div className="h-14 px-4 border-b border-[var(--line)] flex items-center justify-between shrink-0 bg-[var(--pane)]">
-                <div className="flex items-center gap-2 min-w-0">
+              <div className="h-14 px-4 border-b border-[var(--line)] flex items-center justify-between gap-2 shrink-0 bg-[var(--pane)]">
+                <div className="flex items-center gap-2.5 min-w-0">
                   <button
                     onClick={handleMobileBack}
-                    className="p-1 -ml-1 text-[var(--ink-2)] hover:text-[var(--ink)] cursor-pointer"
+                    className="p-1.5 -ml-1.5 shrink-0 text-[var(--ink-2)] hover:text-[var(--ink)] cursor-pointer"
                     aria-label="Back to complex"
                   >
                     <ArrowLeft className="w-5 h-5" />
@@ -865,7 +901,9 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                   </div>
                 </div>
 
-                <StatusText status={activeUnit.status} />
+                <div className="shrink-0">
+                  <StatusText status={activeUnit.status} />
+                </div>
               </div>
 
               {/* Scrollable Unit Profile */}
@@ -1015,8 +1053,8 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
         </div>
       </div>
 
-      {/* 3. Mobile Bottom Tab Bar (Section 5.1 & 5.6) - Hidden on full Unit Screen detail so actions sit at the bottom */}
-      {!isMobileUnitScreen && <MobileTabBar />}
+      {/* 3. Mobile Bottom Tab Bar */}
+      <MobileTabBar />
 
 
     </div>

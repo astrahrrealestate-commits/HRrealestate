@@ -26,7 +26,7 @@ import { InboxConversationView } from "@/components/inbox/InboxConversationView"
 
 import { InboxThread } from "@/types/inbox";
 
-import { Check } from "lucide-react";
+import { Check, X } from "lucide-react";
 
 import { approveInboxDraft, getInboxThreads, syncGmailInbox } from "@/lib/api";
 
@@ -140,6 +140,7 @@ function InboxContent() {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   const [isAskAgentOpen, setIsAskAgentOpen] = useState<boolean>(false);
+  const [showThreadsWithAgent, setShowThreadsWithAgent] = useState<boolean>(false);
 
   const [isMobile, setIsMobile] = useState<boolean>(false);
 
@@ -384,6 +385,7 @@ function InboxContent() {
     (id: string) => {
 
       setSelectedThreadId(id);
+      setShowThreadsWithAgent(false);
 
       if (id) {
 
@@ -868,9 +870,9 @@ function InboxContent() {
 
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0A1B2F]">
 
-        {/* Top bar hidden on mobile when conversation is open so conversation header controls the screen */}
+        {/* Top command bar: always visible on mobile and desktop */}
 
-        <div className={cn(isMobileConversationOpen ? "hidden md:block" : "block")}>
+        <div className="block shrink-0">
 
           <TopCommandBar
 
@@ -892,22 +894,58 @@ function InboxContent() {
 
         {/* WORKSPACE ROW with 40% Super Agent */}
         <div className="flex-1 flex flex-row overflow-hidden min-h-0 w-full relative">
-          <div className="flex-1 m-0 mr-[10px] mb-[10px] bg-white rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex overflow-hidden relative">
-            <div className="lg:grid lg:grid-cols-[300px_1fr] xl:grid-cols-[340px_1fr] flex-1 min-h-0 overflow-hidden bg-white">
+          <div className="flex-1 m-0 md:mr-[10px] md:mb-[10px] bg-white md:rounded-[14px] md:border md:border-[#27272a] md:shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex overflow-hidden relative min-w-0">
+            <div
+              className={cn(
+                "flex flex-col flex-1 min-h-0 overflow-hidden bg-white min-w-0 relative",
+                superAgent.isOpen
+                  ? "lg:grid lg:grid-cols-1"
+                  : "lg:grid lg:grid-cols-[300px_1fr] xl:grid-cols-[340px_1fr]"
+              )}
+            >
+
+          {/* Backdrop when thread drawer is open alongside Super Agent on desktop */}
+          {superAgent.isOpen && showThreadsWithAgent && (
+            <div
+              className="hidden lg:block lg:absolute lg:inset-0 z-20 bg-black/15"
+              onClick={() => setShowThreadsWithAgent(false)}
+              aria-hidden="true"
+            />
+          )}
 
           {/* Left Column: 6 Controls FilterBar + Grouped Thread List */}
-
           <div
-
             className={cn(
-
               "h-full flex flex-col overflow-hidden bg-[var(--pane)]",
-
-              isMobileConversationOpen ? "hidden lg:flex" : "flex"
-
+              superAgent.isOpen
+                ? showThreadsWithAgent
+                  ? cn(
+                      isMobileConversationOpen ? "hidden" : "flex",
+                      "lg:flex lg:absolute lg:inset-y-0 lg:left-0 lg:z-30 lg:w-[330px] lg:border-r lg:border-[var(--line)] lg:shadow-xl"
+                    )
+                  : isMobileConversationOpen
+                    ? "hidden"
+                    : "flex lg:hidden"
+                : isMobileConversationOpen
+                  ? "hidden lg:flex"
+                  : "flex"
             )}
-
           >
+            {superAgent.isOpen && showThreadsWithAgent && (
+              <div className="hidden lg:flex items-center justify-between px-3 py-2 border-b border-[var(--line)] bg-[var(--bg)] shrink-0">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--ink-2)]">
+                  Conversations ({filteredAndSortedThreads.length})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowThreadsWithAgent(false)}
+                  className="p-1 rounded hover:bg-[var(--selected)] text-[var(--ink-3)] hover:text-[var(--ink)] cursor-pointer"
+                  title="Close threads drawer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
 
             {/* FilterBar (6 controls total: 3 tabs + search + Filter popover + ⟳) */}
 
@@ -975,9 +1013,11 @@ function InboxContent() {
 
             className={cn(
 
-              "h-full flex flex-col overflow-hidden bg-[var(--pane)]",
+              "h-full flex-1 min-h-0 flex flex-col overflow-hidden bg-[var(--pane)]",
 
-              isMobileConversationOpen ? "flex" : "hidden lg:flex"
+              isMobileConversationOpen
+                ? "flex pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0"
+                : "hidden lg:flex"
 
             )}
 
@@ -1004,7 +1044,10 @@ function InboxContent() {
               }}
 
               onMarkDone={handleMarkDone}
-
+              showThreadsButton={superAgent.isOpen}
+              threadCount={filteredAndSortedThreads.length}
+              isThreadsDrawerOpen={showThreadsWithAgent}
+              onToggleThreadsDrawer={() => setShowThreadsWithAgent((v) => !v)}
             />
 
           </div>
@@ -1056,15 +1099,9 @@ function InboxContent() {
 
 
 
-      {/* Mobile Bottom Tab Bar: hidden when conversation is open so composer sits directly at bottom */}
+      {/* Mobile Bottom Tab Bar: always visible on mobile across thread list & open conversations */}
 
-      <MobileTabBar
-
-        pendingCount={needsYouCount(threads)}
-
-        className={cn(isMobileConversationOpen ? "hidden" : "grid")}
-
-      />
+      <MobileTabBar pendingCount={needsYouCount(threads)} />
 
     </div>
 

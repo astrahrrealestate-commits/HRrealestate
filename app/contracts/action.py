@@ -87,11 +87,11 @@ ActionPayload = Annotated[
 
 class Action(Contract):
     type: ActionType
-    case_id: UUID
+    case_id: UUID | None = None
     payload: ActionPayload
     rationale: NonBlankStr
-    context_ref: list[UUID]
-    draft_version: Annotated[int, Field(ge=1)]
+    context_ref: list[UUID] = Field(default_factory=list)
+    draft_version: Annotated[int, Field(ge=1)] = 1
 
     @model_validator(mode="before")
     @classmethod

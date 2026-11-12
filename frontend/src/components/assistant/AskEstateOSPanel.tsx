@@ -4,14 +4,10 @@ import React, { useState, useEffect, useRef } from "react";
 import {
   Calendar,
   Sparkles,
-  Send,
-  ArrowUpRight,
   ArrowLeft,
   CheckCircle2,
   Wrench,
-  AlertTriangle,
   Clock,
-  ArrowRight,
   CornerDownRight,
   Check,
   MessageSquare,
@@ -29,24 +25,20 @@ import {
   Sun,
   Moon,
   UserRound,
+  UserCheck,
   ArrowUp,
-  ThumbsUp,
-  ThumbsDown,
-  MoreVertical,
-  List,
   Mic,
   MicOff,
   X,
   Home,
   Search,
   Pencil,
-  ChevronDown,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { askAgent, approveInboxDraft, approveStandingRule, AssistantCard, CardAction, PreviewCardData, updateAgentConversation, getInboxThreads } from "@/lib/api";
-import { InboxThread } from "@/types/inbox";
+import { askAgent, approveInboxDraft, approveStandingRule, AssistantCard, PreviewCardData, updateAgentConversation } from "@/lib/api";
 import { formatClock } from "@/lib/clock";
+import { AstraIcon, AstraWordmark } from "@/components/ui/AstraBrand";
 
 export interface AssistantAction {
   label: string;
@@ -83,6 +75,7 @@ import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { TranslationToggle } from "@/components/inbox/TranslationToggle";
 import { useLanguage } from "@/context/LanguageContext";
+import { FlagUK, FlagNL } from "@/components/ui/FlagIcons";
 import { BACKEND_BASE_URL, apiFetch } from "@/lib/backend";
 
 interface AskEstateOSPanelProps {
@@ -118,20 +111,6 @@ export function AskEstateOSPanel({
   const [showFewerSuggestions, setShowFewerSuggestions] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [selectedPriorityFilter, setSelectedPriorityFilter] = useState<string>("All Priorities");
-  const [selectedChannelFilter, setSelectedChannelFilter] = useState<string>("All Message Type");
-  const [isPriorityModalOpen, setIsPriorityModalOpen] = useState(false);
-  const [isChannelModalOpen, setIsChannelModalOpen] = useState(false);
-  const [expandedCardIds, setExpandedCardIds] = useState<Record<string, boolean>>({});
-  const [liveThreads, setLiveThreads] = useState<InboxThread[]>([]);
-
-  useEffect(() => {
-    getInboxThreads({}).then((res) => {
-      if (res && Array.isArray(res.threads)) {
-        setLiveThreads(res.threads);
-      }
-    }).catch(() => {});
-  }, []);
 
   useEffect(() => {
     try {
@@ -200,44 +179,7 @@ export function AskEstateOSPanel({
   const [approvedMemoryIds, setApprovedMemoryIds] = useState<Set<string>>(new Set());
   const [sentCardIds, setSentCardIds] = useState<Set<string>>(new Set());
   const [sendErrorCardIds, setSendErrorCardIds] = useState<Set<string>>(new Set());
-  const [executingActionKey, setExecutingActionKey] = useState<string | null>(null);
-  const [completedActionKeys, setCompletedActionKeys] = useState<Set<string>>(new Set());
   const [selectedDraftVariants, setSelectedDraftVariants] = useState<Record<string, number>>({});
-
-  const handleUniversalCardAction = async (action: CardAction, cardId: string) => {
-    const actionKey = `${cardId}-${action.label}`;
-    if (action.kind === "open_external" && action.targetUrl) {
-      window.open(action.targetUrl, "_blank", "noopener,noreferrer");
-      return;
-    }
-    if (action.kind === "navigate" && action.targetUrl) {
-      handleNavigate(action.targetUrl);
-      return;
-    }
-    if (action.kind === "api_call" && action.endpoint) {
-      setExecutingActionKey(actionKey);
-      try {
-        const fullUrl = action.endpoint.startsWith("http")
-          ? action.endpoint
-          : `${BACKEND_BASE_URL}${action.endpoint}`;
-        const res = await apiFetch(fullUrl, {
-          method: action.method || "POST",
-          headers: { "Content-Type": "application/json" },
-          body: action.payload ? JSON.stringify(action.payload) : undefined,
-        });
-        if (res.ok) {
-          setCompletedActionKeys((prev) => new Set([...prev, actionKey]));
-          if (action.endpoint.includes("/approvals/") || action.label.toLowerCase().includes("send")) {
-            setSentCardIds((prev) => new Set([...prev, cardId]));
-          }
-        }
-      } catch (e) {
-        console.error("Action execution failed", e);
-      } finally {
-        setExecutingActionKey(null);
-      }
-    }
-  };
 
   // Use persistent shared messages from SuperAgentContext
   const messages = superAgent.messages;
@@ -275,9 +217,12 @@ export function AskEstateOSPanel({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
-  // Dynamic workflow suggestions from latest assistant turn, or context-aware section starters
+  // Dynamic workflow suggestions from the latest real assistant turn only (never leak old turn pills), or context-aware starters
   const lastAssistantMsg = React.useMemo(() => {
-    return [...messages].reverse().find((m) => m.sender === "assistant" && m.suggestedPrompts && m.suggestedPrompts.length > 0);
+    const latest = [...messages]
+      .reverse()
+      .find((m) => m.sender === "assistant" && m.id !== "initial-msg" && m.id !== "welcome");
+    return latest?.suggestedPrompts && latest.suggestedPrompts.length > 0 ? latest : undefined;
   }, [messages]);
 
   const suggestedChips = React.useMemo(() => {
@@ -529,7 +474,7 @@ export function AskEstateOSPanel({
 
 
 
-  // Conversations list for mobile drawer (falls back to mockup reference items if none in state)
+  // Real conversations list for mobile drawer (no synthetic fallback items)
   const displayConversations = React.useMemo(() => {
     if (superAgent.conversations && superAgent.conversations.length > 0) {
       return superAgent.conversations.map((c) => ({
@@ -540,11 +485,1118 @@ export function AskEstateOSPanel({
           : "Today",
       }));
     }
-    return [
-      { id: "conv-1", title: "Create draft approval message", date: "12 Oct" },
-      { id: "conv-2", title: "Ticket raised issues", date: "11 Oct" },
-    ];
+    return [];
   }, [superAgent.conversations]);
+
+  const getDataTableBadgeClass = (color: string | undefined, cardDark: boolean) => {
+    const c = (color || "blue").toLowerCase();
+    if (c === "rose" || c === "red") {
+      return cardDark
+        ? "bg-rose-950/60 text-rose-300 border-rose-800/50"
+        : "bg-rose-50 text-rose-700 border-rose-200";
+    }
+    if (c === "emerald") {
+      return cardDark
+        ? "bg-emerald-950/60 text-emerald-300 border-emerald-800/50"
+        : "bg-emerald-50 text-emerald-700 border-emerald-200";
+    }
+    if (c === "amber" || c === "orange") {
+      return cardDark
+        ? "bg-amber-950/60 text-amber-300 border-amber-800/50"
+        : "bg-amber-50 text-amber-800 border-amber-200";
+    }
+    return cardDark
+      ? "bg-blue-950/60 text-blue-300 border-blue-800/50"
+      : "bg-blue-50 text-blue-700 border-blue-200";
+  };
+
+  const renderTableCellValue = (colName: string, rawVal: unknown, cardDark: boolean) => {
+    const strVal = rawVal === null || rawVal === undefined || String(rawVal).trim() === "" ? "—" : String(rawVal);
+    if (/^#[0-9a-f]{6,8}$/i.test(strVal)) {
+      return (
+        <span
+          className={cn(
+            "font-mono text-[10.5px] font-semibold px-1.5 py-0.5 rounded border inline-block whitespace-nowrap",
+            cardDark ? "bg-sky-500/15 text-sky-300 border-sky-500/30" : "bg-sky-50 text-sky-800 border-sky-200"
+          )}
+        >
+          {strVal}
+        </span>
+      );
+    }
+
+    const colLow = colName.toLowerCase();
+    const valLow = strVal.toLowerCase();
+    if (colLow === "urgency" || colLow === "priority" || colLow === "status" || colLow === "state" || colLow === "verdict") {
+      let tone = cardDark
+        ? "bg-[#1A1F26] border-[#262F3A] text-[#CBD5E1]"
+        : "bg-[#F3F4F6] border-[#E5E7EB] text-[#374151]";
+      if (["emergency", "urgent", "overcharge", "overdue"].includes(valLow)) {
+        tone = cardDark
+          ? "bg-rose-950/60 border-rose-800/50 text-rose-300"
+          : "bg-rose-50 border-rose-200 text-rose-700";
+      } else if (["high", "p1", "waiting on owner", "waiting on third party", "proposed"].includes(valLow)) {
+        tone = cardDark
+          ? "bg-amber-950/60 border-amber-800/50 text-amber-300"
+          : "bg-amber-50 border-amber-200 text-amber-800";
+      } else if (["active", "fair", "confirmed", "resolved", "open"].includes(valLow)) {
+        tone = cardDark
+          ? "bg-emerald-950/50 border-emerald-800/40 text-emerald-300"
+          : "bg-emerald-50 border-emerald-200 text-emerald-700";
+      }
+      return (
+        <span className={cn("text-[10.5px] font-medium px-1.5 py-0.5 rounded border inline-block whitespace-nowrap capitalize", tone)}>
+          {strVal}
+        </span>
+      );
+    }
+
+    if (colLow === "summary") {
+      return (
+        <span className={cn("block min-w-[160px] max-w-[240px] whitespace-normal leading-snug line-clamp-2", cardDark ? "text-[#CBD5E1]" : "text-[#374151]")}>
+          {strVal}
+        </span>
+      );
+    }
+
+    return (
+      <span
+        className={cn(
+          "whitespace-nowrap",
+          colLow === "tenant" || colLow === "property" || colLow === "name" || colLow === "contractor"
+            ? cardDark
+              ? "font-medium text-[#F3F4F6]"
+              : "font-medium text-[#0A0A0A]"
+            : cardDark
+              ? "text-[#CBD5E1]"
+              : "text-[#374151]"
+        )}
+      >
+        {strVal}
+      </span>
+    );
+  };
+
+  const renderPreviewCardsBlock = (msg: AssistantMessage, cardDark: boolean, isMobileGlass: boolean = false) => {
+    const cardsToRender: PreviewCardData[] =
+      msg.previewCards && msg.previewCards.length > 0
+        ? msg.previewCards
+        : msg.previewCard
+          ? [msg.previewCard]
+          : [];
+    if (cardsToRender.length === 0) return null;
+
+    const surfaceCls = isMobileGlass
+      ? "bg-[#091526]/85 border-white/15 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.45)] rounded-[16px]"
+      : cardDark
+        ? "bg-[#15181C] border-[#222830] rounded-[10px] shadow-xs"
+        : "bg-[#FBFBFA] border-[#E8E8E5] rounded-[10px] shadow-xs";
+
+    const innerBoxCls = isMobileGlass
+      ? "bg-[#060F1D]/85 border-white/10"
+      : cardDark
+        ? "bg-[#0E1113] border-[#1E2328]"
+        : "bg-[#FFFFFF] border-[#E8E8E5]";
+
+    return (
+      <div className="space-y-2.5 mt-2 w-full min-w-0">
+        {cardsToRender.map((pCard: PreviewCardData, cardIdx: number) => {
+          const cardStateKey = pCard.actionId || `${msg.id}-${cardIdx}`;
+
+          return (
+            <div
+              key={pCard.actionId || pCard.caseId || `${msg.id}-preview-${cardIdx}`}
+              className={cn(
+                "border p-3.5 space-y-2.5 animate-in fade-in-50 duration-150 min-w-0 max-w-full overflow-hidden transition-colors",
+                surfaceCls
+              )}
+            >
+              {pCard.type === "draft_message" && pCard.personaName && (
+                <div
+                  className={cn("flex items-center gap-1.5 text-[10.5px] font-medium", cardDark ? "text-[#94A3B8]" : "text-[#6B7280]")}
+                  title={`Drafted using the persona file "${pCard.personaName}" (version ${pCard.personaVersion ?? 1})`}
+                >
+                  <UserCheck className="w-3.5 h-3.5 text-[#1a73e8] shrink-0" />
+                  <span>Acting as Harjot</span>
+                  <span className="font-normal opacity-80 truncate">· {pCard.personaName} v{pCard.personaVersion ?? 1}</span>
+                </div>
+              )}
+
+              {pCard.type === "data_table" ? (
+                (() => {
+                  const cols = pCard.columns || [];
+                  const tableRows = pCard.rows || [];
+                  const targetUrl = pCard.targetUrl || "/";
+                  const footerLabel =
+                    targetUrl === "/tenants"
+                      ? "Open Tenants"
+                      : targetUrl === "/maintenance"
+                        ? "Open Maintenance"
+                        : targetUrl === "/calendar"
+                          ? "Open Calendar"
+                          : targetUrl === "/money"
+                            ? "Open in Money"
+                            : targetUrl === "/contacts"
+                              ? "Open Contacts"
+                              : targetUrl === "/"
+                                ? "Open Dashboard"
+                                : "View Details";
+
+                  return (
+                    <div className="space-y-2.5 min-w-0">
+                      <div className="flex items-center justify-between text-[11px] gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className={cn(
+                              "font-mono text-[10px] font-semibold uppercase px-2 py-0.5 rounded border shrink-0",
+                              getDataTableBadgeClass(pCard.badgeColor, cardDark)
+                            )}
+                          >
+                            {pCard.badgeLabel || "RECORDS"}
+                          </span>
+                          <span className={cn("font-semibold text-[12.5px] truncate", cardDark ? "text-[#F3F4F6]" : "text-[#0A0A0A]")}>
+                            {pCard.title || "Portfolio Records"}
+                          </span>
+                        </div>
+                        {pCard.unitLabel && (
+                          <span
+                            className={cn(
+                              "text-[10.5px] font-mono px-2 py-0.5 rounded border shrink-0",
+                              cardDark ? "bg-[#1A1F26] border-[#262F3A] text-[#94A3B8]" : "bg-[#FFFFFF] border-[#E8E8E5] text-[#4B5563]"
+                            )}
+                          >
+                            {pCard.unitLabel}
+                          </span>
+                        )}
+                      </div>
+
+                      {pCard.subtitle && (
+                        <div className={cn("text-[11px]", cardDark ? "text-[#94A3B8]" : "text-[#6B7280]")}>
+                          {pCard.subtitle}
+                        </div>
+                      )}
+
+                      {cols.length > 0 && tableRows.length > 0 && (
+                        isFullScreen ? (
+                          <div className={cn("rounded-[8px] border overflow-x-auto max-w-full", innerBoxCls)}>
+                            <table className="w-full text-left border-collapse text-[11.5px]">
+                              <thead>
+                                <tr className={cn("border-b", cardDark ? "border-[#1E2328] bg-[#11161C]/80" : "border-[#E8E8E5] bg-[#F8FAFC]")}>
+                                  {cols.map((colName) => (
+                                    <th
+                                      key={colName}
+                                      className={cn(
+                                        "px-2.5 py-2 text-[10px] font-mono uppercase tracking-wider font-semibold whitespace-nowrap",
+                                        cardDark ? "text-[#94A3B8]" : "text-[#6B7280]"
+                                      )}
+                                    >
+                                      {colName}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody className={cn("divide-y", cardDark ? "divide-[#1E2328]" : "divide-[#F0F0EE]")}>
+                                {tableRows.map((rowObj, rIdx) => (
+                                  <tr
+                                    key={rIdx}
+                                    className={cn(
+                                      "transition-colors",
+                                      cardDark ? "hover:bg-[#192028]/70" : "hover:bg-[#F9FAFB]"
+                                    )}
+                                  >
+                                    {cols.map((colName) => (
+                                      <td key={colName} className="px-2.5 py-2 align-top">
+                                        {renderTableCellValue(colName, rowObj?.[colName], cardDark)}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {tableRows.map((rowObj, rIdx) => {
+                              const statusKey = cols.find((c) =>
+                                ["urgency", "priority", "status", "state", "verdict"].includes(c.toLowerCase())
+                              );
+                              const idKey = cols.find((c) =>
+                                ["ticket", "id", "ref", "code", "reference"].includes(c.toLowerCase()) ||
+                                /^#[0-9a-f]{5,8}$/i.test(String(rowObj?.[c] ?? ""))
+                              );
+                              const titleKey =
+                                cols.find((c) =>
+                                  ["tenant", "name", "contractor", "subject", "title", "person"].includes(c.toLowerCase())
+                                ) || cols.find((c) => c !== statusKey && c !== idKey);
+                              const detailCols = cols.filter(
+                                (c) => c !== statusKey && c !== idKey && c !== titleKey
+                              );
+                              const statusRaw = statusKey ? String(rowObj?.[statusKey] ?? "").trim() : "";
+                              const statusLow = statusRaw.toLowerCase();
+                              const statusDotColor =
+                                ["emergency", "urgent", "overcharge", "overdue"].includes(statusLow)
+                                  ? "bg-red-500"
+                                  : ["high", "p1", "waiting on owner", "waiting on third party", "proposed"].includes(statusLow)
+                                    ? "bg-amber-500"
+                                    : ["active", "fair", "confirmed", "resolved", "open"].includes(statusLow)
+                                      ? "bg-emerald-500"
+                                      : "bg-blue-500";
+
+                              return (
+                                <div
+                                  key={rIdx}
+                                  className={cn(
+                                    "rounded-[10px] border p-2.5 space-y-1.5 transition-colors",
+                                    cardDark
+                                      ? "bg-[#11161C]/90 border-[#262F3A]"
+                                      : "bg-[#FFFFFF] border-[#E8E8E5] hover:border-[#CBD5E1]"
+                                  )}
+                                >
+                                  <div className="flex items-start justify-between gap-2 min-w-0">
+                                    <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                      {idKey && rowObj?.[idKey] && (
+                                        <span
+                                          className={cn(
+                                            "font-mono text-[10.5px] font-semibold px-1.5 py-0.5 rounded border shrink-0",
+                                            cardDark
+                                              ? "bg-[#1A1F26] border-[#262F3A] text-sky-300"
+                                              : "bg-[#F8FAFC] border-[#E2E8F0] text-[#0F172A]"
+                                          )}
+                                        >
+                                          {String(rowObj[idKey])}
+                                        </span>
+                                      )}
+                                      {titleKey && rowObj?.[titleKey] && (
+                                        <span
+                                          className={cn(
+                                            "text-[12.5px] font-semibold leading-snug break-words",
+                                            cardDark ? "text-[#F3F4F6]" : "text-[#0A0A0A]"
+                                          )}
+                                        >
+                                          {String(rowObj[titleKey])}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {statusRaw && (
+                                      <span
+                                        className={cn(
+                                          "inline-flex items-center gap-1.5 text-[10.5px] font-medium px-2 py-0.5 rounded-full border shrink-0 capitalize whitespace-nowrap",
+                                          cardDark
+                                            ? "bg-[#1A1F26] border-[#262F3A] text-[#E2E8F0]"
+                                            : "bg-[#FFFFFF] border-[#E2E8F0] text-[#334155]"
+                                        )}
+                                      >
+                                        <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", statusDotColor)} />
+                                        {statusRaw}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {detailCols.length > 0 && (
+                                    <div className="space-y-0.5">
+                                      {detailCols.map((colName) => {
+                                        const val = rowObj?.[colName];
+                                        if (val === null || val === undefined || String(val).trim() === "") return null;
+                                        return (
+                                          <div
+                                            key={colName}
+                                            className={cn(
+                                              "text-[11.5px] leading-snug break-words",
+                                              cardDark ? "text-[#94A3B8]" : "text-[#475569]"
+                                            )}
+                                          >
+                                            <span className={cn("text-[10px] uppercase tracking-wider font-mono mr-1.5", cardDark ? "text-[#64748B]" : "text-[#94A3B8]")}>
+                                              {colName}:
+                                            </span>
+                                            <span>{String(val)}</span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )
+                      )}
+
+                      <div className={cn("pt-1 flex items-center justify-end border-t", cardDark ? "border-[#1E2328]/60" : "border-[#E8E8E5]")}>
+                        <button
+                          type="button"
+                          onClick={() => handleNavigate(targetUrl)}
+                          className={cn(
+                            "text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-colors",
+                            isMobileGlass ? "text-cyan-400 hover:text-cyan-300" : "text-[#1a73e8] hover:text-[#1557b0]"
+                          )}
+                        >
+                          <span>{footerLabel}</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : pCard.type === "tenant_lease" ? (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between text-[11px] gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className={cn(
+                          "font-mono text-[10px] font-semibold uppercase px-2 py-0.5 rounded border shrink-0",
+                          getDataTableBadgeClass(pCard.badgeColor || "emerald", cardDark)
+                        )}
+                      >
+                        {pCard.badgeLabel || "ACTIVE LEASE"}
+                      </span>
+                      <span className={cn("font-semibold truncate", cardDark ? "text-[#F3F4F6]" : "text-[#0A0A0A]")}>
+                        {pCard.title || pCard.recipient || "Tenant"}
+                      </span>
+                    </div>
+                    {pCard.status && (
+                      <span
+                        className={cn(
+                          "text-[10.5px] font-mono capitalize px-2 py-0.5 rounded border shrink-0",
+                          cardDark ? "bg-[#1A1F26] border-[#262F3A] text-emerald-300" : "bg-[#FFFFFF] border-[#E8E8E5] text-emerald-700"
+                        )}
+                      >
+                        {pCard.status}
+                      </span>
+                    )}
+                  </div>
+
+                  {(pCard.unitLabel || pCard.subtitle) && (
+                    <div className={cn("text-[12.5px] font-medium", cardDark ? "text-[#E2E8F0]" : "text-[#1F2937]")}>
+                      {pCard.unitLabel || pCard.subtitle}
+                    </div>
+                  )}
+
+                  {(pCard.leaseStart || pCard.leaseEnd) && (
+                    <div className={cn("p-2.5 rounded-[8px] border flex items-center gap-2 text-[11.5px]", innerBoxCls, cardDark ? "text-[#CBD5E1]" : "text-[#374151]")}>
+                      <Calendar className={cn("w-3.5 h-3.5 shrink-0", isMobileGlass ? "text-cyan-400" : "text-[#1a73e8]")} />
+                      <span>
+                        {pCard.leaseStart && pCard.leaseEnd
+                          ? `${pCard.leaseStart} to ${pCard.leaseEnd}`
+                          : pCard.leaseStart
+                            ? `From ${pCard.leaseStart}`
+                            : `Until ${pCard.leaseEnd}`}
+                      </span>
+                    </div>
+                  )}
+
+                  {pCard.body && (
+                    <div className={cn("text-[12px] leading-relaxed", cardDark ? "text-[#94A3B8]" : "text-[#4B5563]")}>
+                      {cleanCardBody(pCard.body)}
+                    </div>
+                  )}
+
+                  <div className={cn("pt-1 flex items-center justify-end border-t", cardDark ? "border-[#1E2328]/60" : "border-[#E8E8E5]")}>
+                    <button
+                      type="button"
+                      onClick={() => handleNavigate(pCard.targetUrl || "/tenants")}
+                      className={cn(
+                        "text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-colors",
+                        isMobileGlass ? "text-cyan-400 hover:text-cyan-300" : "text-[#1a73e8] hover:text-[#1557b0]"
+                      )}
+                    >
+                      <span>Open Tenants</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              ) : pCard.type === "case_summary" ? (
+                (() => {
+                  const cleanBody = cleanCardBody(pCard.body || pCard.title);
+                  const contractor = resolveContractorName(pCard);
+                  const isUrgent = pCard.badgeLabel === "URGENT" || pCard.badgeColor === "rose" || /emergency|urgent/i.test(pCard.title || "");
+                  const poCap = pCard.amount || (cleanBody.match(/€\s*\d+(?:[.,]\d+)?/)?.[0] ? `${cleanBody.match(/€\s*\d+(?:[.,]\d+)?/)?.[0]} PO Cap` : null);
+
+                  return (
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between text-[11px] gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className={cn(
+                              "font-mono text-[10px] font-semibold uppercase px-2 py-0.5 rounded border shrink-0",
+                              isUrgent
+                                ? cardDark
+                                  ? "bg-rose-950/60 text-rose-300 border-rose-800/50"
+                                  : "bg-rose-50 text-rose-700 border-rose-200"
+                                : cardDark
+                                  ? "bg-blue-950/60 text-blue-300 border-blue-800/50"
+                                  : "bg-blue-50 text-blue-700 border-blue-200"
+                            )}
+                          >
+                            {isUrgent ? "URGENT" : "TICKET"}
+                          </span>
+                          <span className={cn("font-medium truncate", cardDark ? "text-[#F3F4F6]" : "text-[#0A0A0A]")}>
+                            {pCard.unitLabel || "Portfolio"}
+                          </span>
+                        </div>
+                        {pCard.status && (
+                          <span
+                            className={cn(
+                              "text-[10.5px] font-mono capitalize px-2 py-0.5 rounded border shrink-0",
+                              cardDark ? "bg-[#1A1F26] border-[#262F3A] text-[#94A3B8]" : "bg-[#FFFFFF] border-[#E8E8E5] text-[#4B5563]"
+                            )}
+                          >
+                            {pCard.status}
+                          </span>
+                        )}
+                      </div>
+                      <div className={cn("text-[12.5px] leading-relaxed font-sans break-words [overflow-wrap:anywhere]", cardDark ? "text-[#E2E8F0]" : "text-[#1F2937]")}>
+                        {cleanBody}
+                      </div>
+                      {(contractor || poCap) && (
+                        <div className={cn("flex flex-wrap items-center justify-between gap-2 pt-2 border-t text-[11px]", cardDark ? "border-[#1E2328]" : "border-[#E8E8E5]")}>
+                          {contractor ? (
+                            <div className={cn("flex items-center gap-1.5", cardDark ? "text-[#94A3B8]" : "text-[#6B7280]")}>
+                              <Wrench className={cn("w-3.5 h-3.5 shrink-0", cardDark ? "text-[#64748B]" : "text-[#9CA3AF]")} />
+                              <span>
+                                Contractor: <strong className={cn("font-medium", cardDark ? "text-[#E2E8F0]" : "text-[#0A0A0A]")}>{contractor}</strong>
+                              </span>
+                            </div>
+                          ) : (
+                            <span />
+                          )}
+                          {poCap && (
+                            <span
+                              className={cn(
+                                "font-mono text-[10.5px] font-semibold px-2 py-0.5 rounded border",
+                                cardDark ? "text-amber-300 bg-amber-950/40 border-amber-800/40" : "text-amber-800 bg-amber-50 border-amber-200"
+                              )}
+                            >
+                              {poCap}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      <div className={cn("pt-1 flex items-center justify-end border-t", cardDark ? "border-[#1E2328]/60" : "border-[#E8E8E5]")}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (pCard?.targetUrl?.startsWith("http")) {
+                              window.open(pCard.targetUrl, "_blank", "noopener,noreferrer");
+                            } else {
+                              handleNavigate(pCard?.targetUrl || (pCard?.caseId ? `/maintenance?ticket=${pCard.caseId}` : "/maintenance"));
+                            }
+                          }}
+                          className={cn(
+                            "text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-colors",
+                            isMobileGlass ? "text-cyan-400 hover:text-cyan-300" : "text-[#1a73e8] hover:text-[#1557b0]"
+                          )}
+                        >
+                          <span>Open in Maintenance</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : pCard.type === "financial_item" ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span
+                      className={cn(
+                        "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border",
+                        cardDark ? "bg-[#1F252C] text-[#CBD5E1] border-[#29323B]" : "bg-[#FFFFFF] text-[#4B5563] border-[#E8E8E5]"
+                      )}
+                    >
+                      {pCard.badgeLabel || "FINANCE"}
+                    </span>
+                    {pCard.amount && (
+                      <span className={cn("font-mono text-[14px] font-bold", cardDark ? "text-rose-400" : "text-rose-600")}>
+                        {pCard.amount}
+                      </span>
+                    )}
+                  </div>
+                  <div className={cn("text-[13px] font-semibold break-words", cardDark ? "text-[#F9FAFB]" : "text-[#0A0A0A]")}>
+                    {pCard.title}
+                  </div>
+                  <div className={cn("text-[12px] leading-relaxed break-words [overflow-wrap:anywhere]", cardDark ? "text-[#94A3B8]" : "text-[#4B5563]")}>
+                    {cleanCardBody(pCard.subtitle || pCard.body)}
+                  </div>
+                  <div className={cn("pt-2 flex items-center justify-between border-t text-[11px]", cardDark ? "border-[#1E2328]" : "border-[#E8E8E5]")}>
+                    <span className={cn("font-mono text-[10.5px]", cardDark ? "text-[#64748B]" : "text-[#888888]")}>
+                      {pCard.dueDate ? `Date: ${pCard.dueDate}` : pCard.unitLabel}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleNavigate(pCard?.targetUrl || "/money")}
+                      className={cn(
+                        "font-medium flex items-center gap-1 cursor-pointer transition-colors",
+                        isMobileGlass ? "text-cyan-400 hover:text-cyan-300" : "text-[#1a73e8] hover:text-[#1557b0]"
+                      )}
+                    >
+                      <span>Open in Money</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              ) : pCard.type === "calendar_item" ? (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className={cn(
+                          "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border flex items-center gap-1 shrink-0",
+                          cardDark ? "bg-[#1F252C] text-[#CBD5E1] border-[#29323B]" : "bg-[#FFFFFF] text-[#4B5563] border-[#E8E8E5]"
+                        )}
+                      >
+                        <Calendar className="w-3 h-3 text-[#1a73e8]" />
+                        {pCard.badgeLabel || "GOOGLE CALENDAR"}
+                      </span>
+                      <span className={cn("font-medium truncate max-w-[200px]", cardDark ? "text-[#F3F4F6]" : "text-[#0A0A0A]")}>
+                        {pCard.unitLabel || "Portfolio Visit"}
+                      </span>
+                    </div>
+                    <span
+                      className={cn(
+                        "text-[10.5px] font-mono capitalize shrink-0",
+                        approvedCalendarIds.has(cardStateKey) || pCard.status === "confirmed"
+                          ? cardDark
+                            ? "text-emerald-400 font-semibold"
+                            : "text-emerald-700 font-semibold"
+                          : cardDark
+                            ? "text-amber-400"
+                            : "text-amber-700"
+                      )}
+                    >
+                      {approvedCalendarIds.has(cardStateKey) || pCard.status === "confirmed" ? "Confirmed" : "Proposed"}
+                    </span>
+                  </div>
+                  <div className={cn("text-[13px] font-semibold", cardDark ? "text-[#F9FAFB]" : "text-[#0A0A0A]")}>
+                    {pCard.title}
+                  </div>
+                  <div className={cn("p-2.5 rounded-[8px] border space-y-1.5 text-[12px]", innerBoxCls, cardDark ? "text-[#CBD5E1]" : "text-[#374151]")}>
+                    <div className={cn("flex items-center gap-1.5", cardDark ? "text-[#E2E8F0]" : "text-[#111827]")}>
+                      <Clock className="w-3.5 h-3.5 text-[#1a73e8]" />
+                      <span className="font-medium">{pCard.dueDate || pCard.subtitle}</span>
+                    </div>
+                    {pCard.contractor && (
+                      <div className={cn("text-[11.5px]", cardDark ? "text-[#94A3B8]" : "text-[#4B5563]")}>
+                        Contractor: <span className={cardDark ? "text-[#F1F5F9]" : "text-[#0A0A0A]"}>{pCard.contractor}</span>
+                      </div>
+                    )}
+                    {pCard.body && (
+                      <div className={cn("text-[11.5px] whitespace-pre-line border-t pt-1 mt-1", cardDark ? "text-[#94A3B8] border-[#1E2328]" : "text-[#4B5563] border-[#E8E8E5]")}>
+                        {pCard.body}
+                      </div>
+                    )}
+                  </div>
+                  <div className={cn("pt-1.5 flex items-center justify-between border-t", cardDark ? "border-[#1E2328]" : "border-[#E8E8E5]")}>
+                    <span className={cn("text-[10.5px] font-mono", cardDark ? "text-[#64748B]" : "text-[#6B7280]")}>
+                      {approvedCalendarIds.has(cardStateKey) || pCard.status === "confirmed"
+                        ? "Synced to Google Calendar"
+                        : "Requires 1-click confirmation"}
+                    </span>
+                    {approvedCalendarIds.has(cardStateKey) || pCard.status === "confirmed" ? (
+                      <div className={cn("flex items-center gap-1.5 text-[11.5px] font-semibold", cardDark ? "text-emerald-400" : "text-emerald-700")}>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Added to Google Calendar</span>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleApproveCalendar(cardStateKey, pCard?.actionId)}
+                        disabled={approvingCalendarId === cardStateKey}
+                        className="px-3 py-1.5 rounded-[7px] bg-[#1a73e8] hover:bg-[#1557b0] text-[#FFFFFF] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        {approvingCalendarId === cardStateKey ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Syncing...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Approve & Add to Calendar</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : pCard.type === "document_item" ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className={cn(
+                          "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border flex items-center gap-1 shrink-0",
+                          cardDark ? "bg-[#1F252C] text-[#CBD5E1] border-[#29323B]" : "bg-[#FFFFFF] text-[#4B5563] border-[#E8E8E5]"
+                        )}
+                      >
+                        <FileText className="w-3 h-3 text-[#1a73e8]" />
+                        {pCard.badgeLabel || "GOOGLE DRIVE"}
+                      </span>
+                      <span className={cn("font-medium truncate max-w-[200px]", cardDark ? "text-[#F3F4F6]" : "text-[#0A0A0A]")}>
+                        {pCard.unitLabel || "Portfolio Document"}
+                      </span>
+                    </div>
+                    {pCard.status && (
+                      <span className={cn("text-[10.5px] font-mono shrink-0", cardDark ? "text-emerald-400" : "text-emerald-700")}>
+                        {pCard.status}
+                      </span>
+                    )}
+                  </div>
+                  <div className={cn("text-[13px] font-semibold", cardDark ? "text-[#F9FAFB]" : "text-[#0A0A0A]")}>
+                    {pCard.title}
+                  </div>
+                  {pCard.body && (
+                    <div className={cn("p-2.5 rounded-[8px] border text-[12px] font-sans leading-relaxed break-words [overflow-wrap:anywhere]", innerBoxCls, cardDark ? "text-[#CBD5E1]" : "text-[#374151]")}>
+                      {pCard.body}
+                    </div>
+                  )}
+                  <div className="pt-1.5 flex items-center justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (pCard?.targetUrl?.startsWith("http")) {
+                          window.open(pCard.targetUrl, "_blank", "noopener,noreferrer");
+                        } else {
+                          handleNavigate(pCard?.targetUrl || "/documents");
+                        }
+                      }}
+                      className={cn(
+                        "text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-colors",
+                        isMobileGlass ? "text-cyan-400 hover:text-cyan-300" : "text-[#1a73e8] hover:text-[#1557b0]"
+                      )}
+                    >
+                      <span>Open in Google Drive</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              ) : pCard.type === "memory_item" ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className={cn(
+                          "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border flex items-center gap-1 shrink-0",
+                          cardDark ? "bg-[#1F252C] text-[#CBD5E1] border-[#29323B]" : "bg-[#FFFFFF] text-[#4B5563] border-[#E8E8E5]"
+                        )}
+                      >
+                        <Sparkles className="w-3 h-3 text-[#1a73e8]" />
+                        {pCard.badgeLabel || "POLICY PROPOSAL"}
+                      </span>
+                      <span className={cn("font-medium truncate max-w-[200px]", cardDark ? "text-[#F3F4F6]" : "text-[#0A0A0A]")}>
+                        {pCard.unitLabel || "Company Portfolio"}
+                      </span>
+                    </div>
+                    <span
+                      className={cn(
+                        "text-[10.5px] font-mono shrink-0",
+                        approvedMemoryIds.has(pCard.actionId || "")
+                          ? cardDark
+                            ? "text-emerald-400"
+                            : "text-emerald-700"
+                          : cardDark
+                            ? "text-amber-400"
+                            : "text-amber-700"
+                      )}
+                    >
+                      {approvedMemoryIds.has(pCard.actionId || "") ? "Active Rule" : "Pending Activation"}
+                    </span>
+                  </div>
+                  <div className={cn("text-[13px] font-semibold", cardDark ? "text-[#F9FAFB]" : "text-[#0A0A0A]")}>
+                    {pCard.title || "Proposed Standing Rule"}
+                  </div>
+                  {pCard.body && (
+                    <div className={cn("p-2.5 rounded-[8px] border text-[12px] font-sans leading-relaxed break-words [overflow-wrap:anywhere]", innerBoxCls, cardDark ? "text-[#CBD5E1]" : "text-[#374151]")}>
+                      • {pCard.body}
+                    </div>
+                  )}
+                  <div className={cn("pt-1.5 flex items-center justify-between border-t", cardDark ? "border-[#1E2328]" : "border-[#E8E8E5]")}>
+                    <span className={cn("text-[10.5px] font-mono", cardDark ? "text-[#64748B]" : "text-[#6B7280]")}>
+                      {approvedMemoryIds.has(pCard.actionId || "") ? "Enforced across all workflows" : "Requires owner sign-off"}
+                    </span>
+                    {approvedMemoryIds.has(pCard.actionId || "") ? (
+                      <div className={cn("flex items-center gap-1.5 text-[11.5px] font-semibold", cardDark ? "text-emerald-400" : "text-emerald-700")}>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Rule Activated</span>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleApproveMemory(pCard?.actionId || cardStateKey, pCard?.actionId)}
+                        disabled={approvingMemoryId === (pCard?.actionId || cardStateKey)}
+                        className="px-3 py-1.5 rounded-[7px] bg-[#1a73e8] hover:bg-[#1557b0] text-[#FFFFFF] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        {approvingMemoryId === (pCard?.actionId || cardStateKey) ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Activating...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Activate Standing Rule</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : pCard.type === "notice" ? (
+                <div className="space-y-2.5 min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] min-w-0">
+                    <span
+                      className={cn(
+                        "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border shrink-0",
+                        cardDark ? "bg-amber-500/15 text-amber-400 border-amber-500/30" : "bg-amber-50 text-amber-800 border-amber-200"
+                      )}
+                    >
+                      {t(pCard.badgeLabel || "NOTICE")}
+                    </span>
+                    <span className={cn("text-[10.5px] font-mono truncate min-w-0 max-w-full", cardDark ? "text-[#64748B]" : "text-[#888888]")}>
+                      {pCard.unitLabel || "Action Required"}
+                    </span>
+                  </div>
+
+                  <div className={cn("text-[13px] font-semibold", cardDark ? "text-[#F9FAFB]" : "text-[#0A0A0A]")}>
+                    {t(pCard.title || "Action Notice")}
+                  </div>
+
+                  <div
+                    className={cn(
+                      "p-2.5 rounded-[8px] text-[12px] leading-relaxed font-sans break-words [overflow-wrap:anywhere] border",
+                      cardDark ? "bg-[#0E1113] border-amber-500/20 text-[#E2E8F0]" : "bg-[#FFFBEB] border-amber-200 text-[#78350F]"
+                    )}
+                  >
+                    {t(pCard.body || "")}
+                  </div>
+
+                  <div className={cn("pt-1.5 flex flex-wrap items-center justify-between gap-2 border-t", cardDark ? "border-[#1E2328]" : "border-[#E8E8E5]")}>
+                    <span className={cn("text-[10.5px] font-mono shrink-0", cardDark ? "text-[#64748B]" : "text-[#888888]")}>
+                      {t("Status")}: {t(pCard.status || "pending")}
+                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {pCard.caseId && (
+                        <button
+                          type="button"
+                          onClick={() => handleSendQuery(`draft a reply for case ${pCard?.caseId}`)}
+                          className={cn(
+                            "px-2.5 py-1 rounded-[6px] border text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap",
+                            cardDark
+                              ? "bg-[#181818] hover:bg-[#222222] border-[#262626] text-[#FFFFFF]"
+                              : "bg-[#0A0A0A] hover:bg-[#222222] border-[#0A0A0A] text-[#FFFFFF]"
+                          )}
+                        >
+                          {t("Retry Draft")}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleNavigate(pCard?.targetUrl || `/inbox?thread=case-${pCard?.caseId || ""}`)}
+                        className="text-[11px] text-[#1a73e8] hover:underline flex items-center gap-1 cursor-pointer font-medium whitespace-nowrap"
+                      >
+                        <span>{t("Open in Inbox")}</span>
+                        <ExternalLink className="w-3 h-3 shrink-0" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                (() => {
+                  const rawVariants =
+                    pCard.variants && pCard.variants.length > 0 ? pCard.variants : pCard.body ? [pCard.body] : [];
+                  const variantIndex = selectedDraftVariants[cardStateKey] ?? 0;
+                  const activeDraftBody = rawVariants[variantIndex] || pCard.body || "";
+                  const choiceKey = variantIndex === 0 ? "d1" : "d2";
+                  const cleanPhone = (pCard.recipient || "").replace(/[^0-9]/g, "");
+
+                  const dynamicExternalUrl =
+                    pCard.channel?.toLowerCase() === "whatsapp" && cleanPhone
+                      ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(activeDraftBody)}`
+                      : pCard.channel?.toLowerCase() === "gmail" && pCard.recipient
+                        ? `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(pCard.recipient)}&su=${encodeURIComponent(pCard.subject || "Maintenance Update")}&body=${encodeURIComponent(activeDraftBody)}`
+                        : pCard.externalUrl;
+
+                  return (
+                    <div className="space-y-2.5 min-w-0">
+                      <div className="flex flex-wrap items-center justify-between text-[11px] gap-2 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <span
+                            className={cn(
+                              "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border shrink-0",
+                              cardDark ? "bg-[#1F252C] text-[#CBD5E1] border-[#29323B]" : "bg-[#FFFFFF] text-[#4B5563] border-[#E8E8E5]"
+                            )}
+                          >
+                            Draft · {pCard.channel || "whatsapp"}
+                          </span>
+                          {pCard.unitLabel && (
+                            <span className={cn("font-medium truncate min-w-0", cardDark ? "text-[#F3F4F6]" : "text-[#0A0A0A]")}>
+                              {pCard.unitLabel}
+                            </span>
+                          )}
+                        </div>
+                        <span className="font-mono text-[10.5px] truncate max-w-full text-right">
+                          {pCard.recipient ? (
+                            <span className={cardDark ? "text-[#94A3B8]" : "text-[#6B7280]"}>{pCard.recipient}</span>
+                          ) : (
+                            <span className={cn("font-sans text-[10px] font-semibold", cardDark ? "text-amber-400" : "text-amber-700")}>
+                              {pCard.channel?.toLowerCase() === "gmail" ? "⚠️ No recipient email on file" : "⚠️ No recipient phone on file"}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+
+                      {rawVariants.length > 1 && (
+                        <div
+                          className={cn(
+                            "flex flex-wrap items-center gap-1 p-1 rounded-[7px] border w-fit max-w-full",
+                            cardDark ? "bg-[#141920] border-[#222933]" : "bg-[#F3F4F6] border-[#E5E7EB]"
+                          )}
+                        >
+                          {rawVariants.map((_, vIdx) => {
+                            const isSelected = variantIndex === vIdx;
+                            return (
+                              <button
+                                key={vIdx}
+                                type="button"
+                                onClick={() => setSelectedDraftVariants((prev) => ({ ...prev, [cardStateKey]: vIdx }))}
+                                className={cn(
+                                  "px-2.5 py-1 text-[11px] rounded-[5px] transition-all cursor-pointer flex items-center gap-1.5",
+                                  isSelected
+                                    ? cardDark
+                                      ? "bg-[#2A3441] text-[#FFFFFF] font-semibold shadow-xs"
+                                      : "bg-[#FFFFFF] text-[#0A0A0A] font-semibold shadow-xs"
+                                    : cardDark
+                                      ? "text-[#94A3B8] hover:text-[#FFFFFF]"
+                                      : "text-[#6B7280] hover:text-[#0A0A0A]"
+                                )}
+                              >
+                                <span>{vIdx === 0 ? "Option 1 (Recommended)" : "Option 2 (Alternative)"}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      <div className={cn("p-2.5 rounded-[8px] border text-[12px] italic whitespace-pre-line leading-relaxed font-sans break-words [overflow-wrap:anywhere]", innerBoxCls, cardDark ? "text-[#E2E8F0]" : "text-[#111827]")}>
+                        &ldquo;{activeDraftBody || "(Draft empty)"}&rdquo;
+                      </div>
+
+                      <div className="pt-1 flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {sentCardIds.has(cardStateKey) ? (
+                            <div className={cn("flex items-center gap-1.5 text-[11.5px] font-medium py-1", cardDark ? "text-emerald-400" : "text-emerald-700")}>
+                              <Check className="w-4 h-4 stroke-[2.5]" />
+                              <span>Dispatched to {pCard.channel || "WhatsApp"}</span>
+                            </div>
+                          ) : sendErrorCardIds.has(cardStateKey) ? (
+                            <div className="flex items-center gap-2">
+                              <span className={cn("text-[11px]", cardDark ? "text-rose-400" : "text-rose-600")}>Failed to dispatch draft.</span>
+                              <button
+                                type="button"
+                                onClick={() => handleApproveDraft(cardStateKey, pCard?.actionId, pCard?.caseId, choiceKey, activeDraftBody)}
+                                className="text-[11px] text-[#1a73e8] hover:underline cursor-pointer font-semibold"
+                              >
+                                Retry
+                              </button>
+                            </div>
+                          ) : pCard.status && pCard.status !== "pending" ? (
+                            <div className={cn("flex items-center gap-1.5 text-[11.5px] font-medium py-1 capitalize", cardDark ? "text-[#94A3B8]" : "text-[#6B7280]")}>
+                              <span>Status: {pCard.status}</span>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleApproveDraft(cardStateKey, pCard?.actionId, pCard?.caseId, choiceKey, activeDraftBody)}
+                              disabled={sendingCardId === cardStateKey || !pCard?.recipient}
+                              className="px-3 py-1.5 rounded-[7px] bg-[#1a73e8] hover:bg-[#1557b0] text-[#FFFFFF] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                              title={!pCard?.recipient ? "Cannot dispatch: recipient is missing" : "Approve and send"}
+                            >
+                              {sendingCardId === cardStateKey ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  <span>Sending...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <SendHorizontal className="w-3.5 h-3.5" />
+                                  <span>Accept and send</span>
+                                </>
+                              )}
+                            </button>
+                          )}
+
+                          {dynamicExternalUrl && (
+                            <button
+                              type="button"
+                              onClick={() => window.open(dynamicExternalUrl, "_blank", "noopener,noreferrer")}
+                              className={cn(
+                                "px-2.5 py-1.5 rounded-[7px] font-medium text-[11.5px] flex items-center gap-1.5 transition-all cursor-pointer border",
+                                pCard.channel?.toLowerCase() === "whatsapp"
+                                  ? cardDark
+                                    ? "bg-[#25D366]/15 hover:bg-[#25D366]/25 text-[#25D366] border-[#25D366]/30 shadow-sm"
+                                    : "bg-[#25D366]/10 hover:bg-[#25D366]/20 text-[#128C7E] border-[#25D366]/30 shadow-xs"
+                                  : cardDark
+                                    ? "bg-red-500/15 hover:bg-red-500/25 text-red-400 border-red-500/30 shadow-sm"
+                                    : "bg-red-50 hover:bg-red-100 text-red-600 border-red-200 shadow-xs"
+                              )}
+                              title={`Open pre-filled draft in ${pCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}`}
+                            >
+                              {pCard.channel?.toLowerCase() === "whatsapp" ? (
+                                <MessageSquare className="w-3.5 h-3.5" />
+                              ) : (
+                                <Mail className="w-3.5 h-3.5" />
+                              )}
+                              <span>Open in {pCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}</span>
+                              <ExternalLink className="w-3 h-3 opacity-70" />
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2.5">
+                          {pCard.threadSearchUrl && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (pCard.threadSearchUrl) {
+                                  window.open(pCard.threadSearchUrl, "_blank", "noopener,noreferrer");
+                                }
+                              }}
+                              className={cn(
+                                "text-[11px] flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap",
+                                cardDark ? "text-[#94A3B8] hover:text-[#E2E8F0]" : "text-[#6B7280] hover:text-[#0A0A0A]"
+                              )}
+                              title={`View thread history in ${pCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}`}
+                            >
+                              <span>View Thread</span>
+                              <ExternalLink className="w-3 h-3 shrink-0" />
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const draftText = activeDraftBody ? encodeURIComponent(activeDraftBody) : "";
+                              const baseTarget = pCard?.targetUrl || `/inbox?thread=case-${pCard?.caseId || ""}`;
+                              const urlWithDraft =
+                                draftText && !baseTarget.includes("draft=")
+                                  ? `${baseTarget}${baseTarget.includes("?") ? "&" : "?"}draft=${draftText}`
+                                  : baseTarget;
+                              handleNavigate(urlWithDraft);
+                            }}
+                            className={cn(
+                              "text-[11px] flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap",
+                              cardDark ? "text-[#888888] hover:text-[#FFFFFF]" : "text-[#6B7280] hover:text-[#0A0A0A]"
+                            )}
+                          >
+                            <span>Open in Inbox</span>
+                            <ExternalLink className="w-3 h-3 shrink-0" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderMessageSteps = (msg: AssistantMessage, cardDark: boolean) => {
+    const validSteps = filterValidSteps(msg.steps);
+    if (validSteps.length === 0) return null;
+    return (
+      <div className={cn("mt-2 space-y-1 text-[11.5px]", cardDark ? "text-[#94A3B8]" : "text-[#4B5563]")}>
+        {validSteps.map((st, sIdx) => (
+          <div key={sIdx} className="flex items-center gap-2">
+            <Check className={cn("w-3.5 h-3.5 shrink-0", cardDark ? "text-emerald-300" : "text-emerald-600")} />
+            <span className="leading-tight">{st}</span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderMessageActions = (msg: AssistantMessage, cardDark: boolean, isMobileGlass: boolean = false) => {
+    if (!msg.actions || msg.actions.length === 0) return null;
+    const filteredActions = msg.actions
+      .filter((act, idx, arr) => arr.findIndex((a) => a.label === act.label || (act.payload && a.payload === act.payload)) === idx)
+      .filter((act) => {
+        if (msg.previewCard && act.actionType === "navigate") {
+          const actLow = act.label.toLowerCase();
+          if (actLow.includes("money") && msg.previewCard.type === "financial_item") return false;
+          if (actLow.includes("maintenance") && msg.previewCard.type === "case_summary") return false;
+          if (actLow.includes("inbox") && msg.previewCard.type === "draft_message") return false;
+          if (actLow.includes("approvals") && msg.previewCard.type === "draft_message") return false;
+          if (
+            (msg.previewCard.type === "data_table" || msg.previewCard.type === "tenant_lease") &&
+            msg.previewCard.targetUrl &&
+            act.payload === msg.previewCard.targetUrl
+          ) {
+            return false;
+          }
+        }
+        return true;
+      });
+
+    if (filteredActions.length === 0) return null;
+    return (
+      <div className="flex flex-wrap gap-2 mt-1">
+        {filteredActions.map((act, idx) => {
+          const isMemApprove = act.actionType === "approve_memory";
+          const isMemActivating = isMemApprove && approvingMemoryId === act.payload;
+          const isMemActivated =
+            isMemApprove &&
+            (approvedMemoryIds.has(act.payload) || (msg.previewCard?.actionId && approvedMemoryIds.has(msg.previewCard.actionId)));
+
+          if (isMemActivated) {
+            return (
+              <button
+                key={idx}
+                type="button"
+                disabled
+                className="px-3 py-1.5 rounded-[8px] text-[12px] font-semibold flex items-center gap-1.5 bg-[#0F291E] border border-emerald-500/30 text-emerald-400 cursor-default"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Rule Activated</span>
+              </button>
+            );
+          }
+
+          return (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => handleActionClick(act)}
+              disabled={isMemActivating}
+              className={cn(
+                "px-3 py-1.5 rounded-[8px] text-[12px] font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50",
+                act.isPrimary
+                  ? "bg-[#1a73e8] hover:bg-[#1557b0] text-[#FFFFFF]"
+                  : isMobileGlass
+                    ? "bg-white/10 hover:bg-white/20 border border-white/15 text-white"
+                    : cardDark
+                      ? "bg-[#181818] hover:bg-[#222222] border border-[#262626] text-[#FFFFFF]"
+                      : "bg-[#FFFFFF] hover:bg-[#F0F0EE] border border-[#E8E8E5] text-[#0A0A0A]"
+              )}
+            >
+              {isMemActivating ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span>Activating...</span>
+                </>
+              ) : (
+                <>
+                  <span>{t(act.label)}</span>
+                  <CornerDownRight className="w-3 h-3" />
+                </>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
 
   if (!isOpen) return null;
 
@@ -590,15 +1642,13 @@ export function AskEstateOSPanel({
               <span className="w-4 h-[2px] bg-white rounded-full"></span>
             </button>
 
-            {/* Center: Dynamic Executive Co-Pilot Status */}
+            {/* Center: Dynamic Astra Co-Pilot Status */}
             <div className="flex items-center gap-2 min-w-0">
-              <div className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center shadow-[0_0_10px_rgba(0,229,255,0.4)] shrink-0">
-                <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+              <div className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-300 flex items-center justify-center shadow-[0_0_10px_rgba(0,229,255,0.4)] shrink-0">
+                <AstraIcon className="w-3.5 h-3.5 animate-pulse" />
               </div>
               <div className="flex items-center gap-1.5 min-w-0">
-                <span className="text-[13.5px] font-semibold text-white tracking-tight truncate">
-                  Executive Copilot
-                </span>
+                <AstraWordmark variant="dark" className="text-[12.5px] truncate" />
                 <span className="w-1.5 h-1.5 rounded-full bg-[#00e5ff] animate-pulse shadow-[0_0_8px_#00e5ff] shrink-0" />
               </div>
             </div>
@@ -619,7 +1669,7 @@ export function AskEstateOSPanel({
                 type="button"
                 onClick={onClose}
                 className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-                title="Close Super Agent"
+                title="Close Astra"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -628,12 +1678,12 @@ export function AskEstateOSPanel({
         </div>
 
         {/* Mobile Main Body: Hero Greeting & Reticle OR Active Conversation Stream */}
-        {messages.length <= 1 ? (
+        {messages.length === 0 || (messages.length === 1 && messages[0].id === "initial-msg") ? (
           <div className="relative z-10 flex-1 flex flex-col justify-between px-6 pt-8 pb-3 overflow-y-auto">
             {/* Hero Greeting Headline */}
             <div>
               <h1 className="text-[35px] font-bold text-white tracking-tight leading-[1.18] font-sans">
-                Hello Harjhot<br />
+                Hello Harjot<br />
                 How can I help you<br />
                 today?
               </h1>
@@ -657,7 +1707,7 @@ export function AskEstateOSPanel({
             {/* Suggestions Header & Rounded Action Chips */}
             <div className="mt-auto mb-2">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-[#94a3b8] mb-2.5">
-                <Sparkles className="w-3.5 h-3.5 text-[#94a3b8] fill-[#94a3b8]" />
+                <AstraIcon className="w-3.5 h-3.5 text-[#94a3b8]" />
                 <span>Suggestions</span>
               </div>
               <div className="flex flex-wrap items-center gap-2.5">
@@ -682,263 +1732,42 @@ export function AskEstateOSPanel({
           </div>
         ) : (
           <div className="relative z-10 flex-1 overflow-y-auto px-4 py-3 space-y-3.5">
-            {messages.slice(1).map((m) => (
-              <div key={m.id} className="w-full">
-                {m.sender === "user" ? (
-                  <div className="ml-auto items-end flex flex-col max-w-[85%] text-[13px] leading-relaxed">
-                    <div className="p-3 rounded-2xl shadow-md bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-br-xs">
-                      <p className="whitespace-pre-wrap">{m.text}</p>
+            {messages
+              .filter((m) => m.id !== "initial-msg")
+              .map((m) => (
+                <div key={m.id} className="w-full min-w-0">
+                  {m.sender === "user" ? (
+                    <div className="ml-auto items-end flex flex-col max-w-[85%] text-[13px] leading-relaxed">
+                      <div className="p-3 rounded-2xl shadow-md bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-br-xs">
+                        <p className="whitespace-pre-wrap break-words">{m.text}</p>
+                      </div>
+                      <span className="text-[10px] text-white/40 mt-1 px-1">{m.timestamp}</span>
                     </div>
-                    <span className="text-[10px] text-white/40 mt-1 px-1">{m.timestamp}</span>
-                  </div>
-                ) : (
-                  <div className="mr-auto items-start flex flex-col w-full text-[13px] leading-relaxed space-y-3 select-text">
-                    <div className="text-slate-100 leading-relaxed font-sans text-[13.5px] select-text">
-                      <p className="whitespace-pre-wrap">
-                        {m.text.includes("matching conversation")
-                          ? "I found unread messages today across WhatsApp and Gmail. Showing the latest messages requiring your immediate action:"
-                          : m.text}
-                      </p>
+                  ) : (
+                    <div className="mr-auto items-start flex flex-col w-full text-[13px] leading-relaxed space-y-2.5 select-text min-w-0">
+                      <div
+                        className="text-slate-100 leading-relaxed font-sans text-[13.5px] select-text whitespace-pre-line break-words [overflow-wrap:anywhere] min-w-0 max-w-full"
+                        dangerouslySetInnerHTML={{
+                          __html: formatMarkdown(
+                            m.id === "initial-msg" ? t("agent.welcome_sub", m.text) : m.text,
+                            true
+                          ),
+                        }}
+                      />
+
+                      {renderMessageSteps(m, true)}
+                      {renderPreviewCardsBlock(m, true, true)}
+                      {renderMessageActions(m, true, true)}
+
+                      <span className="text-[10px] text-white/40 mt-1 px-1">{m.timestamp}</span>
                     </div>
-
-                    {/* Filter Pills & Interactive Cards (Matches Mockup) */}
-                    {(() => {
-                      const rawCards = (m.previewCards && m.previewCards.length > 0)
-                        ? m.previewCards
-                        : (m.previewCard ? [m.previewCard] : []);
-
-                      // Find the user query that directly triggered this assistant turn
-                      const prevUserMsg = [...messages.slice(0, messages.indexOf(m))]
-                        .reverse()
-                        .find((item) => item.sender === "user")?.text.toLowerCase() || "";
-
-                      // Only trigger unread cards if the user specifically asked for messages/unread, or if backend returned retrieval matches
-                      const isUnreadQuery =
-                        /unread|messages|inbox|conversations/i.test(prevUserMsg) ||
-                        m.text.toLowerCase().includes("matching conversation") ||
-                        m.text.toLowerCase().includes("found unread messages");
-
-                      const isGeneralHelpQuery = /what (can|u can) do|who are you|hello|hi\b/i.test(prevUserMsg);
-
-                      const mappedLive: PreviewCardData[] = (liveThreads && liveThreads.length > 0)
-                        ? liveThreads.slice(0, 3).map((t) => {
-                            const isCrit = t.urgency === "emergency" || t.urgency === "high";
-                            return {
-                              type: "case_summary",
-                              actionId: t.id,
-                              caseId: t.ticketNumber || t.caseRef,
-                              title: t.senderName,
-                              subtitle: t.latestSnippet || t.caseSummary || "",
-                              recipient: t.senderName,
-                              unitLabel: t.unitLabel || "Centrum Portfolio",
-                              body: t.latestSnippet || t.caseSummary || "No recent snippet available",
-                              badgeLabel: isCrit ? "Critical" : "Normal",
-                              badgeColor: isCrit ? "rose" : "blue",
-                              channel: t.channel || "whatsapp",
-                              subject: t.subject || "Direct Message",
-                              status: isCrit ? "Critical" : "Normal",
-                            };
-                          })
-                        : [];
-
-                      const cardsList: PreviewCardData[] = rawCards.length > 0
-                        ? rawCards
-                        : (isUnreadQuery && !isGeneralHelpQuery)
-                        ? (mappedLive.length > 0
-                            ? mappedLive
-                            : [
-                                {
-                                  type: "case_summary",
-                                  actionId: "msg-praveen",
-                                  caseId: "case-praveen",
-                                  title: "Praveen Rostova",
-                                  subtitle: "Emergency kitchen drain pipe rupture detected beneath the sink unit; active water is pooling rapidly onto the oak hardwood floor",
-                                  recipient: "Praveen Rostova",
-                                  unitLabel: "Unit 4B · Parkview Residencies",
-                                  body: "Emergency kitchen drain pipe rupture detected beneath the sink unit; active water is pooling rapidly onto the oak hardwood floor",
-                                  badgeLabel: "Critical",
-                                  badgeColor: "rose",
-                                  channel: "whatsapp",
-                                  subject: "Emergency Kitchen Drain Leak",
-                                  status: "Critical",
-                                },
-                                {
-                                  type: "case_summary",
-                                  actionId: "msg-elena",
-                                  caseId: "case-elena",
-                                  title: "Elena Rostova",
-                                  subtitle: "Inquiry regarding formal 12-month lease renewal starting January 1st, 2027; tenant accepts the proposed +4.0% market rate",
-                                  recipient: "Elena Rostova",
-                                  unitLabel: "Unit 4B · Parkview Residencies",
-                                  body: "Inquiry regarding formal 12-month lease renewal starting January 1st, 2027; tenant accepts the proposed +4.0% market rate",
-                                  badgeLabel: "Critical",
-                                  badgeColor: "rose",
-                                  channel: "gmail",
-                                  subject: "Lease renewal inquiry",
-                                  status: "Critical",
-                                },
-                              ])
-                        : [];
-
-                      if (cardsList.length === 0) return null;
-
-                      const filtered = cardsList.filter((card) => {
-                        if (selectedPriorityFilter !== "All Priorities") {
-                          const cardPriority = (card.badgeLabel || card.status || "Normal").toLowerCase();
-                          if (!cardPriority.includes(selectedPriorityFilter.toLowerCase())) return false;
-                        }
-                        if (selectedChannelFilter !== "All Message Type") {
-                          const cardChan = (card.channel || "").toLowerCase();
-                          if (!cardChan.includes(selectedChannelFilter.toLowerCase())) return false;
-                        }
-                        return true;
-                      });
-
-                      return (
-                        <div className="w-full space-y-3 pt-1">
-                          {/* Filter Pills Row */}
-                          <div className="flex items-center gap-2 pt-1 pb-1">
-                            <button
-                              type="button"
-                              onClick={() => setIsPriorityModalOpen(true)}
-                              className="px-3.5 py-1.5 rounded-full bg-[#0E2138] border border-[#162B45] text-xs font-medium text-slate-300 flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer"
-                            >
-                              <span>{selectedPriorityFilter}</span>
-                              <ChevronDown className="w-3.5 h-3.5 opacity-60" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setIsChannelModalOpen(true)}
-                              className="px-3.5 py-1.5 rounded-full bg-[#0E2138] border border-[#162B45] text-xs font-medium text-slate-300 flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer"
-                            >
-                              <span>{selectedChannelFilter}</span>
-                              <ChevronDown className="w-3.5 h-3.5 opacity-60" />
-                            </button>
-                          </div>
-
-                          {/* Cards List */}
-                          <div className="space-y-3">
-                            {filtered.map((card, cIdx) => {
-                              const cardKey = card.actionId || card.caseId || `card-${cIdx}`;
-                              const senderName = card.recipient || card.title || "Tenant Contact";
-                              const unitText = card.unitLabel || "Centrum Portfolio";
-                              const priority = card.badgeLabel || "Critical";
-                              const isCritical = priority.toLowerCase().includes("critical") || priority.toLowerCase().includes("urgent");
-                              const channel = (card.channel || "whatsapp").toLowerCase();
-                              const isWhatsApp = channel.includes("whatsapp");
-                              const isExpanded = expandedCardIds[cardKey];
-                              const bodyText = card.body || card.subtitle || card.title || "";
-                              const isLong = bodyText.length > 90;
-
-                              return (
-                                <div
-                                  key={cardKey}
-                                  className="p-4 rounded-2xl bg-[#0E2138]/95 border border-[#162B45] space-y-3 shadow-md"
-                                >
-                                  {/* Header: Avatar, Name, Unit, Timestamp, Priority Badge */}
-                                  <div className="flex items-start justify-between gap-2">
-                                    <div className="flex items-center gap-2.5">
-                                      <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-slate-700 to-slate-600 flex items-center justify-center font-semibold text-xs text-white shrink-0">
-                                        {senderName.slice(0, 2).toUpperCase()}
-                                      </div>
-                                      <div>
-                                        <div className="font-semibold text-sm text-white">{senderName}</div>
-                                        <div className="text-[11px] text-slate-400">{unitText}</div>
-                                      </div>
-                                    </div>
-
-                                    <div className="flex flex-col items-end gap-1 shrink-0">
-                                      <span className="text-[11px] text-slate-500">18h ago</span>
-                                      <span
-                                        className={cn(
-                                          "text-[11px] font-semibold",
-                                          isCritical ? "text-[#ef4444]" : "text-emerald-400"
-                                        )}
-                                      >
-                                        {priority}
-                                      </span>
-                                    </div>
-                                  </div>
-
-                                  {/* Message Body with Show More */}
-                                  <div className="text-[13px] leading-relaxed text-slate-200">
-                                    <span>{isExpanded || !isLong ? bodyText : `${bodyText.slice(0, 90)}... `}</span>
-                                    {isLong && (
-                                      <button
-                                        type="button"
-                                        onClick={() => setExpandedCardIds((prev) => ({ ...prev, [cardKey]: !prev[cardKey] }))}
-                                        className="text-cyan-400 font-medium hover:underline ml-1 cursor-pointer"
-                                      >
-                                        {isExpanded ? "Show less" : "Show more"}
-                                      </button>
-                                    )}
-                                  </div>
-
-                                  {/* Action Buttons: Reply, Forward, and Channel Badge */}
-                                  <div className="flex items-center justify-between pt-1 border-t border-white/5 text-xs">
-                                    <div className="flex items-center gap-4">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          if (isWhatsApp) {
-                                            const phone = (card as any).phone || "+31688123456";
-                                            window.open(`https://wa.me/${phone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(bodyText)}`, "_blank");
-                                          } else {
-                                            const email = (card as any).email || "vipint9902@gmail.com";
-                                            window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}&su=${encodeURIComponent("Re: " + (card.subject || "Message"))}&body=${encodeURIComponent(bodyText)}`, "_blank");
-                                          }
-                                        }}
-                                        className="flex items-center gap-1.5 text-cyan-400 hover:text-cyan-300 font-medium cursor-pointer"
-                                      >
-                                        <CornerDownRight className="w-3.5 h-3.5" />
-                                        <span>Reply</span>
-                                      </button>
-
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-                                            navigator.clipboard.writeText(bodyText);
-                                          }
-                                        }}
-                                        className="flex items-center gap-1.5 text-slate-400 hover:text-slate-200 font-medium cursor-pointer"
-                                      >
-                                        <SendHorizontal className="w-3.5 h-3.5" />
-                                        <span>Forward</span>
-                                      </button>
-                                    </div>
-
-                                    <div className="flex items-center gap-1.5 text-slate-400 text-xs">
-                                      {isWhatsApp ? (
-                                        <>
-                                          <MessageSquare className="w-3.5 h-3.5 text-[#25D366]" />
-                                          <span>WhatsApp</span>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <Mail className="w-3.5 h-3.5 text-[#EA4335]" />
-                                          <span>Gmail</span>
-                                        </>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    <span className="text-[10px] text-white/40 mt-1 px-1">{m.timestamp}</span>
-                  </div>
-                )}
-              </div>
-            ))}
+                  )}
+                </div>
+              ))}
             {isTyping && (
               <div className="flex items-center gap-2 text-xs text-cyan-300 py-1">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Super Agent is thinking...</span>
+                <span>Astra is thinking...</span>
               </div>
             )}
             <div ref={messagesEndRef} />
@@ -947,6 +1776,22 @@ export function AskEstateOSPanel({
 
         {/* Floating Voice & Text Dock (Without + button; New Chat is in the drawer) */}
         <div className="relative z-10 px-4 pb-[max(env(safe-area-inset-bottom),16px)] pt-1 shrink-0">
+          {!(messages.length === 0 || (messages.length === 1 && messages[0].id === "initial-msg")) &&
+            !isTyping &&
+            suggestedChips.length > 0 && (
+              <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none no-scrollbar">
+                {suggestedChips.slice(0, 3).map((chip: string, idx: number) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleSendQuery(chip)}
+                    className="px-3 py-1 rounded-full bg-[#091526]/90 hover:bg-[#10223d] border border-[#1b3152] text-[11.5px] text-slate-200 hover:text-white whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
+            )}
           <div className="bg-[#0A1B2F]/95 backdrop-blur-2xl border border-[#162B45] rounded-2xl p-3 shadow-[0_12px_36px_rgba(0,0,0,0.8)]">
             <form
               onSubmit={(e) => {
@@ -969,7 +1814,7 @@ export function AskEstateOSPanel({
                     handleSendQuery(inputQuery);
                   }
                 }}
-                placeholder="Talk to your super agent and get your job done"
+                placeholder="Talk to Astra and get your job done"
                 className="w-full text-[13px] bg-transparent outline-none resize-none text-white placeholder:text-slate-500 leading-normal"
               />
               <div className="flex items-center justify-between pt-1">
@@ -986,7 +1831,10 @@ export function AskEstateOSPanel({
                     )}
                     title={speechLang === "nl" ? "Voice language: Nederlands (tap to switch to English)" : "Voice language: English (tap to switch to Nederlands)"}
                   >
-                    <span>{speechLang === "nl" ? "🇳🇱 NL" : "🇬🇧 EN"}</span>
+                    <span className="inline-flex items-center gap-1">
+                      {speechLang === "nl" ? <FlagNL className="w-3.5 h-2.5" /> : <FlagUK className="w-3.5 h-2.5" />}
+                      <span>{speechLang === "nl" ? "NL" : "EN"}</span>
+                    </span>
                   </button>
 
                   {isListening && (
@@ -1135,24 +1983,26 @@ export function AskEstateOSPanel({
                   Conversations
                 </div>
                 <div className="space-y-3.5 overflow-y-auto max-h-[46vh] pr-1">
-                  {displayConversations.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => {
-                        if (c.id.startsWith("conv-")) {
-                          handleSendQuery(c.title);
-                        } else {
+                  {displayConversations.length === 0 ? (
+                    <div className="text-[13px] text-slate-400 py-2">
+                      No saved conversations yet.
+                    </div>
+                  ) : (
+                    displayConversations.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => {
                           superAgent.selectConversation(c.id);
-                        }
-                        setIsMobileMenuOpen(false);
-                      }}
-                      className="w-full flex items-center justify-between text-left text-[14px] text-white hover:text-cyan-300 transition-colors py-1 cursor-pointer group"
-                    >
-                      <span className="truncate pr-3 font-normal group-hover:underline">{c.title}</span>
-                      <span className="text-[12px] text-[#64748B] shrink-0 font-normal">{c.date}</span>
-                    </button>
-                  ))}
+                          setIsMobileMenuOpen(false);
+                        }}
+                        className="w-full flex items-center justify-between text-left text-[14px] text-white hover:text-cyan-300 transition-colors py-1 cursor-pointer group"
+                      >
+                        <span className="truncate pr-3 font-normal group-hover:underline">{c.title}</span>
+                        <span className="text-[12px] text-[#64748B] shrink-0 font-normal">{c.date}</span>
+                      </button>
+                    ))
+                  )}
                 </div>
               </div>
             </div>
@@ -1163,7 +2013,7 @@ export function AskEstateOSPanel({
                 <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-amber-600 to-amber-400 flex items-center justify-center text-white font-bold text-sm shadow-sm">
                   H
                 </div>
-                <span className="font-semibold text-[15px] text-white">Hi, Harjhot</span>
+                <span className="font-semibold text-[15px] text-white">Hi, Harjot</span>
               </div>
 
               <button
@@ -1180,102 +2030,6 @@ export function AskEstateOSPanel({
             </div>
           </div>
         )}
-
-        {/* ============================================================== */}
-        {/* PRIORITY FILTER BOTTOM SHEET (Matches mockup image 1)          */}
-        {/* ============================================================== */}
-        {isPriorityModalOpen && (
-          <div className="absolute inset-0 z-50 flex flex-col justify-end">
-            <div
-              className="absolute inset-0 bg-black/70 backdrop-blur-xs transition-opacity"
-              onClick={() => setIsPriorityModalOpen(false)}
-            />
-            <div className="relative w-full bg-[#151619] border-t border-white/10 rounded-t-[22px] p-6 pb-[max(env(safe-area-inset-bottom),24px)] space-y-5 shadow-2xl animate-in slide-in-from-bottom duration-200">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold text-white tracking-tight">Priority</h3>
-                <button
-                  type="button"
-                  onClick={() => setIsPriorityModalOpen(false)}
-                  className="w-8 h-8 rounded-full bg-[#24262b] text-white/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2.5">
-                {["All Priorities", "Critical", "High", "Normal", "Low"].map((p) => {
-                  const isSelected = selectedPriorityFilter === p;
-                  return (
-                    <button
-                      key={p}
-                      type="button"
-                      onClick={() => {
-                        setSelectedPriorityFilter(p);
-                        setIsPriorityModalOpen(false);
-                      }}
-                      className={cn(
-                        "px-5 py-2.5 rounded-full text-xs font-semibold transition-all cursor-pointer",
-                        isSelected
-                          ? "bg-[#2563eb] text-white shadow-md"
-                          : "bg-[#24262b] text-slate-200 hover:bg-[#2e3137]"
-                      )}
-                    >
-                      {p}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ============================================================== */}
-        {/* MESSAGE TYPE FILTER BOTTOM SHEET                               */}
-        {/* ============================================================== */}
-        {isChannelModalOpen && (
-          <div className="absolute inset-0 z-50 flex flex-col justify-end">
-            <div
-              className="absolute inset-0 bg-black/70 backdrop-blur-xs transition-opacity"
-              onClick={() => setIsChannelModalOpen(false)}
-            />
-            <div className="relative w-full bg-[#151619] border-t border-white/10 rounded-t-[22px] p-6 pb-[max(env(safe-area-inset-bottom),24px)] space-y-5 shadow-2xl animate-in slide-in-from-bottom duration-200">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold text-white tracking-tight">Message Type</h3>
-                <button
-                  type="button"
-                  onClick={() => setIsChannelModalOpen(false)}
-                  className="w-8 h-8 rounded-full bg-[#24262b] text-white/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2.5">
-                {["All Message Type", "WhatsApp", "Gmail"].map((chan) => {
-                  const isSelected = selectedChannelFilter === chan;
-                  return (
-                    <button
-                      key={chan}
-                      type="button"
-                      onClick={() => {
-                        setSelectedChannelFilter(chan);
-                        setIsChannelModalOpen(false);
-                      }}
-                      className={cn(
-                        "px-5 py-2.5 rounded-full text-xs font-semibold transition-all cursor-pointer",
-                        isSelected
-                          ? "bg-[#2563eb] text-white shadow-md"
-                          : "bg-[#24262b] text-slate-200 hover:bg-[#2e3137]"
-                      )}
-                    >
-                      {chan}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* ============================================================== */}
@@ -1287,7 +2041,7 @@ export function AskEstateOSPanel({
           "hidden md:flex bg-white flex-col justify-between font-sans shrink-0 overflow-hidden relative transition-all duration-300",
           isFullScreen
             ? "absolute inset-0 z-30 m-0 mr-[10px] mb-[10px] h-[calc(100%-10px)] rounded-[14px] border border-[#162B45] shadow-[0_2px_8px_rgba(0,0,0,0.2)] animate-in fade-in duration-200"
-            : "fixed inset-0 z-50 md:relative md:inset-auto md:z-10 w-full md:w-[420px] xl:w-[450px] shrink-0 m-0 md:mr-[10px] md:mb-[10px] h-full md:h-[calc(100%-10px)] rounded-[14px] border border-[#162B45] shadow-[0_2px_8px_rgba(0,0,0,0.2)]"
+            : "fixed inset-0 z-50 md:relative md:inset-auto md:z-10 w-full md:w-[390px] xl:w-[420px] shrink-0 m-0 md:mr-[10px] md:mb-[10px] h-full md:h-[calc(100%-10px)] rounded-[14px] border border-[#162B45] shadow-[0_2px_8px_rgba(0,0,0,0.2)]"
         )}
       >
         {/* 1. Header Bar with Clean Icon Controls (No Text Clutter, No Overlap) */}
@@ -1315,21 +2069,24 @@ export function AskEstateOSPanel({
               <ArrowLeft className="w-5 h-5 stroke-[2]" />
             </button>
 
-            {/* AI Sparkles Icon */}
+            {/* Astra Icon & Stylized Wordmark */}
             <div
               className={cn(
                 "w-7 h-7 rounded-full flex items-center justify-center shrink-0",
                 isDark ? "bg-[#1a73e8]/20 text-[#60a5fa]" : "bg-[#eff6ff] text-[#1a73e8]",
                 "max-md:bg-cyan-500/25 max-md:text-cyan-300 max-md:shadow-[0_0_12px_rgba(0,229,255,0.4)]"
               )}
-              title="Super Agent"
+              title="Astra"
             >
-              <Sparkles className="w-4 h-4 text-[#1a73e8] max-md:text-cyan-300 animate-ai-star" />
+              <AstraIcon className="w-4 h-4 text-[#1a73e8] max-md:text-cyan-300 animate-ai-star" />
             </div>
 
-            <div className="md:hidden flex items-center gap-1.5 pl-0.5">
-              <span className="text-[13px] font-semibold text-white tracking-wide">Jarvis</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_#00e5ff]" />
+            <div className="flex items-center gap-1.5 pl-0.5">
+              <AstraWordmark
+                variant={isDark ? "dark" : "light"}
+                className="text-[12.5px]"
+              />
+              <span className="w-1.5 h-1.5 rounded-full bg-[#1a73e8] max-md:bg-cyan-400 animate-pulse shadow-[0_0_8px_rgba(26,115,232,0.5)]" />
             </div>
           </div>
 
@@ -1646,662 +2403,13 @@ export function AskEstateOSPanel({
                   </div>
                 )}
 
-                {/* Live Step Checklist: Filter out internal technical/database jargon */}
-                {(() => {
-                  const validSteps = filterValidSteps(msg.steps);
-                  if (validSteps.length === 0) return null;
-                  return (
-                    <div
-                      className={cn(
-                        "mt-2.5 space-y-1.5 text-[12px]",
-                        isDark ? "text-[#94A3B8]" : "text-[#4B5563]"
-                      )}
-                    >
-                      {validSteps.map((st, sIdx) => (
-                        <div key={sIdx} className="flex items-center gap-2">
-                          <Check className={cn("w-3.5 h-3.5 shrink-0", isDark ? "text-emerald-300" : "text-emerald-600")} />
-                          <span className="leading-tight">{st}</span>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
-
-                {/* Mini Preview Workspace Cards (Smart limit up to 3 cards) */}
-                {(() => {
-                  const cardsToRender: PreviewCardData[] = (msg.previewCards && msg.previewCards.length > 0)
-                    ? msg.previewCards
-                    : (msg.previewCard ? [msg.previewCard] : []);
-                  if (cardsToRender.length === 0) return null;
-
-                  return (
-                    <div className="space-y-2.5 mt-3">
-                      {cardsToRender.map((pCard: PreviewCardData, cardIdx: number) => (
-                        <div
-                          key={pCard.actionId || pCard.caseId || `preview-${cardIdx}`}
-                          className={cn(
-                            "rounded-[10px] border p-3.5 space-y-2.5 shadow-xs animate-in fade-in-50 duration-150 min-w-0 max-w-full overflow-hidden transition-colors",
-                            isDark ? "bg-[#15181C] border-[#222830]" : "bg-[#FBFBFA] border-[#E8E8E5]",
-                            "max-md:bg-black/55 max-md:border-white/15 max-md:backdrop-blur-xl max-md:shadow-[0_8px_32px_rgba(0,0,0,0.5)] max-md:rounded-[16px]"
-                          )}
-                        >
-                    {pCard.type === "draft_message" && pCard.personaName && (
-                      <div
-                        className={cn("flex items-center gap-1.5 text-[10.5px] font-medium", isDark ? "text-[#94A3B8]" : "text-[#6B7280]")}
-                        title={`Drafted using the persona file "${pCard.personaName}" (version ${pCard.personaVersion ?? 1})`}
-                      >
-                        <UserRound className="w-3 h-3 shrink-0" />
-                        <span>Acting as Harjot</span>
-                        <span className="font-normal opacity-80 truncate">· {pCard.personaName} v{pCard.personaVersion ?? 1}</span>
-                      </div>
-                    )}
-                    {/* 1. Case Snapshot Card */}
-                    {pCard.type === "case_summary" ? (
-                      (() => {
-                        const cleanBody = cleanCardBody(pCard.body || pCard.title);
-                        const contractor = resolveContractorName(pCard);
-                        const isUrgent = pCard.badgeLabel === "URGENT" || pCard.badgeColor === "rose" || /emergency|urgent/i.test(pCard.title || "");
-                        const poCap = pCard.amount || (cleanBody.match(/€\s*\d+(?:[.,]\d+)?/)?.[0] ? `${cleanBody.match(/€\s*\d+(?:[.,]\d+)?/)?.[0]} PO Cap` : null);
-
-                        return (
-                          <div className="space-y-2.5">
-                            <div className="flex items-center justify-between text-[11px] gap-2">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className={cn(
-                                  "font-mono text-[10px] font-semibold uppercase px-2 py-0.5 rounded border shrink-0",
-                                  isUrgent
-                                    ? isDark
-                                      ? "bg-rose-950/60 text-rose-300 border-rose-800/50"
-                                      : "bg-rose-50 text-rose-700 border-rose-200"
-                                    : isDark
-                                      ? "bg-blue-950/60 text-blue-300 border-blue-800/50"
-                                      : "bg-blue-50 text-blue-700 border-blue-200"
-                                )}>
-                                  {isUrgent ? "URGENT" : "TICKET"}
-                                </span>
-                                <span className={cn("font-medium truncate", isDark ? "text-[#F3F4F6]" : "text-[#0A0A0A]")}>
-                                  {pCard.unitLabel || "Portfolio"}
-                                </span>
-                              </div>
-                              {pCard.status && (
-                                <span className={cn(
-                                  "text-[10.5px] font-mono capitalize px-2 py-0.5 rounded border shrink-0",
-                                  isDark ? "bg-[#1A1F26] border-[#262F3A] text-[#94A3B8]" : "bg-[#FFFFFF] border-[#E8E8E5] text-[#4B5563]"
-                                )}>
-                                  {pCard.status}
-                                </span>
-                              )}
-                            </div>
-                            <div className={cn("text-[12.5px] leading-relaxed font-sans break-words [overflow-wrap:anywhere]", isDark ? "text-[#E2E8F0]" : "text-[#1F2937]")}>
-                              {cleanBody}
-                            </div>
-                            {(contractor || poCap) && (
-                              <div className={cn("flex flex-wrap items-center justify-between gap-2 pt-2 border-t text-[11px]", isDark ? "border-[#1E2328]" : "border-[#E8E8E5]")}>
-                                {contractor ? (
-                                  <div className={cn("flex items-center gap-1.5", isDark ? "text-[#94A3B8]" : "text-[#6B7280]")}>
-                                    <Wrench className={cn("w-3.5 h-3.5 shrink-0", isDark ? "text-[#64748B]" : "text-[#9CA3AF]")} />
-                                    <span>Contractor: <strong className={cn("font-medium", isDark ? "text-[#E2E8F0]" : "text-[#0A0A0A]")}>{contractor}</strong></span>
-                                  </div>
-                                ) : <span />}
-                                {poCap && (
-                                  <span className={cn(
-                                    "font-mono text-[10.5px] font-semibold px-2 py-0.5 rounded border",
-                                    isDark ? "text-amber-300 bg-amber-950/40 border-amber-800/40" : "text-amber-800 bg-amber-50 border-amber-200"
-                                  )}>
-                                    {poCap}
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                            <div className={cn("pt-1 flex items-center justify-end border-t", isDark ? "border-[#1E2328]/60" : "border-[#E8E8E5]")}>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (pCard?.targetUrl?.startsWith("http")) {
-                                    window.open(pCard.targetUrl, "_blank", "noopener,noreferrer");
-                                  } else {
-                                    handleNavigate(pCard?.targetUrl || (pCard?.caseId ? `/maintenance?ticket=${pCard.caseId}` : "/maintenance"));
-                                  }
-                                }}
-                                className="text-[11px] font-medium text-[#1a73e8] hover:text-[#1557b0] flex items-center gap-1 cursor-pointer transition-colors"
-                              >
-                                <span>Open in Maintenance</span>
-                                <ExternalLink className="w-3 h-3" />
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })()
-                    ) : pCard.type === "financial_item" ? (
-                      /* 2. Financial Arrears / Ledger Card (Amount is the important highlight) */
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span className={cn(
-                            "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border",
-                            isDark ? "bg-[#1F252C] text-[#CBD5E1] border-[#29323B]" : "bg-[#FFFFFF] text-[#4B5563] border-[#E8E8E5]"
-                          )}>
-                            {pCard.badgeLabel || "ARREARS"}
-                          </span>
-                          <span className={cn("font-mono text-[14px] font-bold", isDark ? "text-rose-400" : "text-rose-600")}>
-                            {pCard.amount}
-                          </span>
-                        </div>
-                        <div className={cn("text-[13px] font-semibold break-words", isDark ? "text-[#F9FAFB]" : "text-[#0A0A0A]")}>
-                          {pCard.title}
-                        </div>
-                        <div className={cn("text-[12px] leading-relaxed break-words [overflow-wrap:anywhere]", isDark ? "text-[#94A3B8]" : "text-[#4B5563]")}>
-                          {cleanCardBody(pCard.subtitle || pCard.body)}
-                        </div>
-                        <div className={cn("pt-2 flex items-center justify-between border-t text-[11px]", isDark ? "border-[#1E2328]" : "border-[#E8E8E5]")}>
-                          <span className={cn("font-mono text-[10.5px]", isDark ? "text-[#64748B]" : "text-[#888888]")}>
-                            {pCard.dueDate ? `Due: ${pCard.dueDate}` : pCard.unitLabel}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleNavigate(pCard?.targetUrl || "/money")}
-                            className="font-medium text-[#1a73e8] hover:text-[#1557b0] flex items-center gap-1 cursor-pointer transition-colors"
-                          >
-                            <span>Open in Money</span>
-                            <ExternalLink className="w-3 h-3" />
-                          </button>
-                        </div>
-                      </div>
-                    ) : pCard.type === "calendar_item" ? (
-                      /* Calendar Appointment Proposal Card */
-                      <div className="space-y-2.5">
-                        <div className="flex items-center justify-between text-[11px]">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-[#1F252C] text-[#CBD5E1] border border-[#29323B] flex items-center gap-1">
-                              <Calendar className="w-3 h-3 text-[#1a73e8]" />
-                              {pCard.badgeLabel || "GOOGLE CALENDAR"}
-                            </span>
-                            <span className="text-[#F3F4F6] font-medium truncate max-w-[200px]">
-                              {pCard.unitLabel || "Portfolio Visit"}
-                            </span>
-                          </div>
-                          <span
-                            className={cn(
-                              "text-[10.5px] font-mono capitalize",
-                              approvedCalendarIds.has(msg.id) || pCard.status === "confirmed"
-                                ? "text-emerald-400 font-semibold"
-                                : "text-amber-400"
-                            )}
-                          >
-                            {approvedCalendarIds.has(msg.id) || pCard.status === "confirmed" ? "Confirmed" : "Proposed"}
-                          </span>
-                        </div>
-                        <div className="text-[13px] font-semibold text-[#F9FAFB]">
-                          {pCard.title}
-                        </div>
-                        <div className="p-2.5 rounded-[8px] bg-[#0E1113] border border-[#1E2328] space-y-1.5 text-[12px] text-[#CBD5E1]">
-                          <div className="flex items-center gap-1.5 text-[#E2E8F0]">
-                            <Clock className="w-3.5 h-3.5 text-[#1a73e8]" />
-                            <span className="font-medium">{pCard.dueDate || pCard.subtitle}</span>
-                          </div>
-                          {pCard.contractor && (
-                            <div className="text-[#94A3B8] text-[11.5px]">
-                              Contractor: <span className="text-[#F1F5F9]">{pCard.contractor}</span>
-                            </div>
-                          )}
-                          {pCard.body && (
-                            <div className="text-[11.5px] text-[#94A3B8] whitespace-pre-line border-t border-[#1E2328] pt-1 mt-1">
-                              {pCard.body}
-                            </div>
-                          )}
-                        </div>
-                        <div className="pt-1.5 flex items-center justify-between border-t border-[#1E2328]">
-                          <span className="text-[10.5px] font-mono text-[#64748B]">
-                            {approvedCalendarIds.has(msg.id) || pCard.status === "confirmed"
-                              ? "Synced to Google Calendar"
-                              : "Requires 1-click confirmation"}
-                          </span>
-                          {approvedCalendarIds.has(msg.id) || pCard.status === "confirmed" ? (
-                            <div className="flex items-center gap-1.5 text-emerald-400 text-[11.5px] font-semibold">
-                              <CheckCircle2 className="w-4 h-4" />
-                              <span>Added to Google Calendar</span>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleApproveCalendar(msg.id, pCard?.actionId)}
-                              disabled={approvingCalendarId === msg.id}
-                              className="px-3 py-1.5 rounded-[7px] bg-[#1a73e8] hover:bg-[#1557b0] text-[#0A0A0A] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-                            >
-                              {approvingCalendarId === msg.id ? (
-                                <>
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                  <span>Syncing...</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Check className="w-3.5 h-3.5" />
-                                  <span>Approve & Add to Calendar</span>
-                                </>
-                              )}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ) : pCard.type === "document_item" ? (
-                      /* 3. Document / Google Drive Verified Match Card */
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between text-[11px]">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-[#1F252C] text-[#CBD5E1] border border-[#29323B] flex items-center gap-1">
-                              <FileText className="w-3 h-3 text-[#1a73e8]" />
-                              {pCard.badgeLabel || "GOOGLE DRIVE"}
-                            </span>
-                            <span className="text-[#F3F4F6] font-medium truncate max-w-[200px]">
-                              {pCard.unitLabel || "Portfolio Document"}
-                            </span>
-                          </div>
-                          {pCard.status && (
-                            <span className="text-[10.5px] font-mono text-emerald-400">
-                              {pCard.status}
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[13px] font-semibold text-[#F9FAFB]">
-                          {pCard.title}
-                        </div>
-                        {pCard.body && (
-                          <div className="p-2.5 rounded-[8px] bg-[#0E1113] border border-[#1E2328] text-[12px] text-[#CBD5E1] font-sans leading-relaxed break-words [overflow-wrap:anywhere]">
-                            {pCard.body}
-                          </div>
-                        )}
-                        <div className="pt-1.5 flex items-center justify-end">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (pCard?.targetUrl?.startsWith("http")) {
-                                window.open(pCard.targetUrl, "_blank", "noopener,noreferrer");
-                              } else {
-                                handleNavigate(pCard?.targetUrl || "/documents");
-                              }
-                            }}
-                            className="text-[11px] font-medium text-[#1a73e8] hover:text-[#1557b0] flex items-center gap-1 cursor-pointer transition-colors"
-                          >
-                            <span>Open in Google Drive</span>
-                            <ExternalLink className="w-3 h-3" />
-                          </button>
-                        </div>
-                      </div>
-                    ) : pCard.type === "memory_item" ? (
-                      /* 4. Standing Rule / Policy Proposal Card */
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between text-[11px]">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-[#1F252C] text-[#CBD5E1] border border-[#29323B] flex items-center gap-1">
-                              <Sparkles className="w-3 h-3 text-[#1a73e8]" />
-                              {pCard.badgeLabel || "POLICY PROPOSAL"}
-                            </span>
-                            <span className="text-[#F3F4F6] font-medium truncate max-w-[200px]">
-                              {pCard.unitLabel || "Company Portfolio"}
-                            </span>
-                          </div>
-                          <span className={cn(
-                            "text-[10.5px] font-mono",
-                            approvedMemoryIds.has(pCard.actionId || "") ? "text-emerald-400" : "text-amber-400"
-                          )}>
-                            {approvedMemoryIds.has(pCard.actionId || "") ? "Active Rule" : "Pending Activation"}
-                          </span>
-                        </div>
-                        <div className="text-[13px] font-semibold text-[#F9FAFB]">
-                          {pCard.title || "Proposed Standing Rule"}
-                        </div>
-                        {pCard.body && (
-                          <div className="p-2.5 rounded-[8px] bg-[#0E1113] border border-[#1E2328] text-[12px] text-[#CBD5E1] font-sans leading-relaxed break-words [overflow-wrap:anywhere]">
-                            • {pCard.body}
-                          </div>
-                        )}
-                        <div className="pt-1.5 flex items-center justify-between border-t border-[#1E2328]">
-                          <span className="text-[10.5px] font-mono text-[#64748B]">
-                            {approvedMemoryIds.has(pCard.actionId || "") ? "Enforced across all workflows" : "Requires owner sign-off"}
-                          </span>
-                          {approvedMemoryIds.has(pCard.actionId || "") ? (
-                            <div className="flex items-center gap-1.5 text-emerald-400 text-[11.5px] font-semibold">
-                              <CheckCircle2 className="w-4 h-4" />
-                              <span>Rule Activated</span>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleApproveMemory(pCard?.actionId || msg.id, pCard?.actionId)}
-                              disabled={approvingMemoryId === (pCard?.actionId || msg.id)}
-                              className="px-3 py-1.5 rounded-[7px] bg-[#1a73e8] hover:bg-[#1557b0] text-[#0A0A0A] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-                            >
-                              {approvingMemoryId === (pCard?.actionId || msg.id) ? (
-                                <>
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                  <span>Activating...</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Check className="w-3.5 h-3.5" />
-                                  <span>Activate Standing Rule</span>
-                                </>
-                              )}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ) : pCard.type === "notice" ? (
-                      /* 5. Notice / Alert Card (WP2: Failed draft / Groq timeout / Rate limit) */
-                      <div className="space-y-2.5">
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span className={cn(
-                            "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border",
-                            isDark ? "bg-amber-500/15 text-amber-400 border-amber-500/30" : "bg-amber-50 text-amber-800 border-amber-200"
-                          )}>
-                            {t(pCard.badgeLabel || "NOTICE")}
-                          </span>
-                          <span className={cn("text-[10.5px] font-mono", isDark ? "text-[#64748B]" : "text-[#888888]")}>
-                            {pCard.unitLabel || "Action Required"}
-                          </span>
-                        </div>
-
-                        <div className={cn("text-[13px] font-semibold", isDark ? "text-[#F9FAFB]" : "text-[#0A0A0A]")}>
-                          {t(pCard.title || "Action Notice")}
-                        </div>
-
-                        <div className={cn(
-                          "p-2.5 rounded-[8px] text-[12px] leading-relaxed font-sans break-words [overflow-wrap:anywhere] border",
-                          isDark ? "bg-[#0E1113] border-amber-500/20 text-[#E2E8F0]" : "bg-[#FFFBEB] border-amber-200 text-[#78350F]"
-                        )}>
-                          {t(pCard.body || "")}
-                        </div>
-
-                        <div className={cn("pt-1 flex items-center justify-between gap-2 border-t", isDark ? "border-[#1E2328]" : "border-[#E8E8E5]")}>
-                          <span className={cn("text-[10px] font-mono", isDark ? "text-[#64748B]" : "text-[#888888]")}>
-                            {t("Status")}: {t(pCard.status || "pending")}
-                          </span>
-                          <div className="flex items-center gap-2">
-                            {pCard.caseId && (
-                              <button
-                                type="button"
-                                onClick={() => handleSendQuery(`draft a reply for case ${pCard?.caseId}`)}
-                                className={cn(
-                                  "px-2.5 py-1 rounded-[6px] border text-[11px] font-medium transition-colors cursor-pointer",
-                                  isDark
-                                    ? "bg-[#181818] hover:bg-[#222222] border-[#262626] text-[#FFFFFF]"
-                                    : "bg-[#0A0A0A] hover:bg-[#222222] border-[#0A0A0A] text-[#FFFFFF]"
-                                )}
-                              >
-                                {t("Retry Draft")}
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => handleNavigate(pCard?.targetUrl || `/inbox?thread=case-${pCard?.caseId || ""}`)}
-                              className="text-[11px] text-[#1a73e8] hover:underline flex items-center gap-1 cursor-pointer font-medium"
-                            >
-                              <span>{t("Open in Inbox")}</span>
-                              <ExternalLink className="w-3 h-3" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      /* 6. Message Draft Card (WhatsApp / Gmail) */
-                      (() => {
-                        const rawVariants = (pCard.variants && pCard.variants.length > 0)
-                          ? pCard.variants
-                          : (pCard.body ? [pCard.body] : []);
-                        const variantIndex = selectedDraftVariants[msg.id] ?? 0;
-                        const activeDraftBody = rawVariants[variantIndex] || pCard.body || "";
-                        const choiceKey = variantIndex === 0 ? "d1" : "d2";
-                        const cleanPhone = (pCard.recipient || "").replace(/[^0-9]/g, "");
-
-                        const dynamicExternalUrl = pCard.channel?.toLowerCase() === "whatsapp" && cleanPhone
-                          ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(activeDraftBody)}`
-                          : pCard.channel?.toLowerCase() === "gmail" && pCard.recipient
-                          ? `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(pCard.recipient)}&su=${encodeURIComponent(pCard.subject || "Maintenance Update")}&body=${encodeURIComponent(activeDraftBody)}`
-                          : pCard.externalUrl;
-
-                        return (
-                          <div className="space-y-2.5">
-                            <div className="flex items-center justify-between text-[11px] gap-2">
-                              <span className={cn(
-                                "font-mono text-[10px] uppercase px-1.5 py-0.5 rounded border shrink-0",
-                                isDark ? "bg-[#1F252C] text-[#CBD5E1] border-[#29323B]" : "bg-[#FFFFFF] text-[#4B5563] border-[#E8E8E5]"
-                              )}>
-                                Draft · {pCard.channel || "whatsapp"}
-                              </span>
-                              <span className="font-mono text-[10.5px] truncate text-right">
-                                {pCard.recipient ? (
-                                  <span className={isDark ? "text-[#64748B]" : "text-[#6B7280]"}>{pCard.recipient}</span>
-                                ) : (
-                                  <span className={cn("font-sans text-[10px] font-semibold", isDark ? "text-amber-400" : "text-amber-700")}>
-                                    {pCard.channel?.toLowerCase() === "gmail" ? "⚠️ No recipient email on file" : "⚠️ No recipient phone on file"}
-                                  </span>
-                                )}
-                              </span>
-                            </div>
-
-                            {/* Multi-Draft Option Switcher */}
-                            {rawVariants.length > 1 && (
-                              <div className={cn(
-                                "flex items-center gap-1 p-1 rounded-[7px] border w-fit",
-                                isDark ? "bg-[#141920] border-[#222933]" : "bg-[#F3F4F6] border-[#E5E7EB]"
-                              )}>
-                                {rawVariants.map((_, vIdx) => {
-                                  const isSelected = (variantIndex === vIdx);
-                                  return (
-                                    <button
-                                      key={vIdx}
-                                      type="button"
-                                      onClick={() => setSelectedDraftVariants((prev) => ({ ...prev, [msg.id]: vIdx }))}
-                                      className={cn(
-                                        "px-2.5 py-1 text-[11px] rounded-[5px] transition-all cursor-pointer flex items-center gap-1.5",
-                                        isSelected
-                                          ? isDark
-                                            ? "bg-[#2A3441] text-[#FFFFFF] font-semibold shadow-xs"
-                                            : "bg-[#FFFFFF] text-[#0A0A0A] font-semibold shadow-xs"
-                                          : isDark
-                                            ? "text-[#94A3B8] hover:text-[#FFFFFF]"
-                                            : "text-[#6B7280] hover:text-[#0A0A0A]"
-                                      )}
-                                    >
-                                      <span>{vIdx === 0 ? "Option 1 (Recommended)" : "Option 2 (Alternative)"}</span>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            )}
-
-                            <div className={cn(
-                              "p-2.5 rounded-[8px] border text-[12px] italic whitespace-pre-line leading-relaxed font-sans break-words [overflow-wrap:anywhere]",
-                              isDark ? "bg-[#0E1113] border-[#1E2328] text-[#E2E8F0]" : "bg-[#FFFFFF] border-[#E8E8E5] text-[#111827]"
-                            )}>
-                              "{activeDraftBody || "(Draft empty)"}"
-                            </div>
-
-                            <div className="pt-1 flex flex-wrap items-center justify-between gap-2">
-                              <div className="flex flex-wrap items-center gap-2">
-                                {sentCardIds.has(msg.id) ? (
-                                  <div className={cn("flex items-center gap-1.5 text-[11.5px] font-medium py-1", isDark ? "text-emerald-400" : "text-emerald-700")}>
-                                    <Check className="w-4 h-4 stroke-[2.5]" />
-                                    <span>Dispatched to {pCard.channel || "WhatsApp"}</span>
-                                  </div>
-                                ) : sendErrorCardIds.has(msg.id) ? (
-                                  <div className="flex items-center gap-2">
-                                    <span className={cn("text-[11px]", isDark ? "text-rose-400" : "text-rose-600")}>Failed to dispatch draft.</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleApproveDraft(msg.id, pCard?.actionId, pCard?.caseId, choiceKey, activeDraftBody)}
-                                      className="text-[11px] text-[#1a73e8] hover:underline cursor-pointer font-semibold"
-                                    >
-                                      Retry
-                                    </button>
-                                  </div>
-                                ) : pCard.status && pCard.status !== "pending" ? (
-                                  <div className={cn("flex items-center gap-1.5 text-[11.5px] font-medium py-1 capitalize", isDark ? "text-[#94A3B8]" : "text-[#6B7280]")}>
-                                    <span>Status: {pCard.status}</span>
-                                  </div>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleApproveDraft(msg.id, pCard?.actionId, pCard?.caseId, choiceKey, activeDraftBody)}
-                                    disabled={sendingCardId === msg.id || !pCard?.recipient}
-                                    className="px-3 py-1.5 rounded-[7px] bg-[#1a73e8] hover:bg-[#1557b0] text-[#FFFFFF] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                                    title={!pCard?.recipient ? "Cannot dispatch: recipient is missing" : "Approve and send"}
-                                  >
-                                    {sendingCardId === msg.id ? (
-                                      <>
-                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                        <span>Sending...</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <SendHorizontal className="w-3.5 h-3.5" />
-                                        <span>Accept and send</span>
-                                      </>
-                                    )}
-                                  </button>
-                                )}
-
-                                {dynamicExternalUrl && (
-                                  <button
-                                    type="button"
-                                    onClick={() => window.open(dynamicExternalUrl, "_blank", "noopener,noreferrer")}
-                                    className={cn(
-                                      "px-2.5 py-1.5 rounded-[7px] font-medium text-[11.5px] flex items-center gap-1.5 transition-all cursor-pointer border",
-                                      pCard.channel?.toLowerCase() === "whatsapp"
-                                        ? isDark
-                                          ? "bg-[#25D366]/15 hover:bg-[#25D366]/25 text-[#25D366] border-[#25D366]/30 shadow-sm"
-                                          : "bg-[#25D366]/10 hover:bg-[#25D366]/20 text-[#128C7E] border-[#25D366]/30 shadow-xs"
-                                        : isDark
-                                          ? "bg-red-500/15 hover:bg-red-500/25 text-red-400 border-red-500/30 shadow-sm"
-                                          : "bg-red-50 hover:bg-red-100 text-red-600 border-red-200 shadow-xs"
-                                    )}
-                                    title={`Open pre-filled draft in ${pCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}`}
-                                  >
-                                    {pCard.channel?.toLowerCase() === "whatsapp" ? (
-                                      <MessageSquare className="w-3.5 h-3.5" />
-                                    ) : (
-                                      <Mail className="w-3.5 h-3.5" />
-                                    )}
-                                    <span>Open in {pCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}</span>
-                                    <ExternalLink className="w-3 h-3 opacity-70" />
-                                  </button>
-                                )}
-                              </div>
-
-                              <div className="flex items-center gap-2.5">
-                                {pCard.threadSearchUrl && (
-                                  <button
-                                    type="button"
-                                    onClick={() => window.open(pCard?.threadSearchUrl!, "_blank", "noopener,noreferrer")}
-                                    className={cn(
-                                      "text-[11px] flex items-center gap-1 transition-colors cursor-pointer",
-                                      isDark ? "text-[#94A3B8] hover:text-[#E2E8F0]" : "text-[#6B7280] hover:text-[#0A0A0A]"
-                                    )}
-                                    title={`View thread history in ${pCard.channel?.toLowerCase() === "whatsapp" ? "WhatsApp" : "Gmail"}`}
-                                  >
-                                    <span>View Thread</span>
-                                    <ExternalLink className="w-3 h-3" />
-                                  </button>
-                                )}
-
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const draftText = activeDraftBody ? encodeURIComponent(activeDraftBody) : "";
-                                    const baseTarget = pCard?.targetUrl || `/inbox?thread=case-${pCard?.caseId || ""}`;
-                                    const urlWithDraft = draftText && !baseTarget.includes("draft=")
-                                      ? `${baseTarget}${baseTarget.includes("?") ? "&" : "?"}draft=${draftText}`
-                                      : baseTarget;
-                                    handleNavigate(urlWithDraft);
-                                  }}
-                                  className={cn(
-                                    "text-[11px] flex items-center gap-1 transition-colors cursor-pointer",
-                                    isDark ? "text-[#888888] hover:text-[#FFFFFF]" : "text-[#6B7280] hover:text-[#0A0A0A]"
-                                  )}
-                                >
-                                  <span>Open in Inbox</span>
-                                  <ExternalLink className="w-3 h-3" />
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })()
-                    )}
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
+                {renderMessageSteps(msg, isDark)}
+                {renderPreviewCardsBlock(msg, isDark, false)}
 
                 </div>
               )}
 
-              {/* Action Buttons for Assistant Proposals (Filtered to prevent duplicates) */}
-              {msg.actions && msg.actions.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-1">
-                  {msg.actions
-                    .filter((act, idx, arr) =>
-                      arr.findIndex((a) => a.label === act.label || (act.payload && a.payload === act.payload)) === idx
-                    )
-                    .filter((act) => {
-                      if (msg.previewCard && act.actionType === "navigate") {
-                        if (act.label.toLowerCase().includes("money") && msg.previewCard.type === "financial_item") return false;
-                        if (act.label.toLowerCase().includes("maintenance") && msg.previewCard.type === "case_summary") return false;
-                        if (act.label.toLowerCase().includes("inbox") && msg.previewCard.type === "draft_message") return false;
-                        if (act.label.toLowerCase().includes("approvals") && msg.previewCard.type === "draft_message") return false;
-                      }
-                      return true;
-                    })
-                    .map((act, idx) => {
-                      const isMemApprove = act.actionType === "approve_memory";
-                      const isMemActivating = isMemApprove && approvingMemoryId === act.payload;
-                      const isMemActivated = isMemApprove && (approvedMemoryIds.has(act.payload) || (msg.previewCard?.actionId && approvedMemoryIds.has(msg.previewCard.actionId)));
-
-                      if (isMemActivated) {
-                        return (
-                          <button
-                            key={idx}
-                            type="button"
-                            disabled
-                            className="px-3 py-1.5 rounded-[8px] text-[12px] font-semibold flex items-center gap-1.5 bg-[#0F291E] border border-emerald-500/30 text-emerald-400 cursor-default"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>Rule Activated</span>
-                          </button>
-                        );
-                      }
-
-                      return (
-                        <button
-                          key={idx}
-                          type="button"
-                          onClick={() => handleActionClick(act)}
-                          disabled={isMemActivating}
-                          className={cn(
-                            "px-3 py-1.5 rounded-[8px] text-[12px] font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50",
-                            act.isPrimary
-                              ? "bg-[#1a73e8] hover:bg-[#1557b0] text-[#FFFFFF]"
-                              : isDark
-                                ? "bg-[#181818] hover:bg-[#222222] border border-[#262626] text-[#FFFFFF]"
-                                : "bg-[#FFFFFF] hover:bg-[#F0F0EE] border border-[#E8E8E5] text-[#0A0A0A]"
-                          )}
-                        >
-                          {isMemActivating ? (
-                            <>
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                              <span>Activating...</span>
-                            </>
-                          ) : (
-                            <>
-                              <span>{t(act.label)}</span>
-                              <CornerDownRight className="w-3 h-3" />
-                            </>
-                          )}
-                        </button>
-                      );
-                    })}
-                </div>
-              )}
+              {renderMessageActions(msg, isDark, false)}
 
               {/* Pipeline debug is for developers: never shown to the owner unless NEXT_PUBLIC_SHOW_AGENT_DEBUG=1 */}
               {msg.debugInfo && process.env.NEXT_PUBLIC_SHOW_AGENT_DEBUG === "1" && (
@@ -2443,7 +2551,10 @@ export function AskEstateOSPanel({
                     )}
                     title={speechLang === "nl" ? "Voice language: Nederlands (click to switch to English)" : "Voice language: English (click to switch to Nederlands)"}
                   >
-                    <span>{speechLang === "nl" ? "🇳🇱 NL" : "🇬🇧 EN"}</span>
+                    <span className="inline-flex items-center gap-1">
+                      {speechLang === "nl" ? <FlagNL className="w-3.5 h-2.5" /> : <FlagUK className="w-3.5 h-2.5" />}
+                      <span>{speechLang === "nl" ? "NL" : "EN"}</span>
+                    </span>
                   </button>
 
                   {isListening && (
@@ -2510,19 +2621,12 @@ function cleanCardBody(body?: string | null): string {
   return clean;
 }
 
-// Resolve contractor name cleanly
-function resolveContractorName(card?: any): string | null {
+// Resolve contractor name cleanly without inventing entities from keyword guesses
+function resolveContractorName(card?: PreviewCardData | null): string | null {
   if (!card) return null;
   const raw = card.contractor?.trim();
   if (raw && raw !== "Assigned Contractor" && raw !== "Contractor" && !raw.startsWith("Assigned")) {
     return raw;
-  }
-  const fullText = `${card.title || ""} ${card.body || ""}`.toLowerCase();
-  if (fullText.includes("kevin") || fullText.includes("van dijk") || fullText.includes("plumber")) {
-    return "Kevin van Dijk (Plumber)";
-  }
-  if (fullText.includes("vermeer") || fullText.includes("electrician")) {
-    return "Vermeer Elektrotechniek";
   }
   return null;
 }
@@ -2541,6 +2645,8 @@ function filterValidSteps(steps?: string[]): string[] {
   });
 }
 
+const ISO_MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 function formatMarkdown(text: string, isDark: boolean = false): string {
   if (!text) return "";
   let clean = text
@@ -2548,21 +2654,43 @@ function formatMarkdown(text: string, isDark: boolean = false): string {
     .replace(/^(Opening (cases|inbox|maintenance|money|properties|calendar|documents|approvals)\.?\s*)+/gi, "")
     .trim();
 
-  // 1. Clean up excessively long database UUIDs: Case 01a18179-777e-7370-ac07-2a83c3dfddff -> Ticket #01a181
-  clean = clean.replace(/\b(?:case\s+)?([0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "#$1");
+  // 0. Escape HTML special characters first so LLM/user content cannot inject raw markup
+  clean = clean
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 
-  // 2. Markdown links: [Label](url) -> clean clickable anchor tag
+  // 1a. Clean up inline ISO microsecond/timezone timestamps: 2026-11-11 11:24:03.646025+00:00 -> 11 Nov 2026, 11:24
   clean = clean.replace(
-    /\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g,
+    /\b(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})\b/g,
+    (full, _y, m, d, hh, mm) => {
+      const mIdx = Number(m) - 1;
+      const mon = ISO_MONTH_NAMES[mIdx];
+      if (!mon) return full;
+      return `${d} ${mon} ${_y}, ${hh}:${mm}`;
+    }
+  );
+
+  // 1b. Shorten raw database UUIDs to last 6 hex chars (matching backend short_case_ref), preserving URLs
+  clean = clean.replace(
+    /(?<![/?=&-])\b(?:case\s+)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{6}([0-9a-f]{6})\b(?![/?=&-])/gi,
+    "#$1"
+  );
+
+  // 2. Markdown links: [Label](url) -> clean clickable anchor tag (reject quotes/angle brackets in URL)
+  clean = clean.replace(
+    /\[(.*?)\]\((https?:\/\/[^\s)<>"']+)\)/g,
     '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-amber-600 hover:underline font-medium inline-flex items-center gap-1 break-all">$1 ↗</a>'
   );
 
-  // 3. Ticket references: #01a181 (BEFORE any HTML tags with hex colors are injected)
+  // 3. Ticket references: #b72267 (BEFORE HTML tags with hex classes, skipping entities like &#39;)
   const ticketClass = isDark
     ? "text-sky-300 bg-sky-500/15 border-sky-500/30"
     : "text-sky-800 bg-sky-50 border-sky-200";
   clean = clean.replace(
-    /(#[0-9a-f]{6,8})\b/gi,
+    /(?<![&a-zA-Z0-9])(#[0-9a-f]{6,8})\b/gi,
     `<span class="font-mono text-[11px] font-semibold ${ticketClass} px-1.5 py-0.5 rounded border inline-block">$1</span>`
   );
 
@@ -2584,39 +2712,31 @@ function formatMarkdown(text: string, isDark: boolean = false): string {
     `<code class="px-1.5 py-0.5 rounded font-mono text-[12px] break-all border ${codeClass}">$1</code>`
   );
 
-  // 6. Bold: **text**
-  const boldClass = isDark ? "text-[#FFFFFF]" : "text-[#0A0A0A]";
-  clean = clean.replace(/\*\*(.*?)\*\*/g, `<strong class="${boldClass} font-semibold">$1</strong>`);
-
-  // 7. Italics: *text*
-  const italicClass = isDark ? "text-[#CCCCCC]" : "text-[#4B5563]";
-  clean = clean.replace(/\*(.*?)\*/g, `<em class="${italicClass}">$1</em>`);
-
-  // 8. Structured Headings: ### Header
+  // 6. Structured Headings: ### Header
   const headingClass = isDark ? "text-[#94A3B8]" : "text-[#374151]";
   clean = clean.replace(
     /^###\s+(.*?)$/gm,
     `<div class="text-[11.5px] font-semibold uppercase tracking-wider ${headingClass} mt-3 mb-1.5 flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span><span>$1</span></div>`
   );
 
-  // 9. Executive Callout Quotes: Group contiguous blockquote lines into a single cohesive card
+  // 7. Executive Callout Quotes: Group contiguous escaped blockquote lines (`^&gt;`) into a cohesive card
   const quoteBoxClass = isDark
     ? "border-amber-500/80 bg-amber-500/10 text-[#E2E8F0]"
     : "border-amber-500/80 bg-amber-50/70 text-[#1E293B]";
   clean = clean.replace(
-    /(?:^>[ \t]?[^\n]*(?:\r?\n|$))+/gm,
+    /(?:^&gt;[ \t]?[^\n]*(?:\r?\n|$))+/gm,
     (block) => {
       const lines = block
         .trimEnd()
         .split(/\r?\n/)
-        .map((l) => l.replace(/^>[ \t]?/, ""))
+        .map((l) => l.replace(/^&gt;[ \t]?/, ""))
         .join("\n")
         .trim();
       return `<div class="border-l-2 ${quoteBoxClass} px-3.5 py-2.5 rounded-r-[8px] my-2.5 text-[12.5px] leading-relaxed font-normal">\n${lines}\n</div>`;
     }
   );
 
-  // 10. Numbered Step Lists: 1. ...
+  // 8. Numbered Step Lists: 1. ... (before bold/italics so inline emphasis inside list items still renders)
   const numBadgeClass = isDark
     ? "bg-[#20272F] text-[#94A3B8]"
     : "bg-[#E5E7EB] text-[#374151]";
@@ -2625,11 +2745,19 @@ function formatMarkdown(text: string, isDark: boolean = false): string {
     `<div class="flex items-start gap-2.5 my-1.5"><span class="flex items-center justify-center w-4 h-4 rounded-full ${numBadgeClass} text-[10px] font-semibold shrink-0 mt-0.5">$1</span><span class="break-words min-w-0 flex-1">$2</span></div>`
   );
 
-  // 11. Bullet list: • or - (Using CSS class text-amber-500 rather than hex literal so no regex ever collides)
+  // 9. Bullet list: •, -, or single * (before bold/italics so `* **Name**: ...` renders cleanly as a bullet)
   clean = clean.replace(
-    /^([•\-])\s+(.*?)$/gm,
+    /^([•\-]|\*(?!\*))\s+(.*?)$/gm,
     '<div class="flex items-start gap-2 my-1"><span class="text-amber-500 font-bold shrink-0">•</span><span class="break-words min-w-0 flex-1">$2</span></div>'
   );
+
+  // 10. Bold: **text**
+  const boldClass = isDark ? "text-[#FFFFFF]" : "text-[#0A0A0A]";
+  clean = clean.replace(/\*\*(.*?)\*\*/g, `<strong class="${boldClass} font-semibold">$1</strong>`);
+
+  // 11. Italics: *text*
+  const italicClass = isDark ? "text-[#CCCCCC]" : "text-[#4B5563]";
+  clean = clean.replace(/\*(.*?)\*/g, `<em class="${italicClass}">$1</em>`);
 
   return clean;
 }
