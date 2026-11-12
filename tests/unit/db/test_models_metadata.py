@@ -33,8 +33,10 @@ SPEC_TABLES = {
     "brixx_sync_runs", "brixx_sync_table_state", "brixx_documents",
     # BRIXX directory (spec 2026-11-03): GDPR tombstones, reconcile key staging
     "brixx_erased_refs", "brixx_reconcile_seen",
-    # local Dutch to English translation cache (ADR 0011; migration 0038)
+    # local translation cache, both directions (ADR 0011; migrations 0038, 0042)
     "translations",
+    # owner edits to maintenance tickets (migration 0043)
+    "ticket_edits",
 }  # fmt: skip
 
 

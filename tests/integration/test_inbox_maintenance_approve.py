@@ -28,6 +28,7 @@ from app.db.models import (
     OwnerFeed,
     Send,
     TaskRow,
+    TicketEdit,
     UnderstandingRow,
     Unit,
 )
@@ -103,7 +104,7 @@ def _world(engine: Engine, pg_url: str, *, suspicious: bool) -> Iterator[World]:
             yield World(client, wf, engine, company.id, case_id, action_id, approval_id)
         for model in (
             OwnerFeed, ActionRevision, UnderstandingRow, CaseLink, MessageRow, RawEvent, Approval, Send, TaskRow,
-            ActionRow, CaseEvent, Case,
+            ActionRow, CaseEvent, TicketEdit, Case,
         ):  # fmt: skip
             s.query(model).filter(model.company_id == company.id).delete(synchronize_session=False)
         s.query(Company).filter(Company.id == company.id).delete()
@@ -228,7 +229,7 @@ def rival(world: World) -> Iterator[Rival]:
     with Session(world.engine) as s:
         for model in (
             OwnerFeed, ActionRevision, UnderstandingRow, CaseLink, MessageRow, RawEvent, Approval, Send, TaskRow,
-            ActionRow, CaseEvent, Case,
+            ActionRow, CaseEvent, TicketEdit, Case,
         ):  # fmt: skip
             s.query(model).filter(model.company_id == company_id).delete(synchronize_session=False)
         s.query(Company).filter(Company.id == company_id).delete()

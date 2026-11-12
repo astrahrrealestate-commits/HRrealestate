@@ -1,6 +1,6 @@
 # Project context (auto)
 
-Generated: 2026-11-12T06:16:55.465Z
+Generated: 2026-11-12T06:37:15.693Z
 
 ## Detected stack
 
@@ -10,10 +10,11 @@ Generated: 2026-11-12T06:16:55.465Z
 ## Git
 
 - Branch: `m-client-ready-sweep`
-- HEAD: `f83e293`
+- HEAD: `31fac13`
 
 ## Recent commits
 
+- `31fac13` feat(i18n): dynamic bidirectional chat translation, shared STT hook, BRIXX live check _(Aditya Jain, 2026-11-12)_
 - `f83e293` chore(deps): google-genai 3.1.0 in the lock, and the merge notes _(Aditya Jain, 2026-11-11)_
 - `01adfe0` chore(merge): dependabot dependency-review-action 5.0.0 _(Aditya Jain, 2026-11-11)_
 - `142eed5` chore(merge): dependabot docker astral-sh/uv 0.13.7 _(Aditya Jain, 2026-11-11)_
@@ -33,10 +34,10 @@ Generated: 2026-11-12T06:16:55.465Z
 - `c384492` docs: refresh generated project context _(Aditya Jain, 2026-11-11)_
 - `e4e17b5` feat(portfolio): connect properties and tenants with live contact channels, rent ledger, and unit specs _(Suryansh Tyagi, 2026-11-11)_
 - `ac5d37c` feat(frontend): Money back in the navigation, Team & access and Add a profile in the user menu _(Aditya Jain, 2026-11-11)_
-- `84f15e2` fix(frontend): render the page behind the section guard's loading state _(Aditya Jain, 2026-11-11)_
 
 ## Inferred recent decisions
 
+- `31fac13` feat(i18n): dynamic bidirectional chat translation, shared STT hook, BRIXX live check
 - `a47672f` fix(i18n): wire Dutch translations for money subheaders, maintenance table headers, emergency action bar, and email category filters
 - `91bbc0a` feat(i18n): add comprehensive Dutch translations for filters, money, charts, and tenancy cards
 - `f6efd6e` feat(tenants): match exact contacts UI, colors, logic, and tabs filtered strictly to tenants
@@ -47,20 +48,19 @@ Generated: 2026-11-12T06:16:55.465Z
 - `f248aba` fix(access): the dev owner and the first profile's creator keep their own profile
 - `e4e17b5` feat(portfolio): connect properties and tenants with live contact channels, rent ledger, and unit specs
 - `ac5d37c` feat(frontend): Money back in the navigation, Team & access and Add a profile in the user menu
-- `84f15e2` fix(frontend): render the page behind the section guard's loading state
 
 ## Hotspots
 
-- 62x — `docs/PROGRESS.md`
+- 63x — `docs/PROGRESS.md`
 - 46x — `app/api/agent/routes.py`
-- 37x — `frontend/src/components/assistant/AskEstateOSPanel.tsx`
+- 38x — `frontend/src/components/assistant/AskEstateOSPanel.tsx`
 - 35x — `pyproject.toml`
+- 34x — `app/core/settings.py`
 - 34x — `app/api/inbox/routes.py`
-- 33x — `app/core/settings.py`
 - 30x — `docs/dashboard-api.md`
+- 27x — `frontend/src/lib/api.ts`
 - 27x — `tests/unit/api/__snapshots__/test_openapi_snapshot.ambr`
 - 27x — `app/workflows/runtime.py`
-- 26x — `frontend/src/lib/api.ts`
 
 ## Top-level tree
 
@@ -125,6 +125,7 @@ Generated: 2026-11-12T06:16:55.465Z
 .hypothesis/constants/018e5e84e3516ec0
 .hypothesis/constants/01b8e3c637b8109e
 .hypothesis/constants/020b42d5c9ec5bd3
+.hypothesis/constants/02162a9809ed17e0
 .hypothesis/constants/021cab0b131c3d27
 .hypothesis/constants/02341df55f048e14
 .hypothesis/constants/025364ce523ac2e3
@@ -260,9 +261,8 @@ Generated: 2026-11-12T06:16:55.465Z
 .hypothesis/constants/1aba4137143afa91
 .hypothesis/constants/1ad6c6e183522539
 .hypothesis/constants/1b2996e00f048f45
+.hypothesis/constants/1b81d4d985941a69
 .hypothesis/constants/1b8f41e38f01284b
 .hypothesis/constants/1bdadf4880ad507f
 .hypothesis/constants/1bdd85f9d037852f
-.hypothesis/constants/1be411ee2443de67
-.hypothesis/constants/1be8d5608ceaab27
 ```

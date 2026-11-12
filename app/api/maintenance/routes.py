@@ -12,18 +12,19 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, computed_field
 from sqlalchemy import Engine, String, cast, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.api.deps import WorkflowClient, get_engine, get_workflow_client
 from app.api.inbox.summary import safe_name
 from app.api.maintenance import dispatch
-from app.api.maintenance.live import contractor_of, live_tickets
+from app.api.maintenance.live import contractor_of, live_tickets, ticket_with_edits
 from app.api.v1 import enqueue
 from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import decide_limit
 from app.contracts import CaseState, Channel, Urgency
-from app.core.ids import case_ref
+from app.core.ids import case_ref, new_id
 from app.core.logging import get_logger
 from app.db.enums import CaseEventKind
 from app.db.models import (
@@ -32,6 +33,7 @@ from app.db.models import (
     CaseEvent,
     ChannelIdentity,
     Person,
+    TicketEdit,
     Unit,
 )
 from app.pipeline import approvals, dashboard_decisions
@@ -95,19 +97,19 @@ def _without_contact_and_messages(ticket: MaintenanceTicketItem) -> MaintenanceT
 class TicketUpdateRequest(BaseModel):
     """Payload to edit ticket details, budget cap, assigned contractor, or draft messages."""
 
-    issueTitle: str | None = None
-    unitLabel: str | None = None
-    category: str | None = None
-    urgency: str | None = None
-    contractorName: str | None = None
-    contractorTrade: str | None = None
-    contractorPhone: str | None = None
-    contractorEmail: str | None = None
-    poBudgetCap: str | None = None
-    notes: str | None = None
-    originalMessage: str | None = None
-    tenantDraft: str | None = None
-    contractorDraft: str | None = None
+    issueTitle: str | None = Field(default=None, max_length=200)
+    unitLabel: str | None = Field(default=None, max_length=200)
+    category: str | None = Field(default=None, max_length=40)
+    urgency: Urgency | None = None
+    contractorName: str | None = Field(default=None, max_length=200)
+    contractorTrade: str | None = Field(default=None, max_length=100)
+    contractorPhone: str | None = Field(default=None, max_length=40)
+    contractorEmail: str | None = Field(default=None, max_length=200)
+    poBudgetCap: str | None = Field(default=None, max_length=40)
+    notes: str | None = Field(default=None, max_length=4000)
+    originalMessage: str | None = Field(default=None, max_length=8000)
+    tenantDraft: str | None = Field(default=None, max_length=8000)
+    contractorDraft: str | None = Field(default=None, max_length=8000)
 
 
 class ApproveDispatchRequest(BaseModel):
@@ -190,20 +192,6 @@ class ApproveDispatchResponse(BaseModel):
 # Seed Data
 # ---------------------------------------------------------------------------
 
-# Owner edits and dispatch confirmations are kept in memory (not yet persisted as case events). They are partitioned by
-# company so one company's audit trail and ticket edits can never be read or changed through another's session.
-_TICKETS: dict[UUID, list[dict[str, Any]]] = {}
-_HISTORY: dict[UUID, list[dict[str, Any]]] = {}
-
-
-def _tickets(company_id: UUID) -> list[dict[str, Any]]:
-    return _TICKETS.setdefault(company_id, [])
-
-
-def _history(company_id: UUID) -> list[dict[str, Any]]:
-    return _HISTORY.setdefault(company_id, [])
-
-
 # ---------------------------------------------------------------------------
 # API Routes
 # ---------------------------------------------------------------------------
@@ -281,17 +269,7 @@ def get_ticket_history(
                 events=events,
                 totalEvents=len(events),
             )
-    ticket = _seeded_ticket(principal.company_id, ticket_id)
-    if ticket is None:
-        raise HTTPException(status_code=404, detail="Maintenance ticket not found")
-    events = [AuditEventItem(**e) for e in _history(principal.company_id)]
-    return TicketHistoryResponse(
-        ticketNumber=ticket["ticketNumber"],
-        ticketId=ticket["id"],
-        unitLabel=ticket["unitLabel"],
-        events=events,
-        totalEvents=len(events),
-    )
+    raise HTTPException(status_code=404, detail="Maintenance ticket not found")
 
 
 _EVENT_TITLES = {
@@ -338,83 +316,54 @@ def update_maintenance_ticket(
     engine: Annotated[Engine, Depends(get_engine)],
     principal: Annotated[Principal, Depends(require_session)],
 ) -> MaintenanceTicketItem:
-    """Updates a ticket of the signed-in owner's company in place and records an audit trail event."""
+    """Persists the edit (invariant 1): urgency and notes on the case, the rest as a TicketEdit row merged over
+    the live ticket, and a case event for the audit trail."""
     company_id = principal.company_id
-    clean_id = ticket_id.lstrip("#")
-    ticket = _seeded_ticket(company_id, ticket_id)
     updates = payload.model_dump(exclude_unset=True)
-
-    if not ticket:
-        with Session(engine) as session:
-            target_case = _find_case(session, company_id, clean_id)
-            if target_case is not None:
-                if updates.get("urgency") in set(Urgency):
-                    target_case.urgency = Urgency(updates["urgency"])
-                if updates.get("notes"):
-                    target_case.summary = updates["notes"]
-                unit = session.get(Unit, target_case.unit_id) if target_case.unit_id else None
-                tenant = session.get(Person, target_case.primary_person_id) if target_case.primary_person_id else None
-                session.commit()
-                ticket = {
-                    "id": str(target_case.id),
-                    "ticketNumber": f"#{case_ref(target_case.id)}",
-                    "issueTitle": updates.get("issueTitle", target_case.summary or "Maintenance request"),
-                    "unitLabel": updates.get("unitLabel") or ((unit.address or unit.label) if unit else "Unknown unit"),
-                    "tenantName": tenant.display_name if tenant else "Unknown tenant",
-                    "tenantPhone": "",
-                    "category": updates.get("category", "other"),
-                    "contractorName": updates.get("contractorName", ""),
-                    "contractorTrade": updates.get("contractorTrade", ""),
-                    "contractorPhone": updates.get("contractorPhone", ""),
-                    "contractorEmail": updates.get("contractorEmail", ""),
-                    "urgency": target_case.urgency.value if target_case.urgency else "normal",
-                    "status": "pending_approval",
-                    "slaRemaining": "",
-                    "isOverdue": False,
-                    "poBudgetCap": updates.get("poBudgetCap", ""),
-                    "reportedAt": "",
-                    "notes": updates.get("notes", target_case.summary or ""),
-                    "contractorDraft": updates.get("contractorDraft", ""),
-                    "tenantDraft": updates.get("tenantDraft", ""),
-                }
-                _tickets(company_id).insert(0, ticket)
-
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Maintenance ticket not found")
-
-    for field_name, value in updates.items():
-        if value is not None:
-            ticket[field_name] = value
-
-    history = _history(company_id)
-    history.append(
-        {
-            "id": f"ev-{len(history) + 1}",
-            "timestamp": f"Today {datetime.now(UTC).strftime('%H:%M')}",
-            "category": "audit",
-            "actor": "Owner",
-            "actorType": "owner",
-            "title": "Maintenance ticket details edited by owner",
-            "description": f"Updated ticket {ticket['ticketNumber']}.",
-            "badge": "Edited by Owner",
-        }
-    )
-
+    with Session(engine) as session:
+        case = _find_case(session, company_id, ticket_id.lstrip("#"))
+        if case is None:
+            raise HTTPException(status_code=404, detail="Maintenance ticket not found")
+        applied = {k for k, v in updates.items() if v is not None}
+        if updates.get("urgency") is not None:
+            case.urgency = Urgency(updates["urgency"])
+        if updates.get("notes") is not None:
+            case.summary = updates["notes"]
+            case.summary_version += 1
+        _upsert_ticket_edit(session, company_id, case.id, updates)
+        if applied:
+            session.add(
+                CaseEvent(
+                    company_id=company_id,
+                    case_id=case.id,
+                    kind=CaseEventKind.note,
+                    actor="owner",
+                    note=f"Maintenance ticket details edited by the owner: {', '.join(sorted(applied))}.",
+                )
+            )
+        session.commit()
+        ticket = ticket_with_edits(session, case)
     log.info("maintenance.ticket_updated", ticket_id=ticket_id, ticketNumber=ticket["ticketNumber"])
     return MaintenanceTicketItem(**ticket)
 
 
-def _seeded_ticket(company_id: UUID, ticket_id: str) -> dict[str, Any] | None:
-    clean_id = ticket_id.lstrip("#")
-    return next(
-        (
-            t
-            for t in _tickets(company_id)
-            if t["id"] in (ticket_id, clean_id)
-            or str(t["ticketNumber"]).lstrip("#") == clean_id
-            or t["ticketNumber"] == ticket_id
-        ),
-        None,
+# Who a dispatch goes to comes from the case's own request_contractor action (invariant 5); a persisted display
+# override of the contractor's identity would let the dashboard name someone other than the real recipient.
+_NOT_PERSISTED = ("urgency", "notes", "contractorName", "contractorEmail", "contractorPhone")
+
+
+def _upsert_ticket_edit(session: Session, company_id: UUID, case_id: UUID, updates: dict[str, Any]) -> None:
+    """Merge the owner's display edits into the case's one ticket_edits row (urgency and notes live on the case,
+    the contractor's identity on its action)."""
+    overlay = {k: v for k, v in updates.items() if v is not None and k not in _NOT_PERSISTED}
+    if not overlay:
+        return
+    statement = insert(TicketEdit).values(id=new_id(), company_id=company_id, case_id=case_id, fields=overlay)
+    session.execute(
+        statement.on_conflict_do_update(
+            index_elements=["company_id", "case_id"],
+            set_={"fields": TicketEdit.fields.op("||")(statement.excluded.fields)},
+        )
     )
 
 
@@ -519,46 +468,6 @@ def _approve_live_case(
     return decided
 
 
-def _append_history(company_id: UUID, ticket: dict[str, Any], body: ApproveDispatchRequest, to_email: str) -> None:
-    history = _history(company_id)
-    now_str = datetime.now(UTC).strftime("%H:%M")
-    if body.dispatchContractor:
-        history.append(
-            {
-                "id": f"ev-{len(history) + 1}",
-                "timestamp": f"Today {now_str}",
-                "category": "contractor_po",
-                "actor": "Harjot Singh (Owner)",
-                "actorType": "owner",
-                "channel": "Gmail",
-                "title": f"Work order dispatched to {ticket['contractorName']}",
-                "description": body.contractorMessage
-                or ticket.get("contractorDraft")
-                or (
-                    f"Work order sent to {ticket['contractorName']} ({to_email}). Budget cap: {ticket['poBudgetCap']}."
-                ),
-                "badge": f"{ticket['poBudgetCap']} Cap",
-                "stateChange": "pending_approval → dispatched",
-            }
-        )
-    if body.notifyTenant:
-        history.append(
-            {
-                "id": f"ev-{len(history) + 1}",
-                "timestamp": f"Today {now_str}",
-                "category": "message",
-                "actor": "EstateOS (Owner Approved)",
-                "actorType": "owner",
-                "channel": "WhatsApp / Email",
-                "title": f"Confirmation update dispatched to tenant {ticket['tenantName']}",
-                "description": body.tenantMessage
-                or ticket.get("tenantDraft")
-                or f"Tenant informed that {ticket['contractorName']} has been scheduled.",
-                "badge": "Tenant Notified",
-            }
-        )
-
-
 @router.post(
     "/tickets/{ticket_id}/approve",
     dependencies=[Depends(decide_limit)],
@@ -593,28 +502,32 @@ def approve_ticket_dispatch(
     for decision, local in decided:
         if decision.kind == "execute":  # after commit; DBOS dedupes a repeated id
             enqueue.enqueue_execute(client, decision.action_id, decision.draft_version, local)
-    ticket = _seeded_ticket(principal.company_id, ticket_id) or {
-        "id": ticket_id,
-        **ctx,
-        "poBudgetCap": "",
-        "status": "pending_approval",
-    }
-    ticket["status"] = "dispatched"
-    if body.poBudgetCap:
-        ticket["poBudgetCap"] = body.poBudgetCap
-    if body.contractorMessage:
-        ticket["contractorDraft"] = body.contractorMessage
-    if body.tenantMessage:
-        ticket["tenantDraft"] = body.tenantMessage
-    _append_history(
-        principal.company_id, ticket, body, ctx["contractorEmail"] or str(ticket.get("contractorEmail") or "")
-    )
-    log.info("maintenance.work_order_approved", ticket_id=ticket_id, contractor=ticket["contractorName"])
+    with Session(engine) as session:
+        case = _find_case(session, principal.company_id, ticket_id.lstrip("#"))
+        if case is not None:  # persist what the approval changed on the ticket's display and audit the tenant update
+            edits = {
+                "poBudgetCap": body.poBudgetCap,
+                "contractorDraft": body.contractorMessage,
+                "tenantDraft": body.tenantMessage,
+            }
+            _upsert_ticket_edit(session, principal.company_id, case.id, edits)
+            if body.notifyTenant and decided:  # a retry decides nothing new and must not duplicate the trail
+                session.add(
+                    CaseEvent(
+                        company_id=principal.company_id,
+                        case_id=case.id,
+                        kind=CaseEventKind.note,
+                        actor="owner",
+                        note="Tenant update approved and queued for the sender.",
+                    )
+                )
+            session.commit()
+    log.info("maintenance.work_order_approved", ticket_id=ticket_id)
     return ApproveDispatchResponse(
         status="authorized",
-        ticketNumber=str(ticket["ticketNumber"]),
-        authorizedPoBudget=str(ticket["poBudgetCap"]),
-        dispatchedTo=str(ticket["contractorName"]),
+        ticketNumber=ctx["ticketNumber"],
+        authorizedPoBudget=body.poBudgetCap or "",
+        dispatchedTo=ctx["contractorName"],
         contractorDispatched=body.dispatchContractor,
         tenantNotified=body.notifyTenant,
         executedAt=datetime.now(UTC).isoformat(),

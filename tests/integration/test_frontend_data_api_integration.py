@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.api.v1.auth import Principal
@@ -28,6 +28,7 @@ from app.db.models import (
     LeaseParty,
     Person,
     Send,
+    TicketEdit,
     Unit,
     WaitRow,
 )  # fmt: skip
@@ -357,3 +358,66 @@ def test_cors_headers_for_frontend(test_settings: Settings, migrated_engine: Eng
         res = client.options("/api/dashboard/pulse", headers=headers)
     assert res.status_code in (200, 204)
     assert res.headers.get("access-control-allow-origin") in ("http://localhost:3000", "*")
+
+
+def test_owner_ticket_edits_persist_in_postgres_and_the_audit_trail(portfolio: Portfolio) -> None:
+    """Edits must live in the database (invariant 1), not a process dict: the list reflects them and a case event
+    records them."""
+    res = portfolio.client.patch(
+        f"/api/maintenance/tickets/{portfolio.maintenance_case}",
+        json={"poBudgetCap": "EUR 350", "contractorTrade": "plumbing"},
+    )
+    assert res.status_code == 200
+    listed = portfolio.client.get("/api/maintenance/tickets").json()
+    ticket = next(t for t in listed["tickets"] if t["id"] == str(portfolio.maintenance_case))
+    assert (ticket["poBudgetCap"], ticket["contractorTrade"]) == ("EUR 350", "plumbing")
+    with Session(portfolio.engine) as s:
+        edit = s.scalars(select(TicketEdit).where(TicketEdit.company_id == portfolio.company)).one()
+        assert edit.case_id == portfolio.maintenance_case
+        assert edit.fields["poBudgetCap"] == "EUR 350"
+    history = portfolio.client.get(f"/api/maintenance/tickets/{portfolio.maintenance_case}/history").json()
+    assert any(e["actorType"] == "owner" and "edited" in e["description"].lower() for e in history["events"])
+
+
+def test_editing_an_unknown_ticket_is_a_404_not_an_invented_row(portfolio: Portfolio) -> None:
+    res = portfolio.client.patch("/api/maintenance/tickets/does-not-exist", json={"poBudgetCap": "EUR 1"})
+    assert res.status_code == 404
+
+
+def test_contractor_identity_edits_are_display_only_and_never_persist(portfolio: Portfolio) -> None:
+    """Who a dispatch goes to comes from the case's request_contractor action (invariant 5): a persisted name
+    override would let the dashboard show someone other than the real recipient."""
+    res = portfolio.client.patch(
+        f"/api/maintenance/tickets/{portfolio.maintenance_case}",
+        json={"contractorName": "Someone Else", "contractorEmail": "else@x.test", "contractorPhone": "+31600000000"},
+    )
+    assert res.status_code == 200
+    listed = portfolio.client.get("/api/maintenance/tickets").json()
+    ticket = next(t for t in listed["tickets"] if t["id"] == str(portfolio.maintenance_case))
+    assert (ticket["contractorName"], ticket["contractorEmail"], ticket["contractorPhone"]) == ("", "", "")
+    with Session(portfolio.engine) as s:
+        for edit in s.scalars(select(TicketEdit).where(TicketEdit.company_id == portfolio.company)):
+            assert not {"contractorName", "contractorEmail", "contractorPhone"} & set(edit.fields)
+
+
+def test_erasing_the_tenant_deletes_the_ticket_edits_of_their_cases(portfolio: Portfolio) -> None:
+    from app.pipeline.gdpr import erase_person
+
+    portfolio.client.patch(
+        f"/api/maintenance/tickets/{portfolio.maintenance_case}",
+        json={"tenantDraft": "Beste Anouk, we sturen vandaag iemand langs."},
+    )
+    with Session(portfolio.engine) as s:
+        case = s.get(Case, portfolio.maintenance_case)
+        assert case is not None
+        case.primary_person_id = portfolio.anouk
+        s.commit()
+    with Session(portfolio.engine) as s, s.begin():
+        erase_person(s, portfolio.company, portfolio.anouk)
+    with Session(portfolio.engine) as s:
+        left = s.scalars(
+            select(TicketEdit).where(
+                TicketEdit.company_id == portfolio.company, TicketEdit.case_id == portfolio.maintenance_case
+            )
+        ).all()
+    assert left == []

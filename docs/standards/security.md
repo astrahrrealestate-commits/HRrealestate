@@ -70,6 +70,18 @@ the build when a route answers an anonymous caller without being listed as publi
 - calendar approve is idempotent; the dev bypass needs `env=dev` and the fake identity provider; production refuses
   localhost and plain-http public URLs and the fake Google Chat verifier
 
+Closed on 2026-11-12:
+- the SPA shows one fixed banner while the API is unreachable or answering 5xx (`ApiHealthBanner`, fed by every
+  `apiFetch`), instead of quietly showing empty fallbacks
+- the owner's maintenance ticket edits are persisted (`ticket_edits`, migration 0043, merged over the live ticket)
+  with a `case_events` audit row; the PATCH and history routes no longer keep anything in process memory, and an
+  unknown ticket is a 404, never an invented row. The contractor's identity (name, email, phone) is never persisted
+  as an edit — the dashboard can only name the recipient the dispatch actually goes to — request fields are
+  length-capped, and `erase_person` deletes the `ticket_edits` of the erased person's cases
+- translation now runs both ways (ADR 0011 amendment): the en→nl model is pinned and SHA-256 checked like the nl→en
+  one, the cache is unique per (company, source hash, target), and `erase_person` also drops the company's en→nl rows
+  because their Dutch output may be a message sent to the erased person
+
 Still open (fix in this order):
 - **Profiles limit sections, not actions** (ADR 0012). A member sees only the sections a superadmin switched on; every
   router is guarded per request and a test walks the OpenAPI document to keep it so. Anyone who holds a section that
@@ -83,11 +95,6 @@ Still open (fix in this order):
 - **The owner's Google OAuth credentials** live in one plaintext file (mode 0600) for the whole installation
   (`channels/google_auth.py`), not per company. The module no longer logs the account email, the file path or the
   token-exchange response body.
-- **The SPA's offline fallbacks** (`frontend/src/data/mockData`) are empty or zero (no invented units, rent or
-  contacts), but an API failure still shows them quietly with `isLive: false` instead of an error banner.
-- **The owner's maintenance ticket edits** are kept in memory per company rather than as case events. (The list and the
-  approve context no longer invent a contractor, phone, budget cap, SLA or trade: they read the case's own
-  `request_contractor` action, and the approve path no longer looks a contractor up by name across companies.) The "AI draft" options in contacts
-  are fixed templates.
+- The "AI draft" options in contacts are fixed templates.
 - **Rent is unknown.** Amounts and arrears are reported as 0 / `unknown` until the BRIXX rent mirror exists.
 - v1 rate limits and the per-owner cap of 4 live event streams (`stream_slots.py`) are per process.

@@ -5,6 +5,7 @@ import { AuthProvider } from "@/context/AuthContext";
 import { LanguageProvider } from "@/context/LanguageContext";
 import { CommandPalette } from "@/components/layout/CommandPalette";
 import { SectionGuard } from "@/components/layout/SectionGuard";
+import { ApiHealthBanner } from "@/components/ui/ApiHealthBanner";
 
 export const metadata: Metadata = {
   title: "EstateOS | AI Property Management",
@@ -28,6 +29,7 @@ export default function RootLayout({
         <LanguageProvider>
           <AuthProvider>
             <SuperAgentProvider>
+              <ApiHealthBanner />
               <SectionGuard>{children}</SectionGuard>
               <CommandPalette />
             </SuperAgentProvider>

@@ -21,7 +21,15 @@ from app.db.models.memory import MemoryItem
 from app.db.models.message_rag import MessageChunk, MessageIndexState
 from app.db.models.ops import MetricSnapshot, ModelCall, Outcome, Timer
 from app.db.models.owner import Approval, OwnerOutbox, OwnerPersona, Send
-from app.db.models.pipeline import ActionRevision, ActionRow, Case, CaseEvent, CaseLink, UnderstandingRow
+from app.db.models.pipeline import (
+    ActionRevision,
+    ActionRow,
+    Case,
+    CaseEvent,
+    CaseLink,
+    TicketEdit,
+    UnderstandingRow,
+)
 from app.db.models.tenancy import AllowedUser, ChannelAccount, Company, GmailSyncState, OwnerAccount
 from app.db.models.translation import Translation
 from app.db.models.work import DocumentRow, TaskRow, WaitRow
@@ -81,6 +89,7 @@ __all__ = [
     "Send",
     "TaskRow",
     "TenantRentPayment",
+    "TicketEdit",
     "Timer",
     "Translation",
     "UnderstandingRow",

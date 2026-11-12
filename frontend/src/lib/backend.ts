@@ -14,9 +14,39 @@ export function backendUrl(pathOrUrl: string): string {
   return pathOrUrl.startsWith("http") ? pathOrUrl : `${BACKEND_BASE_URL}${pathOrUrl}`;
 }
 
+type ApiHealthListener = (healthy: boolean) => void;
+
+const healthListeners = new Set<ApiHealthListener>();
+let apiHealthy = true;
+
+function setApiHealthy(next: boolean) {
+  if (next === apiHealthy) return;
+  apiHealthy = next;
+  healthListeners.forEach((listener) => listener(next));
+}
+
+/** Subscribe to API reachability (fed by every `apiFetch`). Calls back immediately with the current state. */
+export function onApiHealthChange(listener: ApiHealthListener): () => void {
+  healthListeners.add(listener);
+  listener(apiHealthy);
+  return () => {
+    healthListeners.delete(listener);
+  };
+}
+
 export function apiFetch(pathOrUrl: string, init: RequestInit = {}): Promise<Response> {
   const method = (init.method ?? "GET").toUpperCase();
   const headers = new Headers(init.headers);
   if (!SAFE_METHODS.has(method)) headers.set("X-EstateOS-Client", "dashboard");
-  return fetch(backendUrl(pathOrUrl), { ...init, headers, credentials: "include" });
+  return fetch(backendUrl(pathOrUrl), { ...init, headers, credentials: "include" }).then(
+    (response) => {
+      setApiHealthy(response.status < 500);
+      return response;
+    },
+    (error: unknown) => {
+      // A component aborting its own request on unmount says nothing about the server.
+      if (!(error instanceof DOMException && error.name === "AbortError")) setApiHealthy(false);
+      throw error;
+    }
+  );
 }

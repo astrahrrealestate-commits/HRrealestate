@@ -67,6 +67,18 @@ class CaseEvent(Base, CompanyScoped):
     actor: Mapped[str] = mapped_column(String(64))  # "system", "owner", "agent:<name>"
 
 
+class TicketEdit(Base, CompanyScoped):
+    """The owner's edits to a maintenance ticket's display fields (PATCH /api/maintenance/tickets): one row per
+    case, merged over the live ticket when it is listed. Each edit also appends a CaseEvent for the audit trail."""
+
+    __tablename__ = "ticket_edits"
+    __company_id_leading_index__ = True
+    __table_args__ = (UniqueConstraint("company_id", "case_id"),)
+
+    case_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("cases.id"), index=True)
+    fields: Mapped[dict[str, Any]]
+
+
 class ActionRow(Base, CompanyScoped):
     __tablename__ = "actions"
 

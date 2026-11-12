@@ -8,7 +8,8 @@ Cascades tenant erasure across:
 5. `people` (display_name set to [Erased Person], valid_to set).
 6. `translations` (the English copies of the person's message texts, found by text hash, plus every
    English-to-Dutch row of the company, deleted before the redaction).
-7. BRIXX mirror: a person with a numeric `brixx_ref` gets a `brixx_erased_refs` tombstone and their mirror rows
+7. `ticket_edits` of the person's cases (deleted: the owner's edits can quote the person's messages or drafts to them).
+8. BRIXX mirror: a person with a numeric `brixx_ref` gets a `brixx_erased_refs` tombstone and their mirror rows
    (`brixx.prg_relatie`, `brixx.zprg_relatie`) are deleted, so a re-sync never resurrects them.
 Strictly company-scoped (invariant 4).
 """
@@ -25,6 +26,7 @@ from app.core.texthash import source_hash
 from app.db.brixx_erasure import purge_brixx_relatie, relatie_id
 from app.db.enums import MemoryScope, MemoryStatus
 from app.db.models import (
+    Case,
     ChannelIdentity,
     MemoryItem,
     MessageChunk,
@@ -32,6 +34,7 @@ from app.db.models import (
     MessageRow,
     Person,
     PersonProfile,
+    TicketEdit,
     Translation,
 )
 
@@ -64,6 +67,11 @@ def _delete_translations(session: Session, company_id: UUID, msg_ids: list[UUID]
     session.execute(delete(Translation).where(Translation.company_id == company_id, or_(*clauses)))
 
 
+def _delete_ticket_edits(session: Session, company_id: UUID, person_id: UUID) -> None:
+    case_ids = select(Case.id).where(Case.company_id == company_id, Case.primary_person_id == person_id)
+    session.execute(delete(TicketEdit).where(TicketEdit.company_id == company_id, TicketEdit.case_id.in_(case_ids)))
+
+
 def erase_person(
     session: Session,
     company_id: UUID,
@@ -80,6 +88,8 @@ def erase_person(
         ).all()
     )
     msg_id_strs = {str(mid) for mid in msg_ids}
+
+    _delete_ticket_edits(session, company_id, person_id)
 
     # 2. Redact message texts and identities (their cached English copies go first: they are found by the text)
     messages_redacted = 0

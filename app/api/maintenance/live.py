@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.contracts import ActionType, CaseState, Category, Channel, Direction
 from app.core.ids import case_ref
 from app.db.enums import ActionStatus, ApprovalStatus
-from app.db.models import ActionRow, Approval, Case, CaseLink, ChannelIdentity, MessageRow, Person, Unit
+from app.db.models import ActionRow, Approval, Case, CaseLink, ChannelIdentity, MessageRow, Person, TicketEdit, Unit
 
 TRADE_CATEGORIES = (
     ("plumb", "plumbing"),
@@ -117,10 +117,21 @@ def live_tickets(session: Session, company_id: UUID) -> list[dict[str, Any]]:
         .where(Case.company_id == company_id, Case.category == Category.maintenance)
         .order_by(Case.opened_at.desc())
     ).all()
-    return [_ticket(session, case) for case in cases]
+    edits = {
+        e.case_id: e.fields for e in session.scalars(select(TicketEdit).where(TicketEdit.company_id == company_id))
+    }
+    return [_ticket(session, case, edits.get(case.id)) for case in cases]
 
 
-def _ticket(session: Session, case: Case) -> dict[str, Any]:
+def ticket_with_edits(session: Session, case: Case) -> dict[str, Any]:
+    """One case as a ticket, with the owner's persisted edits merged over it."""
+    edit = session.scalars(
+        select(TicketEdit).where(TicketEdit.company_id == case.company_id, TicketEdit.case_id == case.id)
+    ).one_or_none()
+    return _ticket(session, case, edit.fields if edit else None)
+
+
+def _ticket(session: Session, case: Case, edits: dict[str, Any] | None = None) -> dict[str, Any]:
     unit = session.get(Unit, case.unit_id) if case.unit_id else None
     unit_label = (unit.address or unit.label) if unit else "Unknown unit"
     person = session.get(Person, case.primary_person_id) if case.primary_person_id else None
@@ -135,7 +146,7 @@ def _ticket(session: Session, case: Case) -> dict[str, Any]:
         contractor=contractor.display_name if contractor else "",
     )  # fmt: skip
     dispatched = _is_dispatched(session, case, actions)
-    return {
+    ticket: dict[str, Any] = {
         "id": str(case.id),
         "ticketNumber": f"#{case_ref(case.id)}",
         "issueTitle": issue,
@@ -158,3 +169,6 @@ def _ticket(session: Session, case: Case) -> dict[str, Any]:
         "contractorDraft": to_contractor,
         "tenantDraft": to_tenant,
     }
+    if edits:  # the owner's persisted display edits win over derived values; unknown keys and blanks are dropped
+        ticket.update({k: v for k, v in edits.items() if k in ticket and v not in (None, "")})
+    return ticket
