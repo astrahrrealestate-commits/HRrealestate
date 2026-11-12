@@ -310,7 +310,8 @@ def get_rent_analytics(
         if not summaries:
             raise HTTPException(status_code=404, detail="no rent analytics recorded")
 
-        # Portfolio units: at least as many as the recorded units or active tenants in the summaries, capped to never exceed 100%
+        # Portfolio units: at least as many as the recorded units or active tenants in the summaries,
+        # capped to never exceed 100%
         db_units = (
             session.scalar(select(func.count(Unit.id)).where(Unit.company_id == cid, Unit.valid_to.is_(None))) or 0
         )
@@ -346,7 +347,9 @@ def get_rent_analytics(
                 totalCollected=round(float(previous_summary.total_collected_rent_cents) / 100.0, 2),
                 collectionRate=float(previous_summary.collection_rate_pct),
                 momChangePct=mom_change,
-                occupancyRate=round(min(100.0, (float(previous_summary.total_tenants_count) / float(portfolio_units)) * 100.0), 1),
+                occupancyRate=round(
+                    min(100.0, (float(previous_summary.total_tenants_count) / float(portfolio_units)) * 100.0), 1
+                ),
             )
             if previous_summary
             else None
@@ -363,7 +366,9 @@ def get_rent_analytics(
             collectionRate=float(current_summary.collection_rate_pct),
             occupiedUnits=current_summary.total_tenants_count,
             totalUnits=portfolio_units,
-            occupancyRate=round(min(100.0, (float(current_summary.total_tenants_count) / float(portfolio_units)) * 100.0), 1),
+            occupancyRate=round(
+                min(100.0, (float(current_summary.total_tenants_count) / float(portfolio_units)) * 100.0), 1
+            ),
         )
 
         return RentAnalyticsResponse(

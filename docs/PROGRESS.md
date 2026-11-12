@@ -284,3 +284,18 @@ Ticks below carry a quoted line from the build ledger (per-task `make quick` rep
 - [x] `docs/standards/security.md`: offline-fallback and ticket-edit gaps moved to "Closed on 2026-11-12"
 - [x] Review findings fixed (reviewer: fix-first 1 high; security: pass with 3 should-fix): `TicketEdit` in both approve-test teardowns (the G2 error the reviewer predicted), contractor identity (name/email/phone) excluded from persisted edits with a test that it stays display-only, `erase_person` deletes the `ticket_edits` of the person's cases (red first), `summary_version` bumped on owner notes, invalid `urgency` is a 422 (typed `Urgency`), the audit note names only the fields actually applied, the tenant-notify audit row is written once per newly decided approval and worded "approved and queued for the sender", no person name in the approve info log, request fields length-capped, blank edits never mask derived values
 - Evidence: `make quick` → `3157 passed`; integration `51 passed` on the two maintenance suites; `make check` green (see below); `make smoke` → `api ready: ok`, `worker: ok`, `logs: clean` on the rebuilt image with both translation models; frontend production build green
+
+## Post-merge hardening after origin/main moved (2026-11-13; branch `m-client-ready-sweep`)
+Remote `main` gained 13 commits (superagent UI, unified composer, rent analytics, ngrok compose) pushed without the
+gates: `make quick` failed on them (lint, mypy, three unit tests). Merged `origin/main` in, re-applied the
+bidirectional translation controls onto the new unified Composer, and fixed what the gates caught:
+- [x] `fix(auth)` had reintroduced everything the 2026-11-11 merge excluded on purpose: the session token in the
+  login response body, `localStorage`, a script-set cookie, and `X-Session-Token`/`Bearer` acceptance (the committed
+  guard test `test_valid_token_sets_cookie` failed on it). Cookie-only sessions restored; the ngrok/mobile case is
+  covered by the same-origin `/api` proxy rewrite that the same push restored. The dev-principal prioritisation stays.
+- [x] `Action.case_id` optional-with-default had broken the strict LLM schema (invariant 8,
+  `test_strict_mode_compatible`). Now required-but-nullable with a before-validator filling `case_id`/`context_ref`/
+  `draft_version` a model proposal omits: schema strict again, LLM leniency kept.
+- [x] Lint/mypy debt from the push: `money.py` and `link.py` long lines, `simulate_scenarios.py` typed and allowed
+  prints as a dev CLI (per-file ignore like the other scripts)
+- Evidence: `make quick` → `3169 passed`, mypy `Success`, `Contracts: 9 kept`; frontend `tsc --noEmit` clean

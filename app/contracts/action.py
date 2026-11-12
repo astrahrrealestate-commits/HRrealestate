@@ -87,16 +87,24 @@ ActionPayload = Annotated[
 
 class Action(Contract):
     type: ActionType
-    case_id: UUID | None = None
+    case_id: UUID | None  # None only in freshly proposed model output; the pipeline sets the case before persisting
     payload: ActionPayload
     rationale: NonBlankStr
-    context_ref: list[UUID] = Field(default_factory=list)
-    draft_version: Annotated[int, Field(ge=1)] = 1
+    context_ref: list[UUID]
+    draft_version: Annotated[int, Field(ge=1)]
 
     @model_validator(mode="before")
     @classmethod
     def _kind_precheck(cls, data: Any) -> Any:
-        """Fail with one clear error on a kind/type mismatch instead of one error per union member."""
+        """Fail with one clear error on a kind/type mismatch instead of one error per union member.
+
+        Also fills what a model's proposal may omit (case_id, context_ref, draft_version) so LLM output validates,
+        while the JSON schema keeps every property required (strict mode, invariant 8): defaults in the schema would
+        break it, a before-validator does not appear in it."""
+        if isinstance(data, dict):
+            data.setdefault("case_id", None)
+            data.setdefault("context_ref", [])
+            data.setdefault("draft_version", 1)
         if isinstance(data, dict) and isinstance(data.get("payload"), dict):
             kind, action_type = data["payload"].get("kind"), data.get("type")
             if kind is not None and action_type is not None and str(kind) != str(action_type):

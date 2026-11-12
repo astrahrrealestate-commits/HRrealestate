@@ -1,6 +1,6 @@
 # Project context (auto)
 
-Generated: 2026-11-12T06:37:15.693Z
+Generated: 2026-11-12T18:54:08.029Z
 
 ## Detected stack
 
@@ -10,57 +10,60 @@ Generated: 2026-11-12T06:37:15.693Z
 ## Git
 
 - Branch: `m-client-ready-sweep`
-- HEAD: `31fac13`
+- HEAD: `1ff2574`
 
 ## Recent commits
 
+- `1ff2574` chore(merge): origin/main (superagent UI, unified composer) into m-client-ready-sweep _(Aditya Jain, 2026-11-13)_
+- `6aed10b` fix(maintenance): persist owner ticket edits, surface API outages, verify dev DB _(Aditya Jain, 2026-11-13)_
+- `d3f15a7` feat(frontend,agent,inbox): mobile/desktop UI cleanup, unified inbox composer, full AI drafts & Schibsted Grotesk mobile font _(Suryansh Tyagi, 2026-11-12)_
 - `31fac13` feat(i18n): dynamic bidirectional chat translation, shared STT hook, BRIXX live check _(Aditya Jain, 2026-11-12)_
+- `8b61a5d` feat(superagent,frontend): clean executive answers and structured cards _(Suryansh Tyagi, 2026-11-11)_
+- `a0b4cd6` fix(frontend): add rentStatus to ContactItem and remove duplicate keys in LanguageContext _(Suryansh Tyagi, 2026-11-11)_
+- `1685f04` fix(pipeline): make Action case_id optional in tool schema so LLM proposal validation succeeds _(Suryansh Tyagi, 2026-11-11)_
+- `28e7c38` feat(dashboard,sim): round dashboard filter bar and execute live tenant scenario simulation _(Suryansh Tyagi, 2026-11-11)_
+- `489c7d7` feat(drafts,tenants): connect real AI proposer agent and add tenants directory fallback _(Suryansh Tyagi, 2026-11-11)_
+- `e953952` feat(money): add Monthly vs Yearly time horizon and collapsible chart toggle _(Suryansh Tyagi, 2026-11-11)_
+- `10fa6a6` fix(money,tenants): cap occupancy to 100% and wire live rent status for overdue tenants _(Suryansh Tyagi, 2026-11-11)_
+- `5510270` fix(ui): replace unicode flag emojis with crisp SVG flags for cross-platform Windows support _(Suryansh Tyagi, 2026-11-11)_
+- `e588cc0` fix(auth): restore X-Session-Token header support and prioritize real owner company in dev _(Suryansh Tyagi, 2026-11-11)_
+- `2f33052` fix(frontend): restore API proxy rewrite in next.config.ts _(Suryansh Tyagi, 2026-11-11)_
+- `845ed8c` chore(merge): merge origin/main into experiment-superagent-ui _(Suryansh Tyagi, 2026-11-11)_
+- `120325e` fix(pipeline): truncate massive email bodies for understanding and suppress fallback cases for unlinked senders _(Suryansh Tyagi, 2026-11-11)_
 - `f83e293` chore(deps): google-genai 3.1.0 in the lock, and the merge notes _(Aditya Jain, 2026-11-11)_
 - `01adfe0` chore(merge): dependabot dependency-review-action 5.0.0 _(Aditya Jain, 2026-11-11)_
 - `142eed5` chore(merge): dependabot docker astral-sh/uv 0.13.7 _(Aditya Jain, 2026-11-11)_
 - `3f490d8` chore(merge): wip/brixx-uncommitted-snapshot (archived patch under docs/wip) _(Aditya Jain, 2026-11-11)_
-- `2b855cb` chore(merge): experiment-superagent-ui, Tenant Directory and Dutch translations _(Aditya Jain, 2026-11-11)_
-- `a47672f` fix(i18n): wire Dutch translations for money subheaders, maintenance table headers, emergency action bar, and email category filters _(Suryansh Tyagi, 2026-11-11)_
-- `91bbc0a` feat(i18n): add comprehensive Dutch translations for filters, money, charts, and tenancy cards _(Suryansh Tyagi, 2026-11-11)_
-- `f7ee171` chore(merge): origin/main into the experiment-superagent-ui merge _(Aditya Jain, 2026-11-11)_
-- `05a526f` chore(merge): experiment-superagent-ui (rent ledger, Money page, i18n, voice, mobile Super Agent) _(Aditya Jain, 2026-11-11)_
-- `f6efd6e` feat(tenants): match exact contacts UI, colors, logic, and tabs filtered strictly to tenants _(Suryansh Tyagi, 2026-11-11)_
-- `427cdd2` chore(merge): bring origin/main into m-bugfix-sweep _(Aditya Jain, 2026-11-11)_
-- `1a5d24a` fix: gate the Super Agent, cap event streams, and stop the SPA inventing greetings, sync 429s and fallback figures _(Aditya Jain, 2026-11-11)_
-- `dbea035` feat(tenants): redesign Tenant Directory to mirror Contacts layout with tenancy specs and live comms _(Suryansh Tyagi, 2026-11-11)_
-- `bd1c410` fix(maintenance): list real contractor, drop invented cap and SLA, and stop a cross-company contractor lookup _(Aditya Jain, 2026-11-11)_
-- `987ff3f` fix(properties): resolve lease status logic, dynamic case ticket counts, and occupied tab filtering _(Suryansh Tyagi, 2026-11-11)_
-- `f248aba` fix(access): the dev owner and the first profile's creator keep their own profile _(Aditya Jain, 2026-11-11)_
-- `c384492` docs: refresh generated project context _(Aditya Jain, 2026-11-11)_
-- `e4e17b5` feat(portfolio): connect properties and tenants with live contact channels, rent ledger, and unit specs _(Suryansh Tyagi, 2026-11-11)_
-- `ac5d37c` feat(frontend): Money back in the navigation, Team & access and Add a profile in the user menu _(Aditya Jain, 2026-11-11)_
 
 ## Inferred recent decisions
 
+- `6aed10b` fix(maintenance): persist owner ticket edits, surface API outages, verify dev DB
+- `d3f15a7` feat(frontend,agent,inbox): mobile/desktop UI cleanup, unified inbox composer, full AI drafts & Schibsted Grotesk mobile font
 - `31fac13` feat(i18n): dynamic bidirectional chat translation, shared STT hook, BRIXX live check
-- `a47672f` fix(i18n): wire Dutch translations for money subheaders, maintenance table headers, emergency action bar, and email category filters
-- `91bbc0a` feat(i18n): add comprehensive Dutch translations for filters, money, charts, and tenancy cards
-- `f6efd6e` feat(tenants): match exact contacts UI, colors, logic, and tabs filtered strictly to tenants
-- `1a5d24a` fix: gate the Super Agent, cap event streams, and stop the SPA inventing greetings, sync 429s and fallback figures
-- `dbea035` feat(tenants): redesign Tenant Directory to mirror Contacts layout with tenancy specs and live comms
-- `bd1c410` fix(maintenance): list real contractor, drop invented cap and SLA, and stop a cross-company contractor lookup
-- `987ff3f` fix(properties): resolve lease status logic, dynamic case ticket counts, and occupied tab filtering
-- `f248aba` fix(access): the dev owner and the first profile's creator keep their own profile
-- `e4e17b5` feat(portfolio): connect properties and tenants with live contact channels, rent ledger, and unit specs
-- `ac5d37c` feat(frontend): Money back in the navigation, Team & access and Add a profile in the user menu
+- `8b61a5d` feat(superagent,frontend): clean executive answers and structured cards
+- `a0b4cd6` fix(frontend): add rentStatus to ContactItem and remove duplicate keys in LanguageContext
+- `1685f04` fix(pipeline): make Action case_id optional in tool schema so LLM proposal validation succeeds
+- `28e7c38` feat(dashboard,sim): round dashboard filter bar and execute live tenant scenario simulation
+- `489c7d7` feat(drafts,tenants): connect real AI proposer agent and add tenants directory fallback
+- `e953952` feat(money): add Monthly vs Yearly time horizon and collapsible chart toggle
+- `10fa6a6` fix(money,tenants): cap occupancy to 100% and wire live rent status for overdue tenants
+- `5510270` fix(ui): replace unicode flag emojis with crisp SVG flags for cross-platform Windows support
+- `e588cc0` fix(auth): restore X-Session-Token header support and prioritize real owner company in dev
+- `2f33052` fix(frontend): restore API proxy rewrite in next.config.ts
+- `120325e` fix(pipeline): truncate massive email bodies for understanding and suppress fallback cases for unlinked senders
 
 ## Hotspots
 
-- 63x — `docs/PROGRESS.md`
-- 46x — `app/api/agent/routes.py`
-- 38x — `frontend/src/components/assistant/AskEstateOSPanel.tsx`
+- 64x — `docs/PROGRESS.md`
+- 48x — `app/api/agent/routes.py`
+- 41x — `frontend/src/components/assistant/AskEstateOSPanel.tsx`
+- 35x — `app/api/inbox/routes.py`
 - 35x — `pyproject.toml`
 - 34x — `app/core/settings.py`
-- 34x — `app/api/inbox/routes.py`
 - 30x — `docs/dashboard-api.md`
-- 27x — `frontend/src/lib/api.ts`
+- 28x — `frontend/src/lib/api.ts`
+- 27x — `.env.example`
 - 27x — `tests/unit/api/__snapshots__/test_openapi_snapshot.ambr`
-- 27x — `app/workflows/runtime.py`
 
 ## Top-level tree
 
@@ -248,6 +251,7 @@ Generated: 2026-11-12T06:37:15.693Z
 .hypothesis/constants/18dac4c9f22a7e70
 .hypothesis/constants/18e8e4f038c394a2
 .hypothesis/constants/192242756f9e15d5
+.hypothesis/constants/195d9679adab69f3
 .hypothesis/constants/196704790a8481a7
 .hypothesis/constants/1984e5dce037d7af
 .hypothesis/constants/199e3430959bbbba
@@ -264,5 +268,4 @@ Generated: 2026-11-12T06:37:15.693Z
 .hypothesis/constants/1b81d4d985941a69
 .hypothesis/constants/1b8f41e38f01284b
 .hypothesis/constants/1bdadf4880ad507f
-.hypothesis/constants/1bdd85f9d037852f
 ```

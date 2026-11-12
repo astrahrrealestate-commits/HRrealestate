@@ -155,12 +155,15 @@ def _bad_model(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.llm.calls.build_model", lambda _s, _n: bad)
 
 
-def _inbound(engine: Engine, cid: object, text: str = "Lekkage", sender: str = "+31622222222") -> object:
+def _inbound(
+    engine: Engine, cid: object, text: str = "Lekkage", sender: str = "+31622222222", person_id: object = None
+) -> object:
     with Session(engine) as session, session.begin():
         raw = RawEvent(company_id=cid, provider=Channel.whatsapp, provider_msg_id=str(new_id()), payload={})
         session.add(raw)
         session.flush()
         msg = MessageRow(
+            person_id=person_id,
             company_id=cid,
             raw_event_id=raw.id,
             channel=Channel.whatsapp,
@@ -189,13 +192,23 @@ def test_understanding_failure_with_attempts_left_links_nothing(
         assert session.scalar(select(CaseLink.id).where(CaseLink.message_id == msg_id)) is None
 
 
-def test_final_understanding_failure_opens_an_other_case(
+def test_final_understanding_failure_from_a_known_tenant_opens_an_other_case(
     dbos_runtime: None, migrated_engine: Engine, committed_company: Company, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from app.db.models import Case, CaseLink
+    from datetime import date
+
+    from app.db.enums import PersonKind
+    from app.db.models import Case, CaseLink, Person
 
     _bad_model(monkeypatch)
-    msg_id = _inbound(migrated_engine, committed_company.id)
+    with Session(migrated_engine) as session, session.begin():
+        tenant = Person(
+            company_id=committed_company.id, kind=PersonKind.tenant, display_name="Jan", valid_from=date(2026, 1, 1)
+        )
+        session.add(tenant)
+        session.flush()
+        tenant_id = tenant.id
+    msg_id = _inbound(migrated_engine, committed_company.id, person_id=tenant_id)
     with Session(migrated_engine) as session, session.begin():
         row = session.get(MessageRow, msg_id)
         assert row is not None
@@ -206,6 +219,25 @@ def test_final_understanding_failure_opens_an_other_case(
             select(Case.category).join(CaseLink, CaseLink.case_id == Case.id).where(CaseLink.message_id == msg_id)
         )
     assert category is Category.other
+
+
+def test_final_understanding_failure_from_an_unlinked_stranger_opens_no_case(
+    dbos_runtime: None, migrated_engine: Engine, committed_company: Company, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unknown sender (marketing, newsletters) whose understanding failed stays in the inbox without a triage
+    case; a known tenant or contractor still gets the fallback case above."""
+    from app.db.models import CaseLink
+
+    _bad_model(monkeypatch)
+    msg_id = _inbound(migrated_engine, committed_company.id)
+    with Session(migrated_engine) as session, session.begin():
+        row = session.get(MessageRow, msg_id)
+        assert row is not None
+        row.pipeline_attempts = 2
+    assert pipeline.pipeline_entry(str(msg_id)) == "failed"
+    with Session(migrated_engine) as session:
+        link = session.scalar(select(CaseLink).where(CaseLink.message_id == msg_id))
+    assert link is None
 
 
 def test_unexpected_error_marks_the_message_failed_for_the_requeue(

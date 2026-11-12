@@ -230,13 +230,10 @@ def _dev_principal_or_401(request: Request) -> Principal:
 
 
 def cookie_principal(request: Request) -> Principal:
-    """The signed-cookie checks alone (no I/O): signature, age. 401 when missing or invalid.
-    Accepts eo_session cookie, X-Session-Token header, or Authorization: Bearer token."""
-    token = request.cookies.get(COOKIE) or request.headers.get("X-Session-Token")
-    if not token:
-        auth_h = request.headers.get("Authorization", "")
-        if auth_h.startswith("Bearer "):
-            token = auth_h[7:].strip()
+    """The signed-cookie checks alone (no I/O): signature, age. 401 when missing or invalid. The HttpOnly cookie is
+    the only session carrier (2026-11-11 decision): a token in a header or body would have to live in script-readable
+    storage, which an XSS could lift."""
+    token = request.cookies.get(COOKIE)
     if not token:
         return _dev_principal_or_401(request)
     try:
@@ -309,7 +306,7 @@ async def create_session(body: SessionRequest, request: Request, response: Respo
     token = issue_session(settings, principal, datetime.now(UTC))
     set_session_cookie(response, settings, token)
     log.info("dashboard_login", email_hash=email_fingerprint(email))
-    return {"email": principal.email, "company_id": str(principal.company_id), "session_token": token}
+    return {"email": principal.email, "company_id": str(principal.company_id)}
 
 
 @router.delete("/auth/session", status_code=204, dependencies=[Depends(require_csrf)])

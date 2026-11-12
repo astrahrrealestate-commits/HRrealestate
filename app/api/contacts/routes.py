@@ -116,8 +116,8 @@ def _action_to_draft_variants(action: ActionRow | None, labels: list[str]) -> li
         variants = [action.payload["body"]]
     return [
         DraftVariantItem(
-            id=f"d{i+1}",
-            label=labels[i] if i < len(labels) else f"Option {i+1}",
+            id=f"d{i + 1}",
+            label=labels[i] if i < len(labels) else f"Option {i + 1}",
             body=str(v).strip(),
         )
         for i, v in enumerate(variants[:3])
@@ -227,17 +227,15 @@ def get_contact_communications(
             draft_conds = [ActionRow.context_ref.overlap(msg_ids)]
             if case_ids:
                 draft_conds.append(ActionRow.case_id.in_(case_ids))
-            candidate_draft_actions = (
-                session.scalars(
-                    select(ActionRow)
-                    .where(
-                        ActionRow.company_id == company_id,
-                        ActionRow.type == ActionType.reply_draft,
-                        or_(*draft_conds),
-                    )
-                    .order_by(ActionRow.created_at.desc())
-                ).all()
-            )
+            candidate_draft_actions = session.scalars(
+                select(ActionRow)
+                .where(
+                    ActionRow.company_id == company_id,
+                    ActionRow.type == ActionType.reply_draft,
+                    or_(*draft_conds),
+                )
+                .order_by(ActionRow.created_at.desc())
+            ).all()
 
             def _find_reply_action(msg_id: UUID) -> ActionRow | None:
                 direct = next((a for a in candidate_draft_actions if msg_id in (a.context_ref or [])), None)
@@ -400,11 +398,13 @@ def generate_email_drafts(
         if not payload.guidance:
             with Session(engine) as session:
                 existing_action = session.scalars(
-                    select(ActionRow).where(
+                    select(ActionRow)
+                    .where(
                         ActionRow.company_id == company_id,
                         ActionRow.context_ref.contains([msg_uuid]),
                         ActionRow.type == ActionType.reply_draft,
-                    ).order_by(ActionRow.created_at.desc())
+                    )
+                    .order_by(ActionRow.created_at.desc())
                 ).first()
                 if existing_action and existing_action.payload:
                     variants = existing_action.payload.get("body_variants") or []
@@ -413,8 +413,8 @@ def generate_email_drafts(
                             message_id=message_id,
                             drafts=[
                                 DraftVariantItem(
-                                    id=f"d{i+1}",
-                                    label=labels[i] if i < len(labels) else f"Option {i+1}",
+                                    id=f"d{i + 1}",
+                                    label=labels[i] if i < len(labels) else f"Option {i + 1}",
                                     body=v.strip(),
                                 )
                                 for i, v in enumerate(variants[:3])
@@ -430,11 +430,13 @@ def generate_email_drafts(
         # 3. Read newly generated drafts from ActionRow
         with Session(engine) as session:
             new_action = session.scalars(
-                select(ActionRow).where(
+                select(ActionRow)
+                .where(
                     ActionRow.company_id == company_id,
                     ActionRow.context_ref.contains([msg_uuid]),
                     ActionRow.type == ActionType.reply_draft,
-                ).order_by(ActionRow.created_at.desc())
+                )
+                .order_by(ActionRow.created_at.desc())
             ).first()
             if new_action and new_action.payload:
                 variants = new_action.payload.get("body_variants") or []
@@ -443,8 +445,8 @@ def generate_email_drafts(
                         message_id=message_id,
                         drafts=[
                             DraftVariantItem(
-                                id=f"d{i+1}",
-                                label=labels[i] if i < len(labels) else f"Option {i+1}",
+                                id=f"d{i + 1}",
+                                label=labels[i] if i < len(labels) else f"Option {i + 1}",
                                 body=v.strip(),
                             )
                             for i, v in enumerate(variants[:3])
@@ -547,12 +549,14 @@ def generate_whatsapp_drafts(
             ).all()
             if channels:
                 msg = session.scalars(
-                    select(MessageRow).where(
+                    select(MessageRow)
+                    .where(
                         MessageRow.company_id == company_id,
                         MessageRow.channel == Channel.whatsapp,
                         MessageRow.direction == Direction.inbound,
                         MessageRow.sender_identity.in_(channels),
-                    ).order_by(MessageRow.sent_at.desc(), MessageRow.created_at.desc())
+                    )
+                    .order_by(MessageRow.sent_at.desc(), MessageRow.created_at.desc())
                 ).first()
                 if msg:
                     latest_inbound_msg_id = msg.id
@@ -560,11 +564,13 @@ def generate_whatsapp_drafts(
         # 1. Cache hit check: if no custom guidance was supplied, return existing ActionRow immediately
         if latest_inbound_msg_id and not payload.guidance:
             existing_action = session.scalars(
-                select(ActionRow).where(
+                select(ActionRow)
+                .where(
                     ActionRow.company_id == company_id,
                     ActionRow.context_ref.contains([latest_inbound_msg_id]),
                     ActionRow.type == ActionType.reply_draft,
-                ).order_by(ActionRow.created_at.desc())
+                )
+                .order_by(ActionRow.created_at.desc())
             ).first()
             if existing_action and existing_action.payload:
                 variants = existing_action.payload.get("body_variants") or []
@@ -573,8 +579,8 @@ def generate_whatsapp_drafts(
                         message_id=str(latest_inbound_msg_id),
                         drafts=[
                             DraftVariantItem(
-                                id=f"d{i+1}",
-                                label=labels[i] if i < len(labels) else f"Option {i+1}",
+                                id=f"d{i + 1}",
+                                label=labels[i] if i < len(labels) else f"Option {i + 1}",
                                 body=v.strip(),
                             )
                             for i, v in enumerate(variants[:3])
@@ -590,11 +596,13 @@ def generate_whatsapp_drafts(
 
         with Session(engine) as session:
             new_action = session.scalars(
-                select(ActionRow).where(
+                select(ActionRow)
+                .where(
                     ActionRow.company_id == company_id,
                     ActionRow.context_ref.contains([latest_inbound_msg_id]),
                     ActionRow.type == ActionType.reply_draft,
-                ).order_by(ActionRow.created_at.desc())
+                )
+                .order_by(ActionRow.created_at.desc())
             ).first()
             if new_action and new_action.payload:
                 variants = new_action.payload.get("body_variants") or []
@@ -603,8 +611,8 @@ def generate_whatsapp_drafts(
                         message_id=str(latest_inbound_msg_id),
                         drafts=[
                             DraftVariantItem(
-                                id=f"d{i+1}",
-                                label=labels[i] if i < len(labels) else f"Option {i+1}",
+                                id=f"d{i + 1}",
+                                label=labels[i] if i < len(labels) else f"Option {i + 1}",
                                 body=v.strip(),
                             )
                             for i, v in enumerate(variants[:3])

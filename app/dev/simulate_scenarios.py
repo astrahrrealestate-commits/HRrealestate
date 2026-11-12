@@ -7,6 +7,7 @@ Inbound messages pushed through the full pipeline:
 """
 
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -16,7 +17,7 @@ from app.contracts import Channel, Direction
 from app.core.logging import get_logger
 from app.core.settings import get_settings
 from app.db.enums import PipelineStatus, RawEventStatus
-from app.db.models import ActionRow, Case, CaseLink, MessageRow, OwnerAccount, Person, RawEvent
+from app.db.models import ActionRow, Case, CaseLink, MessageRow, OwnerAccount, RawEvent
 from app.db.session import make_engine
 from app.directory.identity import resolve_message_sender
 from app.pipeline.link import link_message
@@ -44,7 +45,7 @@ def run_simulation() -> None:
         company_id = owner.company_id
         print(f"Target company: {company_id} ({owner.email})")
 
-    scenarios = [
+    scenarios: list[dict[str, Any]] = [
         {
             "name": "Anouk de Jong",
             "channel": Channel.whatsapp,
@@ -72,7 +73,7 @@ def run_simulation() -> None:
     ]
 
     for item in scenarios:
-        print(f"\n=======================================================")
+        print("\n=======================================================")
         print(f"Injecting {item['type']} from {item['name']} ({item['channel'].value})...")
         now = datetime.now(UTC)
         raw_id = uuid4()
@@ -133,21 +134,19 @@ def run_simulation() -> None:
 
         # Check outcomes in database
         with Session(engine) as session:
-            case_id = session.scalar(
-                select(CaseLink.case_id).where(CaseLink.message_id == msg_id)
-            )
+            case_id = session.scalar(select(CaseLink.case_id).where(CaseLink.message_id == msg_id))
             case = session.get(Case, case_id) if case_id else None
-            actions = session.scalars(
-                select(ActionRow).where(ActionRow.context_ref.contains([msg_id]))
-            ).all()
+            actions = session.scalars(select(ActionRow).where(ActionRow.context_ref.contains([msg_id]))).all()
 
-            print(f"-> Linked Case: {case_id} (Category: {case.category.value if case else 'None'}, Summary: {case.summary if case else 'None'})")
+            print(
+                f"-> Linked Case: {case_id} (Category: {case.category.value if case else 'None'}, Summary: {case.summary if case else 'None'})"
+            )
             print(f"-> Generated Actions ({len(actions)}):")
             for a in actions:
                 variants = a.payload.get("body_variants", []) if a.payload else []
                 print(f"   * Action Type: {a.type.value}, Status: {a.status.value}")
                 for i, v in enumerate(variants):
-                    print(f"     Option {i+1}: {v[:120]}...")
+                    print(f"     Option {i + 1}: {v[:120]}...")
 
     print("\nSimulation complete! All 3 scenarios processed through the full AI pipeline.")
 

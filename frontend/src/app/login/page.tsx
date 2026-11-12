@@ -65,11 +65,7 @@ function LoginForm() {
         const errorText = await res.text().catch(() => "");
         throw new Error(`Dev sign-in failed (${res.status}): ${errorText || "Is the backend running in dev?"}`);
       }
-      const data = await res.json().catch(() => null);
-      if (data?.session_token) {
-        document.cookie = `eo_session=${data.session_token}; path=/; max-age=28800; SameSite=Lax`;
-        localStorage.setItem("eo_session", data.session_token);
-      }
+      // The response sets the HttpOnly session cookie; nothing script-readable to store.
       window.location.href = "/";
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "Dev sign-in failed.");

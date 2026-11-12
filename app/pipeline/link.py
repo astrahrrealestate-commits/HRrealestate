@@ -79,15 +79,14 @@ def _load(session: Session, message_id: UUID) -> _Facts | LinkResult | None:
     is_known_contact = False
     if msg.person_id:
         person = session.get(Person, msg.person_id)
-        if person and getattr(person, "kind", None) in (PersonKind.tenant, PersonKind.contractor):
-            is_known_contact = True
-        elif session.scalar(
+        if (person and getattr(person, "kind", None) in (PersonKind.tenant, PersonKind.contractor)) or session.scalar(
             select(LeaseParty.id).where(LeaseParty.company_id == msg.company_id, LeaseParty.person_id == msg.person_id)
         ) is not None:
             is_known_contact = True
 
     if und is None and not is_known_contact:
-        # Unlinked stranger/marketing sender with failed understanding: do not require reply or open a primary triage case
+        # Unlinked stranger or marketing sender with failed understanding:
+        # do not require a reply or open a primary triage case
         requires_reply = False
     else:
         requires_reply = bool(body.get("requires_reply", category is not Category.spam))

@@ -66,8 +66,17 @@ class Env:
         return self.api
 
     def runs(self) -> list[BrixxSyncRun]:
+        """Only the runs the test's own ticks created: the worker's real 15-minute cron can fire mid-suite and
+        add a wall-clock run for the same company, which must not count."""
+        expected = [brixx_sync.brixx_run_id(self.company_id, t) for t in (SCHEDULED, SCHEDULED.replace(minute=30))]
         with Session(self.mirror.engine) as s:
-            return list(s.scalars(sa.select(BrixxSyncRun).where(BrixxSyncRun.company_id == self.company_id)))
+            return list(
+                s.scalars(
+                    sa.select(BrixxSyncRun).where(
+                        BrixxSyncRun.company_id == self.company_id, BrixxSyncRun.id.in_(expected)
+                    )
+                )
+            )
 
     def states(self) -> dict[str, BrixxSyncTableState]:
         with Session(self.mirror.engine, expire_on_commit=False) as s:
