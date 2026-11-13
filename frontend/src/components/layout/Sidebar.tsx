@@ -170,13 +170,13 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
               <Image
                 src="/images/hr-realestate-mark.png"
                 alt="HR Real Estate"
-                width={36}
-                height={36}
-                className="w-8.5 h-8.5 object-contain shrink-0 transition-transform group-hover:scale-105"
+                width={32}
+                height={32}
+                className="w-8 h-8 object-contain shrink-0 transition-transform group-hover:scale-105"
                 priority
               />
-              <div className="w-[1.5px] h-5 bg-white/40 shrink-0" />
-              <span className="font-heading font-extrabold text-[15px] tracking-[0.14em] text-white uppercase whitespace-nowrap select-none">
+              <div className="w-[1.5px] h-4 bg-white/40 shrink-0" />
+              <span className="font-heading font-bold text-[12.5px] tracking-[0.14em] text-white uppercase whitespace-nowrap select-none">
                 REAL ESTATE
               </span>
             </button>
