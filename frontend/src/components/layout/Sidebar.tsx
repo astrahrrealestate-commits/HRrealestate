@@ -21,7 +21,6 @@ import {
   ShieldCheck,
   UserPlus,
   Coins,
-  PanelLeftClose,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { needsYouCount, ThreadCountTarget } from "@/lib/selectors";
@@ -135,60 +134,49 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
     >
       {/* Top Header & Navigation */}
       <div className="flex flex-col">
-        {/* Brand Logo Header (h-[48px] aligned with TopCommandBar) */}
+        {/* Brand Logo Header (h-[52px] aligned with TopCommandBar) - Logo clicks to minimize/expand */}
         <div
           className={cn(
-            "h-[48px] flex items-center border-b border-[#162B45] transition-all",
-            compact ? "px-0 justify-center" : "px-3.5 justify-between"
+            "h-[52px] flex items-center border-b border-[#162B45] transition-all",
+            compact ? "px-0 justify-center" : "px-3 justify-start"
           )}
         >
           {compact ? (
-            /* When compact: centered HR mark button that toggles sidebar */
+            /* When collapsed: Centered large HR mark tile - clicks to expand */
             <button
               type="button"
               onClick={toggleSidebar}
-              className="w-8 h-8 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 flex items-center justify-center transition-colors cursor-pointer group"
-              title="Expand sidebar (Ctrl+B)"
+              className="w-10 h-10 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 flex items-center justify-center transition-all cursor-pointer group shadow-xs"
+              title="Click logo to expand sidebar (Ctrl+B)"
               aria-label="Expand sidebar"
             >
               <Image
                 src="/images/hr-realestate-mark.png"
                 alt="HR Real Estate"
-                width={22}
-                height={22}
-                className="w-5.5 h-5.5 object-contain group-hover:scale-105 transition-transform"
+                width={28}
+                height={28}
+                className="w-6.5 h-6.5 object-contain group-hover:scale-110 transition-transform"
                 priority
               />
             </button>
           ) : (
-            /* When expanded: Full logo on left, and collapse button on right */
-            <>
-              <Link
-                href="/"
-                className="flex items-center gap-2.5 group focus:outline-hidden"
-                title="HR Real Estate"
-              >
-                <div className="flex items-center py-1">
-                  <Image
-                    src="/images/hr-realestate-logo.png"
-                    alt="HR Real Estate"
-                    width={140}
-                    height={38}
-                    className="h-7 w-auto object-contain"
-                    priority
-                  />
-                </div>
-              </Link>
-              <button
-                type="button"
-                onClick={toggleSidebar}
-                className="w-7 h-7 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.08] flex items-center justify-center transition-colors cursor-pointer"
-                title="Collapse sidebar (Ctrl+B)"
-                aria-label="Collapse sidebar"
-              >
-                <PanelLeftClose className="w-4 h-4 stroke-[1.75]" />
-              </button>
-            </>
+            /* When expanded: Big, prominent HR Real Estate logo - clicks to minimize */
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              className="flex items-center py-1 px-1.5 rounded-xl hover:bg-white/[0.06] transition-all cursor-pointer group focus:outline-hidden text-left"
+              title="Click logo to minimize sidebar (Ctrl+B)"
+              aria-label="Minimize sidebar"
+            >
+              <Image
+                src="/images/hr-realestate-logo.png"
+                alt="HR Real Estate"
+                width={200}
+                height={62}
+                className="h-10 w-auto object-contain transition-transform group-hover:scale-[1.02]"
+                priority
+              />
+            </button>
           )}
         </div>
 

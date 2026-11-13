@@ -2,11 +2,10 @@
 
 import React, { useRef, useEffect } from "react";
 import Image from "next/image";
-import { Search, X, RotateCw, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Search, X, RotateCw } from "lucide-react";
 import { AstraIcon, AstraWordmark } from "@/components/ui/AstraBrand";
 import { cn } from "@/lib/utils";
 import { useSuperAgent } from "@/context/SuperAgentContext";
-import { useSidebar } from "@/context/SidebarContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { FlagUK, FlagNL } from "@/components/ui/FlagIcons";
 import { useAuth } from "@/context/AuthContext";
@@ -31,7 +30,6 @@ export function TopCommandBar({
   hideSearch = false,
 }: TopCommandBarProps) {
   const superAgent = useSuperAgent();
-  const { isCollapsed, toggleSidebar } = useSidebar();
   const { language, setLanguage, t } = useLanguage();
   const { canUseAgent } = useAuth();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -53,40 +51,23 @@ export function TopCommandBar({
   }, [hideSearch, onSearchChange]);
 
   return (
-    <header className="h-[48px] bg-[#0A1B2F] border-b border-[#162B45] px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shrink-0">
-      {/* Left: Sidebar toggle + Clean Breadcrumb (No duplicate logo) */}
-      <div className="flex items-center gap-2 text-xs min-w-0">
-        {/* Desktop Sidebar Toggle Button */}
-        <button
-          type="button"
-          onClick={toggleSidebar}
-          className="hidden md:flex items-center justify-center w-7 h-7 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer shrink-0 -ml-1.5"
-          title={isCollapsed ? "Expand sidebar (Ctrl+B)" : "Collapse sidebar (Ctrl+B)"}
-          aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {isCollapsed ? (
-            <PanelLeftOpen className="w-4 h-4 stroke-[1.75]" />
-          ) : (
-            <PanelLeftClose className="w-4 h-4 stroke-[1.75]" />
-          )}
-        </button>
-
+    <header className="h-[52px] bg-[#0A1B2F] border-b border-[#162B45] px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shrink-0">
+      {/* Left: Clean Page Title */}
+      <div className="flex items-center gap-2.5 text-xs min-w-0">
         {/* Mobile-only Brand Mark (only visible on mobile where the sidebar is hidden) */}
-        <span className="md:hidden flex items-center gap-1.5 shrink-0">
+        <span className="md:hidden flex items-center gap-2 shrink-0">
           <Image
             src="/images/hr-realestate-mark.png"
             alt="HR Real Estate"
-            width={18}
-            height={18}
-            className="w-4.5 h-4.5 object-contain shrink-0"
+            width={22}
+            height={22}
+            className="w-5.5 h-5.5 object-contain shrink-0"
           />
+          <span className="text-[#334b6b] shrink-0 font-light">/</span>
         </span>
 
-        {/* Separator */}
-        <span className="text-[#334b6b] shrink-0 font-light">/</span>
-
         {/* Page Title */}
-        <span className="text-white font-medium tracking-tight truncate text-[13px]">
+        <span className="text-white font-semibold tracking-tight truncate text-[14px]">
           {pageTitle ? t(pageTitle, pageTitle) : t("topbar.control_center")}
         </span>
       </div>

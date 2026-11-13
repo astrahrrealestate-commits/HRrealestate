@@ -116,14 +116,14 @@ function LoginForm() {
       )}
     >
       {/* 1. Architectural Brand Logo */}
-      <div className="flex flex-col items-center mb-4 sm:mb-5">
+      <div className="flex flex-col items-center mb-4 sm:mb-6">
         <Image
           src="/images/hr-realestate-logo.png"
           alt="HR Real Estate"
-          width={220}
-          height={101}
+          width={260}
+          height={82}
           priority
-          className="h-11 sm:h-12 w-auto object-contain drop-shadow-[0_4px_16px_rgba(0,0,0,0.6)]"
+          className="h-14 sm:h-16 w-auto object-contain drop-shadow-[0_6px_24px_rgba(0,0,0,0.7)]"
         />
       </div>
 
