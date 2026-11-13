@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { SuperAgentProvider } from "@/context/SuperAgentContext";
+import { SidebarProvider } from "@/context/SidebarContext";
 import { AuthProvider } from "@/context/AuthContext";
 import { LanguageProvider } from "@/context/LanguageContext";
 import { CommandPalette } from "@/components/layout/CommandPalette";
@@ -32,9 +33,11 @@ export default function RootLayout({
         <LanguageProvider>
           <AuthProvider>
             <SuperAgentProvider>
-              <ApiHealthBanner />
-              <SectionGuard>{children}</SectionGuard>
-              <CommandPalette />
+              <SidebarProvider>
+                <ApiHealthBanner />
+                <SectionGuard>{children}</SectionGuard>
+                <CommandPalette />
+              </SidebarProvider>
             </SuperAgentProvider>
           </AuthProvider>
         </LanguageProvider>

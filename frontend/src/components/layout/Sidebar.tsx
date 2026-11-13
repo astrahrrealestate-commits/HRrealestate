@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   UserPlus,
   Coins,
+  PanelLeftClose,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { needsYouCount, ThreadCountTarget } from "@/lib/selectors";
@@ -28,6 +29,7 @@ import { getInboxThreads } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useSuperAgent } from "@/context/SuperAgentContext";
+import { useSidebar } from "@/context/SidebarContext";
 
 interface NavItem {
   label: string;
@@ -62,7 +64,8 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
   const { user, logout, canAccess } = useAuth();
   const { t } = useLanguage();
   const { isOpen: isSuperAgentOpen } = useSuperAgent();
-  const compact = isSuperAgentOpen;
+  const { isCollapsed, toggleSidebar } = useSidebar();
+  const compact = isCollapsed;
 
   const displayName = user?.name || "Harjot Singh";
   const displayEmail = user?.email || "harjot@estateos.internal";
@@ -127,7 +130,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
     <aside
       className={cn(
         "hidden md:flex flex-col justify-between select-none h-dvh sticky top-0 flex-shrink-0 border-r border-[#162B45] bg-[#0A1B2F] transition-all duration-200 z-20",
-        compact ? "md:w-[68px]" : "md:w-[72px] xl:w-[240px]"
+        compact ? "w-[68px]" : "w-[240px]"
       )}
     >
       {/* Top Header & Navigation */}
@@ -135,57 +138,62 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
         {/* Brand Logo Header (h-[48px] aligned with TopCommandBar) */}
         <div
           className={cn(
-            "h-[48px] flex items-center border-b border-[#162B45]",
-            compact ? "px-0 justify-center" : "px-3.5 xl:px-4 justify-start"
+            "h-[48px] flex items-center border-b border-[#162B45] transition-all",
+            compact ? "px-0 justify-center" : "px-3.5 justify-between"
           )}
         >
-          <Link
-            href="/"
-            className="flex items-center gap-2.5 group focus:outline-hidden"
-            title="HR Real Estate"
-          >
-            {compact ? (
-              <div className="w-8 h-8 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 flex items-center justify-center transition-colors flex-shrink-0">
-                <Image
-                  src="/images/hr-realestate-mark.png"
-                  alt="HR Real Estate"
-                  width={22}
-                  height={22}
-                  className="w-5.5 h-5.5 object-contain"
-                  priority
-                />
-              </div>
-            ) : (
-              <>
-                {/* On medium screens (< xl) show compact icon mark */}
-                <div className="xl:hidden w-8 h-8 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 flex items-center justify-center transition-colors flex-shrink-0">
-                  <Image
-                    src="/images/hr-realestate-mark.png"
-                    alt="HR Real Estate"
-                    width={22}
-                    height={22}
-                    className="w-5.5 h-5.5 object-contain"
-                    priority
-                  />
-                </div>
-                {/* On xl+ expanded screens show full horizontal brand logo */}
-                <div className="hidden xl:flex items-center py-1">
+          {compact ? (
+            /* When compact: centered HR mark button that toggles sidebar */
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              className="w-8 h-8 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 flex items-center justify-center transition-colors cursor-pointer group"
+              title="Expand sidebar (Ctrl+B)"
+              aria-label="Expand sidebar"
+            >
+              <Image
+                src="/images/hr-realestate-mark.png"
+                alt="HR Real Estate"
+                width={22}
+                height={22}
+                className="w-5.5 h-5.5 object-contain group-hover:scale-105 transition-transform"
+                priority
+              />
+            </button>
+          ) : (
+            /* When expanded: Full logo on left, and collapse button on right */
+            <>
+              <Link
+                href="/"
+                className="flex items-center gap-2.5 group focus:outline-hidden"
+                title="HR Real Estate"
+              >
+                <div className="flex items-center py-1">
                   <Image
                     src="/images/hr-realestate-logo.png"
                     alt="HR Real Estate"
-                    width={145}
-                    height={40}
+                    width={140}
+                    height={38}
                     className="h-7 w-auto object-contain"
                     priority
                   />
                 </div>
-              </>
-            )}
-          </Link>
+              </Link>
+              <button
+                type="button"
+                onClick={toggleSidebar}
+                className="w-7 h-7 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.08] flex items-center justify-center transition-colors cursor-pointer"
+                title="Collapse sidebar (Ctrl+B)"
+                aria-label="Collapse sidebar"
+              >
+                <PanelLeftClose className="w-4 h-4 stroke-[1.75]" />
+              </button>
+            </>
+          )}
         </div>
 
         {/* Quick Search Bar (matching reference design) */}
-        <div className={cn("px-2.5 pt-2.5 pb-1", compact ? "hidden" : "hidden xl:block")}>
+        <div className={cn("px-2.5 pt-2.5 pb-1", compact ? "hidden" : "block")}>
           <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#10213B] border border-[#162B45] text-slate-400 hover:text-white hover:border-[#223f66] transition-colors cursor-pointer group">
             <div className="flex items-center gap-2">
               <Search className="w-3.5 h-3.5 text-slate-400 group-hover:text-white" />
@@ -198,14 +206,14 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
         </div>
 
         {/* Section Label: WORKSPACE */}
-        <div className={cn("px-3 pt-3 pb-1", compact ? "hidden" : "hidden xl:block")}>
+        <div className={cn("px-3 pt-3 pb-1", compact ? "hidden" : "block")}>
           <span className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">
             {t("nav.workspace")}
           </span>
         </div>
 
         {/* Main Navigation Items */}
-        <nav className={cn("space-y-1", compact ? "p-2" : "p-2 xl:p-2.5")}>
+        <nav className={cn("space-y-1", compact ? "p-2" : "p-2.5")}>
           {navigationItems.map((item) => {
             const isActive =
               item.href === "/"
@@ -222,7 +230,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
                   "flex items-center min-h-[38px] rounded-xl text-[13.5px] transition-all relative group",
                   compact
                     ? "justify-center px-2"
-                    : "justify-center xl:justify-between px-2 xl:px-3",
+                    : "justify-between px-3",
                   isActive
                     ? "bg-white/10 border border-white/10 text-white font-medium shadow-xs"
                     : "text-zinc-400 hover:text-white hover:bg-white/5 font-medium border border-transparent"
@@ -238,16 +246,11 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
                       strokeWidth={isActive ? 2 : 1.75}
                     />
                     {/* Compact badge dot for icon nav */}
-                    {item.badge !== undefined && (
-                      <span
-                        className={cn(
-                          "absolute -top-1 -right-1.5 w-2 h-2 rounded-full bg-[var(--accent)] ring-2 ring-[#0A1B2F]",
-                          compact ? "block" : "xl:hidden"
-                        )}
-                      />
+                    {item.badge !== undefined && compact && (
+                      <span className="absolute -top-1 -right-1.5 w-2 h-2 rounded-full bg-[var(--accent)] ring-2 ring-[#0A1B2F]" />
                     )}
                   </div>
-                  <span className={cn("truncate", compact ? "hidden" : "hidden xl:inline")}>
+                  <span className={cn("truncate", compact ? "hidden" : "inline")}>
                     {item.label}
                   </span>
                 </div>
@@ -257,7 +260,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
                   <span
                     className={cn(
                       "text-[11px] tabular-nums leading-none",
-                      compact ? "hidden" : "hidden xl:inline-flex",
+                      compact ? "hidden" : "inline-flex",
                       isActive
                         ? "text-slate-200 font-medium"
                         : "text-slate-400 group-hover:text-slate-300"
@@ -274,7 +277,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
 
       {/* Bottom Section: Knowledge Base, Connections & User Profile */}
       <div className="border-t border-[#162B45]">
-        <div className={cn("space-y-1", compact ? "p-2" : "p-2 xl:p-2.5")}>
+        <div className={cn("space-y-1", compact ? "p-2" : "p-2.5")}>
           {/* Knowledge Base */}
           {canAccess("reports") && (
             <Link
@@ -282,11 +285,11 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
               title={t("nav.knowledge_base") || "Knowledge Base"}
               className={cn(
                 "w-full flex items-center min-h-[38px] rounded-xl text-[13.5px] transition-colors text-slate-400 hover:text-white hover:bg-white/5 font-medium gap-2.5 border border-transparent",
-                compact ? "justify-center px-2" : "justify-center xl:justify-start px-2 xl:px-3"
+                compact ? "justify-center px-2" : "justify-start px-3"
               )}
             >
               <BookOpen className="w-4 h-4 flex-shrink-0 text-slate-400" strokeWidth={1.75} />
-              <span className={cn("truncate", compact ? "hidden" : "hidden xl:inline")}>
+              <span className={cn("truncate", compact ? "hidden" : "inline")}>
                 {t("nav.knowledge_base") || "Knowledge Base"}
               </span>
             </Link>
@@ -299,7 +302,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
             title={t("nav.connections")}
             className={cn(
               "w-full flex items-center min-h-[38px] rounded-xl text-[13.5px] transition-colors relative group cursor-pointer text-slate-400 hover:text-white hover:bg-white/5 font-medium border border-transparent",
-              compact ? "justify-center px-2" : "justify-center xl:justify-between px-2 xl:px-3"
+              compact ? "justify-center px-2" : "justify-between px-3"
             )}
           >
             <div className="flex items-center gap-2.5 min-w-0 relative">
@@ -310,14 +313,14 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
               {compact && (
                 <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-[#0A1B2F]" />
               )}
-              <span className={cn("truncate", compact ? "hidden" : "hidden xl:inline")}>
+              <span className={cn("truncate", compact ? "hidden" : "inline")}>
                 {t("nav.connections")}
               </span>
             </div>
             <span
               className={cn(
                 "items-center gap-1.5 text-[10.5px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20",
-                compact ? "hidden" : "hidden xl:inline-flex"
+                compact ? "hidden" : "inline-flex"
               )}
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -380,15 +383,15 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
             onClick={() => setIsUserMenuOpen((prev) => !prev)}
             className={cn(
               "flex items-center gap-2.5 bg-white/[0.02] hover:bg-white/[0.06] transition-colors cursor-pointer select-none",
-              compact ? "p-2.5 justify-center" : "p-2.5 xl:p-3 justify-between"
+              compact ? "p-2.5 justify-center" : "p-2.5 px-3 justify-between"
             )}
             title={user?.isAdmin ? "Profile, team & access, sign out" : "Profile & sign out"}
           >
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-7 h-7 xl:w-8 xl:h-8 rounded-full bg-[#162B45] border border-white/10 flex items-center justify-center text-[11px] font-bold text-slate-200 flex-shrink-0">
+              <div className="w-7 h-7 rounded-full bg-[#162B45] border border-white/10 flex items-center justify-center text-[11px] font-bold text-slate-200 flex-shrink-0">
                 {userInitials}
               </div>
-              <div className={cn("flex-col min-w-0", compact ? "hidden" : "hidden xl:flex")}>
+              <div className={cn("flex-col min-w-0", compact ? "hidden" : "flex")}>
                 <span className="text-[13px] font-semibold text-white truncate leading-tight">
                   {displayName}
                 </span>
@@ -400,7 +403,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
             <ChevronDown
               className={cn(
                 "w-3.5 h-3.5 text-slate-400 flex-shrink-0 transition-transform",
-                compact ? "hidden" : "hidden xl:block",
+                compact ? "hidden" : "block",
                 isUserMenuOpen && "rotate-180 text-white"
               )}
             />
