@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useRef, useEffect } from "react";
+import Image from "next/image";
 import { Search, X, RotateCw } from "lucide-react";
 import { AstraIcon, AstraWordmark } from "@/components/ui/AstraBrand";
 import { cn } from "@/lib/utils";
@@ -52,14 +53,22 @@ export function TopCommandBar({
   return (
     <header className="h-[48px] bg-[#0A1B2F] border-b border-[#162B45] px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shrink-0">
       {/* Left: Breadcrumbs matching reference design */}
-      <div className="flex items-center gap-2 text-xs">
-        <span className="text-[#94a3b8] font-normal flex items-center gap-1.5">
-          <AstraIcon className="w-3.5 h-3.5 text-[#38bdf8]" />
-          <span className="text-slate-300">EstateOS</span>
-          <AstraWordmark variant="dark" className="text-[11px]" />
+      <div className="flex items-center gap-2 text-xs min-w-0">
+        <span className="text-[#94a3b8] font-normal flex items-center gap-1.5 shrink-0">
+          <Image
+            src="/images/hr-realestate-mark.png"
+            alt="HR Real Estate"
+            width={16}
+            height={16}
+            className="w-4 h-4 object-contain shrink-0"
+          />
+          <span className="text-slate-300 font-medium truncate max-w-[110px] sm:max-w-none">
+            HR Real Estate
+          </span>
+          <AstraWordmark variant="dark" className="text-[11px] hidden sm:inline" />
         </span>
-        <span className="text-[#64748b]">/</span>
-        <span className="text-white font-medium tracking-tight">
+        <span className="text-[#64748b] shrink-0">/</span>
+        <span className="text-white font-medium tracking-tight truncate">
           {pageTitle ? t(pageTitle, pageTitle) : t("topbar.control_center")}
         </span>
       </div>

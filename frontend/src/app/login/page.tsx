@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, Suspense } from "react";
+import Image from "next/image";
 import { useSearchParams } from "next/navigation";
-import { Building2, ShieldAlert, Lock, Loader2, ArrowRight } from "lucide-react";
+import { ShieldAlert, Lock, Loader2, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/backend";
 
@@ -114,20 +115,22 @@ function LoginForm() {
         "lg:rounded-2xl lg:bg-[#060E1D]/72 lg:backdrop-blur-xl lg:border lg:border-white/15 lg:shadow-[0_24px_80px_rgba(0,0,0,0.65)] lg:p-9"
       )}
     >
-      {/* 1. Architectural Property Logo */}
-      <div className="flex items-center gap-2.5 mb-3.5 sm:mb-5">
-        <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/[0.12] backdrop-blur-md border border-white/25 flex items-center justify-center text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
-          <Building2 className="w-4.5 h-4.5 sm:w-5 sm:h-5 stroke-[1.75]" />
-        </div>
-        <span className="text-base font-bold tracking-tight text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.65)]">
-          EstateOS
-        </span>
+      {/* 1. Architectural Brand Logo */}
+      <div className="flex flex-col items-center mb-4 sm:mb-5">
+        <Image
+          src="/images/hr-realestate-logo.png"
+          alt="HR Real Estate"
+          width={220}
+          height={101}
+          priority
+          className="h-11 sm:h-12 w-auto object-contain drop-shadow-[0_4px_16px_rgba(0,0,0,0.6)]"
+        />
       </div>
 
-      <h1 className="text-[22px] sm:text-[26px] font-bold text-white tracking-tight drop-shadow-[0_2px_12px_rgba(0,0,0,0.75)]">
-        Sign in to EstateOS
+      <h1 className="text-[21px] sm:text-[25px] font-bold text-white tracking-tight drop-shadow-[0_2px_12px_rgba(0,0,0,0.75)]">
+        Sign in to HR Real Estate
       </h1>
-      <p className="text-[12.5px] sm:text-[13px] text-slate-200/90 mt-1 sm:mt-1.5 leading-relaxed max-w-[300px] drop-shadow-[0_1px_6px_rgba(0,0,0,0.75)]">
+      <p className="text-[12.5px] sm:text-[13px] text-slate-200/90 mt-1 sm:mt-1.5 leading-relaxed max-w-[320px] drop-shadow-[0_1px_6px_rgba(0,0,0,0.75)]">
         Portfolio management and property operations
       </p>
 
@@ -234,10 +237,19 @@ export default function LoginPage() {
       {/* Foreground Content */}
       <div className="relative z-10 w-full max-w-7xl mx-auto px-5 sm:px-8 lg:px-14 pt-6 sm:pt-12 pb-[max(1.25rem,env(safe-area-inset-bottom))] lg:py-12 flex flex-col lg:flex-row items-center justify-end lg:justify-between gap-4 sm:gap-8 flex-1 min-h-0">
         {/* Desktop subtle left-bottom property label */}
-        <div className="hidden lg:flex lg:self-end flex-col gap-1 text-left pb-2">
-          <span className="text-[11px] font-mono uppercase tracking-[0.2em] text-slate-300/80">
-            EstateOS Portal
-          </span>
+        <div className="hidden lg:flex lg:self-end flex-col gap-1.5 text-left pb-2">
+          <div className="flex items-center gap-2">
+            <Image
+              src="/images/hr-realestate-mark.png"
+              alt="HR Real Estate"
+              width={20}
+              height={20}
+              className="w-5 h-5 object-contain opacity-90"
+            />
+            <span className="text-[11px] font-mono uppercase tracking-[0.2em] text-slate-300/80">
+              HR Real Estate Portal
+            </span>
+          </div>
           <p className="text-sm font-medium text-white/90 drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)]">
             Private Residential & Commercial Portfolio Operations
           </p>
@@ -256,7 +268,7 @@ export default function LoginPage() {
           </Suspense>
 
           <div className="mt-3.5 sm:mt-5 text-[10.5px] sm:text-[11px] font-mono text-slate-300/75 text-center drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)]">
-            EstateOS Autonomous Real Estate Operating System
+            HR Real Estate Autonomous Operating System
           </div>
         </div>
       </div>

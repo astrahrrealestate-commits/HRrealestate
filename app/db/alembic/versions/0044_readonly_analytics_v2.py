@@ -350,3 +350,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     for view in reversed(NEW_VIEWS):
         op.execute(f"DROP VIEW IF EXISTS {view};")
+

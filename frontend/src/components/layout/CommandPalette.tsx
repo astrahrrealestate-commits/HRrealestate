@@ -124,7 +124,7 @@ export function CommandPalette() {
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Search EstateOS"
+        aria-label="Search HR Real Estate"
         className="w-full max-w-xl overflow-hidden rounded-xl border border-[#27272a] bg-[#1B1B1B] shadow-2xl"
         onMouseDown={(event) => event.stopPropagation()}
       >

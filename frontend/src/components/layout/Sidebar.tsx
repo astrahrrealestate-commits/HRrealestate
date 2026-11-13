@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Image from "next/image";
 import { ConnectionsModal } from "@/components/connections/ConnectionsModal";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -131,25 +132,55 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
     >
       {/* Top Header & Navigation */}
       <div className="flex flex-col">
-        {/* Brand Logo Header (h-14 aligned with TopCommandBar) */}
+        {/* Brand Logo Header (h-[48px] aligned with TopCommandBar) */}
         <div
           className={cn(
             "h-[48px] flex items-center border-b border-[#162B45]",
-            compact ? "px-0 justify-center" : "px-4 xl:px-4 justify-between"
+            compact ? "px-0 justify-center" : "px-3.5 xl:px-4 justify-start"
           )}
         >
-          <Link href="/" className="flex items-center gap-2.5 group" title="EstateOS">
-            <div className="w-7 h-7 rounded-lg bg-white/10 border border-white/15 flex items-center justify-center text-white shadow-xs flex-shrink-0">
-              <Home className="w-4 h-4 stroke-[2.25]" />
-            </div>
-            <span
-              className={cn(
-                "font-heading font-bold text-[17px] tracking-[-0.02em] text-white",
-                compact ? "hidden" : "hidden xl:inline"
-              )}
-            >
-              EstateOS
-            </span>
+          <Link
+            href="/"
+            className="flex items-center gap-2.5 group focus:outline-hidden"
+            title="HR Real Estate"
+          >
+            {compact ? (
+              <div className="w-8 h-8 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 flex items-center justify-center transition-colors flex-shrink-0">
+                <Image
+                  src="/images/hr-realestate-mark.png"
+                  alt="HR Real Estate"
+                  width={22}
+                  height={22}
+                  className="w-5.5 h-5.5 object-contain"
+                  priority
+                />
+              </div>
+            ) : (
+              <>
+                {/* On medium screens (< xl) show compact icon mark */}
+                <div className="xl:hidden w-8 h-8 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 flex items-center justify-center transition-colors flex-shrink-0">
+                  <Image
+                    src="/images/hr-realestate-mark.png"
+                    alt="HR Real Estate"
+                    width={22}
+                    height={22}
+                    className="w-5.5 h-5.5 object-contain"
+                    priority
+                  />
+                </div>
+                {/* On xl+ expanded screens show full horizontal brand logo */}
+                <div className="hidden xl:flex items-center py-1">
+                  <Image
+                    src="/images/hr-realestate-logo.png"
+                    alt="HR Real Estate"
+                    width={145}
+                    height={40}
+                    className="h-7 w-auto object-contain"
+                    priority
+                  />
+                </div>
+              </>
+            )}
           </Link>
         </div>
 

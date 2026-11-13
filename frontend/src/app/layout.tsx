@@ -8,8 +8,11 @@ import { SectionGuard } from "@/components/layout/SectionGuard";
 import { ApiHealthBanner } from "@/components/ui/ApiHealthBanner";
 
 export const metadata: Metadata = {
-  title: "EstateOS | AI Property Management",
-  description: "Minimal executive property management operating system for Harjot Singh.",
+  title: "HR Real Estate | AI Property Management",
+  description: "Executive property management operating system for Harjot Singh.",
+  icons: {
+    icon: "/favicon.ico",
+  },
 };
 
 export const viewport: Viewport = {
