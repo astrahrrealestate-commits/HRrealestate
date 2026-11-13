@@ -116,15 +116,19 @@ function LoginForm() {
       )}
     >
       {/* 1. Architectural Brand Logo */}
-      <div className="flex flex-col items-center mb-4 sm:mb-6">
+      <div className="flex items-center gap-3.5 mb-4 sm:mb-6">
         <Image
-          src="/images/hr-realestate-logo.png"
+          src="/images/hr-realestate-mark.png"
           alt="HR Real Estate"
-          width={260}
-          height={82}
+          width={52}
+          height={52}
           priority
-          className="h-14 sm:h-16 w-auto object-contain drop-shadow-[0_6px_24px_rgba(0,0,0,0.7)]"
+          className="w-11 h-11 sm:w-13 sm:h-13 object-contain drop-shadow-[0_4px_16px_rgba(0,0,0,0.7)]"
         />
+        <div className="w-[1.5px] h-7 sm:h-8 bg-white/40" />
+        <span className="font-heading font-extrabold text-[17px] sm:text-[19px] tracking-[0.16em] text-white uppercase whitespace-nowrap drop-shadow-[0_2px_12px_rgba(0,0,0,0.75)]">
+          REAL ESTATE
+        </span>
       </div>
 
       <h1 className="text-[21px] sm:text-[25px] font-bold text-white tracking-tight drop-shadow-[0_2px_12px_rgba(0,0,0,0.75)]">

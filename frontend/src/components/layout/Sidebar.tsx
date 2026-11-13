@@ -163,18 +163,22 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
             <button
               type="button"
               onClick={toggleSidebar}
-              className="flex items-center py-1 px-1.5 rounded-xl hover:bg-white/[0.06] transition-all cursor-pointer group focus:outline-hidden text-left"
+              className="flex items-center gap-2.5 py-1 px-1.5 rounded-xl hover:bg-white/[0.06] transition-all cursor-pointer group focus:outline-hidden text-left"
               title="Click logo to minimize sidebar (Ctrl+B)"
               aria-label="Minimize sidebar"
             >
               <Image
-                src="/images/hr-realestate-logo.png"
+                src="/images/hr-realestate-mark.png"
                 alt="HR Real Estate"
-                width={200}
-                height={62}
-                className="h-10 w-auto object-contain transition-transform group-hover:scale-[1.02]"
+                width={36}
+                height={36}
+                className="w-8.5 h-8.5 object-contain shrink-0 transition-transform group-hover:scale-105"
                 priority
               />
+              <div className="w-[1.5px] h-5 bg-white/40 shrink-0" />
+              <span className="font-heading font-extrabold text-[15px] tracking-[0.14em] text-white uppercase whitespace-nowrap select-none">
+                REAL ESTATE
+              </span>
             </button>
           )}
         </div>
