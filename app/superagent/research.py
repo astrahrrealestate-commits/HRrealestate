@@ -47,7 +47,9 @@ LOOKUP_FAILED = "The lookup could not be completed."
 
 RESEARCH_RULES = (
     "\nTOOLS:\n"
-    "- You may look things up with read-only tools: query_database (units, leases, people, cases, tasks, visits),\n"
+    "- You may look things up with read-only tools: query_database (units, leases, rent ledger, arrears,\n"
+    "  profitability, maintenance spend, vendor rates, people, cases, tasks, visits, waits, documents, approvals,\n"
+    "  and send metrics),\n"
     "  search_communications (tenant and contractor WhatsApp and email), search_documents (leases, contracts, files).\n"
     "- Use at most three lookups, and only when the answer needs data you were not given.\n"
     "  Greetings and chat need none.\n"
@@ -132,7 +134,8 @@ def _build_agent(settings: Settings, system_prompt: str) -> Agent[SuperAgentDeps
 
     @agent.tool
     def query_database(ctx: RunContext[SuperAgentDeps], question: str) -> str:
-        """Ask a factual question about units, leases, people, cases, tasks or visits in plain language."""
+        """Ask a factual or analytical question about units, leases, rent ledger, profitability, vendor rates,
+        people, cases, tasks, visits, waits, documents, approvals, or send stats in plain language."""
         text, rows = _safely(_database, ctx.deps, question)
         ctx.deps.steps.append(f"Checked the database ({_plural(rows, 'row', 'rows')})")
         return _as_data(text)

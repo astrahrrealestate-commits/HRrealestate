@@ -298,3 +298,106 @@ def test_format_answer_renders_clean_bullets_without_pipes_or_uuids():
     assert "#b72267" in ans
     assert "11 Nov 2026, 11:24" in ans
     assert "Anouk de Jong" in ans
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        (
+            "SELECT unit_address, collected_rent_eur, maintenance_cost_eur, net_profit_eur "
+            "FROM v_unit_profitability ORDER BY net_profit_eur DESC"
+        ),
+        "SELECT tenant_name, unit_address, overdue_eur, overdue_days FROM v_rent_ledger WHERE overdue_eur > 0",
+        "SELECT billing_month, scheduled_eur, collected_eur, collection_rate_pct FROM v_monthly_rent_summary",
+        "SELECT unit_address, party_name, about, expected_by FROM v_waiting_radar WHERE status = 'waiting'",
+        "SELECT contractor_name, trade, item_key, amount, currency FROM v_vendor_rates",
+        "SELECT title, doc_type, status, document_date FROM v_documents_overview",
+        "SELECT action_type, status, count(*) FROM v_approval_audit GROUP BY action_type, status",
+        "SELECT channel, status, count(*) FROM v_send_stats GROUP BY channel, status",
+        "SELECT scope, kind, text FROM memory_items WHERE status = 'active'",
+    ],
+)
+def test_new_financial_and_operational_relations_allowed(sql: str):
+    wrapped = validate_and_wrap_sql(sql, max_limit=50)
+    assert "LIMIT 50" in wrapped
+
+
+@pytest.mark.parametrize(
+    "forbidden_table",
+    [
+        "allowed_users",
+        "companies",
+        "owner_personas",
+        "owner_outbox",
+        "sends",
+        "channel_identities",
+        "approvals",
+        "model_calls",
+        "translations",
+        "brixx_documents",
+        "agent_conversations",
+        "agent_turns",
+    ],
+)
+def test_reject_newly_blocked_sensitive_tables(forbidden_table: str):
+    with pytest.raises(SQLSecurityError, match="Access to sensitive table"):
+        validate_and_wrap_sql(f"SELECT * FROM {forbidden_table}")  # noqa: S608
+
+
+def test_executor_enforces_postgres_read_only_and_timeout():
+    mock_engine = MagicMock()
+    mock_engine.dialect.name = "postgresql"
+    mock_session = MagicMock()
+    mock_session.__enter__.return_value = mock_session
+    mock_cursor = MagicMock()
+    mock_cursor.keys.return_value = ["net_profit_eur"]
+    mock_cursor.fetchall.return_value = [(1850.50,)]
+    mock_session.execute.return_value = mock_cursor
+
+    company_id = uuid4()
+    with patch("app.tools.query_agent.executor.Session", return_value=mock_session):
+        res = execute_readonly_query(
+            mock_engine,
+            company_id,
+            "SELECT net_profit_eur FROM v_unit_profitability LIMIT 50",
+        )
+
+    assert res.ok is True
+    executed_sqls = [str(c.args[0]) for c in mock_session.execute.call_args_list]
+    assert "set_config('app.company_id'" in executed_sqls[0]
+    assert "SET LOCAL TRANSACTION READ ONLY" in executed_sqls[1]
+    assert "SET LOCAL statement_timeout = '4000'" in executed_sqls[2]
+    assert "v_unit_profitability" in executed_sqls[3]
+
+
+def test_sanitize_rows_formats_financial_labels_and_hides_ids():
+    rows = [
+        {
+            "rent_payment_id": "01a1ca59-c6cb-7e02-bd67-f86ff1b72267",
+            "unit_id": "01a1ca59-0000-0000-0000-000000000001",
+            "unit_address": "Dorpsstraat 54 E",
+            "collected_rent_eur": 2400.00,
+            "maintenance_cost_eur": 350.00,
+            "net_profit_eur": 2050.00,
+        }
+    ]
+    cols, display_rows = sanitize_rows_for_display(rows)
+    assert cols == ["Property", "Collected Rent (€)", "Maintenance Cost (€)", "Net Profit (€)"]
+    assert display_rows == [
+        {
+            "Property": "Dorpsstraat 54 E",
+            "Collected Rent (€)": "2400",
+            "Maintenance Cost (€)": "350",
+            "Net Profit (€)": "2050",
+        }
+    ]
+
+
+def test_query_agent_prompts_are_in_sync():
+    from app.contracts import PromptRef
+    from app.llm.prompts import load_prompt
+    from app.tools.query_agent.prompt import QUERY_AGENT_SYSTEM_PROMPT
+
+    v2_text = load_prompt(PromptRef(name="query_agent", version="v2")).text
+    assert QUERY_AGENT_SYSTEM_PROMPT.strip() == v2_text.strip()
+

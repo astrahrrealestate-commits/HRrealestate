@@ -35,6 +35,14 @@ def test_generate_thread_title_cases():
     title4 = _generate_thread_title("Check all building fire extinguishers", "Checked.", [])
     assert "Building" in title4 or "Fire" in title4
 
+    # 5. Open Keizersgracht case in context must NOT overwrite unrelated queries
+    assert _generate_thread_title("which is giving us most profit", "Keizersgracht 42-C", [brief]) == (
+        "Property Profitability"
+    )
+    assert _generate_thread_title("draft a reply for this ticket", "Prepared draft", [brief]) == "Draft Tenant Reply"
+    assert _generate_thread_title("how many properties do we have", "47 properties", [brief]) == "Portfolio Properties"
+    assert _generate_thread_title("what are we waiting on", "Not waiting", [brief]) == "Waiting-For Radar"
+
 
 def test_conversation_summary_schemas():
     item = ConversationSummaryItem(

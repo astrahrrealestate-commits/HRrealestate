@@ -40,13 +40,19 @@ def execute_readonly_query(
     start = time.perf_counter()
     try:
         with Session(engine) as session:
-            # 1. Enforce per-transaction company isolation for RLS
+            # 1. Enforce per-transaction company isolation for RLS and views
             session.execute(
                 text("SELECT set_config('app.company_id', :cid, true);"),
                 {"cid": str(company_id)},
             )
 
-            # 2. Execute the pre-validated query
+            # 2. Enforce DB-level read-only transaction and statement timeout on PostgreSQL
+            dialect_name = getattr(getattr(engine, "dialect", None), "name", None)
+            if dialect_name == "postgresql":
+                session.execute(text("SET LOCAL TRANSACTION READ ONLY;"))
+                session.execute(text("SET LOCAL statement_timeout = '4000';"))
+
+            # 3. Execute the pre-validated query
             cursor = session.execute(text(wrapped_sql))
             cols = list(cursor.keys())
             raw_rows = cursor.fetchall()

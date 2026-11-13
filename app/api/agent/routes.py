@@ -809,27 +809,94 @@ def _resolve_calendar_action(
     return None, None, [], []
 
 
+_TITLE_STOPWORDS = frozenset(
+    {
+        "can",
+        "could",
+        "would",
+        "will",
+        "you",
+        "me",
+        "my",
+        "our",
+        "we",
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "to",
+        "of",
+        "in",
+        "on",
+        "for",
+        "with",
+        "what",
+        "which",
+        "who",
+        "how",
+        "many",
+        "much",
+        "tell",
+        "show",
+        "give",
+        "please",
+        "right",
+        "now",
+        "this",
+        "that",
+        "us",
+    }
+)
+
+
 def _generate_thread_title(query: str, ans: str, cases: list[CaseBrief]) -> str:
-    """Generate concise 3-5 word title for the conversation thread."""
-    q_low = query.lower()
-    if "keizersgracht" in q_low or (cases and any("keizersgracht" in getattr(c, "label", "").lower() for c in cases)):
-        if any(w in q_low for w in ["leak", "water", "pipe", "plumber", "burst"]):
-            return "Keizersgracht Pipe Leak"
-        return "Keizersgracht 42-A"
-    if any(w in q_low for w in ["rent", "arrear", "overdue", "pay", "behind"]):
+    """Generate a concise, query-specific 3-5 word title for the conversation thread."""
+    q_low = (query or "").lower()
+    has_keizersgracht_case = bool(cases and any("keizersgracht" in getattr(c, "label", "").lower() for c in cases))
+
+    if any(w in q_low for w in ("leak", "water", "pipe", "plumber", "burst")) and (
+        "keizersgracht" in q_low or has_keizersgracht_case
+    ):
+        return "Keizersgracht Pipe Leak"
+    if any(w in q_low for w in ("profit", "profitable", "revenue", "margin", "income")):
+        return "Property Profitability"
+    if any(w in q_low for w in ("rent", "arrear", "overdue", "behind", "collection")):
         if "pieter" in q_low:
             return "Pieter Bakker Arrears"
-        return "Tenant Rent Arrears"
-    if any(w in q_low for w in ["draft", "reply", "send", "message"]):
+        if any(w in q_low for w in ("arrear", "overdue", "behind")):
+            return "Tenant Rent Arrears"
+        return "Rent & Collections"
+    if any(w in q_low for w in ("lease", "leases")):
+        return "Active Portfolio Leases"
+    if any(w in q_low for w in ("draft", "reply", "send", "message")):
         return "Draft Tenant Reply"
-    if any(w in q_low for w in ["calendar", "visit", "schedule", "appointment", "afspraak"]):
+    if any(w in q_low for w in ("calendar", "visit", "schedule", "appointment", "afspraak")):
         return "Property Visit & Schedule"
-    if any(w in q_low for w in ["invoice", "bill", "factuur"]):
-        return "Contractor Invoice Check"
-    if any(w in q_low for w in ["priority", "first", "emergency", "ticket"]):
+    if any(w in q_low for w in ("invoice", "bill", "factuur", "quote", "rate card", "vendor rate")):
+        return "Quotes & Vendor Rates"
+    if any(w in q_low for w in ("waiting", "chase", "follow up", "followup")):
+        return "Waiting-For Radar"
+    if any(w in q_low for w in ("document", "documents", "filed", "pdf")):
+        return "Portfolio Documents"
+    if any(w in q_low for w in ("open task", "tasks")):
+        return "Open Owner Tasks"
+    if any(w in q_low for w in ("priority", "first", "emergency", "ticket", "tickets", "open case")):
         return "Urgent Maintenance Queue"
-    clean_words = [w.capitalize() for w in re.sub(r"[^a-zA-Z0-9\s]", "", query).split() if len(w) > 2]
-    return " ".join(clean_words[:4]) or "Conversation"
+    if "keizersgracht" in q_low:
+        return "Keizersgracht 42-A"
+    if any(w in q_low for w in ("property", "properties", "units")):
+        return "Portfolio Properties"
+
+    raw_words = re.sub(r"[^a-zA-Z0-9\s]", " ", query or "").split()
+    meaningful = [w.capitalize() for w in raw_words if w.lower() not in _TITLE_STOPWORDS and len(w) > 1]
+    if meaningful:
+        return " ".join(meaningful[:5])[:60]
+    fallback = [w.capitalize() for w in raw_words if len(w) > 1]
+    return " ".join(fallback[:4])[:60] or "Conversation"
 
 
 def _clean_card_body(body: str) -> str:
@@ -1008,7 +1075,54 @@ def _build_query_preview_card(
         return None, []
 
     q_low = question.lower()
-    if len(display_rows) == 1 and ("Tenant" in columns or "Lease Start" in columns or "Lease End" in columns):
+    money_cols = {
+        "Net Profit (€)",
+        "Collected Rent (€)",
+        "Scheduled Rent (€)",
+        "Overdue Rent (€)",
+        "Overdue (€)",
+        "Paid (€)",
+        "Contract Rent (€)",
+        "Scheduled (€)",
+        "Collected (€)",
+        "Collection Rate (%)",
+        "Maintenance Cost (€)",
+        "Margin (%)",
+        "Invoice Number",
+        "Billing Month",
+        "Overcharge",
+        "Amount",
+        "Total",
+    }
+    money_words = (
+        "profit",
+        "revenue",
+        "income",
+        "margin",
+        "rent",
+        "arrears",
+        "overdue",
+        "collection",
+        "money",
+        "ledger",
+        "rate card",
+        "vendor rate",
+        "agreed rate",
+        "quote",
+        "quotes",
+        "invoice",
+        "factuur",
+        "overcharge",
+        "spend",
+        "expense",
+    )
+    is_money_query = any(c in money_cols for c in columns) or any(w in q_low for w in money_words)
+
+    if (
+        len(display_rows) == 1
+        and not is_money_query
+        and ("Tenant" in columns or "Lease Start" in columns or "Lease End" in columns)
+    ):
         row = display_rows[0]
         tenant_name = str(row.get("Tenant") or row.get("Name") or "Tenant")
         unit_lbl = str(row.get("Property") or row.get("Unit") or "Portfolio Unit")
@@ -1036,7 +1150,31 @@ def _build_query_preview_card(
         )
         return card, [ActionButtonData(label="Open Tenants", actionType="navigate", payload="/tenants", isPrimary=True)]
 
-    if (
+    if is_money_query:
+        if "Net Profit (€)" in columns or any(w in q_low for w in ("profit", "margin", "revenue")):
+            badge_label = "PROFITABILITY"
+            badge_color = "emerald"
+            title = f"Property Profitability ({row_count})"
+        elif (
+            "Invoice Number" in columns
+            or "Overdue (€)" in columns
+            or any(w in q_low for w in ("rent", "arrears", "overdue", "collection", "ledger"))
+        ):
+            has_overdue = any(
+                str(r.get("Status", "")).lower() in ("overdue", "partial")
+                or (str(r.get("Overdue (€)", "0")).replace("—", "0") not in ("0", "0.0", "0.00"))
+                for r in display_rows
+            )
+            badge_label = "RENT LEDGER"
+            badge_color = "amber" if has_overdue else "emerald"
+            title = f"Rent Ledger & Collections ({row_count})"
+        else:
+            badge_label = "FINANCE & QUOTES"
+            badge_color = "amber"
+            title = f"Financial & Rate Records ({row_count})"
+        target_url = "/money"
+        action_label = "Open Money"
+    elif (
         "Lease Start" in columns
         or "Lease End" in columns
         or any(w in q_low for w in ("lease", "leases", "tenant", "tenants"))
@@ -1046,6 +1184,18 @@ def _build_query_preview_card(
         title = f"Active Leases ({row_count})" if "active" in q_low else f"Lease & Tenant Records ({row_count})"
         target_url = "/tenants"
         action_label = "Open Tenants"
+    elif "Expected By" in columns or "Chase Count" in columns or any(w in q_low for w in ("waiting", "chase")):
+        badge_label = "WAITING RADAR"
+        badge_color = "amber"
+        title = f"Waiting-For Items ({row_count})"
+        target_url = "/waiting"
+        action_label = "Open Waiting"
+    elif "Doc Type" in columns or "File Name" in columns or any(w in q_low for w in ("document", "documents", "filed")):
+        badge_label = "DOCUMENTS"
+        badge_color = "blue"
+        title = f"Documents ({row_count})"
+        target_url = "/documents"
+        action_label = "Open Documents"
     elif (
         "Ticket" in columns
         or "Urgency" in columns
@@ -1071,12 +1221,6 @@ def _build_query_preview_card(
         title = f"Scheduled Visits ({row_count})"
         target_url = "/calendar"
         action_label = "Open Calendar"
-    elif "Total" in columns or any(w in q_low for w in ("quote", "quotes", "invoice", "factuur")):
-        badge_label = "QUOTES"
-        badge_color = "amber"
-        title = f"Quotes & Invoices ({row_count})"
-        target_url = "/money"
-        action_label = "Open Money"
     else:
         badge_label = "PORTFOLIO DATA"
         badge_color = "blue"
@@ -1186,15 +1330,16 @@ def _build_cards_list(target_cards: list[PreviewCardData]) -> list[AssistantCard
             )
         elif p_card.type in ("data_table", "tenant_lease"):
             nav_target = p_card.targetUrl or "/tenants"
-            nav_label = (
-                "Open Tenants"
-                if nav_target == "/tenants"
-                else (
-                    "Open Maintenance"
-                    if nav_target == "/maintenance"
-                    else ("Open Calendar" if nav_target == "/calendar" else "View Details")
-                )
-            )
+            nav_labels = {
+                "/tenants": "Open Tenants",
+                "/maintenance": "Open Maintenance",
+                "/calendar": "Open Calendar",
+                "/money": "Open Money",
+                "/contacts": "Open Contacts",
+                "/waiting": "Open Waiting",
+                "/documents": "Open Documents",
+            }
+            nav_label = nav_labels.get(nav_target, "View Details")
             card_actions.append(
                 CardActionData(
                     label=nav_label,

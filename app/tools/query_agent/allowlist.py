@@ -7,6 +7,14 @@ ALLOWED_VIEWS = frozenset(
         "v_task_overview",
         "v_scheduled_visits",
         "v_message_stats",
+        "v_rent_ledger",
+        "v_monthly_rent_summary",
+        "v_unit_profitability",
+        "v_waiting_radar",
+        "v_vendor_rates",
+        "v_documents_overview",
+        "v_approval_audit",
+        "v_send_stats",
     }
 )
 
@@ -26,6 +34,17 @@ ALLOWED_BASE_TABLES = frozenset(
         "quotes",
         "quote_lines",
         "quote_reviews",
+        "tenant_rent_payments",
+        "monthly_rent_summaries",
+        "vendor_rates",
+        "price_snapshots",
+        "waits",
+        "documents",
+        "document_links",
+        "person_profiles",
+        "understandings",
+        "dd_reviews",
+        "memory_items",
     }
 )
 
@@ -49,6 +68,8 @@ ALLOWED_FUNCTIONS = frozenset(
         "cast",
         "abs",
         "nullif",
+        "greatest",
+        "least",
         "concat",
         "length",
         "trim",
@@ -83,15 +104,32 @@ BANNED_FUNCTIONS = frozenset(
     }
 )
 
-# Explicitly forbidden secrets & system tables
+# Explicitly forbidden secrets, auth, PII-heavy audit targets & system tables
 BLOCKED_RELATIONS = frozenset(
     {
         "owner_accounts",
+        "allowed_users",
+        "companies",
         "channel_accounts",
         "gmail_sync_state",
+        "owner_personas",
+        "owner_outbox",
+        "sends",
+        "channel_identities",
+        "approvals",
         "alembic_version",
         "dbos_sys",
         "dbos_workflow_status",
         "raw_events",
+        "model_calls",
+        "translations",
+        "brixx_sync_runs",
+        "brixx_sync_table_state",
+        "brixx_documents",
+        "brixx_erased_refs",
+        "brixx_reconcile_seen",
+        "agent_conversations",
+        "agent_turns",
+        "agent_page_state",
     }
 )
