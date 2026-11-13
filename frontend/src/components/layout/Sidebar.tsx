@@ -17,7 +17,6 @@ import {
   BookOpen,
   ChevronDown,
   LogOut,
-  Search,
   ShieldCheck,
   UserPlus,
   Coins,
@@ -178,19 +177,6 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
               />
             </button>
           )}
-        </div>
-
-        {/* Quick Search Bar (matching reference design) */}
-        <div className={cn("px-2.5 pt-2.5 pb-1", compact ? "hidden" : "block")}>
-          <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#10213B] border border-[#162B45] text-slate-400 hover:text-white hover:border-[#223f66] transition-colors cursor-pointer group">
-            <div className="flex items-center gap-2">
-              <Search className="w-3.5 h-3.5 text-slate-400 group-hover:text-white" />
-              <span className="text-[12px]">{t("nav.search_placeholder")}</span>
-            </div>
-            <kbd className="text-[10px] font-mono text-slate-400 bg-white/5 border border-white/10 px-1.5 py-0.5 rounded">
-              ⌘K
-            </kbd>
-          </div>
         </div>
 
         {/* Section Label: WORKSPACE */}
