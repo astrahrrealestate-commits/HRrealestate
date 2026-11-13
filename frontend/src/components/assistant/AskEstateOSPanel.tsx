@@ -33,7 +33,10 @@ import {
   Home,
   Search,
   Pencil,
+  Building2,
+  CircleDollarSign,
 } from "lucide-react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { askAgent, approveInboxDraft, approveStandingRule, AssistantCard, PreviewCardData, updateAgentConversation } from "@/lib/api";
@@ -1899,15 +1902,23 @@ export function AskEstateOSPanel({
         {/* MOBILE SLIDE-OVER DRAWER (Matches uploaded UI image 100%)       */}
         {/* ============================================================== */}
         {isMobileMenuOpen && (
-          <div className="absolute inset-0 z-50 bg-[#0A1B2F] flex flex-col justify-between p-6 pt-[max(env(safe-area-inset-top),20px)] pb-[max(env(safe-area-inset-bottom),20px)] animate-in fade-in slide-in-from-left-4 duration-200">
+          <div
+            className="fixed inset-0 z-[60] flex flex-col justify-between p-6 pt-[max(env(safe-area-inset-top),20px)] pb-[max(env(safe-area-inset-bottom),20px)] animate-in fade-in slide-in-from-left-4 duration-200"
+            style={{ backgroundColor: "rgba(24, 24, 24, 1)" }}
+          >
             <div>
-              {/* Header: Logo [HR] RealEstate OS & Actions */}
+              {/* Header: Logo [HR Hexagon] RealEstate OS & Actions */}
               <div className="flex items-center justify-between pb-6">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg border border-white/20 bg-white/5 flex items-center justify-center font-bold text-xs tracking-wider text-white">
-                    HR
-                  </div>
-                  <span className="font-bold text-[18px] text-white tracking-tight">RealEstate OS</span>
+                  <Image
+                    src="/images/hr-realestate-mark.png"
+                    alt="HR"
+                    width={28}
+                    height={28}
+                    className="w-7 h-7 object-contain shrink-0"
+                    priority
+                  />
+                  <span className="font-semibold text-[17px] text-white tracking-tight">RealEstate OS</span>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -1917,7 +1928,7 @@ export function AskEstateOSPanel({
                       setIsMobileMenuOpen(false);
                       setTimeout(() => inputRef.current?.focus(), 150);
                     }}
-                    className="w-9 h-9 rounded-full bg-[#222429] hover:bg-[#2c2f36] text-white/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                    className="w-9 h-9 rounded-full bg-[#2A2A2A] hover:bg-[#333333] text-white/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
                     title="Search"
                   >
                     <Search className="w-4 h-4" />
@@ -1925,20 +1936,20 @@ export function AskEstateOSPanel({
                   <button
                     type="button"
                     onClick={() => setIsMobileMenuOpen(false)}
-                    className="w-9 h-9 rounded-full bg-[#222429] hover:bg-[#2c2f36] text-white/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                    className="w-9 h-9 rounded-full bg-[#2A2A2A] hover:bg-[#333333] text-white/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
                     title="Close Menu"
                   >
-                    <div className="flex flex-col gap-1">
-                      <span className="w-4 h-[2px] bg-white rounded-full"></span>
-                      <span className="w-3 h-[2px] bg-white rounded-full"></span>
-                      <span className="w-3.5 h-[2px] bg-white rounded-full"></span>
+                    <div className="flex flex-col gap-1 items-center justify-center">
+                      <span className="w-4 h-[2px] bg-white/90 rounded-full"></span>
+                      <span className="w-4 h-[2px] bg-white/90 rounded-full"></span>
+                      <span className="w-4 h-[2px] bg-white/90 rounded-full"></span>
                     </div>
                   </button>
                 </div>
               </div>
 
               {/* Navigation Items */}
-              <nav className="space-y-4 pt-1 pb-6 border-b border-white/5">
+              <nav className="space-y-4 pt-1 pb-6 border-b border-white/[0.08]">
                 <button
                   type="button"
                   onClick={() => {
@@ -1946,7 +1957,7 @@ export function AskEstateOSPanel({
                     onClose();
                     router.push("/");
                   }}
-                  className="flex items-center gap-3 text-white/90 hover:text-white text-[15px] font-medium transition-colors w-full text-left py-1 cursor-pointer"
+                  className="flex items-center gap-3.5 text-white/90 hover:text-white text-[15px] font-medium transition-colors w-full text-left py-1 cursor-pointer"
                 >
                   <Home className="w-5 h-5 text-white/70" />
                   <span>Dashboard</span>
@@ -1958,7 +1969,7 @@ export function AskEstateOSPanel({
                     onClose();
                     router.push("/contacts");
                   }}
-                  className="flex items-center gap-3 text-white/90 hover:text-white text-[15px] font-medium transition-colors w-full text-left py-1 cursor-pointer"
+                  className="flex items-center gap-3.5 text-white/90 hover:text-white text-[15px] font-medium transition-colors w-full text-left py-1 cursor-pointer"
                 >
                   <UserRound className="w-5 h-5 text-white/70" />
                   <span>Contacts</span>
@@ -1968,23 +1979,35 @@ export function AskEstateOSPanel({
                   onClick={() => {
                     setIsMobileMenuOpen(false);
                     onClose();
-                    router.push("/inbox");
+                    router.push("/properties");
                   }}
-                  className="flex items-center gap-3 text-white/90 hover:text-white text-[15px] font-medium transition-colors w-full text-left py-1 cursor-pointer"
+                  className="flex items-center gap-3.5 text-white/90 hover:text-white text-[15px] font-medium transition-colors w-full text-left py-1 cursor-pointer"
                 >
-                  <MessageSquare className="w-5 h-5 text-white/70" />
-                  <span>Messages</span>
+                  <Building2 className="w-5 h-5 text-white/70" />
+                  <span>Properties</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    onClose();
+                    router.push("/money");
+                  }}
+                  className="flex items-center gap-3.5 text-white/90 hover:text-white text-[15px] font-medium transition-colors w-full text-left py-1 cursor-pointer"
+                >
+                  <CircleDollarSign className="w-5 h-5 text-white/70" />
+                  <span>Finance</span>
                 </button>
               </nav>
 
               {/* Past Conversations List */}
               <div className="pt-5">
-                <div className="text-[13px] font-medium text-[#64748B] mb-3">
+                <div className="text-[13px] font-medium text-[#71717A] mb-3.5">
                   Conversations
                 </div>
-                <div className="space-y-3.5 overflow-y-auto max-h-[46vh] pr-1">
+                <div className="space-y-3.5 overflow-y-auto max-h-[46vh] pr-1 [&::-webkit-scrollbar]:hidden">
                   {displayConversations.length === 0 ? (
-                    <div className="text-[13px] text-slate-400 py-2">
+                    <div className="text-[13px] text-[#71717A] py-2">
                       No saved conversations yet.
                     </div>
                   ) : (
@@ -1996,10 +2019,10 @@ export function AskEstateOSPanel({
                           superAgent.selectConversation(c.id);
                           setIsMobileMenuOpen(false);
                         }}
-                        className="w-full flex items-center justify-between text-left text-[14px] text-white hover:text-cyan-300 transition-colors py-1 cursor-pointer group"
+                        className="w-full flex items-center justify-between text-left text-[14.5px] text-[#F4F4F5] hover:text-white transition-colors py-1 cursor-pointer group"
                       >
                         <span className="truncate pr-3 font-normal group-hover:underline">{c.title}</span>
-                        <span className="text-[12px] text-[#64748B] shrink-0 font-normal">{c.date}</span>
+                        <span className="text-[12.5px] text-[#71717A] shrink-0 font-normal">{c.date}</span>
                       </button>
                     ))
                   )}
@@ -2008,10 +2031,10 @@ export function AskEstateOSPanel({
             </div>
 
             {/* Bottom Bar: Profile Avatar & New Chat Blue Pill Button */}
-            <div className="flex items-center justify-between pt-4 border-t border-white/5">
+            <div className="flex items-center justify-between pt-4 border-t border-white/[0.08]">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-amber-600 to-amber-400 flex items-center justify-center text-white font-bold text-sm shadow-sm">
-                  H
+                <div className="w-10 h-10 rounded-full bg-[#2A2A2A] border border-white/10 flex items-center justify-center text-white font-semibold text-sm shadow-sm overflow-hidden">
+                  <span>H</span>
                 </div>
                 <span className="font-semibold text-[15px] text-white">Hi, Harjot</span>
               </div>
@@ -2022,7 +2045,7 @@ export function AskEstateOSPanel({
                   superAgent.startNewChat();
                   setIsMobileMenuOpen(false);
                 }}
-                className="bg-[#2563eb] hover:bg-blue-600 text-white font-semibold text-xs px-4 py-2.5 rounded-full flex items-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer"
+                className="bg-[#2563eb] hover:bg-blue-600 text-white font-medium text-[13px] px-4 py-2.5 rounded-full flex items-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer"
               >
                 <Pencil className="w-3.5 h-3.5" />
                 <span>New Chat</span>
