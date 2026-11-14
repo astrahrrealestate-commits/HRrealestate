@@ -1030,12 +1030,15 @@ export interface MemoryItem {
   company_id: string;
   scope: "company" | "unit" | "person";
   scope_id: string | null;
-  kind: "instruction" | "correction" | "preference" | "fact";
+  kind: "rule" | "preference" | "fact" | "note";
   text: string;
   status: "proposed" | "active" | "retired";
-  origin: "owner" | "extracted" | "distilled" | "system";
+  origin: "owner" | "distilled" | "system";
+  source_refs: unknown[];
   confidence: number;
   evidence_count: number;
+  last_used_at: string | null;
+  valid_until: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -1076,7 +1079,7 @@ export async function createStandingRule(data: {
   text: string;
   scope?: "company" | "unit" | "person";
   scope_id?: string | null;
-  kind?: "instruction" | "correction" | "preference" | "fact";
+  kind?: "rule" | "preference" | "fact" | "note";
 }): Promise<MemoryItem | null> {
   await ensureAuthenticated();
   try {

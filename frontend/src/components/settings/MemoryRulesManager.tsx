@@ -35,8 +35,11 @@ const SEED_RULES: MemoryItem[] = [
     text: "Emergency plumbing call-out cap is €350 without requiring prior owner approval.",
     status: "active",
     origin: "owner",
+    source_refs: [],
     confidence: 1.0,
     evidence_count: 3,
+    last_used_at: null,
+    valid_until: null,
     created_at: new Date(Date.now() - 86400000 * 3).toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -49,8 +52,11 @@ const SEED_RULES: MemoryItem[] = [
     text: "Tenant Pieter Bakker prefers WhatsApp notifications over email.",
     status: "active",
     origin: "owner",
+    source_refs: [],
     confidence: 1.0,
     evidence_count: 5,
+    last_used_at: null,
+    valid_until: null,
     created_at: new Date(Date.now() - 86400000 * 7).toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -59,12 +65,15 @@ const SEED_RULES: MemoryItem[] = [
     company_id: "00000000-0000-0000-0000-000000000001",
     scope: "company",
     scope_id: null,
-    kind: "instruction",
+    kind: "rule",
     text: "Always require contractor invoice PDF attachment before releasing final payment.",
     status: "active",
     origin: "distilled",
+    source_refs: [],
     confidence: 0.95,
     evidence_count: 8,
+    last_used_at: null,
+    valid_until: null,
     created_at: new Date(Date.now() - 86400000 * 12).toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -77,7 +86,7 @@ export function MemoryRulesManager() {
   const [isAdding, setIsAdding] = useState(false);
   const [newText, setNewText] = useState("");
   const [newScope, setNewScope] = useState<"company" | "unit" | "person">("company");
-  const [newKind, setNewKind] = useState<"preference" | "instruction">("preference");
+  const [newKind, setNewKind] = useState<"preference" | "rule">("preference");
   const [submitting, setSubmitting] = useState(false);
 
   const fetchRules = async () => {
@@ -125,8 +134,11 @@ export function MemoryRulesManager() {
           text: newText.trim(),
           status: "active",
           origin: "owner",
+          source_refs: [],
           confidence: 1.0,
           evidence_count: 1,
+          last_used_at: null,
+          valid_until: null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
@@ -259,7 +271,7 @@ export function MemoryRulesManager() {
                 className="w-full text-xs px-3 py-2 rounded-lg border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)]"
               >
                 <option value="preference">Landlord Preference</option>
-                <option value="instruction">Strict Policy Instruction</option>
+                <option value="rule">Strict Policy Instruction</option>
               </select>
             </div>
           </div>
