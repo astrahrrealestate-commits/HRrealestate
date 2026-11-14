@@ -126,10 +126,11 @@ _COLUMN_LABELS: dict[str, str] = {
 }
 
 _SUMMARY_SYNTHESIS_PROMPT = (
-    "You are Jarvis, the executive estate-intelligence copilot for Harjot (property owner).\n"
+    "You are Astra, the executive estate-intelligence copilot for Harjot (property owner).\n"
     "Turn the verified query results inside <data> into a crisp, human-readable executive answer as JSON:\n"
     '{"answer": "..."}\n'
     "Rules:\n"
+    "- Language Matching: Answer in the same language as the user's question (if asked in Dutch, reply in natural, fluent Dutch; if in English, reply in English).\n"
     "- Be concise (1-3 short sentences, or a brief headline + up to 4 clean '- ' bullets highlighting key items).\n"
     "- A structured data table card is shown directly below your answer whenever multiple records exist, so give the\n"
     "  key takeaway (counts, urgent issues, dates, names) rather than repeating every column of every row.\n"
@@ -163,34 +164,61 @@ def _call_groq_or_gemini(
     settings: Settings,
     system_instruction: str = QUERY_AGENT_SYSTEM_PROMPT,
 ) -> str | None:
-    """Calls Groq API with structured JSON output instructions."""
-    api_key = settings.groq_api_key.get_secret_value() if settings.groq_api_key else None
-    if not api_key:
-        return None
+    """Calls Gemini or Groq API with structured JSON output instructions."""
+    # 1. Prefer Gemini (Google AI Studio) when configured
+    gemini_key = settings.gemini_api_key.get_secret_value() if settings.gemini_api_key else None
+    if gemini_key:
+        for model in ["gemini-2.5-flash", "gemini-2.0-flash"]:
+            try:
+                resp = httpx.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_key}",
+                    json={
+                        "systemInstruction": {"parts": [{"text": system_instruction}]},
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {
+                            "responseMimeType": "application/json",
+                            "temperature": 0.0,
+                        },
+                    },
+                    timeout=15.0,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    candidates = data.get("candidates") or []
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts") or []
+                        if parts and "text" in parts[0]:
+                            return str(parts[0]["text"])
+                log.warning("query_agent.gemini_status_not_200", model=model, status=resp.status_code, body=resp.text[:200])
+            except Exception as exc:
+                log.warning("query_agent.gemini_call_failed", model=model, error=str(exc))
 
-    for model in ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]:
-        try:
-            resp = httpx.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": system_instruction},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "response_format": {"type": "json_object"},
-                    "temperature": 0.0,
-                    "max_tokens": 500,
-                },
-                timeout=12.0,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                return str(data["choices"][0]["message"]["content"])
-            log.warning("query_agent.groq_status_not_200", model=model, status=resp.status_code, body=resp.text[:200])
-        except Exception as exc:
-            log.warning("query_agent.llm_call_failed", model=model, error=str(exc))
+    # 2. Fall back to Groq API if configured
+    api_key = settings.groq_api_key.get_secret_value() if settings.groq_api_key else None
+    if api_key:
+        for model in ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]:
+            try:
+                resp = httpx.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": model,
+                        "messages": [
+                            {"role": "system", "content": system_instruction},
+                            {"role": "user", "content": prompt},
+                        ],
+                        "response_format": {"type": "json_object"},
+                        "temperature": 0.0,
+                        "max_tokens": 500,
+                    },
+                    timeout=12.0,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return str(data["choices"][0]["message"]["content"])
+                log.warning("query_agent.groq_status_not_200", model=model, status=resp.status_code, body=resp.text[:200])
+            except Exception as exc:
+                log.warning("query_agent.llm_call_failed", model=model, error=str(exc))
     return None
 
 
@@ -199,6 +227,7 @@ QUERY_AGENT = AgentSpec(
     prompt=PromptRef(name="query_agent", version="v2"),
     output_type=SQLQueryProposal,
     finalize=lambda output, _loaded: output,
+    gemini_prompted=True,
 )
 
 
@@ -365,11 +394,11 @@ def synthesize_query_answer(
     row_count: int,
     settings: Settings,
 ) -> str | None:
-    """Turn sanitized query rows into an executive prose/bullet answer via Groq; returns None to use fallback."""
+    """Turn sanitized query rows into an executive prose/bullet answer via Gemini or Groq; returns None to use fallback."""
     if (
         settings.env == "test"
         or settings.llm_model == "fake"
-        or not settings.groq_api_key
+        or not (settings.gemini_api_key or settings.groq_api_key)
         or row_count == 0
         or not display_rows
     ):

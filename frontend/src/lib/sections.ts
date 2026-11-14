@@ -25,6 +25,7 @@ const SECTION_ROUTES: ReadonlyArray<readonly [string, SectionKey]> = [
   ["/maintenance", "maintenance"],
   ["/money", "money"],
   ["/reports", "reports"],
+  ["/knowledge", "reports"],
   ["/settings", "settings"],
 ];
 

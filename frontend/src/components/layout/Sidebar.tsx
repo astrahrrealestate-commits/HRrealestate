@@ -13,6 +13,7 @@ import {
   Contact,
   Wrench,
   CircleDollarSign,
+  FileSpreadsheet,
   LayoutGrid,
   BookOpen,
   ChevronDown,
@@ -121,6 +122,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
     { label: t("nav.contacts") || "Contacts", section: "contacts", href: "/contacts", icon: Contact },
     { label: t("nav.maintenance") || "Maintenance", section: "maintenance", href: "/maintenance", icon: Wrench },
     { label: t("nav.money") || "Money", section: "money", href: "/money", icon: CircleDollarSign },
+    { label: t("nav.reports") || "Reports", section: "reports", href: "/reports", icon: FileSpreadsheet },
   ];
   const navigationItems = allNavigationItems.filter((item) => canAccess(item.section));
 
@@ -259,14 +261,25 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
           {/* Knowledge Base */}
           {canAccess("reports") && (
             <Link
-              href="/reports"
+              href="/knowledge"
               title={t("nav.knowledge_base") || "Knowledge Base"}
               className={cn(
-                "w-full flex items-center min-h-[38px] rounded-xl text-[13.5px] transition-colors text-slate-400 hover:text-white hover:bg-white/5 font-medium gap-2.5 border border-transparent",
+                "w-full flex items-center min-h-[38px] rounded-xl text-[13.5px] transition-colors gap-2.5 border font-medium",
+                pathname === "/knowledge" || pathname.startsWith("/knowledge/")
+                  ? "bg-white/10 border-white/10 text-white shadow-xs"
+                  : "text-slate-400 hover:text-white hover:bg-white/5 border-transparent",
                 compact ? "justify-center px-2" : "justify-start px-3"
               )}
             >
-              <BookOpen className="w-4 h-4 flex-shrink-0 text-slate-400" strokeWidth={1.75} />
+              <BookOpen
+                className={cn(
+                  "w-4 h-4 flex-shrink-0 transition-colors",
+                  pathname === "/knowledge" || pathname.startsWith("/knowledge/")
+                    ? "text-white"
+                    : "text-slate-400"
+                )}
+                strokeWidth={pathname === "/knowledge" || pathname.startsWith("/knowledge/") ? 2 : 1.75}
+              />
               <span className={cn("truncate", compact ? "hidden" : "inline")}>
                 {t("nav.knowledge_base") || "Knowledge Base"}
               </span>

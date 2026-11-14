@@ -19,7 +19,11 @@ from app.context import persona
 from app.db.models import OwnerPersona
 from app.llm.agents.proposer import MAX_PERSONA_CHARS
 
-router = APIRouter(prefix="/persona", tags=["persona"], dependencies=[Depends(require_section("settings"))])
+router = APIRouter(
+    prefix="/persona",
+    tags=["persona"],
+    dependencies=[Depends(require_section("settings", also=("reports", "dashboard")))],
+)
 
 Owner = Annotated[Principal, Depends(require_principal)]
 Engine_ = Annotated[Engine, Depends(get_engine)]

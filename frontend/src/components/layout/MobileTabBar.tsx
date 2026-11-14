@@ -14,6 +14,8 @@ import {
   Contact,
   Coins,
   BarChart3,
+  FileSpreadsheet,
+  BookOpen,
   Settings,
   ShieldCheck,
   LayoutGrid,
@@ -82,6 +84,8 @@ export function MobileTabBar({ pendingCount, threads, className }: MobileTabBarP
     { label: t("nav.tenants") || "Tenants", section: "tenants", href: "/tenants", icon: Users },
     { label: t("nav.contacts") || "Contacts", section: "contacts", href: "/contacts", icon: Contact },
     { label: "Money", section: "money", href: "/money", icon: Coins },
+    { label: t("nav.reports") || "Reports", section: "reports", href: "/reports", icon: FileSpreadsheet },
+    { label: t("nav.knowledge_base") || "Knowledge Base", section: "reports", href: "/knowledge", icon: BookOpen },
     ...(user?.isAdmin ? [{ label: "Team & access", section: "admin", href: "/admin", icon: ShieldCheck }] : []),
   ].filter((item) => canAccess(item.section));
 
