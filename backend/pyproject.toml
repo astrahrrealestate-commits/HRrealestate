@@ -89,6 +89,7 @@ ignore = ["RUF001", "RUF002", "RUF003"]  # German text (ß, umlauts) in strings/
 "app/tools/query_agent/prompt.py" = ["E501"]
 # developer CLI that reports to the terminal
 "app/dev/seed_user.py" = ["T201"]
+"app/dev/seed.py" = ["T201"]
 "app/dev/simulate_scenarios.py" = ["T201", "E501"]
 
 [tool.ruff.lint.pep8-naming]
