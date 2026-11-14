@@ -1,6 +1,6 @@
 # Project context (auto)
 
-Generated: 2026-11-12T18:54:08.029Z
+Generated: 2026-11-14T07:45:14.106Z
 
 ## Detected stack
 
@@ -9,60 +9,61 @@ Generated: 2026-11-12T18:54:08.029Z
 
 ## Git
 
-- Branch: `m-client-ready-sweep`
-- HEAD: `1ff2574`
+- Branch: `chore-remove-dead-root-files`
+- HEAD: `4e6a206`
 
 ## Recent commits
 
-- `1ff2574` chore(merge): origin/main (superagent UI, unified composer) into m-client-ready-sweep _(Aditya Jain, 2026-11-13)_
-- `6aed10b` fix(maintenance): persist owner ticket edits, surface API outages, verify dev DB _(Aditya Jain, 2026-11-13)_
-- `d3f15a7` feat(frontend,agent,inbox): mobile/desktop UI cleanup, unified inbox composer, full AI drafts & Schibsted Grotesk mobile font _(Suryansh Tyagi, 2026-11-12)_
-- `31fac13` feat(i18n): dynamic bidirectional chat translation, shared STT hook, BRIXX live check _(Aditya Jain, 2026-11-12)_
-- `8b61a5d` feat(superagent,frontend): clean executive answers and structured cards _(Suryansh Tyagi, 2026-11-11)_
-- `a0b4cd6` fix(frontend): add rentStatus to ContactItem and remove duplicate keys in LanguageContext _(Suryansh Tyagi, 2026-11-11)_
-- `1685f04` fix(pipeline): make Action case_id optional in tool schema so LLM proposal validation succeeds _(Suryansh Tyagi, 2026-11-11)_
-- `28e7c38` feat(dashboard,sim): round dashboard filter bar and execute live tenant scenario simulation _(Suryansh Tyagi, 2026-11-11)_
-- `489c7d7` feat(drafts,tenants): connect real AI proposer agent and add tenants directory fallback _(Suryansh Tyagi, 2026-11-11)_
-- `e953952` feat(money): add Monthly vs Yearly time horizon and collapsible chart toggle _(Suryansh Tyagi, 2026-11-11)_
-- `10fa6a6` fix(money,tenants): cap occupancy to 100% and wire live rent status for overdue tenants _(Suryansh Tyagi, 2026-11-11)_
-- `5510270` fix(ui): replace unicode flag emojis with crisp SVG flags for cross-platform Windows support _(Suryansh Tyagi, 2026-11-11)_
-- `e588cc0` fix(auth): restore X-Session-Token header support and prioritize real owner company in dev _(Suryansh Tyagi, 2026-11-11)_
-- `2f33052` fix(frontend): restore API proxy rewrite in next.config.ts _(Suryansh Tyagi, 2026-11-11)_
-- `845ed8c` chore(merge): merge origin/main into experiment-superagent-ui _(Suryansh Tyagi, 2026-11-11)_
-- `120325e` fix(pipeline): truncate massive email bodies for understanding and suppress fallback cases for unlinked senders _(Suryansh Tyagi, 2026-11-11)_
-- `f83e293` chore(deps): google-genai 3.1.0 in the lock, and the merge notes _(Aditya Jain, 2026-11-11)_
-- `01adfe0` chore(merge): dependabot dependency-review-action 5.0.0 _(Aditya Jain, 2026-11-11)_
-- `142eed5` chore(merge): dependabot docker astral-sh/uv 0.13.7 _(Aditya Jain, 2026-11-11)_
-- `3f490d8` chore(merge): wip/brixx-uncommitted-snapshot (archived patch under docs/wip) _(Aditya Jain, 2026-11-11)_
+- `4e6a206` chore(llm): remove Groq fallback, standardize all agent and SQL queries on Gemini _(Suryansh Tyagi, 2026-11-14)_
+- `e9f2482` ci: rename the prod branch to dev in workflow triggers _(Aditya Jain, 2026-11-14)_
+- `5dff784` ci: gate stage and prod the same as main _(Aditya Jain, 2026-11-14)_
+- `71cc8ac` fix(context,tools): restore gates broken by the Astra rename, wrap long lines _(Aditya Jain, 2026-11-14)_
+- `123da06` feat(knowledge,agent): add Knowledge Base for Harjot persona, separate Reports nav, rename Super Agent to Astra _(Suryansh Tyagi, 2026-11-14)_
+- `902e6db` feat(mobile): redesign mobile menu to match dark rgba(24,24,24,1) mockup _(Suryansh Tyagi, 2026-11-13)_
+- `9ce9224` style(branding): calibrate REAL ESTATE wordmark size for balanced proportions _(Suryansh Tyagi, 2026-11-13)_
+- `de6c614` feat(branding): implement high-DPI vector typography for REAL ESTATE wordmark _(Suryansh Tyagi, 2026-11-13)_
+- `d63a984` feat(branding): enlarge REAL ESTATE wordmark and remove sidebar search bar _(Suryansh Tyagi, 2026-11-13)_
+- `1b4e652` feat(branding): enlarge logo and make logo the single interactive toggle _(Suryansh Tyagi, 2026-11-13)_
+- `712ecab` feat(layout): eliminate duplicate logo and add manual sidebar toggle _(Suryansh Tyagi, 2026-11-13)_
+- `85b9c16` feat(branding): update app and login page logo to HR Real Estate _(Suryansh Tyagi, 2026-11-13)_
+- `38cd91e` feat(superagent): read-only analytics views (0044) and dynamic chat thread titles _(Suryansh Tyagi, 2026-11-13)_
+- `342a188` fix(docker): read secrets from env in compose.test.yml, document GOOGLE_OAUTH_CLIENT_SECRET _(Aditya Jain, 2026-11-14)_
+- `31a07c9` fix(auth,contracts): re-close the session-token gaps and restore the strict LLM schema _(Aditya Jain, 2026-11-13)_
+- `fc7906e` chore(merge): origin/main (superagent UI, unified composer) into m-client-ready-sweep _(Aditya Jain, 2026-11-13)_
+- `df74f3a` fix(maintenance): persist owner ticket edits, surface API outages, verify dev DB _(Aditya Jain, 2026-11-13)_
+- `b187ade` feat(frontend,agent,inbox): mobile/desktop UI cleanup, unified inbox composer, full AI drafts & Schibsted Grotesk mobile font _(Suryansh Tyagi, 2026-11-12)_
+- `9084048` feat(i18n): dynamic bidirectional chat translation, shared STT hook, BRIXX live check _(Aditya Jain, 2026-11-12)_
+- `ed29744` feat(superagent,frontend): clean executive answers and structured cards _(Suryansh Tyagi, 2026-11-11)_
 
 ## Inferred recent decisions
 
-- `6aed10b` fix(maintenance): persist owner ticket edits, surface API outages, verify dev DB
-- `d3f15a7` feat(frontend,agent,inbox): mobile/desktop UI cleanup, unified inbox composer, full AI drafts & Schibsted Grotesk mobile font
-- `31fac13` feat(i18n): dynamic bidirectional chat translation, shared STT hook, BRIXX live check
-- `8b61a5d` feat(superagent,frontend): clean executive answers and structured cards
-- `a0b4cd6` fix(frontend): add rentStatus to ContactItem and remove duplicate keys in LanguageContext
-- `1685f04` fix(pipeline): make Action case_id optional in tool schema so LLM proposal validation succeeds
-- `28e7c38` feat(dashboard,sim): round dashboard filter bar and execute live tenant scenario simulation
-- `489c7d7` feat(drafts,tenants): connect real AI proposer agent and add tenants directory fallback
-- `e953952` feat(money): add Monthly vs Yearly time horizon and collapsible chart toggle
-- `10fa6a6` fix(money,tenants): cap occupancy to 100% and wire live rent status for overdue tenants
-- `5510270` fix(ui): replace unicode flag emojis with crisp SVG flags for cross-platform Windows support
-- `e588cc0` fix(auth): restore X-Session-Token header support and prioritize real owner company in dev
-- `2f33052` fix(frontend): restore API proxy rewrite in next.config.ts
-- `120325e` fix(pipeline): truncate massive email bodies for understanding and suppress fallback cases for unlinked senders
+- `71cc8ac` fix(context,tools): restore gates broken by the Astra rename, wrap long lines
+- `123da06` feat(knowledge,agent): add Knowledge Base for Harjot persona, separate Reports nav, rename Super Agent to Astra
+- `902e6db` feat(mobile): redesign mobile menu to match dark rgba(24,24,24,1) mockup
+- `de6c614` feat(branding): implement high-DPI vector typography for REAL ESTATE wordmark
+- `d63a984` feat(branding): enlarge REAL ESTATE wordmark and remove sidebar search bar
+- `1b4e652` feat(branding): enlarge logo and make logo the single interactive toggle
+- `712ecab` feat(layout): eliminate duplicate logo and add manual sidebar toggle
+- `85b9c16` feat(branding): update app and login page logo to HR Real Estate
+- `38cd91e` feat(superagent): read-only analytics views (0044) and dynamic chat thread titles
+- `342a188` fix(docker): read secrets from env in compose.test.yml, document GOOGLE_OAUTH_CLIENT_SECRET
+- `31a07c9` fix(auth,contracts): re-close the session-token gaps and restore the strict LLM schema
+- `df74f3a` fix(maintenance): persist owner ticket edits, surface API outages, verify dev DB
+- `b187ade` feat(frontend,agent,inbox): mobile/desktop UI cleanup, unified inbox composer, full AI drafts & Schibsted Grotesk mobile font
+- `9084048` feat(i18n): dynamic bidirectional chat translation, shared STT hook, BRIXX live check
+- `ed29744` feat(superagent,frontend): clean executive answers and structured cards
 
 ## Hotspots
 
-- 64x — `docs/PROGRESS.md`
-- 48x — `app/api/agent/routes.py`
-- 41x — `frontend/src/components/assistant/AskEstateOSPanel.tsx`
+- 65x — `docs/PROGRESS.md`
+- 50x — `app/api/agent/routes.py`
+- 42x — `frontend/src/components/assistant/AskEstateOSPanel.tsx`
+- 36x — `pyproject.toml`
 - 35x — `app/api/inbox/routes.py`
-- 35x — `pyproject.toml`
 - 34x — `app/core/settings.py`
 - 30x — `docs/dashboard-api.md`
+- 28x — `.env.example`
 - 28x — `frontend/src/lib/api.ts`
-- 27x — `.env.example`
 - 27x — `tests/unit/api/__snapshots__/test_openapi_snapshot.ambr`
 
 ## Top-level tree
@@ -214,6 +215,7 @@ Generated: 2026-11-12T18:54:08.029Z
 .hypothesis/constants/1214fb91a3ec0ce5
 .hypothesis/constants/123e9576de3051b0
 .hypothesis/constants/12af14c4068abbfb
+.hypothesis/constants/12c461bcdd333bc7
 .hypothesis/constants/12ca5a8a7e159b1d
 .hypothesis/constants/12fc7ebb940e41f5
 .hypothesis/constants/1309a78a70d3b814
@@ -267,5 +269,4 @@ Generated: 2026-11-12T18:54:08.029Z
 .hypothesis/constants/1b2996e00f048f45
 .hypothesis/constants/1b81d4d985941a69
 .hypothesis/constants/1b8f41e38f01284b
-.hypothesis/constants/1bdadf4880ad507f
 ```
