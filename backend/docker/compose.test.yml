@@ -1,0 +1,98 @@
+# Dedicated QA Testing Stack for EstateOS
+# Run with: docker compose -f docker/compose.test.yml up --build
+name: estateos-test
+
+x-app: &app
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+  image: estateos-api:test
+  volumes:
+    - appdata:/app/.data
+  environment: &app-env
+    ENV: dev
+    DATABASE_URL: postgresql+psycopg://estateos:estateos@postgres:5432/estateos
+    SENTRY_DSN: ""
+    LLM_MODEL: google-gla:gemini-2.5-flash
+    LLM_TIMEOUT_SEC: 30
+    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    GROQ_API_KEY: ${GROQ_API_KEY:-}
+    GMAIL_PROVIDER: google
+    DRIVE_PROVIDER: google
+    CALENDAR_PROVIDER: google
+    WHATSAPP_PROVIDER: fake
+    STORAGE_BACKEND: local
+    STORAGE_LOCAL_DIR: .data/storage
+    DASHBOARD_AUTH_PROVIDER: fake
+    DASHBOARD_SESSION_SECRET: dev-only-session-secret-change-me-32-chars
+    DASHBOARD_CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
+    GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+    GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+    TENANT_SENDS_PER_HOUR: 30
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg16
+    environment:
+      POSTGRES_USER: estateos
+      POSTGRES_PASSWORD: estateos
+      POSTGRES_DB: estateos
+    ports: ["127.0.0.1:5433:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U estateos -d estateos"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    <<: *app
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  seed:
+    <<: *app
+    command: ["python", "-m", "app.dev.simulate", "seed"]
+    restart: "no"
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+  api:
+    <<: *app
+    command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+    ports: ["8000:8000"]
+    depends_on:
+      seed: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "app.worker"]
+    environment:
+      <<: *app-env
+      DBOS__VMID: worker-test-0
+    restart: unless-stopped
+    depends_on:
+      api: {condition: service_started}
+
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: "http://localhost:8000"  # baked into the client bundle at build time, not runtime
+    image: estateos-frontend:test
+    ports: ["3000:3000"]
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  appdata:

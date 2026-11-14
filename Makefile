@@ -1,12 +1,17 @@
 # EstateOS developer entry points. Every gate Claude, pre-commit or CI runs goes through here.
 # Pipeline: docs/dev-pipeline.md  ·  G1 = quick  ·  G2 = check  ·  G5 = smoke
+# Layout: backend/ (Python: app, tests, evals, docker, pyproject.toml, uv.lock) and frontend/ (Next.js), siblings.
 SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 .DEFAULT_GOAL := help
 
-COMPOSE = docker compose -f docker/compose.yml $$([ -f .env ] && echo --env-file .env)  # agent settings reach the containers; checked when the recipe runs, so a .env made by `make env` counts
-UV      := uv run --frozen
-NEXT_REV = $(shell printf '%04d' $$(( $$(ls app/db/alembic/versions/[0-9]*.py 2>/dev/null | wc -l) + 1 )))
+COMPOSE = docker compose -f backend/docker/compose.yml $$([ -f backend/.env ] && echo --env-file backend/.env)  # agent settings reach the containers; checked when the recipe runs, so a .env made by `make env` counts
+# --directory backend: the tool's cwd, so its own relative paths (tests/unit, app, .) mean backend/tests/unit etc.
+UV       := uv run --frozen --directory backend
+# --project backend: resolves backend's environment/lockfile without moving cwd, for commands whose paths (output
+# files, recipe-root-relative reads) must stay resolved against the repo root instead.
+UV_HERE  := uv run --frozen --project backend
+NEXT_REV = $(shell printf '%04d' $$(( $$(ls backend/app/db/alembic/versions/[0-9]*.py 2>/dev/null | wc -l) + 1 )))
 
 .PHONY: help all start doctor env seed stop reset requirements frontend frontend-install frontend-build \
         setup gmail-consent translation-model up up-db down logs ps migrate migration migrate-roundtrip alembic-check \
@@ -28,8 +33,8 @@ start: ## backend + seed + dashboard in one go (same as ./start.sh)
 doctor: ## check required tools, versions, free ports and disk
 	./scripts/doctor.sh
 
-env: ## create .env and frontend/.env.local from the examples if missing
-	@[ -f .env ] || { cp .env.example .env && echo "created .env from .env.example (fake LLM and channels: runs offline)"; }
+env: ## create backend/.env and frontend/.env.local from the examples if missing
+	@[ -f backend/.env ] || { cp backend/.env.example backend/.env && echo "created backend/.env from backend/.env.example (fake LLM and channels: runs offline)"; }
 	@[ -f frontend/.env.local ] || { cp frontend/.env.example frontend/.env.local && echo "created frontend/.env.local"; }
 	@mkdir -p "$${ESTATEOS_SECRETS_DIR:-$${HOME}/.estateos}"
 
@@ -53,18 +58,18 @@ frontend: env frontend-install ## dashboard dev server on http://localhost:3000 
 frontend-build: frontend-install ## production build of the dashboard (type-check included)
 	cd frontend && npm run build
 
-translation-model: ## download the local translation models into .data/models (the Docker image bakes its own)
+translation-model: ## download the local translation models into backend/.data/models (the Docker image bakes its own)
 	$(UV) python -m app.translation.fetch .data/models/opus-mt-nl-en nl-en
 	$(UV) python -m app.translation.fetch .data/models/opus-mt-en-nl en-nl
 
-requirements: ## regenerate requirements.txt / requirements-dev.txt for pip users from uv.lock (uv.lock stays the source of truth)
-	uv export --frozen --no-hashes --no-dev --no-emit-project -o requirements.txt
-	uv export --frozen --no-hashes --only-dev --no-emit-project -o requirements-dev.txt
+requirements: ## regenerate backend/requirements*.txt for pip users from uv.lock (uv.lock stays the source of truth)
+	cd backend && uv export --frozen --no-hashes --no-dev --no-emit-project -o requirements.txt
+	cd backend && uv export --frozen --no-hashes --only-dev --no-emit-project -o requirements-dev.txt
 
 # ---- contributor setup -------------------------------------------------------
 setup: env ## contributors: python env (uv sync), pre-commit hooks, .env
-	uv sync --frozen
-	$(UV) pre-commit install
+	cd backend && uv sync --frozen
+	$(UV_HERE) pre-commit install
 
 up: env ## dev stack: postgres, migrate, api, worker
 	$(COMPOSE) up -d --build --wait
@@ -157,8 +162,8 @@ gmail-consent: ## Google token files (read + compose, drive=1 adds Drive, reply_
 
 audit: ## dependency vulnerability audit
 	mkdir -p .claude/.cache
-	uv export --frozen --no-hashes --format requirements-txt > .claude/.cache/req.txt
-	$(UV) pip-audit -r .claude/.cache/req.txt --strict
+	cd backend && uv export --frozen --no-hashes --format requirements-txt > ../.claude/.cache/req.txt
+	$(UV_HERE) pip-audit -r .claude/.cache/req.txt --strict
 
 rag-eval: up-db ## ADR 0008: document RAG quality on the synthetic corpus, M10 baseline vs hybrid (scratch company in the dev DB; real models via EMBEDDING_MODEL/LLM_MODEL)
 	$(UV) alembic upgrade head
@@ -178,5 +183,5 @@ harness-test: ## self-test Claude guard hooks (stdlib only)
 	python3 -m unittest discover -s .claude/hooks/tests
 
 clean:
-	rm -rf .mypy_cache .ruff_cache .pytest_cache .claude/.cache .coverage
+	rm -rf backend/.mypy_cache backend/.ruff_cache backend/.pytest_cache .claude/.cache backend/.coverage
 	find . -name __pycache__ -type d -prune -exec rm -rf {} +

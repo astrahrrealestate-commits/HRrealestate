@@ -126,15 +126,15 @@ covers everything. All domain rows carry `company_id`; repositories take `compan
   `link_check` + `case_summary` (context linking #3), `proposer` (reply drafting #4 and chasers #5), `owner_qa`
   (read-only answers, preview of #10), `briefing` (#7), `doc_classifier` (#9). The orchestrator (#1), follow-up ladder
   (#5), task manager (#6) and quality monitor (#8) are plain code. Map: specs/2026-10-07-estateos-phase1-agents-design.md.
-- **Offline by default:** `LLM_MODEL=fake` runs deterministic per-agent `FunctionModel`s (`app/llm/fakes.py`); prod
+- **Offline by default:** `LLM_MODEL=fake` runs deterministic per-agent `FunctionModel`s (`backend/app/llm/fakes.py`); prod
   refuses it. Attachment contents are never sent to a model in Phase 1 (metadata only).
-- **Prompt files** in `app/llm/prompts/vN/<agent>.md`, loaded and hashed. Version and sha256 go on every `model_calls`
+- **Prompt files** in `backend/app/llm/prompts/vN/<agent>.md`, loaded and hashed. Version and sha256 go on every `model_calls`
   row and Langfuse trace.
 - **Injection defence:** untrusted text only inside `<message>…</message>` data blocks. Agents have **no write tools**.
   Output is validated by the contract and then by the pure-Python rules engine. Model output never picks a recipient:
   recipients come from the DB (case → person → identity).
-- **Evals:** pydantic-evals datasets in `evals/golden/` (labelled emails/WA messages). CI runs on prompt or contract
-  change. Reports go to `evals/reports/`.
+- **Evals:** pydantic-evals datasets in `backend/evals/golden/` (labelled emails/WA messages). CI runs on prompt or contract
+  change. Reports go to `backend/evals/reports/`.
 
 ## 7. Security and compliance
 EU-only data processing (OpenAI EU residency + DPA, Langfuse EU, EU S3/DB). Webhook auth: Meta HMAC, Pub/Sub OIDC.

@@ -17,8 +17,8 @@ fi
 
 # 2. Resolve compose file path
 COMPOSE_FILE="compose.test.yml"
-if [ ! -f "$COMPOSE_FILE" ] && [ -f "docker/compose.test.yml" ]; then
-  COMPOSE_FILE="docker/compose.test.yml"
+if [ ! -f "$COMPOSE_FILE" ] && [ -f "backend/docker/compose.test.yml" ]; then
+  COMPOSE_FILE="backend/docker/compose.test.yml"
 fi
 
 echo "[2/2] Launching EstateOS containers..."

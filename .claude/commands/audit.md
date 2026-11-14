@@ -12,7 +12,7 @@ Guard: run only when /autoship selected this phase. Otherwise stop.
    - **design**: `docs/superpowers/specs/*`, `docs/adr/*`, `docs/hld.md`, `docs/tech-stack.md`. Agents #1-#9 by name,
      agent memory (2026-10-23 spec), dashboard + Super Agent, M10-M12, M3 BRIXX (user decided to build it now; source
      also `BRIXXonline_API_Documentation_hrrealestate_EN.pdf`).
-   - **code**: `app/`, `tests/`, `frontend/`, wiring (agent registry, mounted routers, worker-registered workflows and
+   - **code**: `backend/app/`, `backend/tests/`, `frontend/`, wiring (agent registry, mounted routers, worker-registered workflows and
      queues, routed pages), TODO/FIXME/NotImplementedError, `git log --oneline -60`.
 2. Merge into the `## Features` table of BUILD_STATUS.md, one row per feature, grouped by area. Status:
    - **Done**: code exists, is wired in, and a test exercises it. No test -> not Done.

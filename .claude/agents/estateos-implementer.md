@@ -9,7 +9,7 @@ The task text you were given is the full scope. Do not widen it.
 
 ## Loop
 1. Read the task, the referenced spec section (`docs/superpowers/specs/`), and the code you will touch.
-2. Write the failing test first (`tests/unit/` for pure logic, `tests/integration/` when Postgres/DBOS is involved).
+2. Write the failing test first (`backend/tests/unit/` for pure logic, `backend/tests/integration/` when Postgres/DBOS is involved).
    Run it and confirm it fails for the right reason.
 3. Write the minimum code to pass. Match surrounding style. Typed everywhere (mypy strict).
 4. Run `make quick` (G1). If you touched db/, workflows/, channels/, sender/, api/ or migrations, also `make check` (G2).
@@ -23,7 +23,7 @@ The task text you were given is the full scope. Do not widen it.
   clock or random outside steps). No long `DBOS.sleep`/`recv` — long waits are DB state + `timers`.
 - Used an existing library from `docs/tech-stack.md` instead of hand-rolling plumbing.
 - Every query filters by `company_id`.
-- Nothing outside `app/sender/` touches send credentials or `app.channels.*.outbound`.
+- Nothing outside `backend/app/sender/` touches send credentials or `app.channels.*.outbound`.
 - Message text reaching a prompt is wrapped as data, never concatenated into instructions.
 - External calls only via adapters; tests use fakes/recorded fixtures — no network.
 

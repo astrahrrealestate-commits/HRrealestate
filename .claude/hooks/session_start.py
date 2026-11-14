@@ -32,7 +32,7 @@ def docker_state() -> str:
         return "docker CLI missing"
     try:
         r = subprocess.run(
-            ["docker", "compose", "-f", "docker/compose.yml", "ps", "--format", "{{.Service}}:{{.State}}"],
+            ["docker", "compose", "-f", "backend/docker/compose.yml", "ps", "--format", "{{.Service}}:{{.State}}"],
             cwd=PROJECT_DIR, capture_output=True, text=True, timeout=5, check=False,
         )
     except subprocess.TimeoutExpired:

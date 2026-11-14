@@ -16,7 +16,7 @@ The reviewer (`estateos-reviewer`) checks correctness and architecture; you go d
      from the request?
    - **Whose data can it reach?** Every query filtered by `company_id`? Any `limit(1)` default-company lookup, any id
      from the request used without an ownership check (IDOR)?
-   - **Can it reach a third party?** Anything outside `app/sender/` importing outbound adapters or send settings? A
+   - **Can it reach a third party?** Anything outside `backend/app/sender/` importing outbound adapters or send settings? A
      recipient, tool, table or SQL string chosen by model output or message text?
    - **Can untrusted text steer it?** Message, email, attachment, tool-result or snapshot text outside a `data_block`?
      A model-supplied flag or id trusted without a server-side re-check? An agent with a write tool?

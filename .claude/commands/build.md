@@ -24,9 +24,9 @@ Guard: run only when /autoship selected this phase. Otherwise stop. Area filter:
 
 ## When a builder returns
 1. Mechanical gate (the edit guard does not cover worktrees): `git diff --name-status <integration>...<branch> --
-   app/db/alembic/versions app/llm/prompts tests/fixtures/recorded` must show only `A`; no `pytest.mark.skip/xfail`
+   backend/app/db/alembic/versions backend/app/llm/prompts backend/tests/fixtures/recorded` must show only `A`; no `pytest.mark.skip/xfail`
    added (`git diff <integration>...<branch> -- tests | grep -E '^\+.*(mark\.(skip|xfail)|pytest\.(skip|xfail)\()'`
-   empty); no send credentials or `app.channels.*.outbound` outside `app/sender/` (import-linter covers it in
+   empty); no send credentials or `app.channels.*.outbound` outside `backend/app/sender/` (import-linter covers it in
    `make quick`). A failure counts as a blocking finding.
 2. Run `estateos-reviewer` on the branch diff (tell it: review `git diff <integration>...<branch>` from the worktree).
 3. Blocking findings -> SendMessage them to the same builder (load SendMessage via ToolSearch if deferred). Repeat.

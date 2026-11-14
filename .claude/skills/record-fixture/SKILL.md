@@ -5,7 +5,7 @@ description: Add a recorded webhook/API payload (WhatsApp Cloud API, Gmail histo
 
 # /record-fixture
 
-Fixtures live in `tests/fixtures/recorded/<provider>/<scenario>.json` and are immutable once committed (hook-enforced).
+Fixtures live in `backend/tests/fixtures/recorded/<provider>/<scenario>.json` and are immutable once committed (hook-enforced).
 Tests never call real providers (pytest-socket blocks the network).
 
 1. Source: provider docs example, or a payload the user pastes. Never fetch live with shell tools (blocked).
@@ -17,6 +17,6 @@ Tests never call real providers (pytest-socket blocks the network).
    - Gmail bodies: base64url re-encode after editing text
 3. Keep provider structure byte-faithful otherwise (field order/nesting matter for parsers).
 4. Signed webhooks (WhatsApp `X-Hub-Signature-256`): store the body file exactly as bytes; tests compute the
-   signature with the test app secret from `tests/conftest.py` — never store real signatures.
+   signature with the test app secret from `backend/tests/conftest.py` — never store real signatures.
 5. Add a sibling `<scenario>.md` (2–3 lines): source, what it exercises, redactions applied.
-6. Use via the `recorded(provider, scenario)` fixture loader in `tests/conftest.py`.
+6. Use via the `recorded(provider, scenario)` fixture loader in `backend/tests/conftest.py`.

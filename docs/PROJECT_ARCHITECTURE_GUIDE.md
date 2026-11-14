@@ -1,6 +1,12 @@
 # EstateOS: Complete Project Blueprint & Architecture Guide
 
 > **Purpose:** This document is the comprehensive, end-to-end architectural and file-by-file reference guide for **EstateOS**. It explains the core concepts, data flows, every folder, every critical file, and the database schema from start to finish.
+>
+> **Stale snapshot, kept for orientation only.** Written early in the project; table count, milestone range and agent
+> numbering below no longer match reality, and since 2026-11-14 `app/`, `tests/`, `evals/`, `docker/`, `pyproject.toml`,
+> `uv.lock` and `alembic.ini` all live under `backend/` (a sibling of `frontend/`), not at the repo root as the paths
+> below still show. For current structure and status read [CLAUDE.md](../CLAUDE.md), [tech-stack.md](tech-stack.md)
+> and [PROGRESS.md](PROGRESS.md).
 
 ---
 

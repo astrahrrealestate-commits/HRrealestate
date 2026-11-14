@@ -18,7 +18,7 @@ line). `/ship` runs this pipeline for one task.
 | REFACTOR | clean up; no behaviour change | ruff (post-edit hook) | tests still pass |
 | **G1 quick** | `make quick`: ruff, format, mypy, import-linter, unit tests | stop hook enforces | all green |
 | **G2 full** | `make check`: + integration (testcontainers PG, DBOS), migration round-trip, drift | `/check full`, `test-runner` agent | all green; required when DB/workflows/adapters/API touched |
-| **G3 review** | invariants + correctness; abuse paths | `estateos-reviewer` agent (`/code-review` for large diffs); plus `estateos-security` when the diff touches `app/api`, `sender`, `channels`, `llm`, auth, prompts or external input | `VERDICT: ship` (and `VERDICT: pass` from security when required) |
+| **G3 review** | invariants + correctness; abuse paths | `estateos-reviewer` agent (`/code-review` for large diffs); plus `estateos-security` when the diff touches `backend/app/api`, `sender`, `channels`, `llm`, auth, prompts or external input | `VERDICT: ship` (and `VERDICT: pass` from security when required) |
 | Commit | conventional commit on milestone branch | pre-commit: ruff, gitleaks, import-linter, mypy, unit | hooks pass (never `--no-verify`) |
 | **G4 CI** | GitHub Actions: lint, types, boundaries, unit, integration, migrations, pip-audit, gitleaks, docker build, frontend typecheck + build; CodeQL and dependency-review once `GHAS_ENABLED`; evals if prompts/contracts changed | GH Actions; the single required check is `ci-success` | `ci-success` green before merge |
 | **G5 milestone** | `make smoke` + every "Done when" clause demonstrated | `/milestone close` | reviewer `ship` + evidence quoted in PROGRESS |
@@ -56,7 +56,7 @@ mocking the unit under test.
 4. **A bug fix ships a regression test** that failed before the fix.
 5. **Model-dependent assertions test structure, not prose.** Quality lives in the eval, not in pytest.
 6. **A version bump is a search, not an edit.** Moving a prompt, contract or schema version: grep the old version
-   string in `tests/`, `docs/` and `evals/` before running the gate (`/new-prompt-version` has the list).
+   string in `backend/tests/`, `docs/` and `backend/evals/` before running the gate (`/new-prompt-version` has the list).
 
 ## Definition of done (per task)
 - [ ] Test written first and seen failing
@@ -72,6 +72,6 @@ mocking the unit under test.
   (collected and mypy-clean, never run) and the migration round-trip have not been executed. Run `make check` once
   Docker is available and fix what it finds before relying on send mode.
 - **G2 and G5 outstanding for all dashboard tasks (D1-D5, tasks 1-15):** `make check`, `make smoke` and `make sim-demo`
-  (now including the `dashboard` scenario in `app/dev/demo_dashboard.py`) were never run, because Docker was down;
+  (now including the `dashboard` scenario in `backend/app/dev/demo_dashboard.py`) were never run, because Docker was down;
   `make cov` needs Docker too (it runs the integration tests); `make live-check k=outbound` needs credentials. G1,
   `make audit`, `make harness-test` and the concierge eval on the fake model did run (numbers in PROGRESS.md).

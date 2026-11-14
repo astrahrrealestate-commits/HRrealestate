@@ -18,9 +18,9 @@ ask questions: when something is ambiguous, pick the safest option that matches 
 - Work only inside your worktree: absolute paths for Read/Write/Edit, `cd <worktree> && ...` for every command.
   Run `make setup` once in a fresh worktree.
 - The edit guard matches repo-relative paths, so it does NOT protect files under `.claude/worktrees/`. Enforce the
-  rules yourself: never modify or delete a committed migration (`app/db/alembic/versions/`), published prompt
-  (`app/llm/prompts/vN/`) or recorded fixture (`tests/fixtures/recorded/`). Add a new revision, prompt version or
-  fixture instead. Send credentials and outbound adapters stay in `app/sender/`. No skip/xfail.
+  rules yourself: never modify or delete a committed migration (`backend/app/db/alembic/versions/`), published prompt
+  (`backend/app/llm/prompts/vN/`) or recorded fixture (`backend/tests/fixtures/recorded/`). Add a new revision, prompt version or
+  fixture instead. Send credentials and outbound adapters stay in `backend/app/sender/`. No skip/xfail.
 - Follow `/ship` (`.claude/skills/ship/SKILL.md`) per task: RED (quote the failure line) -> GREEN -> REFACTOR ->
   `make quick` -> `make check` when you touched db/, workflows/, channels/, sender/, api/ or migrations -> commit
   `type(scope): summary` with specific `git add <paths>`.

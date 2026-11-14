@@ -14,11 +14,11 @@ You never edit files. Read `CLAUDE.md` and the relevant spec under `docs/superpo
    constraint or status guard behind it? I/O, clock or random inside a workflow body (must be in steps)?
    Long `DBOS.sleep`/`recv` (should be DB state + `timers`)?
 4. **Tenant scoping** — every SELECT/UPDATE on a domain table filtered by `company_id`? Cross-tenant joins?
-5. **Send isolation** — anything outside `app/sender/` importing send settings/outbound adapters, or a path that
+5. **Send isolation** — anything outside `backend/app/sender/` importing send settings/outbound adapters, or a path that
    could message anyone other than the owner / create anything other than a Gmail draft in Phase 1?
 6. **Prompt injection** — untrusted message/attachment text placed in a prompt without data delimiters, or model
    output used to choose a recipient, tool or SQL without validation against typed contracts?
-7. **Contracts** — changes to `app/contracts/*` that break the spec shapes or JSON round-trip? Enum values renamed?
+7. **Contracts** — changes to `backend/app/contracts/*` that break the spec shapes or JSON round-trip? Enum values renamed?
 8. **Migrations** — committed migration edited? New migration missing downgrade? Model ↔ migration drift?
    Missing index on a new FK or hot filter column?
 9. **Tests** — new behaviour without a test? Tests hitting the network? Tests that would pass with the feature

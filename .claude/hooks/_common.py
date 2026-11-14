@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 PROJECT_DIR = Path(os.environ.get("CLAUDE_PROJECT_DIR") or Path(__file__).resolve().parents[2]).resolve()
-VENV_BIN = PROJECT_DIR / ".venv" / "bin"
+BACKEND_DIR = PROJECT_DIR / "backend"
+VENV_BIN = BACKEND_DIR / ".venv" / "bin"
 
 
 def read_input() -> dict[str, Any]:
@@ -70,7 +71,7 @@ def is_tracked(relpath: str) -> bool:
 
 
 def has_python_toolchain() -> bool:
-    return (PROJECT_DIR / "pyproject.toml").exists() and (VENV_BIN / "python").exists()
+    return (BACKEND_DIR / "pyproject.toml").exists() and (VENV_BIN / "python").exists()
 
 
 def tail(text: str, lines: int = 40) -> str:

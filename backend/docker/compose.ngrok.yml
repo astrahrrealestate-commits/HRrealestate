@@ -1,0 +1,23 @@
+# Dual tunnel compose overlay for EstateOS
+# Tunnels both Frontend (3000) and Backend (8000) simultaneously
+# Run from backend/ (or pass --env-file backend/.env) so NGROK_AUTHTOKEN resolves: e.g.
+# cd backend && docker compose -f docker/compose.yml -f docker/compose.ngrok.yml up
+
+services:
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: estateos-ngrok
+    restart: unless-stopped
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
+    volumes:
+      - ./ngrok.yml:/etc/ngrok.yml:ro
+    command:
+      - "start"
+      - "--all"
+      - "--config=/etc/ngrok.yml"
+      - "--log=stdout"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:4040:4040"

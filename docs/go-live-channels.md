@@ -3,7 +3,7 @@
 EstateOS runs on fake providers until go-live. Going live changes **configuration only**: credentials and provider
 switches in the environment. Code, database and workflows stay the same. `make live-check` proves each real adapter
 works before traffic is switched over. Prod startup refuses fake providers, local storage and missing secrets
-(`app/core/startup.py`), so a half-configured deploy fails at boot instead of silently dropping mail.
+(`backend/app/core/startup.py`), so a half-configured deploy fails at boot instead of silently dropping mail.
 
 ## Order of operations
 
@@ -78,8 +78,8 @@ internal apps). Two separate credential files keep reading and drafting apart.
 |---|---|
 | `GMAIL_PROVIDER` | `google` |
 | `GMAIL_CREDENTIALS_FILE` | path to the `gmail.readonly` authorized-user file (step 3: `gmail-read.json`) |
-| `GMAIL_SEND_CREDENTIALS_FILE` | path to the `gmail.compose` authorized-user file (`gmail-compose.json`; read only by `app/sender`) |
-| `GMAIL_REPLY_SEND_CREDENTIALS_FILE` | send mode only: path to the `gmail.send` + `gmail.metadata` authorized-user file (`gmail-reply-send.json`, created with `reply_send=1`; read only by `app/sender`; separate from the compose token) |
+| `GMAIL_SEND_CREDENTIALS_FILE` | path to the `gmail.compose` authorized-user file (`gmail-compose.json`; read only by `backend/app/sender`) |
+| `GMAIL_REPLY_SEND_CREDENTIALS_FILE` | send mode only: path to the `gmail.send` + `gmail.metadata` authorized-user file (`gmail-reply-send.json`, created with `reply_send=1`; read only by `backend/app/sender`; separate from the compose token) |
 | `TENANT_SENDS_PER_HOUR` | send mode only: tenant sends per company and hour (default 30); beyond it approvals are blocked |
 | `GMAIL_PUBSUB_TOPIC` | `projects/<project>/topics/gmail-estateos` |
 | `GMAIL_PUBSUB_AUDIENCE` | the audience configured on the push subscription |
@@ -165,7 +165,7 @@ update companies set outbound_mode='draft' where id=<company>;
 **When a send is blocked** the approval stays valid, nothing is sent, and the dashboard feed shows why:
 - *WhatsApp window closed: the tenant wrote more than 23 h ago* — reply by email or wait for the tenant's next message.
 - *hourly tenant send cap reached* — `TENANT_SENDS_PER_HOUR` per company; retry later or raise the setting and restart.
-  The count (`app/sender/tenant_gate.tenant_sends_last_hour`) is every `sends` row of the company from the last hour
+  The count (`backend/app/sender/tenant_gate.tenant_sends_last_hour`) is every `sends` row of the company from the last hour
   on Gmail or WhatsApp with status pending, sending or sent whose target is not an owner address, and it does not
   look at the outbound mode. Draft-mode Gmail reply drafts are such rows (target: the tenant's address), so they count;
   owner-only messages (WhatsApp texts to Harjot, digests) do not. The first hour after switching can hit the cap early.
@@ -176,7 +176,7 @@ A send that failed after the provider may have accepted it is reported as "Reply
 ... delivery status unknown": check the thread before resending. If the worker died during the provider call, DBOS
 re-runs the same `exec:{action}:{version}` workflow; its attempt finds the dead attempt's `sends` row still `sending`
 and, while that row is under 30 minutes old, ends as `in_progress`: no alert, no follow-up wait, nothing re-sent.
-Once the row is 30 minutes old the 5-minute `sweep.stranded` cron (`app/sender/stuck.py`) settles it exactly once:
+Once the row is 30 minutes old the 5-minute `sweep.stranded` cron (`backend/app/sender/stuck.py`) settles it exactly once:
 the send and the action are marked failed ("delivery status unknown: previous attempt never reported; check the
 thread before resending it yourself") and one alert is written under `blocked:exec:{action}:{version}` (the same
 key every other path uses, so a WhatsApp/Chat owner also gets one message). The settle is a conditional update, so
@@ -184,7 +184,7 @@ concurrent sweeps or a late recovered run cannot alert twice. Fresh in-flight se
 them. Owner-directed messages are never settled by this sweep. Check the thread, then resend by hand if needed.
 
 **Gmail scope caveat.** `gmail.compose` (drafts, owner digest) can technically also call `messages.send`, so OAuth
-scopes alone do not stop that token from sending. The separation is enforced in code: only `app/sender` holds either
+scopes alone do not stop that token from sending. The separation is enforced in code: only `backend/app/sender` holds either
 token, `send_message` is limited to the owner's own addresses, and tenant replies go only through `send_reply` on the
 separate reply-send token.
 
@@ -209,7 +209,7 @@ The provider decision is still open (Meta Cloud API directly, or 360dialog). Bot
 | `WHATSAPP_APP_SECRET` | the Meta app secret (verifies `X-Hub-Signature-256`) |
 | `WHATSAPP_VERIFY_TOKEN` | any long random string, also entered in the Meta dashboard |
 | `WHATSAPP_MEDIA_TOKENS` | `{"<phone_number_id>": "<system user token>"}` (inbound media download) |
-| `WHATSAPP_ACCESS_TOKEN` | system user token for sending (read only by `app/sender`) |
+| `WHATSAPP_ACCESS_TOKEN` | system user token for sending (read only by `backend/app/sender`) |
 | `WHATSAPP_PHONE_NUMBER_ID` | the business number's phone_number_id |
 
 ### 360dialog (`WHATSAPP_PROVIDER=360dialog`)
@@ -221,7 +221,7 @@ The provider decision is still open (Meta Cloud API directly, or 360dialog). Bot
 | `WHATSAPP_APP_SECRET` | the 360dialog **partner platform secret** (verifies `x-360dialog-signature`) |
 | `WHATSAPP_VERIFY_TOKEN` | any long random string. 360dialog has no handshake, but prod startup requires it for every provider |
 | `WHATSAPP_MEDIA_TOKENS` | `{"<phone_number_id>": "<D360-API-KEY>"}` |
-| `WHATSAPP_ACCESS_TOKEN` | the number's `D360-API-KEY` (read only by `app/sender`) |
+| `WHATSAPP_ACCESS_TOKEN` | the number's `D360-API-KEY` (read only by `backend/app/sender`) |
 
 Set the webhook URL `https://<api host>/webhooks/whatsapp` through 360dialog's webhook configuration API.
 
@@ -275,7 +275,7 @@ After switching:
 1. `make live-check k=llm` — one small call: the published understanding prompt on a synthetic Dutch emergency
    message must come back as valid `Understanding` (maintenance, emergency/high).
 2. `make eval agent=understanding version=v1` and `make eval agent=linking version=v2`; compare with the
-   fake-model reports in `evals/reports/` (fake: understanding category 0.43, linking accuracy 0.83; Gemini 2.5
+   fake-model reports in `backend/evals/reports/` (fake: understanding category 0.43, linking accuracy 0.83; Gemini 2.5
    Flash on 2026-10-08: category 0.90, urgency 0.70, emergency and suspicious recall 1.00, linking accuracy 1.00).
    On free-tier quotas set `EVAL_MAX_CONCURRENCY=1`.
 

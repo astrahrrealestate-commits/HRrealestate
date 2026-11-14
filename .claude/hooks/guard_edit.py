@@ -4,10 +4,10 @@
 Path rules (inside the project only):
   - .env files (except .env.example) are never written.
   - Committed Alembic migrations are immutable — write a new revision.
-  - Committed prompt files under app/llm/prompts/<version>/ are immutable — create a new version dir.
-  - Committed recorded fixtures under tests/fixtures/recorded/ are immutable — add a new file.
+  - Committed prompt files under backend/app/llm/prompts/<version>/ are immutable — create a new version dir.
+  - Committed recorded fixtures under backend/tests/fixtures/recorded/ are immutable — add a new file.
 Content rules:
-  - Send credentials / outbound adapters referenced outside app/sender/ (and tests) are blocked.
+  - Send credentials / outbound adapters referenced outside backend/app/sender/ (and tests) are blocked.
   - Hard-coded secrets (OpenAI, Meta, Google keys, private keys) are blocked anywhere.
 Fails open on internal error.
 """
@@ -22,9 +22,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import PROJECT_DIR, is_tracked, pre_tool_decision, read_input, rel  # noqa: E402
 
 ENV_FILE = re.compile(r"(^|/)\.env(\.(?!example$)[\w.-]+)?$")
-MIGRATION = re.compile(r"^app/db/alembic/versions/.+\.py$")
-PROMPT = re.compile(r"^app/llm/prompts/v\d+/.+")
-FIXTURE = re.compile(r"^tests/fixtures/recorded/.+")
+MIGRATION = re.compile(r"^backend/app/db/alembic/versions/.+\.py$")
+PROMPT = re.compile(r"^backend/app/llm/prompts/v\d+/.+")
+FIXTURE = re.compile(r"^backend/tests/fixtures/recorded/.+")
 
 SEND_ONLY = re.compile(
     r"\bSenderSettings\b"
@@ -35,10 +35,10 @@ SEND_ONLY = re.compile(
     r"|\bapp\.sender\.whatsapp\b"
     r"|\b(WHATSAPP_ACCESS_TOKEN|WA_ACCESS_TOKEN|GMAIL_SEND_\w+)\b"
 )
-SEND_ALLOWED = re.compile(r"^(app/sender/|tests/|\.claude/|docs/|CLAUDE\.md$|\.env\.example$)")
+SEND_ALLOWED = re.compile(r"^(backend/app/sender/|backend/tests/|\.claude/|docs/|CLAUDE\.md$|backend/\.env\.example$)")
 MEDIA_CREDS = re.compile(r"\b_?media_credentials\b|\bmedia_settings\b|\bWhatsAppMediaSettings\b|\bWHATSAPP_MEDIA_TOKENS?\b|\bwhatsapp_media_tokens?\b")
 MEDIA_ALLOWED = re.compile(
-    r"^(app/channels/registry\.py|app/channels/whatsapp/media_settings\.py|tests/|\.claude/|docs/|\.env\.example$)"
+    r"^(backend/app/channels/registry\.py|backend/app/channels/whatsapp/media_settings\.py|backend/tests/|\.claude/|docs/|backend/\.env\.example$)"
 )
 
 RETIRED_STACK = re.compile(r"^\s*(from|import)\s+(celery|redis|kombu|rq)\b", re.MULTILINE)
@@ -86,7 +86,7 @@ def main() -> None:
             pre_tool_decision(
                 "deny",
                 f"{relpath} is a committed migration — immutable. Create a new revision: "
-                "`make migration m=\"<msg>\"` (see /new-migration skill).",
+                '`make migration m="<msg>"` (see /new-migration skill).',
             )
         if PROMPT.match(relpath):
             pre_tool_decision(
@@ -109,14 +109,14 @@ def main() -> None:
         if m:
             pre_tool_decision(
                 "deny",
-                f"`{m.group(0)}` referenced in {relpath}. Only app/sender/ may touch send credentials or outbound "
+                f"`{m.group(0)}` referenced in {relpath}. Only backend/app/sender/ may touch send credentials or outbound "
                 "adapters. Other modules create Action/approval rows; the sender acts on them.",
             )
 
     if relpath.endswith(".py") and not MEDIA_ALLOWED.match(relpath) and MEDIA_CREDS.search(content):
         pre_tool_decision(
             "deny",
-            f"WhatsApp media credentials referenced in {relpath}. Only app/channels/registry.py may read them "
+            f"WhatsApp media credentials referenced in {relpath}. Only backend/app/channels/registry.py may read them "
             "(they can send messages; ADR 0003 amendment).",
         )
 
@@ -127,7 +127,7 @@ def main() -> None:
             "Use @DBOS.workflow/@DBOS.step/Queue/@DBOS.scheduled instead.",
         )
 
-    if relpath.startswith("tests/") and SKIP_TEST.search(content):
+    if relpath.startswith("backend/tests/") and SKIP_TEST.search(content):
         pre_tool_decision(
             "ask",
             f"{relpath} adds skip/xfail. Pipeline rule: never skip a test to get green. Approve only for a "

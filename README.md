@@ -7,9 +7,9 @@ nothing leaves the machine at all.
 
 | Part | Tech | Where |
 |---|---|---|
-| Backend API | FastAPI, PostgreSQL 16 + pgvector, SQLAlchemy 2, Alembic | `app/` |
-| Workflows / queues / cron | DBOS Transact on Postgres (no Redis, no Celery) | `app/worker.py` |
-| Agents | Pydantic AI (OpenAI / Gemini / Groq), Langfuse | `app/llm/` |
+| Backend API | FastAPI, PostgreSQL 16 + pgvector, SQLAlchemy 2, Alembic | `backend/app/` |
+| Workflows / queues / cron | DBOS Transact on Postgres (no Redis, no Celery) | `backend/app/worker.py` |
+| Agents | Pydantic AI (OpenAI / Gemini / Groq), Langfuse | `backend/app/llm/` |
 | Dashboard | Next.js 16, React 19, Tailwind 4 | `frontend/` |
 
 Out of the box everything runs **offline on fakes**: fake LLM, fake WhatsApp, fake Gmail, local file storage. You need
@@ -26,7 +26,7 @@ git clone <repo-url> EstateOS && cd EstateOS
 
 Then open **http://localhost:3000**. That is the whole setup.
 
-`start.sh` checks your tools, creates `.env` and `frontend/.env.local`, builds and starts the backend in Docker
+`start.sh` checks your tools, creates `backend/.env` and `frontend/.env.local`, builds and starts the backend in Docker
 (Postgres, migrations, API, worker), creates the dev company and owner, installs the dashboard dependencies and starts
 the dashboard. The first run builds the Docker image and downloads packages, so expect a few minutes.
 
@@ -79,7 +79,7 @@ Run `make doctor` at any time to see what is missing; it also checks free disk a
 
 ## Configuration
 
-`make env` copies `.env.example` to `.env` (never committed). The defaults need no edits. The ones you will touch:
+`make env` copies `backend/.env.example` to `backend/.env` (never committed). The defaults need no edits. The ones you will touch:
 
 | Variable | Default | Change it to |
 |---|---|---|
@@ -89,7 +89,7 @@ Run `make doctor` at any time to see what is missing; it also checks free disk a
 | `PG_PORT` / `API_PORT` | `5433` / `8000` | another port if one is taken |
 | `WHATSAPP_PROVIDER`, `GMAIL_PROVIDER` | `fake` | real channels: see [docs/go-live-channels.md](docs/go-live-channels.md) |
 
-After editing `.env`, apply it with `make up`. The frontend reads `frontend/.env.local`
+After editing `backend/.env`, apply it with `make up`. The frontend reads `frontend/.env.local`
 (`NEXT_PUBLIC_API_URL=http://localhost:8000`). Keep it on `localhost`, not `127.0.0.1`: the session cookie is
 host-bound, and the dashboard and API must share a host.
 
@@ -115,11 +115,11 @@ Real Gmail/WhatsApp/S3 credentials, `ENV=prod` and the go-live checklist are in
 | `make pending` · `make approve n=1 choice=d1` | list / approve pending drafts from the terminal |
 | `make migrate` · `make migration m="add x"` | apply / create Alembic migrations |
 | `make workflows` | list recent DBOS workflows |
-| `make requirements` | regenerate `requirements*.txt` from `uv.lock` |
+| `make requirements` | regenerate `backend/requirements*.txt` from `backend/uv.lock` |
 | `make reset CONFIRM=yes` | wipe local database and app data |
 
-Backend code in `app/` is mounted into the containers: the API hot-reloads. The worker does **not**; after changing
-workflow or agent code run `docker compose -f docker/compose.yml restart worker`.
+Backend code in `backend/app/` is mounted into the containers: the API hot-reloads. The worker does **not**; after
+changing workflow or agent code run `docker compose -f backend/docker/compose.yml restart worker`.
 
 ### Python without Docker (contributors)
 
@@ -133,14 +133,17 @@ make check      # G2: G1 + integration tests (testcontainers Postgres + DBOS, ne
 make cov        # coverage floors
 ```
 
-Prefer plain pip? `requirements.txt` (runtime) and `requirements-dev.txt` (dev tools) are exported from `uv.lock`:
+Prefer plain pip? `backend/requirements.txt` (runtime) and `backend/requirements-dev.txt` (dev tools) are exported
+from `backend/uv.lock`:
 
 ```bash
+cd backend
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
 ```
 
-`uv.lock` is the source of truth. After changing dependencies in `pyproject.toml` run `uv lock && make requirements`.
+`backend/uv.lock` is the source of truth. After changing dependencies in `backend/pyproject.toml` run
+`cd backend && uv lock` then `make requirements` from the repo root.
 
 ---
 
@@ -148,7 +151,7 @@ pip install -r requirements.txt -r requirements-dev.txt
 
 | Symptom | Fix |
 |---|---|
-| `make doctor` says port 5433 (or 8000, 3000) is taken | something else is listening. Stop it, or set `PG_PORT=` / `API_PORT=` in `.env`. Find it with `lsof -nP -iTCP:5433 -sTCP:LISTEN`. Port 3000 cannot move (CORS) |
+| `make doctor` says port 5433 (or 8000, 3000) is taken | something else is listening. Stop it, or set `PG_PORT=` / `API_PORT=` in `backend/.env`. Find it with `lsof -nP -iTCP:5433 -sTCP:LISTEN`. Port 3000 cannot move (CORS) |
 | Docker build or Postgres hangs, no error | disk is probably full. Check `df -h`, then `docker system df`; free space before retrying |
 | `Cannot connect to the Docker daemon` | start Docker Desktop and wait until it says running |
 | Dashboard shows `401` / empty data | backend not seeded or not running: `make up seed`; check `curl localhost:8000/health/ready` |
@@ -165,13 +168,14 @@ Logs: `make logs`. Workflow state: `make workflows`.
 ## Repository map
 
 ```
-app/            backend: api/v1 (dashboard API), channels, sender, llm, workflows, db (models, alembic), dev (simulator)
-tests/          backend: unit, contract, integration, live
-evals/          backend: golden-set agent evals (make eval)
-docker/         backend: Dockerfile (production image) + compose.yml/compose.test.yml (dev and QA stacks)
-frontend/       frontend: Next.js dashboard, its own Dockerfile and package.json — fully self-contained
-scripts/        doctor.sh preflight
-docs/           architecture, ADRs, specs, progress, deployment.md
+backend/          Python: FastAPI + DBOS. pyproject.toml, uv.lock, alembic.ini and .env.example live here too
+  app/            api/v1 (dashboard API), channels, sender, llm, workflows, db (models, alembic), dev (simulator)
+  tests/          unit, contract, integration, live
+  evals/          golden-set agent evals (make eval)
+  docker/         Dockerfile (production image) + compose.yml/compose.test.yml (dev and QA stacks)
+frontend/         Next.js dashboard, its own Dockerfile and package.json — fully self-contained
+scripts/          doctor.sh preflight
+docs/             architecture, ADRs, specs, progress, deployment.md
 ```
 
 ## Docs
@@ -190,6 +194,6 @@ docs/           architecture, ADRs, specs, progress, deployment.md
 ## Safety defaults
 
 - `outbound_mode` defaults to `draft`: drafts are stored and shown, never sent.
-- Only `app/sender/` can send, and only after the owner approves; the Super Agent can propose, never approve.
+- Only `backend/app/sender/` can send, and only after the owner approves; the Super Agent can propose, never approve.
 - Message content is treated as data, never as instructions. Recipients come from the database, not model output.
-- `.env` is git-ignored. Never commit credentials; Google token files live outside the repo in `~/.estateos`.
+- `backend/.env` is git-ignored. Never commit credentials; Google token files live outside the repo in `~/.estateos`.

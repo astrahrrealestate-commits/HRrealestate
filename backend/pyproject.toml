@@ -1,0 +1,259 @@
+[project]
+name = "estateos"
+version = "0.1.0"
+description = "EstateOS Phase 1 — AI property-management assistant"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "alembic>=1.14",
+    "boto3>=1.35",
+    "ctranslate2>=4.5",
+    "dbos>=1.0",
+    "email-validator>=2.2",
+    "fastapi>=0.115",
+    "genai-prices>=0.1.9",
+    "google-api-python-client>=2.150",
+    "google-auth>=2.36",
+    "httpx>=0.28",
+    "inscriptis>=2.5",
+    "itsdangerous>=2.2.0",
+    "mail-parser-reply>=1.30",
+    "opentelemetry-exporter-otlp-proto-http>=1.45.1",
+    "opentelemetry-sdk>=1.45.1",
+    "pgvector>=0.5.1",
+    "phonenumbers>=8.13",
+    "psycopg[binary]>=3.2",
+    "pydantic>=2.10",
+    "pydantic-ai-slim[google,openai]>=2.54.0",
+    "pydantic-evals>=2.54.0",
+    "pydantic-settings>=2.6",
+    "pypdf>=5.1",
+    "rapidfuzz>=3.14.6",
+    "sentencepiece>=0.2",
+    "sentry-sdk[fastapi]>=2.19",
+    "sqlalchemy>=2.0.36",
+    "sqlglot>=26.0",
+    "structlog>=24.4",
+    "uuid-utils>=0.10",
+    "uvicorn[standard]>=0.32",
+]
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.120",
+    "import-linter>=2.1",
+    "mypy>=1.13",
+    "pip-audit>=2.7",
+    "polyfactory>=2.18",
+    "pre-commit>=4.0",
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "pytest-socket>=0.7",
+    "pytest-xdist>=3.6",
+    "respx>=0.21",
+    "ruff>=0.8",
+    "syrupy>=4.8",
+    "testcontainers[postgres]>=4.9",
+    "pytest-timeout>=2.3",
+    "moto[s3]>=5.0",
+    "cryptography>=43",
+    "google-auth-oauthlib>=1.5.0",
+]
+
+[tool.uv]
+package = false
+required-version = "==0.12.5"  # same uv everywhere: local, pre-commit, CI, docker
+
+# ---------------------------------------------------------------- ruff
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["app/db/alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "S", "DTZ", "T20", "PGH", "SIM", "RUF", "ASYNC", "C4", "PT", "N", "ERA"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # German text (ß, umlauts) in strings/comments is legitimate
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S311", "PT011"]
+"app/db/alembic/**" = ["ERA001"]
+# camelCase Pydantic fields are the frontend SPA's JSON wire format (frontend/src/lib/api.ts), not Python style
+"app/api/agent/routes.py" = ["N815"]
+"app/api/calendar/routes.py" = ["N815"]
+"app/api/contacts/routes.py" = ["N815"]
+"app/api/dashboard/routes.py" = ["N815"]
+"app/api/maintenance/routes.py" = ["N815"]
+"app/api/v1/money.py" = ["N815"]
+"app/api/properties/routes.py" = ["N815"]
+"app/api/tenants/routes.py" = ["N815"]
+# SQL-generation prompt: long example lines are prompt text, wrapping them would change what the model reads
+"app/tools/query_agent/prompt.py" = ["E501"]
+# developer CLI that reports to the terminal
+"app/dev/seed_user.py" = ["T201"]
+"app/dev/simulate_scenarios.py" = ["T201", "E501"]
+
+[tool.ruff.lint.pep8-naming]
+classmethod-decorators = ["sqlalchemy.orm.declared_attr", "declared_attr"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests", "evals"]
+
+# ---------------------------------------------------------------- mypy
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+warn_unreachable = true
+mypy_path = "."
+explicit_package_bases = true
+exclude = ["app/db/alembic/versions/"]
+untyped_calls_exclude = ["google.auth", "google.oauth2"]  # google-auth ships partial hints; strict elsewhere
+
+[[tool.mypy.overrides]]
+module = ["testcontainers.*", "phonenumbers.*", "polyfactory.*", "boto3.*", "botocore.*", "moto.*", "googleapiclient.*", "google_auth_oauthlib.*", "mailparser_reply.*", "inscriptis.*", "requests.*", "ctranslate2.*", "sentencepiece.*"]
+ignore_missing_imports = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+# ---------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "--disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,localhost,::1 --strict-markers -p no:cacheprovider"
+markers = [
+    "integration: needs Docker (testcontainers Postgres) and/or DBOS",
+    "live(*settings): calls a real provider; runs only with --live (make live-check) once the named settings are set",
+]
+timeout = 120  # a hung test fails loudly instead of blocking a gate (DBOS get_result has no timeout)
+timeout_method = "thread"
+filterwarnings = [
+    "error::DeprecationWarning:app.*",
+    # starlette TestClient wants `httpx2`; adding it awaits user approval — tracked in docs/PROGRESS.md (M1).
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]
+
+# ---------------------------------------------------------------- coverage
+[tool.coverage.run]
+branch = true
+source = ["app"]
+omit = ["app/db/alembic/*"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError", "@overload"]
+
+# ---------------------------------------------------------------- import-linter (ADR 0004)
+[tool.importlinter]
+root_package = "app"
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture (docs/hld.md §3)"
+type = "layers"
+layers = [
+    "app.main | app.worker | app.dev",
+    "app.api",
+    "app.workflows",
+    "app.superagent",
+    "app.pipeline | app.owner | app.ingestion | app.directory | app.outcomes | app.sender | app.finance | app.diligence | app.translation",
+    "app.context",
+    "app.db : app.llm : app.storage : app.channels",
+    "app.contracts",
+    "app.core",
+]
+
+[[tool.importlinter.contracts]]
+name = "Send isolation: only app.sender touches outbound adapters and send credentials"
+type = "forbidden"
+source_modules = [
+    "app", "app.*", "app.channels", "app.channels.*", "app.channels.whatsapp", "app.channels.whatsapp.*",
+    "app.channels.gmail", "app.channels.gmail.*", "app.channels.google_chat", "app.channels.google_chat.*",
+]
+forbidden_modules = [
+    "app.channels.whatsapp.outbound", "app.channels.gmail.drafts", "app.channels.google_chat.outbound",
+    "app.sender.settings", "app.sender.whatsapp",
+]
+ignore_imports = [
+    "app.sender.** -> app.channels.whatsapp.outbound",
+    "app.sender.** -> app.channels.gmail.drafts",
+    "app.sender.** -> app.channels.google_chat.outbound",
+    "app.sender.** -> app.sender.settings",
+    "app.sender.** -> app.sender.whatsapp",
+]
+allow_indirect_imports = false
+unmatched_ignore_imports_alerting = "warn"
+
+[[tool.importlinter.contracts]]
+name = "Media credentials: only the channel registry reads them"
+type = "forbidden"
+source_modules = [
+    "app", "app.*", "app.channels", "app.channels.*", "app.channels.whatsapp", "app.channels.whatsapp.*",
+    "app.channels.gmail", "app.channels.gmail.*",
+]
+forbidden_modules = ["app.channels.whatsapp.media_settings"]
+ignore_imports = ["app.channels.registry -> app.channels.whatsapp.media_settings"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "BRIXX isolation: only the BRIXX sync package, its workflows and the registry import the BRIXX client"
+type = "forbidden"
+source_modules = ["app", "app.*"]
+forbidden_modules = ["app.channels.brixx"]
+ignore_imports = [
+    "app.channels.brixx.** -> app.channels.brixx.**",
+    "app.channels.registry -> app.channels.brixx.**",
+    "app.workflows.deps -> app.channels.brixx.**",
+    "app.workflows.brixx_sync -> app.channels.brixx.**",
+    "app.workflows.brixx_common -> app.channels.brixx.**",  # rebuilds a BrixxTable from step JSON (pure dataclasses)
+    "app.dev.brixx -> app.channels.brixx.**",  # developer tooling: metadata snapshot and migration codegen
+    "app.dev.brixx_codegen -> app.channels.brixx.**",
+    "app.directory.brixx.** -> app.channels.brixx.**",
+]
+allow_indirect_imports = true
+unmatched_ignore_imports_alerting = "none"
+
+[[tool.importlinter.contracts]]
+name = "Dev tooling (simulator, dev keys) is never imported by production code"
+type = "forbidden"
+source_modules = [
+    "app.main", "app.worker", "app.api", "app.workflows", "app.pipeline", "app.context", "app.owner", "app.ingestion",
+    "app.directory", "app.outcomes", "app.sender", "app.db", "app.llm", "app.storage", "app.contracts", "app.core",
+    "app.channels",
+]
+forbidden_modules = ["app.dev"]
+
+[[tool.importlinter.contracts]]
+name = "API enqueues by name only: never imports workflows or the sender"
+type = "forbidden"
+source_modules = ["app.api"]
+forbidden_modules = ["app.workflows", "app.sender"]
+
+[[tool.importlinter.contracts]]
+name = "Rules engine is pure (no I/O layers)"
+type = "forbidden"
+source_modules = ["app.pipeline.rules"]
+forbidden_modules = ["app.db", "app.llm", "app.channels", "app.storage"]
+
+[[tool.importlinter.contracts]]
+name = "Finance review is pure (no I/O layers)"
+type = "forbidden"
+source_modules = ["app.finance.review", "app.finance.review_types", "app.finance.stats"]
+forbidden_modules = ["app.db", "app.llm", "app.channels", "app.storage"]
+
+[[tool.importlinter.contracts]]
+name = "Diligence screen is pure (no I/O layers)"
+type = "forbidden"
+source_modules = [
+    "app.diligence.checklist", "app.diligence.compare", "app.diligence.engine", "app.diligence.facts",
+    "app.diligence.framework", "app.diligence.inputs", "app.diligence.risks", "app.diligence.summary",
+    "app.diligence.verify",
+]
+forbidden_modules = ["app.db", "app.llm", "app.channels", "app.storage"]
+
+# ---------------------------------------------------------------- pyright (IDE only; mypy is the gate)
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"

@@ -23,11 +23,11 @@
       "Bash(git worktree *)",
       "Bash(curl -s http://localhost*)",
       "Bash(curl -sf http://localhost*)",
-      "Edit(app/**)",
-      "Edit(workers/**)",
-      "Edit(tests/**)",
-      "Edit(evals/**)",
-      "Edit(docker/**)",
+      "Edit(backend/app/**)",
+      "Edit(backend/workers/**)",
+      "Edit(backend/tests/**)",
+      "Edit(backend/evals/**)",
+      "Edit(backend/docker/**)",
       "Edit(docs/**)"
     ],
     "ask": [

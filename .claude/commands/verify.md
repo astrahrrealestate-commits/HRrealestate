@@ -17,10 +17,10 @@ A check that could not run is a failure.
 ## Prove, quoting evidence
 - **Agent memory survives a restart**: after `make sim-demo`, count rows in the memory tables named in
   `docs/superpowers/specs/2026-10-23-agent-memory-context-design.md`
-  (`docker compose -f docker/compose.yml exec -T postgres psql -U estateos -c "select count(*) from ..."`), then
+  (`docker compose -f backend/docker/compose.yml exec -T postgres psql -U estateos -c "select count(*) from ..."`), then
   `make down && make up`, count again: same counts, and a memory API read returns them.
 - **Each Phase 1 agent (#1-#9)** returns a contract-valid proposal on simulated input: run its test/eval with the
-  offline fake model and validate the output against `app/contracts/*`. Real-model runs need credentials ->
+  offline fake model and validate the output against `backend/app/contracts/*`. Real-model runs need credentials ->
   Deferred, named.
 - **Dashboard API returns real rows** from the simulated data: `curl -sf http://localhost:8000/api/v1/...` with a
   dev session, quote row counts.

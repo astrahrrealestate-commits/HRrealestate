@@ -6,9 +6,10 @@ runs: what image to build, what it needs at boot, and how the two talk to each o
 (WhatsApp, Gmail, S3, BRIXX, the LLM) are [docs/go-live-channels.md](go-live-channels.md); this page is the
 container/runtime side, not the credentials side.
 
-## Backend (`docker/Dockerfile`)
+## Backend (`backend/docker/Dockerfile`)
 
-One image, three roles picked by the command at run time — `docker/compose.yml` shows the exact invocation of each:
+One image, three roles picked by the command at run time — `backend/docker/compose.yml` shows the exact invocation
+of each:
 
 | Role | Command | Runs |
 |---|---|---|
@@ -16,17 +17,17 @@ One image, three roles picked by the command at run time — `docker/compose.yml
 | api | `uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000` | the FastAPI app |
 | worker | `python -m app.worker` | DBOS workflows, queues, cron |
 
-Build once, run the same image three ways:
+Build once, run the same image three ways (build context is `backend/`, not the repo root):
 
 ```bash
-docker build -f docker/Dockerfile -t estateos-backend .
+docker build -f backend/docker/Dockerfile -t estateos-backend backend
 ```
 
 Non-root user, read-only application layer (only `/app/.data` is writable, and that path is dev-only — prod refuses
 local storage), digest-pinned base images. Needs `DATABASE_URL` (Postgres 16 + pgvector) and `ENV=prod`; startup
 (`app/core/startup.py: production_problems`) refuses to boot under `ENV=prod` with any fake provider, local storage,
 or a missing required secret — a half-configured deploy fails at boot, not silently. Each `worker` replica needs its
-own `DBOS__VMID` (`docker/compose.yml` sets `worker-0`; a second replica needs a different id, ADR 0001).
+own `DBOS__VMID` (`backend/docker/compose.yml` sets `worker-0`; a second replica needs a different id, ADR 0001).
 
 ## Frontend (`frontend/Dockerfile`)
 
@@ -50,9 +51,9 @@ using `INTERNAL_BACKEND_URL`, e.g. `http://backend:8000` on an internal network 
 why `FRONTEND_BASE_URL` and `NEXT_PUBLIC_API_URL` end up equal in that topology: both name the one public origin.
 Also set `GOOGLE_LOGIN_REDIRECT_URI` to that origin's `/api/auth/login/google/callback` if using Google login.
 
-A split-host topology (separate `api.example.com` / `app.example.com`) also works, documented in `.env.example`
-right above `DASHBOARD_CORS_ORIGINS` and `DASHBOARD_COOKIE_DOMAIN` — needed only if the two are not proxied
-same-origin.
+A split-host topology (separate `api.example.com` / `app.example.com`) also works, documented in
+`backend/.env.example` right above `DASHBOARD_CORS_ORIGINS` and `DASHBOARD_COOKIE_DOMAIN` — needed only if the two
+are not proxied same-origin.
 
 ## CI already proves both images build
 

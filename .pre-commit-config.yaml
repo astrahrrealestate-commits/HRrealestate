@@ -27,6 +27,8 @@ repos:
     rev: 0.12.5   # keep equal to [tool.uv] required-version, CI setup-uv and docker uv stage
     hooks:
       - id: uv-lock
+        args: [--project, backend]
+        files: ^backend/(uv\.lock|pyproject\.toml)$
   - repo: https://github.com/compilerla/conventional-pre-commit
     rev: v4.0.0
     hooks:
@@ -43,29 +45,36 @@ repos:
         files: ^\.claude/hooks/
       - id: ruff-check
         name: ruff check
-        entry: uv run --frozen ruff check --fix --force-exclude
+        entry: bash -c 'cd backend && exec uv run --frozen ruff check --fix --force-exclude .'
         language: system
+        pass_filenames: false
         types: [python]
+        files: ^backend/
       - id: ruff-format
         name: ruff format
-        entry: uv run --frozen ruff format --force-exclude
+        entry: bash -c 'cd backend && exec uv run --frozen ruff format --force-exclude .'
         language: system
+        pass_filenames: false
         types: [python]
+        files: ^backend/
       - id: import-linter
         name: import-linter (architecture boundaries)
-        entry: uv run --frozen lint-imports
+        entry: bash -c 'cd backend && exec uv run --frozen lint-imports'
         language: system
         pass_filenames: false
         types: [python]
+        files: ^backend/
       - id: mypy
         name: mypy
-        entry: uv run --frozen mypy app
+        entry: bash -c 'cd backend && exec uv run --frozen mypy app'
         language: system
         pass_filenames: false
         types: [python]
+        files: ^backend/
       - id: unit-tests
         name: unit tests
-        entry: uv run --frozen pytest tests/unit tests/contract -q -x -n auto
+        entry: bash -c 'cd backend && exec uv run --frozen pytest tests/unit tests/contract -q -x -n auto'
         language: system
         pass_filenames: false
         types: [python]
+        files: ^backend/

@@ -10,8 +10,8 @@ Report the exact command and its result line. Never write "should pass".
 
 | Tier | Command | Covers | When |
 |---|---|---|---|
-| G1 quick | `make quick` | ruff, format, mypy, import-linter, `tests/unit` | any code change (stop hook runs this too) |
-| G2 full | `make check` | G1 + `tests/integration` (testcontainers Postgres + DBOS) incl. migration round-trip + drift | db, workflows, channels, sender, api, migrations |
+| G1 quick | `make quick` | ruff, format, mypy, import-linter, `backend/tests/unit` | any code change (stop hook runs this too) |
+| G2 full | `make check` | G1 + `backend/tests/integration` (testcontainers Postgres + DBOS) incl. migration round-trip + drift | db, workflows, channels, sender, api, migrations |
 | G5 stack | `make smoke` | compose up → `/health/ready` 200 → worker self-check → logs scanned for tracebacks | Docker/compose/config/DBOS wiring, milestone end |
 | extra | `make cov` / `make audit` | coverage floors / dependency CVEs | milestone end, dependency changes |
 | harness | `make harness-test` | guard hook self-tests | after editing `.claude/hooks/` |

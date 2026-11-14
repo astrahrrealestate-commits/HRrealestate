@@ -45,10 +45,10 @@ unless vetoed.
 | Photos / scans | model vision via Pydantic AI | — |
 | Phone / email normalising | **phonenumbers**, **email-validator** | — |
 | Fuzzy matching (linking, outcomes) | **rapidfuzz** | thresholds |
-| Translation (nl to en) | **CTranslate2** + **SentencePiece** running the pinned `opus-mt-nl-en` model on CPU (`app/translation/`, ADR 0011); lazy `POST /api/inbox/translate`, cached in Postgres (`translations`) | sentence splitting, language check (`app/core/language.py`), cache lookup |
-| BRIXX data | **httpx** adapter to the BRIXX Data API (`app/channels/brixx/`, fake by default) + a typed Postgres mirror (schema `brixx`) generated from BRIXX metadata into Alembic migrations, synced by DBOS cron/queue workflows (ADR 0010; replaces the polars CSV/XLSX export import) | type map, page upsert guard, sync state, raw-to-domain column mapping |
+| Translation (nl to en) | **CTranslate2** + **SentencePiece** running the pinned `opus-mt-nl-en` model on CPU (`backend/app/translation/`, ADR 0011); lazy `POST /api/inbox/translate`, cached in Postgres (`translations`) | sentence splitting, language check (`backend/app/core/language.py`), cache lookup |
+| BRIXX data | **httpx** adapter to the BRIXX Data API (`backend/app/channels/brixx/`, fake by default) + a typed Postgres mirror (schema `brixx`) generated from BRIXX metadata into Alembic migrations, synced by DBOS cron/queue workflows (ADR 0010; replaces the polars CSV/XLSX export import) | type map, page upsert guard, sync state, raw-to-domain column mapping |
 | Object storage | **boto3** → S3-compatible EU bucket | — |
-| Dashboard session | **itsdangerous** (signed, time-limited cookie) + **google-auth** (ID token verify) | `app/api/v1/auth.py`, `ratelimit.py` (in-process token bucket; multi-instance needs Postgres counters, no Redis) |
+| Dashboard session | **itsdangerous** (signed, time-limited cookie) + **google-auth** (ID token verify) | `backend/app/api/v1/auth.py`, `ratelimit.py` (in-process token bucket; multi-instance needs Postgres counters, no Redis) |
 | Dashboard API | **FastAPI** routers `/api/v1` + SSE (`StreamingResponse`, Postgres-polled) | read models, decision routes; see [dashboard-api.md](dashboard-api.md) |
 | Super Agent | **Pydantic AI** planner (one call, typed `ConciergePlan`), code executor; answers assembled deterministically (no phrasing call) | plan validation and execution |
 | Logging | **structlog** (JSON) | — |

@@ -16,10 +16,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import PROJECT_DIR, VENV_BIN, emit, git, has_python_toolchain, read_input, tail  # noqa: E402
+from _common import BACKEND_DIR, PROJECT_DIR, VENV_BIN, emit, git, has_python_toolchain, read_input, tail  # noqa: E402
 
 CACHE = PROJECT_DIR / ".claude" / ".cache" / "stop_gate_green"
-CODE_DIRS = ("app", "workers", "evals", "tests")
+CODE_DIRS = ("backend/app", "backend/workers", "backend/evals", "backend/tests")
 
 
 def changed_py() -> list[str]:
@@ -27,7 +27,7 @@ def changed_py() -> list[str]:
     files = []
     for line in out.splitlines():
         path = line[3:].split(" -> ")[-1].strip().strip('"')
-        if path.endswith(".py") and path.split("/", 1)[0] in CODE_DIRS:
+        if path.endswith(".py") and path.startswith(tuple(d + "/" for d in CODE_DIRS)):
             files.append(path)
     return files
 
@@ -42,9 +42,9 @@ def tree_fingerprint(files: list[str]) -> str:
     return h.hexdigest()
 
 
-def run(label: str, args: list[str], timeout: int) -> tuple[bool, str]:
+def run(label: str, args: list[str], timeout: int, cwd: Path = PROJECT_DIR) -> tuple[bool, str]:
     try:
-        r = subprocess.run(args, cwd=PROJECT_DIR, capture_output=True, text=True, timeout=timeout, check=False)
+        r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False)
     except subprocess.TimeoutExpired:
         return False, f"[{label}] timed out after {timeout}s"
     return r.returncode == 0, f"[{label}]\n{tail(r.stdout + r.stderr, 40)}"
@@ -62,7 +62,7 @@ def main() -> None:
         return
 
     py = str(VENV_BIN / "python")
-    existing_dirs = [d for d in ("app", "workers", "evals") if (PROJECT_DIR / d).is_dir()]
+    existing_dirs = [d for d in ("app", "workers", "evals") if (BACKEND_DIR / d).is_dir()]
     steps: list[tuple[str, list[str], int]] = [
         ("ruff", [py, "-m", "ruff", "check", *existing_dirs, "tests"], 60),
     ]
@@ -70,11 +70,11 @@ def main() -> None:
         steps.append(("mypy", [py, "-m", "mypy", *existing_dirs], 180))
     if (VENV_BIN / "lint-imports").exists():
         steps.append(("import-linter", [str(VENV_BIN / "lint-imports")], 60))
-    if (PROJECT_DIR / "tests" / "unit").is_dir():
+    if (BACKEND_DIR / "tests" / "unit").is_dir():
         steps.append(("pytest unit", [py, "-m", "pytest", "tests/unit", "-x", "-q", "--no-header", "-p", "no:randomly"], 180))
 
     for label, args, timeout in steps:
-        ok, output = run(label, args, timeout)
+        ok, output = run(label, args, timeout, cwd=BACKEND_DIR)
         if not ok:
             if data.get("stop_hook_active"):
                 emit({"systemMessage": f"EstateOS stop gate still failing on {label} — left for the user to see."})

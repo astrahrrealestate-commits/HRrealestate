@@ -1,7 +1,7 @@
 # Dashboard API (`/api/v1`)
 
-For the SPA built elsewhere. Source of truth is the code in `app/api/v1/` and the OpenAPI snapshot
-(`tests/unit/api/__snapshots__`); this guide adds what the schema does not say. Design:
+For the SPA built elsewhere. Source of truth is the code in `backend/app/api/v1/` and the OpenAPI snapshot
+(`backend/tests/unit/api/__snapshots__`); this guide adds what the schema does not say. Design:
 [spec](superpowers/specs/2026-10-15-dashboard-super-agent-design.md), [ADR 0006](adr/0006-dashboard-owner-channel.md).
 Status: unit-tested only. The integration tests, `make check`, `make smoke` and `make sim-demo` for this API have not
 been run (Docker was unavailable); see [PROGRESS.md](PROGRESS.md).
@@ -435,7 +435,7 @@ send and the action failed, never re-sent. Paused companies are included (settli
 ## Running the simulator scenario
 
 `make sim-demo` ends with a `dashboard` scenario that logs in through this API with the fake token, so the api
-container needs `DASHBOARD_SESSION_SECRET` (at least 32 characters) and `DASHBOARD_AUTH_PROVIDER=fake`. `docker/compose.yml`
+container needs `DASHBOARD_SESSION_SECRET` (at least 32 characters) and `DASHBOARD_AUTH_PROVIDER=fake`. `backend/docker/compose.yml`
 forwards both with a dev-only default secret. Without a secret the scenario is skipped with a
 `sim.demo.dashboard_skipped` log line and the final line reads `dashboard=skipped`. It refuses to run unless the
 WhatsApp, Gmail and Drive providers are all fake. While it runs the dev company is in `outbound_mode=send` and the dev

@@ -1,0 +1,9 @@
+version: "2"
+authtoken: ${NGROK_AUTHTOKEN}
+tunnels:
+  frontend:
+    proto: http
+    addr: host.docker.internal:3000
+  backend:
+    proto: http
+    addr: host.docker.internal:8000
