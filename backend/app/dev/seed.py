@@ -124,3 +124,13 @@ def _add[T: (Company, ChannelAccount, OwnerAccount)](session: Session, row: T) -
     session.add(row)
     session.flush()
     return row
+
+
+if __name__ == "__main__":
+    from app.core.settings import get_settings
+    from app.db.session import make_engine
+
+    settings = get_settings()
+    engine = make_engine(str(settings.database_url))
+    tenant = seed_dev_tenant(engine)
+    print(f"Successfully seeded tenant: company_id={tenant.company_id}")
