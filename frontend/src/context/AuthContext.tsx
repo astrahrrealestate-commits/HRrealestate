@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { apiFetch, BACKEND_BASE_URL } from "@/lib/backend";
 
 export interface AuthUser {
@@ -43,8 +43,12 @@ const AuthContext = createContext<AuthContextType>({
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  // Set only when the API explicitly answered "not authenticated" (not on a network/offline error, where we don't
+  // actually know the auth state and ApiHealthBanner already covers telling the owner the backend is unreachable).
+  const [unauthenticated, setUnauthenticated] = useState(false);
 
   const fetchCurrentUser = async () => {
     try {
@@ -65,12 +69,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             sections: Array.isArray(data.sections) ? data.sections : [],
             isAdmin: data.is_admin === true,
           });
+          setUnauthenticated(false);
           return;
         }
       }
       setUser(null);
+      setUnauthenticated(true);
     } catch {
-      // Backend offline or network error
+      // Backend offline or network error: unknown auth state, so don't force a redirect to /login over it.
       setUser(null);
     } finally {
       setIsLoading(false);
@@ -80,6 +86,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     fetchCurrentUser();
   }, []);
+
+  // The Next.js edge middleware cannot see this session: on the split-host deployment (frontend and backend are
+  // sibling hosts behind hrrealestate.nl) the cookie the backend sets is host-only on the backend's own host, so it
+  // never reaches a request made to the frontend's host. This client-side check, once /api/auth/me has resolved, is
+  // the only place the login/dashboard redirect can actually happen there.
+  useEffect(() => {
+    if (isLoading) return;
+    if (user && pathname === "/login") {
+      router.replace("/");
+    } else if (unauthenticated && pathname !== "/login") {
+      router.replace("/login");
+    }
+  }, [isLoading, user, unauthenticated, pathname, router]);
 
   const logout = async () => {
     try {
