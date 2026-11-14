@@ -1,7 +1,10 @@
 name: cd
 
 on:
-  push:
+  workflow_run:
+    workflows: ["ci"]
+    types:
+      - completed
     branches:
       - stage
       - main
@@ -17,7 +20,7 @@ on:
           - prod
 
 concurrency:
-  group: deploy-${{ github.event.inputs.environment || github.ref }}
+  group: deploy-${{ github.event.inputs.environment || github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -25,7 +28,8 @@ permissions:
 
 jobs:
   deploy:
-    name: Deploy to ${{ github.event.inputs.environment || (github.ref_name == 'main' && 'Production' || 'Staging') }}
+    name: Deploy to ${{ github.event.inputs.environment || (github.event.workflow_run.head_branch == 'main' && 'Production' || 'Staging') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -35,17 +39,19 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             ENV_NAME="${{ github.event.inputs.environment }}"
-          elif [ "${{ github.ref_name }}" = "main" ]; then
+          elif [ "${{ github.event.workflow_run.head_branch }}" = "main" ] || [ "${{ github.ref_name }}" = "main" ]; then
             ENV_NAME="prod"
-          elif [ "${{ github.ref_name }}" = "stage" ]; then
+          elif [ "${{ github.event.workflow_run.head_branch }}" = "stage" ] || [ "${{ github.ref_name }}" = "stage" ]; then
             ENV_NAME="stage"
           else
-            echo "::error::Unsupported branch for deployment: ${{ github.ref_name }}"
+            echo "::error::Unsupported branch for deployment: ${{ github.event.workflow_run.head_branch || github.ref_name }}"
             exit 1
           fi
 
+          COMMIT_SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
           echo "TARGET_ENV=$ENV_NAME" >> $GITHUB_ENV
           echo "target_env=$ENV_NAME" >> $GITHUB_OUTPUT
+          echo "DEPLOY_SHA=$COMMIT_SHA" >> $GITHUB_ENV
 
           if [ "$ENV_NAME" = "prod" ]; then
             echo "ECS_CLUSTER=estateos-prod-cluster" >> $GITHUB_ENV
@@ -62,16 +68,18 @@ jobs:
             echo "MIGRATOR_FAMILY=estateos-stage-migrator" >> $GITHUB_ENV
             echo "HEALTH_URL=https://api-stage-estateos.hrrealestate.nl/health/ready" >> $GITHUB_ENV
             echo "PRIMARY_TAG=stage" >> $GITHUB_ENV
-            echo "SECONDARY_TAG=stage-${{ github.sha }}" >> $GITHUB_ENV
+            echo "SECONDARY_TAG=stage-${COMMIT_SHA}" >> $GITHUB_ENV
           fi
 
-          echo "Target deployment environment configured: $ENV_NAME"
+          echo "Target deployment environment configured: $ENV_NAME (commit: $COMMIT_SHA)"
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4.0.2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -79,13 +87,13 @@ jobs:
 
       - name: Log in to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd  # v2.0.1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
 
       - name: Build and push backend image to ECR
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: backend
           file: backend/docker/Dockerfile
@@ -93,7 +101,7 @@ jobs:
           tags: |
             ${{ steps.login-ecr.outputs.registry }}/estateos/backend:${{ env.PRIMARY_TAG }}
             ${{ steps.login-ecr.outputs.registry }}/estateos/backend:${{ env.SECONDARY_TAG }}
-            ${{ steps.login-ecr.outputs.registry }}/estateos/backend:${{ env.TARGET_ENV }}-${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/estateos/backend:${{ env.TARGET_ENV }}-${{ env.DEPLOY_SHA }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
