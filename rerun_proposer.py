@@ -36,7 +36,7 @@ loaded = _prepare(engine, msg_id, replay=False)
 actions = None
 for attempt in range(3):
     try:
-        print(f"\n[Attempt {attempt + 1}] Running Proposer Agent with Groq LLM...")
+        print(f"\n[Attempt {attempt + 1}] Running Proposer Agent with Gemini LLM...")
         actions = _run_proposer(engine, settings, loaded)
         print(f"-> SUCCESS! Generated {len(actions)} actions.")
         break

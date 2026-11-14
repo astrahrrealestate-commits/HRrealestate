@@ -2310,7 +2310,7 @@ def ask_agent(
         ans_text = f"**Authoritative Standing Rule (T5 Memory):**\n\n• {matching_rule}"
         pipeline_stage = "memory_rule"
 
-    # If the response is empty or an unhandled placeholder, invoke Groq or clean executive domain generator
+    # If the response is empty or an unhandled placeholder, invoke Gemini or clean executive domain generator
     needs_fallback = (
         not ans_text
         or not ans_text.strip()
