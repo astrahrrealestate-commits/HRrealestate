@@ -4,7 +4,7 @@
 # Digest-pinned for reproducible builds; Dependabot (docker ecosystem) bumps tag + digest together.
 FROM ghcr.io/astral-sh/uv:0.12.5@sha256:e85be844203885286c60ffad8a858d48afb6c5a5c237ca0e67f12e74b8f174b1 AS uv
 
-FROM python:3.12-slim@sha256:a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e89e19dfb86704 AS builder
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS builder
 COPY --from=uv /uv /bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_HTTP_TIMEOUT=120
 WORKDIR /app
@@ -20,7 +20,7 @@ RUN /app/.venv/bin/python /tmp/fetch_translation_model.py /app/models/opus-mt-nl
 COPY alembic.ini ./
 COPY app ./app
 
-FROM python:3.12-slim@sha256:a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e89e19dfb86704
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --uid 10001 --no-create-home --home-dir /app estateos
 WORKDIR /app
