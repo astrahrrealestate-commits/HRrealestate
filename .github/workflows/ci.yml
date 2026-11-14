@@ -2,9 +2,10 @@ name: ci
 
 on:
   push:
-    branches: [main, "m*-*"]  # main: verifies merge results and seeds caches for new branches
+    # main/stage/prod: verifies merge/promotion results and seeds caches for new branches. m*-*: feature branches.
+    branches: [main, stage, prod, "m*-*"]
   pull_request:
-    branches: [main]
+    branches: [main, stage, prod]
 
 concurrency:
   group: ci-${{ github.ref }}
