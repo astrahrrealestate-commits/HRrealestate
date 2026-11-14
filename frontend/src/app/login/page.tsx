@@ -52,28 +52,6 @@ function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Local development only (the fake identity provider): sign in as the dev owner without Google.
-  const handleDevLogin = async () => {
-    setIsLoading(true);
-    setErrorMessage(null);
-    try {
-      const res = await apiFetch("/api/v1/auth/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id_token: "test-owner-token" }),
-      });
-      if (!res.ok) {
-        const errorText = await res.text().catch(() => "");
-        throw new Error(`Dev sign-in failed (${res.status}): ${errorText || "Is the backend running in dev?"}`);
-      }
-      // The response sets the HttpOnly session cookie; nothing script-readable to store.
-      window.location.href = "/";
-    } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : "Dev sign-in failed.");
-      setIsLoading(false);
-    }
-  };
-
   const handleGoogleLogin = async () => {
     setIsLoading(true);
     setErrorMessage(null);
@@ -187,15 +165,6 @@ function LoginForm() {
               <ArrowRight className="w-4 h-4 text-[#070D19]/60 ml-auto" />
             </>
           )}
-        </button>
-
-        <button
-          type="button"
-          onClick={handleDevLogin}
-          disabled={isLoading}
-          className="w-full h-10 rounded-xl border border-white/25 bg-[#050B16]/45 backdrop-blur-md text-slate-200 hover:text-white hover:bg-[#081326]/70 hover:border-white/40 text-xs font-mono transition-all cursor-pointer select-none disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-        >
-          Continue as dev owner (local only)
         </button>
       </div>
 
