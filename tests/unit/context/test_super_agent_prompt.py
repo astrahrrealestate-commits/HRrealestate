@@ -81,8 +81,8 @@ def test_compiled_concierge_reports_what_it_dropped() -> None:
 
 
 def test_system_prompt_is_a_conversational_copilot_not_a_bullet_capped_parser() -> None:
-    prompt = build_super_agent_system_prompt(cases=_cases(1), query="Hi Jarvis")
-    assert "Jarvis" in prompt
+    prompt = build_super_agent_system_prompt(cases=_cases(1), query="Hi there")
+    assert "Astra" in prompt  # the persona (renamed from Jarvis) names itself
     assert "2-4" not in prompt
     assert "Limit your answer" not in prompt
     assert "greeting" in prompt.lower()

@@ -130,7 +130,8 @@ _SUMMARY_SYNTHESIS_PROMPT = (
     "Turn the verified query results inside <data> into a crisp, human-readable executive answer as JSON:\n"
     '{"answer": "..."}\n'
     "Rules:\n"
-    "- Language Matching: Answer in the same language as the user's question (if asked in Dutch, reply in natural, fluent Dutch; if in English, reply in English).\n"
+    "- Language Matching: Answer in the same language as the user's question (if asked in Dutch, reply in\n"
+    "  natural, fluent Dutch; if in English, reply in English).\n"
     "- Be concise (1-3 short sentences, or a brief headline + up to 4 clean '- ' bullets highlighting key items).\n"
     "- A structured data table card is shown directly below your answer whenever multiple records exist, so give the\n"
     "  key takeaway (counts, urgent issues, dates, names) rather than repeating every column of every row.\n"
@@ -189,7 +190,9 @@ def _call_groq_or_gemini(
                         parts = candidates[0].get("content", {}).get("parts") or []
                         if parts and "text" in parts[0]:
                             return str(parts[0]["text"])
-                log.warning("query_agent.gemini_status_not_200", model=model, status=resp.status_code, body=resp.text[:200])
+                log.warning(
+                    "query_agent.gemini_status_not_200", model=model, status=resp.status_code, body=resp.text[:200]
+                )
             except Exception as exc:
                 log.warning("query_agent.gemini_call_failed", model=model, error=str(exc))
 
@@ -216,7 +219,9 @@ def _call_groq_or_gemini(
                 if resp.status_code == 200:
                     data = resp.json()
                     return str(data["choices"][0]["message"]["content"])
-                log.warning("query_agent.groq_status_not_200", model=model, status=resp.status_code, body=resp.text[:200])
+                log.warning(
+                    "query_agent.groq_status_not_200", model=model, status=resp.status_code, body=resp.text[:200]
+                )
             except Exception as exc:
                 log.warning("query_agent.llm_call_failed", model=model, error=str(exc))
     return None
@@ -394,7 +399,10 @@ def synthesize_query_answer(
     row_count: int,
     settings: Settings,
 ) -> str | None:
-    """Turn sanitized query rows into an executive prose/bullet answer via Gemini or Groq; returns None to use fallback."""
+    """Turn sanitized query rows into an executive prose/bullet answer via Gemini or Groq.
+
+    Returns None to use the fallback.
+    """
     if (
         settings.env == "test"
         or settings.llm_model == "fake"

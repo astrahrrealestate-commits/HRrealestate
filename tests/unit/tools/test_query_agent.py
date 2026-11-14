@@ -400,4 +400,3 @@ def test_query_agent_prompts_are_in_sync():
 
     v2_text = load_prompt(PromptRef(name="query_agent", version="v2")).text
     assert QUERY_AGENT_SYSTEM_PROMPT.strip() == v2_text.strip()
-
