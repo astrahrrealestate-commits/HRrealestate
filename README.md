@@ -166,12 +166,12 @@ Logs: `make logs`. Workflow state: `make workflows`.
 
 ```
 app/            backend: api/v1 (dashboard API), channels, sender, llm, workflows, db (models, alembic), dev (simulator)
-frontend/       Next.js dashboard
-docker/         Dockerfile + compose.yml (postgres, migrate, api, worker)
-tests/          unit, contract, integration, live
-evals/          golden-set agent evals (make eval)
+tests/          backend: unit, contract, integration, live
+evals/          backend: golden-set agent evals (make eval)
+docker/         backend: Dockerfile (production image) + compose.yml/compose.test.yml (dev and QA stacks)
+frontend/       frontend: Next.js dashboard, its own Dockerfile and package.json — fully self-contained
 scripts/        doctor.sh preflight
-docs/           architecture, ADRs, specs, progress
+docs/           architecture, ADRs, specs, progress, deployment.md
 ```
 
 ## Docs
@@ -183,6 +183,7 @@ docs/           architecture, ADRs, specs, progress
 | [docs/dashboard-api.md](docs/dashboard-api.md) | dashboard API, auth, limits |
 | [docs/dev-pipeline.md](docs/dev-pipeline.md) | gates, test strategy, definition of done |
 | [docs/go-live-channels.md](docs/go-live-channels.md) | real WhatsApp, Gmail, S3, production |
+| [docs/deployment.md](docs/deployment.md) | deploying: the two images, their contract, how they're wired together |
 | [docs/adr/](docs/adr/) | why DBOS, Pydantic AI, WhatsApp Cloud API, import-linter |
 | [CLAUDE.md](CLAUDE.md) | invariants and conventions (also the contributor rules) |
 

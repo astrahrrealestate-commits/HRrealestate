@@ -3,6 +3,7 @@ import path from "path";
 
 const nextConfig: NextConfig = {
   /* config options here */
+  output: "standalone", // the minimal self-contained build frontend/Dockerfile's runtime stage copies
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {
