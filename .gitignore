@@ -13,13 +13,15 @@ build/
 
 # secrets
 .env
+staging.env
 .env.*
 !.env.example
-secrets/
+/secrets/
 *.pem
 service-account*.json
 client_secret*.json
 token*.json
+
 
 # eval outputs
 evals/reports/*
@@ -51,3 +53,19 @@ frontend/.env*.local
 # test distribution bundles
 *.tar
 /compose.test.yml
+
+# terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.zip
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+

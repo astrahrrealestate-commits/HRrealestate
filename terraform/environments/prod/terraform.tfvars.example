@@ -1,0 +1,49 @@
+aws_region        = "eu-central-1"
+aws_profile       = "estateos"
+aws_account_id    = "830044626379"
+project_name      = "estateos"
+github_repository = "astrahrrealestate-commits/HRrealestate"
+
+# Dedicated Production VPC Subnets (10.20.0.0/16)
+vpc_cidr                 = "10.20.0.0/16"
+public_subnet_a_cidr     = "10.20.1.0/24"
+public_subnet_b_cidr     = "10.20.2.0/24"
+private_db_subnet_a_cidr = "10.20.21.0/24"
+private_db_subnet_b_cidr = "10.20.22.0/24"
+
+app_port      = 8000
+frontend_port = 3000
+
+# High-Availability Production Database (PostgreSQL 16)
+db_engine_version        = "16.4"
+db_instance_class        = "db.t4g.medium"
+db_allocated_storage     = 50
+db_max_allocated_storage = 200
+db_name                  = "estateos"
+db_username              = "estateos"
+multi_az                 = true
+backup_retention_period  = 30
+
+# ALB & Routing
+# certificate_arn = "arn:aws:acm:eu-central-1:830044626379:certificate/yyyy-yyyy-yyyy"
+enable_frontend      = true
+frontend_host_header = "estateos.hrrealestate.nl, app.estateos.hrrealestate.nl"
+api_host_header      = "api.estateos.hrrealestate.nl"
+
+# Redundant Production Compute (2+ Instances)
+api_cpu           = 1024
+api_memory        = 2048
+api_desired_count = 2
+
+worker_cpu           = 1024
+worker_memory        = 2048
+worker_desired_count = 2
+
+frontend_cpu           = 512
+frontend_memory        = 1024
+frontend_desired_count = 2
+
+# Application URLs
+frontend_base_url         = "https://estateos.hrrealestate.nl"
+google_login_redirect_uri = "https://api.estateos.hrrealestate.nl/api/auth/login/google/callback"
+dashboard_cors_origins    = "https://estateos.hrrealestate.nl"
