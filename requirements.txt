@@ -168,7 +168,7 @@ opentelemetry-sdk==1.45.1
     #   estateos
     #   opentelemetry-exporter-otlp-common
     #   opentelemetry-exporter-otlp-proto-http
-opentelemetry-semantic-conventions==0.66b1
+opentelemetry-semantic-conventions==0.66b2
     # via opentelemetry-sdk
 pgvector==0.5.1
     # via estateos
