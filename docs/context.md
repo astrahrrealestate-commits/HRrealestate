@@ -1,19 +1,24 @@
 # Project context (auto)
 
-Generated: 2026-11-14T07:50:17.404Z
+Generated: 2026-11-14T13:31:18.579Z
 
 ## Detected stack
 
-- Python
 - GitHub Actions
 
 ## Git
 
-- Branch: `chore-remove-oneoff-scripts`
-- HEAD: `de479d1`
+- Branch: `main`
+- HEAD: `cc98029`
 
 ## Recent commits
 
+- `cc98029` fix(frontend): send a real PageView member to PUT /api/v1/agent/page _(Aditya Jain, 2026-11-14)_
+- `51e229e` fix(login): make login endpoints resolve the backend on a split-host deploy, restore gated dev sign-in _(Aditya Jain, 2026-11-14)_
+- `1876cd9` fix(frontend): remove the dev-login button from the client-facing login page _(Aditya Jain, 2026-11-14)_
+- `ab0feac` refactor: split backend and frontend into proper sibling folders _(Aditya Jain, 2026-11-14)_
+- `e6353e9` feat(frontend): production Docker image, deploy guide, repo structure docs _(Aditya Jain, 2026-11-14)_
+- `fa0bd68` chore: remove unreferenced one-off root scripts _(Aditya Jain, 2026-11-14)_
 - `de479d1` chore: remove unused root-level files _(Aditya Jain, 2026-11-14)_
 - `4e6a206` chore(llm): remove Groq fallback, standardize all agent and SQL queries on Gemini _(Suryansh Tyagi, 2026-11-14)_
 - `e9f2482` ci: rename the prod branch to dev in workflow triggers _(Aditya Jain, 2026-11-14)_
@@ -28,15 +33,14 @@ Generated: 2026-11-14T07:50:17.404Z
 - `712ecab` feat(layout): eliminate duplicate logo and add manual sidebar toggle _(Suryansh Tyagi, 2026-11-13)_
 - `85b9c16` feat(branding): update app and login page logo to HR Real Estate _(Suryansh Tyagi, 2026-11-13)_
 - `38cd91e` feat(superagent): read-only analytics views (0044) and dynamic chat thread titles _(Suryansh Tyagi, 2026-11-13)_
-- `342a188` fix(docker): read secrets from env in compose.test.yml, document GOOGLE_OAUTH_CLIENT_SECRET _(Aditya Jain, 2026-11-14)_
-- `31a07c9` fix(auth,contracts): re-close the session-token gaps and restore the strict LLM schema _(Aditya Jain, 2026-11-13)_
-- `fc7906e` chore(merge): origin/main (superagent UI, unified composer) into m-client-ready-sweep _(Aditya Jain, 2026-11-13)_
-- `df74f3a` fix(maintenance): persist owner ticket edits, surface API outages, verify dev DB _(Aditya Jain, 2026-11-13)_
-- `b187ade` feat(frontend,agent,inbox): mobile/desktop UI cleanup, unified inbox composer, full AI drafts & Schibsted Grotesk mobile font _(Suryansh Tyagi, 2026-11-12)_
-- `9084048` feat(i18n): dynamic bidirectional chat translation, shared STT hook, BRIXX live check _(Aditya Jain, 2026-11-12)_
 
 ## Inferred recent decisions
 
+- `cc98029` fix(frontend): send a real PageView member to PUT /api/v1/agent/page
+- `51e229e` fix(login): make login endpoints resolve the backend on a split-host deploy, restore gated dev sign-in
+- `1876cd9` fix(frontend): remove the dev-login button from the client-facing login page
+- `ab0feac` refactor: split backend and frontend into proper sibling folders
+- `e6353e9` feat(frontend): production Docker image, deploy guide, repo structure docs
 - `71cc8ac` fix(context,tools): restore gates broken by the Astra rename, wrap long lines
 - `123da06` feat(knowledge,agent): add Knowledge Base for Harjot persona, separate Reports nav, rename Super Agent to Astra
 - `902e6db` feat(mobile): redesign mobile menu to match dark rgba(24,24,24,1) mockup
@@ -46,24 +50,19 @@ Generated: 2026-11-14T07:50:17.404Z
 - `712ecab` feat(layout): eliminate duplicate logo and add manual sidebar toggle
 - `85b9c16` feat(branding): update app and login page logo to HR Real Estate
 - `38cd91e` feat(superagent): read-only analytics views (0044) and dynamic chat thread titles
-- `342a188` fix(docker): read secrets from env in compose.test.yml, document GOOGLE_OAUTH_CLIENT_SECRET
-- `31a07c9` fix(auth,contracts): re-close the session-token gaps and restore the strict LLM schema
-- `df74f3a` fix(maintenance): persist owner ticket edits, surface API outages, verify dev DB
-- `b187ade` feat(frontend,agent,inbox): mobile/desktop UI cleanup, unified inbox composer, full AI drafts & Schibsted Grotesk mobile font
-- `9084048` feat(i18n): dynamic bidirectional chat translation, shared STT hook, BRIXX live check
 
 ## Hotspots
 
 - 65x — `docs/PROGRESS.md`
 - 50x — `app/api/agent/routes.py`
 - 42x — `frontend/src/components/assistant/AskEstateOSPanel.tsx`
-- 37x — `pyproject.toml`
+- 38x — `pyproject.toml`
 - 35x — `app/api/inbox/routes.py`
 - 34x — `app/core/settings.py`
-- 30x — `docs/dashboard-api.md`
+- 31x — `docs/dashboard-api.md`
+- 29x — `frontend/src/lib/api.ts`
 - 28x — `.env.example`
-- 28x — `frontend/src/lib/api.ts`
-- 27x — `tests/unit/api/__snapshots__/test_openapi_snapshot.ambr`
+- 27x — `Makefile`
 
 ## Top-level tree
 
@@ -113,9 +112,7 @@ Generated: 2026-11-14T07:50:17.404Z
 .data/models/
 .data/models/opus-mt-en-nl/
 .data/models/opus-mt-nl-en/
-.dockerignore
 .env
-.env.example
 .env.example.bak
 .hypothesis/
 .hypothesis/constants/
@@ -268,4 +265,6 @@ Generated: 2026-11-14T07:50:17.404Z
 .hypothesis/constants/1b2996e00f048f45
 .hypothesis/constants/1b81d4d985941a69
 .hypothesis/constants/1b8f41e38f01284b
+.hypothesis/constants/1b9c22884a6f6147
+.hypothesis/constants/1bdadf4880ad507f
 ```
