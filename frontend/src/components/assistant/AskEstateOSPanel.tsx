@@ -396,7 +396,7 @@ export function AskEstateOSPanel({
     cardId: string,
     actionId?: string | null,
     caseId?: string | null,
-    customChoice: "d1" | "d2" | "d3" | "ok" = "d1",
+    customChoice: "d1" | "d2" | "d3" | "ok" | "edit" | "rej" = "d1",
     editedText?: string
   ) => {
     setSendingCardId(cardId);

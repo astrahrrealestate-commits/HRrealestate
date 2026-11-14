@@ -241,8 +241,12 @@ export function MemoryRulesManager() {
               onChange={(e) => setNewText(e.target.value)}
               placeholder="e.g. Cap plumbing emergency repairs to €350 without owner sign-off"
               className="w-full text-sm px-3.5 py-2.5 rounded-lg border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              maxLength={300}
               autoFocus
             />
+            <span className="block text-right text-[11px] text-[var(--ink-3)] mt-1">
+              {newText.length}/300
+            </span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

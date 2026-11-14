@@ -245,7 +245,7 @@ export async function syncGmailInbox(): Promise<SyncResult> {
  */
 export async function approveInboxDraft(
   approvalId: string,
-  choice: "d1" | "d2" | "d3" | "ok" = "d1",
+  choice: "d1" | "d2" | "d3" | "ok" | "edit" | "rej" = "d1",
   editedText?: string,
   replyToMessageId?: string
 ): Promise<ApprovalDecideResponse> {
