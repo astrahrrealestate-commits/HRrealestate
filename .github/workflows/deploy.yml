@@ -1,0 +1,215 @@
+name: cd
+
+on:
+  push:
+    branches:
+      - stage
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment to deploy"
+        required: true
+        type: choice
+        default: "stage"
+        options:
+          - stage
+          - prod
+
+concurrency:
+  group: deploy-${{ github.event.inputs.environment || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to ${{ github.event.inputs.environment || (github.ref_name == 'main' && 'Production' || 'Staging') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Resolve target environment and deployment configuration
+        id: config
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ENV_NAME="${{ github.event.inputs.environment }}"
+          elif [ "${{ github.ref_name }}" = "main" ]; then
+            ENV_NAME="prod"
+          elif [ "${{ github.ref_name }}" = "stage" ]; then
+            ENV_NAME="stage"
+          else
+            echo "::error::Unsupported branch for deployment: ${{ github.ref_name }}"
+            exit 1
+          fi
+
+          echo "TARGET_ENV=$ENV_NAME" >> $GITHUB_ENV
+          echo "target_env=$ENV_NAME" >> $GITHUB_OUTPUT
+
+          if [ "$ENV_NAME" = "prod" ]; then
+            echo "ECS_CLUSTER=estateos-prod-cluster" >> $GITHUB_ENV
+            echo "API_SERVICE=estateos-prod-api-service" >> $GITHUB_ENV
+            echo "WORKER_SERVICE=estateos-prod-worker-service" >> $GITHUB_ENV
+            echo "MIGRATOR_FAMILY=estateos-prod-migrator" >> $GITHUB_ENV
+            echo "HEALTH_URL=https://api-estateos.hrrealestate.nl/health/ready" >> $GITHUB_ENV
+            echo "PRIMARY_TAG=latest" >> $GITHUB_ENV
+            echo "SECONDARY_TAG=prod" >> $GITHUB_ENV
+          else
+            echo "ECS_CLUSTER=estateos-stage-cluster" >> $GITHUB_ENV
+            echo "API_SERVICE=estateos-stage-api-service" >> $GITHUB_ENV
+            echo "WORKER_SERVICE=estateos-stage-worker-service" >> $GITHUB_ENV
+            echo "MIGRATOR_FAMILY=estateos-stage-migrator" >> $GITHUB_ENV
+            echo "HEALTH_URL=https://api-stage-estateos.hrrealestate.nl/health/ready" >> $GITHUB_ENV
+            echo "PRIMARY_TAG=stage" >> $GITHUB_ENV
+            echo "SECONDARY_TAG=stage-${{ github.sha }}" >> $GITHUB_ENV
+          fi
+
+          echo "Target deployment environment configured: $ENV_NAME"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'eu-north-1' }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push backend image to ECR
+        uses: docker/build-push-action@v5
+        with:
+          context: backend
+          file: backend/docker/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/estateos/backend:${{ env.PRIMARY_TAG }}
+            ${{ steps.login-ecr.outputs.registry }}/estateos/backend:${{ env.SECONDARY_TAG }}
+            ${{ steps.login-ecr.outputs.registry }}/estateos/backend:${{ env.TARGET_ENV }}-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Database Migrations (ECS Fargate Task)
+        run: |
+          echo "Resolving active network configuration from $ECS_CLUSTER / $API_SERVICE..."
+          NET_CONFIG=$(aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$API_SERVICE" \
+            --region "${{ secrets.AWS_REGION || 'eu-north-1' }}" \
+            --query 'services[0].networkConfiguration.awsvpcConfiguration' \
+            --output json)
+
+          SUBNETS=$(echo "$NET_CONFIG" | jq -r '.subnets | join(",")')
+          SGS=$(echo "$NET_CONFIG" | jq -r '.securityGroups | join(",")')
+
+          echo "Using Subnets: $SUBNETS"
+          echo "Using Security Groups: $SGS"
+
+          echo "Launching one-shot migration task using family $MIGRATOR_FAMILY..."
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "$ECS_CLUSTER" \
+            --task-definition "$MIGRATOR_FAMILY" \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SGS],assignPublicIp=ENABLED}" \
+            --region "${{ secrets.AWS_REGION || 'eu-north-1' }}" \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          if [ -z "$TASK_ARN" ] || [ "$TASK_ARN" = "None" ]; then
+            echo "::error::Failed to launch migration task."
+            exit 1
+          fi
+
+          echo "Migration task launched: $TASK_ARN"
+          echo "Waiting for migration task to complete..."
+          aws ecs wait tasks-stopped \
+            --cluster "$ECS_CLUSTER" \
+            --tasks "$TASK_ARN" \
+            --region "${{ secrets.AWS_REGION || 'eu-north-1' }}"
+
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster "$ECS_CLUSTER" \
+            --tasks "$TASK_ARN" \
+            --region "${{ secrets.AWS_REGION || 'eu-north-1' }}" \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text)
+
+          echo "Migration container finished with exit code: $EXIT_CODE"
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "::error::Database migration failed with exit code $EXIT_CODE"
+            LOG_STREAM=$(aws logs describe-log-streams \
+              --log-group-name "/ecs/$MIGRATOR_FAMILY" \
+              --order-by LastEventTime \
+              --descending \
+              --limit 1 \
+              --region "${{ secrets.AWS_REGION || 'eu-north-1' }}" \
+              --query 'logStreams[0].logStreamName' \
+              --output text)
+
+            if [ -n "$LOG_STREAM" ] && [ "$LOG_STREAM" != "None" ]; then
+              echo "--- Migrator Task Logs ---"
+              aws logs get-log-events \
+                --log-group-name "/ecs/$MIGRATOR_FAMILY" \
+                --log-stream-name "$LOG_STREAM" \
+                --limit 100 \
+                --region "${{ secrets.AWS_REGION || 'eu-north-1' }}" \
+                --query 'events[*].message' \
+                --output text
+            fi
+            exit 1
+          fi
+          echo "Database migrations applied successfully!"
+
+      - name: Deploy new image to ECS Services (Zero-Downtime Rolling Update)
+        run: |
+          echo "Updating API service: $API_SERVICE..."
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$API_SERVICE" \
+            --force-new-deployment \
+            --region "${{ secrets.AWS_REGION || 'eu-north-1' }}"
+
+          echo "Updating DBOS Worker service: $WORKER_SERVICE..."
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$WORKER_SERVICE" \
+            --force-new-deployment \
+            --region "${{ secrets.AWS_REGION || 'eu-north-1' }}"
+
+          echo "Waiting for ECS services to reach stable steady state..."
+          aws ecs wait services-stable \
+            --cluster "$ECS_CLUSTER" \
+            --services "$API_SERVICE" "$WORKER_SERVICE" \
+            --region "${{ secrets.AWS_REGION || 'eu-north-1' }}"
+
+          echo "ECS services updated and steady state achieved!"
+
+      - name: Verify Live Service Health
+        run: |
+          echo "Probing service health endpoint at $HEALTH_URL..."
+          READY=false
+          for i in {1..24}; do
+            STATUS=$(curl -k -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" || true)
+            echo "Attempt $i: HTTP status $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              READY=true
+              break
+            fi
+            sleep 5
+          done
+
+          if [ "$READY" = "true" ]; then
+            echo "Deployment verified! Live endpoint returned HTTP 200 OK."
+          else
+            echo "::error::Health check failed after 120 seconds (HTTP $STATUS)"
+            exit 1
+          fi
