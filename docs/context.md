@@ -1,6 +1,6 @@
 # Project context (auto)
 
-Generated: 2026-11-14T07:45:14.106Z
+Generated: 2026-11-14T07:50:17.404Z
 
 ## Detected stack
 
@@ -9,11 +9,12 @@ Generated: 2026-11-14T07:45:14.106Z
 
 ## Git
 
-- Branch: `chore-remove-dead-root-files`
-- HEAD: `4e6a206`
+- Branch: `chore-remove-oneoff-scripts`
+- HEAD: `de479d1`
 
 ## Recent commits
 
+- `de479d1` chore: remove unused root-level files _(Aditya Jain, 2026-11-14)_
 - `4e6a206` chore(llm): remove Groq fallback, standardize all agent and SQL queries on Gemini _(Suryansh Tyagi, 2026-11-14)_
 - `e9f2482` ci: rename the prod branch to dev in workflow triggers _(Aditya Jain, 2026-11-14)_
 - `5dff784` ci: gate stage and prod the same as main _(Aditya Jain, 2026-11-14)_
@@ -33,7 +34,6 @@ Generated: 2026-11-14T07:45:14.106Z
 - `df74f3a` fix(maintenance): persist owner ticket edits, surface API outages, verify dev DB _(Aditya Jain, 2026-11-13)_
 - `b187ade` feat(frontend,agent,inbox): mobile/desktop UI cleanup, unified inbox composer, full AI drafts & Schibsted Grotesk mobile font _(Suryansh Tyagi, 2026-11-12)_
 - `9084048` feat(i18n): dynamic bidirectional chat translation, shared STT hook, BRIXX live check _(Aditya Jain, 2026-11-12)_
-- `ed29744` feat(superagent,frontend): clean executive answers and structured cards _(Suryansh Tyagi, 2026-11-11)_
 
 ## Inferred recent decisions
 
@@ -51,14 +51,13 @@ Generated: 2026-11-14T07:45:14.106Z
 - `df74f3a` fix(maintenance): persist owner ticket edits, surface API outages, verify dev DB
 - `b187ade` feat(frontend,agent,inbox): mobile/desktop UI cleanup, unified inbox composer, full AI drafts & Schibsted Grotesk mobile font
 - `9084048` feat(i18n): dynamic bidirectional chat translation, shared STT hook, BRIXX live check
-- `ed29744` feat(superagent,frontend): clean executive answers and structured cards
 
 ## Hotspots
 
 - 65x — `docs/PROGRESS.md`
 - 50x — `app/api/agent/routes.py`
 - 42x — `frontend/src/components/assistant/AskEstateOSPanel.tsx`
-- 36x — `pyproject.toml`
+- 37x — `pyproject.toml`
 - 35x — `app/api/inbox/routes.py`
 - 34x — `app/core/settings.py`
 - 30x — `docs/dashboard-api.md`
