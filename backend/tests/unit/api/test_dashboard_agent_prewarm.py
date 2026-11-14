@@ -100,6 +100,23 @@ def test_invalid_page_is_422_and_warms_nothing(client: TestClient, page: dict[st
     warm.assert_not_called()
 
 
+@pytest.mark.parametrize("view", [v.value for v in PageView])
+def test_every_page_view_member_is_accepted(client: TestClient, view: str) -> None:
+    """frontend/src/lib/api.ts's prewarmAgentPage must only ever send a real PageView member. One 422 here on a
+    live dashboard, on every page but inbox, is exactly what shipped when it sent "cases"/"money"/"units"/"tenants"/
+    "home" instead of this enum's real values (fixed to inbox/case/other)."""
+    r, warm = _put(client, {"view": view})
+    assert r.status_code == 204
+    warm.assert_called_once()
+
+
+@pytest.mark.parametrize("view", ["home", "cases", "money", "units", "tenants"])
+def test_the_view_strings_the_dashboard_used_to_send_are_still_422(client: TestClient, view: str) -> None:
+    r, warm = _put(client, {"view": view})
+    assert r.status_code == 422
+    warm.assert_not_called()
+
+
 def test_foreign_ids_reach_the_resolver_and_are_stored_as_dropped_kinds_only(client: TestClient) -> None:
     """End to end through the real `page_state.warm` (session and resolver faked): the resolver drops the unknown
     ids; the stored value carries their kinds, never the ids."""

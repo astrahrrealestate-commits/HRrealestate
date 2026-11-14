@@ -1228,16 +1228,17 @@ export interface PrewarmPageParams {
   taskRef?: string;
 }
 
+// Must be one of app.contracts.page_context.PageView's members (inbox, thread, case, approvals, tasks, waiting,
+// documents, briefing, other) — anything else is a 422, Pydantic rejects it outright. The backend only stores the
+// value as a label (it does not branch on it), so most EstateOS nav pages have no dedicated member and take "other";
+// only a thread/case/approval/etc. detail view gets its own.
 export async function prewarmAgentPage(params: PrewarmPageParams): Promise<boolean> {
   await ensureAuthenticated();
   try {
-    let view = "home";
+    let view = "other";
     const lower = params.pageName.toLowerCase();
     if (lower.includes("inbox")) view = "inbox";
-    else if (lower.includes("maintenance") || lower.includes("ticket")) view = "cases";
-    else if (lower.includes("money") || lower.includes("arrear")) view = "money";
-    else if (lower.includes("properties") || lower.includes("unit")) view = "units";
-    else if (lower.includes("tenants") || lower.includes("contact")) view = "tenants";
+    else if (lower.includes("maintenance") || lower.includes("ticket")) view = "case";
 
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/v1/agent/page`, {
       method: "PUT",
