@@ -15,9 +15,9 @@ x-app: &app
     SENTRY_DSN: ""
     LLM_MODEL: google-gla:gemini-2.5-flash
     LLM_TIMEOUT_SEC: 30
-    OPENAI_API_KEY: ""
-    GEMINI_API_KEY: "***REMOVED-GEMINI-KEY***"
-    GROQ_API_KEY: "***REMOVED-GROQ-KEY***"
+    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    GROQ_API_KEY: ${GROQ_API_KEY:-}
     GMAIL_PROVIDER: google
     DRIVE_PROVIDER: google
     CALENDAR_PROVIDER: google
@@ -27,8 +27,8 @@ x-app: &app
     DASHBOARD_AUTH_PROVIDER: fake
     DASHBOARD_SESSION_SECRET: dev-only-session-secret-change-me-32-chars
     DASHBOARD_CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
-    GOOGLE_OAUTH_CLIENT_ID: "***REMOVED-GOOGLE-CLIENT-ID***"
-    GOOGLE_OAUTH_CLIENT_SECRET: "***REMOVED-GOOGLE-CLIENT-SECRET***"
+    GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+    GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
     TENANT_SENDS_PER_HOUR: 30
 
 services:
@@ -96,4 +96,3 @@ services:
 volumes:
   pgdata:
   appdata:
-
