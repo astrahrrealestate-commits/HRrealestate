@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useState, Suspense } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { ShieldAlert, Lock, Loader2, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch } from "@/lib/backend";
+import { apiFetch, BACKEND_BASE_URL } from "@/lib/backend";
 
 function GoogleIcon() {
   return (
@@ -51,6 +51,44 @@ function LoginForm() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Only a fake-auth backend (local dev) offers this path; a real deployment never does, so no client-side flag
+  // decides it — the server's own configuration does.
+  const [showDevLogin, setShowDevLogin] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch(`${BACKEND_BASE_URL}/api/auth/login/config`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (!cancelled && body?.authProvider === "fake") setShowDevLogin(true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Local development only (the fake identity provider): sign in as the dev owner without Google.
+  const handleDevLogin = async () => {
+    setIsLoading(true);
+    setErrorMessage(null);
+    try {
+      const res = await apiFetch(`${BACKEND_BASE_URL}/api/v1/auth/session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id_token: "test-owner-token" }),
+      });
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        throw new Error(`Dev sign-in failed (${res.status}): ${errorText || "Is the backend running in dev?"}`);
+      }
+      // The response sets the HttpOnly session cookie; nothing script-readable to store.
+      window.location.href = "/";
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Dev sign-in failed.");
+      setIsLoading(false);
+    }
+  };
 
   const handleGoogleLogin = async () => {
     setIsLoading(true);
@@ -58,7 +96,7 @@ function LoginForm() {
     try {
       let res: Response;
       try {
-        res = await apiFetch("/api/auth/login/google/url", {
+        res = await apiFetch(`${BACKEND_BASE_URL}/api/auth/login/google/url`, {
           method: "GET",
           headers: { Accept: "application/json" },
         });
@@ -166,6 +204,17 @@ function LoginForm() {
             </>
           )}
         </button>
+
+        {showDevLogin && (
+          <button
+            type="button"
+            onClick={handleDevLogin}
+            disabled={isLoading}
+            className="w-full h-10 rounded-xl border border-white/25 bg-[#050B16]/45 backdrop-blur-md text-slate-200 hover:text-white hover:bg-[#081326]/70 hover:border-white/40 text-xs font-mono transition-all cursor-pointer select-none disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+          >
+            Continue as dev owner (local only)
+          </button>
+        )}
       </div>
 
       {/* 4. Whitelist Policy Badge */}

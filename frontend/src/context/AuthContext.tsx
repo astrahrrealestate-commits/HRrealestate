@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { apiFetch } from "@/lib/backend";
+import { apiFetch, BACKEND_BASE_URL } from "@/lib/backend";
 
 export interface AuthUser {
   email: string;
@@ -48,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchCurrentUser = async () => {
     try {
-      const res = await apiFetch("/api/auth/me", {
+      const res = await apiFetch(`${BACKEND_BASE_URL}/api/auth/me`, {
         method: "GET",
         headers: { Accept: "application/json" },
         credentials: "include",
@@ -83,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
-      await apiFetch("/api/auth/logout", {
+      await apiFetch(`${BACKEND_BASE_URL}/api/auth/logout`, {
         method: "POST",
         credentials: "include",
       });

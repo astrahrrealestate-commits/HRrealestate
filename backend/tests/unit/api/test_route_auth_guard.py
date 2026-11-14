@@ -32,6 +32,7 @@ ID = "00000000-0000-0000-0000-000000000001"
 PUBLIC = {
     ("GET", "/health/live"): "liveness probe",
     ("GET", "/health/ready"): "readiness probe",
+    ("GET", "/api/auth/login/config"): "the login page's own mode, before any session exists",
     ("GET", "/api/auth/login/google/url"): "starts the owner login",
     ("GET", "/api/auth/login/google/callback"): "finishes the owner login (the session starts here)",
     ("POST", "/api/auth/logout"): "clears the cookie; idempotent",

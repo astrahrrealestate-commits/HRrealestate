@@ -61,6 +61,12 @@ def _login_error(settings: Settings, code: str) -> RedirectResponse:
     return response
 
 
+@router.get("/login/config", summary="Public login configuration")
+def get_login_config(settings: Annotated[Settings, Depends(get_settings_dep)]) -> dict[str, str]:
+    """Which login path the SPA should offer, before any session exists. Never the client id/secret — only the mode."""
+    return {"authProvider": settings.dashboard_auth_provider}
+
+
 @router.get("/login/google/url", summary="Get Google Login Authorization URL")
 def get_login_url(settings: Annotated[Settings, Depends(get_settings_dep)], response: Response) -> dict[str, str]:
     """Generates the Google OAuth 2.0 authorization URL for platform sign-in and binds its `state` to this browser."""
