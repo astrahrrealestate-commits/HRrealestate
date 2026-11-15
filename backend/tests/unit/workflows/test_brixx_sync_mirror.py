@@ -44,6 +44,23 @@ def test_table_missing_from_the_mirror_is_skipped_without_fetching() -> None:
     success.assert_not_called()
 
 
+def test_a_table_with_no_resolvable_primary_key_is_skipped_without_beginning_a_run() -> None:
+    """`describe_step` returns `None` for a BRIXX `Z*` table whose primary key cannot be resolved (see
+    `resolve_primary_key`); the child must skip it exactly like a table missing from the mirror, never call
+    `begin_step` (which needs a real table to check), and never fail the run."""
+    with (
+        patch.object(wf, "describe_step", return_value=None) as describe,
+        patch.object(wf, "begin_step") as begin,
+        patch.object(wf, "sync_page_step") as page,
+        patch.object(wf, "mark_success_step") as success,
+    ):
+        assert CHILD("run-1", "ZPRG_NOPK") == wf.SKIPPED
+    describe.assert_called_once_with("ZPRG_NOPK")
+    begin.assert_not_called()
+    page.assert_not_called()
+    success.assert_not_called()
+
+
 def test_pages_are_written_through_the_columns_the_mirror_has() -> None:
     with (
         patch.object(wf, "describe_step", return_value=asdict(LIVE)),

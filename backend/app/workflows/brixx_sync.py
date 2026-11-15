@@ -23,7 +23,7 @@ After `PRG_DOCUMENT` syncs, its child also claims and enqueues the document down
 that outlives its retries fails that table's child like any other table error.
 """
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -41,7 +41,7 @@ from app.db.models import Company
 from app.db.models.brixx import BrixxSyncRun
 from app.directory.brixx.documents import is_document_table
 from app.directory.brixx.mirror import mirror_columns, storable
-from app.directory.brixx.schema import build_table
+from app.directory.brixx.schema import build_table, resolve_primary_key
 from app.directory.brixx.state import begin_table_run, get_or_create_table_state, mark_success
 from app.directory.brixx.sync import latest, sync_table_page
 from app.workflows import queues
@@ -146,8 +146,17 @@ def collect(handle: Any) -> str:
 
 
 @DBOS.step(name="brixx.describe_table", **BRIXX_RETRY)
-def describe_step(table: str) -> dict[str, Any]:
+def describe_step(table: str) -> dict[str, Any] | None:
+    """The live table, or `None` when its primary key cannot be determined (BRIXX's `Z*` historical tables
+    always return an empty `primaryKeyField`; most resolve via the `<table>ID` convention, but a minority
+    cannot be guessed -- see `resolve_primary_key`). Treated by the caller exactly like a table the mirror has
+    no migration for: skipped, not a retried failure, since no primary key is just as permanent."""
     info = brixx_api().describe_table(table)
+    pk = resolve_primary_key(info)
+    if pk is None:
+        return None
+    if pk != info.primary_key:
+        info = replace(info, primary_key=pk)
     build_table(info, sa.MetaData())  # refuse unsafe names before anything is stored
     return asdict(info)
 
@@ -208,6 +217,9 @@ def mark_success_step(company_id: str, run_id: str, table: str, upd: str | None,
 
 def _sync_pages(run_id: str, table: str) -> str:
     info = describe_step(table)
+    if info is None:
+        log.warning("brixx.sync_table_skipped", table=table, reason="no_usable_primary_key")
+        return SKIPPED
     begun = begin_step(run_id, info)
     stored = begun["stored"]
     if stored is None:
