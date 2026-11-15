@@ -51,3 +51,7 @@ frontend/.env*.local
 # test distribution bundles
 *.tar
 /compose.test.yml
+
+# live BRIXX metadata snapshot (python -m app.dev.brixx discover): regenerable, consumed into a committed
+# migration by codegen, never itself committed. The small, stable `metadata_example/` fixture is tracked.
+backend/tests/fixtures/brixx/metadata/

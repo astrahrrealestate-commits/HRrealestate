@@ -8,7 +8,7 @@ whose type changed is refused (that needs a hand-written migration), and an unch
 
 import ast
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 
 import sqlalchemy as sa
@@ -18,12 +18,15 @@ from alembic.runtime.migration import MigrationContext
 
 from app.channels.brixx.models import BrixxTable
 from app.core.errors import BrixxError
+from app.core.logging import get_logger
 from app.directory.brixx.schema import MIRROR_SCHEMA, SYSTEM_COLUMNS, build_table
 
 MARKER = "BRIXX_MIRROR"
 Mirror = dict[str, dict[str, str]]
 _CONTEXT = MigrationContext.configure(dialect_name="postgresql")  # offline: no database
 _DIALECT = _CONTEXT.dialect
+
+log = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -51,9 +54,30 @@ def _columns(table: sa.Table) -> dict[str, str]:
     return {c.name: c.type.compile(dialect=_DIALECT) for c in table.c if c.name not in SYSTEM_COLUMNS}
 
 
+def _resolve_primary_key(info: BrixxTable) -> str | None:
+    """BRIXX's real primary key, or `None` when it cannot be determined.
+
+    BRIXX's `Z*` historical tables always return an empty `primaryKeyField`; most (verified against the real
+    API) follow the documented `<table>ID` convention, but a minority instead repeat the non-Z table's own PK
+    name (e.g. `ZPRG_CONTRACTGARANTSTELLER` has field `PRG_CONTRACTGARANTSTELLERID`, not
+    `ZPRG_CONTRACTGARANTSTELLERID`) and so cannot be guessed; those are left out rather than guessed wrong."""
+    names = {f.name.lower() for f in info.fields}
+    if info.primary_key and info.primary_key.lower() in names:
+        return info.primary_key
+    fallback = f"{info.name}ID"
+    return fallback if fallback.lower() in names else None
+
+
 def _built(tables: Sequence[BrixxTable]) -> list[sa.Table]:
     metadata = sa.MetaData()
-    return sorted((build_table(info, metadata) for info in tables), key=lambda t: t.name)
+    usable = []
+    for info in tables:
+        pk = _resolve_primary_key(info)
+        if pk is None:
+            log.warning("brixx.codegen_skipped", table=info.name, reason="no_usable_primary_key")
+            continue
+        usable.append(info if pk == info.primary_key else replace(info, primary_key=pk))
+    return sorted((build_table(info, metadata) for info in usable), key=lambda t: t.name)
 
 
 def mirror_spec(tables: Sequence[BrixxTable]) -> Mirror:

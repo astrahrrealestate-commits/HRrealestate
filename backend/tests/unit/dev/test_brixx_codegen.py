@@ -126,3 +126,24 @@ def test_an_unsafe_snapshot_table_is_refused() -> None:
     )
     with pytest.raises(BrixxError, match="system column"):
         plan_delta([bad], {})
+
+
+def test_an_empty_primary_key_falls_back_to_the_table_id_convention() -> None:
+    """BRIXX's real `Z*` historical tables always return an empty `primaryKeyField`; most follow the documented
+    `<table>ID` convention and should still be mirrored, not dropped just because the field was left empty."""
+    z_table = BrixxTable("ZPRG_GOODHIST", "", (BrixxField(1, "ZPRG_GOODHISTID", "NUMBER", True, None, None),))
+    delta = plan_delta([z_table], {})
+    assert delta.new_tables == ("zprg_goodhist",)
+
+
+def test_a_table_matching_neither_the_declared_nor_conventional_primary_key_is_left_out() -> None:
+    """A handful of real `Z*` tables reuse the non-Z table's own PK name instead of the `<table>ID` convention
+    (e.g. `ZPRG_CONTRACTGARANTSTELLER` has field `PRG_CONTRACTGARANTSTELLERID`); that cannot be guessed, so the
+    table is left out of the mirror (logged, not raised) instead of breaking codegen for every other table."""
+    no_pk = BrixxTable("ZPRG_NOPK", "", (BrixxField(1, "PRG_NOPKID", "NUMBER", True, None, None),))
+    wrong_pk = BrixxTable(
+        "ZPRG_WRONGPK", "ZPRG_WRONGPKID", (BrixxField(1, "PRG_WRONGPKID", "NUMBER", True, None, None),)
+    )
+    good = BrixxTable("PRG_GOOD", "PRG_GOODID", (BrixxField(1, "PRG_GOODID", "NUMBER", True, None, None),))
+    delta = plan_delta([no_pk, wrong_pk, good], {})
+    assert delta.new_tables == ("prg_good",)

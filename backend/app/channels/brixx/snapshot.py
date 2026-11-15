@@ -14,17 +14,35 @@ from typing import Any
 
 from app.channels.brixx.models import BrixxField, BrixxTable
 from app.channels.brixx.ports import BrixxApi
-from app.core.errors import BrixxError
+from app.core.errors import BrixxAuthError, BrixxError
+from app.core.logging import get_logger
 
 INDEX_FILE = "_index.json"
 FORMAT_VERSION = 1
 _TABLE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,62}$")
 
+log = get_logger(__name__)
+
 
 def record_snapshot(api: BrixxApi) -> list[BrixxTable]:
-    """Describe every table the token can read, sorted by name. Calls only the metadata endpoints."""
+    """Describe every table the token can read, sorted by name. Calls only the metadata endpoints.
+
+    BRIXX's own table listing can include a table its describe endpoint refuses (seen for one colliding with a
+    reserved Postgres catalog name); such a table is skipped and logged by name, not fatal to the snapshot.
+    `BrixxAuthError` (401/403: a dead token, a dropped IP whitelist entry, mid-run) is never one of those
+    quirks and always propagates, so the CLI's dedicated `AUTH_HINT` path still fires instead of this silently
+    producing a partial snapshot.
+    """
     names = sorted({name for name, _key in api.list_tables()})
-    return [api.describe_table(name) for name in names]
+    tables = []
+    for name in names:
+        try:
+            tables.append(api.describe_table(name))
+        except BrixxAuthError:
+            raise
+        except BrixxError as exc:
+            log.warning("brixx.describe_skipped", table=name, error=str(exc))
+    return tables
 
 
 def dump_table(info: BrixxTable) -> str:
