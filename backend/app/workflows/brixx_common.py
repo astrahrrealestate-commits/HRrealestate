@@ -5,11 +5,11 @@ from typing import Any
 from sqlalchemy.exc import DBAPIError
 
 from app.channels.brixx.models import BrixxField, BrixxTable
-from app.core.errors import BrixxAuthError, BrixxError, StaleRunError
+from app.core.errors import BrixxAuthError, BrixxError, BrixxNotFoundError, StaleRunError
 
 OK = "ok"
 FAILED = "failed:"
-_NOT_RETRIED = (BrixxAuthError, StaleRunError)
+_NOT_RETRIED = (BrixxAuthError, BrixxNotFoundError, StaleRunError)
 
 
 def brixx_retryable(exc: BaseException) -> bool:

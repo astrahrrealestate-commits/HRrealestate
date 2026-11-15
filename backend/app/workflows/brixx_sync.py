@@ -7,10 +7,11 @@ Workflow bodies only sequence steps; every database, API and clock access is ins
 deterministic: the run id is a uuid5 of company + cron tick (minute), the child workflow id is
 `brixx:<run_id>:<table>`, so a replayed cron tick or a repeated enqueue never duplicates a run, a child or a state row.
 
-Failure policy: `BrixxAuthError` and `StaleRunError` are not retried (`should_retry` of the DBOS step; retrying cannot
-help until the token is replaced or the rival run finishes). Other `BrixxError`/`BrixxStoreError`s and database errors
-are retried with backoff. A child never raises for a failed table: it returns `failed:<ErrorClass>` so the parent can
-mark the run `failed` (class and table names only) while the other tables finish. The fixed cron (`*/15`) does not
+Failure policy: `BrixxAuthError`, `BrixxNotFoundError` and `StaleRunError` are not retried (`should_retry` of the DBOS
+step; retrying cannot help until the token is replaced, BRIXX actually has the resource, or the rival run finishes).
+Other `BrixxError`/`BrixxStoreError`s and database errors are retried with backoff. A child never raises for a
+failed table: it returns `failed:<ErrorClass>` so the parent can mark the run `failed` (class and table names only)
+while the other tables finish. The fixed cron (`*/15`) does not
 read `brixx_sync_interval_minutes`: that setting is not used for scheduling.
 
 Mirror tables come from generated migrations, so a child writes only through the columns the migrated mirror table has

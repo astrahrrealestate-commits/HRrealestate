@@ -11,7 +11,7 @@ from pydantic import SecretStr
 from app.channels.brixx.models import BrixxField, BrixxPage, BrixxTable
 from app.channels.brixx.normalise import normalise_row
 from app.channels.brixx.query import data_query_params
-from app.core.errors import BrixxAuthError, BrixxError
+from app.core.errors import BrixxAuthError, BrixxError, BrixxNotFoundError
 
 _TABLE_NAME = re.compile(r"[A-Za-z0-9_]+")
 Json = dict[str, object]
@@ -84,6 +84,8 @@ class HttpBrixxApi:
         status = response.status_code
         if status in (401, 403):
             raise BrixxAuthError(f"BRIXX rejected the token (HTTP {status})")
+        if status == 404:  # never transient: the resource at this URL does not exist, retrying cannot help
+            raise BrixxNotFoundError(f"BRIXX request failed (HTTP {status})")
         if status >= 300:
             raise BrixxError(f"BRIXX request failed (HTTP {status})")
         return response
