@@ -29,7 +29,14 @@ permissions:
 jobs:
   deploy:
     name: Deploy to ${{ github.event.inputs.environment || (github.event.workflow_run.head_branch == 'main' && 'Production' || 'Staging') }}
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success') }}
+    # Only CI runs from a push to this repository deploy: CI also runs for pull requests, and a fork PR from a branch
+    # named main or stage must never reach production.
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' || (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository
+      ) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -39,13 +46,17 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             ENV_NAME="${{ github.event.inputs.environment }}"
-          elif [ "${{ github.event.workflow_run.head_branch }}" = "main" ] || [ "${{ github.ref_name }}" = "main" ]; then
-            ENV_NAME="prod"
-          elif [ "${{ github.event.workflow_run.head_branch }}" = "stage" ] || [ "${{ github.ref_name }}" = "stage" ]; then
-            ENV_NAME="stage"
           else
-            echo "::error::Unsupported branch for deployment: ${{ github.event.workflow_run.head_branch || github.ref_name }}"
-            exit 1
+            # workflow_run: github.ref_name is ALWAYS the default branch (main) here, so only head_branch says which
+            # branch's CI passed. Checking ref_name too sent every stage push to production.
+            case "${{ github.event.workflow_run.head_branch }}" in
+              main) ENV_NAME="prod" ;;
+              stage) ENV_NAME="stage" ;;
+              *)
+                echo "::error::Unsupported branch for deployment: ${{ github.event.workflow_run.head_branch }}"
+                exit 1
+                ;;
+            esac
           fi
 
           COMMIT_SHA="${{ github.event.workflow_run.head_sha || github.sha }}"

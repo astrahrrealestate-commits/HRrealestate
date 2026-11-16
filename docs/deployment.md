@@ -107,5 +107,9 @@ show up there:
 - **Secrets without echo.** `scripts/aws_set_backend_secrets.py --env prod|stage` prompts (hidden) for
   `WHATSAPP_APP_SECRET`, `BRIXX_TOKEN`, generates `WHATSAPP_VERIFY_TOKEN` on request, merges them into the secret,
   prints the Meta webhook URL + verify token, and redeploys api and worker.
+- **CD picks the environment from the CI run's branch only.** Until 2026-11-16 `deploy.yml` also checked
+  `github.ref_name`, which is always `main` for a `workflow_run` event, so every CD run (stage pushes included)
+  deployed to prod and stage was only ever deployed by hand. CD also runs only for CI runs from a push to this
+  repository, never for pull requests (a fork branch named `main` must not reach prod).
 - **Task definitions vs terraform.** Terraform state is not in this repo (the S3 backend block is commented out), so a
   live change to a task definition must be mirrored in `terraform/environments/*/main.tf` or the next apply reverts it.

@@ -315,6 +315,7 @@ bidirectional translation controls onto the new unified Composer, and fixed what
 - [x] Seed scaffold cleaned on stage and prod (company "HR Real Estate", real WhatsApp phone-number-id, placeholder
   mailbox and owner phone removed, owners on the dashboard channel, `harjot@estateos.internal` deactivated)
 - [x] Prod NAT instance + Elastic IP `13.51.27.141`; prod worker egresses through it
+- [x] CD bug: every run deployed to prod (`ref_name` is `main` for workflow_run); now branch-only, push-only
 - [ ] **user:** whitelist `13.51.27.141` at BRIXX; run `scripts/aws_set_backend_secrets.py --env prod` (BRIXX_TOKEN,
   WHATSAPP_APP_SECRET, generate WHATSAPP_VERIFY_TOKEN and paste it in Meta); then prod worker gets BRIXX env
 - [ ] Before filling `OPENAI_API_KEY`: use an EU data-residency OpenAI project (CLAUDE.md "OpenAI (EU)"); the
