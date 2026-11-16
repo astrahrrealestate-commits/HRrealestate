@@ -15,6 +15,8 @@ ALLOWED_VIEWS = frozenset(
         "v_documents_overview",
         "v_approval_audit",
         "v_send_stats",
+        "v_maintenance_tickets",
+        "v_lease_facts",
     }
 )
 

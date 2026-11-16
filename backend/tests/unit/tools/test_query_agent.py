@@ -61,6 +61,12 @@ def test_query_strips_comments_and_normalizes():
 # ==============================================================================
 
 
+def test_reject_a_schema_qualified_mirror_table():
+    with pytest.raises(SQLSecurityError, match="Schema"):
+        validate_and_wrap_sql("SELECT * FROM brixx.v_lease_facts")
+    assert "v_lease_facts" in validate_and_wrap_sql("SELECT * FROM public.v_lease_facts")
+
+
 def test_reject_insert_mutation():
     with pytest.raises(SQLSecurityError):
         validate_and_wrap_sql("INSERT INTO v_case_overview (summary) VALUES ('fake')")
@@ -398,5 +404,21 @@ def test_query_agent_prompts_are_in_sync():
     from app.llm.prompts import load_prompt
     from app.tools.query_agent.prompt import QUERY_AGENT_SYSTEM_PROMPT
 
-    v2_text = load_prompt(PromptRef(name="query_agent", version="v2")).text
-    assert QUERY_AGENT_SYSTEM_PROMPT.strip() == v2_text.strip()
+    v3_text = load_prompt(PromptRef(name="query_agent", version="v3")).text
+    assert QUERY_AGENT_SYSTEM_PROMPT.strip() == v3_text.strip()
+
+
+def test_sanitize_rows_labels_brixx_tickets_and_lease_facts():
+    rows = [
+        {
+            "source": "brixx",
+            "ticket_ref": "BRIXX-41",
+            "unit_address": "Teststraat 5A",
+            "title": "Lekkage",
+            "is_open": True,
+            "monthly_rent_eur": 1500.0,
+            "living_area_sqm": 62,
+        }
+    ]
+    cols, _ = sanitize_rows_for_display(rows)
+    assert cols == ["Source", "Ticket", "Property", "Title", "Open", "Monthly Rent (€)", "Area (m²)"]

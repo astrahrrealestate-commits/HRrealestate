@@ -77,6 +77,14 @@ _ENUM_STYLE_COLS = frozenset(
 
 _COLUMN_LABELS: dict[str, str] = {
     "case_id": "Ticket",
+    "ticket_ref": "Ticket",
+    "source": "Source",
+    "title": "Title",
+    "closed_at": "Closed",
+    "is_open": "Open",
+    "monthly_rent_eur": "Monthly Rent (€)",
+    "deposit_eur": "Deposit (€)",
+    "living_area_sqm": "Area (m²)",
     "task_id": "Task",
     "unit_address": "Property",
     "unit_label": "Unit",
@@ -198,7 +206,7 @@ def _call_gemini(
 
 QUERY_AGENT = AgentSpec(
     name="query_agent",
-    prompt=PromptRef(name="query_agent", version="v2"),
+    prompt=PromptRef(name="query_agent", version="v3"),
     output_type=SQLQueryProposal,
     finalize=lambda output, _loaded: output,
     gemini_prompted=True,

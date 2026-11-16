@@ -360,3 +360,11 @@ bidirectional translation controls onto the new unified Composer, and fixed what
   (1032 rows) and `FIN_INDEXERINGSSESSIE` failed every 15 minutes with `TypeError`: BRIXX sends BYTEA columns as base64
   text and psycopg wants bytes; the upsert now decodes them. Still failing on BRIXX's side (HTTP 500): `BRIXXIE_CHAT`,
   `ZPRG_RELATIE`; `PG_*` system tables are listed in the metadata but answer 404 (not retried).
+- [x] Super Agent sees BRIXX tickets and lease facts (2026-11-17): the query tool read tickets only from `cases`
+  (`v_case_overview`); BRIXX tickets live in the `brixx` mirror (`tst_ticket`) and the dashboard's rent/deposit/area are
+  read from the mirror at request time, so "which tickets are open" and "how big is X" came back empty. Migration 0047
+  adds `v_maintenance_tickets` (EstateOS cases + live BRIXX tickets, one vocabulary, `is_open`; deleted and GDPR-erased
+  tickets left out) and `v_lease_facts` (monthly rent, deposit, living area per lease). Both are in the query
+  allowlist, in `query_agent` prompt **v3** (v2 stays published; no golden set exists for text-to-SQL, so the SQL is
+  proven by `tests/integration/test_agent_views.py`, the model's choice of view is not) and have display labels.
+  The same test file fails when the allowlist, the database views and the prompt disagree on which views exist.

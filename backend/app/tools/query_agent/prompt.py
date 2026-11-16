@@ -18,7 +18,7 @@ Always output your response as a valid JSON object with keys "sql" and "rational
 4. v_active_leases (Leases joined with properties and tenants)
    - columns: company_id, lease_id, unit_address, unit_label, tenant_name, valid_from (date), valid_to (date|NULL), is_active (boolean)
 
-5. v_case_overview (Maintenance & support tickets with unit and tenant)
+5. v_case_overview (EstateOS cases: tenant and contractor conversations, one per issue; NOT the BRIXX tickets)
    - columns: company_id, case_id, unit_address, tenant_name, category, urgency, state, opened_at, summary
 
 6. v_task_overview (Owner & system tasks)
@@ -44,6 +44,12 @@ Always output your response as a valid JSON object with keys "sql" and "rational
 
 13. v_send_stats (Outbound send outcomes without recipient PII)
     - columns: company_id, action_id, channel, status ('pending'|'sending'|'sent'|'failed'), attempted_at, created_at
+
+14. v_maintenance_tickets (ALL maintenance tickets: BRIXX tickets and EstateOS cases, one vocabulary)
+    - columns: company_id, source ('brixx'|'estateos'), ticket_ref, unit_address, tenant_name, contractor_name (BRIXX only, else NULL), title, category (the BRIXX ticket type for BRIXX rows, the EstateOS category for cases), urgency ('emergency'|'high'|'normal'|'low'), status ('scheduled'|'dispatched'|'completed' for BRIXX; the case state for EstateOS), is_open (boolean), opened_at, closed_at
+
+15. v_lease_facts (Per lease: monthly rent, deposit, living area from BRIXX)
+    - columns: company_id, lease_id, unit_address, unit_label, tenant_name, valid_from, valid_to, is_active, monthly_rent_eur (the BRIXX contract rent, excl. VAT), deposit_eur, living_area_sqm (NULL when BRIXX has no value)
 
 ### DATABASE BASE TABLES (USE WHEN CURATED VIEWS LACK A SPECIFIC COLUMN):
 
@@ -78,12 +84,12 @@ Always output your response as a valid JSON object with keys "sql" and "rational
 3. Prefer the curated `v_*` views whenever possible — they are pre-joined, company-isolated via `app.company_id`, and convert cents to EUR.
 4. For profitability / revenue / maintenance spend vs rent questions, ALWAYS query `v_unit_profitability` (use `collected_rent_eur`, `maintenance_cost_eur`, `net_profit_eur`, `margin_pct`). Do NOT compute profit from `quotes` alone.
 5. When querying `tenant_rent_payments` or `monthly_rent_summaries` directly, ALWAYS divide `*_cents` by `100.0` to express EUR cleanly. Never mix cents with `quotes.total` (which is already in EUR).
-6. Remember: In `cases`, the column is `state`, NOT `status`. In `actions`, `waits`, `tasks`, `tenant_rent_payments`, `documents`, `approvals`, `memory_items`, the column is `status`.
+6. Remember: In `cases`, the column is `state`, NOT `status`; `v_maintenance_tickets` has `status` and `is_open`, never `state`. In `actions`, `waits`, `tasks`, `tenant_rent_payments`, `documents`, `approvals`, `memory_items`, the column is `status`.
 7. Use standard analytical functions: COUNT(*), SUM(...), AVG(...), MIN(...), MAX(...), COALESCE(...), ROUND(...), GREATEST(...), LEAST(...), NULLIF(...), LOWER(...), DATE_TRUNC('month', ...).
 8. Do NOT include trailing semicolons or markdown code block fences in the sql field.
 9. `people.kind` is NOT reliable for people who wrote in: an unknown sender is stored as kind 'other'. The tenant of a case is `cases.primary_person_id`: to list tenants or reporters of cases, join `people` through it and do NOT filter `people.kind = 'tenant'`.
-10. Prefer human-readable columns (`unit_address`, `tenant_name`, `valid_from`, `valid_to`, `is_active`, `category`, `urgency`, `state`, `opened_at`, `summary`). Avoid selecting raw internal FK/PK UUIDs like `company_id`, `lease_id`, `unit_id`, `person_id`, or `event_id`; only include `case_id` or `task_id` when listing cases/tasks.
-11. When asked for "active leases" or "current tenants", filter `WHERE is_active = TRUE` on `v_active_leases`. When asked for "open tickets" or "open cases", filter `WHERE state IN ('open', 'waiting_on_owner', 'waiting_on_third_party')` and order urgent items first. When asked for "active rules" or "preferences", filter `WHERE status = 'active'` on `memory_items`.
+10. Prefer human-readable columns (`ticket_ref`, `title`, `source`, `status`, `unit_address`, `tenant_name`, `valid_from`, `valid_to`, `is_active`, `category`, `urgency`, `state`, `opened_at`, `summary`). Avoid selecting raw internal FK/PK UUIDs like `company_id`, `lease_id`, `unit_id`, `person_id`, or `event_id`; only include `case_id` or `task_id` when listing cases/tasks.
+11. When asked for "active leases" or "current tenants", filter `WHERE is_active = TRUE` on `v_active_leases`. When asked for "tickets", "maintenance", "repairs" or "issues", use `v_maintenance_tickets` (it holds the BRIXX tickets too; `cases` and `v_case_overview` do not) and for "open" filter `WHERE is_open`; use `v_case_overview` or `cases` only when asked about EstateOS cases or conversations. When asked for "open cases", filter `WHERE state IN ('open', 'waiting_on_owner', 'waiting_on_third_party')` and order urgent items first. Rent, deposit or size (m2, sqm, area) of a unit or lease: `v_lease_facts` (rent paid or overdue: `v_rent_ledger`). When asked for "active rules" or "preferences", filter `WHERE status = 'active'` on `memory_items`.
 
 ### FEW-SHOT EXAMPLES:
 
@@ -113,6 +119,20 @@ Output:
 {
   "sql": "SELECT contractor_name, trade, description, unit, amount, currency FROM v_vendor_rates WHERE LOWER(COALESCE(trade, '') || ' ' || description) LIKE '%plumb%' OR LOWER(COALESCE(trade, '') || ' ' || description) LIKE '%loodgiet%' ORDER BY contractor_name, description",
   "rationale": "Looks up agreed contractor rate cards matching plumbing."
+}
+
+User: "Which tickets are open?"
+Output:
+{
+  "sql": "SELECT source, ticket_ref, unit_address, tenant_name, title, category, urgency, status, opened_at FROM v_maintenance_tickets WHERE is_open ORDER BY (urgency IN ('emergency', 'high')) DESC, opened_at DESC",
+  "rationale": "Lists open BRIXX tickets and EstateOS cases together, urgent first."
+}
+
+User: "How big is Dorpsstraat 54 and what is the rent?"
+Output:
+{
+  "sql": "SELECT unit_address, tenant_name, living_area_sqm, monthly_rent_eur, deposit_eur FROM v_lease_facts WHERE is_active AND LOWER(unit_address) LIKE '%dorpsstraat 54%'",
+  "rationale": "Reads the living area, monthly rent and deposit of the active lease from v_lease_facts."
 }
 
 User: "What are we waiting on right now?"

@@ -87,6 +87,8 @@ def validate_and_wrap_sql(sql: str, max_limit: int = 50) -> str:
                 f"Table or view '{table.name}' is not in the allowed relations list. "
                 f"Allowed views: {sorted(ALL_ALLOWED_RELATIONS)}"
             )
+        if table.db and table.db.lower() != "public":
+            raise SQLSecurityError(f"Schema '{table.db}' is not allowed; use the curated views.")
 
     # 4. Check functions
     for func in tree.find_all(exp.Func, exp.Anonymous):
