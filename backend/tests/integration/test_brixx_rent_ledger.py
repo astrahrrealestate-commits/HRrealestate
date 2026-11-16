@@ -56,6 +56,7 @@ FACTUUR = _info(
         ("FACTUURNR", "TEXT"),
         ("FACTVERVALDATUM", "DATE"),
         ("DM_FACTUURSTATUS", "TEXT"),
+        ("DM_FACTUURTYPE", "TEXT"),
         ("DM_BETALINGSTYPECODE", "TEXT"),
         ("TOTAALBEDRAGINCL", "NUMERIC"),
         *AUDIT,
@@ -210,6 +211,16 @@ def test_a_real_name_replaces_the_generated_label_but_a_manual_rename_survives(e
             p.brixx_ref: p.display_name for p in s.scalars(sa.select(Person).where(Person.company_id == env.company_id))
         }
     assert names == {"1": "Jan Jansen", "2": "Renamed by owner"}
+
+
+def test_a_planned_credit_is_not_billed_until_it_is_issued(env: Env) -> None:
+    credit = {**_invoice(10, "2026-11-01", "2026-11-25", "GEPLAND", -200, None), "DM_FACTUURTYPE": "CREDIT"}
+    _put(env, FACTUUR, [credit])
+    env.map()
+    assert (_ledger(env)["2026-11"].contract_rent_cents, _ledger(env)["2026-11"].status) == (100000, "partial")
+    _put(env, FACTUUR, [{**credit, "DM_FACTUURSTATUS": "DEFINITIEF"}])
+    env.map()
+    assert _ledger(env)["2026-11"].contract_rent_cents == 80000
 
 
 def _put(env: Env, info: BrixxTable, rows: list[dict[str, object]]) -> None:

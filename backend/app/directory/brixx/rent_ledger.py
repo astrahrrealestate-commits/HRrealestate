@@ -3,7 +3,9 @@
 One ledger row per lease and billing month (`PLANDATUM`'s month), up to and including the current month. A contract's
 invoices of that month are summed (credit and correction invoices carry negative amounts); payments are the contract
 invoices' `FIN_BETALING` rows that were not reversed (`IND_GESTORNEERD`). `GEPLAND` invoices are planned and not yet
-issued: pending, never overdue. An issued (`DEFINITIEF`) invoice past its due date and not fully paid is overdue.
+issued: pending, never overdue; planned credits and corrections (`DM_FACTUURTYPE` other than `NORMAAL`) are left out
+until issued. An issued (`DEFINITIEF`) invoice past its due date and not fully paid is overdue. Invoices of contracts
+BRIXX no longer lists (stage: 22 old contracts, last billed 2026-05) have no lease or tenant and are skipped.
 The ledger amount is the invoiced total incl. VAT, so service costs billed on the same invoice are included.
 A contract with several unit links books its invoices on the first link (lowest contract-VHE id). Rows for leases
 BRIXX no longer invoices are removed; rows of leases without a mapped tenant are skipped. Flushes; the caller commits.
@@ -97,13 +99,19 @@ def _payments(rows: Sequence[col.Row]) -> dict[int, tuple[Decimal, date | None]]
     return paid
 
 
+def _planned_adjustment(row: col.Row) -> bool:
+    """A planned credit or correction: BRIXX has not issued it, so it is neither billed nor due."""
+    kind = str(row.get("dm_factuurtype") or "").lower()
+    return str(row.get("dm_factuurstatus") or "").lower() == PLANNED and kind not in ("", "normaal")
+
+
 def _collect(
     invoices: Sequence[col.Row], payments: dict[int, tuple[Decimal, date | None]], today: date
 ) -> dict[tuple[int, date], _Month]:
     months: dict[tuple[int, date], _Month] = defaultdict(_Month)
     for row in invoices:
         contract, planned = col.pick_int(row, (col.CONTRACT_PK,)), col.pick_date(row, ("plandatum",))
-        if contract is None or planned is None or col.is_ended(row):
+        if contract is None or planned is None or col.is_ended(row) or _planned_adjustment(row):
             continue
         first = planned.replace(day=1)
         if first > today.replace(day=1):
