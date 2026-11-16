@@ -126,6 +126,8 @@ def test_the_briefing_gets_one_section_per_kind(db: Session, seeded: Company) ->
     sections = {s.category: s for s in _brixx_sections(attention_items(db, seeded.id, TODAY, OWNER))}
     assert sorted(sections) == ["Leases ending soon (BRIXX)", "Open BRIXX tickets", "Rent arrears (BRIXX)"]
     assert sections["Open BRIXX tickets"].headline == "2 open tickets"
+    assert sections["Rent arrears (BRIXX)"].headline == "2 tenants behind on rent"
+    assert sections["Leases ending soon (BRIXX)"].headline == "2 leases ending within 90 days"
     assert sections["Open BRIXX tickets"].urgency == "high"
 
 

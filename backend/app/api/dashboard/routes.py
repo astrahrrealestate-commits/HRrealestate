@@ -369,18 +369,18 @@ def _plural(count: int, noun: str) -> str:
 def _brixx_sections(items: list[AttentionItem]) -> list[BriefingSection]:
     """One briefing section per kind of BRIXX item that exists; none when BRIXX has nothing for the owner."""
     labels = {
-        "ticket": ("Open BRIXX tickets", "open ticket"),
-        "rent": ("Rent arrears (BRIXX)", "tenant behind on rent"),
-        "lease": ("Leases ending soon (BRIXX)", "lease ending within 90 days"),
+        "ticket": ("Open BRIXX tickets", "open ticket", "open tickets"),
+        "rent": ("Rent arrears (BRIXX)", "tenant behind on rent", "tenants behind on rent"),
+        "lease": ("Leases ending soon (BRIXX)", "lease ending within 90 days", "leases ending within 90 days"),
     }
     sections = []
-    for kind, (category, noun) in labels.items():
+    for kind, (category, one, many) in labels.items():
         found = [item for item in items if item.kind == kind]
         if found:
             sections.append(
                 BriefingSection(
                     category=category,
-                    headline=_plural(len(found), noun),
+                    headline=f"{len(found)} {one if len(found) == 1 else many}",
                     details="; ".join(f"{i.unitLabel or i.title}: {i.detail}" for i in found[:3]),
                     urgency="high" if any(i.urgent for i in found) else "normal",
                 )
