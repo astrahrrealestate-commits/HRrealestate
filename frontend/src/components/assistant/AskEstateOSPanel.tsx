@@ -1770,7 +1770,7 @@ export function AskEstateOSPanel({
             {isTyping && (
               <div className="flex items-center gap-2 text-xs text-cyan-300 py-1">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Astra is thinking...</span>
+                <span>{t("agent.thinking", "Astra is thinking...")}</span>
               </div>
             )}
             <div ref={messagesEndRef} />
@@ -1817,7 +1817,7 @@ export function AskEstateOSPanel({
                     handleSendQuery(inputQuery);
                   }
                 }}
-                placeholder="Talk to Astra and get your job done"
+                placeholder={t("agent.dock_placeholder", "Talk to Astra and get your job done")}
                 className="w-full text-[13px] bg-transparent outline-none resize-none text-white placeholder:text-slate-500 leading-normal"
               />
               <div className="flex items-center justify-between pt-1">

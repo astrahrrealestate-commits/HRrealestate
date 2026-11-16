@@ -113,7 +113,7 @@ export function TopCommandBar({
             onClick={onSyncMailbox}
             disabled={isSyncing}
             className="inline-flex items-center gap-1.5 h-[30px] px-2.5 sm:px-3 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/15 text-white border border-[#162B45] transition-all cursor-pointer disabled:opacity-50 select-none"
-            title="Sync mailbox with Gmail & WhatsApp"
+            title={t("topbar.sync_tooltip")}
           >
             <RotateCw
               className={cn("w-3.5 h-3.5 text-zinc-300", isSyncing && "animate-spin text-[#1a73e8]")}
@@ -135,7 +135,7 @@ export function TopCommandBar({
               ? "bg-[#10213B] text-white border-[#162B45] shadow-[0_0_12px_rgba(0,229,255,0.25)]"
               : "bg-white/10 hover:bg-white/15 text-white border-white/15"
           )}
-          title="Astra (Ctrl+J)"
+          title={t("topbar.agent_shortcut")}
         >
           <AstraIcon className={cn("w-3.5 h-3.5 text-[#38bdf8] shrink-0", superAgent.isOpen && "animate-ai-star")} />
           <AstraWordmark variant="dark" className="text-[11px] hidden sm:inline" />

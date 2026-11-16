@@ -25,9 +25,11 @@ import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import { MemoryRulesManager } from "@/components/settings/MemoryRulesManager";
 import { GoogleConnectCard } from "@/components/settings/GoogleConnectCard";
 import { PersonaEditor } from "@/components/settings/PersonaEditor";
+import { useLanguage } from "@/context/LanguageContext";
 
 function SettingsContent() {
   const router = useRouter();
+  const { t } = useLanguage();
   const searchParams = useSearchParams();
 
   // URL state synchronization: ?group=id for mobile screen stack (Section 5.6.1)
@@ -125,10 +127,10 @@ function SettingsContent() {
           <div className="w-[280px] shrink-0 border-r border-[var(--line)] bg-[var(--pane)] flex flex-col">
             <div className="p-4 border-b border-[var(--line)]">
               <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ink-3)] block mb-1">
-                Configuration
+                {t("Configuration", "Configuratie")}
               </span>
               <h2 className="text-[17px] font-heading font-semibold text-[var(--ink)] tracking-tight">
-                System Settings
+                {t("Settings")}
               </h2>
             </div>
 
@@ -152,10 +154,10 @@ function SettingsContent() {
                       <Icon className="w-4 h-4 text-[var(--ink-2)] shrink-0" />
                       <div className="min-w-0">
                         <span className="text-sm font-semibold text-[var(--ink)] block truncate">
-                          {group.title}
+                          {t(group.title)}
                         </span>
                         <span className="text-xs text-[var(--ink-3)] block truncate">
-                          {group.settings.length} rules
+                          {group.settings.length} {t("rules", "regels")}
                         </span>
                       </div>
                     </div>

@@ -548,17 +548,17 @@ function TenantsContent() {
               <div className="p-[14px_12px_10px] shrink-0 border-b border-[#e8e9eb] space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-[10.5px] font-bold text-[#64748b] tracking-[0.06em] uppercase">
-                    Tenants
+                    {t("nav.tenants", "Tenants")}
                   </div>
                   <button
                     type="button"
                     onClick={() => setContactForm({ open: true, contact: null })}
-                    title="Add tenant"
-                    aria-label="Add tenant"
+                    title={t("tenants.add_tenant", "Add tenant")}
+                    aria-label={t("tenants.add_tenant", "Add tenant")}
                     className="inline-flex items-center gap-1 h-[22px] px-2 rounded-[6px] bg-[#111215] text-white text-[10.5px] font-semibold hover:bg-[#27272a] transition-colors cursor-pointer"
                   >
                     <Plus className="w-3 h-3" />
-                    <span>Add</span>
+                    <span>{t("common.add", "Add")}</span>
                   </button>
                 </div>
 

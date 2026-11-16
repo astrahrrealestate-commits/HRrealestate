@@ -71,10 +71,10 @@ export function TransactionDetailSheet({
               type="button"
               onClick={() => superAgent.setIsOpen(true)}
               className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-cyan-300 bg-[#161A1D] hover:bg-[#1E2328] border border-[#252B32] rounded-lg transition-colors cursor-pointer"
-              title="Ask Astra about this invoice"
+              title={t("money.ask_astra_invoice", "Ask Astra about this invoice")}
             >
               <AstraIcon className="w-3.5 h-3.5 text-cyan-400" />
-              <span className="hidden sm:inline tracking-wide">Ask Astra</span>
+              <span className="hidden sm:inline tracking-wide">{t("money.ask_astra", "Ask Astra")}</span>
             </button>
 
             <button
@@ -94,7 +94,7 @@ export function TransactionDetailSheet({
           <div className="bg-[var(--selected)]/40 border border-[var(--line)] rounded-xl p-4 flex items-center justify-between">
             <div>
               <span className="text-[11px] text-[var(--ink-3)] block">
-                {isInflow ? "Receivable Amount" : "Payable Amount"}
+                {isInflow ? t("money.receivable_amount", "Receivable Amount") : t("money.payable_amount", "Payable Amount")}
               </span>
               <div className="text-[24px] font-mono font-bold text-[var(--ink)] tracking-tight mt-0.5">
                 {isInflow ? "+" : "-"} € {transaction.amountEur.toLocaleString("nl-NL", { minimumFractionDigits: 2 })}

@@ -12,11 +12,13 @@ import { useAuth } from "@/context/AuthContext";
 import { ProfileBuilder } from "@/components/admin/ProfileBuilder";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import { Profile, SectionInfo, listProfiles, listSections, updateProfile } from "@/lib/adminApi";
+import { useLanguage } from "@/context/LanguageContext";
 
 const roleLabel = (role: string) => (role === "member" || role === "manager" ? "Member" : "Superadmin");
 
 function AdminContent() {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
   const [sections, setSections] = useState<SectionInfo[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -83,12 +85,12 @@ function AdminContent() {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--line)] pb-5">
                 <div>
                   <h1 className="font-heading font-bold text-[24px] sm:text-[28px] text-[var(--ink)] tracking-tight">
-                    Team & access
+                    {t("admin.title", "Team & access")}
                   </h1>
                   <p className="text-xs sm:text-[13px] text-[var(--ink-2)] mt-0.5">
                     {profiles
-                      ? `${profiles.length} ${profiles.length === 1 ? "profile" : "profiles"} · ${activeCount} active`
-                      : "Choose who can sign in and which sections each person sees."}
+                      ? `${profiles.length} ${profiles.length === 1 ? t("profile", "profile") : t("profiles", "profiles")} · ${activeCount} ${t("Active")}`
+                      : t("admin.subtitle", "Choose who can sign in and which sections each person sees.")}
                   </p>
                 </div>
                 <Button
@@ -99,7 +101,7 @@ function AdminContent() {
                   className="text-xs gap-1.5"
                 >
                   <UserPlus className="w-3.5 h-3.5" />
-                  <span>New profile</span>
+                  <span>{t("admin.add_profile", "New profile")}</span>
                 </Button>
               </div>
 

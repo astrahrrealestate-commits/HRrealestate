@@ -578,12 +578,12 @@ function ContactsContent() {
                   <button
                     type="button"
                     onClick={() => setContactForm({ open: true, contact: null })}
-                    title="Add contact"
-                    aria-label="Add contact"
+                    title={t("contacts.add_contact", "Add contact")}
+                    aria-label={t("contacts.add_contact", "Add contact")}
                     className="inline-flex items-center gap-1 h-[22px] px-2 rounded-[6px] bg-[#111215] text-white text-[10.5px] font-semibold hover:bg-[#27272a] transition-colors cursor-pointer"
                   >
                     <Plus className="w-3 h-3" />
-                    <span>Add</span>
+                    <span>{t("common.add", "Add")}</span>
                   </button>
                 </div>
 

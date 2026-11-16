@@ -829,21 +829,21 @@ function MaintenanceContent() {
                   <div className="rounded-2xl bg-[var(--bg)]/50 border border-[var(--line)]/70 p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--ink-3)]">
-                        Dispatch & PO Authorization
+                        {t("maintenance.dispatch_auth", "Dispatch & PO Authorization")}
                       </span>
                       <button
                         type="button"
                         onClick={() => setIsEditModalOpen(true)}
                         className="text-[11px] font-semibold text-[var(--accent-ink)] hover:underline cursor-pointer"
                       >
-                        Adjust Cap / Contractor
+                        {t("maintenance.adjust_cap", "Adjust Cap / Contractor")}
                       </button>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3.5">
                       {/* Contractor */}
                       <div>
-                        <span className="text-[var(--ink-3)] block text-[11px]">Assigned Contractor</span>
+                        <span className="text-[var(--ink-3)] block text-[11px]">{t("maintenance.assigned_contractor", "Assigned Contractor")}</span>
                         <div className="flex items-center justify-between gap-1 mt-0.5">
                           <span className="font-semibold text-[var(--ink)] text-[13px] truncate">
                             {selectedTicket.contractorName}
@@ -853,7 +853,7 @@ function MaintenanceContent() {
                             className="text-[11px] text-[var(--ink-2)] hover:text-[var(--accent-ink)] inline-flex items-center gap-0.5 font-medium shrink-0"
                             title="Open contractor thread in Inbox"
                           >
-                            <span>Chat</span>
+                            <span>{t("maintenance.chat", "Chat")}</span>
                             <ArrowUpRight className="w-3 h-3" />
                           </Link>
                         </div>
@@ -862,14 +862,14 @@ function MaintenanceContent() {
 
                       {/* Budget Cap */}
                       <div>
-                        <span className="text-[var(--ink-3)] block text-[11px]">Authorized PO Budget Cap</span>
+                        <span className="text-[var(--ink-3)] block text-[11px]">{t("maintenance.po_budget_cap", "Authorized PO Budget Cap")}</span>
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <span className="font-semibold text-[var(--ink)] font-mono text-[14px]">
                             {selectedTicket.poBudgetCap}
                           </span>
                           <Shield className="w-3.5 h-3.5 text-emerald-600" />
                         </div>
-                        <span className="text-[var(--ink-3)] text-[11px]">excl. BTW · Locked ceiling</span>
+                        <span className="text-[var(--ink-3)] text-[11px]">{t("maintenance.locked_ceiling", "excl. BTW · Locked ceiling")}</span>
                       </div>
 
                       {/* SLA */}
@@ -1027,7 +1027,7 @@ function MaintenanceContent() {
                         className="text-xs font-bold"
                         title="Authorize budget cap and mark work order dispatched"
                       >
-                        Authorize & Dispatch PO
+                        {t("maintenance.dispatch_contractor", "Authorize & Dispatch PO")}
                       </Button>
                     </div>
                   ) : (

@@ -238,7 +238,7 @@ export function ConnectionsModal({ isOpen, onClose }: ConnectionsModalProps) {
           <>
             <span className={BADGE}>
               <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
-              Connected
+              {t("Connected", "Verbonden")}
             </span>
             <button
               type="button"
@@ -260,7 +260,7 @@ export function ConnectionsModal({ isOpen, onClose }: ConnectionsModalProps) {
                   className={`${MENU_ITEM} text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800`}
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
-                  Switch Account
+                  {t("Switch Account", "Wissel van account")}
                 </button>
                 <button
                   type="button"
@@ -273,14 +273,14 @@ export function ConnectionsModal({ isOpen, onClose }: ConnectionsModalProps) {
                   className={`${MENU_ITEM} text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20`}
                 >
                   <LogOut className="w-3.5 h-3.5" />
-                  Disconnect
+                  {t("Disconnect", "Verbinding verbreken")}
                 </button>
               </div>
             )}
           </>
         ) : (
           <button type="button" onClick={handleConnectGoogle} disabled={connectingGoogle} className={PRIMARY_BUTTON}>
-            {connectingGoogle ? <Loader2 className="w-3.5 h-3.5 animate-spin text-white dark:text-zinc-900" /> : "Connect"}
+            {connectingGoogle ? <Loader2 className="w-3.5 h-3.5 animate-spin text-white dark:text-zinc-900" /> : t("Connect", "Verbinden")}
           </button>
         )}
       </ConnectionRow>
@@ -375,7 +375,10 @@ export function ConnectionsModal({ isOpen, onClose }: ConnectionsModalProps) {
             <div className="flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
               <span>
-                Disconnect this Google account? Gmail, Calendar and Drive are one connection, so all three stop syncing until you connect again.
+                {t(
+                  "Disconnect this Google account? Gmail, Calendar and Drive are one connection, so all three stop syncing until you connect again.",
+                  "Dit Google-account ontkoppelen? Gmail, Agenda en Drive vormen één verbinding, dus ze stoppen alle drie met synchroniseren totdat u opnieuw verbindt."
+                )}
               </span>
             </div>
             <div className="mt-3 flex justify-end gap-2">
@@ -384,14 +387,14 @@ export function ConnectionsModal({ isOpen, onClose }: ConnectionsModalProps) {
                 onClick={() => setConfirmingDisconnect(false)}
                 className="px-3 py-1.5 rounded-lg text-[12px] font-medium border border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 cursor-pointer"
               >
-                Cancel
+                {t("Cancel", "Annuleren")}
               </button>
               <button
                 type="button"
                 onClick={() => void handleDisconnectGoogle()}
                 className="px-3 py-1.5 rounded-lg text-[12px] font-medium bg-red-600 text-white cursor-pointer"
               >
-                Disconnect
+                {t("Disconnect", "Verbinding verbreken")}
               </button>
             </div>
           </div>
@@ -417,7 +420,7 @@ export function ConnectionsModal({ isOpen, onClose }: ConnectionsModalProps) {
             ) : (
               <span className={BADGE}>
                 {whatsApp.configured ? <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" /> : null}
-                {whatsApp.configured ? "Connected" : "Not set up"}
+                {whatsApp.configured ? t("Connected", "Verbonden") : t("Not set up", "Niet ingesteld")}
               </span>
             )}
           </ConnectionRow>
@@ -436,7 +439,7 @@ export function ConnectionsModal({ isOpen, onClose }: ConnectionsModalProps) {
             ) : (
               <span className={BADGE}>
                 {brixx.lastRunAt !== null && !brixx.stale ? <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" /> : <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />}
-                {brixx.lastRunAt === null ? "Not synced" : brixx.stale ? "Stale" : "Syncing"}
+                {brixx.lastRunAt === null ? t("Not synced", "Niet gesynchroniseerd") : brixx.stale ? t("Stale", "Verouderd") : t("Syncing", "Synchroniseren")}
               </span>
             )}
           </ConnectionRow>
@@ -445,7 +448,7 @@ export function ConnectionsModal({ isOpen, onClose }: ConnectionsModalProps) {
         {/* Footer */}
         <div className="mt-6 pt-2 flex justify-end">
           <button type="button" onClick={onClose} className={PRIMARY_BUTTON}>
-            Done
+            {t("Done", "Klaar")}
           </button>
         </div>
       </div>
