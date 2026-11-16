@@ -423,6 +423,43 @@ export async function getDashboardPulse(): Promise<{ metrics: PulseMetrics; isLi
   return { metrics: INITIAL_METRICS, isLive: false };
 }
 
+export interface AttentionItem {
+  id: string;
+  kind: "ticket" | "rent" | "lease";
+  title: string;
+  detail: string;
+  unitLabel: string;
+  partyName: string;
+  urgent: boolean;
+  ageDays: number;
+  href: string;
+  source: string;
+}
+
+/**
+ * Fetches what BRIXX says needs the owner (open tickets, overdue rent, leases ending), so Today is not empty
+ * when Gmail and WhatsApp are not connected.
+ * GET /api/dashboard/attention
+ */
+export async function getDashboardAttention(): Promise<{ items: AttentionItem[]; total: number; urgentCount: number }> {
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/dashboard/attention?limit=20`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(4000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.items)) {
+        return { items: data.items, total: data.total ?? data.items.length, urgentCount: data.urgentCount ?? 0 };
+      }
+    }
+  } catch {
+    // Offline: nothing to show
+  }
+  return { items: [], total: 0, urgentCount: 0 };
+}
+
 /**
  * Fetches stalled wait items for the Unresponsive Radar.
  * GET /api/dashboard/radar

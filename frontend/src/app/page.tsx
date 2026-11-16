@@ -20,6 +20,8 @@ import {
   getInboxThreads,
   getDashboardPulse,
   getDashboardRadar,
+  getDashboardAttention,
+  type AttentionItem,
   getDashboardInquiries,
   getAutonomousLogs,
   getDashboardBriefing,
@@ -33,6 +35,7 @@ import {
 } from "@/lib/api";
 import { EditTicketModal } from "@/components/maintenance/EditTicketModal";
 import { StalledItem, INITIAL_STALLED_ITEMS } from "@/components/today/UnresponsiveRadarCard";
+import { BrixxAttentionCard } from "@/components/today/BrixxAttentionCard";
 import { InboxThread } from "@/types/inbox";
 import { PulseMetrics, AutonomousActionLog } from "@/types/dashboard";
 import { INITIAL_METRICS, RECENT_AUTONOMOUS_LOGS } from "@/data/mockData";
@@ -64,6 +67,11 @@ export default function TodayPage() {
   const [portfolio, setPortfolio] = useState<PropertyComplex[] | null>(null);
   const [tenants, setTenants] = useState<TenantProfile[] | null>(null);
   const [radarItems, setRadarItems] = useState<StalledItem[]>([]);
+  const [attention, setAttention] = useState<{ items: AttentionItem[]; total: number; urgentCount: number }>({
+    items: [],
+    total: 0,
+    urgentCount: 0,
+  });
   const [inquiries, setInquiries] = useState<ProspectiveInquiry[]>([]);
   const [logs, setLogs] = useState<AutonomousActionLog[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -141,6 +149,11 @@ export default function TodayPage() {
         if (lRes.isLive) setLogs(lRes.logs || []);
       })
       .catch((err) => console.warn("Failed to load auxiliary dashboard data:", err));
+
+    // BRIXX: open tickets, overdue rent and ending leases, so Today has content without Gmail or WhatsApp
+    getDashboardAttention().then((result) => {
+      if (isMounted) setAttention(result);
+    });
 
     // 3. Maintenance tickets for in-place detail view and editing
     getMaintenanceTickets()
@@ -418,7 +431,7 @@ export default function TodayPage() {
 
   // Selectors: Single source of truth (Section 2.5 D1 & 6.4)
   const currentNeedsYouCount = needsYouCount(threads);
-  const currentUrgentCount = urgentCount(threads);
+  const currentUrgentCount = urgentCount(threads) + attention.urgentCount;
   const urgentThreads = urgent(threads);
   const needsYouThreads = needsYou(threads);
 
@@ -977,6 +990,15 @@ export default function TodayPage() {
               </button>
             </div>
           </div>
+
+          {(activeSection === "all" || activeSection === "urgent") && (
+            <BrixxAttentionCard
+              items={attention.items}
+              total={attention.total}
+              urgentTotal={attention.urgentCount}
+              onlyUrgent={activeSection === "urgent"}
+            />
+          )}
 
           {/* Emergency Alert Card with In-Place Maintenance Ticket & Channel-Aware Actions */}
           {(activeSection === "all" || activeSection === "urgent") && (

@@ -80,6 +80,7 @@ ignore = ["RUF001", "RUF002", "RUF003"]  # German text (ß, umlauts) in strings/
 "app/api/agent/routes.py" = ["N815"]
 "app/api/calendar/routes.py" = ["N815"]
 "app/api/contacts/routes.py" = ["N815"]
+"app/api/dashboard/attention.py" = ["N815"]
 "app/api/dashboard/routes.py" = ["N815"]
 "app/api/maintenance/routes.py" = ["N815"]
 "app/api/v1/money.py" = ["N815"]

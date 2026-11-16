@@ -368,3 +368,16 @@ bidirectional translation controls onto the new unified Composer, and fixed what
   allowlist, in `query_agent` prompt **v3** (v2 stays published; no golden set exists for text-to-SQL, so the SQL is
   proven by `tests/integration/test_agent_views.py`, the model's choice of view is not) and have display labels.
   The same test file fails when the allowlist, the database views and the prompt disagree on which views exist.
+- [x] Today dashboard shows BRIXX (2026-11-17): "Needs you"/"Urgent" counts, the briefing and the pulse came only from inbox
+  threads, cases and approvals (Gmail/WhatsApp), so with no channel connected Today was empty although BRIXX holds
+  open tickets and unpaid rent (stage: 0 cases, 0 approvals, 7 Gmail messages; BRIXX: 7 open tickets, 17 tenants
+  with overdue rent = EUR 31.9k, worst 133 days late). New `GET /api/dashboard/attention`
+  (`app/api/dashboard/attention.py`): open BRIXX tickets, overdue rent per tenant, leases ending within 90 days;
+  urgent = ticket flagged urgent in BRIXX, rent > 60 days late, lease ending <= 30 days. The pulse's
+  `emergencyCount` and the briefing include BRIXX urgent items (plus one briefing section per kind); Today shows a
+  "From BRIXX" card and the Urgent chip counts BRIXX urgent items. Tests: `tests/integration/test_dashboard_attention.py`.
+  Not changed: "Needs you" stays decisions waiting on the owner (approvals/drafts), BRIXX items are not decisions.
+  Access (ADR 0012): arrears items only for a profile with the `money` section; a profile without `inbox` sees names
+  through `safe_name`; only rows from BRIXX (`brixx_ref`) are listed. Three "urgent" numbers differ on purpose:
+  pulse `emergencyCount` = emergency cases + BRIXX tickets flagged urgent (dispatch incidents), the Urgent chip =
+  urgent threads + every urgent BRIXX item, the briefing headline = urgent cases + every urgent BRIXX item.

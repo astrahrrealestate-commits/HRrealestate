@@ -59,13 +59,20 @@ def _people(session: Session, company_id: UUID) -> dict[str, Person]:
     return {row.brixx_ref: row for row in rows if row.brixx_ref}
 
 
-def brixx_tickets(session: Session, company_id: UUID) -> list[dict[str, Any]]:
-    """The company's live BRIXX tickets, newest first, in the Maintenance list's item shape."""
+def brixx_tickets(
+    session: Session, company_id: UUID, *, open_only: bool = False, contacts: bool = True
+) -> list[dict[str, Any]]:
+    """The company's live BRIXX tickets, newest first, in the Maintenance list's item shape.
+
+    `open_only` drops completed tickets and `contacts=False` skips the phone and email lookups (one query each per
+    ticket): the dashboard needs neither."""
     erased = erased_relatie_ids(session, company_id)  # GDPR: an erased person's tickets are not shown
     rows = [
         row
         for row in col.read_mirror(session, TICKET, company_id) or []
-        if not col.is_ended(row) and col.pick_int(row, (col.RELATIE_PK,)) not in erased
+        if not col.is_ended(row)
+        and col.pick_int(row, (col.RELATIE_PK,)) not in erased
+        and not (open_only and status_of(row) == "completed")
     ]
     if not rows:
         return []
@@ -73,7 +80,7 @@ def brixx_tickets(session: Session, company_id: UUID) -> list[dict[str, Any]]:
     kinds = _benaming(session, TICKET_TYPE, TICKET_TYPE_PK, company_id)
     places = _benaming(session, LOCATION, LOCATION_PK, company_id)
     rows.sort(key=lambda row: str(col.pick(row, col.CREATED) or ""), reverse=True)
-    return [_ticket(session, row, units, people, kinds, places) for row in rows]
+    return [_ticket(session, row, units, people, kinds, places, contacts=contacts) for row in rows]
 
 
 def _ticket(
@@ -83,6 +90,8 @@ def _ticket(
     people: dict[str, Person],
     kinds: dict[int, str],
     places: dict[int, str],
+    *,
+    contacts: bool = True,
 ) -> dict[str, Any]:
     key = col.pick_int(row, (TICKET_PK,))
     unit = units.get(str(col.pick_int(row, (col.VHE_PK,))))
@@ -99,12 +108,12 @@ def _ticket(
         "issueTitle": title,
         "unitLabel": (unit.label or unit.address) if unit else "",
         "tenantName": tenant.display_name if tenant else "",
-        "tenantPhone": identity_of(session, tenant.id, phone=True) if tenant else "",
+        "tenantPhone": identity_of(session, tenant.id, phone=True) if tenant and contacts else "",
         "category": category_of(f"{title} {place} {(contractor.trade or '') if contractor else ''}"),
         "contractorName": contractor.display_name if contractor else "",
         "contractorTrade": ((contractor.trade or "") if contractor else "").title(),
-        "contractorPhone": identity_of(session, contractor.id, phone=True) if contractor else "",
-        "contractorEmail": identity_of(session, contractor.id, phone=False) if contractor else "",
+        "contractorPhone": identity_of(session, contractor.id, phone=True) if contractor and contacts else "",
+        "contractorEmail": identity_of(session, contractor.id, phone=False) if contractor and contacts else "",
         "urgency": "high" if col.as_int(col.pick(row, ("indurgent",))) == 1 else "normal",
         "status": status,
         "slaRemaining": "Dispatched" if status == "dispatched" else "",

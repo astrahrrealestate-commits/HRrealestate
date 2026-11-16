@@ -4,7 +4,7 @@ Provides executive pulse indicators, unresponsive radar stalled items, prospecti
 tenant inquiries, and autonomous background execution logs for the EstateOS Today Dashboard.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Engine, case, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.api.dashboard.attention import AttentionItem, AttentionResponse, Viewer, attention_items, ticket_items
 from app.api.deps import get_engine
 from app.api.inbox.summary import safe_name
 from app.api.v1.access import require_section
@@ -21,6 +22,7 @@ from app.core.ids import case_ref
 from app.core.rent_data import RENT_DATA_AVAILABLE
 from app.db.enums import SendStatus
 from app.db.models import Approval, Case, Lease, Person, Send, TenantRentPayment, Unit, WaitRow
+from app.directory.brixx.sync import BRIXX_TZ
 
 router = APIRouter(
     prefix="/api/dashboard",
@@ -119,6 +121,15 @@ class LogsResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def _today() -> date:
+    """The owner's calendar day (BRIXX dates are Europe/Amsterdam), not UTC's."""
+    return datetime.now(UTC).astimezone(BRIXX_TZ).date()
+
+
+def _viewer(principal: Principal) -> Viewer:
+    return Viewer(money=principal.access.can("money"), inbox=principal.access.can("inbox"))
+
+
 def _party_name(party: Person | None, principal: Principal) -> str:
     if party is None:
         return "Whoever answers"
@@ -154,6 +165,8 @@ def get_pulse_metrics(
                 Case.company_id == cid, Case.urgency == "emergency", Case.state.in_(OPEN_CASE_STATES)
             )
         )
+        urgent_brixx = ticket_items(session, cid, _today(), Viewer(money=False, inbox=False))
+        emergencies = (emergencies or 0) + sum(t.urgent for t in urgent_brixx)  # BRIXX tickets flagged urgent
         total_units = session.scalar(select(func.count(Unit.id)).where(Unit.company_id == cid, Unit.valid_to.is_(None)))
         occupied = session.scalar(  # a current lease: started, and open-ended or not yet ended (as the units list)
             select(func.count(func.distinct(Lease.unit_id))).where(
@@ -223,6 +236,26 @@ def get_pulse_metrics(
         hoursSavedWeek=0.0,
         syncedAt=now.isoformat(),
     )
+
+
+@router.get(
+    "/attention",
+    dependencies=[Depends(require_section("dashboard"))],
+    response_model=AttentionResponse,
+    summary="Get BRIXX Attention Items",
+    description=(
+        "What BRIXX says needs the owner: open tickets, overdue rent per tenant, leases ending within 90 days. "
+        "Urgent = ticket flagged urgent in BRIXX, rent more than 60 days late, lease ending within 30 days."
+    ),
+)
+def get_attention(
+    engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
+    limit: int = Query(default=12, ge=1, le=50, description="Max items to return"),
+) -> AttentionResponse:
+    with Session(engine) as session:
+        items = attention_items(session, principal.company_id, _today(), _viewer(principal))
+    return AttentionResponse(items=items[:limit], total=len(items), urgentCount=sum(i.urgent for i in items))
 
 
 @router.get(
@@ -333,6 +366,28 @@ def _plural(count: int, noun: str) -> str:
     return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 
+def _brixx_sections(items: list[AttentionItem]) -> list[BriefingSection]:
+    """One briefing section per kind of BRIXX item that exists; none when BRIXX has nothing for the owner."""
+    labels = {
+        "ticket": ("Open BRIXX tickets", "open ticket"),
+        "rent": ("Rent arrears (BRIXX)", "tenant behind on rent"),
+        "lease": ("Leases ending soon (BRIXX)", "lease ending within 90 days"),
+    }
+    sections = []
+    for kind, (category, noun) in labels.items():
+        found = [item for item in items if item.kind == kind]
+        if found:
+            sections.append(
+                BriefingSection(
+                    category=category,
+                    headline=_plural(len(found), noun),
+                    details="; ".join(f"{i.unitLabel or i.title}: {i.detail}" for i in found[:3]),
+                    urgency="high" if any(i.urgent for i in found) else "normal",
+                )
+            )
+    return sections
+
+
 @router.get(
     "/briefing",
     dependencies=[Depends(require_section("dashboard"))],
@@ -359,18 +414,24 @@ def get_executive_briefing(
         open_cases = session.scalar(
             select(func.count(Case.id)).where(Case.company_id == cid, Case.state.in_(OPEN_CASE_STATES))
         )
+        brixx = attention_items(session, cid, _today(), _viewer(principal))
     pending_n, open_n = pending or 0, open_cases or 0
+    brixx_urgent = [item for item in brixx if item.urgent]
     top = urgent[0] if urgent else None
     top_title = (top.summary or "Urgent case") if top else "Nothing urgent"
     top_detail = (
         f"Case state: {top.state.value}. Category: {top.category.value}." if top else "No urgent cases are open."
     )
+    if top is None and brixx_urgent:
+        first = brixx_urgent[0]
+        top_title, top_detail = first.title, f"{first.unitLabel or first.title}: {first.detail}"
     weekly = kind == "weekly"
     return BriefingResponse(
         headline=(
-            f"Weekly review: {_plural(open_n, 'open case')}, {_plural(len(urgent), 'urgent matter')}."
+            f"Weekly review: {_plural(open_n, 'open case')}, "
+            f"{_plural(len(urgent) + len(brixx_urgent), 'urgent matter')}."
             if weekly
-            else f"Morning pulse: {_plural(len(urgent), 'matter')} need attention; "
+            else f"Morning pulse: {_plural(len(urgent) + len(brixx_urgent), 'matter')} need attention; "
             f"{_plural(pending_n, 'draft')} awaiting your review."
         ),
         summarySentence=(
@@ -381,8 +442,9 @@ def get_executive_briefing(
                 category="Urgent triage",
                 headline=top_title,
                 details=top_detail,
-                urgency="emergency" if urgent else "normal",
+                urgency="emergency" if urgent or brixx_urgent else "normal",
             ),
+            *_brixx_sections(brixx),
             BriefingSection(
                 category="Pending approvals",
                 headline=f"{_plural(pending_n, 'draft')} awaiting review",
