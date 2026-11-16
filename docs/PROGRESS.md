@@ -299,3 +299,21 @@ bidirectional translation controls onto the new unified Composer, and fixed what
 - [x] Lint/mypy debt from the push: `money.py` and `link.py` long lines, `simulate_scenarios.py` typed and allowed
   prints as a dev CLI (per-file ignore like the other scripts)
 - Evidence: `make quick` → `3169 passed`, mypy `Success`, `Contracts: 9 kept`; frontend `tsc --noEmit` clean
+
+## Client onboarding sweep on AWS (2026-11-16; branch `fix/onboarding-sweep`, from hrrealestate/main + origin/main BRIXX fixes)
+- [x] Owner Google connect works across api/worker tasks and survives redeploys: tokens shared via S3 (`google_store`)
+- [x] LLM: provider status + message in failure logs (keys scrubbed); optional `LLM_FALLBACK_MODELS` chain
+- [x] Session and login cookies `Secure` whenever the API is served over https (AWS runs `ENV=dev`)
+- [x] Unconfigured WhatsApp outbound (outside `ENV=prod`) fails at send, not at sender build: dashboard briefings no
+  longer crash. An approved WhatsApp tenant action sent while unconfigured is recorded `failed`; resend needs a new
+  draft version once WhatsApp is configured
+- [x] Disconnect revokes the Google grant; the S3 copy omits the OAuth client secret
+- [ ] **user:** connect Google (Gmail/Calendar/Drive) once after this deploy
+- [ ] Before filling `OPENAI_API_KEY`: use an EU data-residency OpenAI project (CLAUDE.md "OpenAI (EU)"); the
+  fallback sends tenant text there whenever Gemini fails
+- [ ] Per-company Google credentials (`credentials/{company_id}/...`) before a second company; `GOOGLE_CHAT_PROVIDER`
+  is `fake` on AWS (unsigned Chat tokens accepted; latent, no Chat user exists) — set `google` before wiring Chat
+- [x] Agents down on AWS: Gemini keys answered 402 RESOURCE_EXHAUSTED (prepaid credits depleted); key replaced in Secrets Manager (2026-11-16, other session)
+- [ ] **user:** top up / enable billing on the Gemini project so credits don't run out again; `OPENAI_API_KEY` is empty, so the fallback is inert until set
+- [ ] **user:** whitelist Harjot's real Google address in Team profiles (seed only has `harjot@estateos.internal`)
+- [ ] WhatsApp in prod: the last `ENV=prod` boot (2026-11-14) reported `whatsapp_app_secret`, `whatsapp_verify_token` not set; fill them in Secrets Manager

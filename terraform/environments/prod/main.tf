@@ -164,7 +164,10 @@ module "ecs" {
     { name = "LLM_MODEL", value = "google-gla:gemini-2.5-flash" },
     { name = "EMBEDDING_MODEL", value = "google-gla:gemini-embedding-001" },
     { name = "LLM_TIMEOUT_SEC", value = "30" },
+    # Tried when Gemini answers an error; skipped while OPENAI_API_KEY is empty (app/llm/runtime.py).
+    { name = "LLM_FALLBACK_MODELS", value = "openai:gpt-4.1-mini" },
     { name = "WHATSAPP_PROVIDER", value = "cloud_api" },
+    { name = "WHATSAPP_API_BASE_URL", value = "https://graph.facebook.com/v23.0" },
     { name = "WHATSAPP_FROM_NUMBER", value = "916364840587" },
     { name = "OWNER_PHONE_NUMBER", value = "916364840587" },
     { name = "OWNER_TEMPLATE_NAME", value = "estateos_pending" },

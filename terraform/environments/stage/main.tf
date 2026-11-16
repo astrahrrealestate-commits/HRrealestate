@@ -155,7 +155,10 @@ module "ecs" {
     { name = "LLM_MODEL", value = "google-gla:gemini-2.5-flash" },
     { name = "EMBEDDING_MODEL", value = "google-gla:gemini-embedding-001" },
     { name = "LLM_TIMEOUT_SEC", value = "30" },
+    # Tried when Gemini answers an error; skipped while OPENAI_API_KEY is empty (app/llm/runtime.py).
+    { name = "LLM_FALLBACK_MODELS", value = "openai:gpt-4.1-mini" },
     { name = "WHATSAPP_PROVIDER", value = "cloud_api" },
+    { name = "WHATSAPP_API_BASE_URL", value = "https://graph.facebook.com/v23.0" },
     { name = "WHATSAPP_FROM_NUMBER", value = "916364840587" },
     { name = "OWNER_PHONE_NUMBER", value = "916364840587" },
     { name = "OWNER_TEMPLATE_NAME", value = "estateos_pending" },
@@ -163,7 +166,10 @@ module "ecs" {
     { name = "GMAIL_PROVIDER", value = "google" },
     { name = "CALENDAR_PROVIDER", value = "google" },
     { name = "DRIVE_PROVIDER", value = "google" },
-    { name = "TENANT_SENDS_PER_HOUR", value = "30" }
+    { name = "TENANT_SENDS_PER_HOUR", value = "30" },
+    # BRIXX Data API mirror (live on stage since 2026-11-15; prod has no BRIXX_TOKEN yet).
+    { name = "BRIXX_PROVIDER", value = "api" },
+    { name = "BRIXX_AUTH_SCHEME", value = "bearer" }
   ]
 
   backend_secrets = [
@@ -180,7 +186,8 @@ module "ecs" {
     { name = "WHATSAPP_ACCESS_TOKEN", valueFrom = "${module.secrets.secret_arn}:WHATSAPP_ACCESS_TOKEN::" },
     { name = "WHATSAPP_PHONE_NUMBER_ID", valueFrom = "${module.secrets.secret_arn}:WHATSAPP_PHONE_NUMBER_ID::" },
     { name = "WHATSAPP_APP_SECRET", valueFrom = "${module.secrets.secret_arn}:WHATSAPP_APP_SECRET::" },
-    { name = "WHATSAPP_VERIFY_TOKEN", valueFrom = "${module.secrets.secret_arn}:WHATSAPP_VERIFY_TOKEN::" }
+    { name = "WHATSAPP_VERIFY_TOKEN", valueFrom = "${module.secrets.secret_arn}:WHATSAPP_VERIFY_TOKEN::" },
+    { name = "BRIXX_TOKEN", valueFrom = "${module.secrets.secret_arn}:BRIXX_TOKEN::" }
   ]
 }
 
