@@ -5,6 +5,8 @@ replayed or out-of-order page never overwrites a newer stored row. The caller ow
 commits. Row values and keys are never logged.
 """
 
+import base64
+import binascii
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -60,19 +62,22 @@ def upsert_page(
     if synced_at.utcoffset() is None:
         raise BrixxError("synced_at must be timezone-aware")
     pk = info.primary_key.lower()
+    binary = {c.name for c in table.c if isinstance(c.type, sa.LargeBinary)}
     data_columns = [c.name for c in table.c if c.name not in SYSTEM_COLUMNS | {"_synced_at"}]
     records: dict[int, dict[str, object]] = {}
     extra_columns: set[str] = set()
     bad_pk = 0
     for raw in rows:
         values, extras = _split_row(raw, data_columns)
+        for name in binary:
+            values[name] = _as_bytes(values[name])
         try:
             key = primary_key(values.get(pk), info.name)
         except BrixxError:
             bad_pk += 1
             continue
         values[pk] = key
-        extra_columns.update(extras)
+        extra_columns.update(name for name in extras if not name.startswith(FK_LABEL_PREFIX))
         values["_extra"] = extras or None
         current = records.get(key)
         records[key] = values if current is None or _supersedes(values, current) else current
@@ -98,6 +103,21 @@ def primary_key(value: object, table_name: str) -> int:
     except (ValueError, OverflowError):
         pass
     raise BrixxError(f"row for BRIXX table {table_name!r} has a missing or invalid primary key")
+
+
+FK_LABEL_PREFIX = (
+    "$"  # BRIXX adds `$<fk column>` (the target's display label, "--redacted" for people): not a new column
+)
+
+
+def _as_bytes(value: object) -> object:
+    """BRIXX sends BYTEA columns (bank files, indexation logs) as base64 text; the mirror column stores the bytes."""
+    if not isinstance(value, str):
+        return value
+    try:
+        return base64.b64decode(value, validate=True)
+    except binascii.Error:
+        return value.encode()
 
 
 def _split_row(raw: dict[str, object], data_columns: list[str]) -> tuple[dict[str, object], dict[str, object]]:

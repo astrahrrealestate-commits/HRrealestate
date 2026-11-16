@@ -11,6 +11,7 @@ import sqlalchemy as sa
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
+from app.channels.brixx.models import BrixxField, BrixxTable
 from app.core.errors import BrixxError
 from app.directory.brixx import upsert as upsert_module
 from app.directory.brixx.upsert import UpsertResult, upsert_page
@@ -118,6 +119,27 @@ def test_unknown_column_goes_to_extra(session: Session, table: sa.Table) -> None
     result = _write(session, table, company, [_row(1, "A", 1, NIEUW="x", Ander=2)])
     assert result.extra_columns == frozenset({"nieuw", "ander"})
     assert _rows(session, table, company)[1]._extra == {"nieuw": "x", "ander": 2}
+
+
+def test_fk_display_labels_are_kept_but_are_not_drift(session: Session, table: sa.Table) -> None:
+    company = uuid.uuid4()
+    result = _write(session, table, company, [_row(1, "A", 1, **{"$FK_ID": "Teststraat 5 A"})])
+    assert result.extra_columns == frozenset()
+    assert _rows(session, table, company)[1]._extra == {"$fk_id": "Teststraat 5 A"}
+
+
+def test_base64_text_in_a_bytea_column_is_stored_as_bytes(mirror: MirrorSchema, session: Session) -> None:
+    info = BrixxTable(
+        "PRG_FILES",
+        "ID",
+        (BrixxField(1, "ID", "BIGINT", True, None, None), BrixxField(2, "CONTENT", "BYTEA", False, None, None)),
+    )
+    files = mirror.create(info)
+    company = uuid.uuid4()
+    rows = [{"ID": 1, "CONTENT": "SGFuZG1hdGln"}, {"ID": 2, "CONTENT": "not base64!"}, {"ID": 3, "CONTENT": None}]
+    upsert_page(session, files, info, company, rows, SYNCED)
+    stored = {r.id: r.content for r in session.execute(sa.select(files).where(files.c.company_id == company))}
+    assert stored == {1: b"Handmatig", 2: b"not base64!", 3: None}
 
 
 def test_null_object_stored_as_null(session: Session, table: sa.Table) -> None:
