@@ -23,6 +23,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/context/LanguageContext";
 import {
   getOwnerPersona,
   resetOwnerPersona,
@@ -124,6 +125,7 @@ function SimpleMarkdownPreview({ content }: { content: string }) {
 }
 
 function KnowledgeContent() {
+  const { t } = useLanguage();
   const [persona, setPersona] = useState<OwnerPersona | null>(null);
   const [text, setText] = useState("");
   const [fileName, setFileName] = useState<string | undefined>();
@@ -412,7 +414,7 @@ function KnowledgeContent() {
                     ) : (
                       <Save className="w-3.5 h-3.5" />
                     )}
-                    <span>Save Changes</span>
+                    <span>{t("knowledge.save_changes", "Save Changes")}</span>
                   </Button>
 
                   {/* Upload .md File */}
@@ -430,7 +432,7 @@ function KnowledgeContent() {
                     className="gap-1.5 text-xs"
                   >
                     <FileUp className="w-3.5 h-3.5" />
-                    <span>Upload .md</span>
+                    <span>{t("knowledge.upload_file", "Upload .md")}</span>
                   </Button>
 
                   {/* Download .md */}
@@ -441,7 +443,7 @@ function KnowledgeContent() {
                     className="gap-1.5 text-xs"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>Download</span>
+                    <span>{t("knowledge.download", "Download")}</span>
                   </Button>
 
                   {/* Reset to Sample */}
@@ -452,7 +454,7 @@ function KnowledgeContent() {
                     className="gap-1.5 text-xs text-[var(--ink-2)]"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
-                    <span>Reset Sample</span>
+                    <span>{t("knowledge.reset_default", "Reset Sample")}</span>
                   </Button>
                 </div>
 

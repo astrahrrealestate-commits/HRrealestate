@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Building2, FileText, Search, User, Wrench } from "lucide-react";
 import { searchEverything, type SearchHit } from "@/lib/searchApi";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/context/LanguageContext";
 
 const DEBOUNCE_MS = 200;
 const MIN_QUERY_CHARS = 2;
@@ -41,6 +42,7 @@ export function destinationFor(hit: SearchHit): string {
 export function CommandPalette() {
   const router = useRouter();
   const pathname = usePathname();
+  const { t } = useLanguage();
   const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -135,7 +137,7 @@ export function CommandPalette() {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={onInputKeyDown}
-            placeholder="Search people, properties, cases, documents"
+            placeholder={t("cmd.search_placeholder", "Search people, properties, cases, documents")}
             className="h-12 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-zinc-500"
             maxLength={100}
           />
@@ -149,7 +151,7 @@ export function CommandPalette() {
               <React.Fragment key={`${hit.kind}:${hit.id}`}>
                 {startsGroup && (
                   <li className="px-4 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                    {KIND_LABEL[hit.kind]}
+                    {t(KIND_LABEL[hit.kind])}
                   </li>
                 )}
                 <li
@@ -170,13 +172,13 @@ export function CommandPalette() {
             );
           })}
           {failed && (
-            <li className="px-4 py-6 text-center text-sm text-amber-400">Search is unavailable right now. Try again.</li>
+            <li className="px-4 py-6 text-center text-sm text-amber-400">{t("cmd.search_unavailable", "Search is unavailable right now. Try again.")}</li>
           )}
           {searchable && !loading && !failed && hits.length === 0 && (
-            <li className="px-4 py-6 text-center text-sm text-zinc-500">Nothing found for “{trimmed}”</li>
+            <li className="px-4 py-6 text-center text-sm text-zinc-500">{t("cmd.nothing_found", `Nothing found for “${trimmed}”`)}</li>
           )}
           {!searchable && (
-            <li className="px-4 py-6 text-center text-sm text-zinc-500">Type at least 2 characters</li>
+            <li className="px-4 py-6 text-center text-sm text-zinc-500">{t("cmd.min_chars", "Type at least 2 characters")}</li>
           )}
         </ul>
       </div>

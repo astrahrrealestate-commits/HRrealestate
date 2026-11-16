@@ -333,7 +333,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
                 <span className="text-xs font-semibold text-white block truncate">{displayName}</span>
                 <span className="text-[11px] text-[#94a3b8] block truncate font-mono">{displayEmail}</span>
                 <span className="inline-block mt-1 px-1.5 py-0.2 rounded text-[9.5px] uppercase font-bold tracking-wider bg-[#1a73e8]/20 text-[#60a5fa] border border-[#1a73e8]/30">
-                  {user?.role || "Owner"}
+                  {t(user?.role || "Owner")}
                 </span>
               </div>
               {user?.isAdmin && (
@@ -344,7 +344,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
                     className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white hover:bg-white/5 transition-colors"
                   >
                     <ShieldCheck className="w-3.5 h-3.5" />
-                    <span>Team & access</span>
+                    <span>{t("admin.title", "Team & access")}</span>
                   </Link>
                   <Link
                     href="/admin?new=1"
@@ -352,7 +352,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
                     className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white hover:bg-white/5 transition-colors"
                   >
                     <UserPlus className="w-3.5 h-3.5" />
-                    <span>Add a profile</span>
+                    <span>{t("admin.add_profile", "Add a profile")}</span>
                   </Link>
                 </div>
               )}

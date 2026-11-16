@@ -13,6 +13,7 @@ import { createGmailDraft, translateText } from "@/lib/api";
 import { TranslationToggle } from "@/components/inbox/TranslationToggle";
 import { formatClock } from "@/lib/clock";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
+import { useLanguage } from "@/context/LanguageContext";
 
 export interface ComposerProps {
   /** Which thread this composer is for: text typed in one thread comes back when the owner returns to it. */
@@ -68,6 +69,7 @@ export function Composer({
   sentTimestamp,
   className,
 }: ComposerProps) {
+  const { t } = useLanguage();
   const getDraftKey = (d: DraftOption, idx: number) => (d.id ? `${d.id}-${idx}` : `d${idx + 1}`);
 
   const [isSent, setIsSent] = useState(initialSent);
@@ -876,7 +878,7 @@ export function Composer({
                   }
                 }
               }}
-              placeholder="Type a reply... (Press Enter to send)"
+              placeholder={t("inbox.reply_placeholder", "Type a reply... (Press Enter to send)")}
               className="w-full min-h-[104px] text-[14px] px-3.5 py-2.5 bg-transparent border-0 text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none resize-y leading-relaxed"
             />
           </div>
@@ -981,7 +983,7 @@ export function Composer({
                   onClick={handleRejectClick}
                   className="text-[var(--ink-3)] hover:text-[var(--ink)] whitespace-nowrap shrink-0 h-8"
                 >
-                  Reject
+                  {t("Reject")}
                 </Button>
                 <Button
                   variant="ghost"
@@ -989,7 +991,7 @@ export function Composer({
                   onClick={() => textareaRef.current?.focus()}
                   className="whitespace-nowrap shrink-0 h-8"
                 >
-                  Edit
+                  {t("Edit")}
                 </Button>
                 {activeChannel === "whatsapp" && cleanPhone && (
                   <Button
@@ -1023,7 +1025,7 @@ export function Composer({
                   className="whitespace-nowrap shrink-0 px-3.5 h-8 font-bold"
                   icon={<AstraIcon className="w-3.5 h-3.5" />}
                 >
-                  Accept &amp; send
+                  {t("inbox.approve_draft", "Accept & send")}
                 </Button>
               </div>
             ) : (
@@ -1062,7 +1064,7 @@ export function Composer({
                   icon={<Send className="w-3.5 h-3.5 fill-current" />}
                   className="px-4 h-8 font-bold"
                 >
-                  Send
+                  {t("Send")}
                 </Button>
               </div>
             )}

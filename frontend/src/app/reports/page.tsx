@@ -24,8 +24,10 @@ import { PageStateShell } from "@/components/portfolio/PageStateShell";
 import type { ReportKind } from "@/types/reports";
 import { ReportPickerSheet } from "@/components/reports/ReportPickerSheet";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
+import { useLanguage } from "@/context/LanguageContext";
 
 function ReportsContent() {
+  const { t } = useLanguage();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -149,17 +151,17 @@ function ReportsContent() {
                 {copyState === "copied" ? (
                   <>
                     <Check className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Copied CSV</span>
+                    <span>{t("reports.copied_csv", "Copied CSV")}</span>
                   </>
                 ) : copyState === "failed" ? (
                   <>
                     <AlertTriangle className="w-3.5 h-3.5 text-red-600" />
-                    <span role="alert">Copy failed: allow clipboard access</span>
+                    <span role="alert">{t("reports.copy_failed", "Copy failed: allow clipboard access")}</span>
                   </>
                 ) : (
                   <>
                     <Copy className="w-3.5 h-3.5 text-[var(--ink-3)]" />
-                    <span>Copy as CSV</span>
+                    <span>{t("reports.copy_csv", "Copy as CSV")}</span>
                   </>
                 )}
               </Button>
@@ -172,7 +174,7 @@ function ReportsContent() {
                 className="text-xs border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] gap-1.5 shadow-2xs"
               >
                 <RefreshCw className={cn("w-3.5 h-3.5 text-[var(--ink-3)]", refreshing && "animate-spin")} />
-                <span>Refresh</span>
+                <span>{t("reports.refresh", "Refresh")}</span>
               </Button>
             </div>
           </div>
@@ -189,7 +191,7 @@ function ReportsContent() {
               >
                 <div className="flex items-center gap-2 truncate">
                   <FileSpreadsheet className="w-4 h-4 text-[var(--ink-2)] shrink-0" />
-                  <span className="truncate">{activeReport?.name ?? "Select report"}</span>
+                  <span className="truncate">{activeReport?.name ?? t("reports.select_report", "Select report")}</span>
                 </div>
                 <ChevronDown className="w-3.5 h-3.5 text-[var(--ink-3)] shrink-0" />
               </button>
@@ -202,7 +204,7 @@ function ReportsContent() {
                 className="hidden md:flex items-center justify-between gap-2.5 px-3.5 py-1.5 rounded-md bg-[var(--bg)] border border-[var(--line)] text-xs font-semibold text-[var(--ink)] hover:bg-[var(--selected)]/40 transition-colors cursor-pointer"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 text-[var(--ink-2)]" />
-                <span>{activeReport?.name ?? "Select report"}</span>
+                <span>{activeReport?.name ?? t("reports.select_report", "Select report")}</span>
                 <ChevronDown className="w-3.5 h-3.5 text-[var(--ink-3)] ml-1" />
               </button>
 
@@ -212,7 +214,7 @@ function ReportsContent() {
                   <div className="fixed inset-0 z-30" onClick={() => setIsDesktopPickerOpen(false)} />
                   <div className="absolute left-0 top-full mt-1.5 w-72 bg-[var(--pane)] border border-[var(--line)] rounded-lg shadow-xl z-40 p-1.5 text-xs animate-in fade-in zoom-in-95 duration-100">
                     <div className="px-2.5 py-1 text-[11px] font-semibold text-[var(--ink-3)] uppercase tracking-wider">
-                      Portfolio Reports
+                      {t("reports.portfolio_reports", "Portfolio Reports")}
                     </div>
                     <div className="space-y-0.5">
                       {allowed.map((rep) => (

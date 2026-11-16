@@ -311,10 +311,10 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
           >
             <div className="p-3 xl:p-4 border-b border-[var(--line)]">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)] block mb-1">
-                Portfolio Complexes
+                {t("properties.complexes", "Portfolio Complexes")}
               </span>
               <div className="text-[12px] xl:text-[13px] text-[var(--ink-2)] font-mono">
-                {portfolioStats.total} units · {portfolioStats.rate} occupied
+                {portfolioStats.total} {t("properties.units_count", "units")} · {portfolioStats.rate} {t("properties.occupied_count", "occupied")}
               </div>
             </div>
 
@@ -556,27 +556,27 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                 {/* Plain 2-column key/value rows (Section 5.5: Zero cards in cards) */}
                 <div className="space-y-3">
                   <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ink-3)] block">
-                    Property Specs
+                    {t("properties.specs", "Property Specs")}
                   </span>
                   <div className="grid grid-cols-2 gap-y-2.5 text-xs">
                     <div>
-                      <span className="text-[var(--ink-3)] block">Floor / Level</span>
+                      <span className="text-[var(--ink-3)] block">{t("properties.floor", "Floor / Level")}</span>
                       <span className="font-medium text-[var(--ink)]">{activeUnit.floor == null ? UNKNOWN : `Floor ${activeUnit.floor}`}</span>
                     </div>
                     <div>
-                      <span className="text-[var(--ink-3)] block">Living Area</span>
+                      <span className="text-[var(--ink-3)] block">{t("properties.area", "Living Area")}</span>
                       <span className="font-medium text-[var(--ink)]">{activeUnit.areaSqm == null ? UNKNOWN : `${activeUnit.areaSqm} m²`}</span>
                     </div>
                     <div>
-                      <span className="text-[var(--ink-3)] block">Monthly Rent</span>
+                      <span className="text-[var(--ink-3)] block">{t("properties.monthly_rent", "Monthly Rent")}</span>
                       <span className="font-mono font-semibold text-[var(--ink)]">{euro(activeUnit.monthlyRentEur)}</span>
                     </div>
                     <div>
-                      <span className="text-[var(--ink-3)] block">Security Deposit</span>
+                      <span className="text-[var(--ink-3)] block">{t("properties.deposit", "Security Deposit")}</span>
                       <span className="font-mono text-[var(--ink-2)]">{euro(activeUnit.depositEur)}</span>
                     </div>
                     <div>
-                      <span className="text-[var(--ink-3)] block">Lockbox PIN</span>
+                      <span className="text-[var(--ink-3)] block">{t("properties.lockbox_pin", "Lockbox PIN")}</span>
                       <div className="flex items-center gap-1.5 pt-0.5">
                         <span className="font-mono font-semibold text-[var(--ink)] tracking-wider">
                           {activeUnit.lockboxCode ?? UNKNOWN}
@@ -586,19 +586,19 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                           onClick={() => activeUnit.lockboxCode && handleCopyLockbox(activeUnit.lockboxCode)}
                           className="text-[10px] text-[var(--ink-3)] hover:text-[var(--ink)] underline cursor-pointer"
                         >
-                          {copiedLockbox ? "Copied" : "Copy"}
+                          {copiedLockbox ? t("Copied") : t("Copy")}
                         </button>
                       </div>
                     </div>
                     <div>
-                      <span className="text-[var(--ink-3)] block">Active Tickets</span>
+                      <span className="text-[var(--ink-3)] block">{t("properties.active_tickets", "Active Tickets")}</span>
                       <span className="font-medium text-[var(--ink)]">
                         {(activeUnit.activeTicketCount ?? 0) > 0 ? (
                           <span className="text-[var(--accent-ink)] font-semibold">
-                            {activeUnit.activeTicketCount} open
+                            {activeUnit.activeTicketCount} {t("properties.open_tickets", "open")}
                           </span>
                         ) : (
-                          activeUnit.activeTicketCount == null ? UNKNOWN : "0 open"
+                          activeUnit.activeTicketCount == null ? UNKNOWN : t("properties.no_tickets", "0 open")
                         )}
                       </span>
                     </div>
@@ -608,7 +608,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                 {/* Tenant Association Section */}
                 <div className="border-t border-[var(--line)] pt-4 space-y-3">
                   <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ink-3)] block">
-                    Current Leaseholder
+                    {t("properties.current_tenant", "Current Leaseholder")}
                   </span>
                   {activeUnit.currentTenant ? (
                     <div className="space-y-2 text-xs">
@@ -617,7 +617,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                           {activeUnit.currentTenant.name}
                         </span>
                         <span className="text-[11px] text-[var(--ink-3)]">
-                          {activeUnit.currentTenant.rentPaidUpToDate == null ? "Rent status unknown" : activeUnit.currentTenant.rentPaidUpToDate ? "✓ Rent up to date" : "⚠ Overdue"}
+                          {activeUnit.currentTenant.rentPaidUpToDate == null ? t("Payment Status") : activeUnit.currentTenant.rentPaidUpToDate ? `✓ ${t("Rent up to date")}` : `⚠ ${t("Overdue")}`}
                         </span>
                       </div>
 
@@ -633,14 +633,14 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                         <div className="flex items-center gap-2">
                           <Calendar className="w-3.5 h-3.5 text-[var(--ink-3)]" />
                           <span>
-                            Lease ends {activeUnit.currentTenant.leaseEnd ?? UNKNOWN}
+                            {t("tenants.lease_end", "Lease ends")} {activeUnit.currentTenant.leaseEnd ?? UNKNOWN}
                           </span>
                         </div>
                       </div>
                     </div>
                   ) : (
                     <div className="text-xs text-[var(--ink-3)] italic">
-                      No current leaseholder. Unit is vacant and available for listing.
+                      {t("properties.vacant_desc", "No current leaseholder. Unit is vacant and available for listing.")}
                     </div>
                   )}
                 </div>
@@ -649,7 +649,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                 {activeUnit.notes && (
                   <div className="border-t border-[var(--line)] pt-4 space-y-1">
                     <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ink-3)] block">
-                      Building & Unit Notes
+                      {t("Notes")}
                     </span>
                     <p className="text-xs text-[var(--ink-2)] leading-relaxed italic">
                       {activeUnit.notes}
@@ -668,7 +668,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                   title={activeUnit.currentTenant ? undefined : "Vacant: no tenant to have messages with"}
                   className="text-xs border border-[var(--line)] text-[var(--ink-2)]"
                 >
-                  View messages
+                  {t("inbox.show_threads", "View messages")}
                 </Button>
 
                 <Button
@@ -677,7 +677,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                   onClick={() => router.push(`/maintenance?search=${encodeURIComponent(activeUnit.unitNumber)}`)}
                   className="text-xs border border-[var(--line)] text-[var(--ink-2)]"
                 >
-                  View tickets
+                  {t("properties.view_tickets", "View tickets")}
                 </Button>
               </div>
             </div>

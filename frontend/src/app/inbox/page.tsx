@@ -37,6 +37,7 @@ import { needsYouCount, isUrgent } from "@/lib/selectors";
 import { cn } from "@/lib/utils";
 
 import { useSuperAgent } from "@/context/SuperAgentContext";
+import { useLanguage } from "@/context/LanguageContext";
 
 
 
@@ -121,6 +122,7 @@ function findMatchingThread(allThreads: InboxThread[], query: string): InboxThre
 function InboxContent() {
 
   const router = useRouter();
+  const { t } = useLanguage();
 
   const searchParams = useSearchParams();
 
@@ -657,15 +659,15 @@ function InboxContent() {
 
     return [
 
-      { id: "needs_you", label: "Needs you", count: needsYouCount(threads) },
+      { id: "needs_you", label: t("inbox.needs_you"), count: needsYouCount(threads) },
 
-      { id: "all", label: "All" },
+      { id: "all", label: t("inbox.all") },
 
-      { id: "done", label: "Done" },
+      { id: "done", label: t("inbox.done") },
 
     ];
 
-  }, [threads]);
+  }, [threads, t]);
 
 
 
@@ -681,15 +683,15 @@ function InboxContent() {
 
         id: "who",
 
-        title: "Who",
+        title: t("inbox.filter_who", "Who"),
 
         options: [
 
-          { id: "who_tenants", label: "Tenants", count: countOf("who_tenants") },
+          { id: "who_tenants", label: t("inbox.tenants", "Tenants"), count: countOf("who_tenants") },
 
-          { id: "who_contractors", label: "Contractors", count: countOf("who_contractors") },
+          { id: "who_contractors", label: t("inbox.contractors", "Contractors"), count: countOf("who_contractors") },
 
-          { id: "who_leads", label: "Leads", count: countOf("who_leads") },
+          { id: "who_leads", label: t("inbox.leads", "Leads"), count: countOf("who_leads") },
 
         ],
 
@@ -699,15 +701,15 @@ function InboxContent() {
 
         id: "channel",
 
-        title: "Channel",
+        title: t("inbox.filter_channel", "Channel"),
 
         options: [
 
-          { id: "ch_whatsapp", label: "WhatsApp", count: countOf("ch_whatsapp") },
+          { id: "ch_whatsapp", label: t("inbox.whatsapp", "WhatsApp"), count: countOf("ch_whatsapp") },
 
-          { id: "ch_gmail", label: "Gmail", count: countOf("ch_gmail") },
+          { id: "ch_gmail", label: t("inbox.gmail", "Gmail"), count: countOf("ch_gmail") },
 
-          { id: "ch_portal", label: "Portal", count: countOf("ch_portal") },
+          { id: "ch_portal", label: t("inbox.portal", "Portal"), count: countOf("ch_portal") },
 
         ],
 
@@ -717,19 +719,19 @@ function InboxContent() {
 
         id: "type",
 
-        title: "Type",
+        title: t("inbox.filter_type", "Type"),
 
         options: [
 
-          { id: "type_repairs", label: "Repairs", count: countOf("type_repairs") },
+          { id: "type_repairs", label: t("inbox.repairs", "Repairs"), count: countOf("type_repairs") },
 
-          { id: "type_rent", label: "Rent & Money", count: countOf("type_rent") },
+          { id: "type_rent", label: t("inbox.rent_money", "Rent & Money"), count: countOf("type_rent") },
 
-          { id: "type_lease", label: "Lease", count: countOf("type_lease") },
+          { id: "type_lease", label: t("inbox.lease", "Lease"), count: countOf("type_lease") },
 
-          { id: "type_complaint", label: "Complaint", count: countOf("type_complaint") },
+          { id: "type_complaint", label: t("inbox.complaint", "Complaint"), count: countOf("type_complaint") },
 
-          { id: "type_admin", label: "Admin", count: countOf("type_admin") },
+          { id: "type_admin", label: t("inbox.admin", "Admin"), count: countOf("type_admin") },
 
         ],
 
@@ -737,7 +739,7 @@ function InboxContent() {
 
     ];
 
-  }, [threads, activeTab, selectedFilterIds]);
+  }, [threads, activeTab, selectedFilterIds, t]);
 
 
 

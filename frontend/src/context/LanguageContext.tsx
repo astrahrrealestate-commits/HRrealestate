@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { ALL_DICTIONARY } from "@/locales";
 
 export type Language = "en" | "nl";
 
@@ -12,6 +13,7 @@ export interface Translations {
 }
 
 export const DICTIONARY: Translations = {
+  ...ALL_DICTIONARY,
   // Navigation & Workspace
   "nav.workspace": { en: "WORKSPACE", nl: "WERKPLEK" },
   "nav.dashboard": { en: "Dashboard", nl: "Overzicht" },

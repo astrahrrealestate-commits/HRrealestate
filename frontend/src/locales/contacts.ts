@@ -1,0 +1,16 @@
+export const contactsTranslations = {
+  "Contacts Directory": { en: "Contacts Directory", nl: "Contactpersonen" },
+  "Contacts": { en: "Contacts", nl: "Contacten" },
+  "contacts.add_contact": { en: "Add Contact", nl: "Contact toevoegen" },
+  "contacts.all_contacts": { en: "All Contacts", nl: "Alle Contacten" },
+  "contacts.tenants": { en: "Tenants", nl: "Huurders" },
+  "contacts.contractors": { en: "Contractors", nl: "Aannemers" },
+  "contacts.other": { en: "Other", nl: "Overig" },
+  "contacts.search_placeholder": { en: "Search contacts, trades, companies...", nl: "Zoek contacten, aannemers, bedrijven..." },
+  "contacts.filter_tooltip": { en: "Filter contacts", nl: "Contacten filteren" },
+  "contacts.agreement_duration": { en: "Agreement Duration:", nl: "Looptijd overeenkomst:" },
+  "contacts.rate_card": { en: "Contractor Rate Card", nl: "Tarievenkaart Aannemer" },
+  "contacts.hourly_rate": { en: "Hourly Rate", nl: "Uurtarief" },
+  "contacts.trade": { en: "Service Trade", nl: "Vakgebied" },
+  "contacts.dispatch_history": { en: "Dispatch History", nl: "Uitzendgeschiedenis" },
+};
