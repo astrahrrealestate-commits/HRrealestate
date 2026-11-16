@@ -58,13 +58,21 @@ SUBOBJECT = _info(
         ("HUISLETTER", "TEXT"),
         ("POSTCODE", "TEXT"),
         ("WOONPLAATSNM", "TEXT"),
+        ("VVO", "NUMERIC"),
         *AUDIT,
     ],
 )
 CONTRACT = _info(
     "PRG_CONTRACT",
     "PRG_CONTRACTID",
-    [("EERSTERELATIEID", "BIGINT"), ("CONTRACTNR", "NUMERIC"), ("INGANGSDATUM", "DATE"), ("EINDDATUM", "DATE"), *AUDIT],
+    [
+        ("EERSTERELATIEID", "BIGINT"),
+        ("CONTRACTNR", "NUMERIC"),
+        ("INGANGSDATUM", "DATE"),
+        ("EINDDATUM", "DATE"),
+        ("WAARBORGSOM", "NUMERIC"),
+        *AUDIT,
+    ],
 )
 CONTRACTRELATIE = _info(
     "PRG_CONTRACTRELATIE",
@@ -100,7 +108,34 @@ TICKET = _info(
 )
 TICKETTYPE = _info("TYP_TICKETTYPE", "TYP_TICKETTYPEID", [("BENAMING", "TEXT"), *AUDIT])
 LOCATIE = _info("TST_TICKET_LOCATIE", "TST_TICKET_LOCATIEID", [("BENAMING", "TEXT"), *AUDIT])
-TABLES = (RELATIE, OBJECT, SUBOBJECT, CONTRACT, CONTRACTRELATIE, CONTRACTVHE, TICKET, TICKETTYPE, LOCATIE)
+BETAALREGEL = _info(
+    "FIN_BETAALREGEL",
+    "FIN_BETAALREGELID",
+    [
+        ("PRG_CONTRACTID", "BIGINT"),
+        ("PRG_SUBOBJECTID", "BIGINT"),
+        ("TYP_HUURCOMPONENTID", "BIGINT"),
+        ("BEDRAGEX", "NUMERIC"),
+        ("DM_BEDRAGEXTERMIJNMND", "NUMERIC"),
+        ("INGANGSDATUM", "DATE"),
+        ("EINDDATUM", "DATE"),
+        *AUDIT,
+    ],
+)
+HUURCOMPONENT = _info("TYP_HUURCOMPONENT", "TYP_HUURCOMPONENTID", [("BENAMING", "TEXT"), *AUDIT])
+TABLES = (
+    RELATIE,
+    OBJECT,
+    SUBOBJECT,
+    CONTRACT,
+    CONTRACTRELATIE,
+    CONTRACTVHE,
+    TICKET,
+    TICKETTYPE,
+    LOCATIE,
+    BETAALREGEL,
+    HUURCOMPONENT,
+)
 
 
 def _a(**row: object) -> dict[str, object]:
@@ -129,9 +164,65 @@ ROWS = {
             huisletter="A",
             postcode="1000AA",
             woonplaatsnm="VOORBEELDSTAD",
+            vvo=Decimal("62.5"),
         ),
     ],
-    CONTRACT.name: [_a(prg_contractid=500, eersterelatieid=1, contractnr=Decimal(7), ingangsdatum="2026-02-01")],
+    CONTRACT.name: [
+        _a(prg_contractid=500, eersterelatieid=1, contractnr=Decimal(7), ingangsdatum="2026-02-01", waarborgsom=3000)
+    ],
+    HUURCOMPONENT.name: [
+        _a(typ_huurcomponentid=1, benaming="Huur woonruimte"),
+        _a(typ_huurcomponentid=2, benaming="Servicekosten"),
+        _a(typ_huurcomponentid=3, benaming="Waarborg"),
+        _a(typ_huurcomponentid=4, benaming="Huur parkeerplaats"),
+    ],
+    BETAALREGEL.name: [
+        _a(
+            fin_betaalregelid=1,
+            prg_contractid=500,
+            prg_subobjectid=100,
+            typ_huurcomponentid=1,
+            bedragex=1500,
+            dm_bedragextermijnmnd=1,
+            ingangsdatum="2026-02-01",
+        ),
+        _a(
+            fin_betaalregelid=2,
+            prg_contractid=500,
+            prg_subobjectid=100,
+            typ_huurcomponentid=4,
+            bedragex=100,
+            dm_bedragextermijnmnd=1,
+            ingangsdatum="2026-02-01",
+        ),
+        _a(
+            fin_betaalregelid=3,
+            prg_contractid=500,
+            prg_subobjectid=100,
+            typ_huurcomponentid=2,
+            bedragex=120,
+            dm_bedragextermijnmnd=1,
+            ingangsdatum="2026-02-01",
+        ),
+        _a(
+            fin_betaalregelid=4,
+            prg_contractid=500,
+            prg_subobjectid=100,
+            typ_huurcomponentid=3,
+            bedragex=3000,
+            ingangsdatum="2026-02-01",
+        ),
+        _a(
+            fin_betaalregelid=5,
+            prg_contractid=500,
+            prg_subobjectid=100,
+            typ_huurcomponentid=1,
+            bedragex=1400,
+            dm_bedragextermijnmnd=1,
+            ingangsdatum="2025-01-01",
+            einddatum="2026-01-31",
+        ),
+    ],
     CONTRACTRELATIE.name: [
         _a(prg_contractrelatieid=700, prg_contractid=500, prg_relatieid=1, volgnr=Decimal(1)),
         _a(prg_contractrelatieid=701, prg_contractid=500, prg_relatieid=2, volgnr=Decimal(2)),
@@ -299,3 +390,27 @@ def test_an_erased_persons_brixx_tickets_are_not_shown(env: Env) -> None:
         s.flush()
         assert brixx_tickets(s, env.company_id) == []  # both live tickets were Anna's
         s.rollback()
+
+
+def test_properties_show_brixx_rent_area_and_deposit_never_invented(env: Env, pg_url: str) -> None:
+    from unittest.mock import MagicMock
+
+    from fastapi.testclient import TestClient
+
+    from app.api.v1.auth import Principal
+    from app.core.settings import Settings
+    from app.main import create_app
+    from tests.api_auth import as_owner
+
+    settings = Settings(database_url=pg_url, env="test", _env_file=None)  # type: ignore[call-arg]
+    owner = Principal(company_id=env.company_id, owner_id=uuid.uuid4(), email="harjot@example.test")
+    app = as_owner(create_app(settings, engine=env.mirror.engine, workflow_client=MagicMock()), owner)
+    with TestClient(app) as client:
+        units = client.get("/api/properties").json()["units"]
+        tenants = client.get("/api/tenants").json()["tenants"]
+    unit = units[0]
+    assert (unit["label"], unit["currentTenant"], unit["status"]) == ("Teststraat 5 A", "Anna Testhuurder", "occupied")
+    assert unit["monthlyRentEur"] == 1600.0  # current "Huur ..." lines only: no service costs, deposit or old rent
+    assert (unit["livingAreaSqm"], unit["depositEur"], unit["floor"], unit["lockboxCode"]) == (62, 3000.0, None, None)
+    anna = next(t for t in tenants if t["name"] == "Anna Testhuurder")
+    assert (anna["unitLabel"], anna["monthlyRentEur"]) == ("Teststraat 5 A", 1600.0)
