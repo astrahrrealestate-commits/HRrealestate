@@ -36,7 +36,8 @@ CONTRACTRELATIE = "prg_contractrelatie"
 CONTRACT_TENANT = ("eersterelatieid", "prg_relatieid")
 ORDER = ("volgnr",)
 
-NAME = ("weergavenaam", "weergavenaam2", "naam", "organisatienm", "achternaam")
+RELATIE_NUMBER = ("relatienrstr", "relatienr")
+NAME = ("weergavenaam", "weergavenaam2", "naam", "organisatienm")
 EMAIL = ("email", "emailadres", "e_mail")
 PHONE = ("mobielnr", "mobiel", "telefoon1", "telefoon2", "telefoonnr", "telefoon", "telefoonnr1", "telefoonnr2")
 # Display names first: the real VHENR/OBJECTNR are internal numbers (e.g. 100000000100001), WEERGAVENAAM2 is
@@ -126,7 +127,12 @@ def is_ended(row: Row | None) -> bool:
         return False
     if row.get("_deleted_at") is not None:
         return True
-    flag = row.get(DELETED_FLAG)
+    return is_flagged(row, DELETED_FLAG)
+
+
+def is_flagged(row: Row, column: str) -> bool:
+    """A BRIXX yes/no column (`0`/`1`, `J`/`N`, bool) that says yes."""
+    flag = row.get(column)
     if isinstance(flag, bool):
         return flag
     return flag is not None and str(flag).strip().lower() in _TRUE_FLAGS | {"1.0"}

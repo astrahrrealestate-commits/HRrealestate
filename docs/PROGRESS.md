@@ -334,3 +334,15 @@ bidirectional translation controls onto the new unified Composer, and fixed what
   `PRG_CONTRACT` has no `PRG_RELATIEID`, so no person was a tenant and no lease had a party
 - [x] BRIXX `TST_TICKET` rows listed read-only in Maintenance (unit, tenant, contractor, urgency, status, history from
   `TST_TICKETBERICHT`); edit/approve answer 409 "change it in BRIXX"
+- [x] Reports and Money on real BRIXX data (2026-11-16, branch `feat/brixx-reports-money`): Reports occupancy shows
+  `livingAreaSqm` (the column was hardcoded "—") and "Open-ended" for a tenanted lease without end date (stage: 17 of 66
+  leases carry `EINDDATUM`; the rest are open-ended contracts, not missing data). **BRIXX withholds person names:** on
+  stage every name column of all 122 `PRG_RELATIE` rows (`WEERGAVENAAM`, `ACHTERNAAM`, `VOORLETTERS`, `VOORNAAM`) and
+  `EMAIL`/`TELEFOON1` is NULL; only 11 organisations keep `ORGANISATIENM`. Such a relatie is now shown as "Relatie
+  R-00042" (its `RELATIENRSTR`, which BRIXX's own screens search on) instead of "Relatie 42"; a real name replaces the
+  generated label once BRIXX sends one, a name set by hand in EstateOS is never overwritten. To get real names the
+  BRIXX API user needs the personal-data columns enabled (ask BRIXX). Money tab: new mapper part `rent_ledger.py`
+  (`brixx.map_rent` step after leases) fills `tenant_rent_payments` and `monthly_rent_summaries` from `FIN_FACTUUR` +
+  `FIN_BETALING` (one row per lease and invoice month up to the current one; credits/corrections net in; reversed
+  payments ignored; `GEPLAND` invoices pending, an issued invoice past `FACTVERVALDATUM` and unpaid overdue; amounts
+  are invoiced totals incl. VAT). Tests: `tests/integration/test_brixx_rent_ledger.py`

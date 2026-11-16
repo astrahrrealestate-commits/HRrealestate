@@ -42,6 +42,7 @@ interface ApiUnit {
   monthlyRentEur: number;
   currentTenant: string | null;
   leaseEnd: string | null;
+  livingAreaSqm?: number | null;
   address: string;
 }
 
@@ -110,7 +111,7 @@ function occupancy(units: Fetched<{ units?: ApiUnit[] }>, now: Date): ReportTemp
   const base = empty(
     "occupancy",
     "Portfolio Occupancy & Lease Roll",
-    "Unit-by-unit tenancy status, monthly contract rent and lease end dates, read live from your portfolio. A dash means it is not recorded.",
+    "Unit-by-unit tenancy status, monthly contract rent and lease end dates, read live from your portfolio. A dash means it is not recorded; open-ended means the lease has no end date.",
     `As of ${formatDate(now)}`,
     ["Unit", "Complex", "Tenant", "Status", "Sqm", "Rent / Mo", "Lease End"],
     ALL_ROLES,
@@ -122,9 +123,9 @@ function occupancy(units: Fetched<{ units?: ApiUnit[] }>, now: Date): ReportTemp
     Complex: splitBuilding(u.label),
     Tenant: u.currentTenant ?? "Vacant",
     Status: unitStatus(u.status, u.leaseEnd, now),
-    Sqm: "—",
+    Sqm: u.livingAreaSqm ? String(u.livingAreaSqm) : "—",
     "Rent / Mo": euro(u.monthlyRentEur),
-    "Lease End": dash(u.leaseEnd),
+    "Lease End": u.leaseEnd ? u.leaseEnd : u.currentTenant ? "Open-ended" : "—",
   }));
   return { ...base, rows };
 }
