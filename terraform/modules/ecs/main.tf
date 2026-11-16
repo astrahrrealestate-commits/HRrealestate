@@ -154,6 +154,8 @@ resource "aws_ecs_task_definition" "worker" {
       image       = var.backend_container_image
       essential   = true
       command     = ["python", "-m", "app.worker"]
+      # DBOS.destroy waits up to 20 s for running steps; the 30 s default SIGKILLs a slow BRIXX step mid-deploy.
+      stopTimeout = 60
       environment = var.backend_environment_variables
       secrets     = var.backend_secrets
       logConfiguration = {
@@ -405,4 +407,3 @@ resource "aws_ecs_service" "frontend" {
     }
   )
 }
-
