@@ -103,3 +103,9 @@ def test_address_reads_the_real_letter_toevoeging_and_city_columns() -> None:
     assert col.address(row, 300) == "Teststraat 5A-2, 1000AA VOORBEELDSTAD"
     assert col.address({**row, "huisletter": None}, 300) == "Teststraat 52, 1000AA VOORBEELDSTAD"
     assert col.pick_text({"vhenr": Decimal("100000000100001.0")}, col.VHE_LABEL, 100) == "100000000100001"
+
+
+def test_a_value_brixx_redacted_is_treated_as_missing() -> None:
+    """BRIXX sends "--redacted" where the API token may not read personal data: never show it as a name."""
+    assert col.pick({"weergavenaam": "--redacted", "organisatienm": "Testbedrijf B.V."}, col.NAME) == "Testbedrijf B.V."
+    assert col.pick({"weergavenaam": "--REDACTED"}, col.NAME) is None

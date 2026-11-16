@@ -54,6 +54,7 @@ START = ("ingangsdt", "ingangsdatum", "begindt", "startdatum")
 END = ("einddt", "einddatum")
 CREATED = ("newdatetime",)
 DELETED_FLAG = "indverwijderd"
+REDACTED = "--redacted"  # what BRIXX sends for personal data the API token may not read
 _TRUE_FLAGS = frozenset({"1", "j", "y", "true", "ja", "yes"})
 
 
@@ -79,6 +80,8 @@ def pick(row: Row | None, candidates: tuple[str, ...]) -> object | None:
         value = row.get(name)
         if isinstance(value, str):
             value = value.strip() or None
+            if value is not None and value.lower() == REDACTED:  # BRIXX withholds it from this API token
+                value = None
         if value is not None:
             return value
     return None

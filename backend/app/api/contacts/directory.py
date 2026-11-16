@@ -5,7 +5,8 @@ here, or adds a contractor, tenant or maintenance person before they ever write.
 """
 
 from collections import defaultdict
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -22,6 +23,7 @@ from app.core.errors import NotFoundError
 from app.db.enums import PersonKind
 from app.db.models import Case, ChannelIdentity, Lease, LeaseParty, Person, Unit
 from app.db.models.finance import TenantRentPayment
+from app.directory.brixx.unit_facts import UnitFacts, unit_facts
 from app.directory.contacts import (
     CATEGORIES,
     ContactConflictError,
@@ -49,7 +51,11 @@ class ContactOut(BaseModel):
     residential_address: str = Field(alias="residentialAddress")
     agreement_period: str = Field(alias="agreementPeriod")
     status: str = "active"
-    rent_status: str = Field(default="up_to_date", alias="rentStatus")
+    rent_status: str = Field(default="unknown", alias="rentStatus", description="up_to_date | overdue | unknown")
+    monthly_rent_eur: float | None = Field(default=None, alias="monthlyRentEur")
+    deposit_eur: float | None = Field(default=None, alias="depositEur")
+    lease_start: str | None = Field(default=None, alias="leaseStart")
+    lease_end: str | None = Field(default=None, alias="leaseEnd", description="None for an open-ended lease")
     open_tickets_count: int = Field(default=0, alias="openTicketsCount")
     notes: str = ""
     trade: str = Field(default="", description="The stored trade or role, empty when none")
@@ -75,22 +81,32 @@ class ContactPatch(BaseModel):
     trade: str | None = Field(default=None, max_length=100)
 
 
-def _tenancy(session: Session, company_id: UUID, person_id: UUID) -> tuple[str, str, str]:
-    """(unit label, unit address, agreement period) of the person's most recent lease, from the directory. Blank when
-    the person has no lease on file: nothing is invented."""
+@dataclass(frozen=True)
+class _Tenancy:
+    unit: str = ""
+    address: str = ""
+    period: str = ""
+    lease_ref: str | None = None
+    start: date | None = None
+    end: date | None = None
+
+
+def _tenancy(session: Session, company_id: UUID, person_id: UUID) -> _Tenancy:
+    """The person's most recent lease (as tenant or co-tenant), from the directory. Blank when the person has no
+    lease on file: nothing is invented."""
     row = session.execute(
-        select(Unit.label, Unit.address, Lease.valid_from, Lease.valid_to)
+        select(Unit.label, Unit.address, Lease.valid_from, Lease.valid_to, Lease.brixx_ref)
         .select_from(LeaseParty)
         .join(Lease, Lease.id == LeaseParty.lease_id)
         .join(Unit, Unit.id == Lease.unit_id)
         .where(LeaseParty.company_id == company_id, LeaseParty.person_id == person_id)
-        .order_by(Lease.valid_from.desc())
+        .order_by(Lease.valid_to.is_(None).desc(), Lease.valid_to.desc(), Lease.valid_from.desc())
     ).first()
     if row is None:
-        return "", "", ""
-    label, address, start, end = row
+        return _Tenancy()
+    label, address, start, end, ref = row
     period = f"{start:%d %b %Y} — {end:%d %b %Y}" if end else f"Since {start:%d %b %Y} (open-ended)"
-    return label, address or label, period
+    return _Tenancy(label, address or label, period, ref, start, end)
 
 
 def _role_label(category: str, trade: str | None) -> str:
@@ -124,6 +140,16 @@ def _open_cases(session: Session, company_id: UUID, person_ids: list[UUID]) -> d
     return {person_id: count for person_id, count in rows if person_id is not None}
 
 
+def _rent_known(session: Session, company_id: UUID, person_ids: list[UUID]) -> set[UUID]:
+    """Tenants with any rent record: only for them can rent be called up to date."""
+    rows = session.scalars(
+        select(distinct(TenantRentPayment.tenant_id)).where(
+            TenantRentPayment.company_id == company_id, TenantRentPayment.tenant_id.in_(person_ids)
+        )
+    ).all()
+    return set(rows)
+
+
 def _overdue_tenants(session: Session, company_id: UUID, person_ids: list[UUID]) -> set[UUID]:
     rows = session.scalars(
         select(distinct(TenantRentPayment.tenant_id)).where(
@@ -140,23 +166,30 @@ def _contact(
     person: Person,
     identities: dict[Channel, str],
     open_cases: int,
+    facts: UnitFacts,
     is_overdue: bool = False,
+    rent_known: bool = False,
 ) -> ContactOut:
     category = category_of(person.kind, person.trade)
-    unit, address, period = _tenancy(session, person.company_id, person.id) if category == "tenant" else ("", "", "")
+    tenancy = _tenancy(session, person.company_id, person.id) if category == "tenant" else _Tenancy()
+    rent, deposit = facts.for_lease(tenancy.lease_ref)
     role = _role_label(category, person.trade)
     return ContactOut(
         id=str(person.id),
         name=person.display_name.strip(),
         category=category,
         trade_or_role=role,
-        unit_role=unit if category == "tenant" else (person.trade.capitalize() if person.trade else role),
+        unit_role=tenancy.unit if category == "tenant" else (person.trade.capitalize() if person.trade else role),
         email=identities.get(Channel.gmail, ""),
         phone=identities.get(Channel.whatsapp, ""),
-        property_address=address,
-        residential_address=address,
-        agreement_period=period,
-        rent_status="overdue" if is_overdue else "up_to_date",
+        property_address=tenancy.address,
+        residential_address=tenancy.address,
+        agreement_period=tenancy.period,
+        rent_status="overdue" if is_overdue else ("up_to_date" if rent_known else "unknown"),
+        monthly_rent_eur=rent,
+        deposit_eur=deposit,
+        lease_start=f"{tenancy.start:%d-%m-%Y}" if tenancy.start else None,
+        lease_end=f"{tenancy.end:%d-%m-%Y}" if tenancy.end else None,
         open_tickets_count=open_cases,
         trade=person.trade or "",
         source="brixx" if person.brixx_ref else "directory",
@@ -172,7 +205,9 @@ def _one(session: Session, person: Person) -> ContactOut:
         person,
         _identities(session, person.company_id, ids).get(person.id, {}),
         _open_cases(session, person.company_id, ids).get(person.id, 0),
+        unit_facts(session, person.company_id, datetime.now(UTC).date()),
         is_overdue=person.id in overdue_set,
+        rent_known=person.id in _rent_known(session, person.company_id, ids),
     )
 
 
@@ -199,6 +234,8 @@ def list_contacts(
         identities = _identities(session, company_id, ids)
         cases = _open_cases(session, company_id, ids)
         overdue_set = _overdue_tenants(session, company_id, ids)
+        known = _rent_known(session, company_id, ids)
+        facts = unit_facts(session, company_id, datetime.now(UTC).date())
         seen: set[tuple[str, PersonKind]] = set()
         results: list[ContactOut] = []
         for person in people:
@@ -213,7 +250,9 @@ def list_contacts(
                     person,
                     identities.get(person.id, {}),
                     cases.get(person.id, 0),
+                    facts,
                     is_overdue=person.id in overdue_set,
+                    rent_known=person.id in known,
                 )
             )
         return results

@@ -414,3 +414,26 @@ def test_properties_show_brixx_rent_area_and_deposit_never_invented(env: Env, pg
     assert (unit["livingAreaSqm"], unit["depositEur"], unit["floor"], unit["lockboxCode"]) == (62, 3000.0, None, None)
     anna = next(t for t in tenants if t["name"] == "Anna Testhuurder")
     assert (anna["unitLabel"], anna["monthlyRentEur"]) == ("Teststraat 5 A", 1600.0)
+
+
+def test_contacts_carry_real_lease_facts_and_no_invented_rent_status(env: Env, pg_url: str) -> None:
+    from unittest.mock import MagicMock
+
+    from fastapi.testclient import TestClient
+
+    from app.api.v1.auth import Principal
+    from app.core.settings import Settings
+    from app.main import create_app
+    from tests.api_auth import as_owner
+
+    settings = Settings(database_url=pg_url, env="test", _env_file=None)  # type: ignore[call-arg]
+    owner = Principal(company_id=env.company_id, owner_id=uuid.uuid4(), email="harjot@example.test")
+    app = as_owner(create_app(settings, engine=env.mirror.engine, workflow_client=MagicMock()), owner)
+    with TestClient(app) as client:
+        contacts = client.get("/api/contacts", params={"audience": "tenant"}).json()
+    anna = next(c for c in contacts if c["name"] == "Anna Testhuurder")
+    assert (anna["monthlyRentEur"], anna["depositEur"]) == (1600.0, 3000.0)
+    assert (anna["leaseStart"], anna["leaseEnd"]) == ("01-02-2026", None)  # open-ended
+    assert anna["rentStatus"] == "unknown"  # no rent roll recorded: never "up to date" by default
+    bram = next(c for c in contacts if c["name"] == "Bram Medehuurder")
+    assert bram["unitRole"] == "Teststraat 5 A"  # a co-tenant has the tenancy too

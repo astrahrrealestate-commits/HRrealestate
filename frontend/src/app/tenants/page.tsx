@@ -155,9 +155,13 @@ function TenantsContent() {
               phone: t.phone || "",
               propertyAddress: t.unitLabel || "",
               residentialAddress: t.unitLabel || "",
-              agreementPeriod: t.leaseStart ? `${t.leaseStart} — ${t.leaseEnd}` : "",
+              agreementPeriod: t.leaseStart ? `${t.leaseStart} — ${t.leaseEnd || "open-ended"}` : "",
+              leaseStart: t.leaseStart || null,
+              leaseEnd: t.leaseEnd || null,
+              monthlyRentEur: t.monthlyRentEur > 0 ? t.monthlyRentEur : null,
+              depositEur: null,
               status: "active",
-              rentStatus: t.rentStatus || "up_to_date",
+              rentStatus: t.rentStatus || "unknown",
               openTicketsCount: 0,
               notes: "",
               trade: "",
@@ -750,12 +754,12 @@ function TenantsContent() {
                               <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
                               {t("Rent overdue", "Rent overdue")}
                             </span>
-                          ) : (
+                          ) : activeContact.rentStatus === "up_to_date" ? (
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-[10.5px] font-semibold rounded-full capitalize bg-white text-[#1e293b] border border-[#e2e8f0]">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                               {t("Rent up to date", "Rent up to date")}
                             </span>
-                          )}
+                          ) : null}
                           {activeContact.unitRole && (
                             <span className="text-[11px] text-[#64748b] font-medium">
                               · {activeContact.unitRole}
@@ -792,7 +796,7 @@ function TenantsContent() {
                           <div className="inline-flex items-center gap-1">
                             <span className="font-semibold text-[#64748b]">Agreement Duration:</span>
                             <span className="font-medium text-[#111215]">
-                              {activeContact.agreementPeriod || "Since 01 Jan 2025 (to 31 Dec 2026)"}
+                              {activeContact.agreementPeriod || "—"}
                             </span>
                           </div>
                         </div>
@@ -825,15 +829,7 @@ function TenantsContent() {
                           {t("Property Address:")}
                         </span>
                         <span className="text-[12px] text-[#111215] font-medium leading-snug">
-                          {activeContact.propertyAddress || activeContact.address || "Keizersgracht 42, 1015 CR Amsterdam"}
-                        </span>
-                      </div>
-                      <div className="flex items-baseline gap-2 py-1">
-                        <span className="font-semibold text-[11.5px] text-[#64748b] min-w-[140px] shrink-0">
-                          {t("Residential Address:")}
-                        </span>
-                        <span className="text-[12px] text-[#111215] font-medium leading-snug">
-                          {activeContact.residentialAddress || activeContact.address || "Keizersgracht 42, 1015 CR Amsterdam"}
+                          {activeContact.propertyAddress || activeContact.address || "—"}
                         </span>
                       </div>
                     </div>
@@ -851,7 +847,7 @@ function TenantsContent() {
                         {t("Monthly Rent")}
                       </div>
                       <div className="text-[14px] font-bold text-[#0f172a] mt-1 font-mono">
-                        € 2.450,-
+                        {eur(activeContact.monthlyRentEur)}
                       </div>
                     </div>
 
@@ -860,7 +856,7 @@ function TenantsContent() {
                         {t("Security Deposit")}
                       </div>
                       <div className="text-[14px] font-bold text-[#0f172a] mt-1 font-mono">
-                        € 4.900,-
+                        {eur(activeContact.depositEur)}
                       </div>
                     </div>
 
@@ -869,7 +865,7 @@ function TenantsContent() {
                         {t("Lease Commencement")}
                       </div>
                       <div className="text-[13px] font-semibold text-[#0f172a] mt-1 font-mono">
-                        01-01-2025
+                        {activeContact.leaseStart || "—"}
                       </div>
                     </div>
 
@@ -878,17 +874,7 @@ function TenantsContent() {
                         {t("Lease Expiry")}
                       </div>
                       <div className="text-[13px] font-semibold text-[#0f172a] mt-1 font-mono">
-                        31-12-2026
-                      </div>
-                    </div>
-
-                    <div className="p-2.5 rounded-[8px] bg-[#f8fafc] border border-[#e2e8f0]">
-                      <div className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider">
-                        {t("Identity & Vetting")}
-                      </div>
-                      <div className="inline-flex items-center gap-1 text-[12px] font-bold text-[#16a34a] mt-1">
-                        <ShieldCheck className="w-3.5 h-3.5 text-[#16a34a]" />
-                        <span>{t("iDIN Verified")}</span>
+                        {activeContact.leaseEnd || (activeContact.leaseStart ? t("Open-ended") : "—")}
                       </div>
                     </div>
 
@@ -896,8 +882,21 @@ function TenantsContent() {
                       <div className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider">
                         {t("Payment Status")}
                       </div>
-                      <div className="text-[12px] font-bold text-emerald-700 mt-1">
-                        {t("Rent up to date")}
+                      <div
+                        className={cn(
+                          "text-[12px] font-bold mt-1",
+                          activeContact.rentStatus === "overdue"
+                            ? "text-rose-600"
+                            : activeContact.rentStatus === "up_to_date"
+                              ? "text-emerald-700"
+                              : "text-[#64748b]"
+                        )}
+                      >
+                        {activeContact.rentStatus === "overdue"
+                          ? t("Rent overdue")
+                          : activeContact.rentStatus === "up_to_date"
+                            ? t("Rent up to date")
+                            : t("No rent records yet")}
                       </div>
                     </div>
                   </div>
@@ -1704,34 +1703,7 @@ function TenantsContent() {
                   {/* TAB VIEW 4: Tickets */}
                   {activeTab === "tickets" && (
                     <div className="flex-1 flex flex-col p-3.5 sm:p-6 space-y-4 bg-white">
-                      {activeContact.name === "Vipin Tyagi" ? (
-                        <div className="p-4 rounded-[8px] border border-[#e2e8f0] bg-white space-y-3">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-white text-[#0f172a] border border-[#e2e8f0]">
-                                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                                High Urgency
-                              </span>
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-white text-[#0f172a] border border-[#e2e8f0]">
-                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                                Dispatched
-                              </span>
-                            </div>
-                            <span className="text-[11px] text-[#94a3b8] font-mono">Opened 05 Nov 2026</span>
-                          </div>
-                          <div>
-                            <h4 className="text-[14px] font-bold text-[#0f172a]">
-                              Heating System Malfunction
-                            </h4>
-                            <p className="text-[12.5px] text-[#475569] mt-1 leading-relaxed">
-                              Tenant Vipin Tyagi reported that the apartment heating at Keizersgracht 42-A stopped working, causing the unit to become very cold. Contractor Kevin van Dijk (Plumber) has been dispatched via WhatsApp.
-                            </p>
-                          </div>
-                          <div className="text-[11px] text-[#64748b] font-medium pt-2 border-t border-[#f1f5f9]">
-                            Unit: Keizersgracht 42-A · Assigned: Kevin van Dijk (Plumber)
-                          </div>
-                        </div>
-                      ) : (
+                      {(
                         <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white border border-dashed border-[#e2e8f0] rounded-[8px]">
                           <div className="w-12 h-12 rounded-full bg-[#f1f5f9] flex items-center justify-center text-[#64748b] mb-3">
                             <Wrench className="w-5 h-5 stroke-[1.5]" />
@@ -1771,6 +1743,13 @@ function TenantsContent() {
       />
     </div>
   );
+}
+
+/** A euro amount the API knows, else "—" (never a made-up figure). */
+function eur(amount: number | null | undefined): string {
+  return amount == null
+    ? "—"
+    : `€ ${amount.toLocaleString("nl-NL", { minimumFractionDigits: 0, maximumFractionDigits: 2 })},-`;
 }
 
 export default function TenantsPage() {

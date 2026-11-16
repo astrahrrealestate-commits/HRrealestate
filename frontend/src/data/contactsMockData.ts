@@ -72,7 +72,11 @@ export interface ContactItem {
   agreementPeriod: string;
   preferredChannel?: "gmail" | "whatsapp";
   status: "active" | "inactive" | "pending";
-  rentStatus?: "up_to_date" | "overdue" | string;
+  rentStatus?: "up_to_date" | "overdue" | "unknown" | string;
+  monthlyRentEur?: number | null; // from the lease's BRIXX contract; null when unknown
+  depositEur?: number | null;
+  leaseStart?: string | null; // dd-mm-yyyy
+  leaseEnd?: string | null; // null for an open-ended lease
   openTicketsCount: number;
   rating?: number;
   notes?: string;

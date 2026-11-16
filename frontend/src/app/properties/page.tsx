@@ -15,7 +15,6 @@ import {
   X,
   Building2,
   Home,
-  KeyRound,
   ShieldCheck,
   Phone,
   Mail,
@@ -96,7 +95,6 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
   );
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(unitParam || null);
   const [isAskAgentOpen, setIsAskAgentOpen] = useState(false);
-  const [copiedLockbox, setCopiedLockbox] = useState(false);
 
   // Sync state if URL changes (e.g. deep links or browser navigation)
   useEffect(() => {
@@ -200,8 +198,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
         const matchesUnit = unit.unitNumber.toLowerCase().includes(q);
         const matchesAddress = unit.fullAddress.toLowerCase().includes(q);
         const matchesTenant = unit.currentTenant?.name.toLowerCase().includes(q);
-        const matchesLockbox = (unit.lockboxCode ?? "").toLowerCase().includes(q);
-        if (!matchesUnit && !matchesAddress && !matchesTenant && !matchesLockbox) {
+        if (!matchesUnit && !matchesAddress && !matchesTenant) {
           return false;
         }
       }
@@ -267,11 +264,6 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
     }
   };
 
-  const handleCopyLockbox = (code: string) => {
-    navigator.clipboard.writeText(code);
-    setCopiedLockbox(true);
-    setTimeout(() => setCopiedLockbox(false), 2000);
-  };
 
   // Mobile navigation view state: complex click opens Complex Screen; only explicit unit selection opens Unit Screen
   const isMobileUnitScreen = Boolean(unitParam || (selectedUnitId && isMobile));
@@ -504,12 +496,9 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                         </div>
                       </div>
 
-                      {/* Bottom: Lockbox PIN or Active ticket flag */}
+                      {/* Bottom: active ticket flag */}
                       <div className="flex items-center justify-between text-[10px] text-[var(--ink-3)] border-t border-[var(--line)]/50 pt-1 mt-1 font-mono">
-                        <span className="flex items-center gap-1">
-                          <KeyRound className="w-2.5 h-2.5" />
-                          <span>{unit.lockboxCode ?? UNKNOWN}</span>
-                        </span>
+                        <span />
                         {(unit.activeTicketCount ?? 0) > 0 && (
                           <span className="text-[var(--accent-ink)] font-semibold">
                             {unit.activeTicketCount} ticket
@@ -560,10 +549,6 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                   </span>
                   <div className="grid grid-cols-2 gap-y-2.5 text-xs">
                     <div>
-                      <span className="text-[var(--ink-3)] block">{t("properties.floor", "Floor / Level")}</span>
-                      <span className="font-medium text-[var(--ink)]">{activeUnit.floor == null ? UNKNOWN : `Floor ${activeUnit.floor}`}</span>
-                    </div>
-                    <div>
                       <span className="text-[var(--ink-3)] block">{t("properties.area", "Living Area")}</span>
                       <span className="font-medium text-[var(--ink)]">{activeUnit.areaSqm == null ? UNKNOWN : `${activeUnit.areaSqm} m²`}</span>
                     </div>
@@ -574,21 +559,6 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                     <div>
                       <span className="text-[var(--ink-3)] block">{t("properties.deposit", "Security Deposit")}</span>
                       <span className="font-mono text-[var(--ink-2)]">{euro(activeUnit.depositEur)}</span>
-                    </div>
-                    <div>
-                      <span className="text-[var(--ink-3)] block">{t("properties.lockbox_pin", "Lockbox PIN")}</span>
-                      <div className="flex items-center gap-1.5 pt-0.5">
-                        <span className="font-mono font-semibold text-[var(--ink)] tracking-wider">
-                          {activeUnit.lockboxCode ?? UNKNOWN}
-                        </span>
-                        <button
-                          hidden={!activeUnit.lockboxCode}
-                          onClick={() => activeUnit.lockboxCode && handleCopyLockbox(activeUnit.lockboxCode)}
-                          className="text-[10px] text-[var(--ink-3)] hover:text-[var(--ink)] underline cursor-pointer"
-                        >
-                          {copiedLockbox ? t("Copied") : t("Copy")}
-                        </button>
-                      </div>
                     </div>
                     <div>
                       <span className="text-[var(--ink-3)] block">{t("properties.active_tickets", "Active Tickets")}</span>
@@ -926,10 +896,6 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                   </span>
                   <div className="grid grid-cols-2 gap-y-3 text-sm">
                     <div>
-                      <span className="text-xs text-[var(--ink-3)] block">Floor</span>
-                      <span className="font-medium text-[var(--ink)]">{activeUnit.floor == null ? UNKNOWN : `Floor ${activeUnit.floor}`}</span>
-                    </div>
-                    <div>
                       <span className="text-xs text-[var(--ink-3)] block">Area</span>
                       <span className="font-medium text-[var(--ink)]">{activeUnit.areaSqm == null ? UNKNOWN : `${activeUnit.areaSqm} m²`}</span>
                     </div>
@@ -940,21 +906,6 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                     <div>
                       <span className="text-xs text-[var(--ink-3)] block">Deposit</span>
                       <span className="font-mono text-[var(--ink-2)]">{euro(activeUnit.depositEur)}</span>
-                    </div>
-                    <div>
-                      <span className="text-xs text-[var(--ink-3)] block">Lockbox PIN</span>
-                      <div className="flex items-center gap-2 pt-0.5">
-                        <span className="font-mono font-bold text-[var(--ink)] tracking-wider">
-                          {activeUnit.lockboxCode ?? UNKNOWN}
-                        </span>
-                        <button
-                          hidden={!activeUnit.lockboxCode}
-                          onClick={() => activeUnit.lockboxCode && handleCopyLockbox(activeUnit.lockboxCode)}
-                          className="text-xs text-[var(--ink-3)] underline"
-                        >
-                          {copiedLockbox ? "Copied" : "Copy"}
-                        </button>
-                      </div>
                     </div>
                     <div>
                       <span className="text-xs text-[var(--ink-3)] block">Active Tickets</span>
