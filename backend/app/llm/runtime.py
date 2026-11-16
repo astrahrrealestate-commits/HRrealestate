@@ -16,6 +16,18 @@ _KEY_FIELDS = {"google-gla": "gemini_api_key", "openai": "openai_api_key", "groq
 _KEY_SHAPES = re.compile(r"(sk-[\w*.-]+|AIza[\w-]+|gsk_[\w*-]+)")
 
 
+def gemini_provider(api_key: str | None) -> Any:
+    """A Gemini Developer API provider pinned to API v1beta. google-genai 3.x defaults to v1, which refuses system
+    instructions ("Developer instruction is not enabled") and function calling, so every agent call answered 400."""
+    from pydantic_ai.providers.google import GoogleProvider
+
+    class _V1BetaGoogleProvider(GoogleProvider):
+        def _build_http_options(self, **kwargs: Any) -> Any:  # the documented hook for subclasses
+            return super()._build_http_options(**kwargs).model_copy(update={"api_version": "v1beta"})
+
+    return _V1BetaGoogleProvider(api_key=api_key)
+
+
 def _key(settings: Settings, provider: str) -> str | None:
     field = _KEY_FIELDS.get(provider)
     secret = getattr(settings, field) if field else None
@@ -29,9 +41,8 @@ def _provider_model(settings: Settings, model: str) -> Model | str:
     key = _key(settings, provider)
     if provider == "google-gla":
         from pydantic_ai.models.google import GoogleModel
-        from pydantic_ai.providers.google import GoogleProvider
 
-        return GoogleModel(name, provider=GoogleProvider(api_key=key))
+        return GoogleModel(name, provider=gemini_provider(key))
     if provider in ("openai", "groq"):
         from pydantic_ai.models.openai import OpenAIChatModel
         from pydantic_ai.providers.openai import OpenAIProvider

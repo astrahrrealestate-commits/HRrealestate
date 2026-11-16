@@ -154,6 +154,8 @@ module "ecs" {
     { name = "DASHBOARD_TRUST_FORWARDED_FOR", value = "true" },
     { name = "LLM_MODEL", value = "google-gla:gemini-2.5-flash" },
     { name = "EMBEDDING_MODEL", value = "google-gla:gemini-embedding-001" },
+    # google-genai 3.x defaults to API v1, which rejects instructions/tools; the code pins v1beta too.
+    { name = "GOOGLE_GENAI_API_VERSION", value = "v1beta" },
     { name = "LLM_TIMEOUT_SEC", value = "30" },
     # Tried when Gemini answers an error; skipped while OPENAI_API_KEY is empty (app/llm/runtime.py).
     { name = "LLM_FALLBACK_MODELS", value = "openai:gpt-4.1-mini" },

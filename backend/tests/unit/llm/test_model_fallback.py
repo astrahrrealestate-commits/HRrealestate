@@ -80,3 +80,17 @@ def test_a_body_without_a_plain_message_logs_the_status_only() -> None:
     listed = ModelHTTPError(400, "gemini", [{"error": {"message": "x"}}])
     assert describe_model_error(groq) == "ModelHTTPError 400 llama"
     assert describe_model_error(listed) == "ModelHTTPError 400 gemini"
+
+
+def test_gemini_calls_use_the_v1beta_api(monkeypatch: object) -> None:
+    """google-genai 3.x defaults the Developer API to v1, which refuses system instructions and function calling
+    (every agent call 400s); agents and embeddings pin v1beta whatever GOOGLE_GENAI_API_VERSION says."""
+    from app.llm.embeddings import build_embedder
+
+    model = build_model(_s(**GEMINI), "concierge")
+    assert isinstance(model, GoogleModel)
+    assert model.client._api_client._http_options.api_version == "v1beta"
+
+    embedder = build_embedder(_s(embedding_model="google-gla:gemini-embedding-001", gemini_api_key="g-test"))
+    provider = embedder._embedder.model._provider  # type: ignore[attr-defined]
+    assert provider.client._api_client._http_options.api_version == "v1beta"

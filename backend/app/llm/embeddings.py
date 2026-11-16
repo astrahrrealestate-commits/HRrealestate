@@ -92,11 +92,12 @@ def build_embedder(settings: Settings) -> TextEmbedder:
         )
     if provider == "google-gla":
         from pydantic_ai.embeddings.google import GoogleEmbeddingModel
-        from pydantic_ai.providers.google import GoogleProvider
+
+        from app.llm.runtime import gemini_provider
 
         key = settings.gemini_api_key.get_secret_value() if settings.gemini_api_key else None
         return ModelEmbedder(
-            Embedder(GoogleEmbeddingModel(name, provider=GoogleProvider(api_key=key))), settings.llm_timeout_sec
+            Embedder(GoogleEmbeddingModel(name, provider=gemini_provider(key))), settings.llm_timeout_sec
         )
     return ModelEmbedder(Embedder(settings.embedding_model), settings.llm_timeout_sec)
 

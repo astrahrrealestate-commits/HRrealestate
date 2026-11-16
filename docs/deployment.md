@@ -88,7 +88,10 @@ show up there:
 - **LLM.** `LLM_MODEL` plus optional `LLM_FALLBACK_MODELS` (Pydantic AI `FallbackModel`, tried in order on a provider
   error; a fallback whose key is empty in Secrets Manager is skipped). On 2026-11-16 every agent call failed because
   the Gemini keys answered `402 RESOURCE_EXHAUSTED` (prepaid credits depleted); the key in Secrets Manager was
-  replaced. Watch the Gemini project's credits. Failures are now logged with the provider's status and message
+  replaced. Watch the Gemini project's credits. The next failure was `400 ... not enabled for api version v1`:
+  google-genai 3.x defaults the Developer API to v1, which refuses system instructions and function calling; the code
+  now pins v1beta (`app/llm/runtime.py: gemini_provider`) and the task definitions set
+  `GOOGLE_GENAI_API_VERSION=v1beta` as well. Failures are now logged with the provider's status and message
   (`superagent.chat_failed`, `superagent.research_failed`, `api.superagent.llm_fallback`; key-shaped text scrubbed).
 - **Task definitions vs terraform.** Terraform state is not in this repo (the S3 backend block is commented out), so a
   live change to a task definition must be mirrored in `terraform/environments/*/main.tf` or the next apply reverts it.
