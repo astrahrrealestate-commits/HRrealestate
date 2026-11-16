@@ -19,6 +19,11 @@ from app.db.models import (
 class CompanyFactory(SQLAlchemyFactory[Company]):
     __model__ = Company
 
+    @classmethod
+    def name(cls) -> str:
+        """Never empty: a random string of length 0 made test_factories_build flaky in CI."""
+        return f"Company {cls.__faker__.pystr(min_chars=4, max_chars=12)}"
+
 
 class PersonFactory(SQLAlchemyFactory[Person]):
     __model__ = Person

@@ -20,6 +20,7 @@ from app.api.v1.auth import Principal, require_session
 from app.contracts import CaseState, Channel
 from app.db.models import Case, ChannelIdentity, Lease, LeaseParty, Person, Unit
 from app.db.models.finance import TenantRentPayment
+from app.directory.brixx.unit_facts import UnitFacts, unit_facts
 
 router = APIRouter(
     prefix="/api/properties",
@@ -76,7 +77,7 @@ def _for_viewer(item: UnitItem, principal: Principal) -> UnitItem:
     return item.model_copy(update={"tenantPhone": None, "tenantEmail": None})
 
 
-def _item(session: Session, unit: Unit, today: date) -> UnitItem:
+def _item(session: Session, unit: Unit, today: date, facts: UnitFacts) -> UnitItem:
     """The unit with its current lease: one that has not ended (open-ended, or ending today or later)."""
     lease = session.scalars(
         select(Lease)
@@ -139,6 +140,9 @@ def _item(session: Session, unit: Unit, today: date) -> UnitItem:
         or 0
     )
 
+    brixx_rent, deposit = facts.for_lease(lease.brixx_ref if lease is not None else None)
+    if lease is not None and not monthly_rent and brixx_rent:
+        monthly_rent = brixx_rent  # the contract's current rent lines in BRIXX when no rent roll is recorded here
     return UnitItem(
         id=str(unit.id),
         label=unit.label,
@@ -152,6 +156,9 @@ def _item(session: Session, unit: Unit, today: date) -> UnitItem:
         leaseStart=f"{lease.valid_from:%d-%m-%Y}" if lease is not None and lease.valid_from else None,
         leaseEnd=f"{lease.valid_to:%d-%m-%Y}" if lease is not None and lease.valid_to else None,
         lockboxCode=None,
+        floor=None,
+        livingAreaSqm=facts.area_sqm.get(unit.brixx_ref) if unit.brixx_ref else None,
+        depositEur=deposit,
         rentStatus=rent_status,
         activeTicketCount=open_tickets,
     )
@@ -175,7 +182,8 @@ def get_properties(
             .where(Unit.company_id == principal.company_id, Unit.valid_to.is_(None))
             .order_by(Unit.label.asc())
         ).all()
-        items = [_for_viewer(_item(session, unit, today), principal) for unit in units]
+        facts = unit_facts(session, principal.company_id, today)
+        items = [_for_viewer(_item(session, unit, today, facts), principal) for unit in units]
     occupied = sum(i.status in ("occupied", "notice_given") for i in items)
     shown = items if status == "all" else [i for i in items if i.status == status]
     return PropertiesResponse(
@@ -202,4 +210,5 @@ def get_unit_details(
         unit = session.scalars(select(Unit).where(Unit.id == wanted, Unit.company_id == principal.company_id)).first()
         if unit is None:
             raise HTTPException(status_code=404, detail="Unit not found")
-        return _for_viewer(_item(session, unit, datetime.now(UTC).date()), principal)
+        today = datetime.now(UTC).date()
+        return _for_viewer(_item(session, unit, today, unit_facts(session, principal.company_id, today)), principal)

@@ -496,7 +496,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                           </div>
                         ) : (
                           <div className="text-[12px] font-medium text-[var(--ink-3)] italic">
-                            Vacant
+                            {unit.status === "vacant" ? "Vacant" : "Occupied · tenant not linked"}
                           </div>
                         )}
                         <div className="text-[11px] font-mono text-[var(--ink-3)] tabular-nums">
@@ -640,7 +640,9 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                     </div>
                   ) : (
                     <div className="text-xs text-[var(--ink-3)] italic">
-                      {t("properties.vacant_desc", "No current leaseholder. Unit is vacant and available for listing.")}
+                      {activeUnit.status === "vacant"
+                        ? t("properties.vacant_desc", "No current leaseholder. Unit is vacant and available for listing.")
+                        : t("properties.occupied_not_linked", "Occupied under an active lease; the tenant is not linked yet.")}
                     </div>
                   )}
                 </div>
@@ -998,7 +1000,7 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
                     </div>
                   ) : (
                     <div className="text-xs text-[var(--ink-3)] italic">
-                      Vacant. No active lease.
+                      {activeUnit.status === "vacant" ? "Vacant. No active lease." : "Occupied; the tenant is not linked yet."}
                     </div>
                   )}
                 </div>

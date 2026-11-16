@@ -21,6 +21,7 @@ from app.contracts import Channel
 from app.db.enums import PersonKind
 from app.db.models import ChannelIdentity, Lease, LeaseParty, Person, Unit
 from app.db.models.finance import TenantRentPayment
+from app.directory.brixx.unit_facts import UnitFacts, unit_facts
 
 router = APIRouter(
     prefix="/api/tenants",
@@ -59,10 +60,10 @@ def _without_contact(tenant: TenantItem) -> TenantItem:
     return tenant.model_copy(update={"phone": "", "email": ""})
 
 
-def _item(session: Session, person: Person, today: date) -> TenantItem:
+def _item(session: Session, person: Person, today: date, facts: UnitFacts) -> TenantItem:
     company_id = person.company_id
     row = session.execute(
-        select(Unit.label, Lease.valid_from, Lease.valid_to)
+        select(Unit.label, Lease.valid_from, Lease.valid_to, Lease.brixx_ref)
         .select_from(LeaseParty)
         .join(Lease, Lease.id == LeaseParty.lease_id)
         .join(Unit, Unit.id == Lease.unit_id)
@@ -80,7 +81,7 @@ def _item(session: Session, person: Person, today: date) -> TenantItem:
             ChannelIdentity.valid_to.is_(None),
         )
     ).all()
-    label, start, end = row if row is not None else ("", None, None)
+    label, start, end, lease_ref = row if row is not None else ("", None, None, None)
     rent_record = session.scalars(
         select(TenantRentPayment)
         .where(
@@ -90,6 +91,8 @@ def _item(session: Session, person: Person, today: date) -> TenantItem:
         .order_by(TenantRentPayment.billing_month.desc())
     ).first()
     monthly_rent = float(rent_record.contract_rent_cents) / 100.0 if rent_record else 0.0
+    if not monthly_rent:
+        monthly_rent = facts.for_lease(lease_ref)[0] or 0.0  # the contract's current rent lines in BRIXX
     status_str = (
         RENT_UNKNOWN if rent_record is None else ("overdue" if rent_record.status == "overdue" else "up_to_date")
     )
@@ -127,7 +130,8 @@ def get_tenants(
             .where(Person.company_id == principal.company_id, Person.kind == PersonKind.tenant)
             .order_by(Person.display_name.asc())
         ).all()
-        items = [_item(session, p, today) for p in people if p.display_name and "@" not in p.display_name]
+        facts = unit_facts(session, principal.company_id, today)
+        items = [_item(session, p, today, facts) for p in people if p.display_name and "@" not in p.display_name]
     if not principal.access.can("tenants"):
         items = [_without_contact(t) for t in items]
     shown = items if rent_status == "all" else [t for t in items if t.rentStatus == rent_status]
@@ -159,5 +163,6 @@ def get_tenant_details(
         ).first()
         if person is None:
             raise HTTPException(status_code=404, detail="Tenant not found")
-        item = _item(session, person, datetime.now(UTC).date())
+        today = datetime.now(UTC).date()
+        item = _item(session, person, today, unit_facts(session, principal.company_id, today))
     return item if principal.access.can("tenants") else _without_contact(item)

@@ -58,7 +58,7 @@ const asStatus = (value: string): UnitStatus =>
 function toUnit(unit: ApiUnit): UnitDetail {
   const { building, unitNumber } = splitLabel(unit.label);
   const status = asStatus(unit.status);
-  const rent = knownAmount(unit.monthlyRentEur) ?? 1650;
+  const rent = knownAmount(unit.monthlyRentEur);
   return {
     id: unit.id,
     unitNumber,
@@ -66,21 +66,21 @@ function toUnit(unit: ApiUnit): UnitDetail {
     complexId: slug(building),
     complexName: building,
     status,
-    floor: unit.floor ? parseInt(unit.floor, 10) || 1 : 1,
-    areaSqm: unit.livingAreaSqm ?? 75,
+    floor: unit.floor ? Number.parseInt(unit.floor, 10) || null : null,
+    areaSqm: unit.livingAreaSqm ?? null,
     monthlyRentEur: rent,
-    depositEur: unit.depositEur ?? (rent ? rent * 2 : 3300),
+    depositEur: unit.depositEur ? unit.depositEur : null,
     currentTenant: unit.currentTenant
       ? {
           name: unit.currentTenant,
           phone: orNull(unit.tenantPhone),
           email: orNull(unit.tenantEmail),
-          leaseStart: orNull(unit.leaseStart) ?? "01-01-2025",
-          leaseEnd: orNull(unit.leaseEnd) ?? "31-12-2026",
-          rentPaidUpToDate: unit.rentStatus === "overdue" ? false : true,
+          leaseStart: orNull(unit.leaseStart),
+          leaseEnd: orNull(unit.leaseEnd),
+          rentPaidUpToDate: unit.rentStatus === "overdue" ? false : unit.rentStatus === "up_to_date" ? true : null,
         }
       : undefined,
-    lockboxCode: orNull(unit.lockboxCode) ?? "4201",
+    lockboxCode: orNull(unit.lockboxCode),
     activeTicketCount: unit.activeTicketCount ?? 0,
   };
 }
@@ -132,7 +132,7 @@ export async function getTenantProfiles(): Promise<Loaded<TenantProfile[]>> {
     if (!res.ok) return { ok: false };
     const body: { tenants?: ApiTenant[] } = await res.json();
     const data = (body.tenants ?? []).map((t) => {
-      const rent = knownAmount(t.monthlyRentEur) ?? 1650;
+      const rent = knownAmount(t.monthlyRentEur);
       return {
         id: t.id,
         name: t.name,
@@ -140,29 +140,14 @@ export async function getTenantProfiles(): Promise<Loaded<TenantProfile[]>> {
         email: orNull(t.email),
         unitLabel: t.unitLabel,
         complexName: t.unitLabel ? splitLabel(t.unitLabel).building : null,
-        leaseStart: orNull(t.leaseStart) ?? "01-01-2025",
-        leaseEnd: orNull(t.leaseEnd) ?? "31-12-2026",
+        leaseStart: orNull(t.leaseStart),
+        leaseEnd: orNull(t.leaseEnd),
         monthlyRentEur: rent,
-        depositEur: rent ? rent * 2 : 3300,
-        rentStatus: asRentStatus(t.rentStatus === "unknown" ? "up_to_date" : t.rentStatus),
+        depositEur: null,
+        rentStatus: asRentStatus(t.rentStatus),
         overdueDays: t.overdueDays,
-        idVerified: true,
-        documents: [
-          {
-            id: `doc-${t.id}-1`,
-            title: "Tenancy Agreement (Signed)",
-            category: "lease" as const,
-            date: "01 Jan 2025",
-            size: "2.4 MB",
-          },
-          {
-            id: `doc-${t.id}-2`,
-            title: "ID & Passport Verification",
-            category: "id" as const,
-            date: "01 Jan 2025",
-            size: "1.1 MB",
-          },
-        ],
+        idVerified: null,
+        documents: [] as TenantProfile["documents"],
       };
     });
     return { ok: true, data };
