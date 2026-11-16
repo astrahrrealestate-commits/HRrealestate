@@ -74,6 +74,7 @@ class FakeBrixxApi:
         self._page_size = page_size
         self._documents = documents or {}
         self._failures: dict[tuple[str, int], tuple[BrixxError, bool]] = {}
+        self._describe_failures: dict[str, tuple[BrixxError, bool]] = {}
         self._download_failures: dict[int, tuple[BrixxError, bool]] = {}
         self.download_log: list[int] = []
         self.fetch_log: list[tuple[str, int, str | None]] = []
@@ -82,6 +83,10 @@ class FakeBrixxApi:
     def fail_on(self, table: str, page: int, error: BrixxError, *, once: bool = True) -> None:
         """Raise `error` when `page` of `table` is fetched (once by default, so a retry succeeds)."""
         self._failures[(table.upper(), page)] = (error, once)
+
+    def fail_describe(self, table: str, error: BrixxError, *, once: bool = True) -> None:
+        """Raise `error` when `table` is described (once by default, so a retry succeeds)."""
+        self._describe_failures[table.upper()] = (error, once)
 
     def fail_download(self, document_id: int, error: BrixxError, *, once: bool = True) -> None:
         """Raise `error` when `document_id` is downloaded (once by default, so a retry succeeds)."""
@@ -97,6 +102,12 @@ class FakeBrixxApi:
         return [(t.info.name, t.info.primary_key) for t in self._tables.values()]
 
     def describe_table(self, name: str) -> BrixxTable:
+        failure = self._describe_failures.get(name.upper())
+        if failure is not None:
+            error, once = failure
+            if once:
+                del self._describe_failures[name.upper()]
+            raise error
         return self._table(name).info
 
     def fetch_page(

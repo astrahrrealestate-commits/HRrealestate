@@ -42,8 +42,10 @@ OBJECT = _info(
     "PRG_OBJECT", "PRG_OBJECTID", [("OBJECTNR", "VARCHAR(30)"), *_ADDRESS, ("INDVERWIJDERD", "NUMBER"), *_AUDIT]
 )
 VHE = _info(
-    "PRG_VHE",
-    "PRG_VHEID",
+    # BRIXX's docs call this entity "VHE"; the real hrrealestate environment names the table PRG_SUBOBJECT (no
+    # PRG_VHE table exists anywhere in the real metadata) -- matching app.directory.brixx.columns.VHE.
+    "PRG_SUBOBJECT",
+    "PRG_SUBOBJECTID",
     [("PRG_OBJECTID", "NUMBER"), ("VHENR", "VARCHAR(30)"), *_ADDRESS, ("INDVERWIJDERD", "NUMBER"), *_AUDIT],
     {"PRG_OBJECTID": "PRG_OBJECT"},
 )
@@ -56,8 +58,8 @@ CONTRACT = _info(
 CONTRACTVHE = _info(
     "PRG_CONTRACTVHE",
     "PRG_CONTRACTVHEID",
-    [("PRG_CONTRACTID", "NUMBER"), ("PRG_VHEID", "NUMBER"), *_PERIOD, ("INDVERWIJDERD", "NUMBER"), *_AUDIT],
-    {"PRG_CONTRACTID": "PRG_CONTRACT", "PRG_VHEID": "PRG_VHE"},
+    [("PRG_CONTRACTID", "NUMBER"), ("PRG_SUBOBJECTID", "NUMBER"), *_PERIOD, ("INDVERWIJDERD", "NUMBER"), *_AUDIT],
+    {"PRG_CONTRACTID": "PRG_CONTRACT", "PRG_SUBOBJECTID": "PRG_SUBOBJECT"},
 )
 DIRECTORY_TABLES = (RELATIE, ZRELATIE, OBJECT, VHE, CONTRACT, CONTRACTVHE)
 
@@ -106,7 +108,7 @@ def obj(pk: int, number: str, *, version: int = 1, **extra: object) -> dict[str,
 
 def vhe(pk: int, object_id: int, number: str, *, version: int = 1, **extra: object) -> dict[str, object]:
     row: dict[str, object] = {
-        "PRG_VHEID": pk,
+        "PRG_SUBOBJECTID": pk,
         "PRG_OBJECTID": object_id,
         "VHENR": number,
         "STRAATNM": None,
@@ -134,7 +136,7 @@ def contract_vhe(pk: int, contract_id: int, vhe_id: int, start: str | None = Non
     row: dict[str, object] = {
         "PRG_CONTRACTVHEID": pk,
         "PRG_CONTRACTID": contract_id,
-        "PRG_VHEID": vhe_id,
+        "PRG_SUBOBJECTID": vhe_id,
         "INGANGSDT": start,
         "EINDDT": None,
         **_audit(1),

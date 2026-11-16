@@ -112,6 +112,11 @@ def apply_step(company_id: str, run_id: str, info: dict[str, Any], started_at: s
 
 def _reconcile(run_id: str, table: str) -> None:
     info = describe_step(table)
+    if info is None:
+        # no resolvable primary key (see `resolve_primary_key`): nothing was ever mirrored for this table, so
+        # there is nothing to reconcile -- a no-op success, same as sync_all's SKIPPED, never a run failure.
+        log.warning("brixx.reconcile_table_skipped", table=table, reason="no_usable_primary_key")
+        return
     begun = reconcile_begin_step(run_id)
     cursor: int | None = None
     while True:

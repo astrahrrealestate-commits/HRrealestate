@@ -53,8 +53,9 @@ def upsert_page(
 
     Precondition: every row carries every mirror column (full replacement; never fetch with a `fields=` projection),
     because absent columns are written as NULL. `skipped_older` counts rows not written: in-page duplicates that a
-    higher version superseded, rows a newer stored row beat, and rows of a GDPR-erased relatie (never written back).
-    Nothing is committed here.
+    higher version superseded, rows a newer stored row beat, rows of a GDPR-erased relatie (never written back),
+    and rows BRIXX itself sent with no usable primary key value (seen in some historical `Z*` rows; permanent for
+    that row, so it is skipped rather than aborting the rest of an otherwise-good page). Nothing is committed here.
     """
     if synced_at.utcoffset() is None:
         raise BrixxError("synced_at must be timezone-aware")
@@ -62,14 +63,21 @@ def upsert_page(
     data_columns = [c.name for c in table.c if c.name not in SYSTEM_COLUMNS | {"_synced_at"}]
     records: dict[int, dict[str, object]] = {}
     extra_columns: set[str] = set()
+    bad_pk = 0
     for raw in rows:
         values, extras = _split_row(raw, data_columns)
-        key = primary_key(values.get(pk), info.name)
+        try:
+            key = primary_key(values.get(pk), info.name)
+        except BrixxError:
+            bad_pk += 1
+            continue
         values[pk] = key
         extra_columns.update(extras)
         values["_extra"] = extras or None
         current = records.get(key)
         records[key] = values if current is None or _supersedes(values, current) else current
+    if bad_pk:
+        log.warning("brixx.upsert_skipped_bad_pk", table=info.name, count=bad_pk)
     kept = without_erased(session, info.name, company_id, list(records.values()))  # GDPR tombstones
     written = _write_chunks(session, table, pk, company_id, kept, synced_at)
     log.info("brixx.upsert", table=table.name, rows=len(rows), written=written, extra_columns=len(extra_columns))

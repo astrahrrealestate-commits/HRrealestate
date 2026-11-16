@@ -1,11 +1,11 @@
 """Calendar channel exports and factory."""
 
-from pathlib import Path
 from typing import Any
 
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
+from app.channels import google_store
 from app.channels.calendar.fake import FakeCalendarClient
 from app.channels.calendar.google import GoogleCalendarClient
 from app.channels.calendar.ports import (
@@ -28,7 +28,7 @@ def _google_client() -> GoogleCalendarClient | None:
 
     settings = get_settings()
 
-    unified = Path(".data/credentials/google_owner.json")
+    unified = google_store.refresh(settings)  # the owner's connected Google account, shared across processes
 
     cred_file = unified if unified.exists() else settings.calendar_credentials_file
 

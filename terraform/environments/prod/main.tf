@@ -163,15 +163,24 @@ module "ecs" {
     { name = "DASHBOARD_TRUST_FORWARDED_FOR", value = "true" },
     { name = "LLM_MODEL", value = "google-gla:gemini-2.5-flash" },
     { name = "EMBEDDING_MODEL", value = "google-gla:gemini-embedding-001" },
+    # google-genai 3.x defaults to API v1, which rejects instructions/tools; the code pins v1beta too.
+    { name = "GOOGLE_GENAI_API_VERSION", value = "v1beta" },
     { name = "LLM_TIMEOUT_SEC", value = "30" },
+    # Tried when Gemini answers an error; skipped while OPENAI_API_KEY is empty (app/llm/runtime.py).
+    { name = "LLM_FALLBACK_MODELS", value = "openai:gpt-4.1-mini" },
     { name = "WHATSAPP_PROVIDER", value = "cloud_api" },
+    { name = "WHATSAPP_API_BASE_URL", value = "https://graph.facebook.com/v23.0" },
     { name = "WHATSAPP_FROM_NUMBER", value = "916364840587" },
     { name = "OWNER_PHONE_NUMBER", value = "916364840587" },
     { name = "OWNER_TEMPLATE_NAME", value = "estateos_pending" },
     { name = "OWNER_TEMPLATE_LANGUAGE", value = "en" },
     { name = "GMAIL_PROVIDER", value = "google" },
     { name = "CALENDAR_PROVIDER", value = "google" },
-    { name = "DRIVE_PROVIDER", value = "google" },
+    { name = "DRIVE_PROVIDER", value = "google" }, # files with the owner's connected Google account
+    # Not used by this client: Chat refuses every webhook token instead of the unsigned-token fake.
+    { name = "GOOGLE_CHAT_PROVIDER", value = "none" },
+    # Quote checker against the company's own competitor rate cards (no fake prices, no web search provider yet).
+    { name = "PRICE_SOURCE", value = "competitors" },
     { name = "TENANT_SENDS_PER_HOUR", value = "30" }
   ]
 

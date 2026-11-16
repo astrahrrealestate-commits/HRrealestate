@@ -163,8 +163,9 @@ def access_for(engine: Engine | Connection, principal: Principal) -> Access | No
     return Access(role=role, sections=None if sections is None else frozenset(sections))
 
 
-def _secure(settings: Settings) -> bool:
-    return settings.env not in ("dev", "test")
+def cookie_secure(settings: Settings) -> bool:
+    """HTTPS-only cookies in prod, and wherever the API itself is served over https (the AWS deploy runs ENV=dev)."""
+    return settings.env not in ("dev", "test") or settings.google_login_redirect_uri.startswith("https://")
 
 
 def set_session_cookie(response: Response, settings: Settings, token: str) -> None:
@@ -175,7 +176,7 @@ def set_session_cookie(response: Response, settings: Settings, token: str) -> No
         max_age=settings.dashboard_session_ttl_min * 60,
         httponly=True,
         samesite="strict",
-        secure=_secure(settings),
+        secure=cookie_secure(settings),
         domain=settings.dashboard_cookie_domain,
         path="/",
     )
@@ -186,7 +187,7 @@ def clear_session_cookie(response: Response, settings: Settings) -> None:
         COOKIE,
         httponly=True,
         samesite="strict",
-        secure=_secure(settings),
+        secure=cookie_secure(settings),
         domain=settings.dashboard_cookie_domain,
         path="/",
     )

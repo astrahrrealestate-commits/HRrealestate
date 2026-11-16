@@ -67,3 +67,49 @@ green `ci-success` check means both sides are known to build; it does not build 
 Which AWS service runs each container (ECS/Fargate, EC2, App Runner, …), autoscaling, the load balancer / TLS
 termination point, and a registry + push step for the frontend image are all open. This page gives the two images
 and their contract so that choice can be made independently of application code.
+
+## Running on AWS ECS (stage and prod, `terraform/`)
+
+The client deploy runs api, worker and the migrator as separate Fargate tasks from one ECR image (`deploy.yml`), with
+the frontend on Vercel (split host: `estateos.hrrealestate.nl` → `api-estateos.hrrealestate.nl`). Things that only
+show up there:
+
+- **Owner Google tokens are shared through S3.** The Connections modal's Google connect runs in the api task, the
+  Gmail poll in the worker task, and Fargate disks are thrown away on every deploy (and nightly on stage). With
+  `STORAGE_BACKEND=s3` the tokens live at `credentials/google_owner.json` in the environment's bucket
+  (`app/channels/google_store.py`); each process keeps `.data/credentials/google_owner.json` only as a cache refreshed
+  every 30 s. A failed upload fails the connect instead of pretending it worked. The OAuth client secret is not
+  stored there (re-added from Settings), and disconnect revokes the grant at Google. Tokens connected before this
+  change lived only on a replaced task's disk: connect Google once after the deploy.
+- **`ENV=dev` on AWS, on purpose for now.** `ENV=prod` refuses to boot until every channel is configured
+  (`app/core/startup.py`: BRIXX, Google Chat, Drive and Gmail credentials files, WhatsApp secrets, Pub/Sub, price
+  source). Cookies are still `Secure` there: a cookie is HTTPS-only whenever `GOOGLE_LOGIN_REDIRECT_URI` (the API's
+  own public URL) is https. Switch to `ENV=prod` once the list in that refusal is empty.
+- **LLM.** `LLM_MODEL` plus optional `LLM_FALLBACK_MODELS` (Pydantic AI `FallbackModel`, tried in order on a provider
+  error; a fallback whose key is empty in Secrets Manager is skipped). On 2026-11-16 every agent call failed because
+  the Gemini keys answered `402 RESOURCE_EXHAUSTED` (prepaid credits depleted); the key in Secrets Manager was
+  replaced. Watch the Gemini project's credits. The next failure was `400 ... not enabled for api version v1`:
+  google-genai 3.x defaults the Developer API to v1, which refuses system instructions and function calling; the code
+  now pins v1beta (`app/llm/runtime.py: gemini_provider`) and the task definitions set
+  `GOOGLE_GENAI_API_VERSION=v1beta` as well. Failures are now logged with the provider's status and message
+  (`superagent.chat_failed`, `superagent.research_failed`, `api.superagent.llm_fallback`; key-shaped text scrubbed).
+- **No fakes on AWS.** `GOOGLE_CHAT_PROVIDER=none` (Chat is not used; every webhook token is refused),
+  `PRICE_SOURCE=competitors` (rate cards only until a web search provider exists), Drive filing uses the owner's
+  connected Google account (`drive.file` is in the connect scopes) when no `DRIVE_CREDENTIALS_FILE` is set, and a
+  Gmail mailbox with no connected account is skipped at info level (`gmail.poll_skipped_not_connected`) instead of an
+  error every minute. Gmail sync is the minute poll; Pub/Sub push (`GMAIL_PUBSUB_*`) is optional and needs a GCP
+  topic and push subscription in the Google project.
+- **Fixed egress IPs (BRIXX allowlist).** BRIXX only answers whitelisted IPs. Each env's worker runs in the private
+  subnets behind a NAT instance with an Elastic IP (stage `13.62.13.146`, prod `13.51.27.141`; AL2023 t4g.micro,
+  iptables MASQUERADE, created by hand, not in terraform). Prod needs its IP whitelisted at BRIXX and a
+  `BRIXX_TOKEN` key in `estateos/prod/backend` before the prod worker gets `BRIXX_PROVIDER=api` (ECS refuses to start
+  a task whose secret key is missing). BRIXX syncs into the first company by `created_at`.
+- **Secrets without echo.** `scripts/aws_set_backend_secrets.py --env prod|stage` prompts (hidden) for
+  `WHATSAPP_APP_SECRET`, `BRIXX_TOKEN`, generates `WHATSAPP_VERIFY_TOKEN` on request, merges them into the secret,
+  prints the Meta webhook URL + verify token, and redeploys api and worker.
+- **CD picks the environment from the CI run's branch only.** Until 2026-11-16 `deploy.yml` also checked
+  `github.ref_name`, which is always `main` for a `workflow_run` event, so every CD run (stage pushes included)
+  deployed to prod and stage was only ever deployed by hand. CD also runs only for CI runs from a push to this
+  repository, never for pull requests (a fork branch named `main` must not reach prod).
+- **Task definitions vs terraform.** Terraform state is not in this repo (the S3 backend block is commented out), so a
+  live change to a task definition must be mirrored in `terraform/environments/*/main.tf` or the next apply reverts it.

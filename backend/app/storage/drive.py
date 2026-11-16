@@ -8,6 +8,7 @@ Creates are sent once (`num_retries=0`): the DBOS step owns retries.
 """
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Protocol
 from uuid import UUID, uuid4
@@ -206,10 +207,11 @@ class GoogleDrive:
         _call(self._files.update(fileId=file_id, body=body, fields="id"), "annotate")
 
 
-def build_drive_service(credentials_file: Path) -> Any:
-    """Drive v3 service from an authorized-user file created with the `drive.file` scope only."""
+def build_drive_service(credentials_file: Path, scopes: Sequence[str] | None = DRIVE_SCOPES) -> Any:
+    """Drive v3 service from an authorized-user file created with the `drive.file` scope only, or (`scopes=None`) the
+    owner's connected Google account, which keeps the scopes it was granted (drive.file among them)."""
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
 
-    creds = Credentials.from_authorized_user_file(str(credentials_file), list(DRIVE_SCOPES))
+    creds = Credentials.from_authorized_user_file(str(credentials_file), list(scopes) if scopes else None)
     return build("drive", "v3", credentials=creds, cache_discovery=False)

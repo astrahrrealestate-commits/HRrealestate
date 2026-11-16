@@ -20,27 +20,73 @@ INCREMENTAL_COLUMN = "upddatetime"
 
 _IDENTIFIER = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 _MAX_IDENTIFIER = 63
-_VARCHAR = re.compile(r"^VARCHAR2?\s*\(\s*(\d+)")
+# Doc examples (and the committed example fixture) use Oracle-style names (VARCHAR, VARCHAR2, NUMBER); the real
+# API returns Postgres-native ones instead (CHARACTER VARYING with no length, BIGINT/INTEGER/SMALLINT, NUMERIC,
+# TEXT, UUID, BOOLEAN, BYTEA) -- both vocabularies are handled, since nothing here can tell which one a given
+# BRIXX environment will use.
+_VARCHAR = re.compile(r"^(?:VARCHAR2?|CHARACTER VARYING)\s*(?:\(\s*(\d+)\s*\))?")
+_NUMERIC = re.compile(r"^NUMERIC\s*(?:\(\s*(\d+)\s*(?:,\s*(\d+)\s*)?\))?")
+_SIZED_INT = re.compile(r"^(BIGINT|INTEGER|SMALLINT)\b")
+_SIZED_INT_TYPES: dict[str, sa.types.TypeEngine[Any]] = {
+    "BIGINT": sa.BigInteger(),
+    "INTEGER": sa.Integer(),
+    "SMALLINT": sa.SmallInteger(),
+}
 
 
 def sql_type(brixx_type: str, *, is_key: bool) -> sa.types.TypeEngine[Any]:
-    """Map a BRIXX column type to a Postgres type; key NUMBERs are BigInteger, anything unknown is Text."""
+    """Map a BRIXX column type to a Postgres type. A key column (declared PK, FK, or an `*ID` name) is always
+    BigInteger for any integer-ish BRIXX type, for join safety regardless of its declared width; anything
+    unrecognized is Text."""
     upper = brixx_type.strip().upper()
-    if upper.startswith("NUMBER"):
-        return sa.BigInteger() if is_key else sa.Numeric()
+    sized_int = _SIZED_INT.match(upper)
+    if upper.startswith("NUMBER") or sized_int:
+        if is_key:
+            return sa.BigInteger()
+        return _SIZED_INT_TYPES[sized_int.group(1)] if sized_int else sa.Numeric()  # bare NUMBER: no reliable width
+    numeric = _NUMERIC.match(upper)
+    if numeric:
+        if is_key:
+            return sa.BigInteger()
+        if numeric.group(1) is None:
+            return sa.Numeric()
+        scale = int(numeric.group(2)) if numeric.group(2) else None
+        return sa.Numeric(int(numeric.group(1))) if scale is None else sa.Numeric(int(numeric.group(1)), scale)
     varchar = _VARCHAR.match(upper)
     if varchar:
-        return sa.String(int(varchar.group(1)))
+        return sa.String(int(varchar.group(1))) if varchar.group(1) else sa.Text()
     if upper == "DATE":
         return sa.Date()
     if upper.startswith(("TIMESTAMP", "DATETIME")):
         return sa.DateTime(timezone=True)
+    if upper == "UUID":
+        return sa.Uuid()
+    if upper == "BOOLEAN":
+        return sa.Boolean()
+    if upper == "BYTEA":
+        return sa.LargeBinary()
     return sa.Text()
 
 
 def has_incremental_column(info: BrixxTable) -> bool:
     """True when the table carries `UPDDATETIME` (any case), which enables incremental sync."""
     return any(f.name.lower() == INCREMENTAL_COLUMN for f in info.fields)
+
+
+def resolve_primary_key(info: BrixxTable) -> str | None:
+    """BRIXX's real primary key, or `None` when it cannot be determined.
+
+    BRIXX's `Z*` historical tables always return an empty `primaryKeyField`; most follow the documented
+    `<table>ID` convention and are resolved via that fallback, but a minority instead repeat the non-Z table's
+    own PK name (e.g. `ZPRG_CONTRACTGARANTSTELLER` has field `PRG_CONTRACTGARANTSTELLERID`, not
+    `ZPRG_CONTRACTGARANTSTELLERID`) and so cannot be guessed. Used both by codegen (deciding which tables get a
+    migration) and by the sync-time `describe` step (so a table's primary key matches what codegen used to build
+    its mirror table), so the two never disagree about the same table."""
+    names = {f.name.lower() for f in info.fields}
+    if info.primary_key and info.primary_key.lower() in names:
+        return info.primary_key
+    fallback = f"{info.name}ID"
+    return fallback if fallback.lower() in names else None
 
 
 def build_table(info: BrixxTable, metadata: sa.MetaData) -> sa.Table:

@@ -4,10 +4,10 @@ import json
 import re
 import threading
 from functools import lru_cache
-from pathlib import Path
 
 from googleapiclient.discovery import build
 
+from app.channels import google_store
 from app.channels.brixx.fake import FakeBrixxApi
 from app.channels.brixx.http import HttpBrixxApi
 from app.channels.brixx.ports import BrixxApi
@@ -26,8 +26,8 @@ from app.channels.prices.search import FakeSearchClient, SearchClient, Unconfigu
 from app.channels.whatsapp.fake_media import DirWhatsAppMedia
 from app.channels.whatsapp.media import HttpWhatsAppMedia, WhatsAppMedia
 from app.channels.whatsapp.media_settings import WhatsAppMediaSettings
-from app.core.errors import UnsafeConfigurationError
-from app.core.settings import Settings
+from app.core.errors import GmailNotConnectedError, UnsafeConfigurationError
+from app.core.settings import Settings, get_settings
 
 
 @lru_cache(maxsize=1)
@@ -112,36 +112,38 @@ def fake_gmail_mailbox(settings: Settings, address: str) -> FakeMailbox:
 _local_mailboxes = threading.local()
 
 
-OWNER_LOGIN_FILE = Path(".data/credentials/google_owner.json")
+OWNER_LOGIN_FILE = google_store.LOCAL_FILE
 
 
-def owner_login_email() -> str | None:
-    """The address the dashboard's Google login was granted for, if someone connected one."""
-    if not OWNER_LOGIN_FILE.exists():
+def owner_login_email(settings: Settings | None = None) -> str | None:
+    """The address the dashboard's Google login was granted for, if someone connected one (in any process: the
+    connect callback runs in the API, the Gmail poll in the worker)."""
+    path = google_store.refresh(settings or get_settings())
+    if not path.exists():
         return None
-    return str(json.loads(OWNER_LOGIN_FILE.read_text()).get("email") or "").lower() or None
+    return str(json.loads(path.read_text()).get("email") or "").lower() or None
 
 
 def gmail_mailbox(settings: Settings, address: str) -> GmailMailbox:
-    owner_email = owner_login_email()
+    owner_email = owner_login_email(settings)
     if owner_email and settings.gmail_provider == "fake" and _mailbox_address(address) != owner_email:
         return fake_gmail_mailbox(settings, address)  # the login covers its own mailbox only; dev mailboxes stay fake
     cred_file = OWNER_LOGIN_FILE if owner_email else settings.gmail_credentials_file
     if settings.gmail_provider == "fake" and not (cred_file and cred_file.exists()):
         return fake_gmail_mailbox(settings, address)
     if not cred_file or not cred_file.exists():
-        raise UnsafeConfigurationError(f"gmail_provider 'google' needs valid credentials (checked {cred_file})")
+        raise GmailNotConnectedError("gmail_provider 'google' has no connected Google account or credentials file")
 
     addr = _mailbox_address(address)
 
-    cache: dict[tuple[str, str], GmailMailbox] | None = getattr(_local_mailboxes, "cache", None)
+    cache: dict[tuple[str, str, int], GmailMailbox] | None = getattr(_local_mailboxes, "cache", None)
 
     if cache is None:
         cache = {}
 
         _local_mailboxes.cache = cache
 
-    key = (str(cred_file), addr)
+    key = (str(cred_file), addr, cred_file.stat().st_mtime_ns)  # a reconnect (new tokens) builds a new mailbox
 
     if key in cache:
         return cache[key]

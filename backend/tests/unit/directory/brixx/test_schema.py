@@ -9,6 +9,7 @@ from app.directory.brixx.schema import (
     MIRROR_SCHEMA,
     build_table,
     has_incremental_column,
+    resolve_primary_key,
     sql_type,
 )
 
@@ -24,6 +25,7 @@ def _info(*fields: BrixxField, name: str = "PRG_RELATIE", pk: str = "PRG_RELATIE
 @pytest.mark.parametrize(
     ("brixx_type", "is_key", "expected"),
     [
+        # Oracle-style names: the PDF doc's examples and the committed example fixture use these.
         ("NUMBER", True, sa.BigInteger),
         ("NUMBER", False, sa.Numeric),
         ("number", False, sa.Numeric),
@@ -35,6 +37,24 @@ def _info(*fields: BrixxField, name: str = "PRG_RELATIE", pk: str = "PRG_RELATIE
         ("TIMESTAMP(6)", False, sa.DateTime),
         ("DATETIME", False, sa.DateTime),
         ("BLOB", False, sa.Text),
+        # Postgres-native names: what the real BRIXX API actually returns.
+        ("BIGINT(64)", False, sa.BigInteger),
+        ("BIGINT(64)", True, sa.BigInteger),
+        ("INTEGER(32)", False, sa.Integer),
+        ("INTEGER(32)", True, sa.BigInteger),
+        ("SMALLINT(16)", False, sa.SmallInteger),
+        ("SMALLINT(16)", True, sa.BigInteger),
+        ("NUMERIC", False, sa.Numeric),
+        ("NUMERIC(18)", False, sa.Numeric),
+        ("NUMERIC(10,2)", False, sa.Numeric),
+        ("NUMERIC(10,2)", True, sa.BigInteger),
+        ("CHARACTER VARYING", False, sa.Text),  # the real API never sends a length for this one
+        ("TEXT", False, sa.Text),
+        ("TIMESTAMP WITHOUT TIME ZONE", False, sa.DateTime),
+        ("UUID", False, sa.Uuid),
+        ("BOOLEAN", False, sa.Boolean),
+        ("BYTEA", False, sa.LargeBinary),
+        ("GEOMETRY-WKT", False, sa.Text),
     ],
 )
 def test_type_map(brixx_type: str, is_key: bool, expected: type) -> None:
@@ -52,6 +72,12 @@ def test_type_map_details() -> None:
     ts = sql_type("TIMESTAMP(6)", is_key=False)
     assert isinstance(ts, sa.DateTime)
     assert ts.timezone is True
+    numeric = sql_type("NUMERIC(10,2)", is_key=False)
+    assert isinstance(numeric, sa.Numeric)
+    assert (numeric.precision, numeric.scale) == (10, 2)
+    bare_numeric = sql_type("NUMERIC(18)", is_key=False)
+    assert isinstance(bare_numeric, sa.Numeric)
+    assert (bare_numeric.precision, bare_numeric.scale) == (18, None)
 
 
 def test_build_table_columns() -> None:
@@ -154,3 +180,23 @@ def test_rejects_duplicate_columns_after_lowercasing() -> None:
 def test_rejects_missing_primary_key_field() -> None:
     with pytest.raises(BrixxError):
         build_table(BrixxTable("T", "ID", (_field("NAAM"),)), sa.MetaData())
+
+
+def test_resolve_primary_key_keeps_a_declared_key_that_matches_a_field() -> None:
+    assert resolve_primary_key(_info()) == "PRG_RELATIEID"
+
+
+def test_resolve_primary_key_falls_back_to_the_table_id_convention() -> None:
+    """BRIXX's real `Z*` historical tables always return an empty `primaryKeyField`; most follow the documented
+    `<table>ID` convention and should resolve to it rather than being treated as unresolvable."""
+    z_table = BrixxTable("ZPRG_GOODHIST", "", (_field("ZPRG_GOODHISTID", "NUMBER"),))
+    assert resolve_primary_key(z_table) == "ZPRG_GOODHISTID"
+
+
+def test_resolve_primary_key_is_none_when_neither_declared_nor_conventional_key_matches() -> None:
+    """A handful of real `Z*` tables reuse the non-Z table's own PK name instead of the `<table>ID` convention
+    (e.g. `ZPRG_CONTRACTGARANTSTELLER` has field `PRG_CONTRACTGARANTSTELLERID`); that cannot be guessed."""
+    no_pk = BrixxTable("ZPRG_NOPK", "", (_field("PRG_NOPKID", "NUMBER"),))
+    wrong_pk = BrixxTable("ZPRG_WRONGPK", "ZPRG_WRONGPKID", (_field("PRG_WRONGPKID", "NUMBER"),))
+    assert resolve_primary_key(no_pk) is None
+    assert resolve_primary_key(wrong_pk) is None

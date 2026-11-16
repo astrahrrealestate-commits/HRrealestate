@@ -1,5 +1,6 @@
 """End-to-end ingestion with a real DBOS executor, real Postgres and fake providers."""
 
+import dataclasses
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -525,3 +526,22 @@ def test_spam_rescue_while_the_original_is_still_pending(env: Env) -> None:
     assert gmail_sync.sync_mailbox(deps, env.gmail.id, env.mailbox.current_history_id()) == 1
     rescued = next(r for r in _gmail_raws(env) if r.provider_msg_id == f"{spam}:inbox")
     assert wait(event_workflow_id(rescued.id)) == "processed"
+
+
+def test_a_mailbox_with_no_connected_google_account_is_skipped_quietly(env: Env) -> None:
+    """Before the owner connects Google, the seeded mailbox has no credentials: that is a state, not a failure, so
+    the minute poll logs at info and enqueues nothing instead of an error every minute."""
+    from structlog.testing import capture_logs
+
+    from app.core.errors import GmailNotConnectedError
+    from app.workflows.deps import get_deps
+
+    def not_connected(_address: str) -> FakeMailbox:
+        raise GmailNotConnectedError("no Google account connected")
+
+    set_deps(dataclasses.replace(get_deps(), gmail_mailbox=not_connected))
+    with capture_logs() as logs:
+        ingest.gmail_poll(datetime.now(UTC), None)
+    events = {entry["event"]: entry["log_level"] for entry in logs}
+    assert events.get("gmail.poll_skipped_not_connected") == "info"
+    assert "gmail.poll_failed" not in events

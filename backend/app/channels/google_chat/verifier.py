@@ -42,6 +42,9 @@ class ChatVerifier:
         if not token:
             raise ChatAuthError("empty bearer token")
 
+        if self._provider == "none":
+            raise ChatAuthError("google chat is not connected")
+
         if self._provider == "fake":
             # In fake mode (tests / dev), decode without verifying cryptographic signature
             # if no certs are configured, or verify if test claims provided.

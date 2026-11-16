@@ -15,6 +15,7 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=500]
+        exclude: ^backend/app/db/alembic/versions/.*_brixx_mirror.*\.py$   # generated, scales with real BRIXX table count
       - id: detect-private-key
         exclude: ^\.claude/hooks/   # guard self-tests contain fake key headers on purpose
       - id: no-commit-to-branch   # work on m<n>-<slug> branches; merge via PR

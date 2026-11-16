@@ -55,7 +55,7 @@ def test_other_queues_keep_their_options() -> None:
     assert registered["gmail_sync"] == {"concurrency": 1}
     assert registered["timers"] == {"worker_concurrency": 2}
     assert registered["documents"] == {"partition_concurrency": 1}
-    assert registered["brixx"] == {"worker_concurrency": 2}
+    assert registered["brixx"] == {"worker_concurrency": 16}
     assert registered["brixx_documents"] == {"concurrency": 1}  # one BRIXX download at a time, across workers
 
 

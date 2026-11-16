@@ -20,6 +20,7 @@ from app.api.v1.auth import (
     Principal,
     access_for,
     clear_session_cookie,
+    cookie_secure,
     email_fingerprint,
     issue_session,
     owner_matches,
@@ -89,7 +90,7 @@ def get_login_url(settings: Annotated[Settings, Depends(get_settings_dep)], resp
         max_age=MAX_AGE_S,
         httponly=True,
         samesite="lax",  # the callback is a top-level GET from accounts.google.com: Lax travels, Strict would not
-        secure=settings.env == "prod",
+        secure=cookie_secure(settings),
         domain=settings.dashboard_cookie_domain,
         path="/",
     )

@@ -204,9 +204,19 @@ def test_keys_match_columns_case_insensitively(session: Session, table: sa.Table
     assert (rows[1].naam, rows[2].naam) == ("UP", "low")
 
 
-def test_row_without_primary_key_is_rejected(session: Session, table: sa.Table) -> None:
-    with pytest.raises(BrixxError):
-        _write(session, table, uuid.uuid4(), [{"NAAM": "no key", "VERSIENR": 1}])
+def test_row_without_primary_key_is_skipped_not_raised(session: Session, table: sa.Table) -> None:
+    """Seen for some real historical `Z*` rows: BRIXX itself sends no usable key. Permanent for that row, so it
+    is dropped rather than aborting the whole page (and retrying 8 times for nothing)."""
+    result = _write(session, table, uuid.uuid4(), [{"NAAM": "no key", "VERSIENR": 1}])
+    assert result.written == 0
+
+
+def test_one_bad_row_does_not_abort_the_rest_of_the_page(session: Session, table: sa.Table) -> None:
+    company = uuid.uuid4()
+    result = _write(session, table, company, [{"NAAM": "no key", "VERSIENR": 1}, _row(1, "good", 1)])
+    rows = _rows(session, table, company)
+    assert result.written == 1
+    assert rows[1].naam == "good"
 
 
 def test_empty_page_is_noop(session: Session, table: sa.Table) -> None:
@@ -279,11 +289,14 @@ def test_primary_key_int_and_string_collapse_in_page(session: Session, table: sa
     assert _rows(session, table, company)[1].naam == "str"
 
 
-def test_non_integer_primary_key_is_rejected_without_echoing_it(session: Session, table: sa.Table) -> None:
-    with pytest.raises(BrixxError) as raised:
-        _write(session, table, uuid.uuid4(), [{"ID": "SECRET-ZOEKID", "NAAM": "x", "VERSIENR": 1}])
-    assert "SECRET-ZOEKID" not in str(raised.value)
-    assert "PRG_DEMO" in str(raised.value)
+def test_non_integer_primary_key_is_skipped_without_echoing_it(
+    session: Session, table: sa.Table, capsys: pytest.CaptureFixture[str]
+) -> None:
+    result = _write(session, table, uuid.uuid4(), [{"ID": "SECRET-ZOEKID", "NAAM": "x", "VERSIENR": 1}])
+    assert result.written == 0
+    out = capsys.readouterr().out
+    assert "SECRET-ZOEKID" not in out
+    assert "PRG_DEMO" in out
 
 
 def test_naive_synced_at_is_rejected(session: Session, table: sa.Table) -> None:

@@ -34,7 +34,7 @@ def production_problems(settings: Settings) -> list[str]:
         problems.append("drive_provider is 'fake'")
     if settings.google_chat_provider == "fake":
         problems.append("google_chat_provider is 'fake' (it accepts unsigned tokens)")
-    elif not settings.google_chat_project_number:
+    elif settings.google_chat_provider == "google" and not settings.google_chat_project_number:
         problems.append("google_chat_project_number is not set (the Chat token audience)")
     drive = settings.drive_credentials_file
     if drive is None or not drive.is_file():

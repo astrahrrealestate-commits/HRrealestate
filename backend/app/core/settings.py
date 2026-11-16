@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     # LLM agents (spec phase-1 agents). `fake` = deterministic offline models (app.llm.fakes); prod refuses it.
     llm_model: str = "fake"  # Pydantic AI model string, e.g. "openai:gpt-4.1-mini" or "google-gla:gemini-2.5-flash"
     llm_timeout_sec: float = 60.0
+    # Tried in order when `llm_model` answers an error (Pydantic AI FallbackModel), e.g. "openai:gpt-4.1-mini". A
+    # fallback whose provider key is not set is left out, so naming one is harmless until its key exists.
+    llm_fallback_models: Annotated[list[str], NoDecode] = []
     # Advanced retrieval (ADR 0008). `fake` = deterministic hashing embedder (tests, simulator); prod refuses it.
     embedding_model: str = "fake"  # e.g. "openai:text-embedding-3-small" or "google-gla:gemini-embedding-001"
     rag_query_rewrite: bool = True  # one small LLM call per question: keyword variants, HyDE passage, fact label
@@ -63,7 +66,7 @@ class Settings(BaseSettings):
     # Channels (spec M2 §4). Defaults are fakes: everything runs without provider access; prod refuses fakes.
     whatsapp_provider: Literal["fake", "cloud_api", "360dialog"] = "fake"
     gmail_provider: Literal["fake", "google"] = "fake"
-    google_chat_provider: Literal["fake", "google"] = "fake"
+    google_chat_provider: Literal["none", "fake", "google"] = "fake"  # none = not used: every webhook refused
     google_chat_project_number: str | None = None
     whatsapp_app_secret: SecretStr | None = None  # webhook HMAC: Meta app secret or 360dialog platform secret
     whatsapp_verify_token: SecretStr | None = None  # webhook subscription handshake
@@ -153,6 +156,17 @@ class Settings(BaseSettings):
         if any("*" in origin for origin in origins):
             raise ValueError("DASHBOARD_CORS_ORIGINS must list exact origins, never '*'")
         return origins
+
+    @field_validator("llm_fallback_models", mode="before")
+    @classmethod
+    def _fallback_models(cls, value: object) -> object:
+        """`openai:gpt-4.1-mini,groq:llama-3.3-70b-versatile` or a list; blanks dropped."""
+        if value is None:
+            return []
+        items = value.split(",") if isinstance(value, str) else value
+        if not isinstance(items, list):
+            return value
+        return [str(item).strip() for item in items if str(item).strip()]
 
     @field_validator("price_allowed_domains", mode="before")
     @classmethod

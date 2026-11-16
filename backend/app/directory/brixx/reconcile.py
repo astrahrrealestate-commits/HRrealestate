@@ -51,10 +51,20 @@ def keyset_filter(pk: str, cursor: int | None) -> str | None:
 def scan_page(
     session: Session, api: BrixxApi, company_id: UUID, info: BrixxTable, run_id: UUID, cursor: int | None
 ) -> ScanResult:
-    """Fetch and stage the next keyset page of primary keys after `cursor`, then commit."""
+    """Fetch and stage the next keyset page of primary keys after `cursor`, then commit. A row with no usable
+    primary key value (seen in some historical `Z*` rows) is skipped, not fatal to the rest of the page."""
     pk = info.primary_key.lower()
     page = api.fetch_page(info.name, page=1, filters=keyset_filter(pk, cursor), order_by=pk, fields=(info.primary_key,))
-    keys = sorted({primary_key(_cell(row, pk), info.name) for row in page.rows})
+    valid_keys: set[int] = set()
+    bad_pk = 0
+    for row in page.rows:
+        try:
+            valid_keys.add(primary_key(_cell(row, pk), info.name))
+        except BrixxError:
+            bad_pk += 1
+    if bad_pk:
+        log.warning("brixx.reconcile_scan_skipped_bad_pk", table=info.name, count=bad_pk)
+    keys = sorted(valid_keys)
     if page.has_next and (not keys or (cursor is not None and keys[-1] <= cursor)):
         raise BrixxError(f"keyset scan of BRIXX table {info.name!r} made no progress")
     if keys:
