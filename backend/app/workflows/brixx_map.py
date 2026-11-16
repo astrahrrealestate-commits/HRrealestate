@@ -19,6 +19,7 @@ from app.core.logging import get_logger
 from app.core.workflow_names import BRIXX_MAP_DIRECTORY, brixx_map_workflow_id
 from app.db.models.brixx import BrixxSyncRun
 from app.directory.brixx.mapper import MapCounts, map_leases, map_people, map_rent, map_units
+from app.directory.brixx.name_check import name_gaps
 from app.directory.brixx.sync import BRIXX_TZ
 from app.workflows.deps import get_engine
 
@@ -75,6 +76,16 @@ def map_rent_step(company_id: str) -> dict[str, int]:
     return _run_part("rent", company_id, map_rent)
 
 
+@DBOS.step(name="brixx.check_names", **_RETRY)
+def check_names_step() -> int:
+    """Log every table or column group the code reads that the live mirror no longer has; returns how many."""
+    with Session(get_engine()) as session:
+        gaps = name_gaps(session)
+    for gap in gaps:
+        log.warning("brixx.name_gap", gap=gap)
+    return len(gaps)
+
+
 @DBOS.workflow(name=BRIXX_MAP_DIRECTORY)
 def map_directory(run_id: str) -> str:
     """Map the mirror of the run's company into the directory. Returns `ok` or `failed:<ErrorClass>`."""
@@ -86,6 +97,7 @@ def map_directory(run_id: str) -> str:
         map_units_step(company_id)
         map_leases_step(company_id)
         map_rent_step(company_id)
+        check_names_step()
     except Exception as exc:
         log.warning("brixx.map_failed", error=type(exc).__name__)
         return FAILED + type(exc).__name__

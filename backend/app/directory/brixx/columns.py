@@ -39,7 +39,7 @@ ORDER = ("volgnr",)
 RELATIE_NUMBER = ("relatienrstr", "relatienr")
 NAME = ("weergavenaam", "weergavenaam2", "naam", "organisatienm")
 EMAIL = ("email", "emailadres", "e_mail")
-PHONE = ("mobielnr", "mobiel", "telefoon1", "telefoon2", "telefoonnr", "telefoon", "telefoonnr1", "telefoonnr2")
+PHONE = ("telefoon1", "telefoon2", "mobielnr", "mobiel", "telefoonnr", "telefoon", "telefoonnr1", "telefoonnr2")
 # Display names first: the real VHENR/OBJECTNR are internal numbers (e.g. 100000000100001), WEERGAVENAAM2 is
 # "Henry Dunantweg 5 A" and WEERGAVENAAM the same with the BRIXX number in front ("00001/001 Henry ...").
 OBJECT_LABEL = ("weergavenaam2", "weergavenaam", "objectnm", "objectnr", "omschrijving", "naam")
@@ -50,10 +50,12 @@ HOUSE_LETTER = ("huisletter",)
 HOUSE_SUFFIX = ("huisnummertoev", "huisnrtoev", "huisnrtoevoeging", "toevoeging")
 POSTCODE = ("postcode",)
 CITY = ("woonplaatsnm", "plaatsnm", "plaats", "woonplaats")
-START = ("ingangsdt", "ingangsdatum", "begindt", "startdatum")
-END = ("einddt", "einddatum")
+START = ("ingangsdatum", "ingangsdt", "begindt", "startdatum")
+END = ("einddatum", "einddt")
 CREATED = ("newdatetime",)
-DELETED_FLAG = "indverwijderd"
+DELETED = ("indverwijderd",)
+FIRST_NAME = ("voornaam", "voorletters")
+NAME_REST = ("tussenvoegsels", "achternaam")
 _TRUE_FLAGS = frozenset({"1", "j", "y", "true", "ja", "yes"})
 
 
@@ -127,12 +129,12 @@ def is_ended(row: Row | None) -> bool:
         return False
     if row.get("_deleted_at") is not None:
         return True
-    return is_flagged(row, DELETED_FLAG)
+    return is_flagged(row, DELETED)
 
 
-def is_flagged(row: Row, column: str) -> bool:
+def is_flagged(row: Row, candidates: tuple[str, ...]) -> bool:
     """A BRIXX yes/no column (`0`/`1`, `J`/`N`, bool) that says yes."""
-    flag = row.get(column)
+    flag = pick(row, candidates)
     if isinstance(flag, bool):
         return flag
     return flag is not None and str(flag).strip().lower() in _TRUE_FLAGS | {"1.0"}

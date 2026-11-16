@@ -346,3 +346,11 @@ bidirectional translation controls onto the new unified Composer, and fixed what
   `FIN_BETALING` (one row per lease and invoice month up to the current one; credits/corrections net in; reversed
   payments ignored; `GEPLAND` invoices pending, an issued invoice past `FACTVERVALDATUM` and unpaid overdue; amounts
   are invoiced totals incl. VAT). Tests: `tests/integration/test_brixx_rent_ledger.py`
+- [x] BRIXX name contract (2026-11-16): `app/directory/brixx/names.py` lists every BRIXX table and column group the code
+  reads (`READS`). `tests/unit/directory/brixx/test_names.py` checks it against the real schema (the committed
+  `BRIXX_MIRROR` literals) in both directions: a name that does not exist fails, and so does a column the code reads
+  that is not listed. After every map run `brixx.check_names` logs `brixx.name_gap` per missing table or column
+  group. First run found: leading aliases that were doc-example names (`INGANGSDT`, `MOBIELNR`) rather than the real
+  `INGANGSDATUM`/`TELEFOON1` (reordered), and `INDVERWIJDERD` does not exist on `FIN_FACTUUR`, `FIN_BETALING`,
+  `PRG_CONTRACTRELATIE`, `TYP_HUURCOMPONENT` (the readers already tolerate its absence). Adding a BRIXX read means
+  adding the name to `READS` in the same change.

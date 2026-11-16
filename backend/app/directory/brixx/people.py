@@ -106,8 +106,8 @@ def relatie_name(row: col.Row, ref: int) -> tuple[str | None, str]:
     number ("Relatie R-00042"), which is what BRIXX's own screens search on."""
     named = col.pick_text(row, col.NAME, MAX_NAME)
     if named is None:
-        first = col.pick(row, ("voornaam",)) or col.pick(row, ("voorletters",))
-        rest = (col.pick(row, (name,)) for name in ("tussenvoegsels", "achternaam"))
+        first = col.pick(row, col.FIRST_NAME)
+        rest = (col.pick(row, (name,)) for name in col.NAME_REST)
         parts = [str(p) for p in (first, *rest) if p is not None]
         named = " ".join(parts)[:MAX_NAME] or None
     return named, named or f"Relatie {col.pick_text(row, col.RELATIE_NUMBER, 40) or ref}"

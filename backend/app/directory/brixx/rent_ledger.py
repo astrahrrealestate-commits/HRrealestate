@@ -28,6 +28,14 @@ from app.directory.brixx.map_common import MapCounts, changed, lock_company
 
 INVOICE_PK, PAYMENT_PK = "fin_factuurid", "fin_betalingid"
 INVOICE, PAYMENT = "fin_factuur", "fin_betaling"
+PLAN_DATE, DUE_DATE, NUMBER = ("plandatum",), ("factvervaldatum",), ("factuurnr",)
+STATUS, KIND, TOTAL, METHOD = (
+    ("dm_factuurstatus",),
+    ("dm_factuurtype",),
+    ("totaalbedragincl",),
+    ("dm_betalingstypecode",),
+)
+PAID, PAID_ON, REVERSED = ("bedrag",), ("statusdatum",), ("ind_gestorneerd",)
 PLANNED = "gepland"
 _CENT = Decimal("0.01")
 
@@ -91,18 +99,18 @@ def _payments(rows: Sequence[col.Row]) -> dict[int, tuple[Decimal, date | None]]
     paid: dict[int, tuple[Decimal, date | None]] = {}
     for row in rows:
         invoice = col.pick_int(row, (INVOICE_PK,))
-        if invoice is None or col.is_ended(row) or col.is_flagged(row, "ind_gestorneerd"):
+        if invoice is None or col.is_ended(row) or col.is_flagged(row, REVERSED):
             continue
         total, last = paid.get(invoice, (Decimal(0), None))
-        day = col.pick_date(row, ("statusdatum",))
-        paid[invoice] = (total + _money(row.get("bedrag")), max(filter(None, (last, day)), default=None))
+        day = col.pick_date(row, PAID_ON)
+        paid[invoice] = (total + _money(col.pick(row, PAID)), max(filter(None, (last, day)), default=None))
     return paid
 
 
 def _planned_adjustment(row: col.Row) -> bool:
     """A planned credit or correction: BRIXX has not issued it, so it is neither billed nor due."""
-    kind = str(row.get("dm_factuurtype") or "").lower()
-    return str(row.get("dm_factuurstatus") or "").lower() == PLANNED and kind not in ("", "normaal")
+    kind = str(col.pick(row, KIND) or "").lower()
+    return str(col.pick(row, STATUS) or "").lower() == PLANNED and kind not in ("", "normaal")
 
 
 def _collect(
@@ -110,7 +118,7 @@ def _collect(
 ) -> dict[tuple[int, date], _Month]:
     months: dict[tuple[int, date], _Month] = defaultdict(_Month)
     for row in invoices:
-        contract, planned = col.pick_int(row, (col.CONTRACT_PK,)), col.pick_date(row, ("plandatum",))
+        contract, planned = col.pick_int(row, (col.CONTRACT_PK,)), col.pick_date(row, PLAN_DATE)
         if contract is None or planned is None or col.is_ended(row) or _planned_adjustment(row):
             continue
         first = planned.replace(day=1)
@@ -118,15 +126,15 @@ def _collect(
             continue
         month = months[(contract, first)]
         paid, last = payments.get(col.pick_int(row, (INVOICE_PK,)) or -1, (Decimal(0), None))
-        due = col.pick_date(row, ("factvervaldatum",)) or planned
-        month.total += _money(row.get("totaalbedragincl"))
+        due = col.pick_date(row, DUE_DATE) or planned
+        month.total += _money(col.pick(row, TOTAL))
         month.paid += paid
         month.due = min(filter(None, (month.due, due)))
         month.last_paid = max(filter(None, (month.last_paid, last)), default=None)
-        month.method = month.method or method_label(row.get("dm_betalingstypecode"))
-        if str(row.get("dm_factuurstatus") or "").lower() != PLANNED:
+        month.method = month.method or method_label(col.pick(row, METHOD))
+        if str(col.pick(row, STATUS) or "").lower() != PLANNED:
             month.issued_due = min(filter(None, (month.issued_due, due)))
-        if number := col.pick_text(row, ("factuurnr",), 64):
+        if number := col.pick_text(row, NUMBER, 64):
             month.numbers.append(number)
     return months
 
