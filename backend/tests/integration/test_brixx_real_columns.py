@@ -6,7 +6,7 @@ TST_TICKET rows show up as maintenance tickets. Every value is invented.
 
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -262,3 +262,40 @@ def test_maintenance_api_lists_brixx_tickets_read_only(env: Env, pg_url: str) ->
     assert history.status_code == 200
     assert history.json()["unitLabel"] == "Teststraat 5 A"
     assert (edit.status_code, approve.status_code) == (409, 409)
+
+
+def test_a_new_case_lands_on_the_tenants_current_lease(env: Env) -> None:
+    """One mapper run creates every lease with the same created_at: a tenant with an ended and a current contract
+    must get new cases on the current unit, never an arbitrary one."""
+    from app.contracts import Category, Urgency
+    from app.pipeline.case_repo import create_case
+
+    with env.session() as s:
+        anna = s.scalars(sa.select(Person).where(Person.company_id == env.company_id, Person.brixx_ref == "1")).one()
+        current = s.scalars(sa.select(Lease).where(Lease.company_id == env.company_id)).one()
+        old_unit = Unit(company_id=env.company_id, label="Oude woning", valid_from=date(2020, 1, 1))
+        s.add(old_unit)
+        s.flush()
+        ended = Lease(company_id=env.company_id, unit_id=old_unit.id, valid_from=date(2020, 1, 1),
+                      valid_to=date(2025, 12, 31), created_at=current.created_at + timedelta(seconds=1))  # fmt: skip
+        s.add(ended)
+        s.flush()
+        s.add(LeaseParty(company_id=env.company_id, lease_id=ended.id, person_id=anna.id, role="tenant"))
+        s.flush()
+        case_id = create_case(s, env.company_id, anna.id, Category.maintenance, Urgency.normal)
+        from app.db.models import Case
+
+        case = s.get(Case, case_id)
+        assert case is not None
+        assert (case.unit_id, case.lease_id) == (current.unit_id, current.id)
+        s.rollback()
+
+
+def test_an_erased_persons_brixx_tickets_are_not_shown(env: Env) -> None:
+    from app.db.brixx_erasure import purge_brixx_relatie
+
+    with env.session() as s:
+        purge_brixx_relatie(s, env.company_id, 1)
+        s.flush()
+        assert brixx_tickets(s, env.company_id) == []  # both live tickets were Anna's
+        s.rollback()

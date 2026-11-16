@@ -3,7 +3,8 @@
 A BRIXX contract can cover several VHEs over changing periods; each contract-VHE link becomes one lease of that unit,
 `brixx_ref = "<contractid>:<contractvheid>"`. Validity: the link's start/end, else the contract's; an ended link or
 contract (reconcile or `INDVERWIJDERD`) ends no later than today. The contract's relatie is the `tenant` party; a
-changed tenant replaces the old tenant party. Co-tenants and guarantors need the Phase B metadata (not mapped yet).
+changed tenant replaces the old tenant party; PRG_CONTRACTRELATIE adds the co-tenants (parties.py). Guarantors are
+not mapped yet.
 Links whose unit or contract is not mapped are skipped. Flushes; the caller commits.
 """
 

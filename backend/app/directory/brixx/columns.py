@@ -45,7 +45,8 @@ OBJECT_LABEL = ("weergavenaam2", "weergavenaam", "objectnm", "objectnr", "omschr
 VHE_LABEL = ("weergavenaam2", "weergavenaam", "subobjectnm", "vhenr", "omschrijving", "naam")
 STREET = ("straatnm", "straat", "straatnaam")
 HOUSE_NUMBER = ("huisnr", "huisnummer")
-HOUSE_SUFFIX = ("huisletter", "huisnummertoev", "huisnrtoev", "huisnrtoevoeging", "toevoeging")
+HOUSE_LETTER = ("huisletter",)
+HOUSE_SUFFIX = ("huisnummertoev", "huisnrtoev", "huisnrtoevoeging", "toevoeging")
 POSTCODE = ("postcode",)
 CITY = ("woonplaatsnm", "plaatsnm", "plaats", "woonplaats")
 START = ("ingangsdt", "ingangsdatum", "begindt", "startdatum")
@@ -134,8 +135,12 @@ def is_ended(row: Row | None) -> bool:
 def address(row: Row | None, limit: int) -> str | None:
     """`<street> <number><suffix>, <postcode> <city>` from whatever parts are present."""
     street = " ".join(str(p) for p in (pick(row, STREET), pick(row, HOUSE_NUMBER)) if p is not None)
-    suffix = pick(row, HOUSE_SUFFIX)
-    line = f"{street}{suffix}" if street and suffix is not None else street
+    letter, suffix = pick(row, HOUSE_LETTER), pick(row, HOUSE_SUFFIX)
+    if street and letter is not None:  # "5A"; a toevoeging after a letter gets a dash ("5A-2")
+        street = f"{street}{letter}"
+    if street and suffix is not None:
+        street = f"{street}-{suffix}" if letter is not None else f"{street}{suffix}"
+    line = street
     place = " ".join(str(p) for p in (pick(row, POSTCODE), pick(row, CITY)) if p is not None)
     text = ", ".join(part for part in (line, place) if part)
     return text[:limit] or None

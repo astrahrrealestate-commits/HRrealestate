@@ -7,6 +7,7 @@ approve/dispatch actions and its edits belong in BRIXX. Units and people are res
 `brixx_ref`, so only what the mapper already knows is named; anything else is an empty string, never a guess.
 """
 
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -14,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.maintenance.live import category_of, identity_of
+from app.db.brixx_erasure import erased_relatie_ids
 from app.db.models import Person, Unit
 from app.directory.brixx import columns as col
 
@@ -25,7 +27,7 @@ _DONE = ("AFGEHANDELD", "GESLOTEN", "AFGEROND", "GEANNULEERD")
 
 
 def is_brixx_ticket(ticket_id: str) -> bool:
-    return ticket_id.startswith(PREFIX)
+    return ticket_id.lower().startswith(PREFIX)
 
 
 def status_of(row: col.Row) -> str:
@@ -59,7 +61,12 @@ def _people(session: Session, company_id: UUID) -> dict[str, Person]:
 
 def brixx_tickets(session: Session, company_id: UUID) -> list[dict[str, Any]]:
     """The company's live BRIXX tickets, newest first, in the Maintenance list's item shape."""
-    rows = [row for row in col.read_mirror(session, TICKET, company_id) or [] if not col.is_ended(row)]
+    erased = erased_relatie_ids(session, company_id)  # GDPR: an erased person's tickets are not shown
+    rows = [
+        row
+        for row in col.read_mirror(session, TICKET, company_id) or []
+        if not col.is_ended(row) and col.pick_int(row, (col.RELATIE_PK,)) not in erased
+    ]
     if not rows:
         return []
     units, people = _units(session, company_id), _people(session, company_id)
@@ -116,13 +123,20 @@ READ_ONLY = "This ticket comes from BRIXX: change or dispatch it in BRIXX."
 
 
 def _stamp(value: object) -> str:
-    return value.strftime("%Y-%m-%d %H:%M UTC") if hasattr(value, "strftime") else str(value or "")
+    if isinstance(value, datetime):
+        return (value.astimezone(UTC) if value.tzinfo else value).strftime("%Y-%m-%d %H:%M UTC")
+    return str(value or "")
 
 
 def brixx_history(session: Session, company_id: UUID, ticket_id: str) -> tuple[str, list[dict[str, Any]]] | None:
     """(unit label, events) for one BRIXX ticket of the company: opened, its messages, closed. None if unknown."""
-    key = col.as_int(ticket_id.removeprefix(PREFIX))
-    rows = col.read_mirror(session, TICKET, company_id) or []
+    key = col.as_int(ticket_id.lower().removeprefix(PREFIX))
+    erased = erased_relatie_ids(session, company_id)
+    rows = [
+        r
+        for r in col.read_mirror(session, TICKET, company_id) or []
+        if col.pick_int(r, (col.RELATIE_PK,)) not in erased
+    ]
     row = next((r for r in rows if key is not None and col.pick_int(r, (TICKET_PK,)) == key), None)
     if row is None:
         return None
@@ -130,7 +144,11 @@ def brixx_history(session: Session, company_id: UUID, ticket_id: str) -> tuple[s
     events = [_event(f"{ticket_id}-open", col.pick(row, col.CREATED), "Ticket opened in BRIXX",
                      col.pick_text(row, ("titel",), 500) or "")]  # fmt: skip
     for message in col.read_mirror(session, MESSAGES, company_id) or []:
-        if col.pick_int(message, (TICKET_PK,)) == key and not col.is_ended(message):
+        if (
+            col.pick_int(message, (TICKET_PK,)) == key
+            and not col.is_ended(message)
+            and col.pick_int(message, (col.RELATIE_PK,)) not in erased
+        ):
             when = col.pick(message, ("actiedatum",)) or col.pick(message, col.CREATED)
             text = col.pick_text(message, ("bericht",), 500) or ""
             events.append(_event(f"brixx-msg-{col.pick_int(message, (MESSAGES_PK,))}", when, "Message in BRIXX", text))

@@ -95,3 +95,11 @@ def test_ended_on_and_changed() -> None:
     assert not changed(target, label="A")
     assert changed(target, label="B")
     assert target.label == "B"
+
+
+def test_address_reads_the_real_letter_toevoeging_and_city_columns() -> None:
+    row = {"straatnm": "Teststraat", "huisnr": 5, "huisletter": "A", "huisnummertoev": "2", "postcode": "1000AA",
+           "woonplaatsnm": "VOORBEELDSTAD"}  # fmt: skip
+    assert col.address(row, 300) == "Teststraat 5A-2, 1000AA VOORBEELDSTAD"
+    assert col.address({**row, "huisletter": None}, 300) == "Teststraat 52, 1000AA VOORBEELDSTAD"
+    assert col.pick_text({"vhenr": Decimal("100000000100001.0")}, col.VHE_LABEL, 100) == "100000000100001"

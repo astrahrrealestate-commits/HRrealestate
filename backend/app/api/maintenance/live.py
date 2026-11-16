@@ -36,7 +36,17 @@ SIGNATURE = "Best regards,\nHarjot Singh — EstateOS"
 
 
 def identity_of(session: Session, person_id: UUID, *, phone: bool) -> str:
-    rows = session.scalars(select(ChannelIdentity).where(ChannelIdentity.person_id == person_id)).all()
+    """A current phone or email of the person, from the person's own company (invariant 4)."""
+    person = session.get(Person, person_id)
+    if person is None:
+        return ""
+    rows = session.scalars(
+        select(ChannelIdentity).where(
+            ChannelIdentity.person_id == person_id,
+            ChannelIdentity.company_id == person.company_id,
+            ChannelIdentity.valid_to.is_(None),
+        )
+    ).all()
     if phone:
         found = next((r.identity for r in rows if r.channel == Channel.whatsapp or r.identity.startswith("+")), "")
     else:

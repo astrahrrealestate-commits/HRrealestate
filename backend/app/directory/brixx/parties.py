@@ -38,6 +38,7 @@ def contract_parties(session: Session, company_id: UUID, contracts: Iterable[col
         if contract_id is None:
             continue
         ordered = [relatie for _, relatie in sorted(linked.get(contract_id, []))]
-        first = ordered[0] if ordered else col.pick_int(contract, col.CONTRACT_TENANT)
+        named = col.pick_int(contract, col.CONTRACT_TENANT)
+        first = named if named is not None and (named in ordered or not ordered) else (ordered[0] if ordered else None)
         parties[contract_id] = Parties(first, tuple(r for r in dict.fromkeys(ordered[1:]) if r != first))
     return parties
