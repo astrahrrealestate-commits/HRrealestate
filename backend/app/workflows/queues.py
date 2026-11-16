@@ -11,7 +11,7 @@ slot is free.
 At most `Settings.concierge_worker_concurrency` turns run at once per worker (each is mostly a model call).
 
 The `brixx_documents` queue downloads BRIXX document files with `concurrency=1` across all workers: next to the
-`brixx` table syncs (2 per worker) BRIXX sees at most one extra request, and a large first backlog of files never
+`brixx` table syncs (16 per worker) BRIXX sees at most one extra request, and a large first backlog of files never
 queues in front of the 15-minute table syncs (which it would on the shared `brixx` queue).
 
 The `finance` queue (M11 quote checker) runs decision-day snapshots and quote reviews, at most
@@ -68,7 +68,11 @@ def register_queues(settings: Settings) -> None:
     _handles[GMAIL_SYNC_QUEUE] = DBOS.register_queue(GMAIL_SYNC_QUEUE, concurrency=1)
     _handles[TIMERS_QUEUE] = DBOS.register_queue(TIMERS_QUEUE, worker_concurrency=2)
     _handles[DOCUMENTS_QUEUE] = DBOS.register_queue(DOCUMENTS_QUEUE, partition_concurrency=1)
-    _handles[BRIXX_QUEUE] = DBOS.register_queue(BRIXX_QUEUE, worker_concurrency=2)  # two tables at a time per worker
+    # 414 real BRIXX tables per 15-minute tick at concurrency=2 could never keep up (confirmed live: a 15,000+
+    # job backlog piled up over hours, sync_all never completed, so the mapper -- which runs only after a
+    # run's last table finishes -- never fired). 16 drains a tick well within the 15-minute window now that the
+    # per-table retry storms (404s, bad primary keys) are fixed elsewhere and no longer waste concurrency slots.
+    _handles[BRIXX_QUEUE] = DBOS.register_queue(BRIXX_QUEUE, worker_concurrency=16)
     _handles[BRIXX_DOCUMENTS_QUEUE] = DBOS.register_queue(BRIXX_DOCUMENTS_QUEUE, concurrency=1)
     _handles[CONCIERGE_QUEUE] = DBOS.register_queue(
         CONCIERGE_QUEUE,
