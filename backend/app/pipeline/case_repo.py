@@ -50,7 +50,9 @@ def create_case(
                 LeaseParty.company_id == company_id,
                 Lease.company_id == company_id,
             )
-            .order_by(Lease.created_at.desc())
+            # The current lease first (a tenant can have ended ones, or one per unit of a contract); every lease of
+            # one mapper run shares created_at, so it never decides.
+            .order_by(Lease.valid_to.is_(None).desc(), Lease.valid_to.desc(), Lease.valid_from.desc(), Lease.id.desc())
             .limit(1)
         ).first()
         if lease:

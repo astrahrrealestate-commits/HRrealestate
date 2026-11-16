@@ -30,17 +30,25 @@ OBJECT, OBJECT_PK = "prg_object", "prg_objectid"
 VHE, VHE_PK = "prg_subobject", "prg_subobjectid"
 CONTRACT, CONTRACT_PK = "prg_contract", "prg_contractid"
 CONTRACTVHE, CONTRACTVHE_PK = "prg_contractvhe", "prg_contractvheid"
+# The real PRG_CONTRACT has no PRG_RELATIEID: its relaties are PRG_CONTRACTRELATIE rows (VOLGNR 1 = the tenant,
+# higher = co-tenants) and EERSTERELATIEID repeats the first one. PRG_RELATIEID stays last for the doc examples.
+CONTRACTRELATIE = "prg_contractrelatie"
+CONTRACT_TENANT = ("eersterelatieid", "prg_relatieid")
+ORDER = ("volgnr",)
 
 NAME = ("weergavenaam", "weergavenaam2", "naam", "organisatienm", "achternaam")
 EMAIL = ("email", "emailadres", "e_mail")
-PHONE = ("mobielnr", "mobiel", "telefoonnr", "telefoon", "telefoonnr1", "telefoonnr2")
-OBJECT_LABEL = ("objectnr", "omschrijving", "naam")
-VHE_LABEL = ("vhenr", "omschrijving", "naam")
+PHONE = ("mobielnr", "mobiel", "telefoon1", "telefoon2", "telefoonnr", "telefoon", "telefoonnr1", "telefoonnr2")
+# Display names first: the real VHENR/OBJECTNR are internal numbers (e.g. 100000000100001), WEERGAVENAAM2 is
+# "Henry Dunantweg 5 A" and WEERGAVENAAM the same with the BRIXX number in front ("00001/001 Henry ...").
+OBJECT_LABEL = ("weergavenaam2", "weergavenaam", "objectnm", "objectnr", "omschrijving", "naam")
+VHE_LABEL = ("weergavenaam2", "weergavenaam", "subobjectnm", "vhenr", "omschrijving", "naam")
 STREET = ("straatnm", "straat", "straatnaam")
 HOUSE_NUMBER = ("huisnr", "huisnummer")
-HOUSE_SUFFIX = ("huisnrtoev", "huisnrtoevoeging", "toevoeging")
+HOUSE_LETTER = ("huisletter",)
+HOUSE_SUFFIX = ("huisnummertoev", "huisnrtoev", "huisnrtoevoeging", "toevoeging")
 POSTCODE = ("postcode",)
-CITY = ("plaatsnm", "plaats", "woonplaats")
+CITY = ("woonplaatsnm", "plaatsnm", "plaats", "woonplaats")
 START = ("ingangsdt", "ingangsdatum", "begindt", "startdatum")
 END = ("einddt", "einddatum")
 CREATED = ("newdatetime",)
@@ -76,7 +84,10 @@ def pick(row: Row | None, candidates: tuple[str, ...]) -> object | None:
 
 
 def pick_text(row: Row | None, candidates: tuple[str, ...], limit: int) -> str | None:
+    """As text; a whole number stored as NUMERIC reads "100000000100001", never "100000000100001.0"."""
     value = pick(row, candidates)
+    if isinstance(value, float | Decimal) and value == int(value):
+        value = int(value)
     return None if value is None else str(value)[:limit]
 
 
@@ -124,8 +135,12 @@ def is_ended(row: Row | None) -> bool:
 def address(row: Row | None, limit: int) -> str | None:
     """`<street> <number><suffix>, <postcode> <city>` from whatever parts are present."""
     street = " ".join(str(p) for p in (pick(row, STREET), pick(row, HOUSE_NUMBER)) if p is not None)
-    suffix = pick(row, HOUSE_SUFFIX)
-    line = f"{street}{suffix}" if street and suffix is not None else street
+    letter, suffix = pick(row, HOUSE_LETTER), pick(row, HOUSE_SUFFIX)
+    if street and letter is not None:  # "5A"; a toevoeging after a letter gets a dash ("5A-2")
+        street = f"{street}{letter}"
+    if street and suffix is not None:
+        street = f"{street}-{suffix}" if letter is not None else f"{street}{suffix}"
+    line = street
     place = " ".join(str(p) for p in (pick(row, POSTCODE), pick(row, CITY)) if p is not None)
     text = ", ".join(part for part in (line, place) if part)
     return text[:limit] or None

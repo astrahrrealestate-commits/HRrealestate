@@ -75,6 +75,49 @@ interface TicketHistoryModalProps {
   onShowToast: (msg: string) => void;
 }
 
+type ApiAuditEvent = {
+  id: string;
+  timestamp: string;
+  category?: string;
+  actor?: string;
+  actorType?: string;
+  title?: string;
+  description?: string;
+  channel?: string | null;
+  badge?: string | null;
+  stateChange?: string | null;
+};
+
+const ROLES = ["tenant", "system", "owner", "contractor"] as const;
+
+function toTimelineEvent(ev: ApiAuditEvent): TimelineEvent {
+  const [stateFrom, stateTo] = (ev.stateChange || "").split(" → ");
+  const type: TimelineEvent["type"] =
+    ev.category === "message"
+      ? "inbound"
+      : ev.category === "state_change"
+        ? "state_change"
+        : ev.category === "contractor_po"
+          ? "approval"
+          : "triage";
+  const role = ROLES.find((r) => r === ev.actorType) ?? "system";
+  return {
+    id: ev.id,
+    timestamp: ev.timestamp,
+    type,
+    actor: ev.actor || "EstateOS",
+    actorRole: role,
+    title: ev.title || "Event",
+    description: ev.description || "",
+    badge: ev.badge || undefined,
+    details: {
+      channel: ev.channel === "whatsapp" || ev.channel === "gmail" ? ev.channel : undefined,
+      stateFrom: ev.stateChange ? stateFrom : undefined,
+      stateTo: ev.stateChange ? stateTo : undefined,
+    },
+  };
+}
+
 export function TicketHistoryModal({
   ticket,
   isOpen,
@@ -86,130 +129,30 @@ export function TicketHistoryModal({
   const [activeFilter, setActiveFilter] = useState<"all" | "messages" | "po" | "audit">("all");
   const [copied, setCopied] = useState<boolean>(false);
 
+  const [history, setHistory] = useState<{ ticketId: string; events: TimelineEvent[] } | null>(null);
+
   useEffect(() => {
-    if (isOpen && ticket) {
-      const cleanId = ticket.ticketNumber?.replace("#", "") || ticket.id;
-      getTicketHistory(cleanId).catch(() => {});
-    }
+    if (!isOpen || !ticket) return;
+    let cancelled = false;
+    // The ticket's own recorded history (case events, or the BRIXX ticket and its messages); never invented.
+    getTicketHistory(ticket.id)
+      .then((res) => {
+        if (!cancelled) setHistory({ ticketId: ticket.id, events: (res.events || []).map(toTimelineEvent) });
+      })
+      .catch(() => {
+        if (!cancelled) setHistory({ ticketId: ticket.id, events: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen, ticket]);
 
   if (!isOpen || !ticket) return null;
 
-  // Build rich contextual audit events matching backend database architecture
+  const loading = history?.ticketId !== ticket.id;
+  const events: TimelineEvent[] = loading ? [] : (history?.events ?? []);
   const isCompleted = ticket.status === "completed";
   const isEmergency = ticket.urgency === "emergency" || ticket.isOverdue;
-
-  const events: TimelineEvent[] = [
-    {
-      id: "ev-1",
-      timestamp: `${ticket.reportedAt} (08:15 CET)`,
-      type: "inbound",
-      actor: ticket.tenantName,
-      actorRole: "tenant",
-      title: "Inbound Tenant Report Received",
-      description: `Tenant reported issue via WhatsApp: "${ticket.notes}"`,
-      badge: "WhatsApp Inbound",
-      badgeVariant: "default",
-      details: {
-        channel: "whatsapp",
-        attachments: [
-          { name: "photo_circuit_breaker_tripped.jpg", size: "2.4 MB", type: "image/jpeg" },
-        ],
-      },
-    },
-    {
-      id: "ev-2",
-      timestamp: "Today 08:16 CET",
-      type: "triage",
-      actor: "EstateOS Inbound Triage Agent",
-      actorRole: "system",
-      title: "AI Triage & SLA Initialization",
-      description: `Classified as ${ticket.urgency.toUpperCase()} (${ticket.category}). Unit mapped to ${ticket.unitLabel} with 93% match confidence. 4-hour SLA timer initialized.`,
-      badge: isEmergency ? "Emergency SLA" : "Normal SLA",
-      badgeVariant: isEmergency ? "urgent" : "default",
-      details: {
-        stateFrom: "none",
-        stateTo: "open",
-      },
-    },
-    {
-      id: "ev-3",
-      timestamp: "Today 08:18 CET",
-      type: "approval",
-      actor: "Harjot Singh (Property Manager)",
-      actorRole: "owner",
-      title: "Work Order Authorized & PO Budget Capped",
-      description: `Owner approved Draft 1 proposal. Generated Purchase Order PO-${ticket.ticketNumber.replace("#", "")} capped at ${ticket.poBudgetCap} excl. BTW. Authorized key lockbox code #4182 for unaccompanied access.`,
-      badge: `PO ${ticket.poBudgetCap}`,
-      badgeVariant: "needs_you",
-      details: {
-        poNumber: `PO-${ticket.ticketNumber.replace("#", "")}`,
-        budgetAmount: `${ticket.poBudgetCap} excl. BTW`,
-        lockboxCode: "#4182",
-      },
-    },
-    {
-      id: "ev-4",
-      timestamp: "Today 08:20 CET",
-      type: "dispatch",
-      actor: "Automated Dispatch Service",
-      actorRole: "system",
-      title: "Dual Channel Notifications Dispatched",
-      description: `Work order dispatched to ${ticket.contractorName} via Gmail (Status: Delivered). Formal arrival confirmation and fridge guidance sent to ${ticket.tenantName} via WhatsApp (Status: Read).`,
-      badge: "Dispatched",
-      badgeVariant: "default",
-      details: {
-        channel: "gmail",
-      },
-    },
-    {
-      id: "ev-5",
-      timestamp: "Today 09:10 CET",
-      type: "contractor",
-      actor: `${ticket.contractorName} (${ticket.contractorTrade})`,
-      actorRole: "contractor",
-      title: "Contractor Arrival Window Acknowledged",
-      description: `Contractor confirmed technician dispatch with estimated on-site arrival today between 11:30 and 12:30 CET. Ticket state updated to Waiting on third party.`,
-      badge: "Arrival 11:30",
-      badgeVariant: "default",
-      details: {
-        stateFrom: "open",
-        stateTo: "waiting_on_third_party",
-      },
-    },
-    ...(isCompleted
-      ? [
-          {
-            id: "ev-6",
-            timestamp: "Today 13:45 CET",
-            type: "contractor" as const,
-            actor: `${ticket.contractorName} (Monteur Kevin)`,
-            actorRole: "contractor" as const,
-            title: "Work Execution & Repair Completed",
-            description:
-              "Defective 16A breaker replaced in main subpanel. Group tested at 230V; kitchen sockets and refrigerator power fully restored. Test certificate logged.",
-            badge: "Repaired",
-            badgeVariant: "default" as const,
-          },
-          {
-            id: "ev-7",
-            timestamp: "Today 14:10 CET",
-            type: "invoice" as const,
-            actor: "EstateOS Automated Ledger Matching",
-            actorRole: "system" as const,
-            title: "Invoice Verified & Case Resolved",
-            description: `Received invoice #INV-2026-881 for € 412,50. Matched against PO-${ticket.ticketNumber.replace("#", "")} (within ${ticket.poBudgetCap} budget cap by € 237,50). Case moved to Resolved.`,
-            badge: "Matched & Resolved",
-            badgeVariant: "default" as const,
-            details: {
-              invoiceAmount: "€ 412,50",
-              stateFrom: "waiting_on_third_party",
-              stateTo: "resolved",
-            },
-          },
-        ]
-      : []),
-  ];
 
   const filteredEvents = events.filter((ev) => {
     if (activeFilter === "messages") return ev.type === "inbound" || ev.type === "dispatch";
@@ -338,6 +281,11 @@ export function TicketHistoryModal({
         {/* Scrollable Timeline */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1 bg-[#FFFFFF]">
           <div className="relative pl-6 space-y-6 before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[2px] before:bg-[#E8E8E5]">
+            {filteredEvents.length === 0 && (
+              <p className="text-[13px] text-[var(--ink-3)] py-6 text-center">
+                {loading ? t("Loading history…") : t("No recorded events for this ticket yet.")}
+              </p>
+            )}
             {filteredEvents.map((ev, index) => {
               const isFirst = index === 0;
               const isLast = index === filteredEvents.length - 1;

@@ -326,3 +326,11 @@ bidirectional translation controls onto the new unified Composer, and fixed what
 - [ ] **user:** top up / enable billing on the Gemini project so credits don't run out again; `OPENAI_API_KEY` is empty, so the fallback is inert until set
 - [ ] **user:** whitelist Harjot's real Google address in Team profiles (seed only has `harjot@estateos.internal`)
 - [ ] WhatsApp in prod: the last `ENV=prod` boot (2026-11-14) reported `whatsapp_app_secret`, `whatsapp_verify_token` not set; fill them in Secrets Manager
+
+## BRIXX real column names in the directory and maintenance (2026-11-16; branch `fix/onboarding-sweep`)
+- [x] Units named by `WEERGAVENAAM2` ("Henry Dunantweg 5 A"), not the numeric `VHENR` ("100000000100001.0");
+  address reads `HUISLETTER` and `WOONPLAATSNM`; whole NUMERIC values never render with ".0"
+- [x] Contract tenants from `PRG_CONTRACTRELATIE` (VOLGNR 1 tenant, higher co_tenant) / `EERSTERELATIEID`: the real
+  `PRG_CONTRACT` has no `PRG_RELATIEID`, so no person was a tenant and no lease had a party
+- [x] BRIXX `TST_TICKET` rows listed read-only in Maintenance (unit, tenant, contractor, urgency, status, history from
+  `TST_TICKETBERICHT`); edit/approve answer 409 "change it in BRIXX"

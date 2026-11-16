@@ -22,6 +22,7 @@ from app.db.enums import PersonKind
 from app.db.models import ChannelIdentity, Person
 from app.directory.brixx import columns as col
 from app.directory.brixx.map_common import MapCounts, changed, ended_on, lock_company
+from app.directory.brixx.parties import contract_parties
 
 MAX_NAME = 200
 REGION = "NL"
@@ -35,9 +36,13 @@ class _Index:
 
 
 def contract_tenants(session: Session, company_id: UUID) -> set[int]:
-    """Relatie ids that are the tenant of at least one mirrored contract."""
+    """Relatie ids that are the tenant or a co-tenant of at least one mirrored contract."""
     contracts = col.read_mirror(session, col.CONTRACT, company_id) or []
-    return {t for row in contracts if (t := col.pick_int(row, (col.RELATIE_PK,))) is not None}
+    return {
+        relatie
+        for parties in contract_parties(session, company_id, contracts).values()
+        for relatie in parties.everyone()
+    }
 
 
 def contact_identities(row: col.Row) -> list[Identity]:

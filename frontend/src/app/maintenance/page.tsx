@@ -235,9 +235,14 @@ function MaintenanceContent() {
   );
 
   const handleSaveTicket = async (updated: MaintenanceTicket) => {
+    if (isBrixxTicket(updated)) {
+      showToast(`Ticket ${updated.ticketNumber} comes from BRIXX: change it in BRIXX.`);
+      return;
+    }
+    const previous = tickets;
     setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
     try {
-      await updateMaintenanceTicket(updated.id || updated.ticketNumber, {
+      const result = await updateMaintenanceTicket(updated.id || updated.ticketNumber, {
         issueTitle: updated.issueTitle,
         unitLabel: updated.unitLabel,
         urgency: updated.urgency,
@@ -250,9 +255,16 @@ function MaintenanceContent() {
         contractorDraft: updated.contractorDraft,
         tenantDraft: updated.tenantDraft,
       });
+      if (!result.success) {
+        setTickets(previous);
+        showToast(`Ticket ${updated.ticketNumber} could not be saved.`);
+        return;
+      }
       showToast(`Ticket ${updated.ticketNumber} saved.`);
     } catch (err) {
       console.warn("Failed to update ticket in backend:", err);
+      setTickets(previous);
+      showToast(`Ticket ${updated.ticketNumber} could not be saved.`);
     }
   };
 
@@ -271,7 +283,7 @@ function MaintenanceContent() {
     );
 
     const parts: string[] = [];
-    const targetEmail = target.contractorEmail || "planning@chahalbouw.nl";
+    const targetEmail = target.contractorEmail || "the contractor";
     if (options.dispatchContractor) {
       parts.push(`Dispatching work order to ${target.contractorName} (${targetEmail})`);
     }
@@ -303,16 +315,22 @@ function MaintenanceContent() {
   };
 
   const handleOpenWhatsAppToContractor = (ticket: MaintenanceTicket) => {
-    const rawPhone = ticket.contractorPhone || "+31 6 88 12 34 56";
-    const phone = rawPhone.replace(/[^0-9]/g, "");
-    if (!phone) return;
+    const phone = (ticket.contractorPhone || "").replace(/[^0-9]/g, "");
+    if (!phone) {
+      showToast("No contractor phone number on this ticket.");
+      return;
+    }
     const body = ticket.contractorDraft || `Beste ${ticket.contractorName}, spoedmelding voor ${ticket.unitLabel}: ${ticket.issueTitle}. Geautoriseerd budgetplafond: ${ticket.poBudgetCap}. Gelieve ETA te bevestigen.`;
     const url = `https://wa.me/${phone}?text=${encodeURIComponent(body)}`;
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
   const handleOpenGmailToContractor = (ticket: MaintenanceTicket) => {
-    const email = ticket.contractorEmail || "planning@chahalbouw.nl";
+    const email = ticket.contractorEmail || "";
+    if (!email) {
+      showToast("No contractor email address on this ticket.");
+      return;
+    }
     const subject = `[Work Order] ${ticket.issueTitle} - ${ticket.unitLabel}`;
     const body = ticket.contractorDraft || `Hi ${ticket.contractorName}, emergency work order for ${ticket.unitLabel}: ${ticket.issueTitle}. Authorized budget cap: ${ticket.poBudgetCap}. Please confirm your earliest ETA.`;
     const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
@@ -743,7 +761,7 @@ function MaintenanceContent() {
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    <button
+                    {!isBrixxTicket(selectedTicket) && <button
                       type="button"
                       onClick={() => setIsEditModalOpen(true)}
                       className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-[var(--ink)] bg-[var(--bg)] hover:bg-[var(--selected)] border border-[var(--line)] rounded-lg transition-colors cursor-pointer"
@@ -751,7 +769,7 @@ function MaintenanceContent() {
                     >
                       <Pencil className="w-3.5 h-3.5 text-[var(--accent-ink)]" />
                       <span>Edit Ticket</span>
-                    </button>
+                    </button>}
 
                     {(selectedTicket.urgency === "emergency" || selectedTicket.urgency === "high" || selectedTicket.isOverdue) && (
                       <UrgentLabel />
@@ -803,6 +821,11 @@ function MaintenanceContent() {
                   </div>
 
                   {/* Compact Two-Column Grid: Contractor, Budget cap, SLA, Unit */}
+                  {isBrixxTicket(selectedTicket) ? (
+                    <div className="rounded-2xl bg-[var(--bg)]/50 border border-[var(--line)]/70 p-4 text-[12.5px] text-[var(--ink-2)]">
+                      This ticket comes from BRIXX{selectedTicket.contractorName ? ` · contractor: ${selectedTicket.contractorName}` : ""}. Change or dispatch it in BRIXX.
+                    </div>
+                  ) : (
                   <div className="rounded-2xl bg-[var(--bg)]/50 border border-[var(--line)]/70 p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--ink-3)]">
@@ -873,6 +896,7 @@ function MaintenanceContent() {
                       </div>
                     </div>
                   </div>
+                  )}
 
                   {/* Contractor Work Order Dispatch (Focused exclusively on Contractor) */}
                   <div className="space-y-3 pt-1">
@@ -905,11 +929,11 @@ function MaintenanceContent() {
                         <div className="flex items-center gap-2">
                           <span className="inline-flex items-center gap-1 text-[11.5px] font-mono text-[var(--ink-2)] bg-[var(--pane)] px-2.5 py-1 rounded-md border border-[var(--line)]">
                             <Phone className="w-3 h-3 text-emerald-600" />
-                            <span>{selectedTicket.contractorPhone || "+31 6 88 12 34 56"}</span>
+                            <span>{selectedTicket.contractorPhone || "No phone on file"}</span>
                           </span>
                           <span className="inline-flex items-center gap-1 text-[11.5px] font-mono text-[var(--ink-2)] bg-[var(--pane)] px-2.5 py-1 rounded-md border border-[var(--line)]">
                             <Mail className="w-3 h-3 text-blue-600" />
-                            <span>{selectedTicket.contractorEmail || "planning@chahalbouw.nl"}</span>
+                            <span>{selectedTicket.contractorEmail || "No email on file"}</span>
                           </span>
                         </div>
                       </div>
@@ -1010,7 +1034,15 @@ function MaintenanceContent() {
                     <div className="flex items-center gap-2">
                       <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
                         <Check className="w-3.5 h-3.5" />
-                        <span>Work Order Dispatched to {selectedTicket.contractorName}</span>
+                        <span>
+                          {selectedTicket.status === "completed"
+                            ? "Done"
+                            : selectedTicket.status === "scheduled"
+                              ? "Scheduled"
+                              : selectedTicket.contractorName
+                                ? `Work Order Dispatched to ${selectedTicket.contractorName}`
+                                : "Dispatched"}
+                        </span>
                       </span>
                     </div>
                   )}
@@ -1072,6 +1104,11 @@ function MaintenanceContent() {
       />
     </div>
   );
+}
+
+/** BRIXX tickets are read-only here: they are changed and dispatched in BRIXX itself. */
+function isBrixxTicket(ticket: { id: string }): boolean {
+  return ticket.id.toLowerCase().startsWith("brixx-");
 }
 
 export default function MaintenancePage() {
