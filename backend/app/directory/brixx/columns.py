@@ -22,7 +22,12 @@ Row = Mapping[str, object]
 
 RELATIE, RELATIE_PK = "prg_relatie", "prg_relatieid"
 OBJECT, OBJECT_PK = "prg_object", "prg_objectid"
-VHE, VHE_PK = "prg_vhe", "prg_vheid"
+# BRIXX's own API docs and the PDF spec call this entity "VHE" (verhuurbare eenheid, rentable unit), but the real
+# hrrealestate environment names the table PRG_SUBOBJECT -- no PRG_VHE table exists anywhere in the live metadata
+# (confirmed against the full 491-table real snapshot). PRG_CONTRACTVHE's own FK column to it is PRG_SUBOBJECTID,
+# not PRG_VHEID, consistently. Kept the VHE_* constant names since the rest of the mapper (units.py, leases.py)
+# and the domain model (Unit) use "VHE"/"unit" as the conceptual name regardless of BRIXX's table name for it.
+VHE, VHE_PK = "prg_subobject", "prg_subobjectid"
 CONTRACT, CONTRACT_PK = "prg_contract", "prg_contractid"
 CONTRACTVHE, CONTRACTVHE_PK = "prg_contractvhe", "prg_contractvheid"
 
