@@ -421,3 +421,36 @@ def test_erasing_the_tenant_deletes_the_ticket_edits_of_their_cases(portfolio: P
             )
         ).all()
     assert left == []
+
+
+def _brixx_ticket(portfolio: Portfolio, key: int, title: str, *, urgent: int) -> None:
+    from sqlalchemy import text
+
+    with Session(portfolio.engine) as s:
+        s.execute(
+            text(
+                "insert into brixx.tst_ticket (company_id, tst_ticketid, titel, indurgent, indverwijderd, newdatetime)"
+                " values (:c, :k, :t, :u, 0, now())"
+            ),
+            {"c": portfolio.company, "k": key, "t": title, "u": urgent},
+        )
+        s.commit()
+
+
+def test_brixx_tickets_reach_the_pulse_the_attention_list_and_the_briefing(portfolio: Portfolio) -> None:
+    _brixx_ticket(portfolio, 9001, "Lekkage keuken", urgent=1)
+    _brixx_ticket(portfolio, 9002, "Deurbel", urgent=0)
+    pulse = portfolio.client.get("/api/dashboard/pulse").json()
+    assert pulse["emergencyCount"] == 2  # the seeded emergency case plus the BRIXX ticket flagged urgent
+    attention = portfolio.client.get("/api/dashboard/attention").json()
+    assert (attention["total"], attention["urgentCount"]) == (2, 1)
+    assert [i["title"] for i in attention["items"]] == ["Lekkage keuken", "Deurbel"]  # urgent first
+    assert {i["source"] for i in attention["items"]} == {"brixx"}
+    briefing = str(portfolio.client.get("/api/dashboard/briefing").json())
+    assert "3 matters need attention" in briefing  # the two seeded cases and the urgent BRIXX ticket
+    assert "Open BRIXX tickets" in briefing
+    assert portfolio.client.get("/api/dashboard/attention?limit=1").json()["total"] == 2
+
+
+def test_a_company_without_brixx_data_has_an_empty_attention_list(portfolio: Portfolio) -> None:
+    assert portfolio.client.get("/api/dashboard/attention").json() == {"items": [], "total": 0, "urgentCount": 0}
