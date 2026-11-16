@@ -99,5 +99,13 @@ show up there:
   Gmail mailbox with no connected account is skipped at info level (`gmail.poll_skipped_not_connected`) instead of an
   error every minute. Gmail sync is the minute poll; Pub/Sub push (`GMAIL_PUBSUB_*`) is optional and needs a GCP
   topic and push subscription in the Google project.
+- **Fixed egress IPs (BRIXX allowlist).** BRIXX only answers whitelisted IPs. Each env's worker runs in the private
+  subnets behind a NAT instance with an Elastic IP (stage `13.62.13.146`, prod `13.51.27.141`; AL2023 t4g.micro,
+  iptables MASQUERADE, created by hand, not in terraform). Prod needs its IP whitelisted at BRIXX and a
+  `BRIXX_TOKEN` key in `estateos/prod/backend` before the prod worker gets `BRIXX_PROVIDER=api` (ECS refuses to start
+  a task whose secret key is missing). BRIXX syncs into the first company by `created_at`.
+- **Secrets without echo.** `scripts/aws_set_backend_secrets.py --env prod|stage` prompts (hidden) for
+  `WHATSAPP_APP_SECRET`, `BRIXX_TOKEN`, generates `WHATSAPP_VERIFY_TOKEN` on request, merges them into the secret,
+  prints the Meta webhook URL + verify token, and redeploys api and worker.
 - **Task definitions vs terraform.** Terraform state is not in this repo (the S3 backend block is commented out), so a
   live change to a task definition must be mirrored in `terraform/environments/*/main.tf` or the next apply reverts it.

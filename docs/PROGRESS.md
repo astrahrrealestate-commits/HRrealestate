@@ -312,6 +312,11 @@ bidirectional translation controls onto the new unified Composer, and fixed what
   account, unconnected Gmail skipped quietly
 - [x] Gemini pinned to API v1beta (google-genai 3.x default v1 rejected instructions/tools: every agent call 400)
 - [ ] **user:** connect Google (Gmail/Calendar/Drive) once after this deploy
+- [x] Seed scaffold cleaned on stage and prod (company "HR Real Estate", real WhatsApp phone-number-id, placeholder
+  mailbox and owner phone removed, owners on the dashboard channel, `harjot@estateos.internal` deactivated)
+- [x] Prod NAT instance + Elastic IP `13.51.27.141`; prod worker egresses through it
+- [ ] **user:** whitelist `13.51.27.141` at BRIXX; run `scripts/aws_set_backend_secrets.py --env prod` (BRIXX_TOKEN,
+  WHATSAPP_APP_SECRET, generate WHATSAPP_VERIFY_TOKEN and paste it in Meta); then prod worker gets BRIXX env
 - [ ] Before filling `OPENAI_API_KEY`: use an EU data-residency OpenAI project (CLAUDE.md "OpenAI (EU)"); the
   fallback sends tenant text there whenever Gemini fails
 - [ ] Per-company Google credentials (`credentials/{company_id}/...`) before a second company; `GOOGLE_CHAT_PROVIDER`
