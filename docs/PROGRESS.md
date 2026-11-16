@@ -354,3 +354,9 @@ bidirectional translation controls onto the new unified Composer, and fixed what
   `INGANGSDATUM`/`TELEFOON1` (reordered), and `INDVERWIJDERD` does not exist on `FIN_FACTUUR`, `FIN_BETALING`,
   `PRG_CONTRACTRELATIE`, `TYP_HUURCOMPONENT` (the readers already tolerate its absence). Adding a BRIXX read means
   adding the name to `READS` in the same change.
+- [x] BRIXX sync gaps found by the name audit (2026-11-16): (1) BRIXX adds `$<fk column>` to rows (the target's display
+  label; for relaties it is the literal `--redacted`, which confirms person names are withheld on purpose), and these
+  flagged 65 of 414 tables as drifted; they are still kept in `_extra` but no longer count as drift. (2) `FIN_BANKCONTAINER`
+  (1032 rows) and `FIN_INDEXERINGSSESSIE` failed every 15 minutes with `TypeError`: BRIXX sends BYTEA columns as base64
+  text and psycopg wants bytes; the upsert now decodes them. Still failing on BRIXX's side (HTTP 500): `BRIXXIE_CHAT`,
+  `ZPRG_RELATIE`; `PG_*` system tables are listed in the metadata but answer 404 (not retried).
