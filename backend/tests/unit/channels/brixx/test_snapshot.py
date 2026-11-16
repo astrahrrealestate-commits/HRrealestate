@@ -15,7 +15,7 @@ from app.channels.brixx.snapshot import (
     record_snapshot,
     write_snapshot,
 )
-from app.core.errors import BrixxError
+from app.core.errors import BrixxAuthError, BrixxError
 
 EXAMPLE = Path(__file__).parents[3] / "fixtures" / "brixx" / "metadata_example"
 
@@ -106,6 +106,26 @@ def test_record_describes_every_listed_table_sorted() -> None:
     recorded = record_snapshot(api)
     assert [t.name for t in recorded] == ["PRG_OBJECT", "PRG_RELATIE"]
     assert api.fetch_log == []  # metadata only: never a data page
+
+
+def test_record_skips_a_table_whose_describe_fails() -> None:
+    """BRIXX can list a table its own describe endpoint refuses (seen for PG_AGGREGATE, a reserved Postgres name);
+    the snapshot must still record every other table rather than aborting."""
+    tables = {"PRG_RELATIE": FakeTable(_relatie(), []), "PG_AGGREGATE": FakeTable(_object(), [])}
+    api = FakeBrixxApi(tables)
+    api.fail_describe("PG_AGGREGATE", BrixxError("BRIXX request failed (HTTP 404)"))
+    recorded = record_snapshot(api)
+    assert [t.name for t in recorded] == ["PRG_RELATIE"]
+
+
+def test_record_lets_an_auth_error_propagate_instead_of_skipping_it() -> None:
+    """A dead token or a dropped IP whitelist entry mid-run is not a per-table BRIXX quirk: it must reach the
+    CLI's dedicated `BrixxAuthError` handling, never look like a clean (partial) snapshot."""
+    tables = {"PRG_RELATIE": FakeTable(_relatie(), []), "PRG_OBJECT": FakeTable(_object(), [])}
+    api = FakeBrixxApi(tables)
+    api.fail_describe("PRG_OBJECT", BrixxAuthError("BRIXX rejected the token (HTTP 401)"))
+    with pytest.raises(BrixxAuthError):
+        record_snapshot(api)
 
 
 def test_committed_example_snapshot_is_in_canonical_form(tmp_path: Path) -> None:

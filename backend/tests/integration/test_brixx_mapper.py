@@ -199,9 +199,20 @@ def test_brixx_ref_is_unique_per_company(env: Env) -> None:
 
 
 def test_missing_mirror_tables_map_nothing(committed_company: Company, migrated_engine: Engine) -> None:
-    with Session(migrated_engine) as s:  # no `brixx` schema here
-        counts = map_directory(s, committed_company.id, TODAY)
-        s.commit()
+    """Simulates a deployment that hasn't run the BRIXX mirror migration yet. `migrated_engine` is session-scoped
+    and always migrated to `head` (which, since 0045, always creates the brixx schema), so the schema is dropped
+    inside a transaction that is always rolled back rather than on the shared engine -- every other test still
+    sees it."""
+    with migrated_engine.connect() as conn:
+        outer = conn.begin()
+        try:
+            conn.execute(sa.text("DROP SCHEMA IF EXISTS brixx CASCADE"))
+            s = Session(bind=conn, join_transaction_mode="create_savepoint")
+            counts = map_directory(s, committed_company.id, TODAY)
+            s.commit()  # the savepoint only; the outer transaction below still rolls back
+            s.close()
+        finally:
+            outer.rollback()  # restores the brixx schema for every other test sharing this engine
     assert all(c.missing_table for c in counts.values())
 
 

@@ -7,7 +7,7 @@ import respx
 from pydantic import SecretStr
 
 from app.channels.brixx.http import HttpBrixxApi
-from app.core.errors import BrixxAuthError, BrixxError
+from app.core.errors import BrixxAuthError, BrixxError, BrixxNotFoundError
 
 BASE = "https://brixx.test/api/v1"
 TOKEN = "s3cr3t-token-value"
@@ -102,6 +102,18 @@ def test_401_raises_auth_error_without_retry(status: int) -> None:
     assert TOKEN not in str(exc.value)
     assert TOKEN not in repr(exc.value)
     assert str(status) in str(exc.value)
+
+
+@respx.mock
+def test_404_raises_not_found_error_distinct_from_auth_error() -> None:
+    """A 404 on a table BRIXX's own listing named (seen for Postgres system catalog names) is never transient:
+    the mirror's retry policy treats it, like an auth failure, as unretryable."""
+    route = respx.get(f"{BASE}/metadata/hrrealestate/tables/pg_aggregate").respond(404, text="not found")
+    with pytest.raises(BrixxNotFoundError) as exc:
+        _api().describe_table("PG_AGGREGATE")
+    assert not isinstance(exc.value, BrixxAuthError)
+    assert route.call_count == 1
+    assert "404" in str(exc.value)
 
 
 @respx.mock

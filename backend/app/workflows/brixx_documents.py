@@ -6,8 +6,9 @@
 large backlog is claimed by later syncs, so every workflow stays short.
 
 Workflow bodies only sequence steps. The download step is retry-safe: a settled version is not downloaded again and
-equal bytes map to one object and one row. 401/403 settles the version as `forbidden`. Any other error is retried by
-DBOS; once retries run out the version is recorded `failed` (class name only) and claimed again on a later sync until
+equal bytes map to one object and one row. 401/403 settles the version as `forbidden`. `BrixxAuthError` and
+`BrixxNotFoundError` (retrying cannot help either) fail after one attempt; any other error is retried by DBOS. Once
+either path is exhausted, the version is recorded `failed` (class name only) and claimed again on a later sync until
 `MAX_ATTEMPTS`.
 """
 

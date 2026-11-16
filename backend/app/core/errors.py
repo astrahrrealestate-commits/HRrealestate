@@ -88,6 +88,13 @@ class BrixxAuthError(BrixxError):
     """BRIXX rejected the token (401/403). Retrying cannot help until the token is replaced."""
 
 
+class BrixxNotFoundError(BrixxError):
+    """BRIXX returned 404 for a resource addressed by its own API (a table, data page or document). Retrying
+    the identical request cannot change a 404 into something else, whatever the resource turned out to be missing
+    or never existing for: seen for a table BRIXX's own listing names but whose describe endpoint refuses it
+    (Postgres/SQL-standard system catalog names it lists but does not actually expose)."""
+
+
 class StaleRunError(BrixxError):
     """A BRIXX table sync step belongs to a run that no longer owns the table's resume point (or skipped a page)."""
 

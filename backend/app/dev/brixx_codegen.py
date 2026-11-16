@@ -8,7 +8,7 @@ whose type changed is refused (that needs a hand-written migration), and an unch
 
 import ast
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 
 import sqlalchemy as sa
@@ -18,12 +18,15 @@ from alembic.runtime.migration import MigrationContext
 
 from app.channels.brixx.models import BrixxTable
 from app.core.errors import BrixxError
-from app.directory.brixx.schema import MIRROR_SCHEMA, SYSTEM_COLUMNS, build_table
+from app.core.logging import get_logger
+from app.directory.brixx.schema import MIRROR_SCHEMA, SYSTEM_COLUMNS, build_table, resolve_primary_key
 
 MARKER = "BRIXX_MIRROR"
 Mirror = dict[str, dict[str, str]]
 _CONTEXT = MigrationContext.configure(dialect_name="postgresql")  # offline: no database
 _DIALECT = _CONTEXT.dialect
+
+log = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -53,7 +56,14 @@ def _columns(table: sa.Table) -> dict[str, str]:
 
 def _built(tables: Sequence[BrixxTable]) -> list[sa.Table]:
     metadata = sa.MetaData()
-    return sorted((build_table(info, metadata) for info in tables), key=lambda t: t.name)
+    usable = []
+    for info in tables:
+        pk = resolve_primary_key(info)
+        if pk is None:
+            log.warning("brixx.codegen_skipped", table=info.name, reason="no_usable_primary_key")
+            continue
+        usable.append(info if pk == info.primary_key else replace(info, primary_key=pk))
+    return sorted((build_table(info, metadata) for info in usable), key=lambda t: t.name)
 
 
 def mirror_spec(tables: Sequence[BrixxTable]) -> Mirror:
