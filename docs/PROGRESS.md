@@ -308,6 +308,8 @@ bidirectional translation controls onto the new unified Composer, and fixed what
   longer crash. An approved WhatsApp tenant action sent while unconfigured is recorded `failed`; resend needs a new
   draft version once WhatsApp is configured
 - [x] Disconnect revokes the Google grant; the S3 copy omits the OAuth client secret
+- [x] No fakes on AWS: Google Chat `none`, price checker on competitor rate cards, Drive via the connected owner
+  account, unconnected Gmail skipped quietly
 - [x] Gemini pinned to API v1beta (google-genai 3.x default v1 rejected instructions/tools: every agent call 400)
 - [ ] **user:** connect Google (Gmail/Calendar/Drive) once after this deploy
 - [ ] Before filling `OPENAI_API_KEY`: use an EU data-residency OpenAI project (CLAUDE.md "OpenAI (EU)"); the

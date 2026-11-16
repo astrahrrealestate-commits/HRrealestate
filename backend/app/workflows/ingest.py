@@ -8,6 +8,7 @@ from uuid import UUID
 from dbos import DBOS, SetWorkflowID
 from sqlalchemy.orm import Session
 
+from app.core.errors import GmailNotConnectedError
 from app.core.logging import get_logger
 from app.core.workflow_names import GMAIL_SYNC, PROCESS_EVENT
 from app.ingestion import gmail_sync as mailbox_sync
@@ -110,8 +111,12 @@ def gmail_watch_renew(scheduled_time: datetime, context: Any) -> None:
 
 
 @DBOS.step(name="gmail.current_history", **_RETRY)
-def current_history_step(address: str) -> int:
-    return get_deps().gmail_mailbox(address).current_history_id()
+def current_history_step(address: str) -> int | None:
+    """None while no Google account is connected for the mailbox (nothing to poll yet, not a failure)."""
+    try:
+        return get_deps().gmail_mailbox(address).current_history_id()
+    except GmailNotConnectedError:
+        return None
 
 
 @DBOS.workflow(name="gmail.backfill")
@@ -122,6 +127,9 @@ def gmail_backfill(scheduled_time: datetime, context: Any) -> None:
             history = current_history_step(address)
         except Exception as exc:
             log.error("gmail.backfill_failed", account_id=account_id, error=type(exc).__name__)
+            continue
+        if history is None:
+            log.info("gmail.backfill_skipped_not_connected", account_id=account_id)
             continue
         with SetWorkflowID(backfill_workflow_id(account_id, scheduled_time)):
             queues.gmail_sync_queue().enqueue(gmail_sync, account_id, history)
@@ -138,6 +146,9 @@ def gmail_poll(scheduled_time: datetime, context: Any) -> None:
             history = current_history_step(address)
         except Exception as exc:
             log.error("gmail.poll_failed", account_id=account_id, error=type(exc).__name__)
+            continue
+        if history is None:
+            log.info("gmail.poll_skipped_not_connected", account_id=account_id)
             continue
         with SetWorkflowID(poll_workflow_id(account_id, history)):
             queues.gmail_sync_queue().enqueue(gmail_sync, account_id, history)

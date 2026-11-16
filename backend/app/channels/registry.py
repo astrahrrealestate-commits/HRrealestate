@@ -26,7 +26,7 @@ from app.channels.prices.search import FakeSearchClient, SearchClient, Unconfigu
 from app.channels.whatsapp.fake_media import DirWhatsAppMedia
 from app.channels.whatsapp.media import HttpWhatsAppMedia, WhatsAppMedia
 from app.channels.whatsapp.media_settings import WhatsAppMediaSettings
-from app.core.errors import UnsafeConfigurationError
+from app.core.errors import GmailNotConnectedError, UnsafeConfigurationError
 from app.core.settings import Settings, get_settings
 
 
@@ -132,7 +132,7 @@ def gmail_mailbox(settings: Settings, address: str) -> GmailMailbox:
     if settings.gmail_provider == "fake" and not (cred_file and cred_file.exists()):
         return fake_gmail_mailbox(settings, address)
     if not cred_file or not cred_file.exists():
-        raise UnsafeConfigurationError(f"gmail_provider 'google' needs valid credentials (checked {cred_file})")
+        raise GmailNotConnectedError("gmail_provider 'google' has no connected Google account or credentials file")
 
     addr = _mailbox_address(address)
 

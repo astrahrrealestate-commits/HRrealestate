@@ -93,5 +93,11 @@ show up there:
   now pins v1beta (`app/llm/runtime.py: gemini_provider`) and the task definitions set
   `GOOGLE_GENAI_API_VERSION=v1beta` as well. Failures are now logged with the provider's status and message
   (`superagent.chat_failed`, `superagent.research_failed`, `api.superagent.llm_fallback`; key-shaped text scrubbed).
+- **No fakes on AWS.** `GOOGLE_CHAT_PROVIDER=none` (Chat is not used; every webhook token is refused),
+  `PRICE_SOURCE=competitors` (rate cards only until a web search provider exists), Drive filing uses the owner's
+  connected Google account (`drive.file` is in the connect scopes) when no `DRIVE_CREDENTIALS_FILE` is set, and a
+  Gmail mailbox with no connected account is skipped at info level (`gmail.poll_skipped_not_connected`) instead of an
+  error every minute. Gmail sync is the minute poll; Pub/Sub push (`GMAIL_PUBSUB_*`) is optional and needs a GCP
+  topic and push subscription in the Google project.
 - **Task definitions vs terraform.** Terraform state is not in this repo (the S3 backend block is commented out), so a
   live change to a task definition must be mirrored in `terraform/environments/*/main.tf` or the next apply reverts it.

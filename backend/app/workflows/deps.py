@@ -5,7 +5,7 @@ from functools import lru_cache
 from dbos import DBOSClient
 from sqlalchemy import Engine
 
-from app.channels import registry
+from app.channels import google_store, registry
 from app.channels.brixx.ports import BrixxApi
 from app.core.errors import UnsafeConfigurationError
 from app.core.settings import get_settings
@@ -87,9 +87,12 @@ def _default_drive() -> DriveStore:
     settings = get_settings()
     if settings.drive_provider == "fake":
         return MemoryDrive()  # dev/sim: filing works end to end, nothing leaves the process
-    if settings.drive_credentials_file is None:
-        raise UnsafeConfigurationError("drive_provider 'google' needs drive_credentials_file")
-    return GoogleDrive(build_drive_service(settings.drive_credentials_file))
+    if settings.drive_credentials_file is not None:
+        return GoogleDrive(build_drive_service(settings.drive_credentials_file))
+    owner = google_store.refresh(settings)  # the account connected in the Connections modal (drive.file scope)
+    if not owner.exists():
+        raise UnsafeConfigurationError("drive_provider 'google' needs drive_credentials_file or a connected Google")
+    return GoogleDrive(build_drive_service(owner, scopes=None))
 
 
 def get_drive() -> DriveStore:

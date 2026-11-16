@@ -57,6 +57,10 @@ class UnsafeConfigurationError(EstateOSError):
     """Settings that must never reach production (fake providers, local storage, missing webhook secrets)."""
 
 
+class GmailNotConnectedError(UnsafeConfigurationError):
+    """A Gmail mailbox with no Google account connected yet: a state the owner ends in the Connections modal."""
+
+
 class WebhookRejectedError(EstateOSError):
     """An inbound provider request failed verification (signature, token, OIDC). Nothing may be written."""
 

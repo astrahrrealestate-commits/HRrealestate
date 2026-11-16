@@ -176,7 +176,11 @@ module "ecs" {
     { name = "OWNER_TEMPLATE_LANGUAGE", value = "en" },
     { name = "GMAIL_PROVIDER", value = "google" },
     { name = "CALENDAR_PROVIDER", value = "google" },
-    { name = "DRIVE_PROVIDER", value = "google" },
+    { name = "DRIVE_PROVIDER", value = "google" }, # files with the owner's connected Google account
+    # Not used by this client: Chat refuses every webhook token instead of the unsigned-token fake.
+    { name = "GOOGLE_CHAT_PROVIDER", value = "none" },
+    # Quote checker against the company's own competitor rate cards (no fake prices, no web search provider yet).
+    { name = "PRICE_SOURCE", value = "competitors" },
     { name = "TENANT_SENDS_PER_HOUR", value = "30" }
   ]
 
