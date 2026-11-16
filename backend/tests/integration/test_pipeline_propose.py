@@ -86,7 +86,8 @@ def test_reply_and_escalation_await_approval_with_tasks(
     mid = _setup(migrated_engine, cid, urgency=Urgency.emergency)
     result = propose_for_message(migrated_engine, test_settings, mid)
     actions = _actions(migrated_engine, cid)
-    assert [a.type for a in actions] == [ActionType.reply_draft, ActionType.escalate]
+    # One transaction writes both, so created_at ties: the order between them is not part of the behaviour.
+    assert sorted(a.type for a in actions) == sorted([ActionType.reply_draft, ActionType.escalate])
     assert all(a.status is ActionStatus.pending_approval and a.context_ref == [mid] for a in actions)
     assert len(result.approval_ids) == 2
     with Session(migrated_engine) as s:
