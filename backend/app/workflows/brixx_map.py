@@ -1,7 +1,7 @@
-"""BRIXX directory mapping workflow (`brixx.map_directory`, id `brixxmap:<run_id>`): mirror -> people/units/leases.
+"""BRIXX directory mapping workflow (`brixx.map_directory`, id `brixxmap:<run_id>`): mirror -> people/units/leases/rent.
 
 Started by `brixx.sync_all` and `brixx.reconcile_all` as a child once their tables have finished (see
-`map_after_run`). Three steps, people then units then leases, each one short transaction committed by the step; the
+`map_after_run`). Four steps (people, units, leases, rent ledger), each one short transaction committed by the step; the
 company comes from the run row. The workflow never raises: it returns `ok` or `failed:<ErrorClass>`, so a mapping
 problem never fails the sync run (the mirror is already stored). Database errors are retried by the steps.
 """
@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.core.logging import get_logger
 from app.core.workflow_names import BRIXX_MAP_DIRECTORY, brixx_map_workflow_id
 from app.db.models.brixx import BrixxSyncRun
-from app.directory.brixx.mapper import MapCounts, map_leases, map_people, map_units
+from app.directory.brixx.mapper import MapCounts, map_leases, map_people, map_rent, map_units
 from app.directory.brixx.sync import BRIXX_TZ
 from app.workflows.deps import get_engine
 
@@ -70,6 +70,11 @@ def map_leases_step(company_id: str) -> dict[str, int]:
     return _run_part("leases", company_id, map_leases)
 
 
+@DBOS.step(name="brixx.map_rent", **_RETRY)
+def map_rent_step(company_id: str) -> dict[str, int]:
+    return _run_part("rent", company_id, map_rent)
+
+
 @DBOS.workflow(name=BRIXX_MAP_DIRECTORY)
 def map_directory(run_id: str) -> str:
     """Map the mirror of the run's company into the directory. Returns `ok` or `failed:<ErrorClass>`."""
@@ -80,6 +85,7 @@ def map_directory(run_id: str) -> str:
         map_people_step(company_id)
         map_units_step(company_id)
         map_leases_step(company_id)
+        map_rent_step(company_id)
     except Exception as exc:
         log.warning("brixx.map_failed", error=type(exc).__name__)
         return FAILED + type(exc).__name__

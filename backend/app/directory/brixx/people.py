@@ -26,6 +26,7 @@ from app.directory.brixx.parties import contract_parties
 
 MAX_NAME = 200
 REGION = "NL"
+PLACEHOLDER = "Relatie "  # display names we generated: replaced once BRIXX sends a real name
 Identity = tuple[Channel, str]
 
 
@@ -99,18 +100,31 @@ def map_people(session: Session, company_id: UUID, today: date) -> MapCounts:
     return MapCounts.tally(outcomes)
 
 
+def relatie_name(row: col.Row, ref: int) -> tuple[str | None, str]:
+    """(the name BRIXX gives, the label to show). BRIXX withholds person names from the API (every name column is
+    NULL for natural persons; only organisations keep `ORGANISATIENM`), so such a relatie is shown by its relatie
+    number ("Relatie R-00042"), which is what BRIXX's own screens search on."""
+    named = col.pick_text(row, col.NAME, MAX_NAME)
+    if named is None:
+        first = col.pick(row, ("voornaam",)) or col.pick(row, ("voorletters",))
+        rest = (col.pick(row, (name,)) for name in ("tussenvoegsels", "achternaam"))
+        parts = [str(p) for p in (first, *rest) if p is not None]
+        named = " ".join(parts)[:MAX_NAME] or None
+    return named, named or f"Relatie {col.pick_text(row, col.RELATIE_NUMBER, 40) or ref}"
+
+
 def _map_one(
     session: Session, index: _Index, company_id: UUID, ref: int, row: col.Row, *, is_tenant: bool, today: date
 ) -> str:
     identities = contact_identities(row)
-    name = col.pick_text(row, col.NAME, MAX_NAME)
+    name, label = relatie_name(row, ref)
     ended = col.is_ended(row)
     person = index.by_ref.get(str(ref)) or _upgradable(session, index, identities)
     if person is None:
         person = Person(
             company_id=company_id,
             kind=PersonKind.tenant if is_tenant else PersonKind.other,
-            display_name=name or f"Relatie {ref}",
+            display_name=label,
             brixx_ref=str(ref),
             valid_from=col.pick_date(row, col.CREATED) or today,
             valid_to=today if ended else None,
@@ -122,7 +136,8 @@ def _map_one(
         kind = PersonKind.tenant if is_tenant and person.kind == PersonKind.other else person.kind
         valid_to = ended_on(person.valid_to, ended=True, today=today) if ended else None
         values = {"brixx_ref": str(ref), "kind": kind, "valid_to": valid_to}
-        outcome = "updated" if changed(person, **values, display_name=name or person.display_name) else "unchanged"
+        keep = person.display_name if name is None and not person.display_name.startswith(PLACEHOLDER) else label
+        outcome = "updated" if changed(person, **values, display_name=keep) else "unchanged"
     index.by_ref[str(ref)] = person
     if not ended:
         _attach(session, index, company_id, person, identities, today)
