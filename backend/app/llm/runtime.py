@@ -1,6 +1,7 @@
 """Model factory and agent tracing (Pydantic AI OpenTelemetry spans → Langfuse OTLP endpoint, EU cloud)."""
 
 import base64
+import re
 from typing import Any
 
 from pydantic_ai import Agent, PromptedOutput
@@ -10,32 +11,76 @@ from pydantic_ai.models.instrumented import InstrumentationSettings
 from app.core.settings import Settings
 from app.llm import fakes
 
+_KEY_FIELDS = {"google-gla": "gemini_api_key", "openai": "openai_api_key", "groq": "groq_api_key"}
+# Providers echo part of a rejected key ("Incorrect API key provided: sk-proj-abc***wxyz"); never log even that.
+_KEY_SHAPES = re.compile(r"(sk-[\w*.-]+|AIza[\w-]+|gsk_[\w*-]+)")
 
-def build_model(settings: Settings, agent_name: str) -> Model | str:
-    """`fake` → deterministic offline model for this agent. OpenAI and Gemini models get their key from Settings
-    (environment or .env), not only from the process environment; any other string is passed to Pydantic AI."""
-    if settings.llm_model == "fake":
-        return fakes.model_for(agent_name)
-    provider, _, name = settings.llm_model.partition(":")
+
+def _key(settings: Settings, provider: str) -> str | None:
+    field = _KEY_FIELDS.get(provider)
+    secret = getattr(settings, field) if field else None
+    return secret.get_secret_value() if secret else None
+
+
+def _provider_model(settings: Settings, model: str) -> Model | str:
+    """One `provider:name` string as a model that takes its key from Settings (environment or .env), not only from
+    the process environment; a provider without a key mapping is passed to Pydantic AI as the string."""
+    provider, _, name = model.partition(":")
+    key = _key(settings, provider)
     if provider == "google-gla":
         from pydantic_ai.models.google import GoogleModel
         from pydantic_ai.providers.google import GoogleProvider
 
-        key = settings.gemini_api_key.get_secret_value() if settings.gemini_api_key else None
         return GoogleModel(name, provider=GoogleProvider(api_key=key))
-    if provider == "openai":
+    if provider in ("openai", "groq"):
         from pydantic_ai.models.openai import OpenAIChatModel
         from pydantic_ai.providers.openai import OpenAIProvider
 
-        key = settings.openai_api_key.get_secret_value() if settings.openai_api_key else None
-        return OpenAIChatModel(name, provider=OpenAIProvider(api_key=key))
-    if provider == "groq":
-        from pydantic_ai.models.openai import OpenAIChatModel
-        from pydantic_ai.providers.openai import OpenAIProvider
+        base_url = "https://api.groq.com/openai/v1" if provider == "groq" else None
+        return OpenAIChatModel(name, provider=OpenAIProvider(base_url=base_url, api_key=key))
+    return model
 
-        key = settings.groq_api_key.get_secret_value() if settings.groq_api_key else None
-        return OpenAIChatModel(name, provider=OpenAIProvider(base_url="https://api.groq.com/openai/v1", api_key=key))
-    return settings.llm_model
+
+def build_model(settings: Settings, agent_name: str) -> Model | str:
+    """`fake` → deterministic offline model for this agent. Otherwise `llm_model`, wrapped in a FallbackModel when
+    `llm_fallback_models` names any model whose provider key is set."""
+    if settings.llm_model == "fake":
+        return fakes.model_for(agent_name)
+    primary = _provider_model(settings, settings.llm_model)
+    fallbacks = [
+        _provider_model(settings, model)
+        for model in settings.llm_fallback_models
+        if model != settings.llm_model and _key(settings, model.partition(":")[0])
+    ]
+    if not fallbacks:
+        return primary
+    from pydantic_ai.models.fallback import FallbackModel
+
+    return FallbackModel(primary, *fallbacks)
+
+
+def describe_model_error(exc: BaseException) -> str:
+    """What a failed model call says, safe for logs: HTTP status, model and the provider's own message (key-shaped
+    text scrubbed), for each provider a FallbackModel tried; any other error is its class name only."""
+    from pydantic_ai.exceptions import FallbackExceptionGroup, ModelHTTPError
+
+    if isinstance(exc, FallbackExceptionGroup):
+        return " | ".join(describe_model_error(inner) for inner in exc.exceptions)
+    if isinstance(exc, ModelHTTPError):
+        head = f"ModelHTTPError {exc.status_code} {exc.model_name}"
+        message = _provider_message(exc.body)
+        return f"{head}: {_KEY_SHAPES.sub('[key]', message)[:300]}" if message else head
+    return type(exc).__name__
+
+
+def _provider_message(body: object) -> str | None:
+    """Only a plain string `error.message` / `message`: any other body shape can carry model output (Groq's
+    `failed_generation` restates tenant text), so it is never logged."""
+    if not isinstance(body, dict):
+        return None
+    inner = body.get("error", body)
+    message = inner.get("message") if isinstance(inner, dict) else None
+    return message if isinstance(message, str) and message else None
 
 
 def output_for[T](settings: Settings, output_type: type[T], *, gemini_prompted: bool = False) -> Any:

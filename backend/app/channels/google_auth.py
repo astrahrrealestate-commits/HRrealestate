@@ -4,6 +4,7 @@ Handles one-click OAuth authorization for Gmail, Google Calendar, and Google Dri
 Produces a long-lived credentials file with automatic refresh token support.
 """
 
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,7 @@ from urllib.parse import urlencode
 import httpx
 from pydantic import BaseModel
 
+from app.channels import google_store
 from app.core.logging import get_logger
 from app.core.settings import Settings
 
@@ -30,6 +32,7 @@ UNIFIED_SCOPES = [
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 - a public endpoint, not a credential
 USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
+REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 
 
 class GoogleConnectionStatus(BaseModel):
@@ -42,15 +45,12 @@ class GoogleConnectionStatus(BaseModel):
 
 
 def get_credentials_path(settings: Settings) -> Path:
-    """Returns the persistent path for Harjot's unified Google credentials."""
-    creds_dir = Path(".data/credentials")
-    creds_dir.mkdir(parents=True, exist_ok=True)
-    return creds_dir / "google_owner.json"
+    """The local copy of Harjot's unified Google credentials, brought up to date with the shared one (google_store)."""
+    return google_store.refresh(settings)
 
 
 def get_authorization_url(settings: Settings, state: str = "estateos_owner_auth") -> str:
     """Generates the Google OAuth 2.0 authorization URL requesting permanent offline access."""
-    import os
 
     client_id = (settings.google_oauth_client_id or os.environ.get("GOOGLE_OAUTH_CLIENT_ID") or "").strip()
     if not client_id:
@@ -72,7 +72,6 @@ def get_authorization_url(settings: Settings, state: str = "estateos_owner_auth"
 
 async def exchange_code_for_tokens(settings: Settings, code: str) -> dict[str, Any]:
     """Exchanges authorization code for tokens, retrieves user profile, and constructs credentials dict."""
-    import os
 
     client_id = (settings.google_oauth_client_id or os.environ.get("GOOGLE_OAUTH_CLIENT_ID") or "").strip()
     client_secret = (
@@ -114,7 +113,7 @@ async def exchange_code_for_tokens(settings: Settings, code: str) -> dict[str, A
 
         # If refresh_token wasn't returned on re-auth, try to keep existing refresh_token
         if not refresh_token:
-            existing = load_owner_credentials(settings)
+            existing = await asyncio.to_thread(load_owner_credentials, settings)  # S3 read: off the event loop
             if existing and existing.get("refresh_token"):
                 refresh_token = existing["refresh_token"]
 
@@ -131,18 +130,13 @@ async def exchange_code_for_tokens(settings: Settings, code: str) -> dict[str, A
         }
 
         # 3. Save to disk in format standard for google.oauth2.credentials.Credentials
-        save_owner_credentials(settings, credentials_dict)
+        await asyncio.to_thread(save_owner_credentials, settings, credentials_dict)  # S3 write: off the event loop
         return credentials_dict
 
 
 def save_owner_credentials(settings: Settings, credentials_dict: dict[str, Any]) -> Path:
-    """Saves credentials dictionary to unified path."""
-    path = get_credentials_path(settings)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump(credentials_dict, f, indent=2)
-    path.chmod(0o600)
+    """Saves the credentials where every process finds them (the shared copy on S3, and the local file)."""
+    path = google_store.publish(settings, credentials_dict)
     log.info("google_auth.credentials_saved")
     return path
 
@@ -175,15 +169,29 @@ def get_connection_status(settings: Settings) -> GoogleConnectionStatus:
     )
 
 
+def _revoke(credentials: dict[str, Any] | None) -> None:
+    """Revoke the grant at Google: earlier token versions stay in the versioned bucket, and a revoked grant makes
+    every one of them worthless. Best effort; a failure is logged and the local disconnect goes ahead."""
+    token = (credentials or {}).get("refresh_token") or (credentials or {}).get("token")
+    if not token:
+        return
+    try:
+        response = httpx.post(REVOKE_URL, data={"token": token}, timeout=10.0)
+    except httpx.HTTPError as exc:
+        log.warning("google_auth.revoke_failed", error=type(exc).__name__)
+        return
+    if response.status_code != 200:
+        log.warning("google_auth.revoke_failed", status=response.status_code)
+
+
 def disconnect_owner(settings: Settings) -> bool:
-    """Disconnects the active Google account by removing the saved credentials."""
-    path = get_credentials_path(settings)
-    if path.exists():
-        try:
-            path.unlink()
-            log.info("google_auth.disconnected")
-            return True
-        except Exception as exc:
-            log.error("google_auth.disconnect_failed", error=str(exc))
-            return False
+    """Disconnects the active Google account: revokes the grant at Google, then removes the saved credentials,
+    shared copy included."""
+    _revoke(load_owner_credentials(settings))
+    try:
+        google_store.withdraw(settings)
+    except Exception as exc:
+        log.error("google_auth.disconnect_failed", error=type(exc).__name__)
+        return False
+    log.info("google_auth.disconnected")
     return True

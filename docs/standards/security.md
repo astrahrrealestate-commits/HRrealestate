@@ -92,9 +92,16 @@ Still open (fix in this order):
   section would lift that. An address whitelisted in two companies cannot sign in (`ambiguous_account`): an admin who
   whitelists a stranger's address can lock that person out until the row is removed; add a company picker before a
   second company exists.
-- **The owner's Google OAuth credentials** live in one plaintext file (mode 0600) for the whole installation
-  (`channels/google_auth.py`), not per company. The module no longer logs the account email, the file path or the
-  token-exchange response body.
+- **The owner's Google OAuth credentials** are one object for the whole installation, not per company
+  (`channels/google_store.py`): with S3 storage, plaintext JSON at `credentials/google_owner.json` in the
+  environment's (versioned, SSE-S3) media bucket, plus a 0600 local cache per process; otherwise the local file
+  only. The shared copy holds the tokens but not the app's OAuth client secret (re-added from Settings into the local
+  cache). Disconnect revokes the grant at Google (best effort, logged on failure), which voids the token versions the
+  bucket keeps; it does not purge those versions. Any member with the `settings` section of any company can see,
+  connect or disconnect it, and the calendar client takes no `company_id`, so this must become
+  `credentials/{company_id}/...` before a second company exists. The task role that signs media links can also read
+  the object (no path reaches it: every presigned key comes from `content_key`). The module does not log the account
+  email, the file path or the token-exchange response body.
 - The "AI draft" options in contacts are fixed templates.
 - **Rent is unknown.** Amounts and arrears are reported as 0 / `unknown` until the BRIXX rent mirror exists.
 - v1 rate limits and the per-owner cap of 4 live event streams (`stream_slots.py`) are per process.

@@ -1,12 +1,15 @@
 """The owner's Google credentials file is private to the owner and the logs never name the account or the path."""
 
 import stat
+from collections.abc import Iterator
 from pathlib import Path
 
+import httpx
 import pytest
+import respx
 from structlog.testing import capture_logs
 
-from app.channels.google_auth import disconnect_owner, save_owner_credentials
+from app.channels.google_auth import REVOKE_URL, disconnect_owner, save_owner_credentials
 from app.core.settings import Settings
 
 SETTINGS = Settings(database_url="postgresql+psycopg://u:p@localhost:1/db", env="test", _env_file=None)  # type: ignore[arg-type]
@@ -16,6 +19,14 @@ CREDS = {"token": "t", "refresh_token": "r", "email": "owner@example.test"}
 @pytest.fixture(autouse=True)
 def _in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
+
+
+@pytest.fixture(autouse=True)
+def _google_revoke() -> Iterator[None]:
+    """Disconnect revokes the grant at Google; unit tests never reach the network."""
+    with respx.mock(assert_all_called=False) as router:
+        router.post(REVOKE_URL).mock(return_value=httpx.Response(200))
+        yield
 
 
 def test_the_credentials_file_is_readable_by_the_owner_only() -> None:

@@ -15,7 +15,7 @@ from uuid import UUID
 import httpx
 from pydantic import BaseModel
 from pydantic_ai import Agent
-from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.exceptions import FallbackExceptionGroup, ModelHTTPError
 from pydantic_ai.messages import UserContent
 from pydantic_ai.settings import ModelSettings, ThinkingLevel
 from sqlalchemy import Engine
@@ -28,7 +28,7 @@ from app.core.settings import Settings
 from app.db.models import ModelCall
 from app.llm.budget import check_budget
 from app.llm.prompts import LoadedPrompt, load_prompt
-from app.llm.runtime import build_model, output_for
+from app.llm.runtime import build_model, describe_model_error, output_for
 
 AGENT_RETRIES = 2  # re-asks on contract validation failure, inside one run
 
@@ -63,6 +63,8 @@ class AgentSpec[T]:
 
 def is_transient(exc: BaseException) -> bool:
     """Provider hiccups worth a step retry: rate limits, 5xx, network errors and timeouts."""
+    if isinstance(exc, FallbackExceptionGroup):  # every provider failed: worth a retry if any of them was transient
+        return any(is_transient(inner) for inner in exc.exceptions)
     if isinstance(exc, ModelHTTPError):
         return exc.status_code in (408, 409, 429) or exc.status_code >= 500
     return isinstance(exc, httpx.TransportError | TimeoutError | ConnectionError)
@@ -137,7 +139,7 @@ def run_agent[T: BaseModel](
         _record(engine, row)
         if is_transient(exc):
             raise
-        raise AgentFailedError(f"{spec.name}: {type(exc).__name__}") from exc
+        raise AgentFailedError(f"{spec.name}: {describe_model_error(exc)}") from exc
     usage = result.usage
     row.latency_ms = int((time.perf_counter() - started) * 1000)
     dumped = output.model_dump(mode="json")

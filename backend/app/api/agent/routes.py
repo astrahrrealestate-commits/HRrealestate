@@ -32,7 +32,7 @@ from app.context.compiler import compile_concierge_context
 from app.context.selection import rank_cases
 from app.context.super_agent_prompt import build_super_agent_system_prompt
 from app.contracts import ActionType, Channel, ConciergePlan, Direction, Intent, PlanStep
-from app.core.errors import NotFoundError
+from app.core.errors import AgentFailedError, NotFoundError
 from app.core.ids import case_ref as short_case_ref
 from app.core.ids import new_id
 from app.core.logging import get_logger
@@ -64,6 +64,7 @@ from app.llm.budget import CONCIERGE_PURPOSE
 from app.llm.calls import CallContext, run_agent
 from app.llm.embeddings import build_embedder
 from app.llm.fakes_concierge import fake_concierge
+from app.llm.runtime import describe_model_error
 from app.pipeline import case_repo, owner_commands, understand, work_repo
 from app.pipeline.concierge import StepResult, run_plan
 from app.pipeline.concierge_outcome import assemble_answer, task_brief
@@ -2150,7 +2151,10 @@ def ask_agent(
         plan = call_res.output
     except Exception as exc:
         llm_failed = True
-        log.warning("api.superagent.llm_fallback", error=str(exc))
+        log.warning(  # a transient provider error is re-raised raw by run_agent: describe it, never log its body
+            "api.superagent.llm_fallback",
+            error=str(exc) if isinstance(exc, AgentFailedError) else describe_model_error(exc),
+        )
         pipeline_stage = "llm_error"
         fallback_reason = f"LLM error: {type(exc).__name__}"
         # Only allow deterministic fake_concierge in offline test environments (settings.env == 'test')

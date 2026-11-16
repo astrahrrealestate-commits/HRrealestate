@@ -24,7 +24,7 @@ from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.models import ModelCall
 from app.llm.budget import CONCIERGE_PURPOSE, check_budget
-from app.llm.runtime import build_model
+from app.llm.runtime import build_model, describe_model_error
 
 log = get_logger(__name__)
 
@@ -86,7 +86,7 @@ def chat_answer(
         row.latency_ms = int((time.perf_counter() - started) * 1000)
         row.error = f"{type(exc).__name__}: {exc}"[:2000]
         record_call(engine, row)
-        log.warning("superagent.chat_failed", company_id=str(company_id), error=type(exc).__name__)
+        log.warning("superagent.chat_failed", company_id=str(company_id), error=describe_model_error(exc))
         return None
     row.latency_ms = int((time.perf_counter() - started) * 1000)
     row.output = {"chars": len(result.output)}

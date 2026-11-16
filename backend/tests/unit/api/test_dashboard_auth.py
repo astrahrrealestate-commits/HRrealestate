@@ -106,6 +106,19 @@ def test_secure_cookie_in_prod_like_env() -> None:
         assert "secure" in [part.strip() for part in d.headers["set-cookie"].lower().split(";")]
 
 
+def test_secure_cookie_when_the_api_is_public_https_even_outside_prod() -> None:
+    """The AWS deploy runs ENV=dev (prod's fail-fast checks would refuse half-configured channels); its cookies still
+    travel over HTTPS only, because the API's own public URL is https."""
+    deployed = SETTINGS.model_copy(
+        update={"env": "dev", "google_login_redirect_uri": "https://api.example.test/api/auth/login/google/callback"}
+    )
+    app = create_app(SETTINGS, engine=MagicMock(), workflow_client=MagicMock(), id_token_verifier=_FAKE)
+    with patch("app.api.v1.auth.owner_by_email", return_value=PRINCIPAL), TestClient(app) as c:
+        app.state.settings = deployed
+        r = c.post("/api/v1/auth/session", json={"id_token": "tok-harjot"}, headers=CSRF)
+        assert "secure" in [part.strip() for part in r.headers["set-cookie"].lower().split(";")]
+
+
 def test_token_signed_with_other_secret_rejected() -> None:
     now = datetime(2026, 1, 1, tzinfo=UTC)
     other = SETTINGS.model_copy(update={"dashboard_session_secret": SecretStr("y" * 32)})

@@ -44,3 +44,21 @@ def test_missing_credentials_fail_loudly(provider: str, sender_kw: dict[str, Any
     s = _s(whatsapp_provider=provider, whatsapp_api_base_url="https://example.invalid")
     with pytest.raises(UnsafeConfigurationError):
         build_whatsapp_outbound(s, _sender(**sender_kw))
+
+
+def test_unconfigured_outbound_outside_prod_fails_at_send_not_at_build() -> None:
+    """AWS runs ENV=dev with WhatsApp not configured yet: the daily briefing builds the sender to post to the
+    dashboard and must not crash on WhatsApp; a real WhatsApp send still fails loudly."""
+    from app.sender.whatsapp import whatsapp_outbound_or_unconfigured
+
+    s = _s(whatsapp_provider="cloud_api", env="dev")
+    adapter = whatsapp_outbound_or_unconfigured(s, _sender())
+    with pytest.raises(UnsafeConfigurationError):
+        adapter.send({"messaging_product": "whatsapp", "to": "31600000000", "type": "text"})
+
+
+def test_unconfigured_outbound_in_prod_still_fails_at_build() -> None:
+    from app.sender.whatsapp import whatsapp_outbound_or_unconfigured
+
+    with pytest.raises(UnsafeConfigurationError):
+        whatsapp_outbound_or_unconfigured(_s(whatsapp_provider="cloud_api", env="prod"), _sender())

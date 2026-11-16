@@ -48,7 +48,7 @@ def test_fake_gmail_sender_writes_into_the_fake_mailbox() -> None:
 
 def test_sender_deps_carry_the_cap_and_no_gmail_sender_without_the_token(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.sender.deps._sender_settings", lambda: _sender())
-    monkeypatch.setattr("app.sender.deps.build_whatsapp_outbound", lambda *_a: MagicMock())
+    monkeypatch.setattr("app.sender.deps.whatsapp_outbound_or_unconfigured", lambda *_a: MagicMock())
     deps = build_sender_deps(_s(gmail_provider="google", tenant_sends_per_hour=7), MagicMock())
     assert (deps.gmail_sender, deps.tenant_sends_per_hour) == (None, 7)
     assert build_sender_deps(_s(), MagicMock()).gmail_sender is not None

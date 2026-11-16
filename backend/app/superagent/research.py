@@ -29,7 +29,7 @@ from app.db.models import ModelCall
 from app.llm.budget import CONCIERGE_PURPOSE, check_budget
 from app.llm.embeddings import TextEmbedder
 from app.llm.render import data_block
-from app.llm.runtime import build_model
+from app.llm.runtime import build_model, describe_model_error
 from app.pipeline.document_search import DocFilter
 from app.pipeline.rag import search_hybrid
 from app.superagent.chat import CHAT_MAX_TOKENS, history_messages, new_call, record_call
@@ -196,7 +196,7 @@ def run_research(
     except Exception as exc:  # incl. the call cap: the caller degrades to the plain direct answer
         row.error = f"{type(exc).__name__}: {exc}"[:2000]
         _finish(engine, row, started, deps, None)
-        log.warning("superagent.research_failed", company_id=str(company_id), error=type(exc).__name__)
+        log.warning("superagent.research_failed", company_id=str(company_id), error=describe_model_error(exc))
         return None
     row.output = {"chars": len(result.output)}
     _finish(engine, row, started, deps, result.usage)

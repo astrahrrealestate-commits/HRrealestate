@@ -11,7 +11,7 @@ from app.core.settings import Settings
 from app.sender.execute import SenderDeps
 from app.sender.gmail import build_gmail_drafts, build_gmail_sender, gmail_send_configured
 from app.sender.settings import SenderSettings
-from app.sender.whatsapp import build_whatsapp_outbound
+from app.sender.whatsapp import whatsapp_outbound_or_unconfigured
 
 
 @lru_cache(maxsize=1)
@@ -42,7 +42,7 @@ def build_sender_deps(settings: Settings, engine: Engine) -> SenderDeps:
 
     return SenderDeps(
         engine=engine,
-        whatsapp=build_whatsapp_outbound(settings, sender),
+        whatsapp=whatsapp_outbound_or_unconfigured(settings, sender),
         gmail_drafts=drafts,
         google_chat=google_chat,
         template_name=settings.owner_template_name,
