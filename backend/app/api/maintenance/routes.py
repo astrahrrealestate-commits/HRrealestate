@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import WorkflowClient, get_engine, get_workflow_client
 from app.api.inbox.summary import safe_name
 from app.api.maintenance import dispatch
+from app.api.maintenance.brixx_tickets import READ_ONLY, brixx_history, brixx_tickets, is_brixx_ticket
 from app.api.maintenance.live import contractor_of, live_tickets, ticket_with_edits
 from app.api.v1 import enqueue
 from app.api.v1.access import require_section
@@ -215,8 +216,9 @@ def get_maintenance_tickets(
 ) -> MaintenanceTicketsResponse:
     with Session(engine) as session:
         live = live_tickets(session, principal.company_id)
+        from_brixx = brixx_tickets(session, principal.company_id)  # read-only: the owner's tickets in BRIXX
 
-    all_tickets = list(live)
+    all_tickets = [*live, *from_brixx]
     tickets = list(all_tickets)
 
     if urgency != "all":
@@ -258,6 +260,16 @@ def get_ticket_history(
     """Returns lifecycle audit events for the TicketHistoryModal: the case's persisted events, else the owner edits
     kept in memory for this company's ticket."""
     with Session(engine) as session:
+        if is_brixx_ticket(ticket_id):
+            found = brixx_history(session, principal.company_id, ticket_id)
+            if found is None:
+                raise HTTPException(status_code=404, detail="Maintenance ticket not found")
+            label, rows = found
+            items = [AuditEventItem(**row) for row in rows]
+            number = ticket_id.replace("brixx-", "BRIXX-")
+            return TicketHistoryResponse(
+                ticketNumber=number, ticketId=ticket_id, unitLabel=label, events=items, totalEvents=len(items)
+            )
         case = _find_case(session, principal.company_id, ticket_id.lstrip("#"))
         if case is not None:
             events = _case_history(session, case)
@@ -319,6 +331,8 @@ def update_maintenance_ticket(
     """Persists the edit (invariant 1): urgency and notes on the case, the rest as a TicketEdit row merged over
     the live ticket, and a case event for the audit trail."""
     company_id = principal.company_id
+    if is_brixx_ticket(ticket_id):
+        raise HTTPException(status_code=409, detail=READ_ONLY)
     updates = payload.model_dump(exclude_unset=True)
     with Session(engine) as session:
         case = _find_case(session, company_id, ticket_id.lstrip("#"))
@@ -486,6 +500,8 @@ def approve_ticket_dispatch(
     body: ApproveDispatchRequest | None = None,
 ) -> ApproveDispatchResponse:
     """Records the owner's authorization, then enqueues each approved action for the sender (invariants 1, 5)."""
+    if is_brixx_ticket(ticket_id):
+        raise HTTPException(status_code=409, detail=READ_ONLY)
     body = body or ApproveDispatchRequest()
     ctx = {
         "ticketNumber": ticket_id if ticket_id.startswith("#") else f"#{ticket_id[:4]}",

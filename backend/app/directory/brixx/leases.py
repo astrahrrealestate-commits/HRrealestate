@@ -20,8 +20,10 @@ from app.db.brixx_erasure import erased_relatie_ids
 from app.db.models import Lease, LeaseParty, Person, Unit
 from app.directory.brixx import columns as col
 from app.directory.brixx.map_common import MapCounts, changed, ended_on, lock_company
+from app.directory.brixx.parties import Parties, contract_parties
 
 TENANT = "tenant"
+CO_TENANT = "co_tenant"
 
 
 def lease_ref(contract_id: int, link_id: int) -> str:
@@ -46,6 +48,7 @@ class _Context:
     company_id: UUID
     today: date
     contracts: dict[int, col.Row]
+    parties: dict[int, Parties]
     units: dict[str, UUID]
     people: dict[str, UUID]
     erased: set[int]
@@ -63,6 +66,7 @@ def map_leases(session: Session, company_id: UUID, today: date) -> MapCounts:
         company_id,
         today,
         {k: row for row in contracts if (k := col.pick_int(row, (col.CONTRACT_PK,))) is not None},
+        contract_parties(session, company_id, contracts),
         _refs(session, Unit, company_id),
         _refs(session, Person, company_id),
         erased_relatie_ids(session, company_id),
@@ -90,24 +94,23 @@ def _map_link(session: Session, ctx: _Context, link: col.Row) -> str:
         outcome = "created"
     else:
         outcome = "updated" if changed(lease, unit_id=unit_id, valid_from=start, valid_to=end) else "unchanged"
-    tenant = col.pick_int(contract, (col.RELATIE_PK,))
-    if tenant is not None and tenant not in ctx.erased and str(tenant) in ctx.people:
-        _set_tenant(session, ctx.company_id, lease.id, ctx.people[str(tenant)])
+    parties = ctx.parties.get(contract_id, Parties(None))
+    _set_role(session, ctx, lease.id, TENANT, [parties.tenant] if parties.tenant is not None else [])
+    _set_role(session, ctx, lease.id, CO_TENANT, list(parties.co_tenants))
     return outcome
 
 
-def _set_tenant(session: Session, company_id: UUID, lease_id: UUID, person_id: UUID) -> None:
-    """Exactly this person as the lease's tenant party (unique (lease, person, role) makes it idempotent)."""
-    session.execute(
-        sa.delete(LeaseParty).where(
-            LeaseParty.company_id == company_id,
-            LeaseParty.lease_id == lease_id,
-            LeaseParty.role == TENANT,
-            LeaseParty.person_id != person_id,
+def _set_role(session: Session, ctx: _Context, lease_id: UUID, role: str, relaties: list[int]) -> None:
+    """Exactly these mapped, non-erased relaties in `role` on the lease (unique (lease, person, role) makes the
+    insert idempotent); anyone else in that role is removed."""
+    people = [ctx.people[str(r)] for r in relaties if r not in ctx.erased and str(r) in ctx.people]
+    stale = sa.delete(LeaseParty).where(
+        LeaseParty.company_id == ctx.company_id, LeaseParty.lease_id == lease_id, LeaseParty.role == role
+    )
+    session.execute(stale.where(LeaseParty.person_id.not_in(people)) if people else stale)
+    for person_id in people:
+        session.execute(
+            postgresql.insert(LeaseParty)
+            .values(company_id=ctx.company_id, lease_id=lease_id, person_id=person_id, role=role)
+            .on_conflict_do_nothing(index_elements=["lease_id", "person_id", "role"])
         )
-    )
-    session.execute(
-        postgresql.insert(LeaseParty)
-        .values(company_id=company_id, lease_id=lease_id, person_id=person_id, role=TENANT)
-        .on_conflict_do_nothing(index_elements=["lease_id", "person_id", "role"])
-    )

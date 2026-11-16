@@ -26,11 +26,16 @@ TRADE_CATEGORIES = (
     ("boiler", "heating"),
     ("appliance", "appliance"),
     ("structur", "structural"),
+    ("lekk", "plumbing"),
+    ("afvoer", "plumbing"),
+    ("verwarm", "heating"),
+    ("ketel", "heating"),
+    ("stroom", "electrical"),
 )
 SIGNATURE = "Best regards,\nHarjot Singh — EstateOS"
 
 
-def _identity(session: Session, person_id: UUID, *, phone: bool) -> str:
+def identity_of(session: Session, person_id: UUID, *, phone: bool) -> str:
     rows = session.scalars(select(ChannelIdentity).where(ChannelIdentity.person_id == person_id)).all()
     if phone:
         found = next((r.identity for r in rows if r.channel == Channel.whatsapp or r.identity.startswith("+")), "")
@@ -39,7 +44,7 @@ def _identity(session: Session, person_id: UUID, *, phone: bool) -> str:
     return found
 
 
-def _category_of(trade: str) -> str:
+def category_of(trade: str) -> str:
     lowered = trade.lower()
     return next((category for needle, category in TRADE_CATEGORIES if needle in lowered), "other")
 
@@ -136,7 +141,7 @@ def _ticket(session: Session, case: Case, edits: dict[str, Any] | None = None) -
     unit_label = (unit.address or unit.label) if unit else "Unknown unit"
     person = session.get(Person, case.primary_person_id) if case.primary_person_id else None
     tenant_name = person.display_name if person else "Unknown tenant"
-    tenant_phone = _identity(session, person.id, phone=True) if person else ""
+    tenant_phone = identity_of(session, person.id, phone=True) if person else ""
     actions = list(session.scalars(select(ActionRow).where(ActionRow.case_id == case.id)).all())
     contractor = contractor_of(session, case, actions)
     trade = (contractor.trade or "") if contractor else ""
@@ -153,11 +158,11 @@ def _ticket(session: Session, case: Case, edits: dict[str, Any] | None = None) -
         "unitLabel": unit_label,
         "tenantName": tenant_name,
         "tenantPhone": tenant_phone,
-        "category": _category_of(trade),
+        "category": category_of(trade),
         "contractorName": contractor.display_name if contractor else "",
         "contractorTrade": trade.title(),
-        "contractorPhone": _identity(session, contractor.id, phone=True) if contractor else "",
-        "contractorEmail": _identity(session, contractor.id, phone=False) if contractor else "",
+        "contractorPhone": identity_of(session, contractor.id, phone=True) if contractor else "",
+        "contractorEmail": identity_of(session, contractor.id, phone=False) if contractor else "",
         "urgency": case.urgency.value,
         "status": "dispatched" if dispatched else "pending_approval",
         "slaRemaining": "Dispatched" if dispatched else "",
