@@ -378,15 +378,31 @@ def test_auth_error_recorded_with_class_name_only(
 def test_failed_page_is_rolled_back_and_recorded(session: Session, mirror: MirrorSchema, company_id: uuid.UUID) -> None:
     info = versioned_table_info()
     table = mirror.create(info)
-    rows = _rows(2)
-    del rows[1]["ID"]
-    api = _api(info, rows)
+    api = _api(info, _rows(2))
+    api.fail_on(info.name, 1, BrixxError("transient"))
     with pytest.raises(BrixxError):
         _run(session, api, company_id, info, table, _new_run(session, company_id))
     assert _ids(session, table, company_id) == []
     state = _state(session, company_id, info.name)
     assert state.last_page == 0
     assert state.last_error == "BrixxError table=PRG_DEMO page=1"
+
+
+def test_a_row_with_no_usable_primary_key_is_skipped_not_a_run_failure(
+    session: Session, mirror: MirrorSchema, company_id: uuid.UUID
+) -> None:
+    """Seen for some real historical Z* rows: BRIXX itself sends no usable key for a row. Permanent for that
+    row, so the sync succeeds and marks the table successfully, writing every other row on the page."""
+    info = versioned_table_info()
+    table = mirror.create(info)
+    rows = _rows(2)
+    del rows[1]["ID"]
+    api = _api(info, rows)
+    max_upd = _run(session, api, company_id, info, table, _new_run(session, company_id))
+    assert max_upd is not None
+    assert _ids(session, table, company_id) == [1]
+    state = _state(session, company_id, info.name)
+    assert state.last_error is None
 
 
 def test_tenant_scoping_same_table_separate_state(

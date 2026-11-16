@@ -93,6 +93,43 @@ def test_reconcile_soft_deletes_rows_brixx_no_longer_has(env: Env) -> None:
     assert [filters for _t, _p, filters in env.api.fetch_log] == [None, "[prg_objectid > 2]"]
 
 
+def test_a_row_with_no_usable_primary_key_is_skipped_not_fatal(env: Env) -> None:
+    """Seen for some real historical `Z*` rows: BRIXX itself sends no usable key value for a row. Permanent for
+    that row, so it is dropped from the keyset rather than aborting the whole scan page (and retrying 8 times
+    for nothing) -- the rest of the page still reconciles normally."""
+    env.seed_mirror([obj(i, f"O-{i}") for i in (1, 2, 3)])
+    env.brixx_has([obj(1, "O-1"), obj(2, "O-2", prg_objectid=None), obj(3, "O-3")], page_size=10)
+
+    brixx_reconcile.reconcile_all(TICK, None)
+
+    [run] = env.runs()
+    assert (run.kind, run.status, run.error) == (BrixxRunKind.reconcile, BrixxRunStatus.succeeded, None)
+    rows = env.mirror_rows()
+    assert rows[1]._deleted_at is None
+    assert rows[3]._deleted_at is None
+    assert rows[2]._deleted_at is not None  # staged only under key 2 (seeded); the key-less row never staged
+
+
+def test_a_page_mixing_good_and_bad_keys_still_advances_the_cursor(env: Env) -> None:
+    """The shape that actually matters in production: a page with `has_next=True` whose rows are a MIX of good
+    and bad keys, not just a single bad row on the final (has_next=False) page. A key-less row always sorts
+    last in a keyset scan (NULLs sort last, both here and in real Postgres-backed BRIXX), so this needs more
+    bad rows than fit in one page: two good keys plus five key-less rows, page_size=3, puts one key-less row on
+    the first page alongside both good ones. The scan must skip it, advance the cursor using only the valid
+    keys (not get stuck re-fetching page 1 forever), and the next page -- all remaining key-less rows -- must
+    end the scan cleanly with no exception."""
+    env.seed_mirror([obj(1, "O-1"), obj(2, "O-2")])
+    env.brixx_has([obj(1, "O-1"), obj(2, "O-2"), *(obj(0, "no-key", prg_objectid=None) for _ in range(5))], page_size=3)
+
+    brixx_reconcile.reconcile_all(TICK, None)
+
+    [run] = env.runs()
+    assert (run.kind, run.status, run.error) == (BrixxRunKind.reconcile, BrixxRunStatus.succeeded, None)
+    rows = env.mirror_rows()
+    assert rows[1]._deleted_at is None
+    assert rows[2]._deleted_at is None
+
+
 def test_reconcile_restores_relisted_rows_and_resets_watermark_for_missing_ones(env: Env) -> None:
     env.seed_mirror([obj(1, "O-1"), obj(2, "O-2")])
     with env.mirror.session() as s:
