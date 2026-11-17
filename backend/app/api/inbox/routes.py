@@ -28,7 +28,7 @@ from app.api.v1 import enqueue
 from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import decide_limit, sync_limit
-from app.contracts import ActionType, ButtonChoice, Channel, Direction
+from app.contracts import ActionType, ButtonChoice, Category, Channel, Direction
 from app.core.errors import NotFoundError
 from app.core.ids import case_ref
 from app.core.language import detect_language
@@ -258,6 +258,25 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
             {"label": "Unit", "value": unit_label, "checked": True},
             {"label": "Sender", "value": sender_name, "checked": True},
         ]
+        if case.category == Category.maintenance:
+            if case.brixx_ref:
+                custom_facts.append(
+                    {
+                        "label": "BRIXX Ticket",
+                        "value": f"BRIXX-{case.brixx_ref} (Linked)",
+                        "checked": True,
+                        "isAlert": False,
+                    }
+                )
+            else:
+                custom_facts.append(
+                    {
+                        "label": "BRIXX Ticket",
+                        "value": "Not in BRIXX (Pending Work Order)",
+                        "checked": True,
+                        "isAlert": True,
+                    }
+                )
         if und_entities.get("amounts"):
             for amt in und_entities["amounts"]:
                 custom_facts.append(
@@ -478,10 +497,13 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
         recipient_role = "contractor" if is_contractor else "tenant"
 
         annotate_translations(session, company_id, msgs_data, [*gmail_drafts, *whatsapp_drafts])
+        ticket_code = f"BRIXX-{case.brixx_ref}" if case.brixx_ref else f"#{case_ref(case.id)}"
         live_threads.append(
             {
                 "id": f"case-{case.id}",
                 "caseId": str(case.id),
+                "ticketNumber": ticket_code,
+                "caseRef": ticket_code,
                 "approvalId": str(approval.id) if approval else f"case-{case.id}",
                 "audience": audience_label,
                 "recipientRole": recipient_role,
@@ -509,7 +531,7 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
                 "aiConfidence": int((und_body.get("confidence") or 0.95) * 100),
                 "detectedLanguage": detected_lang_label,
                 "aiUnderstanding": {
-                    "ticket": f"#{case_ref(case.id)}",
+                    "ticket": ticket_code,
                     "problem": und_intent,
                     "unit": unit_label,
                     "priority": (case.urgency.value if case.urgency else "normal").upper(),

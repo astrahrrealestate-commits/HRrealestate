@@ -1692,6 +1692,8 @@ def ask_agent(
         for c in cases:
             recent_lines = case_msgs_map.get(c.id, [])
             summary = c.summary or ""
+            if getattr(c, "brixx_ref", None):
+                summary = f"[Linked to BRIXX Work Order #{c.brixx_ref}] {summary}".strip()
             if recent_lines:
                 summary += " | Recent messages: " + " ; ".join(reversed(recent_lines))
             briefs.append(CaseBrief(c.id, _case_label(session, c), c.state.value, c.urgency.value, summary))

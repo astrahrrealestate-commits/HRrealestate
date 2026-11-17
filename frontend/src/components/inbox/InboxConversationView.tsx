@@ -698,6 +698,7 @@ export function InboxConversationView({
                     facts: thread.aiUnderstanding.customFacts?.map((f) => ({
                       label: f.label,
                       value: f.value,
+                      isAlert: f.isAlert,
                     })),
                   }
                 : {

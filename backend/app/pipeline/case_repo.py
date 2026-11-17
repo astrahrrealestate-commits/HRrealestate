@@ -37,7 +37,12 @@ def get_case(session: Session, company_id: UUID, case_id: UUID) -> Case:
 
 
 def create_case(
-    session: Session, company_id: UUID, person_id: UUID | None, category: Category, urgency: Urgency
+    session: Session,
+    company_id: UUID,
+    person_id: UUID | None,
+    category: Category,
+    urgency: Urgency,
+    brixx_ref: str | None = None,
 ) -> UUID:
     unit_id = None
     lease_id = None
@@ -59,6 +64,26 @@ def create_case(
             unit_id = lease.unit_id
             lease_id = lease.id
 
+    # If this is maintenance and no brixx_ref was explicitly passed, check if the unit has an open BRIXX ticket
+    if category == Category.maintenance and not brixx_ref and unit_id:
+        from app.db.models import Unit
+        unit_row = session.get(Unit, unit_id)
+        if unit_row and unit_row.brixx_ref:
+            from app.directory.brixx import columns as col
+            brixx_rows = col.read_mirror(session, "tst_ticket", company_id) or []
+            for r in brixx_rows:
+                if (
+                    str(col.pick_int(r, (col.VHE_PK,)) or "") == str(unit_row.brixx_ref)
+                    and col.pick(r, ("datumgesloten",)) is None
+                    and not col.is_ended(r)
+                ):
+                    status = str(col.pick(r, ("dmticketstatus",)) or "").upper()
+                    if not any(done in status for done in ("AFGEHANDELD", "GESLOTEN", "AFGEROND", "GEANNULEERD")):
+                        tid = col.pick_int(r, ("tst_ticketid",))
+                        if tid:
+                            brixx_ref = str(tid)
+                            break
+
     case = Case(
         company_id=company_id,
         primary_person_id=person_id,
@@ -66,6 +91,7 @@ def create_case(
         urgency=urgency,
         unit_id=unit_id,
         lease_id=lease_id,
+        brixx_ref=brixx_ref,
     )
     session.add(case)
     session.flush()

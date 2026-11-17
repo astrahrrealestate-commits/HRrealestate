@@ -39,6 +39,7 @@ class Case(Base, CompanyScoped):
     urgency: Mapped[Urgency] = mapped_column(str_enum(Urgency))
     summary: Mapped[str] = mapped_column(Text, default="", server_default="")
     summary_version: Mapped[int] = mapped_column(default=0, server_default="0")
+    brixx_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     opened_at: Mapped[datetime] = mapped_column(server_default=func.now())
     resolved_at: Mapped[datetime | None]
 

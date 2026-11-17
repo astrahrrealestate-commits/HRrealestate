@@ -19,7 +19,7 @@ from app.core.errors import AgentFailedError
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import LinkMethod, PersonKind
-from app.db.models import AttachmentRow, CaseLink, LeaseParty, MessageRow, Person, PersonProfile, UnderstandingRow
+from app.db.models import AttachmentRow, Case, CaseLink, LeaseParty, MessageRow, Person, PersonProfile, UnderstandingRow
 from app.llm.agents.case_summary import CASE_SUMMARY, case_summary_prompt
 from app.llm.agents.link_check import LINK_CHECK, CandidateCase, accept_link, link_check_prompt
 from app.llm.calls import CallContext, run_agent
@@ -136,6 +136,22 @@ def _choose(engine: Engine, settings: Settings, f: _Facts, person_id: UUID) -> t
     if len(open_cases) == 1:
         return open_cases[0].case_id, LinkMethod.open_case
     if not open_cases:
+        # Check if the person is linked to a unit with an existing Case for an open BRIXX ticket
+        if f.category == Category.maintenance:
+            with Session(engine) as session:
+                matching_brixx_case = session.scalar(
+                    select(Case.id)
+                    .where(
+                        Case.company_id == f.company_id,
+                        Case.primary_person_id == person_id,
+                        Case.category == Category.maintenance,
+                        Case.brixx_ref.is_not(None),
+                    )
+                    .order_by(Case.opened_at.desc())
+                    .limit(1)
+                )
+                if matching_brixx_case:
+                    return matching_brixx_case, LinkMethod.open_case
         return None, LinkMethod.new_case
     cands = [CandidateCase(c.case_id, c.category, c.summary, c.last_message_at) for c in open_cases]
     chosen = _ask_model(engine, settings, f, cands, profile_line)

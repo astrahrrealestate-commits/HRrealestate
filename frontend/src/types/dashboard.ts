@@ -34,6 +34,7 @@ export interface UnderstandingFact {
   label: string;
   value: string;
   checked: boolean;
+  isAlert?: boolean;
 }
 
 export interface AiUnderstandingCard {

@@ -148,6 +148,18 @@ def _load(
         else None
     )
     profile_line = person_profile_line(profile)
+    if case.brixx_ref:
+        brixx_note = f"Linked to BRIXX Work Order #{case.brixx_ref}."
+        profile_line = f"{profile_line} | {brixx_note}" if profile_line else brixx_note
+    elif case.category == Category.maintenance:
+        brixx_note = (
+            "No BRIXX work order exists yet for this maintenance issue. "
+            "Do NOT dispatch a contractor yet without a BRIXX ticket. "
+            "Draft a tenant reply acknowledging their report, and generate a notify_owner action "
+            "for Harjot to create a work order in BRIXX."
+        )
+        profile_line = f"{profile_line} | {brixx_note}" if profile_line else brixx_note
+        contractors = []
     persona = _persona(session, msg.company_id)
     ctx = ProposerContext(
         case_id=case.id,
