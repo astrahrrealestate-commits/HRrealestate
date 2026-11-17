@@ -46,17 +46,18 @@ Always output your response as a valid JSON object with keys "sql" and "rational
     - columns: company_id, action_id, channel, status ('pending'|'sending'|'sent'|'failed'), attempted_at, created_at
 
 14. v_maintenance_tickets (ALL maintenance tickets: BRIXX tickets and EstateOS cases, one vocabulary)
-    - columns: company_id, source ('brixx'|'estateos'), ticket_ref, unit_address, tenant_name, contractor_name (BRIXX only, else NULL), title, category (the BRIXX ticket type for BRIXX rows, the EstateOS category for cases), urgency ('emergency'|'high'|'normal'|'low'), status ('scheduled'|'dispatched'|'completed' for BRIXX; the case state for EstateOS), is_open (boolean), opened_at, closed_at
+    - columns: company_id, source ('brixx'|'estateos'|'linked'), ticket_ref, unit_address, tenant_name, contractor_name (BRIXX only, else NULL), title, category (the BRIXX ticket type for BRIXX rows, the EstateOS category for cases), urgency ('emergency'|'high'|'normal'|'low'), status ('scheduled'|'dispatched'|'completed' for BRIXX; the case state for EstateOS), is_open (boolean), opened_at, closed_at
+    - note on source: 'brixx' = work order in BRIXX ERP; 'estateos' = unlinked tenant report in EstateOS (pending BRIXX work order); 'linked' = EstateOS maintenance case linked to an existing BRIXX work order.
 
 15. v_lease_facts (Per lease: monthly rent, deposit, living area from BRIXX)
     - columns: company_id, lease_id, unit_address, unit_label, tenant_name, valid_from, valid_to, is_active, monthly_rent_eur (the BRIXX contract rent, excl. VAT), deposit_eur, living_area_sqm (NULL when BRIXX has no value)
 
 ### DATABASE BASE TABLES (USE WHEN CURATED VIEWS LACK A SPECIFIC COLUMN):
 
-1. cases (id, company_id, unit_id, lease_id, primary_person_id, state ['open','waiting_on_owner','waiting_on_third_party','resolved','closed'], category, urgency, summary, opened_at, resolved_at, created_at)
-2. people (id, company_id, kind ['tenant','contractor','owner','other'], display_name, trade, valid_from, valid_to)
-3. units (id, company_id, label, address, valid_from, valid_to)
-4. leases (id, company_id, unit_id, valid_from, valid_to)
+1. cases (id, company_id, unit_id, lease_id, primary_person_id, state ['open','waiting_on_owner','waiting_on_third_party','resolved','closed'], category, urgency, summary, brixx_ref, opened_at, resolved_at, created_at)
+2. people (id, company_id, kind ['tenant','contractor','owner','other'], display_name, trade, brixx_ref, valid_from, valid_to)
+3. units (id, company_id, label, address, brixx_ref, valid_from, valid_to)
+4. leases (id, company_id, unit_id, brixx_ref, valid_from, valid_to)
 5. lease_parties (id, company_id, lease_id, person_id, role ['tenant','co_tenant','guarantor'])
 6. actions (id, company_id, case_id, type, status, payload, rationale, draft_version, persona_name, created_at)
 7. messages (id, company_id, person_id, channel, direction, text, sender_identity, sent_at, pipeline_status)
@@ -89,7 +90,7 @@ Always output your response as a valid JSON object with keys "sql" and "rational
 8. Do NOT include trailing semicolons or markdown code block fences in the sql field.
 9. `people.kind` is NOT reliable for people who wrote in: an unknown sender is stored as kind 'other'. The tenant of a case is `cases.primary_person_id`: to list tenants or reporters of cases, join `people` through it and do NOT filter `people.kind = 'tenant'`.
 10. Prefer human-readable columns (`ticket_ref`, `title`, `source`, `status`, `unit_address`, `tenant_name`, `valid_from`, `valid_to`, `is_active`, `category`, `urgency`, `state`, `opened_at`, `summary`). Avoid selecting raw internal FK/PK UUIDs like `company_id`, `lease_id`, `unit_id`, `person_id`, or `event_id`; only include `case_id` or `task_id` when listing cases/tasks.
-11. When asked for "active leases" or "current tenants", filter `WHERE is_active = TRUE` on `v_active_leases`. When asked for "tickets", "maintenance", "repairs" or "issues", use `v_maintenance_tickets` (it holds the BRIXX tickets too; `cases` and `v_case_overview` do not) and for "open" filter `WHERE is_open`; use `v_case_overview` or `cases` only when asked about EstateOS cases or conversations. When asked for "open cases", filter `WHERE state IN ('open', 'waiting_on_owner', 'waiting_on_third_party')` and order urgent items first. Rent, deposit or size (m2, sqm, area) of a unit or lease: `v_lease_facts` (rent paid or overdue: `v_rent_ledger`). When asked for "active rules" or "preferences", filter `WHERE status = 'active'` on `memory_items`.
+11. When asked for "active leases" or "current tenants", filter `WHERE is_active = TRUE` on `v_active_leases`. When asked for "tickets", "maintenance", "repairs" or "issues", use `v_maintenance_tickets` (it holds the BRIXX tickets too; `cases` and `v_case_overview` do not) and for "open" filter `WHERE is_open`; use `v_case_overview` or `cases` only when asked about EstateOS cases or conversations. Maintenance tickets linked to BRIXX have `source = 'linked'` or a non-null `brixx_ref` on `cases`; unlinked tickets pending BRIXX entry have `source = 'estateos'`. When asked for "open cases", filter `WHERE state IN ('open', 'waiting_on_owner', 'waiting_on_third_party')` and order urgent items first. Rent, deposit or size (m2, sqm, area) of a unit or lease: `v_lease_facts` (rent paid or overdue: `v_rent_ledger`). When asked for "active rules" or "preferences", filter `WHERE status = 'active'` on `memory_items`.
 
 ### FEW-SHOT EXAMPLES:
 
