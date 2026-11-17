@@ -99,20 +99,22 @@ export function FilterBar({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Filter groups with > 0 items only (Section 5.2: "Never show options with count 0")
+  // Filter groups with > 0 items only, EXCEPT "type" (categories), which should always be visible so users can filter by any category even if count is 0
   const visibleGroups = filterGroups.map((group) => ({
     ...group,
-    options: group.options.filter((opt) => opt.count === undefined || opt.count > 0),
+    options: group.id === "type"
+      ? group.options
+      : group.options.filter((opt) => opt.count === undefined || opt.count > 0),
   })).filter((group) => group.options.length > 0);
 
   const activeFilterCount = selectedFilterIds.length;
 
   return (
     <div className={cn("flex flex-col gap-2 w-full", className)}>
-      {/* Main Bar: Tabs | Search | Filter ▾ | ⟳ */}
-      <div className="flex flex-wrap items-center justify-between gap-2.5 px-3 sm:px-4 py-2.5 bg-[var(--pane)] border-b border-[var(--line)] min-w-0">
-        {/* Left: View Tabs */}
-        <div className="flex items-center gap-1 min-w-0 flex-wrap">
+      {/* Main Bar: Row 1 (Tabs) | Row 2 (Search + Filter ▾ + ⟳) */}
+      <div className="flex flex-col gap-2 p-2.5 sm:p-3 bg-[var(--pane)] border-b border-[var(--line)] min-w-0">
+        {/* Row 1: View Tabs (Segmented control across full width) */}
+        <div className="flex items-center gap-1 w-full bg-[var(--bg)] p-1 rounded-[var(--radius-ctl)] border border-[var(--line)]">
           {tabs.map((tab) => {
             const isActive = tab.id === activeTab;
             return (
@@ -121,17 +123,17 @@ export function FilterBar({
                 type="button"
                 onClick={() => onTabChange(tab.id)}
                 className={cn(
-                  "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-ctl)] text-[13px] font-medium transition-colors cursor-pointer select-none",
+                  "flex-1 inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-[var(--radius-ctl)] text-[12px] sm:text-[13px] font-medium transition-colors cursor-pointer select-none min-w-0",
                   isActive
-                    ? "bg-[var(--selected)] text-[var(--ink)] font-semibold"
+                    ? "bg-[var(--selected)] text-[var(--ink)] font-semibold shadow-xs"
                     : "text-[var(--ink-3)] hover:text-[var(--ink)] hover:bg-[var(--selected)]/50"
                 )}
               >
-                <span>{t(tab.label)}</span>
+                <span className="truncate">{t(tab.label)}</span>
                 {tab.count !== undefined && (
                   <span
                     className={cn(
-                      "text-xs px-1.5 py-0.2 rounded-full tabular-nums",
+                      "text-[11px] px-1.5 py-0.2 rounded-full tabular-nums shrink-0",
                       tab.id === "needs_you" || tab.id === "needs_action"
                         ? "bg-[var(--accent)] text-[#0A0A0A] font-bold"
                         : "bg-[var(--line)] text-[var(--ink-2)]"
@@ -145,10 +147,10 @@ export function FilterBar({
           })}
         </div>
 
-        {/* Right: Search + Filter popover + Refresh */}
-        <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
+        {/* Row 2: Search + Filter popover + Refresh */}
+        <div className="flex items-center gap-1.5 w-full min-w-0">
           {/* Search box */}
-          <div className="relative flex-1 min-w-[120px] max-w-[260px]">
+          <div className="relative flex-1 min-w-0">
             <Search className="w-4 h-4 text-[var(--ink-3)] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               ref={searchInputRef}
@@ -176,12 +178,12 @@ export function FilterBar({
 
           {/* Filter Popover Button */}
           {visibleGroups.length > 0 && (
-            <div className="relative" ref={popoverRef}>
+            <div className="relative shrink-0" ref={popoverRef}>
               <button
                 type="button"
                 onClick={() => setIsPopoverOpen((prev) => !prev)}
                 className={cn(
-                  "inline-flex items-center gap-1.5 h-8 px-2.5 text-[13px] rounded-[var(--radius-ctl)] border border-[var(--line)] transition-colors cursor-pointer select-none",
+                  "inline-flex items-center gap-1.5 h-8 px-2.5 text-[13px] rounded-[var(--radius-ctl)] border border-[var(--line)] transition-colors cursor-pointer select-none shrink-0",
                   activeFilterCount > 0
                     ? "bg-[var(--selected)] text-[var(--ink)] font-semibold border-[var(--ink-2)]"
                     : "bg-[var(--pane)] text-[var(--ink-2)] hover:bg-[var(--selected)]"
@@ -263,7 +265,7 @@ export function FilterBar({
               onClick={onRefresh}
               disabled={isRefreshing}
               title={refreshTooltip}
-              className="w-8 h-8 rounded-[var(--radius-ctl)] border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] text-[var(--ink-2)] flex items-center justify-center transition-colors cursor-pointer disabled:opacity-50"
+              className="w-8 h-8 rounded-[var(--radius-ctl)] border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] text-[var(--ink-2)] flex items-center justify-center transition-colors cursor-pointer disabled:opacity-50 shrink-0"
             >
               <RotateCw
                 className={cn("w-3.5 h-3.5", isRefreshing && "animate-spin text-[var(--accent)]")}

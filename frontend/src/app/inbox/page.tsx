@@ -731,6 +731,8 @@ function InboxContent() {
 
           { id: "type_complaint", label: t("inbox.complaint", "Complaint"), count: countOf("type_complaint") },
 
+          { id: "type_contractor", label: t("inbox.contractor_updates", "Contractor"), count: countOf("type_contractor") },
+
           { id: "type_admin", label: t("inbox.admin", "Admin"), count: countOf("type_admin") },
 
         ],
@@ -902,7 +904,7 @@ function InboxContent() {
                 "flex flex-col flex-1 min-h-0 overflow-hidden bg-white min-w-0 relative",
                 superAgent.isOpen
                   ? "lg:grid lg:grid-cols-1"
-                  : "lg:grid lg:grid-cols-[300px_1fr] xl:grid-cols-[340px_1fr]"
+                  : "lg:grid lg:grid-cols-[320px_1fr] xl:grid-cols-[340px_1fr]"
               )}
             >
 

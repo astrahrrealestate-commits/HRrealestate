@@ -25,6 +25,7 @@ export const inboxTranslations = {
   "inbox.rent_money": { en: "Rent & Money", nl: "Huur & Financiën" },
   "inbox.lease": { en: "Lease", nl: "Huurcontract" },
   "inbox.complaint": { en: "Complaint", nl: "Klacht" },
+  "inbox.contractor_updates": { en: "Contractor", nl: "Aannemer" },
   "inbox.admin": { en: "Admin", nl: "Administratie" },
 
   // Composer & Actions

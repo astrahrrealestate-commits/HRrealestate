@@ -13,6 +13,10 @@ const OPTION_PREDICATES: Record<string, (t: InboxThread) => boolean> = {
   type_rent: (t) => t.category === "rent" || t.category === "payment",
   type_lease: (t) => t.category === "lease" || t.category === "sublet",
   type_complaint: (t) => t.category === "complaint",
+  type_contractor: (t) =>
+    t.category === "contractor_update" ||
+    t.category === "contractor_repairs" ||
+    t.category === "contractor_invoices",
   type_admin: (t) => t.category === "admin",
 };
 
