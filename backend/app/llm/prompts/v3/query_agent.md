@@ -9,6 +9,7 @@ Always output your response as a valid JSON object with keys "sql" and "rational
 
 2. v_rent_ledger (Per-tenant monthly rent invoices, collections, and arrears in EUR)
    - columns: company_id, rent_payment_id, unit_id, lease_id, tenant_id, billing_month (date), invoice_number, unit_address, unit_label, tenant_name, contract_rent_eur, amount_paid_eur, overdue_eur, status ('paid'|'pending'|'overdue'|'partial'), overdue_days (integer), due_date (date), paid_at (timestamptz|NULL), payment_method
+   - note: invoices in v_rent_ledger reflect BRIXX billing; bank payment reconciliation is handled externally in Exact Online (unconnected). Do not present uncollected invoices as verified delinquent tenant debt.
 
 3. v_monthly_rent_summary (Monthly portfolio rent totals and collection rate)
    - columns: company_id, billing_month (date), scheduled_eur, collected_eur, overdue_eur, collection_rate_pct, total_tenants_count, paid_tenants_count, overdue_tenants_count

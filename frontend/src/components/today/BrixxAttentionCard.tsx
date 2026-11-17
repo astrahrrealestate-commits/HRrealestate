@@ -29,7 +29,7 @@ export function BrixxAttentionCard({
   urgentTotal: number;
   onlyUrgent: boolean;
 }) {
-  const shown = onlyUrgent ? items.filter((i) => i.urgent) : items;
+  const shown = onlyUrgent ? items.filter((i) => i.urgent && i.kind !== "rent") : items;
   if (shown.length === 0) return null;
   return (
     <Card className="mb-4" data-testid="brixx-attention">
@@ -40,32 +40,44 @@ export function BrixxAttentionCard({
         </span>
       </div>
       <ul className="divide-y divide-[var(--line)]">
-        {shown.map((item) => (
-          <li key={item.id} className="py-2 flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span
-                  className={cn(
-                    "text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded",
-                    item.urgent ? "bg-amber-100 text-amber-900" : "bg-[var(--pane)] text-[var(--ink-2)]"
-                  )}
-                >
-                  {item.urgent ? "Urgent" : KIND_LABEL[item.kind]}
-                </span>
-                <span className="text-sm font-medium truncate">{item.title}</span>
+        {shown.map((item) => {
+          const isRent = item.kind === "rent";
+          const isUrgent = item.urgent && !isRent;
+          return (
+            <li key={item.id} className="py-2 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={cn(
+                      "text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded",
+                      isUrgent
+                        ? "bg-amber-100 text-amber-900"
+                        : isRent
+                          ? "bg-amber-50 text-amber-800 border border-amber-200/60"
+                          : "bg-[var(--pane)] text-[var(--ink-2)]"
+                    )}
+                  >
+                    {isUrgent ? "Urgent" : isRent ? "Unreconciled" : KIND_LABEL[item.kind]}
+                  </span>
+                  <span className="text-sm font-medium truncate">
+                    {isRent ? item.title.replace("rent overdue", "rent billed") : item.title}
+                  </span>
+                </div>
+                <p className="text-xs text-[var(--ink-2)] truncate">
+                  {[item.unitLabel, item.partyName, item.detail, isRent ? "Settlement in Exact Online" : null]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
               </div>
-              <p className="text-xs text-[var(--ink-2)] truncate">
-                {[item.unitLabel, item.partyName, item.detail].filter(Boolean).join(" · ")}
-              </p>
-            </div>
-            <div className="shrink-0 flex flex-col items-end gap-1">
-              <span className="text-xs text-[var(--ink-2)]">{age(item)}</span>
-              <Link href={item.href} className="text-xs text-[var(--accent)] hover:underline">
-                Open
-              </Link>
-            </div>
-          </li>
-        ))}
+              <div className="shrink-0 flex flex-col items-end gap-1">
+                <span className="text-xs text-[var(--ink-2)]">{age(item)}</span>
+                <Link href={item.href} className="text-xs text-[var(--accent)] hover:underline">
+                  Open
+                </Link>
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </Card>
   );

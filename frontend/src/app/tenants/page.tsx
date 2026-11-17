@@ -622,9 +622,12 @@ function TenantsContent() {
                         >
                           <span className="truncate">{contact.name}</span>
                           {contact.rentStatus === "overdue" && (
-                            <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold text-rose-700 uppercase ml-1.5">
-                              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                              {t("Overdue", "Overdue")}
+                            <span
+                              className="shrink-0 inline-flex items-center gap-1 text-[10px] font-medium text-amber-800 bg-amber-50 border border-amber-200/80 px-1.5 py-0.2 rounded ml-1.5"
+                              title={t("Billed in BRIXX; bank settlement in Exact Online", "Billed in BRIXX; bank settlement in Exact Online")}
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                              {t("Unreconciled", "Unreconciled")}
                             </span>
                           )}
                         </span>
@@ -886,14 +889,15 @@ function TenantsContent() {
                         className={cn(
                           "text-[12px] font-bold mt-1",
                           activeContact.rentStatus === "overdue"
-                            ? "text-rose-600"
+                            ? "text-amber-800"
                             : activeContact.rentStatus === "up_to_date"
                               ? "text-emerald-700"
                               : "text-[#64748b]"
                         )}
+                        title={activeContact.rentStatus === "overdue" ? t("Billed in BRIXX; bank settlement handled in Exact Online", "Billed in BRIXX; bank settlement handled in Exact Online") : undefined}
                       >
                         {activeContact.rentStatus === "overdue"
-                          ? t("Rent overdue")
+                          ? t("Unreconciled (Exact Online)", "Unreconciled (Exact Online)")
                           : activeContact.rentStatus === "up_to_date"
                             ? t("Rent up to date")
                             : t("No rent records yet")}

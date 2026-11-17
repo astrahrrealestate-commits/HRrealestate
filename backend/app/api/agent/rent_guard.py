@@ -9,13 +9,15 @@ import re
 from app.core.rent_data import RENT_DATA_AVAILABLE
 
 NO_RENT_DATA_ANSWER = (
-    "I don't have rent or payment data yet, so I can't say who is overdue or what has been paid. Rent amounts and "
-    "payments arrive with the BRIXX rent sync; until then I won't guess."
+    "Rent invoices are generated in BRIXX, but bank payment reconciliation is handled externally in Exact Online "
+    "(not connected yet). Because bank settlements are not mirrored in BRIXX, I cannot confirm which tenants have paid "
+    "or who is actually overdue."
 )
 
 _RENT_MONEY_QUESTION = re.compile(
     r"\b(overdue|arrears?|unpaid|owes?|owed)\b"
     r"|\bwho\s+(?:has\s+|have\s+)?paid\b"
+    r"|\b(?:hasn't|has\s+not|have\s+not)\s+paid\b"
     r"|\bpayments?\s+(?:recorded|received|made|this|last)\b"
     r"|\b(?:number|count)\s+of\s+payments\b"
     r"|\bhow\s+many\s+payments\b"
@@ -23,7 +25,10 @@ _RENT_MONEY_QUESTION = re.compile(
     r"|\brent\s+(?:outstanding|collected|received|roll|status)\b"
     r"|\b(?:outstanding|open)\s+rent\b"
     r"|\bhow\s+much\s+rent\b"
-    r"|\bbehind\s+(?:on|with)\s+(?:the\s+|their\s+)?rent\b",
+    r"|\bbehind\s+(?:on|with)\s+(?:the\s+|their\s+)?rent\b"
+    r"|\b(?:huur)?achterstand\b"
+    r"|\bachterstallig\b"
+    r"|\bonbetaald\b",
     re.IGNORECASE,
 )
 

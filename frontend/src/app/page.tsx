@@ -431,7 +431,9 @@ export default function TodayPage() {
 
   // Selectors: Single source of truth (Section 2.5 D1 & 6.4)
   const currentNeedsYouCount = needsYouCount(threads);
-  const currentUrgentCount = urgentCount(threads) + attention.urgentCount;
+  // Exclude unconfirmed rent invoices (settled in Exact Online) from urgent count so real emergencies take center stage
+  const urgentAttentionCount = attention.items.filter((i) => i.urgent && i.kind !== "rent").length;
+  const currentUrgentCount = urgentCount(threads) + urgentAttentionCount;
   const urgentThreads = urgent(threads);
   const needsYouThreads = needsYou(threads);
 
@@ -1006,7 +1008,7 @@ export default function TodayPage() {
             <BrixxAttentionCard
               items={attention.items}
               total={attention.total}
-              urgentTotal={attention.urgentCount}
+              urgentTotal={urgentAttentionCount}
               onlyUrgent={activeSection === "urgent"}
             />
           )}

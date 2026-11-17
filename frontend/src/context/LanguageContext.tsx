@@ -83,6 +83,8 @@ export const DICTIONARY: Translations = {
   "Receivables": { en: "Receivables", nl: "Vorderingen" },
   "Payables": { en: "Payables", nl: "Te betalen" },
   "Overdue": { en: "Overdue", nl: "Achterstallig" },
+  "Unreconciled": { en: "Unreconciled", nl: "Niet afgeletterd" },
+  "Unreconciled (Exact Online)": { en: "Unreconciled (Exact Online)", nl: "Niet afgeletterd (Exact Online)" },
   "Up to date": { en: "Up to date", nl: "Bijgewerkt" },
   "Occupied": { en: "Occupied", nl: "Verhuurd" },
   "Vacant": { en: "Vacant", nl: "Leegstaand" },
