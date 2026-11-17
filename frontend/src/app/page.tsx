@@ -536,6 +536,17 @@ export default function TodayPage() {
   const occupancyHeadline =
     portfolio && portfolioUnits > 0 ? `${Math.round((portfolioOccupied / portfolioUnits) * 1000) / 10}%` : "—";
 
+  // Top buildings by vacancy first, then by largest total units
+  const topOccupancyBuildings = [...occupancyBuildings]
+    .sort((a, b) => {
+      const aVacant = a.total - a.occupied;
+      const bVacant = b.total - b.occupied;
+      if (bVacant !== aVacant) return bVacant - aVacant;
+      return b.total - a.total;
+    })
+    .slice(0, 4);
+  const remainingBuildingsCount = Math.max(0, occupancyBuildings.length - topOccupancyBuildings.length);
+
   // Briefing mode: Daily pulse vs Weekly recap
   const [briefingKind, setBriefingKind] = useState<"daily" | "weekly">("daily");
   const { user } = useAuth();
@@ -1980,10 +1991,26 @@ export default function TodayPage() {
                     </span>
                   </div>
 
-                  {/* Bars per complex (ink bars) */}
-                  <div className="space-y-2.5 mt-3 text-xs">
-                    {occupancyBuildings.map((b) => (
-                      <div key={b.name} className="space-y-1">
+                  {/* Overall portfolio bar */}
+                  {portfolioUnits > 0 && (
+                    <div className="mt-3">
+                      <div className="h-2 w-full rounded-full overflow-hidden bg-[var(--selected)]">
+                        <div
+                          className="h-full bg-[var(--ink)] rounded-full transition-all"
+                          style={{ width: `${(portfolioOccupied / portfolioUnits) * 100}%` }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between mt-1 text-[11px] text-[var(--ink-3)]">
+                        <span>{portfolioOccupied} of {portfolioUnits} units occupied</span>
+                        <span>{portfolioUnits - portfolioOccupied} vacant</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Top buildings with vacancies or largest complexes */}
+                  <div className="space-y-2 mt-3 text-xs">
+                    {topOccupancyBuildings.map((b) => (
+                      <div key={b.name} className="space-y-0.5">
                         <div className="flex items-center justify-between text-[var(--ink-2)]">
                           <span className="truncate pr-2">{b.name}</span>
                           <span className="font-mono text-[var(--ink-3)] tabular-nums shrink-0">
@@ -1998,6 +2025,11 @@ export default function TodayPage() {
                         </div>
                       </div>
                     ))}
+                    {remainingBuildingsCount > 0 && (
+                      <p className="text-[11px] text-[var(--ink-3)] pt-0.5">
+                        +{remainingBuildingsCount} more properties
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -2024,19 +2056,23 @@ export default function TodayPage() {
 
                   {/* 4 Items stream */}
                   <div className="space-y-2.5 mt-3 text-xs">
-                    {logs.slice(0, 4).map((log) => (
-                      <div key={log.id} className="flex items-start gap-2 text-xs">
-                        <span className="text-[var(--ink-3)] mt-0.5">•</span>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[var(--ink-2)] truncate leading-snug">
-                            {log.actionText}
-                          </p>
-                          <span className="font-mono text-[10.5px] text-[var(--ink-3)]">
-                            {log.timestamp}
-                          </span>
+                    {logs.length > 0 ? (
+                      logs.slice(0, 4).map((log) => (
+                        <div key={log.id} className="flex items-start gap-2 text-xs">
+                          <span className="text-[var(--ink-3)] mt-0.5">•</span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[var(--ink-2)] truncate leading-snug">
+                              {log.actionText}
+                            </p>
+                            <span className="font-mono text-[10.5px] text-[var(--ink-3)]">
+                              {log.timestamp}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))
+                    ) : (
+                      <p className="text-xs text-[var(--ink-3)]">No autonomous actions handled yet this week.</p>
+                    )}
                   </div>
                 </div>
 
