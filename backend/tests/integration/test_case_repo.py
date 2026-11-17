@@ -118,3 +118,10 @@ def test_transition_rules_and_tenant_scope(db: Session, company: Company) -> Non
         case_repo.transition(db, company.id, case_id, CaseState.open, actor="owner")
     with pytest.raises(NotFoundError):
         case_repo.get_case(db, new_id(), case_id)
+
+
+def test_create_case_stores_brixx_ref(db: Session, company: Company) -> None:
+    person = _person(db, company)
+    case_id = case_repo.create_case(db, company.id, person.id, Category.maintenance, Urgency.normal, brixx_ref="9901")
+    case = case_repo.get_case(db, company.id, case_id)
+    assert case.brixx_ref == "9901"

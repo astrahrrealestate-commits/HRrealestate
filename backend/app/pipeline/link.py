@@ -145,6 +145,7 @@ def _choose(engine: Engine, settings: Settings, f: _Facts, person_id: UUID) -> t
                         Case.company_id == f.company_id,
                         Case.primary_person_id == person_id,
                         Case.category == Category.maintenance,
+                        Case.state.in_(case_repo.OPEN_STATES),
                         Case.brixx_ref.is_not(None),
                     )
                     .order_by(Case.opened_at.desc())

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import ForeignKey, Index, String, Text, UniqueConstraint, Uuid, func
+from sqlalchemy import ForeignKey, Index, String, Text, UniqueConstraint, Uuid, func, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,7 +27,15 @@ class UnderstandingRow(Base, CompanyScoped):
 class Case(Base, CompanyScoped):
     __tablename__ = "cases"
     __company_id_leading_index__ = True
-    __table_args__ = (Index(None, "company_id", "state"),)
+    __table_args__ = (
+        Index(None, "company_id", "state"),
+        Index(
+            "ix_cases_company_id_brixx_ref",
+            "company_id",
+            "brixx_ref",
+            postgresql_where=text("brixx_ref IS NOT NULL"),
+        ),
+    )
 
     unit_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("units.id"), index=True)
     lease_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("leases.id"), index=True)

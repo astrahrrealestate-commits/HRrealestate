@@ -7,18 +7,20 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.context.person_profile import refresh_profile_deterministic
 from app.contracts import CaseState, Category, Channel, Direction, Urgency, assert_transition
 from app.core.errors import NotFoundError
+from app.core.logging import get_logger
 from app.db.enums import CaseEventKind, LinkMethod
 from app.db.models import Case, CaseEvent, CaseLink, Lease, LeaseParty, MessageRow
 
 WHATSAPP_THREAD_WINDOW = timedelta(hours=72)
 OPEN_STATES = (CaseState.open, CaseState.waiting_on_owner, CaseState.waiting_on_third_party)
+log = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -67,22 +69,30 @@ def create_case(
     # If this is maintenance and no brixx_ref was explicitly passed, check if the unit has an open BRIXX ticket
     if category == Category.maintenance and not brixx_ref and unit_id:
         from app.db.models import Unit
+
         unit_row = session.get(Unit, unit_id)
-        if unit_row and unit_row.brixx_ref:
-            from app.directory.brixx import columns as col
-            brixx_rows = col.read_mirror(session, "tst_ticket", company_id) or []
-            for r in brixx_rows:
-                if (
-                    str(col.pick_int(r, (col.VHE_PK,)) or "") == str(unit_row.brixx_ref)
-                    and col.pick(r, ("datumgesloten",)) is None
-                    and not col.is_ended(r)
-                ):
-                    status = str(col.pick(r, ("dmticketstatus",)) or "").upper()
-                    if not any(done in status for done in ("AFGEHANDELD", "GESLOTEN", "AFGEROND", "GEANNULEERD")):
-                        tid = col.pick_int(r, ("tst_ticketid",))
-                        if tid:
-                            brixx_ref = str(tid)
-                            break
+        if unit_row and unit_row.brixx_ref and str(unit_row.brixx_ref).isdigit():
+            try:
+                sub_id = int(unit_row.brixx_ref)
+                query = text(
+                    """
+                    SELECT t.tst_ticketid
+                    FROM brixx.tst_ticket t
+                    WHERE t.company_id = :cid
+                      AND t.prg_subobjectid = :sub_id
+                      AND coalesce(t.indverwijderd, 0) = 0
+                      AND t._deleted_at IS NULL
+                      AND t.datumgesloten IS NULL
+                      AND NOT (upper(coalesce(t.dmticketstatus, '')) ~ '(AFGEHANDELD|GESLOTEN|AFGEROND|GEANNULEERD)')
+                    ORDER BY t.newdatetime DESC
+                    LIMIT 1
+                    """
+                )
+                tid = session.execute(query, {"cid": company_id, "sub_id": sub_id}).scalar()
+                if tid:
+                    brixx_ref = str(tid)
+            except Exception as exc:
+                log.debug("failed to look up brixx ticket for unit %s: %s", unit_id, exc)
 
     case = Case(
         company_id=company_id,
