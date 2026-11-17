@@ -816,17 +816,15 @@ function InboxContent() {
 
 
 
-  const activeThread =
-
-    findMatchingThread(threads, selectedThreadId) ||
-
-    filteredAndSortedThreads[0] ||
-
-    null;
-
-
-
   const superAgent = useSuperAgent();
+  // Master-detail single pane mode: on mobile (<1024px) or on desktop when Super Agent (Astra) is open
+  const isSinglePaneMode = isMobile || superAgent.isOpen;
+  const isConversationOpen = Boolean(selectedThreadId && isSinglePaneMode);
+
+  const activeThread =
+    findMatchingThread(threads, selectedThreadId) ||
+    (isSinglePaneMode ? null : filteredAndSortedThreads[0]) ||
+    null;
 
   useEffect(() => {
 
@@ -851,14 +849,6 @@ function InboxContent() {
     }
 
   }, [activeThread, superAgent.setCurrentPageName, superAgent.setSelectedContext, superAgent.setActiveDrawerInfo]);
-
-
-
-  // On mobile (<1024px), is conversation pane active?
-
-  const isMobileConversationOpen = Boolean(selectedThreadId && isMobile);
-
-
 
   return (
 
@@ -921,18 +911,7 @@ function InboxContent() {
           <div
             className={cn(
               "h-full flex flex-col overflow-hidden bg-[var(--pane)]",
-              superAgent.isOpen
-                ? showThreadsWithAgent
-                  ? cn(
-                      isMobileConversationOpen ? "hidden" : "flex",
-                      "lg:flex lg:absolute lg:inset-y-0 lg:left-0 lg:z-30 lg:w-[330px] lg:border-r lg:border-[var(--line)] lg:shadow-xl"
-                    )
-                  : isMobileConversationOpen
-                    ? "hidden"
-                    : "flex lg:hidden"
-                : isMobileConversationOpen
-                  ? "hidden lg:flex"
-                  : "flex"
+              isConversationOpen ? "hidden" : "flex"
             )}
           >
             {superAgent.isOpen && showThreadsWithAgent && (
@@ -1019,9 +998,11 @@ function InboxContent() {
 
               "h-full flex-1 min-h-0 flex flex-col overflow-hidden bg-[var(--pane)]",
 
-              isMobileConversationOpen
+              isConversationOpen
                 ? "flex pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0"
-                : "hidden lg:flex"
+                : isSinglePaneMode
+                  ? "hidden"
+                  : "hidden lg:flex"
 
             )}
 
@@ -1034,6 +1015,8 @@ function InboxContent() {
               initialDraft={draftParam}
 
               onBack={() => handleSelectThread("")}
+
+              showBackOnDesktop={superAgent.isOpen && !isMobile}
 
               onApproveDraft={handleApproveDraft}
 

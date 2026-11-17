@@ -23,6 +23,7 @@ import { AiInsight } from "@/components/inbox/AiInsight";
 import { Composer } from "@/components/inbox/Composer";
 import { isUrgent } from "@/lib/selectors";
 import { format } from "date-fns";
+import { useLanguage } from "@/context/LanguageContext";
 import { cn } from "@/lib/utils";
 import { formatClock, localDayNumber, localParts } from "@/lib/clock";
 import { EditTicketModal } from "@/components/maintenance/EditTicketModal";
@@ -41,6 +42,7 @@ interface InboxConversationViewProps {
   onSendManualReply?: (threadId: string, replyText: string, replyToMessageId?: string) => void;
   onMarkDone?: (threadId: string) => void;
   showThreadsButton?: boolean;
+  showBackOnDesktop?: boolean;
   threadCount?: number;
   isThreadsDrawerOpen?: boolean;
   onToggleThreadsDrawer?: () => void;
@@ -56,11 +58,13 @@ export function InboxConversationView({
   onSendManualReply,
   onMarkDone,
   showThreadsButton = false,
+  showBackOnDesktop = false,
   threadCount = 0,
   isThreadsDrawerOpen = false,
   onToggleThreadsDrawer,
   className,
 }: InboxConversationViewProps) {
+  const { t } = useLanguage();
   const [showEarlier, setShowEarlier] = useState(false);
   const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
   const [isSent, setIsSent] = useState(false);
@@ -360,7 +364,21 @@ export function InboxConversationView({
       {/* Desktop Header (>= 640px) */}
       <div className="hidden sm:flex min-h-14 px-4 lg:px-6 py-2 border-b border-[var(--line)] bg-[var(--pane)] items-center justify-between gap-3 shrink-0 z-10">
         <div className="flex items-center gap-3 min-w-0 flex-1">
-          {showThreadsButton && onToggleThreadsDrawer && (
+          {showBackOnDesktop && onBack && (
+            <>
+              <button
+                type="button"
+                onClick={onBack}
+                className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[var(--radius-ctl)] border border-[var(--line)] bg-[var(--bg)] hover:bg-[var(--selected)] text-[var(--ink)] text-[12px] font-medium transition-colors cursor-pointer shrink-0"
+                title="Back to all conversations"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 text-[var(--ink-2)]" />
+                <span>{t("All conversations", "Alle gesprekken")}</span>
+              </button>
+              <span className="hidden lg:inline-block h-5 w-px bg-[var(--line)] shrink-0" />
+            </>
+          )}
+          {showThreadsButton && onToggleThreadsDrawer && !showBackOnDesktop && (
             <>
               <button
                 type="button"

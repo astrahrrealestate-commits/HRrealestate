@@ -113,6 +113,8 @@ function MaintenanceContent() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState<boolean>(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -370,6 +372,9 @@ function MaintenanceContent() {
       // 2. Finer status dropdown filter (if not "all")
       if (statusFilter !== "all" && t.status !== statusFilter) return false;
 
+      // 2b. Category dropdown filter (if not "all")
+      if (categoryFilter !== "all" && (t.category || "").toLowerCase() !== categoryFilter.toLowerCase()) return false;
+
       // 3. Search query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
@@ -384,7 +389,7 @@ function MaintenanceContent() {
 
       return true;
     });
-  }, [tickets, activeTab, statusFilter, searchQuery]);
+  }, [tickets, activeTab, statusFilter, categoryFilter, searchQuery]);
 
   const selectedTicket = useMemo(() => {
     return findMatchingTicket(tickets, selectedTicketId);
@@ -576,6 +581,58 @@ function MaintenanceContent() {
                           >
                             <span>{opt.label}</span>
                             {statusFilter === opt.id && <Check className="w-3.5 h-3.5 text-[var(--accent)]" />}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Category Dropdown */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsCategoryDropdownOpen((prev) => !prev)}
+                    className="h-8 px-2.5 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--ink-2)] border border-[var(--line)] rounded-[var(--radius-ctl)] bg-[var(--pane)] hover:bg-[var(--selected)] transition-colors cursor-pointer select-none"
+                  >
+                    <span>
+                      {categoryFilter === "all" ? t("All categories") : t(categoryFilter.charAt(0).toUpperCase() + categoryFilter.slice(1))}
+                    </span>
+                    <ChevronDown className="w-3 h-3 text-[var(--ink-3)]" />
+                  </button>
+
+                  {isCategoryDropdownOpen && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-20"
+                        onClick={() => setIsCategoryDropdownOpen(false)}
+                      />
+                      <div className="absolute right-0 top-full mt-1.5 w-44 bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-ctl)] shadow-lg py-1 z-30 animate-in fade-in zoom-in-95 duration-100 text-xs">
+                        {[
+                          { id: "all", label: t("All categories") },
+                          { id: "electrical", label: t("Electrical") },
+                          { id: "plumbing", label: t("Plumbing") },
+                          { id: "heating", label: t("Heating") },
+                          { id: "appliance", label: t("Appliance") },
+                          { id: "structural", label: t("Structural") },
+                          { id: "other", label: t("Other") },
+                        ].map((opt) => (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => {
+                              setCategoryFilter(opt.id);
+                              setIsCategoryDropdownOpen(false);
+                            }}
+                            className={cn(
+                              "w-full text-left px-3 py-1.5 hover:bg-[var(--selected)] flex items-center justify-between transition-colors",
+                              categoryFilter === opt.id
+                                ? "font-semibold text-[var(--ink)] bg-[var(--selected)]/40"
+                                : "text-[var(--ink-2)]"
+                            )}
+                          >
+                            <span>{opt.label}</span>
+                            {categoryFilter === opt.id && <Check className="w-3.5 h-3.5 text-[var(--accent)]" />}
                           </button>
                         ))}
                       </div>
