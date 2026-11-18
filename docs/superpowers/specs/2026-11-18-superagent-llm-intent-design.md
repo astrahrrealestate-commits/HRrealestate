@@ -29,7 +29,7 @@ Where they live:
   never route) and `channel_note` (a sentence before a draft, not a router).
 - NOT kept (owner, 2026-11-18, after seeing "draft a message about the unpaid rent" answered with the rent disclaimer):
   `rent_data_answer` and `rewrite_answer` also pre-empt the planner by keyword. Their honest answers become planner
-  intents with deterministic handlers (`rent_status`, `rewrite_draft`), so they apply to their own step only and compose
+  intents with deterministic handlers (`rent_status`; the stale rewrite guard is just deleted, see below), so they apply to their own step only and compose
   with other steps in the same message.
 - No second classifier call in front of the planner.
 - The executor still validates every step; recipients and ids come from the DB; the Super Agent never approves or sends.
@@ -49,8 +49,7 @@ Where they live:
    `concierge` agent; `model_calls.model` records the model actually used.
 2. **Prompt `concierge/v8`** (v7 stays published) adds intents `remember` (text = the rule or preference), `calendar`
    (text = the scheduling request), `rent_status` (who owes or paid rent; the handler gives the honest "not connected"
-   answer while `RENT_DATA_AVAILABLE` is false) and `rewrite_draft` (shorten, translate, rephrase a draft; the handler
-   gives the "open the draft and edit it" answer). Documents and count/list questions use the existing
+   answer while `RENT_DATA_AVAILABLE` is false) (no `rewrite_draft` intent: shorten, translate and rephrase are `draft_reply`, which already redrafts with the owner's own words as guidance; ruling 2026-11-18, the old `rewrite_answer` guard was stale). Documents and count/list questions use the existing
    `find_document`, `read_document` and `query_data` intents; `done`/`snooze` use `task_done`/`task_snooze`.
    The prompt also states: negation ("do NOT schedule yet") means no step for that action; a word is not an intent
    (drafting a message that mentions a visit or unpaid rent is `draft_reply`, not `calendar` or `rent_status`); several

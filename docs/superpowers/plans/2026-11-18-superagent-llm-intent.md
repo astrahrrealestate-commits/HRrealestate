@@ -4,7 +4,7 @@
 
 **Goal:** Replace the keyword/regex pre-routers in the Super Agent with the concierge planner running on a Flash model, keeping exact commands only as the outage fallback.
 
-**Architecture:** `Settings.concierge_model` picks the planner's model. Prompt `concierge/v8` adds `remember`, `calendar`, `rent_status` and `rewrite_draft` intents and states the rules for negation, "a word is not an intent" and several requests in one message. The regex branches and guards in `ask_agent` and the `parse_command` gate in `concierge_turns` are deleted; `remember`/`calendar` plan steps reuse the existing response builders, and `ask_agent` merges the answers and cards of all steps in plan order. `parse_command` survives only on planner failure or budget limit.
+**Architecture:** `Settings.concierge_model` picks the planner's model. Prompt `concierge/v8` adds `remember`, `calendar`, `rent_status` intents and states the rules for negation, "a word is not an intent" and several requests in one message. The regex branches and guards in `ask_agent` and the `parse_command` gate in `concierge_turns` are deleted; `remember`/`calendar` plan steps reuse the existing response builders, and `ask_agent` merges the answers and cards of all steps in plan order. `parse_command` survives only on planner failure or budget limit.
 
 **Tech Stack:** FastAPI, Pydantic AI (`google-gla:` models), pytest, `make quick` (G1) / `make check` (G2).
 
@@ -55,7 +55,7 @@
 - Test: `backend/tests/unit/llm/test_concierge_agent.py`, `backend/tests/unit/llm/test_concierge_fake_reply.py`
 
 **Interfaces:**
-- Produces: `Intent.remember`, `Intent.calendar`, `Intent.rent_status`, `Intent.rewrite_draft` (string values equal the names). `remember`/`calendar` use `PlanStep.text` (rule text, scheduling request); `rent_status`/`rewrite_draft` need no text; all four leave `case_id`/`task_ref`/`view` null, except `rewrite_draft` which may carry the draft's `case_id`.
+- Produces: `Intent.remember`, `Intent.calendar`, `Intent.rent_status` (string values equal the names). `remember`/`calendar` use `PlanStep.text` (rule text, scheduling request); `rent_status`/`rewrite_draft` need no text; all four leave `case_id`/`task_ref`/`view` null, except `rewrite_draft` which may carry the draft's `case_id`.
 
 - [ ] **Step 1: Write failing tests:** `test_v8_prompt_names_the_four_new_intents_and_the_three_rules` (loaded v8 text mentions each intent, negation, "a word is not an intent", several requests in one message; v7's sha256 is unchanged); `test_fake_planner_emits_remember_for_a_rule` ("from now on never promise a repair date": one `remember` step with that text); `test_fake_planner_emits_calendar_for_a_visit` ("book a visit with the plumber on Thursday": one `calendar` step); `test_fake_planner_does_not_book_a_payment_schedule`; `test_fake_planner_drafts_about_unpaid_rent` ("Draft a polite WhatsApp message asking the tenant about the unpaid rent": `draft_reply`, no `rent_status`); `test_fake_planner_drafts_about_a_visit` ("Draft a message to the plumber to schedule a visit tomorrow": `draft_reply`, no `calendar`); `test_fake_planner_respects_negation` ("Do NOT schedule a visit yet, just check the lease": no `calendar`, one document step); `test_fake_planner_returns_several_steps` ("mark #a1b2c3 done and snooze #d4e5f6 2d": two steps in that order).
 - [ ] **Step 2:** `uv run pytest tests/unit/llm/test_concierge_agent.py tests/unit/llm/test_concierge_fake_reply.py -q`. Expected: FAIL.
@@ -77,7 +77,7 @@
 - [ ] **Step 2:** `uv run pytest tests/unit/pipeline/test_concierge_remember.py tests/unit/pipeline/test_concierge_guard_intents.py tests/unit/pipeline/test_concierge_validate.py -q`. Expected: FAIL (`KeyError`/unknown intent).
 - [ ] **Step 3:** Implement the four handlers, register them in `_HANDLERS`, add `remember` and `calendar` to `_NEEDS_TEXT`. Company scoping comes from `ctx.company_id`.
 - [ ] **Step 4:** Same command, then `make check`. Expected: PASS.
-- [ ] **Step 5: Commit** `feat(concierge): execute remember, calendar, rent_status and rewrite_draft steps`.
+- [ ] **Step 5: Commit** `feat(concierge): execute remember, calendar and rent_status steps`.
 
 ### Task 4: Turn pipeline without the keyword gate
 
@@ -151,20 +151,20 @@
 - [ ] **Step 4:** Same command, `make check`. Expected: PASS.
 - [ ] **Step 5: Commit** `refactor(agent): count and list questions go through query_data`.
 
-### Task 9: Rent and rewrite pre-guards become intents
+### Task 9: Rent and rewrite pre-guards removed (rent becomes an intent; rewrite becomes `draft_reply`)
 
 **Files:**
 - Modify: `routes.py` (delete the `rewrite_answer` block ~1770-1784 and the `rent_data_answer` block ~1788-1803), `backend/app/api/agent/rent_guard.py` (delete `_RENT_MONEY_QUESTION` and `rent_data_answer`, keep the re-exported text if anything imports it), `backend/app/api/agent/draft_requests.py` (delete `_REWRITE`, `_ABOUT_A_DRAFT`, `rewrite_answer`; keep `channel_note`)
 - Test: `backend/tests/unit/api/test_super_agent_ask.py`, existing tests of `rent_guard` and `draft_requests` (rewrite or delete the ones that test the removed regexes, keeping the answer-text assertions)
 
 **Interfaces:**
-- Consumes: `concierge_reads.rent_status` and `concierge_reads.rewrite_draft` from Task 3, which `run_plan` already executes; no API-layer registration needed.
+- Consumes: `concierge_reads.rent_status` from Task 3, which `run_plan` already executes; no API-layer registration needed. RULING (controller, 2026-11-18): there is NO `rewrite_draft` intent (removed in commit 9bb84d9): `draft_reply` already redrafts with the owner's own words as guidance (`app/pipeline/redraft.py`), so the old `rewrite_answer` guard was stale and is simply deleted, with `REWRITE_UNSUPPORTED_ANSWER`.
 
-- [ ] **Step 1: Write failing tests:** `test_unpaid_rent_in_a_draft_request_is_drafted` (plan `draft_reply` for "Draft a polite WhatsApp message asking the tenant about the unpaid rent": a draft card is returned and the answer does not contain `NO_RENT_DATA_ANSWER`); `test_who_owes_rent_gets_the_honest_answer_via_rent_status` (plan `rent_status`: answer equals `NO_RENT_DATA_ANSWER`, stage not `rent_data_unavailable`); `test_draft_and_rent_status_in_one_message` (plan `[draft_reply, rent_status]`: draft card plus the disclaimer text); `test_make_it_shorter_uses_rewrite_draft` (plan `rewrite_draft`: answer equals `REWRITE_UNSUPPORTED_ANSWER`); `test_word_rewrite_in_a_question_is_not_a_rewrite_request` ("what is the rewrite deadline for the lease" with an `answer` plan: not the rewrite text).
+- [ ] **Step 1: Write failing tests:** `test_unpaid_rent_in_a_draft_request_is_drafted` (plan `draft_reply` for "Draft a polite WhatsApp message asking the tenant about the unpaid rent": a draft card is returned and the answer does not contain `NO_RENT_DATA_ANSWER`); `test_who_owes_rent_gets_the_honest_answer_via_rent_status` (plan `rent_status`: answer equals `NO_RENT_DATA_ANSWER`, stage not `rent_data_unavailable`); `test_draft_and_rent_status_in_one_message` (plan `[draft_reply, rent_status]`: draft card plus the disclaimer text); `test_make_it_shorter_reaches_the_planner` ("make it shorter" with a `draft_reply` plan: a redraft result, no canned "can't rewrite" text); `test_word_rewrite_in_a_question_is_answered` ("what is the rewrite deadline for the lease" with an `answer` plan: the planner's answer).
 - [ ] **Step 2:** `uv run pytest tests/unit/api -q`. Expected: FAIL.
 - [ ] **Step 3:** Delete both pre-guard blocks and the two regex helpers; fix imports.
 - [ ] **Step 4:** Same command, `make check`. Expected: PASS.
-- [ ] **Step 5: Commit** `refactor(agent): rent and rewrite answers are planner intents, not keyword guards`.
+- [ ] **Step 5: Commit** `refactor(agent): the rent answer is a planner intent and the stale rewrite guard is gone`.
 
 ### Task 10: Rule keyword overrides removed, outage fallback in `ask_agent`
 
