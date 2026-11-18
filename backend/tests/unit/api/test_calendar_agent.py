@@ -7,23 +7,28 @@ Verifies:
 4. FakeCalendarClient CRUD, free/busy, and conflict handling with fake credentials.
 5. Conflict resolution & alternative slot proposal.
 6. REST API: /api/calendar/propose, /api/calendar/events, and 1-click /api/calendar/events/{id}/approve.
-7. Super Agent integration: /api/agent/ask producing type="calendar_item" previewCard with 1-click action.
+7. Super Agent integration: a planned `calendar` step producing a type="calendar_item" previewCard with 1-click action.
 8. Super Agent listing of scheduled visits.
+9. The planner, not a word, decides what is a calendar request.
 """
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.agent import routes as agent_routes
+from app.api.agent.cards import PreviewCardData
+from app.api.agent.intent_responses import calendar_segment
 from app.channels.calendar import (
     CalendarAttendee,
     CalendarEventCreate,
     FakeCalendarClient,
 )
-from app.contracts import CaseState, Category, Urgency
+from app.contracts import CaseState, Category, ConciergePlan, Intent, PlanStep, Urgency
 from app.core.settings import Settings
 from app.db.models import CalendarEventRow, Case, Company, Unit
 from app.llm.agents.calendar import (
@@ -32,6 +37,8 @@ from app.llm.agents.calendar import (
     propose_calendar_event,
 )
 from app.main import create_app
+from app.pipeline.concierge import StepResult
+from app.pipeline.concierge_reads import CALENDAR_POINTER
 from tests.api_auth import as_owner, with_conversation
 
 SETTINGS = Settings(
@@ -49,8 +56,17 @@ def force_fake_calendar():
     with (
         patch("app.channels.calendar.get_calendar_client", return_value=fake),
         patch("app.api.calendar.routes.get_calendar_client", return_value=fake),
+        patch("app.api.agent.routes.get_calendar_client", return_value=fake),
     ):
         yield fake
+
+
+def _step(intent: Intent, *, text: str | None = None, case_id: UUID | None = None) -> PlanStep:
+    return PlanStep(intent=intent, case_id=case_id, task_ref=None, text=text, view=None)
+
+
+def _plan(*steps: PlanStep) -> ConciergePlan:
+    return ConciergePlan(in_scope=True, steps=list(steps), reply=None)
 
 
 # ---------------------------------------------------------------------------
@@ -300,17 +316,18 @@ def test_super_agent_schedule_command_returns_preview_card():
     mock_wf = MagicMock()
 
     app = as_owner(create_app(SETTINGS, engine=mock_engine, workflow_client=mock_wf))
+    query = "Schedule Kevin to visit Keizersgracht 42-A on Friday at 3 PM"
 
     with (
         patch("app.api.agent.routes.Session", return_value=mock_sess),
+        patch("app.api.agent.routes.run_agent") as planner,
         TestClient(app) as client,
     ):
-        res = client.post(
-            "/api/agent/ask",
-            json={"query": "Schedule Kevin to visit Keizersgracht 42-A on Friday at 3 PM"},
-        )
+        planner.return_value.output = _plan(_step(Intent.calendar, text=query))
+        res = client.post("/api/agent/ask", json={"query": query})
         assert res.status_code == 200
         data = res.json()
+        assert data["debugInfo"]["pipeline_stage"] == "calendar"
 
         # Check answer & previewCard
         assert "Kevin van Dijk" in data["answer"]
@@ -361,17 +378,182 @@ def test_super_agent_calendar_schedule_inquiry():
     mock_wf = MagicMock()
 
     app = as_owner(create_app(SETTINGS, engine=mock_engine, workflow_client=mock_wf))
+    query = "What visits do I have scheduled this week on my calendar?"
 
     with (
         patch("app.api.agent.routes.Session", return_value=mock_sess),
+        patch("app.api.agent.routes.run_agent") as planner,
         TestClient(app) as client,
     ):
-        res = client.post(
-            "/api/agent/ask",
-            json={"query": "What visits do I have scheduled this week on my calendar?"},
-        )
+        planner.return_value.output = _plan(_step(Intent.calendar, text=query))
+        res = client.post("/api/agent/ask", json={"query": query})
         assert res.status_code == 200
         data = res.json()
+        assert data["debugInfo"]["pipeline_stage"] == "calendar"
         assert "Plumbing Inspection" in data["answer"]
         assert "Keizersgracht 42-A" in data["answer"]
         assert any(b["label"] == "Open Calendar" for b in data["actions"])
+
+
+# ---------------------------------------------------------------------------
+# 5. THE PLANNER, NOT A WORD, DECIDES WHAT IS A CALENDAR REQUEST
+# ---------------------------------------------------------------------------
+
+CASE_ID, UNIT_ID = UUID(int=11), UUID(int=12)
+DRAFT_CARD = PreviewCardData(
+    type="draft_message",
+    channel="whatsapp",
+    recipient="+31612345678",
+    unitLabel="Keizersgracht 42-A",
+    body="Hallo, kan de loodgieter morgen langskomen?",
+    status="pending",
+    actionId=str(UUID(int=13)),
+    caseId=str(CASE_ID),
+)
+DRAFTED = StepResult(
+    Intent.draft_reply, True, "Reply drafted.", {"approval_ids": [str(UUID(int=14))], "case_id": str(CASE_ID)}, None
+)
+
+
+def _portfolio_session() -> MagicMock:
+    """One open case on Keizersgracht 42-A; no contractors and nothing on the calendar."""
+    company = Company(id=TEST_COMP_ID, name="EstateOS Test")
+    unit = Unit(id=UNIT_ID, company_id=TEST_COMP_ID, address="Keizersgracht 42-A")
+    case = Case(
+        id=CASE_ID,
+        company_id=TEST_COMP_ID,
+        unit_id=UNIT_ID,
+        category=Category.maintenance,
+        urgency=Urgency.normal,
+        state=CaseState.waiting_on_third_party,
+        summary="Leaking kitchen tap.",
+    )
+    rows: dict[str, list[Any]] = {"from companies": [company], "from cases": [case]}
+    by_model: dict[Any, Any] = {Company: company, Case: case, Unit: unit}
+
+    def scalars(query: object) -> MagicMock:
+        found = next((r for table, r in rows.items() if table in str(query).lower()), [])
+        result = MagicMock()
+        result.all.return_value = found
+        result.first.return_value = found[0] if found else None
+        return result
+
+    sess = MagicMock()
+    sess.scalars.side_effect = scalars
+    sess.scalar.return_value = None
+    sess.get.side_effect = with_conversation(lambda model, _ident: by_model.get(model))
+    sess.__enter__.return_value = sess
+    return sess
+
+
+def _ask(
+    plan: ConciergePlan, query: str, run_plan: MagicMock | None = None
+) -> tuple[dict[str, Any], MagicMock, MagicMock]:
+    """Ask with the planner stubbed to `plan`. The calendar helper runs for real behind a spy; a drafted reply resolves
+    to `DRAFT_CARD`; no lease document is indexed; no model stands behind the fallback chain."""
+    sess = _portfolio_session()
+    resolve = MagicMock(wraps=agent_routes._resolve_calendar_action)
+    app = as_owner(create_app(SETTINGS, engine=MagicMock(), workflow_client=MagicMock()))
+    with (
+        patch("app.api.agent.routes.Session", return_value=sess),
+        patch("app.api.agent.routes.run_agent") as planner,
+        patch("app.api.agent.routes.run_plan", run_plan or MagicMock(return_value=[])),
+        patch("app.api.agent.routes._resolve_calendar_action", resolve),
+        patch("app.api.agent.routes._resolve_draft_card", return_value=DRAFT_CARD),
+        patch("app.api.agent.routes.search_hybrid", return_value=[]),
+        patch("app.api.agent.routes._research_answer", return_value=None),
+        patch("app.api.agent.routes._generate_chat_answer", return_value=None),
+        TestClient(app) as client,
+    ):
+        planner.return_value.output = plan
+        res = client.post("/api/agent/ask", json={"query": query})
+    assert res.status_code == 200
+    planner.assert_called_once()
+    return res.json(), sess, resolve
+
+
+def _events_added(sess: MagicMock) -> list[CalendarEventRow]:
+    return [c.args[0] for c in sess.add.call_args_list if isinstance(c.args[0], CalendarEventRow)]
+
+
+def test_calendar_intent_books_a_visit() -> None:
+    """No calendar word in the message: the planner's `calendar` step books the visit (its text is the request)."""
+    plan = _plan(_step(Intent.calendar, text="book the plumber Thursday at ten"))
+    data, sess, resolve = _ask(plan, "can the plumber come Thursday at ten")
+
+    resolve.assert_called_once()
+    assert resolve.call_args.args[0] == "book the plumber Thursday at ten"
+    assert data["debugInfo"]["pipeline_stage"] == "calendar"
+    assert data["previewCard"]["type"] == "calendar_item"
+    assert [c["type"] for c in data["cards"]] == ["calendar_item"]
+    assert data["cards"][0]["actions"][0]["label"] == "Approve & Add to Calendar"
+    assert data["actions"][0]["actionType"] == "approve_calendar"
+    assert [e.status for e in _events_added(sess)] == ["proposed"]
+    # a proposed visit sets the conversation's focus, as the calendar answer always did
+    assert data["focus_state"]["unit_label"] == "Keizersgracht 42-A"
+    assert data["focus_state"]["case_id"] == str(CASE_ID)
+
+
+def test_payment_schedule_is_not_a_calendar_request() -> None:
+    answer = "Unit 3 pays its rent on the 1st of each month."
+    run_plan = MagicMock(return_value=[StepResult(Intent.answer, True, answer, None, None)])
+    data, sess, resolve = _ask(
+        _plan(_step(Intent.answer)), "what is the payment schedule for unit 3", run_plan=run_plan
+    )
+
+    resolve.assert_not_called()  # the word "schedule" no longer reaches the calendar
+    assert data["answer"] == answer
+    assert data["debugInfo"]["pipeline_stage"] == "llm_concierge"
+    assert all(c["type"] != "calendar_item" for c in data["cards"])
+    assert _events_added(sess) == []
+
+
+def test_draft_that_mentions_a_visit_is_a_draft() -> None:
+    run_plan = MagicMock(return_value=[DRAFTED])
+    data, sess, resolve = _ask(
+        _plan(_step(Intent.draft_reply, case_id=CASE_ID)),
+        "Draft a message to the plumber to schedule a visit tomorrow",
+        run_plan=run_plan,
+    )
+
+    resolve.assert_not_called()
+    assert [s.intent for s in run_plan.call_args.args[3].steps] == [Intent.draft_reply]
+    assert data["previewCard"]["type"] == "draft_message"
+    assert [c["type"] for c in data["cards"]] == ["draft_message"]
+    assert _events_added(sess) == []
+
+
+def test_negated_schedule_books_nothing() -> None:
+    lease = "Clause 4: the tenant gives one month notice."
+    run_plan = MagicMock(return_value=[StepResult(Intent.read_document, True, lease, None, None)])
+    data, sess, resolve = _ask(
+        _plan(_step(Intent.read_document, text="lease")),
+        "Do NOT schedule a visit yet, just check the lease",
+        run_plan=run_plan,
+    )
+
+    resolve.assert_not_called()
+    assert _events_added(sess) == []
+    assert lease in data["answer"]
+    assert all(c["type"] != "calendar_item" for c in data["cards"])
+
+
+def test_calendar_and_draft_in_one_message() -> None:
+    run_plan = MagicMock(return_value=[DRAFTED])
+    plan = _plan(
+        _step(Intent.draft_reply, case_id=CASE_ID), _step(Intent.calendar, text="book the plumber Thursday at 10:00")
+    )
+    data, sess, _ = _ask(plan, "Draft a reply to the tenant and book the plumber Thursday at 10:00", run_plan=run_plan)
+
+    assert [s.intent for s in run_plan.call_args.args[3].steps] == [Intent.draft_reply]  # calendar never ran twice
+    assert [c["type"] for c in data["cards"]] == ["draft_message", "calendar_item"]
+    assert [c["type"] for c in data["previewCards"]] == ["draft_message", "calendar_item"]
+    assert data["previewCard"]["type"] == "draft_message"
+    assert any(a["actionType"] == "approve_calendar" for a in data["actions"])
+    assert [e.status for e in _events_added(sess)] == ["proposed"]
+
+
+def test_a_calendar_step_the_helper_cannot_place_points_to_the_calendar_page() -> None:
+    """Nothing to book or look up in the step's text: the pipeline calendar handler's own pointer, no card."""
+    segment = calendar_segment((None, None, [], []))
+    assert (segment.text, segment.cards, segment.actions, segment.preview_card) == (CALENDAR_POINTER, [], [], None)

@@ -16,13 +16,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
-from app.api.agent.cards import ActionButtonData, AssistantCardData, CardActionData, PreviewCardData, build_cards_list
+from app.api.agent.cards import ActionButtonData, AssistantCardData, PreviewCardData, build_cards_list
+from app.api.agent.cards import CardActionData as CardActionData  # re-exported: callers import the card shapes here
 from app.api.agent.draft_requests import channel_note, rewrite_answer
 from app.api.agent.fallback import domain_fallback_answer
 from app.api.agent.focus import new_chat_fact, next_focus
 from app.api.agent.intent_responses import (
     STAGES,
     Segment,
+    calendar_segment,
     compose,
     merge,
     preview_cards,
@@ -99,7 +101,7 @@ class AskAgentRequest(BaseModel):
 class DebugInfo(BaseModel):
     pipeline_stage: str = Field(
         default="llm_concierge",
-        description="llm_concierge | regex_calendar | regex_document | memory_rule | fake_router | domain_fallback",
+        description="llm_concierge | calendar | regex_document | memory_rule | fake_router | domain_fallback",
     )
     fallback_reason: str | None = None
 
@@ -1180,15 +1182,22 @@ def _owned_conversation(session: Session, principal: Principal, conversation_id:
     ).first()
 
 
-def _api_steps(engine: Engine, company_id: UUID) -> dict[Intent, Callable[[PlanStep], Segment]]:
+def _api_steps(
+    engine: Engine, company_id: UUID, briefs: list[CaseBrief]
+) -> dict[Intent, Callable[[PlanStep], Segment]]:
     """The plan steps this route answers with its own cards (`intent_responses`), each in a short session of its own;
-    `compose` sends every other step to `run_plan`."""
+    `compose` sends every other step to `run_plan`. A `calendar` step's text is the planner's: the helper reads a time
+    from it and matches it against the company's own cases and contractors; every id and invitee comes from those
+    rows."""
 
     def remember(step: PlanStep) -> Segment:
         with Session(engine) as session:
             return remember_segment(session, company_id, step)
 
-    return {Intent.remember: remember}
+    def calendar(step: PlanStep) -> Segment:
+        return calendar_segment(_resolve_calendar_action(step.text or "", engine, company_id, briefs))
+
+    return {Intent.remember: remember, Intent.calendar: calendar}
 
 
 def _finish_agent_response(
@@ -1492,56 +1501,6 @@ def ask_agent(
                 now=now,
                 briefs=briefs,
             )
-        # Specific Task Trigger: Calendar / Appointment / Visit inquiry or booking
-        cal_pattern = r"\b(calendar|schedule|appointment|visit|afspraak|agenda|book|boeken|inplannen)\b"
-        if re.search(cal_pattern, q_low):
-            cal_ans, cal_card, cal_actions, cal_steps = _resolve_calendar_action(req.query, engine, company_id, briefs)
-            if cal_ans:
-                cal_cards = []
-                if cal_card:
-                    cal_cards.append(
-                        AssistantCardData(
-                            id=cal_card.actionId or "cal-0",
-                            type="calendar_item",
-                            badgeLabel=cal_card.badgeLabel or "CALENDAR",
-                            badgeColor="emerald",
-                            title=cal_card.title or "Scheduled Appointment",
-                            subtitle=cal_card.subtitle,
-                            body=cal_card.body,
-                            unitLabel=cal_card.unitLabel,
-                            recipient=cal_card.recipient,
-                            dueDate=cal_card.dueDate,
-                            actions=[
-                                CardActionData(
-                                    label="Approve & Add to Calendar",
-                                    kind="api_call",
-                                    endpoint=f"/api/calendar/events/{cal_card.actionId}/approve"
-                                    if cal_card.actionId
-                                    else None,
-                                    variant="primary",
-                                )
-                            ]
-                            if cal_card.actionId
-                            else [],
-                        )
-                    )
-                return _finish_agent_response(
-                    engine=engine,
-                    conv_id=conv_id,
-                    req=req,
-                    ans_text=cal_ans,
-                    case_refs=[str(b.case_id) for b in briefs] if briefs else [],
-                    suggested_action=cal_actions[0].label if cal_actions else None,
-                    action_buttons=cal_actions,
-                    step_descriptions=cal_steps,
-                    preview_card=cal_card,
-                    cards_list=cal_cards,
-                    pipeline_stage="regex_calendar",
-                    fallback_reason=None,
-                    suggestions=["Check tomorrow's calendar", "View maintenance tickets", "Draft tenant update"],
-                    now=now,
-                    briefs=briefs,
-                )
         # Specific Task Trigger: Document / Lease / Contract / Terms query
         doc_pattern = (
             r"\b(lease|agreement|contract|deposit|borg|document|pdf|clause|terms|notice period|sublet"
@@ -1988,7 +1947,7 @@ def ask_agent(
                 )
                 return results
 
-            api_steps = _api_steps(engine, company_id)
+            api_steps = _api_steps(engine, company_id, briefs)
             segments = compose(plan, api_steps, run_rest)
             rest_at = rest_position(plan, api_steps)
             if rest_at is not None:  # what follows finishes the run_plan answer: it reads the steps run_plan ran
@@ -2061,7 +2020,8 @@ def ask_agent(
         and not is_nav_command
         and not _clean_executive_answer(ans_text).strip()
     )
-    if needs_fallback or needs_view_prose:
+    beside_api_answers = len(segments) > 1  # research prose never sits beside a rule or a visit the API layer answered
+    if (needs_fallback or needs_view_prose) and not beside_api_answers:
         if needs_fallback:
             pipeline_stage = "domain_fallback"
             fallback_reason = fallback_reason or "Empty or placeholder response"

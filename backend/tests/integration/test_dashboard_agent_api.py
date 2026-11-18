@@ -269,3 +269,55 @@ def test_three_requests_in_one_message_all_run_against_postgres(world: World) ->
         with Session(world.engine) as s, s.begin():
             s.query(MemoryItem).filter(MemoryItem.company_id == world.company).delete()
             s.query(TaskRow).filter(TaskRow.id == task_id).delete()
+
+
+def test_calendar_step_proposes_a_visit_against_postgres(world: World) -> None:
+    """A planned `calendar` step stores one PROPOSED event for the owner's company and answers with its approve card.
+    The step's text is model output: another company's contractor it names is never invited."""
+    from datetime import date
+    from unittest.mock import patch
+
+    from app.channels.calendar import FakeCalendarClient
+    from app.contracts import Channel, ConciergePlan, Intent, PlanStep
+    from app.db.enums import PersonKind
+    from app.db.models import CalendarEventRow, ChannelIdentity, Person
+
+    since = date(2026, 1, 1)
+    with Session(world.engine) as s, s.begin():
+        other = s.scalar(select(AgentConversation.company_id).where(AgentConversation.id == world.foreign_conversation))
+        assert other is not None
+        bram = Person(
+            company_id=other, kind=PersonKind.contractor, display_name="Bram Visser", trade="plumber", valid_from=since
+        )
+        s.add(bram)
+        s.flush()
+        s.add(
+            ChannelIdentity(
+                company_id=other, person_id=bram.id, channel=Channel.gmail, identity="bram@b.test", valid_from=since
+            )
+        )
+    step = PlanStep(
+        intent=Intent.calendar, case_id=None, task_ref=None, text="book Bram Visser Thursday at 10:00", view=None
+    )
+    try:
+        with (
+            patch("app.api.agent.routes.run_agent") as planner,
+            patch("app.api.agent.routes.get_calendar_client", return_value=FakeCalendarClient()),
+        ):
+            planner.return_value.output = ConciergePlan(in_scope=True, steps=[step], reply=None)
+            r = world.client.post("/api/agent/ask", json={"query": "can Bram come Thursday at 10:00?"}, headers=H)
+        assert r.status_code == 200
+        body = r.json()
+        with Session(world.engine) as s:
+            events = s.scalars(select(CalendarEventRow).where(CalendarEventRow.company_id.in_([world.company, other])))
+            [event] = events.all()
+        assert (event.company_id, event.status, event.attendees) == (world.company, "proposed", [])
+        assert "Bram" not in event.title
+        assert body["debugInfo"]["pipeline_stage"] == "calendar"
+        assert (body["previewCard"]["type"], body["previewCard"]["actionId"]) == ("calendar_item", str(event.id))
+        assert body["actions"][0]["payload"] == f"/api/calendar/events/{event.id}/approve"
+    finally:
+        with Session(world.engine) as s, s.begin():
+            s.query(CalendarEventRow).filter(CalendarEventRow.company_id.in_([world.company, other])).delete()
+            s.query(ChannelIdentity).filter(ChannelIdentity.company_id == other).delete()
+            s.query(Person).filter(Person.company_id == other).delete()

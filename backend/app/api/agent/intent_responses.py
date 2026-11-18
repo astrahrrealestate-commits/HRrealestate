@@ -1,8 +1,9 @@
 """The plan steps the Super Agent's API layer answers itself, and the composer that runs a whole plan.
 
-A `remember` step gets the dashboard's own rule card and buttons (`remember_segment`); every other step of the plan runs
-through `run_plan` in ONE call. `compose` keeps plan order, and a step that fails, or a builder that raises, becomes its
-own failure text: it never hides what the other steps did. `ask_agent` merges the segments into one answer.
+A `remember` step gets the dashboard's own rule card and buttons (`remember_segment`), a `calendar` step the proposed
+visit or the visit list (`calendar_segment`); every other step of the plan runs through `run_plan` in ONE call.
+`compose` keeps plan order, and a step that fails, or a builder that raises, becomes its own failure text: it never
+hides what the other steps did. `ask_agent` merges the segments into one answer.
 """
 
 from collections.abc import Callable, Collection, Mapping, Sequence
@@ -11,7 +12,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.api.agent.cards import ActionButtonData, AssistantCardData, PreviewCardData, build_cards_list
+from app.api.agent.cards import ActionButtonData, AssistantCardData, CardActionData, PreviewCardData, build_cards_list
 from app.context import memory_items
 from app.contracts import ConciergePlan, Intent, PlanStep
 from app.core.logging import get_logger
@@ -19,14 +20,20 @@ from app.db.enums import MemoryKind, MemoryScope, MemoryStatus
 from app.pipeline.concierge import StepResult
 from app.pipeline.concierge_base import NEED_DETAIL, STEP_FAILED
 from app.pipeline.concierge_outcome import assemble_answer
+from app.pipeline.concierge_reads import CALENDAR_POINTER
 from app.pipeline.concierge_reply import reply_allowed
 from app.pipeline.concierge_writes import rule_text
 
 log = get_logger(__name__)
 
 # the debug stage of an answer whose steps the API layer answered on its own
-STAGES: Mapping[Intent, str] = {Intent.remember: "memory_rule"}
+STAGES: Mapping[Intent, str] = {Intent.remember: "memory_rule", Intent.calendar: "calendar"}
+# cards for the owner's own follow-up (a proposed rule, a proposed visit): never what an answer beside them is about
+_SIDE_CARDS = frozenset({"memory_item", "calendar_item"})
 _SETTINGS = "/settings"
+
+# what `_resolve_calendar_action` (routes) found for a `calendar` step: answer, visit card, buttons, steps
+CalendarResolved = tuple[str | None, PreviewCardData | None, list[ActionButtonData], list[str]]
 
 
 @dataclass(frozen=True)
@@ -119,6 +126,46 @@ def _proposed(rule_id: str, text: str) -> Segment:
     )
 
 
+def calendar_segment(resolved: CalendarResolved) -> Segment:
+    """A `calendar` step, as `_resolve_calendar_action` resolved it: a PROPOSED visit with its approve card (stored only
+    as proposed; it reaches the calendar on the owner's click), or the visits already on the calendar. Nothing it could
+    book or look up gets the pipeline calendar handler's own pointer to the Calendar page."""
+    answer, card, actions, steps = resolved
+    if not answer:
+        return _said(CALENDAR_POINTER)
+    return Segment(answer, _calendar_cards(card), actions, steps, card)
+
+
+def _calendar_cards(cal_card: PreviewCardData | None) -> list[AssistantCardData]:
+    cal_cards = []
+    if cal_card:
+        cal_cards.append(
+            AssistantCardData(
+                id=cal_card.actionId or "cal-0",
+                type="calendar_item",
+                badgeLabel=cal_card.badgeLabel or "CALENDAR",
+                badgeColor="emerald",
+                title=cal_card.title or "Scheduled Appointment",
+                subtitle=cal_card.subtitle,
+                body=cal_card.body,
+                unitLabel=cal_card.unitLabel,
+                recipient=cal_card.recipient,
+                dueDate=cal_card.dueDate,
+                actions=[
+                    CardActionData(
+                        label="Approve & Add to Calendar",
+                        kind="api_call",
+                        endpoint=f"/api/calendar/events/{cal_card.actionId}/approve" if cal_card.actionId else None,
+                        variant="primary",
+                    )
+                ]
+                if cal_card.actionId
+                else [],
+            )
+        )
+    return cal_cards
+
+
 def rest_plan(plan: ConciergePlan, api_intents: Collection[Intent]) -> ConciergePlan:
     """`plan` without the steps the API layer answers (unchanged when there are none). The model's reply or research
     stays only when the WHOLE plan could show it: an answer must never sit beside a real action's summary just because
@@ -173,14 +220,16 @@ def _ran(rest: ConciergePlan, run_rest: RunRest, *, contain: bool) -> Segment:
 
 
 def merge(segments: Sequence[Segment]) -> Segment:
-    """One answer: the texts joined by a blank line; cards, actions and steps concatenated in order; the first preview
-    card any segment has."""
+    """One answer: the texts joined by a blank line; cards, actions and steps concatenated in order. Its preview card
+    (what the conversation's focus and the dashboard's buttons follow) is the first that is not a proposed rule or
+    visit, else the first card any segment has."""
+    cards = preview_cards(segments)
     return Segment(
         text="\n\n".join(s.text for s in segments if s.text.strip()),
         cards=[c for s in segments for c in s.cards],
         actions=[a for s in segments for a in s.actions],
         steps=[step for s in segments for step in s.steps],
-        preview_card=next((s.preview_card for s in segments if s.preview_card is not None), None),
+        preview_card=next((c for c in cards if c.type not in _SIDE_CARDS), cards[0] if cards else None),
     )
 
 

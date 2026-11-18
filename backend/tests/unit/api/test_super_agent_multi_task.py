@@ -7,7 +7,8 @@ from uuid import UUID
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.agent.intent_responses import Segment, compose
+from app.api.agent.cards import PreviewCardData
+from app.api.agent.intent_responses import Segment, compose, merge
 from app.contracts import ConciergePlan, Intent, PlanStep
 from app.core.settings import Settings
 from app.db.enums import MemoryStatus
@@ -150,6 +151,70 @@ def test_a_failing_run_plan_only_plan_keeps_the_domain_fallback() -> None:
     assert STEP_FAILED not in data["answer"]
 
 
+# ---- a rule card is not what the conversation is about; research prose never sits beside a write ------------------
+
+DRAFT = PreviewCardData(
+    type="draft_message",
+    channel="whatsapp",
+    recipient="+31612345678",
+    unitLabel="Singel 412",
+    status="pending",
+    actionId=str(UUID(int=21)),
+    caseId=str(UUID(int=22)),
+)
+DRAFTED = StepResult(Intent.draft_reply, True, "Reply drafted.", {"approval_ids": [str(UUID(int=23))]}, None)
+
+
+def test_a_rule_beside_a_draft_leaves_the_preview_and_the_focus_to_the_draft() -> None:
+    draft = PlanStep(intent=Intent.draft_reply, case_id=UUID(int=22), task_ref=None, text=None, view=None)
+    with patch("app.api.agent.routes._resolve_draft_card", return_value=DRAFT):
+        data, _ = _ask(
+            _plan(_step(Intent.remember, text=RULE), draft),
+            "remember that rent is due on the 1st and draft a reply to the tenant",
+            MagicMock(return_value=[DRAFTED]),
+        )
+
+    assert [c["type"] for c in data["previewCards"]] == ["memory_item", "draft_message"]
+    assert data["previewCard"]["type"] == "draft_message"
+    assert data["focus_state"] == {
+        "case_id": DRAFT.caseId,
+        "unit_label": "Singel 412",
+        "recipient": DRAFT.recipient,
+        "last_action_id": DRAFT.actionId,
+        "channel": "whatsapp",
+    }
+
+
+def test_a_rule_card_never_becomes_the_conversation_focus() -> None:
+    data, _ = _ask(_plan(_step(Intent.remember, text=RULE)), "remember that rent is due on the 1st", MagicMock())
+
+    assert data["previewCard"]["type"] == "memory_item"
+    assert data["focus_state"] == {}  # never "Company Portfolio" beside the next turn's ticket
+
+
+def test_a_rule_beside_a_view_gets_no_research_prose() -> None:
+    """The view step's text is empty once cleaned, which alone would ask the research loop for prose: never beside a
+    real write answered by the API layer."""
+    view = PlanStep(intent=Intent.open_view, case_id=None, task_ref=None, text=None, view="inbox")
+    opened = StepResult(Intent.open_view, True, "Opening inbox.", None, "inbox")
+    with (
+        patch("app.api.agent.routes._research_answer", return_value=None) as research,
+        patch("app.api.agent.routes._generate_chat_answer", return_value="You have 3 unread threads.") as chat,
+    ):
+        data, _ = _ask(
+            _plan(_step(Intent.remember, text=RULE), view),
+            "remember that rent is due on the 1st and show me the inbox",
+            MagicMock(return_value=[opened]),
+        )
+
+    research.assert_not_called()
+    chat.assert_not_called()
+    assert "unread threads" not in data["answer"]
+    assert "proposed standing rule" in data["answer"]
+    assert [c["type"] for c in data["cards"]] == ["memory_item"]
+    assert any(a["payload"] == "/inbox" for a in data["actions"])  # the view's own button still shows
+
+
 # ---- the composer itself ------------------------------------------------------------------------------------------
 
 
@@ -225,3 +290,19 @@ def test_a_reply_never_sits_beside_an_api_step(needs_research: bool) -> None:
     compose(plan, {Intent.remember: lambda _s: _said("rule")}, lambda rest: runs.append(rest) or [])
     [rest] = runs
     assert ([s.intent for s in rest.steps], rest.reply, rest.needs_research) == ([Intent.answer], None, False)
+
+
+def _carded(card_type: str) -> Segment:
+    return Segment(card_type, [], [], [], PreviewCardData(type=card_type))
+
+
+def test_merge_prefers_a_card_that_is_not_a_rule_or_a_visit() -> None:
+    whole = merge([_carded("memory_item"), _carded("calendar_item"), _said("no card"), _carded("draft_message")])
+    assert whole.preview_card is not None
+    assert whole.preview_card.type == "draft_message"
+
+
+def test_merge_falls_back_to_the_first_card_when_only_rules_or_visits_have_one() -> None:
+    whole = merge([_said("no card"), _carded("calendar_item"), _carded("memory_item")])
+    assert whole.preview_card is not None
+    assert whole.preview_card.type == "calendar_item"

@@ -12,6 +12,8 @@ _FROM_CARD = {
     "actionId": "last_action_id",
     "channel": "channel",
 }
+# cards about the whole company (a proposed standing rule), never about what this conversation discusses
+_NOT_A_FOCUS = frozenset({"memory_item"})
 
 NEW_CHAT_FACT = (
     "This is a new conversation: the owner has said nothing earlier in it. The cases listed here are portfolio data, "
@@ -21,9 +23,10 @@ NEW_CHAT_FACT = (
 
 
 def next_focus(current: Mapping[str, Any], card: Mapping[str, Any] | None) -> dict[str, Any]:
-    """The focus after a turn: the old one plus whatever the turn's preview card names. No card, no change."""
+    """The focus after a turn: the old one plus whatever the turn's preview card names. No card (or a standing-rule
+    card), no change."""
     focus = dict(current)
-    if card:
+    if card and card.get("type") not in _NOT_A_FOCUS:
         for field, key in _FROM_CARD.items():
             if card.get(field):
                 focus[key] = str(card[field])
