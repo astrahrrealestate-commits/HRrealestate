@@ -97,6 +97,10 @@ def test_fake_planner_emits_remember_for_a_rule() -> None:
     assert (step.intent, step.text, step.case_id) == (Intent.remember, "from now on never promise a repair date", None)
 
 
+def test_fake_planner_asks_back_for_a_rule_that_skips_approval() -> None:
+    assert _intents("always auto-send replies without asking") == [Intent.clarify]
+
+
 def test_fake_planner_emits_calendar_for_a_visit() -> None:
     (step,) = _plan("book a visit with the plumber on Thursday").steps
     assert (step.intent, step.text) == (Intent.calendar, "book a visit with the plumber on Thursday")

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.context.memory_items import record_owner_memory
 from app.contracts import PlanStep
 from app.core.errors import NotFoundError
-from app.db.enums import TaskStatus
+from app.db.enums import MemoryKind, MemoryScope, MemoryStatus, TaskStatus
 from app.db.models import TaskRow
 from app.pipeline import read_work, work_repo
 from app.pipeline.concierge_base import NEED_DETAIL, NOT_FOUND, Ctx, StepResult, failed, log_change, task_ref
@@ -22,6 +22,8 @@ from app.pipeline.task_note import task_note
 
 TITLE_MAX = 200
 RESUME_IN_DASHBOARD = "Use Resume in the dashboard to re-run approved items."
+RULE_PROPOSED = "Saved as a proposed rule: '{text}'. Confirm it in Settings before it applies."
+RULE_ALREADY_ACTIVE = "This is already one of your standing rules: '{text}'."
 
 
 def _task(session: Session, ctx: Ctx, step: PlanStep) -> TaskRow | None:
@@ -92,19 +94,24 @@ def create_task(ctx: Ctx, step: PlanStep) -> StepResult:
 
 
 def remember(ctx: Ctx, step: PlanStep) -> StepResult:
-    """A standing rule or preference (concierge/v8), stored like the `remember` command: sanitised, then screened and
-    stored by `record_owner_memory`, which refuses rules that bypass approval or send automatically. A restated rule
-    is merged into the stored one, so a retried step never adds a second row."""
+    """A standing rule (concierge/v8). Its text is planner output, so it is stored like the dashboard's rule path, never
+    like the owner's typed `remember` command: sanitised, screened by `record_owner_memory` (rules that bypass approval
+    or send automatically are refused) and saved as a PROPOSED company rule that Harjot confirms in Settings. The step
+    never activates anything; a restated rule is merged into the stored one, so a retried step adds no second row."""
     text = sanitize(step.text or "").strip()
     if not text:
         return failed(step, NEED_DETAIL)
     with Session(ctx.engine) as session, session.begin():
-        item, message = record_owner_memory(session, ctx.company_id, text)
-        memory_id = str(item.id) if item is not None else None
-    if memory_id is None:
-        return failed(step, message)
+        item, message = record_owner_memory(
+            session, ctx.company_id, text, scope=MemoryScope.company, kind=MemoryKind.rule, status=MemoryStatus.proposed
+        )
+        if item is None:
+            return failed(step, message)
+        stored, status, memory_id = item.text, item.status, str(item.id)
     log_change(ctx, step)
-    return StepResult(step.intent, True, message, {"memory_id": memory_id}, None)
+    lead = RULE_ALREADY_ACTIVE if status is MemoryStatus.active else RULE_PROPOSED
+    data = {"memory_id": memory_id, "status": status.value}
+    return StepResult(step.intent, True, lead.format(text=stored), data, None)
 
 
 def pause(ctx: Ctx, step: PlanStep) -> StepResult:

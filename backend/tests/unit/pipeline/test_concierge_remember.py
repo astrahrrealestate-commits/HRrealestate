@@ -1,4 +1,5 @@
-"""The `remember` step (concierge/v8): sanitised, screened by `record_owner_memory`, stored for the plan's company.
+"""The `remember` step (concierge/v8): sanitised, screened by `record_owner_memory`, stored for the plan's company as
+a PROPOSED rule. Its text is planner output, so it never becomes an active rule until Harjot confirms it in Settings.
 
 The session is a fake: these tests prove the handler's calls; tests/integration/test_concierge_executor.py proves the
 row is committed in Postgres and scoped to the company.
@@ -16,10 +17,11 @@ from sqlalchemy.orm import Session
 from app.context.memory_items import REFUSAL_MESSAGE
 from app.contracts import ConciergePlan, Intent, PlanStep
 from app.core.settings import Settings
-from app.db.enums import MemoryStatus
+from app.db.enums import MemoryKind, MemoryScope, MemoryStatus
 from app.db.models import MemoryItem
 from app.pipeline import concierge, concierge_writes
 from app.pipeline.concierge_base import NEED_DETAIL, Ctx
+from app.pipeline.concierge_writes import RULE_ALREADY_ACTIVE, RULE_PROPOSED
 
 NOW = datetime(2026, 11, 18, 9, 0, tzinfo=UTC)
 COMPANY = UUID("01900000-0000-7000-8000-000000000001")
@@ -65,9 +67,36 @@ def test_remember_stores_a_rule(engine: Engine, settings: Settings, session: Mag
     rule = "invoices always go to the accountant first"
     result = concierge_writes.remember(_ctx(engine, settings), _remember(rule))
     (item,) = _added(session)
-    assert (item.company_id, item.text, item.status) == (COMPANY, rule, MemoryStatus.active)
-    assert (result.intent, result.ok, result.summary) == (Intent.remember, True, f"Remembered: '{rule}'")
+    assert (item.company_id, item.text, item.status) == (COMPANY, rule, MemoryStatus.proposed)
+    assert (item.kind, item.scope, item.scope_id) == (MemoryKind.rule, MemoryScope.company, None)
+    assert (result.intent, result.ok, result.summary) == (Intent.remember, True, RULE_PROPOSED.format(text=rule))
+    assert result.data == {"memory_id": str(item.id), "status": "proposed"}
     session.begin.assert_called_once()  # written inside a transaction that commits
+
+
+@pytest.mark.parametrize("stored", [None, MemoryStatus.proposed, MemoryStatus.active])
+def test_remember_never_produces_an_active_item(
+    stored: MemoryStatus | None, engine: Engine, settings: Settings, session: MagicMock
+) -> None:
+    """New: a proposed item. Already proposed: left proposed. Already active (Harjot confirmed it before): reported as
+    such, never activated by the step. The summary never claims a rule it stored is enforced."""
+    rule = "invoices always go to the accountant first"
+    existing = None
+    if stored is not None:
+        existing = MemoryItem(
+            id=UUID(int=7), company_id=COMPANY, text=rule, status=stored, kind=MemoryKind.rule, evidence_count=1
+        )
+    session.scalar.return_value = existing
+    result = concierge_writes.remember(_ctx(engine, settings), _remember(rule))
+    assert all(item.status is MemoryStatus.proposed for item in _added(session))
+    if existing is not None:
+        assert existing.status is stored  # never promoted
+    want = RULE_ALREADY_ACTIVE if stored is MemoryStatus.active else RULE_PROPOSED
+    assert result.summary == want.format(text=rule)
+    if stored is not MemoryStatus.active:
+        assert "proposed" in result.summary
+        assert "Settings" in result.summary
+        assert "active" not in result.summary.lower()
 
 
 def test_remember_stores_the_sanitised_rule(engine: Engine, settings: Settings, session: MagicMock) -> None:

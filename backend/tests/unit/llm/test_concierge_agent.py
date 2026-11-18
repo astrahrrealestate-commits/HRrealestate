@@ -215,6 +215,9 @@ def test_v8_prompt_names_the_new_intents_and_the_three_rules() -> None:
         assert intent in v8
         assert intent not in v7.text
     assert "rewrite_draft" not in v8
+    remember = next(line for line in v8.split("\n- ") if line.startswith("`remember`"))
+    assert "skips approval or sends automatically is out of scope for `remember`" in " ".join(remember.split())
+    assert "`clarify`" in remember
     assert "shorten, soften, translate or rephrase an existing draft is `draft_reply`" in v8
     assert "never invent a new recipient" in v8
     for rule in (

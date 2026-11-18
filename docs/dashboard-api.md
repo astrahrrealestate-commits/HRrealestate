@@ -245,8 +245,10 @@ last?" or "how much does Piet owe?" is answered from the page, and "is this draf
 from the server's copy of the draft (with an `open_view` step for `approvals`; the agent never approves or sends).
 
 The v8 steps answer each for their own step, so they combine with the other steps of the same message: `remember`
-stores the owner's standing rule (sanitised and screened: a rule that skips approval or sends automatically, such as
-"always auto-send replies", is refused and not stored), `calendar` points to the Calendar page, and `rent_status`
+saves the rule as a proposed company rule that the owner confirms in Settings before it applies (its text is planner
+output, so the step never makes a rule active; sanitised and screened: a rule that skips approval or sends
+automatically, such as "always auto-send replies", is refused and not stored), `calendar` points to the Calendar
+page, and `rent_status`
 gives the fixed "payments are not connected" answer while no rent data is mirrored (`app/core/rent_data.py`). A
 request to shorten, soften, translate or rephrase a draft is a `draft_reply` on that draft's case: the owner-requested
 redraft (see "Drafts from the Super Agent" below). A draft request that only mentions a visit or unpaid rent stays a

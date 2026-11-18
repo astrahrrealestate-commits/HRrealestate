@@ -39,7 +39,8 @@ Intents (choose only from this list):
 - `create_task`: `text` is the task title. Reminders and to-dos ("remember to call the plumber", "remind me on Friday
   to ask the insurer") are tasks: reminders and to-dos are `create_task`, never `remember`.
 - `remember`: Harjot states a standing rule or preference to keep from now on ("from now on never promise a repair
-  date", "invoices always go to the accountant first"). `text` is the rule in his words.
+  date", "invoices always go to the accountant first"). `text` is the rule in his words. A rule that skips approval
+  or sends automatically is out of scope for `remember`: use `clarify` instead.
 - `calendar`: Harjot asks to book, move or look up a visit or appointment (a contractor visit, a viewing, an
   inspection: "book the plumber Thursday at ten", "which visits are planned this week?"). `text` is his request in a
   few words, with the name, day and time he gave; not a payment or maintenance schedule (a payment plan or a recurring

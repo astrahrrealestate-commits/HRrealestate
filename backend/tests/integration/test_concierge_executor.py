@@ -213,7 +213,7 @@ def test_briefing_and_listings_are_read_only(
     assert count(migrated_engine, ActionRow, cid) == 0
 
 
-def test_remember_stores_the_rule_for_its_company_only_and_refuses_a_bypass(
+def test_remember_proposes_the_rule_for_its_company_only_and_refuses_a_bypass(
     migrated_engine: Engine, committed_company: Company, other_company: Company, test_settings: Settings
 ) -> None:
     cid = committed_company.id
@@ -223,6 +223,8 @@ def test_remember_stores_the_rule_for_its_company_only_and_refuses_a_bypass(
     retried, _ = run(migrated_engine, test_settings, cid, plan(rule, bypass))  # a retried step adds no row
     assert (stored.ok, refused.ok, retried.ok) == (True, False, True)
     with Session(migrated_engine) as s:
-        rows = s.execute(select(MemoryItem.text, MemoryItem.status).where(MemoryItem.company_id == cid)).all()
-    assert [(text, status.value) for text, status in rows] == [("Invoices always go to the accountant first", "active")]
+        q = select(MemoryItem.text, MemoryItem.status, MemoryItem.kind).where(MemoryItem.company_id == cid)
+        rows = [(text, status.value, kind.value) for text, status, kind in s.execute(q)]
+    # planner text never becomes an active rule: Harjot confirms it in Settings
+    assert rows == [("Invoices always go to the accountant first", "proposed", "rule")]
     assert count(migrated_engine, MemoryItem, other_company.id) == 0

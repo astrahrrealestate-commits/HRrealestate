@@ -242,6 +242,8 @@ def test_v8_review_focus_cases_pin_the_word_negation_and_multi_step_rules() -> N
         assert {Intent.rent_status, Intent.calendar} <= set(labels[name].must_not_include)
     assert Intent.calendar in labels["doc-08"].must_not_include  # "Do NOT schedule a visit yet"
     assert labels["task-07"].expected_intents == [Intent.create_task]  # "remember to ..." is a to-do
+    assert labels["remember-02"].expected_intents == [Intent.clarify]  # a bypass rule is never a `remember` step
+    assert Intent.remember in labels["remember-02"].must_not_include
     assert labels["multi-01"].expected_intents == [Intent.task_done, Intent.remember, Intent.calendar]
     assert all(labels[n].expected_intents == [Intent.rent_status] for n in ("rent-01", "rent-02"))
     for name, case in (("reply-07", 1), ("reply-08", 2)):  # shorten / translate a draft: the redraft on its case

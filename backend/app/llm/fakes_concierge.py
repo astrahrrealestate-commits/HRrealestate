@@ -51,6 +51,7 @@ _REF_STEP = re.compile(
 )
 _REMINDER = re.compile(r"^(?:remember|remind me) to\b")  # a to-do, never a rule
 _RULE = re.compile(r"^(?:from now on|always|remember that|keep in mind that|standing rule)\b")
+_BYPASS = re.compile(r"auto.?send|automatically|without (?:asking|approval)")  # never a `remember` step
 _REDRAFT = re.compile(r"\b(?:shorter|shorten|rewrite|rephrase|reword|translate|firmer|softer|friendlier)\b")
 _CALENDAR = re.compile(
     r"\b(?:book|schedule|reschedule|move)\b.{0,40}\b(?:visit|appointment|viewing|inspection)s?\b"
@@ -139,6 +140,8 @@ def _rules(low: str, question: str) -> dict[str, object] | None:
     """Before `_by_case`: "from now on always reply in Dutch" is a rule, not a draft."""
     if _REMINDER.search(low):
         return _plan(_step("create_task", text=_safe(question)))
+    if _RULE.search(low) and _BYPASS.search(low):
+        return _plan(_step("clarify", text="I cannot keep a rule that skips your approval. What should I do instead?"))
     if _RULE.search(low):
         return _plan(_step("remember", text=_safe(question)))
     return None

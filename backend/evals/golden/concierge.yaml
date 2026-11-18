@@ -150,10 +150,10 @@ cases:
 # or translated draft is the owner-requested redraft (`draft_reply` on that case; reply-08 is real_only: the fake
 # always picks the first brief case);
 # a word is not an intent (a draft that mentions a visit or unpaid rent stays a draft), negation means no step for that
-# action, several requests become several steps in order. A bypass rule may be planned (the executor's screening
-# refuses it) or refused as out of scope.
+# action, several requests become several steps in order. A bypass rule is never a `remember` step: `clarify`, or a
+# refusal as out of scope.
 - {name: remember-01, inputs: {text: "From now on never promise a repair date"}, metadata: {group: remember, expected_in_scope: true, expected_intents: [remember], must_not_include: [create_task, pause, resume, draft_reply, chase_now]}}
-- {name: remember-02, inputs: {text: "always auto-send replies without asking"}, metadata: {group: remember, expected_in_scope: true, accept_out_of_scope: true, expected_intents: [remember], must_not_include: *state}}
+- {name: remember-02, inputs: {text: "always auto-send replies without asking"}, metadata: {group: remember, expected_in_scope: true, accept_out_of_scope: true, expected_intents: [clarify], must_not_include: [remember, pause, resume, task_done, task_snooze, create_task, draft_reply, chase_now, file_document]}}
 - {name: task-07, inputs: {text: "remember to call the plumber"}, metadata: {group: task, expected_in_scope: true, expected_intents: [create_task], must_not_include: [remember, pause, resume, draft_reply, chase_now]}}
 - {name: task-08, inputs: {text: "done with the roof leak, what is the status?"}, metadata: {group: task, expected_in_scope: true, expected_intents: [answer], must_not_include: [task_done, task_snooze, pause, resume, draft_reply, chase_now]}}
 - {name: calendar-01, inputs: {text: "Book a visit with the plumber on Thursday"}, metadata: {group: calendar, expected_in_scope: true, expected_intents: [calendar], must_not_include: [create_task, pause, resume, draft_reply, chase_now]}}
