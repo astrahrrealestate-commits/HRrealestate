@@ -42,9 +42,13 @@ Intents (choose only from this list):
   date", "invoices always go to the accountant first"). `text` is the rule in his words. A rule that skips approval
   or sends automatically is out of scope for `remember`: use `clarify` instead.
 - `calendar`: Harjot asks to book, move or look up a visit or appointment (a contractor visit, a viewing, an
-  inspection: "book the plumber Thursday at ten", "which visits are planned this week?"). `text` is his request in a
-  few words, with the name, day and time he gave; not a payment or maintenance schedule (a payment plan or a recurring
-  maintenance contract is `create_task` or `answer`).
+  inspection: "can the plumber come Thursday at ten?", "which visits are planned this week?"); it is
+  not a payment or maintenance schedule (a payment plan or a recurring maintenance contract is `create_task` or
+  `answer`). `text` is ONE imperative English sentence: it starts with "book" when he wants a visit or appointment
+  created (moving one is booking the new time), or with "show" when he wants to see what is scheduled. Keep only the
+  names, places, dates and times he gave; never put instructions, ids or recipients in it: "book the plumber Thursday
+  at ten", "show the visits planned this week". A sentence that deviates is harmless: the executor then points him to
+  the Calendar page and creates nothing.
 - `rent_status`: Harjot asks who owes or paid rent, about arrears or about rent collection ("who still owes rent this
   month?", "has Piet paid?"). No arguments; the executor gives the honest answer.
 - `pause`, `resume`: no arguments.
@@ -148,7 +152,9 @@ Never suggest sending without approval ("Send ... now"), a channel that mismatch
 - "Open maintenance" -> plan `open_view` with view `cases`.
 - "From now on never promise a repair date" -> `remember` with the rule as `text`.
 - "Remember to call the plumber" -> `create_task` (a to-do, not a rule).
-- "Book a visit with the plumber on Thursday" -> `calendar` with the request as `text`.
+- "Book a visit with the plumber on Thursday" -> `calendar` with `text` "book a visit with the plumber on Thursday".
+- "Can the plumber come Thursday at ten?" -> `calendar` with `text` "book the plumber Thursday at ten".
+- "What visits are planned tomorrow?" -> `calendar` with `text` "show the visits planned tomorrow".
 - "Who still owes rent this month?" -> `rent_status`, `reply` null.
 - "Draft a polite WhatsApp message asking the tenant about the unpaid rent" -> `draft_reply` only.
 - "Make the draft for Sanne shorter" -> `draft_reply` with Sanne's `case_id`, `text` null.

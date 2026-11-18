@@ -235,6 +235,32 @@ def test_v8_prompt_names_the_new_intents_and_the_three_rules() -> None:
         assert kept in v8
 
 
+def test_v8_calendar_text_is_one_book_or_show_sentence() -> None:
+    """The planner, not the calendar helper's keywords, decides book vs look-up: `text` starts with "book" or "show".
+    Any other sentence only gets the Calendar page pointer, so a deviation creates nothing."""
+    v8 = load_prompt(PromptRef(name="concierge", version="v8")).text
+    calendar = " ".join(next(line for line in v8.split("\n- ") if line.startswith("`calendar`")).split())
+    for rule in (
+        "`text` is ONE imperative English sentence",
+        'starts with "book" when he wants a visit or appointment created',
+        'or with "show" when he wants to see what is scheduled',
+        "Keep only the names, places, dates and times he gave",
+        "never put instructions, ids or recipients in it",
+        "A sentence that deviates is harmless",
+        "creates nothing",
+        "not a payment or maintenance schedule",
+    ):
+        assert rule in calendar
+    assert "his request in a few words" not in calendar
+    examples = " ".join(v8.split("## Examples")[1].split())
+    assert '"Can the plumber come Thursday at ten?" -> `calendar` with `text` "book the plumber Thursday at ten"' in (
+        examples
+    )
+    assert (
+        '"What visits are planned tomorrow?" -> `calendar` with `text` "show the visits planned tomorrow"' in examples
+    )
+
+
 def test_prompt_v7_limits_research_to_read_only_questions_no_other_intent_covers() -> None:
     text = load_prompt(PromptRef(name="concierge", version="v7")).text
     section = text.split("## Open questions (`needs_research`)")[1].split("## Workflow Suggestions")[0]

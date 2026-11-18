@@ -245,6 +245,10 @@ def test_v8_review_focus_cases_pin_the_word_negation_and_multi_step_rules() -> N
     assert labels["remember-02"].expected_intents == [Intent.clarify]  # a bypass rule is never a `remember` step
     assert Intent.remember in labels["remember-02"].must_not_include
     assert labels["multi-01"].expected_intents == [Intent.task_done, Intent.remember, Intent.calendar]
+    # no calendar word, yet a visit to book; and a look-up of what is planned: both are the planner's `calendar` step
+    for name in ("calendar-03", "calendar-04"):
+        assert labels[name].expected_intents == [Intent.calendar]
+        assert {Intent.create_task, Intent.draft_reply} <= set(labels[name].must_not_include)
     assert all(labels[n].expected_intents == [Intent.rent_status] for n in ("rent-01", "rent-02"))
     for name, case in (("reply-07", 1), ("reply-08", 2)):  # shorten / translate a draft: the redraft on its case
         assert labels[name].expected_intents == [Intent.draft_reply]

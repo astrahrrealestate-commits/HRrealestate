@@ -13,6 +13,7 @@ that look like instructions or carry contact details are never repeated, and ids
 v8 intents (`remember`, `calendar`, `rent_status`): a negated clause ("do not schedule ...") is dropped before routing,
 every `#ref` command becomes its own step in order, a draft request that mentions a visit or unpaid rent stays
 `draft_reply`, and "make it shorter" / "translate it" on a page is the redraft (`draft_reply` on the page case).
+A `calendar` step's text is one sentence starting with "show" (a look-up) or "book" (anything else), as v8 asks.
 Keyword doubles only: they prove what the executor does with a plan, not what the model plans.
 """
 
@@ -53,10 +54,15 @@ _REMINDER = re.compile(r"^(?:remember|remind me) to\b")  # a to-do, never a rule
 _RULE = re.compile(r"^(?:from now on|always|remember that|keep in mind that|standing rule)\b")
 _BYPASS = re.compile(r"auto.?send|automatically|without (?:asking|approval)")  # never a `remember` step
 _REDRAFT = re.compile(r"\b(?:shorter|shorten|rewrite|rephrase|reword|translate|firmer|softer|friendlier)\b")
+_CALENDAR_LOOKUP = r"\b(?:which|what|any)\b.{0,30}\b(?:visits|appointments)\b"
 _CALENDAR = re.compile(
     r"\b(?:book|schedule|reschedule|move)\b.{0,40}\b(?:visit|appointment|viewing|inspection)s?\b"
-    r"|\b(?:which|what|any)\b.{0,30}\b(?:visits|appointments)\b"
+    rf"|\b(?:can|could)\b.{{1,40}}\bcome\b|{_CALENDAR_LOOKUP}"
 )
+# v8 `calendar` text: one sentence starting with "book" (create or move) or "show" (look up)
+_CAN_COME = re.compile(r"^(?:can|could)\s+(?P<who>.+?)\s+come\s+(?P<when>.+)$", re.I)
+_WHAT_IS = re.compile(r"^(?:which|what|any)\s+(?P<what>.+?)\s+(?:are|is)\s+(?P<rest>.+)$", re.I)
+_TO_BOOK = re.compile(r"^(?:please\s+)?(?:schedule|reschedule|move|book)\s+", re.I)
 _RENT = re.compile(
     r"\bwho\b.{0,30}\b(?:owes?|paid|overdue|arrears|behind)\b|\b(?:arrears|unpaid|achterstand|collection rate)\b"
     r"|\bpaid\b.{0,10}\brent\b"
@@ -147,10 +153,20 @@ def _rules(low: str, question: str) -> dict[str, object] | None:
     return None
 
 
+def _calendar_text(low: str, question: str) -> str:
+    """What v8 asks the model to write: "show ..." for a look-up, else "book ..." with the who and when he gave."""
+    asked = _safe(question).rstrip("?. ")
+    if re.search(_CALENDAR_LOOKUP, low):
+        what = _WHAT_IS.match(asked)
+        return f"show the {what['what']} {what['rest']}" if what else f"show {asked}"
+    can = _CAN_COME.match(asked)
+    return f"book {can['who']} {can['when']}" if can else f"book {_TO_BOOK.sub('', asked)}"
+
+
 def _calendar_or_rent(low: str, question: str) -> dict[str, object] | None:
     """After `_by_case`: a draft that mentions a visit or unpaid rent stays a draft (a word is not an intent)."""
     if _CALENDAR.search(low):
-        return _plan(_step("calendar", text=_safe(question)))
+        return _plan(_step("calendar", text=_calendar_text(low, question)))
     if _RENT.search(low):
         return _plan(_step("rent_status"))
     return None

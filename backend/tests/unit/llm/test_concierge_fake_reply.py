@@ -106,6 +106,18 @@ def test_fake_planner_emits_calendar_for_a_visit() -> None:
     assert (step.intent, step.text) == (Intent.calendar, "book a visit with the plumber on Thursday")
 
 
+def test_fake_planner_books_when_he_asks_for_a_visit() -> None:
+    """v8: a request for a visit is a `calendar` step whose text is one sentence starting with "book"."""
+    (step,) = _plan("can the plumber come Thursday at ten").steps
+    assert (step.intent, step.text) == (Intent.calendar, "book the plumber Thursday at ten")
+
+
+def test_fake_planner_shows_when_he_asks_what_is_planned() -> None:
+    """v8: a question about what is scheduled is a `calendar` step whose text is one sentence starting with "show"."""
+    (step,) = _plan("what visits are planned tomorrow").steps
+    assert (step.intent, step.text) == (Intent.calendar, "show the visits planned tomorrow")
+
+
 def test_fake_planner_does_not_book_a_payment_schedule() -> None:
     assert Intent.calendar not in _intents("Set up a payment schedule for Piet's deposit")
 
