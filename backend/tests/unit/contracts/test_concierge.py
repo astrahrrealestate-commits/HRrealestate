@@ -18,9 +18,11 @@ def test_valid_plan() -> None:
 
 
 def test_intent_list_is_exact() -> None:
-    assert len(Intent) == 20
+    assert len(Intent) == 24
     assert Intent.query_data in Intent
     assert Intent.show_drafts in Intent
+    for name in ("remember", "calendar", "rent_status", "rewrite_draft"):  # concierge/v8
+        assert Intent(name).value == name
 
 
 def test_rejects_five_steps() -> None:

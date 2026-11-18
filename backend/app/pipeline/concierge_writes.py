@@ -1,4 +1,4 @@
-"""Reversible write intents of the concierge plan (tasks, pause): they run directly and are logged.
+"""Reversible write intents of the concierge plan (tasks, standing rules, pause): they run directly and are logged.
 
 Intents that could lead to a tenant message live in `concierge_proposals` and only create proposals.
 """
@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.context.memory_items import record_owner_memory
 from app.contracts import PlanStep
 from app.core.errors import NotFoundError
 from app.db.enums import TaskStatus
@@ -88,6 +89,22 @@ def create_task(ctx: Ctx, step: PlanStep) -> StepResult:
     lead = "Already on your list" if existing else "Task added"
     summary = f"{lead}: {title} #{ref}. {task_note(title, ref)}"
     return StepResult(step.intent, True, summary, {"task_id": str(task_id), "ref": ref}, "tasks")
+
+
+def remember(ctx: Ctx, step: PlanStep) -> StepResult:
+    """A standing rule or preference (concierge/v8), stored like the `remember` command: sanitised, then screened and
+    stored by `record_owner_memory`, which refuses rules that bypass approval or send automatically. A restated rule
+    is merged into the stored one, so a retried step never adds a second row."""
+    text = sanitize(step.text or "").strip()
+    if not text:
+        return failed(step, NEED_DETAIL)
+    with Session(ctx.engine) as session, session.begin():
+        item, message = record_owner_memory(session, ctx.company_id, text)
+        memory_id = str(item.id) if item is not None else None
+    if memory_id is None:
+        return failed(step, message)
+    log_change(ctx, step)
+    return StepResult(step.intent, True, message, {"memory_id": memory_id}, None)
 
 
 def pause(ctx: Ctx, step: PlanStep) -> StepResult:

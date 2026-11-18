@@ -10,11 +10,15 @@ Single-call answers (v3): a plan with an `answer` step carries a deterministic `
 ("how much does he owe") quotes the first server fact line stating an amount (never a `msg` line); anything else
 gets the owner_qa fake's answer ("On this page: ..." from the facts and snapshot, else the open-case count). Lines
 that look like instructions or carry contact details are never repeated, and ids are stripped.
+v8 intents (`remember`, `calendar`, `rent_status`, `rewrite_draft`): a negated clause ("do not schedule ...") is dropped
+before routing, every `#ref` command becomes its own step in order, and a draft request that mentions a visit or unpaid
+rent stays `draft_reply`. Keyword doubles only: they prove what the executor does with a plan, not what the model plans.
 """
 
 import re
 from dataclasses import dataclass
 
+from app.contracts.concierge import MAX_PLAN_STEPS
 from app.llm.fakes_owner_qa import clean, offline_answer, usable
 
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
@@ -38,6 +42,24 @@ _CONVERSATION = re.compile(r"\b(say|said|says|wrote|asks?|asked|message|messages
 _MSG = re.compile(r"^  msg \d+ \| (\w+) \| (\w+) \| [^|]+\| (.+)$", re.M)
 _AMOUNT_Q = re.compile(r"\b(how much|owes?|amount|arrears|bedrag|achterstand)\b")
 _HAS_AMOUNT = re.compile(r"(?:€|\beur\b)\s?\d|\d\s?(?:€|eur\b|euros?\b)", re.I)
+# concierge/v8 intents: keyword doubles of the model, test-only (the real planner decides by meaning, not by word)
+_NEGATED = re.compile(r"\b(?:do not|don't|dont)\b[^,.;]*")  # "do NOT schedule a visit yet": no step for that
+_REF_STEP = re.compile(
+    r"\bsnooze\s+#(?P<snooze>[0-9a-f]{6,8})\s+(?:for\s+)?(?P<dur>\d+[mhdw])\b"
+    r"|\bdone\s+#(?P<done>[0-9a-f]{6,8})\b|\bmark\s+#(?P<mark>[0-9a-f]{6,8})\s+(?:as\s+)?done\b"
+)
+_REMINDER = re.compile(r"^(?:remember|remind me) to\b")  # a to-do, never a rule
+_RULE = re.compile(r"^(?:from now on|always|remember that|keep in mind that|standing rule)\b")
+_REWRITE = re.compile(r"\b(?:shorter|shorten|rewrite|rephrase|reword|translate|firmer|softer|friendlier)\b")
+_ABOUT_A_DRAFT = re.compile(r"\b(?:it|that|this|draft|reply|message)\b")
+_CALENDAR = re.compile(
+    r"\b(?:book|schedule|reschedule|move)\b.{0,40}\b(?:visit|appointment|viewing|inspection)s?\b"
+    r"|\b(?:which|what|any)\b.{0,30}\b(?:visits|appointments)\b"
+)
+_RENT = re.compile(
+    r"\bwho\b.{0,30}\b(?:owes?|paid|overdue|arrears|behind)\b|\b(?:arrears|unpaid|achterstand|collection rate)\b"
+    r"|\bpaid\b.{0,10}\brent\b"
+)
 
 
 @dataclass(frozen=True)
@@ -89,7 +111,7 @@ _ASKS = re.compile(
     r"|\baccording to\b|\bhow (much|long)\b.{0,40}\b(lease|contract|invoice|quote)\b"
 )
 _SHOW = re.compile(
-    rf"\b(find|show|pull up|get|open|search|zoek|toon)\b.{{0,60}}\b{_DOC_NOUN}\b"
+    rf"\b(find|show|pull up|get|open|search|check|zoek|toon)\b.{{0,60}}\b{_DOC_NOUN}\b"
     rf"|\b{_DOC_NOUN}\b.{{0,30}}\b(of|for|from|van|voor)\b"
 )
 
@@ -103,10 +125,33 @@ def _documents(low: str, question: str, case_id: str | None) -> dict[str, object
 
 
 def _by_ref(low: str) -> dict[str, object] | None:
-    if m := re.search(r"\bsnooze\s+#([0-9a-f]{6,8})\s+(?:for\s+)?(\d+[mhdw])\b", low):
-        return _plan(_step("task_snooze", task_ref=m.group(1), text=m.group(2)))
-    if m := re.search(r"\bdone\s+#([0-9a-f]{6,8})\b", low):
-        return _plan(_step("task_done", task_ref=m.group(1)))
+    """Every `done #ref` / `mark #ref done` / `snooze #ref 2d` in the message, one step each, in the order asked."""
+    steps = [
+        _step("task_snooze", task_ref=m["snooze"], text=m["dur"])
+        if m["snooze"]
+        else _step("task_done", task_ref=m["done"] or m["mark"])
+        for m in _REF_STEP.finditer(low)
+    ]
+    return _plan(*steps[:MAX_PLAN_STEPS]) if steps else None
+
+
+def _rules_and_rewrites(low: str, question: str) -> dict[str, object] | None:
+    """Before `_by_case`: "from now on always reply in Dutch" is a rule, "make the draft shorter" a rewrite."""
+    if _REMINDER.search(low):
+        return _plan(_step("create_task", text=_safe(question)))
+    if _RULE.search(low):
+        return _plan(_step("remember", text=_safe(question)))
+    if _REWRITE.search(low) and _ABOUT_A_DRAFT.search(low):
+        return _plan(_step("rewrite_draft"))
+    return None
+
+
+def _calendar_or_rent(low: str, question: str) -> dict[str, object] | None:
+    """After `_by_case`: a draft that mentions a visit or unpaid rent stays a draft (a word is not an intent)."""
+    if _CALENDAR.search(low):
+        return _plan(_step("calendar", text=_safe(question)))
+    if _RENT.search(low):
+        return _plan(_step("rent_status"))
     return None
 
 
@@ -211,7 +256,7 @@ def _reply(prompt: str, low: str) -> str:
 
 def _route(prompt: str, question: str) -> dict[str, object]:
     data = "\n".join(re.findall(r"<data>\n(.*?)\n</data>", prompt, flags=re.S))
-    low = question.lower()
+    low = _NEGATED.sub(" ", question.lower())
     page = _page(prompt)
     if page is not None and (planned := _on_page(low, page)) is not None:
         return planned
@@ -220,7 +265,9 @@ def _route(prompt: str, question: str) -> dict[str, object]:
     case_id = (re.search(_UUID, low) or [None])[0]
     return (
         _by_ref(low)
+        or _rules_and_rewrites(low, question)
         or _by_case(low, data.lower())
+        or _calendar_or_rent(low, question)
         or _documents(low, question, case_id)
         or _simple(low)
         or _plan(_step("answer", text=_safe(question)))

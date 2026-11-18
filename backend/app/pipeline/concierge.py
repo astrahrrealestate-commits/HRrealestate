@@ -82,6 +82,8 @@ _NEEDS_TEXT = frozenset(
         Intent.search_inbox,
         Intent.find_document,
         Intent.query_data,
+        Intent.remember,
+        Intent.calendar,
     }
 )
 
@@ -98,9 +100,13 @@ _HANDLERS: dict[Intent, Handler] = {
     Intent.query_data: concierge_reads.query_data,
     Intent.open_view: concierge_reads.open_view,
     Intent.clarify: concierge_reads.clarify,
+    Intent.calendar: concierge_reads.calendar,
+    Intent.rent_status: concierge_reads.rent_status,
+    Intent.rewrite_draft: concierge_reads.rewrite_draft,
     Intent.task_done: concierge_writes.task_done,
     Intent.task_snooze: concierge_writes.task_snooze,
     Intent.create_task: concierge_writes.create_task,
+    Intent.remember: concierge_writes.remember,
     Intent.pause: concierge_writes.pause,
     Intent.resume: concierge_writes.resume,
     Intent.draft_reply: concierge_proposals.draft_reply,

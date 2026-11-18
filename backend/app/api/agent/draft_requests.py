@@ -6,10 +6,7 @@ for the channel the contact can actually be reached on, which may not be the one
 
 import re
 
-REWRITE_UNSUPPORTED_ANSWER = (
-    "I can't rewrite or translate a draft yet. Open the draft, edit the text, then tap Accept and send. "
-    "Nothing is sent until you approve it."
-)
+from app.pipeline.concierge_reads import REWRITE_UNSUPPORTED_ANSWER as REWRITE_UNSUPPORTED_ANSWER  # rewrite_draft's
 
 _REWRITE = re.compile(
     r"\b(shorter|shorten|longer|rewrite|rephrase|reword|translate|firmer|softer|friendlier|"

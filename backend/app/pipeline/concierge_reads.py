@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.contracts import Channel, PlanStep
+from app.core import rent_data
 from app.db.models import MessageRow
 from app.llm.agents.briefing import fallback_briefing, render_text
 from app.llm.agents.owner_qa import FALLBACK_ANSWER
@@ -22,6 +23,18 @@ MAX_HITS = 10
 SNIPPET = 120
 MAX_REVIEW = 20
 MAX_SUMMARY = 400
+
+# Fixed answers of the concierge/v8 guard intents, defined once here (the API's rent and draft guards re-export them).
+NO_RENT_DATA_ANSWER = (
+    "Rent invoices are generated in BRIXX, but bank payment reconciliation is handled externally in Exact Online "
+    "(not connected yet). Because bank settlements are not mirrored in BRIXX, I cannot confirm which tenants have paid "
+    "or who is actually overdue."
+)
+REWRITE_UNSUPPORTED_ANSWER = (
+    "I can't rewrite or translate a draft yet. Open the draft, edit the text, then tap Accept and send. "
+    "Nothing is sent until you approve it."
+)
+CALENDAR_POINTER = "I can't book or look up visits from here yet. Open the Calendar page to book, move or check one."
 
 
 def answer(ctx: Ctx, step: PlanStep) -> StepResult:
@@ -218,6 +231,25 @@ def open_view(ctx: Ctx, step: PlanStep) -> StepResult:
 
 def clarify(ctx: Ctx, step: PlanStep) -> StepResult:
     return StepResult(step.intent, True, safe_question(step.text or ""), None, None)
+
+
+def calendar(ctx: Ctx, step: PlanStep) -> StepResult:
+    """The calendar helpers live in the API layer, which the pipeline may not import: a fixed pointer to the Calendar
+    page. The step's text is model output and is never echoed."""
+    return StepResult(step.intent, True, CALENDAR_POINTER, None, None)
+
+
+def rent_status(ctx: Ctx, step: PlanStep) -> StepResult:
+    """Who owes or paid rent. While no rent data is mirrored (`app.core.rent_data`) the honest answer, never a figure
+    counted from tables that hold none; once it is, the query agent answers the owner's question."""
+    if not rent_data.RENT_DATA_AVAILABLE:
+        return StepResult(step.intent, True, NO_RENT_DATA_ANSWER, None, None)
+    return query_data(ctx, step)
+
+
+def rewrite_draft(ctx: Ctx, step: PlanStep) -> StepResult:
+    """The Super Agent cannot rewrite or translate a draft: the owner edits it and approves it himself."""
+    return StepResult(step.intent, True, REWRITE_UNSUPPORTED_ANSWER, None, None)
 
 
 def query_data(ctx: Ctx, step: PlanStep) -> StepResult:

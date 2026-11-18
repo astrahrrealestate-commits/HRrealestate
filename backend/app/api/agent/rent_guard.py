@@ -7,12 +7,7 @@ No rent or payment table is mirrored yet (app/core/rent_data.py), so "0 payments
 import re
 
 from app.core.rent_data import RENT_DATA_AVAILABLE
-
-NO_RENT_DATA_ANSWER = (
-    "Rent invoices are generated in BRIXX, but bank payment reconciliation is handled externally in Exact Online "
-    "(not connected yet). Because bank settlements are not mirrored in BRIXX, I cannot confirm which tenants have paid "
-    "or who is actually overdue."
-)
+from app.pipeline.concierge_reads import NO_RENT_DATA_ANSWER as NO_RENT_DATA_ANSWER  # one text: the rent_status step's
 
 _RENT_MONEY_QUESTION = re.compile(
     r"\b(overdue|arrears?|unpaid|owes?|owed)\b"

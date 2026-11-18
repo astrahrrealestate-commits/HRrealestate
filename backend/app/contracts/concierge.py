@@ -30,13 +30,19 @@ class Intent(StrEnum):
     query_data = "query_data"
     open_view = "open_view"
     clarify = "clarify"
+    # concierge/v8: once keyword pre-routers in the Super Agent, now planned steps
+    remember = "remember"
+    calendar = "calendar"
+    rent_status = "rent_status"
+    rewrite_draft = "rewrite_draft"
 
 
 class PlanStep(Contract):
     intent: Intent
-    case_id: UUID | None  # only for case_status, draft_reply, show_drafts, chase_now, open_view
+    case_id: UUID | None  # only for case_status, draft_reply, show_drafts, chase_now, open_view, rewrite_draft
     task_ref: Annotated[str, max_len(8)] | None  # 6-hex task ref
-    text: Annotated[str, max_len(400)] | None  # query, task title, clarify question, snooze like "2d"
+    # query, task title, clarify question, snooze like "2d", rule to remember, scheduling request
+    text: Annotated[str, max_len(400)] | None
     view: Literal["inbox", "cases", "tasks", "approvals", "waiting"] | None
 
 

@@ -13,8 +13,8 @@ from evals.common import eval_settings
 from evals.concierge_eval import Label, load, plan_is_clean, runnable, score_plans
 
 MIN_GROUPS = {
-    "read": 8, "task": 6, "pause": 4, "reply": 5, "clarify": 4, "out_of_scope": 4, "page": 12, "documents": 7,
-    "research": 3, "chat": 2,
+    "read": 8, "task": 8, "pause": 4, "reply": 6, "clarify": 4, "out_of_scope": 4, "page": 12, "documents": 8,
+    "research": 3, "chat": 2, "remember": 2, "calendar": 2, "rent": 2, "rewrite": 2, "multi": 1,
 }  # fmt: skip
 
 
@@ -91,7 +91,7 @@ def test_draft_and_chase_expected_only_when_asked() -> None:
             assert g.group == "reply"
 
 
-@pytest.mark.parametrize("version", ["v5", "v4", "v3", "v2"])
+@pytest.mark.parametrize("version", ["v8", "v5", "v4", "v3", "v2"])
 def test_fake_passes_every_runnable_case(version: str) -> None:
     result = concierge_eval.run(version, _fake())
     assert result.misses == []
@@ -233,6 +233,17 @@ def test_scorer_accepts_either_outcome_for_a_quoted_instruction_but_not_a_state_
     assert bad["intent_sequence_match"] == 0.0
     strict = label.model_copy(update={"accept_out_of_scope": False})
     assert score_plans([(strict, _plan(in_scope=False))])["scope_accuracy"] == 0.0
+
+
+def test_v8_review_focus_cases_pin_the_word_negation_and_multi_step_rules() -> None:
+    labels = {c.name: c.metadata for c in load().cases if c.metadata is not None}
+    for name in ("reply-05", "reply-06"):  # a draft that mentions unpaid rent or a visit stays a draft
+        assert labels[name].expected_intents == [Intent.draft_reply]
+        assert {Intent.rent_status, Intent.calendar} <= set(labels[name].must_not_include)
+    assert Intent.calendar in labels["doc-08"].must_not_include  # "Do NOT schedule a visit yet"
+    assert labels["task-07"].expected_intents == [Intent.create_task]  # "remember to ..." is a to-do
+    assert labels["multi-01"].expected_intents == [Intent.task_done, Intent.remember, Intent.calendar]
+    assert all(labels[n].expected_intents == [Intent.rent_status] for n in ("rent-01", "rent-02"))
 
 
 def test_an_amount_case_checks_the_fact_amount_and_never_the_requested_one() -> None:

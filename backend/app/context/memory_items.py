@@ -38,8 +38,9 @@ REFUSAL_MESSAGE = (
 
 
 def screen_memory_text(text: str) -> str | None:
-    """Returns REFUSAL_MESSAGE if text attempts to bypass approval or automate sending, else None."""
-    lowered = text.lower()
+    """Returns REFUSAL_MESSAGE if text attempts to bypass approval or automate sending, else None.
+    Hyphens count as spaces, so "auto-send" is caught like "auto send"."""
+    lowered = text.lower().replace("-", " ")
     for phrase in FORBIDDEN_PHRASES:
         if phrase in lowered:
             return REFUSAL_MESSAGE

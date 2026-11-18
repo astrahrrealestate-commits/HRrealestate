@@ -87,6 +87,51 @@ def test_amount_question_quotes_the_fact_amount_never_a_message_amount() -> None
     assert plan.reply == "On this page: summary: Rent arrears: € 950 for October (offline answer)"
 
 
+def _intents(question: str) -> list[Intent]:
+    return [s.intent for s in _plan(question).steps]
+
+
+# The keyword fake only stands in for the model in offline tests: these prove its routing, not the real planner's.
+def test_fake_planner_emits_remember_for_a_rule() -> None:
+    (step,) = _plan("from now on never promise a repair date").steps
+    assert (step.intent, step.text, step.case_id) == (Intent.remember, "from now on never promise a repair date", None)
+
+
+def test_fake_planner_emits_calendar_for_a_visit() -> None:
+    (step,) = _plan("book a visit with the plumber on Thursday").steps
+    assert (step.intent, step.text) == (Intent.calendar, "book a visit with the plumber on Thursday")
+
+
+def test_fake_planner_does_not_book_a_payment_schedule() -> None:
+    assert Intent.calendar not in _intents("Set up a payment schedule for Piet's deposit")
+
+
+def test_fake_planner_drafts_about_unpaid_rent() -> None:
+    intents = _intents("Draft a polite WhatsApp message asking the tenant about the unpaid rent")
+    assert intents == [Intent.draft_reply]
+
+
+def test_fake_planner_drafts_about_a_visit() -> None:
+    assert _intents("Draft a message to the plumber to schedule a visit tomorrow") == [Intent.draft_reply]
+
+
+def test_fake_planner_respects_negation() -> None:
+    assert _intents("Do NOT schedule a visit yet, just check the lease") == [Intent.find_document]
+
+
+def test_fake_planner_returns_several_steps() -> None:
+    first, second = _plan("mark #a1b2c3 done and snooze #d4e5f6 2d").steps
+    assert (first.intent, first.task_ref) == (Intent.task_done, "a1b2c3")
+    assert (second.intent, second.task_ref, second.text) == (Intent.task_snooze, "d4e5f6", "2d")
+
+
+def test_fake_planner_routes_rent_questions_rewrites_and_reminders() -> None:
+    assert _intents("Who still owes rent this month?") == [Intent.rent_status]
+    assert _intents("Which tenants have unpaid rent?") == [Intent.rent_status]  # the same words, no draft asked
+    assert _intents("Make the draft for Sanne shorter") == [Intent.rewrite_draft]
+    assert _intents("remember to call the plumber") == [Intent.create_task]
+
+
 def test_amount_question_without_a_stated_amount_keeps_the_page_answer() -> None:
     plan = _plan("how much does he owe?", THREAD)
     assert plan.reply is not None
