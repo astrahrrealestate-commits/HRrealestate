@@ -228,7 +228,7 @@ What the agent reads for an open thread or case (the memory pack, server facts i
   reads the same text.
 
 Answers use the page too, in one model call: for a question about the page, the conversation, a case, a draft or
-the tasks, the planner (prompt `concierge/v8`; v4 added the document steps, v6 the `query_data` step and `suggestions`, v7 `needs_research` for open questions, v8 the `remember`, `calendar`, `rent_status` and `rewrite_draft` steps) writes the answer itself in the plan's
+the tasks, the planner (prompt `concierge/v8`; v4 added the document steps, v6 the `query_data` step and `suggestions`, v7 `needs_research` for open questions, v8 the `remember`, `calendar` and `rent_status` steps) writes the answer itself in the plan's
 `reply` and plans an `answer` step, which shows it. A `reply` is used only when every step of the plan is `answer` or
 `open_view`: a plan with any action (a draft, a chase, a task change, pause/resume, a document step) shows no model
 text, only each step's own summary, and its stored `reply` is null. Before the owner sees it, `reply` is screened:
@@ -246,10 +246,11 @@ from the server's copy of the draft (with an `open_view` step for `approvals`; t
 
 The v8 steps answer each for their own step, so they combine with the other steps of the same message: `remember`
 stores the owner's standing rule (sanitised and screened: a rule that skips approval or sends automatically, such as
-"always auto-send replies", is refused and not stored), `calendar` points to the Calendar page, `rent_status` gives
-the fixed "payments are not connected" answer while no rent data is mirrored (`app/core/rent_data.py`), and
-`rewrite_draft` says to open the draft, edit it and approve it. A draft request that only mentions a visit or unpaid
-rent stays a draft.
+"always auto-send replies", is refused and not stored), `calendar` points to the Calendar page, and `rent_status`
+gives the fixed "payments are not connected" answer while no rent data is mirrored (`app/core/rent_data.py`). A
+request to shorten, soften, translate or rephrase a draft is a `draft_reply` on that draft's case: the owner-requested
+redraft (see "Drafts from the Super Agent" below). A draft request that only mentions a visit or unpaid rent stays a
+draft.
 
 Case ids in a plan: a step may only name a case the planner was shown as company data, that is one of the brief's
 open cases or a case id on a server fact line of the page (`open case:`, `open thread: ... | case`, approval and

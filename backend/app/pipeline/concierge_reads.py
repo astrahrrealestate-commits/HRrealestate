@@ -24,15 +24,11 @@ SNIPPET = 120
 MAX_REVIEW = 20
 MAX_SUMMARY = 400
 
-# Fixed answers of the concierge/v8 guard intents, defined once here (the API's rent and draft guards re-export them).
+# Fixed answers of the concierge/v8 guard intents, defined once here (the API's rent guard re-exports the rent one).
 NO_RENT_DATA_ANSWER = (
     "Rent invoices are generated in BRIXX, but bank payment reconciliation is handled externally in Exact Online "
     "(not connected yet). Because bank settlements are not mirrored in BRIXX, I cannot confirm which tenants have paid "
     "or who is actually overdue."
-)
-REWRITE_UNSUPPORTED_ANSWER = (
-    "I can't rewrite or translate a draft yet. Open the draft, edit the text, then tap Accept and send. "
-    "Nothing is sent until you approve it."
 )
 CALENDAR_POINTER = "I can't book or look up visits from here yet. Open the Calendar page to book, move or check one."
 
@@ -245,11 +241,6 @@ def rent_status(ctx: Ctx, step: PlanStep) -> StepResult:
     if not rent_data.RENT_DATA_AVAILABLE:
         return StepResult(step.intent, True, NO_RENT_DATA_ANSWER, None, None)
     return query_data(ctx, step)
-
-
-def rewrite_draft(ctx: Ctx, step: PlanStep) -> StepResult:
-    """The Super Agent cannot rewrite or translate a draft: the owner edits it and approves it himself."""
-    return StepResult(step.intent, True, REWRITE_UNSUPPORTED_ANSWER, None, None)
 
 
 def query_data(ctx: Ctx, step: PlanStep) -> StepResult:

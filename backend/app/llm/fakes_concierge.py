@@ -10,9 +10,10 @@ Single-call answers (v3): a plan with an `answer` step carries a deterministic `
 ("how much does he owe") quotes the first server fact line stating an amount (never a `msg` line); anything else
 gets the owner_qa fake's answer ("On this page: ..." from the facts and snapshot, else the open-case count). Lines
 that look like instructions or carry contact details are never repeated, and ids are stripped.
-v8 intents (`remember`, `calendar`, `rent_status`, `rewrite_draft`): a negated clause ("do not schedule ...") is dropped
-before routing, every `#ref` command becomes its own step in order, and a draft request that mentions a visit or unpaid
-rent stays `draft_reply`. Keyword doubles only: they prove what the executor does with a plan, not what the model plans.
+v8 intents (`remember`, `calendar`, `rent_status`): a negated clause ("do not schedule ...") is dropped before routing,
+every `#ref` command becomes its own step in order, a draft request that mentions a visit or unpaid rent stays
+`draft_reply`, and "make it shorter" / "translate it" on a page is the redraft (`draft_reply` on the page case).
+Keyword doubles only: they prove what the executor does with a plan, not what the model plans.
 """
 
 import re
@@ -50,8 +51,7 @@ _REF_STEP = re.compile(
 )
 _REMINDER = re.compile(r"^(?:remember|remind me) to\b")  # a to-do, never a rule
 _RULE = re.compile(r"^(?:from now on|always|remember that|keep in mind that|standing rule)\b")
-_REWRITE = re.compile(r"\b(?:shorter|shorten|rewrite|rephrase|reword|translate|firmer|softer|friendlier)\b")
-_ABOUT_A_DRAFT = re.compile(r"\b(?:it|that|this|draft|reply|message)\b")
+_REDRAFT = re.compile(r"\b(?:shorter|shorten|rewrite|rephrase|reword|translate|firmer|softer|friendlier)\b")
 _CALENDAR = re.compile(
     r"\b(?:book|schedule|reschedule|move)\b.{0,40}\b(?:visit|appointment|viewing|inspection)s?\b"
     r"|\b(?:which|what|any)\b.{0,30}\b(?:visits|appointments)\b"
@@ -135,14 +135,12 @@ def _by_ref(low: str) -> dict[str, object] | None:
     return _plan(*steps[:MAX_PLAN_STEPS]) if steps else None
 
 
-def _rules_and_rewrites(low: str, question: str) -> dict[str, object] | None:
-    """Before `_by_case`: "from now on always reply in Dutch" is a rule, "make the draft shorter" a rewrite."""
+def _rules(low: str, question: str) -> dict[str, object] | None:
+    """Before `_by_case`: "from now on always reply in Dutch" is a rule, not a draft."""
     if _REMINDER.search(low):
         return _plan(_step("create_task", text=_safe(question)))
     if _RULE.search(low):
         return _plan(_step("remember", text=_safe(question)))
-    if _REWRITE.search(low) and _ABOUT_A_DRAFT.search(low):
-        return _plan(_step("rewrite_draft"))
     return None
 
 
@@ -214,9 +212,10 @@ def _task_page(low: str, ref: str) -> dict[str, object] | None:
 
 
 def _case_page(low: str, page: _Page) -> dict[str, object] | None:
-    if page.approval and re.search(r"\b(okay|ok|good|fine|right)\b|\bdraft\b", low):
+    redraft = _REDRAFT.search(low)  # "make it shorter": the owner-requested redraft of the page draft
+    if not redraft and page.approval and re.search(r"\b(okay|ok|good|fine|right)\b|\bdraft\b", low):
         return _plan(_step("open_view", case_id=page.case_id, view="approvals"), _step("answer", text=_safe(low)))
-    if re.search(r"\breply\b|\bdraft\b|\banswer (him|her|them)\b", low):
+    if redraft or re.search(r"\breply\b|\bdraft\b|\banswer (him|her|them)\b", low):
         return _plan(_step("draft_reply", case_id=page.case_id, text=_safe(low)))
     if re.search(r"\b(chase|nudge)\b", low):
         return _plan(_step("chase_now", case_id=page.case_id))
@@ -265,7 +264,7 @@ def _route(prompt: str, question: str) -> dict[str, object]:
     case_id = (re.search(_UUID, low) or [None])[0]
     return (
         _by_ref(low)
-        or _rules_and_rewrites(low, question)
+        or _rules(low, question)
         or _by_case(low, data.lower())
         or _calendar_or_rent(low, question)
         or _documents(low, question, case_id)

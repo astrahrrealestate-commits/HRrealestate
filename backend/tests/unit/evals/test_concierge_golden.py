@@ -13,8 +13,8 @@ from evals.common import eval_settings
 from evals.concierge_eval import Label, load, plan_is_clean, runnable, score_plans
 
 MIN_GROUPS = {
-    "read": 8, "task": 8, "pause": 4, "reply": 6, "clarify": 4, "out_of_scope": 4, "page": 12, "documents": 8,
-    "research": 3, "chat": 2, "remember": 2, "calendar": 2, "rent": 2, "rewrite": 2, "multi": 1,
+    "read": 8, "task": 8, "pause": 4, "reply": 8, "clarify": 4, "out_of_scope": 4, "page": 12, "documents": 8,
+    "research": 3, "chat": 2, "remember": 2, "calendar": 2, "rent": 2, "multi": 1,
 }  # fmt: skip
 
 
@@ -244,6 +244,9 @@ def test_v8_review_focus_cases_pin_the_word_negation_and_multi_step_rules() -> N
     assert labels["task-07"].expected_intents == [Intent.create_task]  # "remember to ..." is a to-do
     assert labels["multi-01"].expected_intents == [Intent.task_done, Intent.remember, Intent.calendar]
     assert all(labels[n].expected_intents == [Intent.rent_status] for n in ("rent-01", "rent-02"))
+    for name, case in (("reply-07", 1), ("reply-08", 2)):  # shorten / translate a draft: the redraft on its case
+        assert labels[name].expected_intents == [Intent.draft_reply]
+        assert labels[name].expected_ref == str(UUID(int=case))
 
 
 def test_an_amount_case_checks_the_fact_amount_and_never_the_requested_one() -> None:

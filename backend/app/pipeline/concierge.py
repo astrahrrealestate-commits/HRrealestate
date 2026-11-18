@@ -102,7 +102,6 @@ _HANDLERS: dict[Intent, Handler] = {
     Intent.clarify: concierge_reads.clarify,
     Intent.calendar: concierge_reads.calendar,
     Intent.rent_status: concierge_reads.rent_status,
-    Intent.rewrite_draft: concierge_reads.rewrite_draft,
     Intent.task_done: concierge_writes.task_done,
     Intent.task_snooze: concierge_writes.task_snooze,
     Intent.create_task: concierge_writes.create_task,

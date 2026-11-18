@@ -34,12 +34,11 @@ class Intent(StrEnum):
     remember = "remember"
     calendar = "calendar"
     rent_status = "rent_status"
-    rewrite_draft = "rewrite_draft"
 
 
 class PlanStep(Contract):
     intent: Intent
-    case_id: UUID | None  # only for case_status, draft_reply, show_drafts, chase_now, open_view, rewrite_draft
+    case_id: UUID | None  # only for case_status, draft_reply, show_drafts, chase_now, open_view
     task_ref: Annotated[str, max_len(8)] | None  # 6-hex task ref
     # query, task title, clarify question, snooze like "2d", rule to remember, scheduling request
     text: Annotated[str, max_len(400)] | None

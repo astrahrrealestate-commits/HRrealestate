@@ -205,14 +205,18 @@ def test_prompt_v7_extends_v6_with_needs_research_and_keeps_every_safety_rule() 
 V7_SHA256 = "0f1caaf2ff6fbaf7e678c48c58bf0ec1b26268ebd70d5d88053434a35a7d50af"  # published: never changes
 
 
-def test_v8_prompt_names_the_four_new_intents_and_the_three_rules() -> None:
-    """v7 stays published byte for byte; v8 adds four intents and the negation, word and several-requests rules."""
+def test_v8_prompt_names_the_new_intents_and_the_three_rules() -> None:
+    """v7 stays published byte for byte; v8 adds three intents and the negation, word and several-requests rules.
+    Shortening or translating a draft stays `draft_reply` (the owner-requested redraft), never a separate intent."""
     v7 = load_prompt(PromptRef(name="concierge", version="v7"))
     v8 = load_prompt(PromptRef(name="concierge", version="v8")).text
     assert v7.sha256 == V7_SHA256
-    for intent in ("- `remember`", "- `calendar`", "- `rent_status`", "- `rewrite_draft`"):
+    for intent in ("- `remember`", "- `calendar`", "- `rent_status`"):
         assert intent in v8
         assert intent not in v7.text
+    assert "rewrite_draft" not in v8
+    assert "shorten, soften, translate or rephrase an existing draft is `draft_reply`" in v8
+    assert "never invent a new recipient" in v8
     for rule in (
         "Negation",
         "means no step for that action",

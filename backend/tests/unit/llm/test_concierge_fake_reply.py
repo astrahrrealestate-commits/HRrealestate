@@ -125,11 +125,26 @@ def test_fake_planner_returns_several_steps() -> None:
     assert (second.intent, second.task_ref, second.text) == (Intent.task_snooze, "d4e5f6", "2d")
 
 
-def test_fake_planner_routes_rent_questions_rewrites_and_reminders() -> None:
+def test_fake_planner_routes_rent_questions_and_reminders() -> None:
     assert _intents("Who still owes rent this month?") == [Intent.rent_status]
     assert _intents("Which tenants have unpaid rent?") == [Intent.rent_status]  # the same words, no draft asked
-    assert _intents("Make the draft for Sanne shorter") == [Intent.rewrite_draft]
     assert _intents("remember to call the plumber") == [Intent.create_task]
+
+
+APPROVAL = (
+    "view: approvals\nopen approval: 00000000-0000-0000-0000-0000000000a1 | reply_draft | pending | draft_version 1"
+    f" | current draft yes | suspicious sender no | case {CASE}\n"
+    "  draft 1: Beste Joris, morgen komt de glazenmaker."
+)
+
+
+def test_fake_planner_redrafts_when_asked_to_shorten_or_translate() -> None:
+    """A shorter or translated draft is the owner-requested redraft: `draft_reply` on the draft's case."""
+    for question, facts in (("make it shorter", APPROVAL), ("translate it into Dutch", THREAD)):
+        (step,) = _plan(question, facts).steps
+        assert (step.intent, str(step.case_id)) == (Intent.draft_reply, CASE)
+    (step,) = _plan("Make the draft for Sanne shorter").steps
+    assert (step.intent, step.case_id) == (Intent.draft_reply, CASES[0].case_id)
 
 
 def test_amount_question_without_a_stated_amount_keeps_the_page_answer() -> None:

@@ -89,12 +89,11 @@ def _spy_all(monkeypatch: pytest.MonkeyPatch) -> dict[Intent, Spy]:
 
 def test_every_intent_has_a_handler() -> None:
     assert set(concierge._HANDLERS) == set(Intent)
-    assert {Intent.remember, Intent.calendar, Intent.rent_status, Intent.rewrite_draft} <= set(Intent)
+    assert {Intent.remember, Intent.calendar, Intent.rent_status} <= set(Intent)
 
 
-@pytest.mark.parametrize("intent", [Intent.rent_status, Intent.rewrite_draft])
-def test_fixed_answer_intents_need_no_text(intent: Intent) -> None:
-    assert not concierge.needs_detail(step(intent))
+def test_rent_status_needs_no_text() -> None:
+    assert not concierge.needs_detail(step(Intent.rent_status))
 
 
 def test_contract_rejects_more_than_four_steps() -> None:

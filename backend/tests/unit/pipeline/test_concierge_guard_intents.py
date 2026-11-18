@@ -1,5 +1,5 @@
-"""The fixed-answer intents of concierge/v8 (`calendar`, `rent_status`, `rewrite_draft`): each answers its own step
-only, so it composes with the other steps of the same plan (it used to pre-empt the planner by keyword)."""
+"""The fixed-answer intents of concierge/v8 (`calendar`, `rent_status`): each answers its own step only, so it
+composes with the other steps of the same plan (the rent answer used to pre-empt the planner by keyword)."""
 
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -9,13 +9,13 @@ import pytest
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session
 
-from app.api.agent import draft_requests, rent_guard
+from app.api.agent import rent_guard
 from app.contracts import ConciergePlan, Intent, PlanStep
 from app.core import rent_data
 from app.core.settings import Settings
 from app.pipeline import case_repo, concierge, concierge_reads
 from app.pipeline.concierge_base import Ctx, StepResult
-from app.pipeline.concierge_reads import CALENDAR_POINTER, NO_RENT_DATA_ANSWER, REWRITE_UNSUPPORTED_ANSWER
+from app.pipeline.concierge_reads import CALENDAR_POINTER, NO_RENT_DATA_ANSWER
 
 NOW = datetime(2026, 11, 18, 9, 0, tzinfo=UTC)
 COMPANY = UUID("01900000-0000-7000-8000-000000000001")
@@ -80,19 +80,9 @@ def test_rent_status_asks_the_query_agent_once_rent_data_exists(
     assert no_query_agent == [_step(Intent.rent_status)]
 
 
-def test_rewrite_draft_gives_the_edit_it_yourself_answer(ctx: Ctx) -> None:
-    result = concierge_reads.rewrite_draft(ctx, _step(Intent.rewrite_draft, case_id=CASE))
-    assert (result.intent, result.ok, result.summary, result.data) == (
-        Intent.rewrite_draft,
-        True,
-        REWRITE_UNSUPPORTED_ANSWER,
-        None,
-    )
-
-
-def test_answer_texts_are_defined_once_and_re_exported_by_the_api_guards() -> None:
+def test_rent_answer_text_is_defined_once_and_re_exported_by_the_rent_guard() -> None:
     assert rent_guard.NO_RENT_DATA_ANSWER is NO_RENT_DATA_ANSWER
-    assert draft_requests.REWRITE_UNSUPPORTED_ANSWER is REWRITE_UNSUPPORTED_ANSWER
+    assert not hasattr(concierge_reads, "REWRITE_UNSUPPORTED_ANSWER")  # a redraft is `draft_reply`, not refused
 
 
 def test_rent_status_beside_a_draft_step_keeps_both_results(
