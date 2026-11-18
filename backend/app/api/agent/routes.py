@@ -5,7 +5,7 @@ Executes multi-step plans (case status, drafting replies, task completions/snooz
 """
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 from urllib.parse import quote_plus
@@ -16,9 +16,20 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
+from app.api.agent.cards import ActionButtonData, AssistantCardData, CardActionData, PreviewCardData, build_cards_list
 from app.api.agent.draft_requests import channel_note, rewrite_answer
 from app.api.agent.fallback import domain_fallback_answer
 from app.api.agent.focus import new_chat_fact, next_focus
+from app.api.agent.intent_responses import (
+    STAGES,
+    Segment,
+    compose,
+    merge,
+    preview_cards,
+    remember_segment,
+    rest_plan,
+    rest_position,
+)
 from app.api.agent.property_scope import property_scope
 from app.api.agent.rent_guard import rent_data_answer
 from app.api.agent.steps import asks_for_clarification, display_steps
@@ -27,7 +38,6 @@ from app.api.v1.access import require_agent
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import ask_limit
 from app.channels.calendar import get_calendar_client
-from app.context import memory_items
 from app.context.compiler import compile_concierge_context
 from app.context.selection import rank_cases
 from app.context.super_agent_prompt import build_super_agent_system_prompt
@@ -37,7 +47,7 @@ from app.core.ids import case_ref as short_case_ref
 from app.core.ids import new_id
 from app.core.logging import get_logger
 from app.core.settings import Settings
-from app.db.enums import MemoryKind, MemoryScope, MemoryStatus, PersonKind, TurnStatus
+from app.db.enums import MemoryStatus, PersonKind, TurnStatus
 from app.db.models import (
     ActionRow,
     AgentConversation,
@@ -67,7 +77,7 @@ from app.llm.fakes_concierge import fake_concierge
 from app.llm.runtime import describe_model_error
 from app.pipeline import case_repo, owner_commands, understand, work_repo
 from app.pipeline.concierge import StepResult, run_plan
-from app.pipeline.concierge_outcome import assemble_answer, task_brief
+from app.pipeline.concierge_outcome import task_brief
 from app.pipeline.document_search import DocFilter
 from app.pipeline.rag import search_hybrid
 from app.superagent.chat import chat_answer
@@ -84,93 +94,6 @@ class AskAgentRequest(BaseModel):
     context: str | None = Field(default=None, description="Optional page context e.g. Inbox, Maintenance, Money")
     conversation_id: str | None = Field(default=None, description="Existing conversation UUID or null for new thread")
     history: list[str] | None = Field(default=None, description="Recent conversation turns for context")
-
-
-class CardActionData(BaseModel):
-    label: str
-    kind: str = Field(default="api_call", description="api_call | navigate | open_external")
-    endpoint: str | None = None
-    method: str = "POST"
-    payload: dict[str, Any] | None = None
-    targetUrl: str | None = None
-    variant: str = "primary"  # primary | secondary | danger | whatsapp | gmail
-
-
-class AssistantCardData(BaseModel):
-    id: str
-    type: (
-        str  # draft_message | case_summary | financial_item | calendar_item | document_item | memory_item | data_table
-    )
-    badgeLabel: str
-    badgeColor: str = "orange"
-    title: str
-    subtitle: str | None = None
-    body: str | None = None
-    amount: str | None = None
-    contractor: str | None = None
-    dueDate: str | None = None
-    status: str | None = None
-    unitLabel: str | None = None
-    recipient: str | None = None
-    channel: str | None = None
-    actions: list[CardActionData] = Field(default_factory=list)
-    externalUrl: str | None = None
-    threadSearchUrl: str | None = None
-    targetUrl: str | None = None
-    caseId: str | None = None
-    actionId: str | None = None
-    columns: list[str] = Field(default_factory=list)
-    rows: list[dict[str, Any]] = Field(default_factory=list)
-    totalCount: int | None = None
-    phone: str | None = None
-    email: str | None = None
-    leaseStart: str | None = None
-    leaseEnd: str | None = None
-
-
-class PreviewCardData(BaseModel):
-    type: str = Field(
-        default="draft_message",
-        description=(
-            "Type of card: draft_message, case_summary, data_table, tenant_lease, financial_item, "
-            "calendar_item, document_item, memory_item, notice"
-        ),
-    )
-    channel: str | None = Field(default=None, description="whatsapp | gmail | internal")
-    recipient: str = Field(default="", description="Recipient phone or email")
-    unitLabel: str = Field(default="", description="Target property/unit address")
-    subject: str | None = None
-    body: str = Field(default="", description="The drafted text content")
-    actionId: str | None = None
-    caseId: str | None = None
-    title: str | None = None
-    subtitle: str | None = None
-    badgeLabel: str | None = None
-    badgeColor: str | None = None
-    amount: str | None = None
-    status: str | None = None
-    dueDate: str | None = None
-    contractor: str | None = None
-    targetUrl: str | None = None
-    externalUrl: str | None = None
-    threadSearchUrl: str | None = None
-    variants: list[str] = Field(default_factory=list, description="All body variants for draft switcher")
-    personaName: str | None = Field(default=None, description="Owner persona the draft was written in")
-    personaVersion: int | None = None
-    columns: list[str] = Field(default_factory=list)
-    rows: list[dict[str, Any]] = Field(default_factory=list)
-    totalCount: int | None = None
-    phone: str | None = None
-    email: str | None = None
-    leaseStart: str | None = None
-    leaseEnd: str | None = None
-
-
-class ActionButtonData(BaseModel):
-    label: str
-    actionType: str = Field(default="navigate", description="navigate | approve_action | query")
-    payload: str | None = None
-    isPrimary: bool = False
 
 
 class DebugInfo(BaseModel):
@@ -1246,144 +1169,6 @@ def _build_query_preview_card(
     return table_card, [ActionButtonData(label=action_label, actionType="navigate", payload=target_url, isPrimary=True)]
 
 
-def _build_cards_list(target_cards: list[PreviewCardData]) -> list[AssistantCardData]:
-    """Convert PreviewCardData models into polymorphic AssistantCardData models."""
-    cards_list: list[AssistantCardData] = []
-    for p_card in target_cards:
-        card_actions: list[CardActionData] = []
-        if p_card.type == "draft_message":
-            if p_card.status == "pending" or not p_card.status:
-                card_actions.append(
-                    CardActionData(
-                        label="Accept and send",
-                        kind="api_call",
-                        endpoint=f"/api/inbox/approvals/{p_card.actionId}/decide" if p_card.actionId else None,
-                        payload={"decision": "approved"},
-                        variant="primary",
-                    )
-                )
-            if p_card.externalUrl:
-                label = "Open in WhatsApp" if p_card.channel == "whatsapp" else "Open in Gmail"
-                card_actions.append(
-                    CardActionData(
-                        label=label,
-                        kind="open_external",
-                        targetUrl=p_card.externalUrl,
-                        variant="whatsapp" if p_card.channel == "whatsapp" else "gmail",
-                    )
-                )
-            if p_card.threadSearchUrl:
-                label = "View Thread on WhatsApp" if p_card.channel == "whatsapp" else "View Thread in Gmail"
-                card_actions.append(
-                    CardActionData(
-                        label=label,
-                        kind="open_external",
-                        targetUrl=p_card.threadSearchUrl,
-                        variant="secondary",
-                    )
-                )
-            card_actions.append(
-                CardActionData(
-                    label="Open in Inbox",
-                    kind="navigate",
-                    targetUrl=p_card.targetUrl
-                    or (f"/inbox?thread=case-{p_card.caseId}" if p_card.caseId else "/inbox"),
-                    variant="secondary",
-                )
-            )
-        elif p_card.type == "notice":
-            card_actions.append(
-                CardActionData(
-                    label="Review in Inbox",
-                    kind="navigate",
-                    targetUrl=p_card.targetUrl
-                    or (f"/inbox?thread=case-{p_card.caseId}" if p_card.caseId else "/inbox"),
-                    variant="primary",
-                )
-            )
-            if p_card.caseId:
-                card_actions.append(
-                    CardActionData(
-                        label="Retry draft",
-                        kind="query",
-                        payload={"query": f"draft a reply for case {p_card.caseId}"},
-                        variant="secondary",
-                    )
-                )
-        elif p_card.type == "case_summary":
-            card_actions.append(
-                CardActionData(
-                    label="Open in Maintenance",
-                    kind="navigate",
-                    targetUrl=p_card.targetUrl
-                    or (f"/maintenance?ticket={p_card.caseId}" if p_card.caseId else "/maintenance"),
-                    variant="primary",
-                )
-            )
-        elif p_card.type == "calendar_item":
-            card_actions.append(
-                CardActionData(
-                    label="Approve and Add to Calendar",
-                    kind="api_call",
-                    endpoint=f"/api/calendar/events/{p_card.actionId}/approve" if p_card.actionId else None,
-                    variant="primary",
-                )
-            )
-        elif p_card.type in ("data_table", "tenant_lease"):
-            nav_target = p_card.targetUrl or "/tenants"
-            nav_labels = {
-                "/tenants": "Open Tenants",
-                "/maintenance": "Open Maintenance",
-                "/calendar": "Open Calendar",
-                "/money": "Open Money",
-                "/contacts": "Open Contacts",
-                "/waiting": "Open Waiting",
-                "/documents": "Open Documents",
-            }
-            nav_label = nav_labels.get(nav_target, "View Details")
-            card_actions.append(
-                CardActionData(
-                    label=nav_label,
-                    kind="navigate",
-                    targetUrl=nav_target,
-                    variant="primary",
-                )
-            )
-
-        cards_list.append(
-            AssistantCardData(
-                id=p_card.actionId or p_card.caseId or f"card-{len(cards_list)}",
-                type=p_card.type,
-                badgeLabel=p_card.badgeLabel or ("DRAFT" if p_card.type == "draft_message" else "TICKET"),
-                badgeColor=getattr(p_card, "badgeColor", None) or "orange",
-                title=p_card.title or (p_card.unitLabel or "Draft Message"),
-                subtitle=p_card.subtitle,
-                body=p_card.body,
-                amount=p_card.amount,
-                contractor=p_card.contractor,
-                dueDate=p_card.dueDate,
-                status=p_card.status,
-                unitLabel=p_card.unitLabel,
-                recipient=p_card.recipient,
-                channel=p_card.channel,
-                actions=card_actions,
-                externalUrl=p_card.externalUrl,
-                threadSearchUrl=p_card.threadSearchUrl,
-                targetUrl=p_card.targetUrl,
-                caseId=p_card.caseId,
-                actionId=p_card.actionId,
-                columns=p_card.columns,
-                rows=p_card.rows,
-                totalCount=p_card.totalCount,
-                phone=p_card.phone,
-                email=p_card.email,
-                leaseStart=p_card.leaseStart,
-                leaseEnd=p_card.leaseEnd,
-            )
-        )
-    return cards_list
-
-
 def _owned_conversation(session: Session, principal: Principal, conversation_id: UUID) -> AgentConversation | None:
     """A conversation of the signed-in owner; anyone else's (another company's or another owner's) does not exist."""
     return session.scalars(
@@ -1393,6 +1178,17 @@ def _owned_conversation(session: Session, principal: Principal, conversation_id:
             AgentConversation.owner_id == principal.owner_id,
         )
     ).first()
+
+
+def _api_steps(engine: Engine, company_id: UUID) -> dict[Intent, Callable[[PlanStep], Segment]]:
+    """The plan steps this route answers with its own cards (`intent_responses`), each in a short session of its own;
+    `compose` sends every other step to `run_plan`."""
+
+    def remember(step: PlanStep) -> Segment:
+        with Session(engine) as session:
+            return remember_segment(session, company_id, step)
+
+    return {Intent.remember: remember}
 
 
 def _finish_agent_response(
@@ -1526,115 +1322,7 @@ def ask_agent(
         conv_id = conv.id
         history = (req.history or [])[-MAX_HISTORY:]
 
-        # Natural language rule recording check (T5 Standing Rules - Issue 1.9)
-        q_clean = req.query.strip().strip("\"'“”`")
-        q_low = q_clean.lower()
-
-        # Distinguish temporary tasks/reminders from permanent standing policy rules
-        is_task_reminder = q_low.startswith(("remember to ", "remind me to ", "note to ")) or bool(
-            re.search(
-                r"^(remember|remind me|note)\s+(to\s+)?(call|email|text|message|pay|chase|ask|contact|check on)\b",
-                q_low,
-            )
-        )
-
-        rule_prefixes = [
-            "standing rule:",
-            "standing rule ",
-            "company policy:",
-            "company policy ",
-            "rule: ",
-            "set rule: ",
-            "new rule: ",
-            "policy: ",
-            "always remember that ",
-            "remember that ",
-            "keep in mind that ",
-        ]
-
-        matched_rule_prefix = None
-        if not is_task_reminder:
-            for prefix in rule_prefixes:
-                if q_low.startswith(prefix):
-                    matched_rule_prefix = prefix
-                    break
-
-        if matched_rule_prefix:
-            rule_text = q_clean[len(matched_rule_prefix) :].strip().strip("\"'“”`")
-            if rule_text:
-                item, _reason = memory_items.record_owner_memory(
-                    session,
-                    company_id=company_id,
-                    text=rule_text,
-                    scope=MemoryScope.company,
-                    kind=MemoryKind.rule,
-                    status=MemoryStatus.proposed,
-                )
-                session.commit()
-
-                if item is not None and item.status == MemoryStatus.active:
-                    return AskAgentResponse(
-                        answer=(
-                            "This standing rule is already active in your company settings:\n\n"
-                            f'• **"{item.text}"**\n\nAll '
-                            "agents and automated workflows already enforce it."
-                        ),
-                        suggestedAction="View Standing Rules in Settings",
-                        actions=[
-                            ActionButtonData(
-                                label="View Standing Rules in Settings",
-                                actionType="navigate",
-                                payload="/settings",
-                                isPrimary=True,
-                            )
-                        ],
-                        executedAt=now.isoformat(),
-                        steps=["Verified existing company standing rule in database"],
-                        debugInfo=DebugInfo(pipeline_stage="memory_rule"),
-                    )
-
-                if item is not None:
-                    rule_id = str(item.id)
-                    mem_card = PreviewCardData(
-                        type="memory_item",
-                        badgeLabel="POLICY PROPOSAL",
-                        unitLabel="Company Portfolio",
-                        status="Proposed",
-                        title="Proposed Standing Rule",
-                        body=item.text,
-                        actionId=rule_id,
-                    )
-                    return AskAgentResponse(
-                        answer=(
-                            f"I have drafted a new proposed standing rule for your company:\n\n"
-                            f'• **"{item.text}"**\n\n'
-                            f"Would you like to activate this policy across your portfolio?"
-                        ),
-                        suggestedAction="Activate Standing Rule",
-                        actions=[
-                            ActionButtonData(
-                                label="Activate Standing Rule",
-                                actionType="approve_memory",
-                                payload=f"/api/v1/memory/{rule_id}/approve",
-                                isPrimary=True,
-                            ),
-                            ActionButtonData(
-                                label="Review in Settings",
-                                actionType="navigate",
-                                payload="/settings",
-                                isPrimary=False,
-                            ),
-                        ],
-                        previewCard=mem_card,
-                        previewCards=[mem_card],
-                        cards=_build_cards_list([mem_card]),
-                        executedAt=now.isoformat(),
-                        steps=[
-                            "Extracted policy constraint from request",
-                            "Drafted proposed standing rule in database (pending activation)",
-                        ],
-                        debugInfo=DebugInfo(pipeline_stage="memory_rule"),
-                    )
+        q_low = req.query.strip().strip("\"'“”`").lower()
 
         # Pull active owner memory rules (T5)
         approved_memories = list(
@@ -1974,7 +1662,7 @@ def ask_agent(
                             actions=actions,
                             previewCard=doc_preview_card,
                             previewCards=[doc_preview_card],
-                            cards=_build_cards_list([doc_preview_card]),
+                            cards=build_cards_list([doc_preview_card]),
                             executedAt=now.isoformat(),
                             steps=[],
                             debugInfo=DebugInfo(pipeline_stage="regex_document"),
@@ -2025,7 +1713,7 @@ def ask_agent(
                     q_card, q_actions = _build_query_preview_card(
                         req.query, q_res.display_rows, q_res.columns, q_res.row_count
                     )
-                    q_cards_list = _build_cards_list([q_card]) if q_card else []
+                    q_cards_list = build_cards_list([q_card]) if q_card else []
                     if not q_actions:
                         fallback_nav_url = (
                             "/tenants" if "lease" in q_low or "tenant" in q_low else ("/maintenance" if briefs else "/")
@@ -2144,6 +1832,8 @@ def ask_agent(
 
     plan: ConciergePlan | None = None
     results: list[StepResult] = []
+    segments: list[Segment] = []  # the plan's answers in order; `results` are those of its run_plan segment
+    rest_at: int | None = None  # where the run_plan segment sits among them
     case_refs: list[str] = []
 
     # 1. Try running full CONCIERGE agent via LLM
@@ -2282,18 +1972,28 @@ def ask_agent(
                             error=str(und_err),
                         )
 
-            results = run_plan(
-                engine,
-                settings,
-                company_id,
-                plan,
-                question=req.query,
-                now=now,
-                brief_cases=known_cases_list,
-                turn_id=turn_id,
-                research=make_researcher(engine, settings),
-            )
-            ans_text = assemble_answer(results)
+            def run_rest(rest: ConciergePlan) -> list[StepResult]:
+                results.extend(
+                    run_plan(
+                        engine,
+                        settings,
+                        company_id,
+                        rest,
+                        question=req.query,
+                        now=now,
+                        brief_cases=known_cases_list,
+                        turn_id=turn_id,
+                        research=make_researcher(engine, settings),
+                    )
+                )
+                return results
+
+            api_steps = _api_steps(engine, company_id)
+            segments = compose(plan, api_steps, run_rest)
+            rest_at = rest_position(plan, api_steps)
+            if rest_at is not None:  # what follows finishes the run_plan answer: it reads the steps run_plan ran
+                ans_text = segments[rest_at].text
+                plan = rest_plan(plan, api_steps)
         else:
             # Screened or direct command path via owner_commands
             cmd = owner_commands.parse_command(req.query)
@@ -2301,6 +2001,28 @@ def ask_agent(
     except Exception as exec_err:
         log.warning("api.superagent.run_plan_failed", error=str(exec_err))
         ans_text = ""
+
+    if plan and segments and rest_at is None:  # the API layer answered every step: run_plan had nothing to do
+        whole = merge(segments)
+        return _finish_agent_response(
+            engine=engine,
+            conv_id=conv_id,
+            req=req,
+            ans_text=whole.text,
+            case_refs=[],
+            suggested_action=whole.actions[0].label if whole.actions else None,
+            action_buttons=whole.actions,
+            step_descriptions=whole.steps,
+            preview_card=whole.preview_card,
+            cards_list=whole.cards,
+            pipeline_stage=STAGES.get(plan.steps[0].intent, pipeline_stage),
+            fallback_reason=fallback_reason,
+            suggestions=list(plan.suggestions),
+            now=now,
+            briefs=briefs,
+            preview_cards=preview_cards(segments),
+            turn_id=turn_id,
+        )
 
     # If active memory matches the query directly, return it as authoritative
     matching_rule = None
@@ -2854,7 +2576,15 @@ def ask_agent(
         [s.strip() for s in plan.suggestions if s.strip()] if (plan and getattr(plan, "suggestions", None)) else []
     )
     suggestions = _sanitize_suggestions(raw_suggestions, target_cards, q_low)
-    cards_list = _build_cards_list(target_cards)
+    cards_list = build_cards_list(target_cards)
+
+    if rest_at is not None and len(segments) > 1:  # the API layer's answers go around the run_plan one, in plan order
+        before, after = segments[:rest_at], segments[rest_at + 1 :]
+        rest = Segment(_clean_executive_answer(ans_text), cards_list, action_buttons, step_descriptions, preview_card)
+        whole = merge([*before, rest, *after])
+        ans_text, cards_list, action_buttons, step_descriptions = whole.text, whole.cards, whole.actions, whole.steps
+        preview_card, target_cards = whole.preview_card, [*preview_cards(before), *target_cards, *preview_cards(after)]
+        suggested_action = action_buttons[0].label if action_buttons else None
 
     return _finish_agent_response(
         engine=engine,

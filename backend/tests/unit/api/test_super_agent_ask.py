@@ -76,7 +76,7 @@ def test_long_concierge_answer_not_discarded():
         patch("app.api.agent.routes.Session", return_value=mock_sess),
         patch("app.api.agent.routes.run_agent") as mock_run_agent,
         patch("app.api.agent.routes.run_plan", return_value=[mock_result]),
-        patch("app.api.agent.routes.assemble_answer", return_value=long_answer),
+        patch("app.api.agent.intent_responses.assemble_answer", return_value=long_answer),
         patch("app.api.agent.routes._generate_chat_answer") as mock_chat,
         TestClient(app) as client,
     ):
@@ -115,7 +115,7 @@ def test_short_concierge_answer_not_discarded():
         patch("app.api.agent.routes.Session", return_value=mock_sess),
         patch("app.api.agent.routes.run_agent") as mock_run_agent,
         patch("app.api.agent.routes.run_plan", return_value=[mock_result]),
-        patch("app.api.agent.routes.assemble_answer", return_value=short_answer),
+        patch("app.api.agent.intent_responses.assemble_answer", return_value=short_answer),
         patch("app.api.agent.routes._generate_chat_answer") as mock_chat,
         TestClient(app) as client,
     ):
@@ -218,7 +218,7 @@ def test_draft_card_uses_real_action_payload():
         patch("app.api.agent.routes.Session", return_value=mock_sess),
         patch("app.api.agent.routes.run_agent") as mock_run_agent,
         patch("app.api.agent.routes.run_plan", return_value=[mock_result]),
-        patch("app.api.agent.routes.assemble_answer", return_value="Draft prepared for review."),
+        patch("app.api.agent.intent_responses.assemble_answer", return_value="Draft prepared for review."),
         TestClient(app) as client,
     ):
         mock_run_agent.return_value.output = fake_plan
@@ -281,7 +281,7 @@ def test_dropped_step_surfaces_actionable_warning():
         patch("app.api.agent.routes.Session", return_value=mock_sess),
         patch("app.api.agent.routes.run_agent") as mock_run_agent,
         patch("app.api.agent.routes.run_plan", return_value=[mock_result]),
-        patch("app.api.agent.routes.assemble_answer", return_value="I need more detail"),
+        patch("app.api.agent.intent_responses.assemble_answer", return_value="I need more detail"),
         TestClient(app) as client,
     ):
         mock_run_agent.return_value.output = fake_plan
@@ -318,7 +318,7 @@ def test_open_view_waiting_maps_to_dashboard_not_maintenance():
         patch("app.api.agent.routes.Session", return_value=mock_sess),
         patch("app.api.agent.routes.run_agent") as mock_run_agent,
         patch("app.api.agent.routes.run_plan", return_value=[mock_result]),
-        patch("app.api.agent.routes.assemble_answer", return_value="Opening waiting view"),
+        patch("app.api.agent.intent_responses.assemble_answer", return_value="Opening waiting view"),
         TestClient(app) as client,
     ):
         mock_run_agent.return_value.output = fake_plan
@@ -511,7 +511,7 @@ def test_priority_inquiry_matches_urgent_case_not_newsletter():
         patch("app.api.agent.routes.run_agent") as mock_run_agent,
         patch("app.api.agent.routes.run_plan", return_value=[]),
         patch(
-            "app.api.agent.routes.assemble_answer",
+            "app.api.agent.intent_responses.assemble_answer",
             return_value="The urgent matter is the emergency water leak at Keizersgracht 42-A.",
         ),
         TestClient(app) as client,
@@ -575,24 +575,50 @@ def test_document_rag_returns_document_item_preview_card():
         assert "whatsapp" not in (card.get("channel") or "")
 
 
+def _plan(*steps: PlanStep) -> ConciergePlan:
+    return ConciergePlan(in_scope=True, steps=list(steps), reply=None)
+
+
+def _step(intent: Intent, *, text: str | None = None, task_ref: str | None = None) -> PlanStep:
+    return PlanStep(intent=intent, case_id=None, task_ref=task_ref, text=text, view=None)
+
+
+def _rule_session() -> MagicMock:
+    """A fake session in which no rule is stored yet, so the real `record_owner_memory` adds a new one."""
+    sess = create_mock_session()
+    sess.scalar.return_value = None
+    return sess
+
+
+def _added_rules(sess: MagicMock) -> list:
+    from app.db.models import MemoryItem
+
+    return [c.args[0] for c in sess.add.call_args_list if isinstance(c.args[0], MemoryItem)]
+
+
 def test_standing_rule_creates_proposed_memory_with_action_card():
-    """Verify Issue 1.9: standing rules create proposed memory items with approval action buttons."""
+    """Verify Issue 1.9: a standing rule the planner names (`remember`) is a proposed memory item with approval
+    action buttons; the planner decides, the "Standing rule:" prefix no longer does."""
     from app.db.enums import MemoryStatus
 
     mock_engine = MagicMock()
     app = as_owner(create_app(SETTINGS, engine=mock_engine))
 
     fake_memory = MagicMock()
-    fake_memory.id = uuid4()
+    fake_memory.id = UUID(int=578)
     fake_memory.text = "Always require owner signoff for repairs exceeding €500"
     fake_memory.status = MemoryStatus.proposed
+    plan = _plan(_step(Intent.remember, text="Always require owner signoff for repairs exceeding €500"))
 
     mock_sess = create_mock_session()
     with (
         patch("app.api.agent.routes.Session", return_value=mock_sess),
+        patch("app.api.agent.routes.run_agent") as mock_run_agent,
+        patch("app.api.agent.routes.run_plan") as mock_run_plan,
         patch("app.context.memory_items.record_owner_memory", return_value=(fake_memory, None)) as mock_record,
         TestClient(app) as client,
     ):
+        mock_run_agent.return_value.output = plan
         res = client.post(URL, json={"query": "Standing rule: Always require owner signoff for repairs exceeding €500"})
         assert res.status_code == 200
         data = res.json()
@@ -602,27 +628,167 @@ def test_standing_rule_creates_proposed_memory_with_action_card():
         assert data["previewCard"]["badgeLabel"] == "POLICY PROPOSAL"
         assert data["previewCard"]["actionId"] == str(fake_memory.id)
         assert any(a["actionType"] == "approve_memory" for a in data["actions"])
+        mock_run_agent.assert_called_once()
+        mock_run_plan.assert_not_called()
         mock_record.assert_called_once()
         _, kwargs = mock_record.call_args
         assert kwargs.get("status") == MemoryStatus.proposed
 
 
-def test_task_reminder_not_saved_as_standing_rule():
-    """Verify Issue 1.9: user task reminders ('remember to call Vipin') are not treated as standing policies."""
-    mock_engine = MagicMock()
-    app = as_owner(create_app(SETTINGS, engine=mock_engine))
+def test_remember_intent_proposes_a_standing_rule():
+    from app.db.enums import MemoryKind, MemoryScope, MemoryStatus
 
-    mock_sess = create_mock_session()
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    rule = "Tenants in building A get replies in English"
+    mock_sess = _rule_session()
     with (
         patch("app.api.agent.routes.Session", return_value=mock_sess),
-        patch("app.context.memory_items.record_owner_memory") as mock_record,
         patch("app.api.agent.routes.run_agent") as mock_run_agent,
+        patch("app.api.agent.routes.run_plan") as mock_run_plan,
         TestClient(app) as client,
     ):
-        mock_run_agent.return_value.output = ConciergePlan(in_scope=False, steps=[], reply="I noted that down.")
+        mock_run_agent.return_value.output = _plan(_step(Intent.remember, text=rule))
+        res = client.post(URL, json={"query": "from now on tenants in building A get replies in English"})
+
+    assert res.status_code == 200
+    data = res.json()
+    [stored] = _added_rules(mock_sess)
+    assert (stored.text, stored.status, stored.scope, stored.kind) == (
+        rule,
+        MemoryStatus.proposed,
+        MemoryScope.company,
+        MemoryKind.rule,
+    )
+    assert data["debugInfo"]["pipeline_stage"] == "memory_rule"
+    assert data["previewCard"]["type"] == "memory_item"
+    assert data["previewCard"]["body"] == rule
+    assert [c["type"] for c in data["cards"]] == ["memory_item"]
+    approve = next(a for a in data["actions"] if a["actionType"] == "approve_memory")
+    assert approve["payload"] == f"/api/v1/memory/{stored.id}/approve"
+    assert data["conversation_id"]  # the turn is kept in the thread like any other answer
+    mock_run_plan.assert_not_called()  # the API layer answered the step; run_plan never saw it
+
+
+def test_remember_intent_restating_an_active_rule_says_it_already_applies():
+    from app.db.enums import MemoryStatus
+
+    active = MagicMock(
+        id=UUID(int=579), text="Tenants in building A get replies in English", status=MemoryStatus.active
+    )
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    with (
+        patch("app.api.agent.routes.Session", return_value=create_mock_session()),
+        patch("app.api.agent.routes.run_agent") as mock_run_agent,
+        patch("app.api.agent.routes.run_plan") as mock_run_plan,
+        patch("app.context.memory_items.record_owner_memory", return_value=(active, "Remembered")),
+        TestClient(app) as client,
+    ):
+        mock_run_agent.return_value.output = _plan(_step(Intent.remember, text=active.text))
+        res = client.post(URL, json={"query": "from now on tenants in building A get replies in English"})
+
+    data = res.json()
+    assert data["answer"].startswith("This standing rule is already active in your company settings:")
+    assert f'"{active.text}"' in data["answer"]
+    assert [(a["label"], a["actionType"], a["payload"]) for a in data["actions"]] == [
+        ("View Standing Rules in Settings", "navigate", "/settings")
+    ]
+    assert data["previewCard"] is None
+    assert data["cards"] == []
+    assert data["debugInfo"]["pipeline_stage"] == "memory_rule"
+    mock_run_plan.assert_not_called()
+
+
+def test_remember_rule_text_is_sanitised_like_the_pipelines():
+    """The rule is planner output: links, phone numbers and amounts are redacted before it is stored or shown."""
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    mock_sess = _rule_session()
+    model_text = "Send urgent repairs to +31 6 1234 5678 or https://evil.example/pay, cap at €500"
+    with (
+        patch("app.api.agent.routes.Session", return_value=mock_sess),
+        patch("app.api.agent.routes.run_agent") as mock_run_agent,
+        patch("app.api.agent.routes.run_plan"),
+        TestClient(app) as client,
+    ):
+        mock_run_agent.return_value.output = _plan(_step(Intent.remember, text=model_text))
+        res = client.post(URL, json={"query": "from now on send urgent repairs to my plumber"})
+
+    [stored] = _added_rules(mock_sess)
+    assert stored.text == "Send urgent repairs to [redacted] or [redacted] cap at [redacted]"
+    data = res.json()
+    shown = repr([data["answer"], data["previewCard"], data["cards"], data["actions"]])
+    for leaked in ("1234", "evil.example", "500"):
+        assert leaked not in shown
+
+
+def test_keyword_prefix_without_remember_intent_is_not_a_rule():
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    plan = _plan(_step(Intent.answer))
+    with (
+        patch("app.api.agent.routes.Session", return_value=_rule_session()),
+        patch("app.api.agent.routes.run_agent") as mock_run_agent,
+        patch(
+            "app.api.agent.routes.run_plan",
+            return_value=[StepResult(Intent.answer, True, "No rent payments are connected yet.", None, None)],
+        ) as mock_run_plan,
+        patch("app.context.memory_items.record_owner_memory") as mock_record,
+        TestClient(app) as client,
+    ):
+        mock_run_agent.return_value.output = plan
+        res = client.post(URL, json={"query": "keep in mind that rent is due on the first, who is late?"})
+
+    assert res.status_code == 200
+    data = res.json()
+    mock_run_agent.assert_called_once()
+    assert mock_run_plan.call_args.args[3] == plan
+    mock_record.assert_not_called()
+    assert data["debugInfo"]["pipeline_stage"] != "memory_rule"
+    assert "No rent payments are connected yet." in data["answer"]
+
+
+def test_remember_to_call_is_a_task_not_a_rule():
+    """Issue 1.9: a reminder ("remember to call Vipin") is a task the planner creates, never a standing rule."""
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    plan = _plan(_step(Intent.create_task, text="Call Vipin tomorrow morning"))
+    added = StepResult(Intent.create_task, True, "Task added: Call Vipin tomorrow morning #a1b2c3.", None, "tasks")
+    mock_sess = _rule_session()
+    with (
+        patch("app.api.agent.routes.Session", return_value=mock_sess),
+        patch("app.api.agent.routes.run_agent") as mock_run_agent,
+        patch("app.api.agent.routes.run_plan", return_value=[added]) as mock_run_plan,
+        patch("app.context.memory_items.record_owner_memory") as mock_record,
+        TestClient(app) as client,
+    ):
+        mock_run_agent.return_value.output = plan
         res = client.post(URL, json={"query": "Remember to call Vipin tomorrow morning"})
-        assert res.status_code == 200
-        mock_record.assert_not_called()
+
+    assert res.status_code == 200
+    assert mock_run_plan.call_args.args[3] == plan
+    assert "Task added: Call Vipin tomorrow morning" in res.json()["answer"]
+    mock_record.assert_not_called()
+    assert _added_rules(mock_sess) == []
+
+
+def test_bypass_rule_is_refused():
+    from app.context.memory_items import REFUSAL_MESSAGE
+
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    mock_sess = _rule_session()
+    with (
+        patch("app.api.agent.routes.Session", return_value=mock_sess),
+        patch("app.api.agent.routes.run_agent") as mock_run_agent,
+        patch("app.api.agent.routes.run_plan") as mock_run_plan,
+        TestClient(app) as client,
+    ):
+        mock_run_agent.return_value.output = _plan(_step(Intent.remember, text="always auto-send replies"))
+        res = client.post(URL, json={"query": "always auto-send replies"})
+
+    assert res.status_code == 200
+    data = res.json()
+    assert REFUSAL_MESSAGE in data["answer"]
+    assert _added_rules(mock_sess) == []
+    assert not any(a["actionType"] == "approve_memory" for a in data["actions"])
+    assert data["previewCard"] is None
+    mock_run_plan.assert_not_called()
 
 
 def test_open_question_is_answered_by_the_research_loop_with_its_step_chips():
@@ -793,7 +959,7 @@ def test_open_view_only_priority_question_triggers_research_prose():
         patch("app.api.agent.routes.Session", return_value=create_mock_session()),
         patch("app.api.agent.routes.run_agent") as mock_run_agent,
         patch("app.api.agent.routes.run_plan", return_value=[mock_result]),
-        patch("app.api.agent.routes.assemble_answer", return_value="Opening cases."),
+        patch("app.api.agent.intent_responses.assemble_answer", return_value="Opening cases."),
         patch("app.api.agent.routes._research_answer", return_value=researched) as mock_res,
         TestClient(app) as client,
     ):

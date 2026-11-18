@@ -231,3 +231,41 @@ def test_done_with_an_unknown_ref_changes_nothing_and_says_so(world: World) -> N
     r = world.client.post("/api/agent/ask", json={"query": "done #abcdef"}, headers=H)
     assert r.status_code == 200
     assert "no open task #abcdef" in r.json()["answer"].lower()
+
+
+def test_three_requests_in_one_message_all_run_against_postgres(world: World) -> None:
+    """One planned message with a task, a standing rule and a task list: the task is done, the rule is stored as a
+    PROPOSED company rule (never active), the list is read, and the one answer names all three."""
+    from unittest.mock import patch
+
+    from app.contracts import ConciergePlan, Intent, PlanStep
+    from app.db.enums import MemoryStatus, TaskStatus
+    from app.db.models import MemoryItem, TaskRow
+    from app.pipeline import work_repo
+
+    with Session(world.engine) as s, s.begin():
+        task_id = work_repo.create_task(s, world.company, title="Fix the roof", assignee="owner", source="owner")
+    ref = work_repo.short_ref(task_id)
+    steps = [
+        PlanStep(intent=Intent.task_done, case_id=None, task_ref=ref, text=None, view=None),
+        PlanStep(intent=Intent.remember, case_id=None, task_ref=None, text="Rent is due on the 1st", view=None),
+        PlanStep(intent=Intent.list_tasks, case_id=None, task_ref=None, text=None, view=None),
+    ]
+    try:
+        with patch("app.api.agent.routes.run_agent") as planner:
+            planner.return_value.output = ConciergePlan(in_scope=True, steps=steps, reply=None)
+            query = f"mark #{ref} done, remember that rent is due on the 1st, and what is on my list?"
+            r = world.client.post("/api/agent/ask", json={"query": query}, headers=H)
+        assert r.status_code == 200
+        answer = r.json()["answer"]
+        assert answer.index("Done: Fix the roof") < answer.index("No open tasks.") < answer.index("proposed standing")
+        with Session(world.engine) as s:
+            task = s.get(TaskRow, task_id)
+            assert task is not None
+            assert task.status is TaskStatus.done
+            rules = s.scalars(select(MemoryItem).where(MemoryItem.company_id == world.company)).all()
+            assert [(m.text, m.status) for m in rules] == [("Rent is due on the 1st", MemoryStatus.proposed)]
+    finally:
+        with Session(world.engine) as s, s.begin():
+            s.query(MemoryItem).filter(MemoryItem.company_id == world.company).delete()
+            s.query(TaskRow).filter(TaskRow.id == task_id).delete()

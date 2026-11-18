@@ -78,6 +78,7 @@ ignore = ["RUF001", "RUF002", "RUF003"]  # German text (ß, umlauts) in strings/
 "app/db/alembic/**" = ["ERA001"]
 # camelCase Pydantic fields are the frontend SPA's JSON wire format (frontend/src/lib/api.ts), not Python style
 "app/api/agent/routes.py" = ["N815"]
+"app/api/agent/cards.py" = ["N815"]
 "app/api/calendar/routes.py" = ["N815"]
 "app/api/contacts/routes.py" = ["N815"]
 "app/api/dashboard/attention.py" = ["N815"]

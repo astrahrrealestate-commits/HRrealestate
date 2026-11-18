@@ -93,12 +93,18 @@ def create_task(ctx: Ctx, step: PlanStep) -> StepResult:
     return StepResult(step.intent, True, summary, {"task_id": str(task_id), "ref": ref}, "tasks")
 
 
+def rule_text(step: PlanStep) -> str:
+    """The rule a `remember` step names, as it may be stored: planner output, so sanitised (links, contact details and
+    amounts redacted) and trimmed; empty when nothing is left. The dashboard's rule answer uses it too."""
+    return sanitize(step.text or "").strip()
+
+
 def remember(ctx: Ctx, step: PlanStep) -> StepResult:
     """A standing rule (concierge/v8). Its text is planner output, so it is stored like the dashboard's rule path, never
     like the owner's typed `remember` command: sanitised, screened by `record_owner_memory` (rules that bypass approval
     or send automatically are refused) and saved as a PROPOSED company rule that Harjot confirms in Settings. The step
     never activates anything; a restated rule is merged into the stored one, so a retried step adds no second row."""
-    text = sanitize(step.text or "").strip()
+    text = rule_text(step)
     if not text:
         return failed(step, NEED_DETAIL)
     with Session(ctx.engine) as session, session.begin():
