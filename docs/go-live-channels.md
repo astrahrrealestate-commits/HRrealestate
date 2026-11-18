@@ -230,6 +230,25 @@ Set the webhook URL `https://<api host>/webhooks/whatsapp` through 360dialog's w
 > Going live on 360dialog therefore needs either the platform secret, or a decision to accept 360dialog's
 > custom-header authentication instead (not implemented). Meta Cloud API has no such gap.
 
+### SendZen & Hookdeck (`WHATSAPP_PROVIDER=sendzen`)
+
+SendZen is an official Meta partner providing developer-first WhatsApp Business Cloud API access.
+
+| Variable | Value |
+|---|---|
+| `WHATSAPP_PROVIDER` | `sendzen` |
+| `WHATSAPP_API_BASE_URL` | `https://api.sendzen.io/v1` |
+| `WHATSAPP_APP_SECRET` | the SendZen webhook secret (verifies `X-Hub-Signature-256`) |
+| `WHATSAPP_VERIFY_TOKEN` | any string entered for handshake verification |
+| `WHATSAPP_MEDIA_TOKENS` | `{"<phone_number_id>": "<sendzen_api_key>"}` |
+| `WHATSAPP_ACCESS_TOKEN` | SendZen API key (`sz_live_...`; read only by `backend/app/sender`) |
+| `WHATSAPP_PHONE_NUMBER_ID` | phone number id |
+
+Hookdeck ingestion:
+1. In SendZen Dashboard, set the Webhook URL to your Hookdeck ingestion endpoint (e.g. `https://hkdk.events/mb2f57may8q2ds`).
+2. In Hookdeck Dashboard, route the destination to your EstateOS endpoint: `https://<api host>/webhooks/whatsapp`.
+3. Hookdeck preserves and forwards the provider's `X-Hub-Signature-256` header unchanged, ensuring HMAC-SHA256 signature verification succeeds in EstateOS.
+
 ### Owner template (both providers)
 
 WhatsApp only allows free-form messages to Harjot within 24 hours of his last message. Outside that window EstateOS

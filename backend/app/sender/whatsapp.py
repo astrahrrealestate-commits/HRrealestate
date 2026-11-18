@@ -19,6 +19,8 @@ def build_whatsapp_outbound(settings: Settings, sender: SenderSettings) -> Whats
     token = sender.whatsapp_access_token.get_secret_value()
     if settings.whatsapp_provider == "360dialog":
         return HttpWhatsAppOutbound.dialog360(settings.whatsapp_api_base_url, token)
+    if settings.whatsapp_provider == "sendzen":
+        return HttpWhatsAppOutbound.sendzen(settings.whatsapp_api_base_url, token)
     if not sender.whatsapp_phone_number_id:
         raise UnsafeConfigurationError("cloud_api outbound needs WHATSAPP_PHONE_NUMBER_ID")
     return HttpWhatsAppOutbound.cloud_api(settings.whatsapp_api_base_url, sender.whatsapp_phone_number_id, token)

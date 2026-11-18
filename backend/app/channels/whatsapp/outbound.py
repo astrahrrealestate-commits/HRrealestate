@@ -48,10 +48,18 @@ def _require_built(payload: dict[str, Any]) -> None:
 
 
 class HttpWhatsAppOutbound:
-    def __init__(self, messages_url: str, headers: dict[str, str], client: httpx.Client | None = None) -> None:
+    def __init__(
+        self,
+        messages_url: str,
+        headers: dict[str, str],
+        client: httpx.Client | None = None,
+        *,
+        provider: str = "cloud_api",
+    ) -> None:
         self._url = messages_url
         self._headers = {**headers, "Content-Type": "application/json"}
         self._client = client or httpx.Client(timeout=TIMEOUT)
+        self._provider = provider
 
     @classmethod
     def cloud_api(
@@ -61,12 +69,26 @@ class HttpWhatsAppOutbound:
 
     @classmethod
     def dialog360(cls, base_url: str, api_key: str, client: httpx.Client | None = None) -> "HttpWhatsAppOutbound":
-        return cls(f"{base_url.rstrip('/')}/messages", {"D360-API-KEY": api_key}, client)
+        return cls(f"{base_url.rstrip('/')}/messages", {"D360-API-KEY": api_key}, client, provider="360dialog")
+
+    @classmethod
+    def sendzen(cls, base_url: str, token: str, client: httpx.Client | None = None) -> "HttpWhatsAppOutbound":
+        clean = base_url.rstrip("/")
+        url = f"{clean}/messages" if clean.endswith("/v1") else f"{clean}/v1/messages"
+        return cls(url, {"Authorization": f"Bearer {token}"}, client, provider="sendzen")
 
     def send(self, payload: dict[str, Any]) -> str:
         _require_built(payload)
+        out_payload = payload
+        if self._provider == "sendzen" and payload.get("type") == "template":
+            tmpl = payload.get("template") or {}
+            out_payload = {
+                **payload,
+                "template_name": tmpl.get("name"),
+                "components": tmpl.get("components", []),
+            }
         try:
-            response = self._client.post(self._url, json=payload, headers=self._headers)
+            response = self._client.post(self._url, json=out_payload, headers=self._headers)
         except _NOT_SENT_TRANSPORT as exc:
             raise WhatsAppSendError(
                 f"connect failed: {type(exc).__name__}", code=None, http_status=None, retryable=True, maybe_sent=False
@@ -93,10 +115,14 @@ def _json_dict(response: httpx.Response) -> dict[str, Any]:
 
 
 def _wamid_from(response: httpx.Response) -> str:
-    messages = _json_dict(response).get("messages")
+    data = _json_dict(response)
+    messages = data.get("messages")
     first = messages[0] if isinstance(messages, list) and messages else None
     wamid = first.get("id") if isinstance(first, dict) else None
     if not isinstance(wamid, str) or not wamid:
+        alt = data.get("message_id") or data.get("id")
+        if isinstance(alt, str) and alt:
+            return alt
         # 2xx: the provider accepted the request, so the message may well be on its way.
         raise WhatsAppSendError(
             "2xx response without a message id",

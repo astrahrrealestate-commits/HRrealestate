@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     tenant_sends_per_hour: int = 30
 
     # Channels (spec M2 §4). Defaults are fakes: everything runs without provider access; prod refuses fakes.
-    whatsapp_provider: Literal["fake", "cloud_api", "360dialog"] = "fake"
+    whatsapp_provider: Literal["fake", "cloud_api", "360dialog", "sendzen"] = "fake"
     gmail_provider: Literal["fake", "google"] = "fake"
     google_chat_provider: Literal["none", "fake", "google"] = "fake"  # none = not used: every webhook refused
     google_chat_project_number: str | None = None

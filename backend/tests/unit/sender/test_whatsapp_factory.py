@@ -26,6 +26,7 @@ def test_fake_by_default() -> None:
     [
         ("cloud_api", "https://example.invalid/1/messages", "Authorization", "Bearer t"),
         ("360dialog", "https://example.invalid/messages", "D360-API-KEY", "t"),
+        ("sendzen", "https://example.invalid/v1/messages", "Authorization", "Bearer t"),
     ],
 )
 def test_real_providers(provider: str, url: str, header: str, value: str) -> None:
@@ -38,12 +39,32 @@ def test_real_providers(provider: str, url: str, header: str, value: str) -> Non
 
 @pytest.mark.parametrize(
     ("provider", "sender_kw"),
-    [("cloud_api", {}), ("cloud_api", {"whatsapp_access_token": "t"}), ("360dialog", {})],
+    [("cloud_api", {}), ("cloud_api", {"whatsapp_access_token": "t"}), ("360dialog", {}), ("sendzen", {})],
 )
 def test_missing_credentials_fail_loudly(provider: str, sender_kw: dict[str, Any]) -> None:
     s = _s(whatsapp_provider=provider, whatsapp_api_base_url="https://example.invalid")
     with pytest.raises(UnsafeConfigurationError):
         build_whatsapp_outbound(s, _sender(**sender_kw))
+
+
+def test_sendzen_template_payload_and_message_id() -> None:
+    import json
+    import httpx
+    import respx
+    from app.channels.whatsapp.payloads import template
+
+    with respx.mock(assert_all_called=True) as router:
+        def check_request(request: httpx.Request) -> httpx.Response:
+            body = json.loads(request.content)
+            assert body.get("template_name") == "estateos_pending"
+            assert body.get("components") == [{"type": "body", "parameters": [{"type": "text", "text": "5"}]}]
+            assert request.headers.get("Authorization") == "Bearer my-token"
+            return httpx.Response(200, json={"message_id": "sz_msg_12345", "status": "sent", "to": "31600000000"})
+
+        router.post("https://api.sendzen.io/v1/messages").mock(side_effect=check_request)
+        outbound = HttpWhatsAppOutbound.sendzen("https://api.sendzen.io/v1", "my-token")
+        wamid = outbound.send(template("+31600000000", "estateos_pending", "en", ["5"]))
+        assert wamid == "sz_msg_12345"
 
 
 def test_unconfigured_outbound_outside_prod_fails_at_send_not_at_build() -> None:

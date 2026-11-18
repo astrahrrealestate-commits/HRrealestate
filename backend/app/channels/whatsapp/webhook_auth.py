@@ -28,7 +28,7 @@ DIALOG360 = SignatureScheme("x-360dialog-signature", "", any_case=True)
 
 
 def signature_scheme(provider: str) -> SignatureScheme:
-    """The fake provider (simulator) signs like Meta."""
+    """The fake provider and SendZen sign like Meta (HMAC-SHA256 in x-hub-signature-256)."""
     return DIALOG360 if provider == "360dialog" else META
 
 
