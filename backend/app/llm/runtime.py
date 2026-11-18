@@ -52,16 +52,24 @@ def _provider_model(settings: Settings, model: str) -> Model | str:
     return model
 
 
+def model_name_for(settings: Settings, agent_name: str) -> str:
+    """The model string an agent runs on: `concierge_model` for the concierge when set, else `llm_model`."""
+    if agent_name == "concierge" and settings.concierge_model:
+        return settings.concierge_model
+    return settings.llm_model
+
+
 def build_model(settings: Settings, agent_name: str) -> Model | str:
-    """`fake` → deterministic offline model for this agent. Otherwise `llm_model`, wrapped in a FallbackModel when
-    `llm_fallback_models` names any model whose provider key is set."""
-    if settings.llm_model == "fake":
+    """`fake` → deterministic offline model for this agent. Otherwise the agent's model (`model_name_for`), wrapped in
+    a FallbackModel when `llm_fallback_models` names any model whose provider key is set."""
+    name = model_name_for(settings, agent_name)
+    if name == "fake":
         return fakes.model_for(agent_name)
-    primary = _provider_model(settings, settings.llm_model)
+    primary = _provider_model(settings, name)
     fallbacks = [
         _provider_model(settings, model)
         for model in settings.llm_fallback_models
-        if model != settings.llm_model and _key(settings, model.partition(":")[0])
+        if model != name and _key(settings, model.partition(":")[0])
     ]
     if not fallbacks:
         return primary

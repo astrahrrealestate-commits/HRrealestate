@@ -28,7 +28,7 @@ from app.core.settings import Settings
 from app.db.models import ModelCall
 from app.llm.budget import check_budget
 from app.llm.prompts import LoadedPrompt, load_prompt
-from app.llm.runtime import build_model, describe_model_error, output_for
+from app.llm.runtime import build_model, describe_model_error, model_name_for, output_for
 
 AGENT_RETRIES = 2  # re-asks on contract validation failure, inside one run
 
@@ -103,7 +103,7 @@ def _row(
 ) -> ModelCall:
     return ModelCall(
         id=new_id(), company_id=ctx.company_id, purpose=ctx.purpose, prompt_name=spec.prompt.name,
-        prompt_version=spec.prompt.version, prompt_sha256=loaded.sha256, model=settings.llm_model,
+        prompt_version=spec.prompt.version, prompt_sha256=loaded.sha256, model=model_name_for(settings, spec.name),
         input={"prompt": describe_prompt(prompt)}, prefix_hash=ctx.prefix_hash,
     )  # fmt: skip
 
@@ -147,7 +147,7 @@ def run_agent[T: BaseModel](
     row.cost_usd = _cost(result)
     row.tokens_in, row.tokens_out = usage.input_tokens, usage.output_tokens
     row.tokens_cached = getattr(usage, "cache_read_tokens", None)
-    if settings.llm_model != "fake":  # the provider's resolved name (e.g. a dated snapshot), for audit and drift
-        row.model = getattr(result.response, "model_name", None) or settings.llm_model
+    if (configured := model_name_for(settings, spec.name)) != "fake":  # provider's resolved name, for audit and drift
+        row.model = getattr(result.response, "model_name", None) or configured
     _record(engine, row)
     return CallResult(output=output, model_call_id=row.id)

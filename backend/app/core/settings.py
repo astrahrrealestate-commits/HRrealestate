@@ -36,6 +36,9 @@ class Settings(BaseSettings):
 
     # LLM agents (spec phase-1 agents). `fake` = deterministic offline models (app.llm.fakes); prod refuses it.
     llm_model: str = "fake"  # Pydantic AI model string, e.g. "openai:gpt-4.1-mini" or "google-gla:gemini-2.5-flash"
+    # Model for the Super Agent's concierge planner when it should differ from `llm_model` (e.g. a cheap Gemini Flash
+    # for intent routing); empty = use `llm_model`.
+    concierge_model: str = ""
     llm_timeout_sec: float = 60.0
     # Tried in order when `llm_model` answers an error (Pydantic AI FallbackModel), e.g. "openai:gpt-4.1-mini". A
     # fallback whose provider key is not set is left out, so naming one is harmless until its key exists.

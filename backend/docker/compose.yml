@@ -19,6 +19,8 @@ x-app: &app
     SENTRY_DSN: ""
     # Agents: Gemini 2.5 Flash
     LLM_MODEL: ${LLM_MODEL:-google-gla:gemini-2.5-flash}
+    # Concierge planner model override (e.g. google-gla:gemini-2.5-flash); empty = LLM_MODEL
+    CONCIERGE_MODEL: ${CONCIERGE_MODEL:-}
     LLM_TIMEOUT_SEC: ${LLM_TIMEOUT_SEC:-60}
     OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     GEMINI_API_KEY: ${GEMINI_API_KEY:-}
