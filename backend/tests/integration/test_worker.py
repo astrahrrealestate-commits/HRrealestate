@@ -88,7 +88,7 @@ def test_separate_worker_process_passes_selfcheck_and_stops_on_sigterm(
     import app.worker
 
     env = {**os.environ, "DATABASE_URL": str(test_settings.database_url), "ENV": "test", "SENTRY_DSN": ""}
-    proc = subprocess.Popen([sys.executable, "-m", "app.worker"], cwd=ROOT, env=env)
+    proc = subprocess.Popen([sys.executable, "-m", "app.worker"], cwd=ROOT, env=env)  # noqa: S603
     try:
         monkeypatch.setattr(app.worker, "get_settings", lambda: test_settings)
         assert app.worker.main(["--selfcheck"]) == 0  # this process never launched DBOS

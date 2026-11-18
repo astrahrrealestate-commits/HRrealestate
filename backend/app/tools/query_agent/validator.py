@@ -53,7 +53,7 @@ def validate_and_wrap_sql(sql: str, max_limit: int = 50) -> str:
     tree = statements[0]
 
     # 1. Enforce root query type (must be Select or Union of Selects)
-    if not isinstance(tree, (exp.Select, exp.Union)):
+    if not isinstance(tree, exp.Select | exp.Union):
         raise SQLSecurityError(f"Only SELECT queries are allowed. Root expression was: {type(tree).__name__}")
 
     # 2. Ban data-modifying expressions across the entire syntax tree

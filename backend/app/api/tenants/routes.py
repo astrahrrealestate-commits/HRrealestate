@@ -77,11 +77,13 @@ def _item(session: Session, person: Person, today: date, facts: UnitFacts) -> Te
         .order_by(Lease.valid_to.is_(None).desc(), Lease.valid_to.desc(), Lease.valid_from.desc())
     ).first()
     identities = session.scalars(
-        select(ChannelIdentity).where(
+        select(ChannelIdentity)
+        .where(
             ChannelIdentity.company_id == company_id,
             ChannelIdentity.person_id == person.id,
             ChannelIdentity.valid_to.is_(None),
-        ).order_by(ChannelIdentity.valid_from.asc().nulls_last(), ChannelIdentity.id.asc())
+        )
+        .order_by(ChannelIdentity.valid_from.asc().nulls_last(), ChannelIdentity.id.asc())
     ).all()
     label, start, end, lease_ref = row if row is not None else ("", None, None, None)
     rent_record = session.scalars(

@@ -273,4 +273,3 @@ def link_secondary_identity(
     source_person.valid_to = today
     session.flush()
     return target_person
-

@@ -74,7 +74,6 @@ def create_app(
     translator: Translator | None = None,
     translator_en_nl: Translator | None = None,
 ) -> FastAPI:
-
     settings = settings or get_settings()
 
     assert_production_safe(settings)
@@ -91,7 +90,6 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(api: FastAPI) -> AsyncIterator[None]:
-
         api.state.engine = resolved_engine
 
         api.state.settings = settings

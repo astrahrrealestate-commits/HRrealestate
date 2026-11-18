@@ -79,7 +79,6 @@ def channel_problems(settings: Settings, media_settings: WhatsAppMediaSettings |
 
 
 def assert_channels_ready(settings: Settings, media_settings: WhatsAppMediaSettings | None = None) -> None:
-
     problems = channel_problems(settings, media_settings)
 
     if problems and settings.env == "prod":
@@ -90,7 +89,6 @@ _MAILBOX = re.compile(r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}")
 
 
 def _mailbox_address(address: str) -> str:
-
     normalised = address.strip().lower()
 
     if not _MAILBOX.fullmatch(normalised) or ".." in normalised:
@@ -163,7 +161,6 @@ def gmail_mailbox(settings: Settings, address: str) -> GmailMailbox:
 
 
 def gmail_push_verifier(settings: Settings) -> PushVerifier:
-
     if settings.gmail_provider == "fake":
         audience = settings.gmail_pubsub_audience or DEV_AUDIENCE
 
@@ -185,7 +182,6 @@ def gmail_push_verifier(settings: Settings) -> PushVerifier:
 
 
 def google_chat_verifier(settings: Settings) -> ChatVerifier:
-
     return ChatVerifier(
         project_number=settings.google_chat_project_number,
         provider=settings.google_chat_provider,

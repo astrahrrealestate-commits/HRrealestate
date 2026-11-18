@@ -141,7 +141,6 @@ def dbos_tables(test_settings: Settings, migrated_engine: Engine) -> None:
 
 @pytest.fixture
 def dbos_client(test_settings: Settings, dbos_tables: None) -> Iterator["DBOSClient"]:
-
     from dbos import DBOSClient
 
     client = DBOSClient(system_database_url=test_settings.dbos_database_url)

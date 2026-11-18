@@ -48,8 +48,16 @@ class DriveStore(Protocol):
     def ensure_folder(self, path: tuple[str, ...]) -> str: ...
 
     def upload(
-        self, file_id: str, folder_id: str, name: str, mime_type: str, content: bytes, attachment_id: UUID,
-        *, description: str | None = None, properties: dict[str, str] | None = None,
+        self,
+        file_id: str,
+        folder_id: str,
+        name: str,
+        mime_type: str,
+        content: bytes,
+        attachment_id: UUID,
+        *,
+        description: str | None = None,
+        properties: dict[str, str] | None = None,
     ) -> str: ...  # fmt: skip
 
     def relocate(self, file_id: str, folder_id: str, name: str) -> None:

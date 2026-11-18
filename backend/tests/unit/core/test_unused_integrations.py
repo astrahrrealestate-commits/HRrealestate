@@ -38,7 +38,6 @@ def test_chat_none_is_not_a_production_problem_but_fake_is() -> None:
 
 
 def test_chat_none_builds_no_outbound_client() -> None:
-
     from app.sender.deps import build_sender_deps
 
     deps = build_sender_deps(_s(google_chat_provider="none"), MagicMock())

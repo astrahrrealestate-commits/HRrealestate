@@ -227,24 +227,22 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
         is_unregistered_sender = False
         matched_tenant_info = None
         if unit_label != "Unassigned Unit":
-            lease_rows = (
-                session.execute(
-                    select(Person.id, Person.display_name, ChannelIdentity.identity)
-                    .select_from(Lease)
-                    .join(Unit, Unit.id == Lease.unit_id)
-                    .join(LeaseParty, LeaseParty.lease_id == Lease.id)
-                    .join(Person, Person.id == LeaseParty.person_id)
-                    .outerjoin(
-                        ChannelIdentity,
-                        (ChannelIdentity.person_id == Person.id) & (ChannelIdentity.valid_to.is_(None)),
-                    )
-                    .where(
-                        Unit.company_id == company_id,
-                        (Unit.label == unit_label) | (Unit.address == unit_label),
-                        (Lease.valid_to.is_(None)) | (Lease.valid_to >= today),
-                    )
-                ).all()
-            )
+            lease_rows = session.execute(
+                select(Person.id, Person.display_name, ChannelIdentity.identity)
+                .select_from(Lease)
+                .join(Unit, Unit.id == Lease.unit_id)
+                .join(LeaseParty, LeaseParty.lease_id == Lease.id)
+                .join(Person, Person.id == LeaseParty.person_id)
+                .outerjoin(
+                    ChannelIdentity,
+                    (ChannelIdentity.person_id == Person.id) & (ChannelIdentity.valid_to.is_(None)),
+                )
+                .where(
+                    Unit.company_id == company_id,
+                    (Unit.label == unit_label) | (Unit.address == unit_label),
+                    (Lease.valid_to.is_(None)) | (Lease.valid_to >= today),
+                )
+            ).all()
             if lease_rows:
                 tenant_id, tenant_name, _ = lease_rows[0]
                 known_identities = {str(row[2]).lower().strip() for row in lease_rows if row[2]}
@@ -925,7 +923,9 @@ class LinkTenantRequest(BaseModel):
 @router.post(
     "/threads/{case_id}/link-tenant",
     summary="Link sender to Tenant as secondary contact",
-    description="Attaches the sender identity to an active leaseholder as a secondary contact, preserving case history.",
+    description=(
+        "Attaches the sender identity to an active leaseholder as a secondary contact, preserving case history."
+    ),
     dependencies=[Depends(require_section("inbox"))],
 )
 def link_thread_tenant(
@@ -939,7 +939,7 @@ def link_thread_tenant(
     try:
         c_uuid = UUID(raw_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid case ID")
+        raise HTTPException(status_code=400, detail="Invalid case ID") from None
 
     today = datetime.now(UTC).date()
     with Session(engine) as session, session.begin():
@@ -979,4 +979,3 @@ def link_thread_tenant(
             "tenantId": str(linked_tenant.id),
             "tenantName": linked_tenant.display_name,
         }
-
