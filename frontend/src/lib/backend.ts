@@ -7,10 +7,10 @@
  */
 
 export const BACKEND_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL !== undefined
-    ? process.env.NEXT_PUBLIC_API_URL
-    : typeof window !== "undefined"
-      ? ""
+  typeof window !== "undefined"
+    ? ""
+    : process.env.NEXT_PUBLIC_API_URL !== undefined
+      ? process.env.NEXT_PUBLIC_API_URL
       : "http://127.0.0.1:8000";
 
 
