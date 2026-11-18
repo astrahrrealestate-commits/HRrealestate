@@ -31,6 +31,8 @@ PLAN = ConciergePlan(
 
 LISTED = [{"intent": "list_tasks", "ok": True, "summary": "No open tasks.", "data": None, "view": "tasks"}]
 
+RESUMED = [{"intent": "resume", "ok": True, "summary": "Resumed.", "data": None, "view": None}]  # a forged ok=True
+
 
 def _start(text: str, results: list[dict[str, Any]] | None = None, plan: dict[str, Any] | None = None) -> ct.TurnStart:
     return ct.TurnStart(uuid4(), uuid4(), uuid4(), text, AT, results, plan)
@@ -88,7 +90,9 @@ def _turn_row(text: str, plan: dict[str, Any] | None, results: list[dict[str, An
 @pytest.mark.parametrize(
     ("text", "plan", "results", "expected"),
     [
-        ("please start again", {"in_scope": True, "steps": [{"intent": "resume"}], "reply": None}, LISTED, True),
+        ("please start again", {"in_scope": True, "steps": [{"intent": "resume"}], "reply": None}, LISTED, False),
+        ("resume", {"in_scope": True, "steps": [{"intent": "resume"}], "reply": None}, RESUMED, False),
+        ("resume", {"in_scope": True, "steps": [{"intent": "resume"}], "reply": None}, None, False),
         ("resume", {"in_scope": True, "steps": [{"intent": "list_tasks"}], "reply": None}, LISTED, False),
         ("resume", None, None, True),  # the outage fallback stores no plan
         ("Resume", None, None, True),

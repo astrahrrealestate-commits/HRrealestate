@@ -327,8 +327,8 @@ def fail_turn(engine: Engine, turn_id: UUID, error: str) -> None:
 
 
 def turn_state(engine: Engine, turn_id: UUID) -> dict[str, str | bool]:
-    """Final status, company and whether the turn resumed (a `resume` plan step, or the exact `resume` command in an
-    outage); the workflow then re-runs approved actions, exactly as the WhatsApp path does."""
+    """Final status, company and whether the owner's own exact `resume` command ran (outage fallback only, never a
+    planned step); the workflow then re-runs approved actions, exactly as the WhatsApp path does."""
     with Session(engine) as session:
         turn = session.scalar(select(AgentTurn).where(AgentTurn.id == turn_id))
     if turn is None:

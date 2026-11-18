@@ -10,7 +10,6 @@ from uuid import UUID
 from pydantic_core import to_jsonable_python
 
 from app.context import CompiledContext, compile_concierge_context
-from app.contracts import Intent
 from app.core.errors import AgentFailedError, BudgetExceededError
 from app.db.enums import TurnStatus
 from app.llm.agents.concierge import CONCIERGE
@@ -150,9 +149,7 @@ def stored_answer(results: Sequence[dict[str, Any]]) -> str:
 
 
 def resumes(text: str, plan: dict[str, Any] | None, results: list[dict[str, Any]] | None) -> bool:
-    """A planned turn resumed when its stored plan has a `resume` step; the outage fallback stores no plan, so the
-    text decides (the exact `resume` command)."""
-    if plan is not None:
-        return any(step.get("intent") == Intent.resume for step in plan.get("steps", []))
+    """True only for the owner's own exact `resume` command run by the outage fallback (no plan, no results). A planned
+    `resume` step never counts: the model (or an injected message) must not re-run approved actions."""
     cmd = fallback_command(text)
-    return results is None and cmd is not None and cmd.kind is CommandKind.resume
+    return plan is None and results is None and cmd is not None and cmd.kind is CommandKind.resume
