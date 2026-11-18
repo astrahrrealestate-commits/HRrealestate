@@ -126,6 +126,30 @@ def test_plan_with_only_run_plan_steps_is_unchanged() -> None:
     assert _rules(sess) == []
 
 
+def test_a_failing_run_plan_only_plan_keeps_the_domain_fallback() -> None:
+    """With no other answer to protect, a run_plan error reaches ask_agent's own handler as before the composer: the
+    answer comes from the fallback chain (research, then chat), never a bare "something went wrong"."""
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    with (
+        patch("app.api.agent.routes.Session", return_value=_session()),
+        patch("app.api.agent.routes.run_agent") as planner,
+        patch("app.api.agent.routes.run_plan", side_effect=OSError("connection reset")) as run_plan,
+        patch("app.api.agent.routes._research_answer", return_value=None),
+        patch("app.api.agent.routes._generate_chat_answer", return_value="Your task list is empty right now."),
+        TestClient(app) as client,
+    ):
+        planner.return_value.output = _plan(_step(Intent.list_tasks))
+        res = client.post(URL, json={"query": "what is on my list?"})
+
+    assert res.status_code == 200
+    data = res.json()
+    run_plan.assert_called_once()
+    assert data["debugInfo"]["pipeline_stage"] == "domain_fallback"
+    assert data["debugInfo"]["fallback_reason"] == "Empty or placeholder response"
+    assert data["answer"] == "Your task list is empty right now."
+    assert STEP_FAILED not in data["answer"]
+
+
 # ---- the composer itself ------------------------------------------------------------------------------------------
 
 
@@ -174,6 +198,17 @@ def test_compose_without_api_steps_runs_the_plan_as_given() -> None:
     compose(plan, {Intent.remember: lambda _s: _said("rule")}, lambda rest: runs.append(rest) or [LISTED])
     assert len(runs) == 1
     assert runs[0] is plan
+
+
+def test_compose_without_api_steps_lets_a_run_plan_error_through() -> None:
+    """Nothing else to protect: the caller's own error handling (the fallback answer) stays in charge."""
+    plan = _plan(_step(Intent.list_tasks))
+
+    def run_rest(_rest: ConciergePlan) -> list[StepResult]:
+        raise OSError("connection reset")
+
+    with pytest.raises(OSError, match="connection reset"):
+        compose(plan, {Intent.remember: lambda _s: _said("rule")}, run_rest)
 
 
 @pytest.mark.parametrize("needs_research", [False, True])

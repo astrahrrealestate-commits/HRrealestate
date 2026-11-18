@@ -139,14 +139,17 @@ def rest_position(plan: ConciergePlan, api_intents: Collection[Intent]) -> int |
 
 def compose(plan: ConciergePlan, api_steps: Mapping[Intent, ApiStep], run_rest: RunRest) -> list[Segment]:
     """Every step of `plan`, in order: a step whose intent `api_steps` names is answered by that builder; all others run
-    together in one `run_rest` call (`rest_plan`), answered as one segment at the position of the first of them."""
+    together in one `run_rest` call (`rest_plan`), answered as one segment at the position of the first of them.
+    A `run_rest` error is contained only beside API-answered steps; a plan with none lets it reach the caller, whose
+    own handling (the fallback answer) applies exactly as without the composer."""
     rest_at = rest_position(plan, api_steps)
+    rest = rest_plan(plan, api_steps)
     segments: list[Segment] = []
     for at, step in enumerate(plan.steps):
         if step.intent in api_steps:
             segments.append(_answered(step, api_steps[step.intent]))
         elif at == rest_at:
-            segments.append(_ran(rest_plan(plan, api_steps), run_rest))
+            segments.append(_ran(rest, run_rest, contain=rest is not plan))
     return segments
 
 
@@ -158,12 +161,14 @@ def _answered(step: PlanStep, build: ApiStep) -> Segment:
         return _said(STEP_FAILED)
 
 
-def _ran(rest: ConciergePlan, run_rest: RunRest) -> Segment:
+def _ran(rest: ConciergePlan, run_rest: RunRest, *, contain: bool) -> Segment:
     try:
         results = run_rest(rest)
-    except Exception as exc:  # e.g. a transient DB error re-raised by run_plan: only these steps fail
+    except Exception as exc:  # e.g. a transient DB error re-raised by run_plan
+        if not contain:
+            raise
         log.warning("api.superagent.run_plan_failed", error=type(exc).__name__)
-        return _said(STEP_FAILED)
+        return _said(STEP_FAILED)  # only these steps fail; the API-answered ones still show
     return _said(assemble_answer(results))
 
 
