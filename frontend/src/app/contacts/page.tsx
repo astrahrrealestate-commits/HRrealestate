@@ -883,44 +883,70 @@ function ContactsContent() {
                           <Mail className="w-3 h-3 text-[#64748b]" />
                           <span>{activeContact.email}</span>
                         </a>
-                        <span className="text-[#94a3b8] text-[9px] select-none">•</span>
-                        <div className="inline-flex items-center gap-1">
-                          <span className="font-semibold text-[#64748b]">{t("Agreement Duration:")}</span>
-                          <span className="font-medium text-[#111215]">
-                            {activeContact.agreementPeriod || t("Not on file")}
-                          </span>
-                        </div>
+                        {activeContact.category === "tenant" && (
+                          <>
+                            <span className="text-[#94a3b8] text-[9px] select-none">•</span>
+                            <div className="inline-flex items-center gap-1">
+                              <span className="font-semibold text-[#64748b]">{t("Agreement Duration:")}</span>
+                              <span className="font-medium text-[#111215]">
+                                {activeContact.agreementPeriod || t("Not on file")}
+                              </span>
+                            </div>
+                          </>
+                        )}
                       </div>
+
+                      {/* Secondary Contacts Row if present */}
+                      {(activeContact.secondaryPhones?.length || activeContact.secondaryEmails?.length) ? (
+                        <div className="flex items-center gap-2 flex-wrap text-[11px] text-[#64748b] mt-1">
+                          <span className="font-semibold text-[#475569]">Secondary:</span>
+                          {activeContact.secondaryPhones?.map((p) => (
+                            <a key={p} href={`tel:${p}`} className="inline-flex items-center gap-0.5 hover:text-[#111215]">
+                              <Phone className="w-2.5 h-2.5 text-[#64748b]" />
+                              <span>{p}</span>
+                            </a>
+                          ))}
+                          {activeContact.secondaryEmails?.map((e) => (
+                            <a key={e} href={`mailto:${e}`} className="inline-flex items-center gap-0.5 hover:text-[#111215]">
+                              <Mail className="w-2.5 h-2.5 text-[#64748b]" />
+                              <span>{e}</span>
+                            </a>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
 
-                    {/* Chevron Toggle Button (Desktop) */}
-                    <button
-                      type="button"
-                      onClick={handleToggleProfileExpanded}
-                      className="hidden md:flex w-7 h-7 rounded-full bg-white border border-[#d5d9e0] text-[#64748b] items-center justify-center hover:bg-[#f8fafc] hover:text-[#0f172a] transition-all cursor-pointer shrink-0"
-                      title={isProfileExpanded === false ? "Expand address details" : "Collapse address details"}
-                    >
-                      {isProfileExpanded === null || isProfileExpanded ? (
-                        <ChevronUp className="w-4 h-4" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4" />
-                      )}
-                    </button>
+                    {/* Chevron Toggle Button (Desktop, for tenants) */}
+                    {activeContact.category === "tenant" && (
+                      <button
+                        type="button"
+                        onClick={handleToggleProfileExpanded}
+                        className="hidden md:flex w-7 h-7 rounded-full bg-white border border-[#d5d9e0] text-[#64748b] items-center justify-center hover:bg-[#f8fafc] hover:text-[#0f172a] transition-all cursor-pointer shrink-0"
+                        title={isProfileExpanded === false ? "Expand address details" : "Collapse address details"}
+                      >
+                        {isProfileExpanded === null || isProfileExpanded ? (
+                          <ChevronUp className="w-4 h-4" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4" />
+                        )}
+                      </button>
+                    )}
                   </div>
 
-                  {/* Expandable address details (always shown when mobile Info is open; toggled by chevron on desktop) */}
-                  <div
-                    className={cn(
-                      "px-3.5 sm:px-6 py-2 pb-3 bg-[#f0f5fb] border-t border-[#e1e7f0] flex-col",
-                      isProfileExpanded === false ? "flex md:hidden" : "flex"
-                    )}
-                  >
+                  {/* Expandable address details (for tenants only) */}
+                  {activeContact.category === "tenant" && (
+                    <div
+                      className={cn(
+                        "px-3.5 sm:px-6 py-2 pb-3 bg-[#f0f5fb] border-t border-[#e1e7f0] flex-col",
+                        isProfileExpanded === false ? "flex md:hidden" : "flex"
+                      )}
+                    >
                       <div className="flex items-baseline gap-2 py-1 border-b border-[#e4ecf7]">
                         <span className="font-semibold text-[11.5px] text-[#64748b] min-w-[140px] shrink-0">
                           {t("Property Address:")}
                         </span>
                         <span className="text-[12px] text-[#111215] font-medium leading-snug">
-                          {activeContact.propertyAddress || activeContact.address || "14-22 St. Mark's Square, London EC1A 1BB"}
+                          {activeContact.propertyAddress || activeContact.address || t("Not on file")}
                         </span>
                       </div>
                       <div className="flex items-baseline gap-2 py-1">
@@ -928,10 +954,11 @@ function ContactsContent() {
                           {t("Residential Address:")}
                         </span>
                         <span className="text-[12px] text-[#111215] font-medium leading-snug">
-                          {activeContact.residentialAddress || activeContact.address || "14-22 St. Mark's Square, Unit 12, London EC1A 1BB"}
+                          {activeContact.residentialAddress || activeContact.address || t("Not on file")}
                         </span>
                       </div>
                     </div>
+                  )}
                 </div>
 
                 {/* Tabs Bar */}

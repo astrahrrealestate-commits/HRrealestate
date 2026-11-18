@@ -154,6 +154,8 @@ export function SuperAgentProvider({ children }: { children: React.ReactNode }) 
         } else {
           setMessages([DEFAULT_INITIAL_MESSAGE]);
         }
+      } else {
+        setCurrentConversationId(null);
       }
     } finally {
       setIsLoadingConversation(false);

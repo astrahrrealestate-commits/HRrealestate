@@ -17,11 +17,22 @@ export const BACKEND_BASE_URL =
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 export function backendUrl(pathOrUrl: string): string {
-  if (pathOrUrl.startsWith("http")) return pathOrUrl;
   if (typeof window !== "undefined") {
-    // In browser, always use relative paths so Next.js rewrites proxy to backend
+    // In browser, always use relative paths so Next.js rewrites proxy to backend via IPv4
+    if (BACKEND_BASE_URL && pathOrUrl.startsWith(BACKEND_BASE_URL)) {
+      pathOrUrl = pathOrUrl.slice(BACKEND_BASE_URL.length);
+    } else if (pathOrUrl.startsWith("http://localhost:8000") || pathOrUrl.startsWith("http://127.0.0.1:8000")) {
+      try {
+        const u = new URL(pathOrUrl);
+        pathOrUrl = u.pathname + u.search;
+      } catch {
+        // ignore
+      }
+    }
+    if (pathOrUrl.startsWith("http")) return pathOrUrl;
     return pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`;
   }
+  if (pathOrUrl.startsWith("http")) return pathOrUrl;
   return `${BACKEND_BASE_URL || "http://127.0.0.1:8000"}${pathOrUrl}`;
 }
 

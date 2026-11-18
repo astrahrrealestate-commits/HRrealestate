@@ -189,36 +189,21 @@ function InboxContent() {
 
 
   // Sync selected thread from URL param
-
   useEffect(() => {
-
     if (threadParam) {
-
       const matched = findMatchingThread(threads, threadParam);
-
       if (matched) {
-
         setSelectedThreadId(matched.id);
-
         if (matched.status === "approved" || matched.status === "replied" || matched.status === "closed") {
-
           setActiveTab("all");
-
         }
-
       } else {
-
         setSelectedThreadId(threadParam);
-
       }
-
-    } else if (!isMobile && threads.length > 0 && !selectedThreadId) {
-
-      setSelectedThreadId(threads[0].id);
-
+    } else {
+      setSelectedThreadId("");
     }
-
-  }, [threadParam, isMobile, threads]);
+  }, [threadParam, threads]);
 
 
 
@@ -298,8 +283,6 @@ function InboxContent() {
             if (threadParam) {
               const m = findMatchingThread(live, threadParam);
               if (m) setSelectedThreadId(m.id);
-            } else {
-              setSelectedThreadId((prev) => prev || live[0].id);
             }
           } else {
             setSelectedThreadId("");

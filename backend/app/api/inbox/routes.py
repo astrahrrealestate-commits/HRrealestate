@@ -42,9 +42,12 @@ from app.db.models import (
     Case,
     CaseLink,
     ChannelAccount,
+    ChannelIdentity,
     Company,
     DocumentRow,
     GmailSyncState,
+    Lease,
+    LeaseParty,
     MessageRow,
     Person,
     RawEvent,
@@ -52,6 +55,7 @@ from app.db.models import (
     UnderstandingRow,
     Unit,
 )
+from app.directory.contacts import link_secondary_identity
 from app.ingestion.gmail_sync import sync_mailbox
 from app.ingestion.process import IngestDeps
 from app.pipeline import dashboard_decisions
@@ -85,6 +89,8 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
     company = session.get(Company, company_id)
     company_tz = ZoneInfo(company.timezone if company else "Europe/Amsterdam")
     company_units = [(u.label, u.address) for u in session.query(Unit).filter(Unit.company_id == company_id)]
+    now_dt = datetime.now(UTC)
+    today = now_dt.date()
     for case in cases:
         links = session.query(CaseLink).filter(CaseLink.case_id == case.id).all()
         msg_ids = [link.message_id for link in links]
@@ -218,6 +224,43 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
         if not unit_label:
             unit_label = "Unassigned Unit"
 
+        is_unregistered_sender = False
+        matched_tenant_info = None
+        if unit_label != "Unassigned Unit":
+            lease_rows = (
+                session.execute(
+                    select(Person.id, Person.display_name, ChannelIdentity.identity)
+                    .select_from(Lease)
+                    .join(Unit, Unit.id == Lease.unit_id)
+                    .join(LeaseParty, LeaseParty.lease_id == Lease.id)
+                    .join(Person, Person.id == LeaseParty.person_id)
+                    .outerjoin(
+                        ChannelIdentity,
+                        (ChannelIdentity.person_id == Person.id) & (ChannelIdentity.valid_to.is_(None)),
+                    )
+                    .where(
+                        Unit.company_id == company_id,
+                        (Unit.label == unit_label) | (Unit.address == unit_label),
+                        (Lease.valid_to.is_(None)) | (Lease.valid_to >= today),
+                    )
+                ).all()
+            )
+            if lease_rows:
+                tenant_id, tenant_name, _ = lease_rows[0]
+                known_identities = {str(row[2]).lower().strip() for row in lease_rows if row[2]}
+                sender_clean = sender_email.lower().strip()
+                if (
+                    sender_clean not in known_identities
+                    and (not person or person.kind == PersonKind.other)
+                    and not is_contractor
+                ):
+                    is_unregistered_sender = True
+                    matched_tenant_info = {
+                        "id": str(tenant_id),
+                        "name": tenant_name,
+                        "unit": unit_label,
+                    }
+
         actions = (
             session.query(ActionRow).filter(ActionRow.case_id == case.id).order_by(ActionRow.created_at.desc()).all()
         )
@@ -287,6 +330,15 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
                 custom_facts.append({"label": "Date Mentioned", "value": str(d), "checked": True})
         if und_entities.get("people"):
             custom_facts.append({"label": "People", "value": ", ".join(und_entities["people"]), "checked": True})
+        if is_unregistered_sender and matched_tenant_info:
+            custom_facts.append(
+                {
+                    "label": "Sender Status",
+                    "value": f"⚠️ Unregistered ({sender_email}) · Leaseholder: {matched_tenant_info['name']}",
+                    "checked": True,
+                    "isAlert": True,
+                }
+            )
 
         # Draft generation: Generate tailored replies for Gmail and WhatsApp
         gmail_drafts: list[dict[str, Any]] = []
@@ -508,6 +560,8 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
                 "audience": audience_label,
                 "recipientRole": recipient_role,
                 "recipientRoleDetail": role_label,
+                "isUnregisteredSender": is_unregistered_sender,
+                "matchedTenant": matched_tenant_info,
                 "category": case.category.value if case.category else "maintenance",
                 "urgency": case.urgency.value if case.urgency else "normal",
                 "unit": unit_label,
@@ -862,3 +916,67 @@ def get_attachment_file(
                 "X-Content-Type-Options": "nosniff",
             },
         )
+
+
+class LinkTenantRequest(BaseModel):
+    tenant_id: UUID | None = None
+
+
+@router.post(
+    "/threads/{case_id}/link-tenant",
+    summary="Link sender to Tenant as secondary contact",
+    description="Attaches the sender identity to an active leaseholder as a secondary contact, preserving case history.",
+    dependencies=[Depends(require_section("inbox"))],
+)
+def link_thread_tenant(
+    case_id: str,
+    req: LinkTenantRequest | None = None,
+    engine: Annotated[Engine, Depends(get_engine)] = None,
+    principal: Annotated[Principal, Depends(require_session)] = None,
+) -> dict[str, Any]:
+    company_id = principal.company_id
+    raw_id = case_id.replace("case-", "")
+    try:
+        c_uuid = UUID(raw_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid case ID")
+
+    today = datetime.now(UTC).date()
+    with Session(engine) as session, session.begin():
+        case = session.scalar(select(Case).where(Case.id == c_uuid, Case.company_id == company_id))
+        if case is None:
+            raise HTTPException(status_code=404, detail="Case not found")
+
+        source_person_id = case.primary_person_id
+        if not source_person_id:
+            raise HTTPException(status_code=400, detail="Case has no sender person to link")
+
+        target_tenant_id = req.tenant_id if req and req.tenant_id else None
+        if not target_tenant_id and case.unit_id:
+            target_tenant_id = session.scalar(
+                select(LeaseParty.person_id)
+                .join(Lease, Lease.id == LeaseParty.lease_id)
+                .where(
+                    Lease.unit_id == case.unit_id,
+                    Lease.company_id == company_id,
+                    (Lease.valid_to.is_(None)) | (Lease.valid_to >= today),
+                )
+            )
+
+        if not target_tenant_id:
+            raise HTTPException(status_code=400, detail="Target tenant ID required or unit has no active leaseholder")
+
+        linked_tenant = link_secondary_identity(
+            session,
+            company_id,
+            source_person_id=source_person_id,
+            target_tenant_id=target_tenant_id,
+            today=today,
+        )
+
+        return {
+            "ok": True,
+            "tenantId": str(linked_tenant.id),
+            "tenantName": linked_tenant.display_name,
+        }
+

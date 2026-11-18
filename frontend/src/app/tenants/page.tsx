@@ -116,6 +116,7 @@ function TenantsContent() {
     contact: null,
   });
   const [searchQuery, setSearchQuery] = useState("");
+  const [leaseStatusFilter, setLeaseStatusFilter] = useState<"active" | "ending_soon" | "ended" | "all">("active");
 
   // Live Tenants loaded from database directory
   const [dbContacts, setDbContacts] = useState<ContactItem[]>([]);
@@ -492,9 +493,69 @@ function TenantsContent() {
     }
   };
 
+  const parseLeaseEndDate = (leaseEnd?: string | null): Date | null => {
+    if (!leaseEnd) return null;
+    const parts = leaseEnd.split(/[-/]/);
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+      } else {
+        return new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
+      }
+    }
+    return null;
+  };
+
+  // Live counts for the lease status filter pills
+  const leaseCounts = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const ninetyDays = new Date(today.getTime() + 90 * 24 * 60 * 60 * 1000);
+
+    let living = 0;
+    let endingSoon = 0;
+    let ended = 0;
+
+    for (const c of dbContacts) {
+      const endDate = parseLeaseEndDate(c.leaseEnd);
+      if (endDate !== null && endDate < today) {
+        ended++;
+      } else {
+        living++;
+        if (endDate !== null && endDate <= ninetyDays) {
+          endingSoon++;
+        }
+      }
+    }
+
+    return {
+      active: living,
+      ending_soon: endingSoon,
+      ended: ended,
+      all: dbContacts.length,
+    };
+  }, [dbContacts]);
+
   // Filtered contacts list
   const filteredContacts = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const ninetyDays = new Date(today.getTime() + 90 * 24 * 60 * 60 * 1000);
+
     return dbContacts.filter((contact) => {
+      // 1. Lease status filter
+      if (leaseStatusFilter !== "all") {
+        const endDate = parseLeaseEndDate(contact.leaseEnd);
+        const isEnded = endDate !== null && endDate < today;
+        const isEndingSoon = endDate !== null && endDate >= today && endDate <= ninetyDays;
+        const isLiving = !endDate || endDate >= today;
+
+        if (leaseStatusFilter === "active" && !isLiving) return false;
+        if (leaseStatusFilter === "ending_soon" && !isEndingSoon) return false;
+        if (leaseStatusFilter === "ended" && !isEnded) return false;
+      }
+
+      // 2. Search query filter
       if (searchQuery.trim()) {
         const q = searchQuery.trim().toLowerCase();
         const matchesName = contact.name.toLowerCase().includes(q);
@@ -504,7 +565,7 @@ function TenantsContent() {
       }
       return true;
     });
-  }, [dbContacts, searchQuery]);
+  }, [dbContacts, searchQuery, leaseStatusFilter]);
 
   // Filtered emails
   const filteredEmails = useMemo(() => {
@@ -577,6 +638,47 @@ function TenantsContent() {
                     className="w-full h-[30px] pl-7 pr-3 text-[12px] text-[#111215] bg-white border border-[#d5d9e0] rounded-[6px] outline-none focus:border-[#94a3b8] focus:ring-1 focus:ring-black/5 transition-all placeholder:text-[#94a3b8]"
                   />
                 </div>
+
+                {/* Lease Status Filter Pills */}
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1">
+                  {[
+                    { id: "active", label: t("Currently living", "Currently living"), count: leaseCounts.active },
+                    { id: "ending_soon", label: t("Ending soon", "Ending soon"), count: leaseCounts.ending_soon },
+                    { id: "ended", label: t("Past tenants", "Past tenants"), count: leaseCounts.ended },
+                    { id: "all", label: t("All", "All"), count: leaseCounts.all },
+                  ].map((tab) => {
+                    const isSelected = leaseStatusFilter === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setLeaseStatusFilter(tab.id as any)}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] rounded-full font-medium whitespace-nowrap transition-all cursor-pointer select-none",
+                          isSelected
+                            ? "bg-[#0A1B2F] text-white font-semibold shadow-xs"
+                            : "bg-white text-[#475569] border border-[#d5d9e0] hover:bg-[#f1f5f9] hover:text-[#0f172a]"
+                        )}
+                      >
+                        <span>{tab.label}</span>
+                        <span
+                          className={cn(
+                            "text-[10px] px-1.5 py-0.2 rounded-full tabular-nums shrink-0",
+                            isSelected
+                              ? tab.id === "ending_soon" && tab.count > 0
+                                ? "bg-[var(--accent)] text-[#0A0A0A] font-bold"
+                                : "bg-white/20 text-white font-semibold"
+                              : tab.id === "ending_soon" && tab.count > 0
+                                ? "bg-amber-100 text-amber-900 font-semibold"
+                                : "bg-zinc-100 text-zinc-600"
+                          )}
+                        >
+                          {tab.count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Contact items scroll */}
@@ -621,15 +723,39 @@ function TenantsContent() {
                           )}
                         >
                           <span className="truncate">{contact.name}</span>
-                          {contact.rentStatus === "overdue" && (
-                            <span
-                              className="shrink-0 inline-flex items-center gap-1 text-[10px] font-medium text-amber-800 bg-amber-50 border border-amber-200/80 px-1.5 py-0.2 rounded ml-1.5"
-                              title={t("Billed in BRIXX; bank settlement in Exact Online", "Billed in BRIXX; bank settlement in Exact Online")}
-                            >
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                              {t("Unreconciled", "Unreconciled")}
-                            </span>
-                          )}
+                          <span className="shrink-0 flex items-center gap-1 ml-1.5">
+                            {contact.leaseEnd && parseLeaseEndDate(contact.leaseEnd) && (
+                              (() => {
+                                const end = parseLeaseEndDate(contact.leaseEnd)!;
+                                const now = new Date();
+                                now.setHours(0, 0, 0, 0);
+                                const ninety = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+                                if (end < now) {
+                                  return (
+                                    <span className="text-[10px] font-medium text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded">
+                                      Vacated
+                                    </span>
+                                  );
+                                } else if (end <= ninety) {
+                                  return (
+                                    <span className="text-[10px] font-medium text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded">
+                                      Ends soon
+                                    </span>
+                                  );
+                                }
+                                return null;
+                              })()
+                            )}
+                            {contact.rentStatus === "overdue" && (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-800 bg-amber-50 border border-amber-200/80 px-1.5 py-0.2 rounded"
+                                title={t("Billed in BRIXX; bank settlement in Exact Online", "Billed in BRIXX; bank settlement in Exact Online")}
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                {t("Unreconciled", "Unreconciled")}
+                              </span>
+                            )}
+                          </span>
                         </span>
                         {contact.tradeOrRole && (
                           <span className="text-[10.5px] text-[#94a3b8] truncate font-medium mt-0.5">
@@ -803,6 +929,25 @@ function TenantsContent() {
                             </span>
                           </div>
                         </div>
+
+                        {/* Secondary contacts if present */}
+                        {(activeContact.secondaryPhones?.length || activeContact.secondaryEmails?.length) ? (
+                          <div className="flex items-center gap-2 flex-wrap text-[11px] text-[#64748b] mt-0.5">
+                            <span className="font-semibold text-[#475569]">Secondary:</span>
+                            {activeContact.secondaryPhones?.map((p) => (
+                              <a key={p} href={`tel:${p}`} className="inline-flex items-center gap-0.5 hover:text-[#111215]">
+                                <Phone className="w-2.5 h-2.5 text-[#64748b]" />
+                                <span>{p}</span>
+                              </a>
+                            ))}
+                            {activeContact.secondaryEmails?.map((e) => (
+                              <a key={e} href={`mailto:${e}`} className="inline-flex items-center gap-0.5 hover:text-[#111215]">
+                                <Mail className="w-2.5 h-2.5 text-[#64748b]" />
+                                <span>{e}</span>
+                              </a>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
 
                       {/* Chevron Toggle Button (Desktop) */}

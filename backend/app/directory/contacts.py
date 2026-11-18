@@ -7,7 +7,7 @@ duplicated, so a hand-added contractor and the sender of their earlier emails ar
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -15,7 +15,7 @@ from app.contracts import Channel
 from app.contracts.message import normalise_identity
 from app.core.errors import EstateOSError, NotFoundError
 from app.db.enums import PersonKind
-from app.db.models import ChannelIdentity, LeaseParty, Person
+from app.db.models import Case, ChannelIdentity, LeaseParty, MessageRow, Person
 
 CATEGORIES = ("tenant", "contractor", "owner", "utility", "municipal", "other")
 _KIND = {
@@ -214,3 +214,63 @@ def update_contact(
         person.trade = _trade(category_of(person.kind, person.trade), trade)
     session.flush()
     return person
+
+
+def link_secondary_identity(
+    session: Session,
+    company_id: UUID,
+    *,
+    source_person_id: UUID,
+    target_tenant_id: UUID,
+    today: date,
+) -> Person:
+    """Safely attach all channel identities and messages from an unclassified or temporary source person
+    to an existing tenant/contractor target person. Takes transaction locks on both people to prevent race conditions.
+    Soft-closes the source person by setting valid_to = today (NO hard delete)."""
+    if source_person_id == target_tenant_id:
+        return _person(session, company_id, target_tenant_id)
+
+    # Advisory locks to serialize concurrent links on either person
+    session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"), {"k": f"person:{source_person_id}"})
+    session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"), {"k": f"person:{target_tenant_id}"})
+
+    source_person = _person(session, company_id, source_person_id)
+    target_person = _person(session, company_id, target_tenant_id)
+
+    # Repoint identities
+    identities = session.scalars(
+        select(ChannelIdentity).where(
+            ChannelIdentity.company_id == company_id,
+            ChannelIdentity.person_id == source_person_id,
+            ChannelIdentity.valid_to.is_(None),
+        )
+    ).all()
+
+    for ident in identities:
+        ident.person_id = target_person.id
+
+    # Repoint cases
+    cases = session.scalars(
+        select(Case).where(
+            Case.company_id == company_id,
+            Case.primary_person_id == source_person_id,
+        )
+    ).all()
+    for case in cases:
+        case.primary_person_id = target_person.id
+
+    # Repoint messages
+    messages = session.scalars(
+        select(MessageRow).where(
+            MessageRow.company_id == company_id,
+            MessageRow.person_id == source_person_id,
+        )
+    ).all()
+    for msg in messages:
+        msg.person_id = target_person.id
+
+    # Soft-close the source person
+    source_person.valid_to = today
+    session.flush()
+    return target_person
+

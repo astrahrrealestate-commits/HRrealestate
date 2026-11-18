@@ -72,6 +72,12 @@ export interface InboxThread {
   subject?: string; // For Gmail messages
   senderName: string;
   senderContact: string; // Phone "+31 6 12 34 41 87" or Email "p.bakker@..."
+  isUnregisteredSender?: boolean;
+  matchedTenant?: {
+    id: string;
+    name: string;
+    unit: string;
+  };
   unitLabel: string;
   buildingName: string;
   category: MessageCategory;

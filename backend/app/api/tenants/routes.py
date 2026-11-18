@@ -39,9 +39,12 @@ class TenantItem(BaseModel):
     name: str
     phone: str
     email: str
+    secondary_phones: list[str] = Field(default_factory=list, alias="secondaryPhones")
+    secondary_emails: list[str] = Field(default_factory=list, alias="secondaryEmails")
     unitLabel: str
     leaseStart: str
     leaseEnd: str
+    status: str = Field(default="active", description="active | ending_soon | ended")
     monthlyRentEur: float
     rentStatus: str = Field(description="up_to_date, grace_period, overdue, or unknown when no rent data is mirrored")
     overdueDays: int = 0
@@ -70,16 +73,15 @@ def _item(session: Session, person: Person, today: date, facts: UnitFacts) -> Te
         .where(
             LeaseParty.company_id == company_id,
             LeaseParty.person_id == person.id,
-            (Lease.valid_to.is_(None)) | (Lease.valid_to >= today),
         )
-        .order_by(Lease.valid_from.desc())
+        .order_by(Lease.valid_to.is_(None).desc(), Lease.valid_to.desc(), Lease.valid_from.desc())
     ).first()
     identities = session.scalars(
         select(ChannelIdentity).where(
             ChannelIdentity.company_id == company_id,
             ChannelIdentity.person_id == person.id,
             ChannelIdentity.valid_to.is_(None),
-        )
+        ).order_by(ChannelIdentity.valid_from.asc().nulls_last(), ChannelIdentity.id.asc())
     ).all()
     label, start, end, lease_ref = row if row is not None else ("", None, None, None)
     rent_record = session.scalars(
@@ -98,14 +100,31 @@ def _item(session: Session, person: Person, today: date, facts: UnitFacts) -> Te
     )
     overdue_days_val = rent_record.overdue_days if rent_record else 0
 
+    emails = [i.identity for i in identities if i.channel == Channel.gmail]
+    phones = [i.identity for i in identities if i.channel == Channel.whatsapp]
+    primary_email = emails[0] if emails else ""
+    secondary_emails = [e for e in emails[1:] if e != primary_email]
+    primary_phone = phones[0] if phones else ""
+    secondary_phones = [p for p in phones[1:] if p != primary_phone]
+
+    lease_status_val = "active"
+    if end:
+        if end < today:
+            lease_status_val = "ended"
+        elif (end - today).days <= 90:
+            lease_status_val = "ending_soon"
+
     return TenantItem(
         id=str(person.id),
         name=person.display_name,
-        phone=next((i.identity for i in identities if i.channel == Channel.whatsapp), ""),
-        email=next((i.identity for i in identities if i.channel == Channel.gmail), ""),
+        phone=primary_phone,
+        email=primary_email,
+        secondaryPhones=secondary_phones,
+        secondaryEmails=secondary_emails,
         unitLabel=label,
         leaseStart=f"{start:%d-%m-%Y}" if start else "",
         leaseEnd=f"{end:%d-%m-%Y}" if end else "",
+        status=lease_status_val,
         monthlyRentEur=monthly_rent,
         rentStatus=status_str,
         overdueDays=overdue_days_val,
@@ -122,6 +141,7 @@ def get_tenants(
     engine: Annotated[Engine, Depends(get_engine)],
     principal: Annotated[Principal, Depends(require_session)],
     rent_status: str = Query(default="all", description="all, up_to_date, grace_period, overdue, unknown"),
+    lease_status: str = Query(default="all", description="all, active, ending_soon, ended"),
 ) -> TenantsResponse:
     today = datetime.now(UTC).date()
     with Session(engine) as session:
@@ -134,7 +154,14 @@ def get_tenants(
         items = [_item(session, p, today, facts) for p in people if p.display_name and "@" not in p.display_name]
     if not principal.access.can("tenants"):
         items = [_without_contact(t) for t in items]
-    shown = items if rent_status == "all" else [t for t in items if t.rentStatus == rent_status]
+    shown = items
+    if rent_status != "all":
+        shown = [t for t in shown if t.rentStatus == rent_status]
+    if lease_status != "all":
+        if lease_status == "active":
+            shown = [t for t in shown if t.status in ("active", "ending_soon")]
+        else:
+            shown = [t for t in shown if t.status == lease_status]
     return TenantsResponse(
         totalTenants=len(items), overdueCount=sum(t.rentStatus == "overdue" for t in items), tenants=shown
     )

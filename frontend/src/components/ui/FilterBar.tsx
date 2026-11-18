@@ -123,20 +123,24 @@ export function FilterBar({
                 type="button"
                 onClick={() => onTabChange(tab.id)}
                 className={cn(
-                  "flex-1 inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-[var(--radius-ctl)] text-[12px] sm:text-[13px] font-medium transition-colors cursor-pointer select-none min-w-0",
+                  "flex-1 inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-[var(--radius-ctl)] text-[12px] sm:text-[13px] transition-all cursor-pointer select-none min-w-0",
                   isActive
-                    ? "bg-[var(--selected)] text-[var(--ink)] font-semibold shadow-xs"
-                    : "text-[var(--ink-3)] hover:text-[var(--ink)] hover:bg-[var(--selected)]/50"
+                    ? "bg-[#0A1B2F] text-white font-semibold shadow-sm"
+                    : "text-[var(--ink-2)] font-medium hover:text-[var(--ink)] hover:bg-black/5"
                 )}
               >
                 <span className="truncate">{t(tab.label)}</span>
                 {tab.count !== undefined && (
                   <span
                     className={cn(
-                      "text-[11px] px-1.5 py-0.2 rounded-full tabular-nums shrink-0",
-                      tab.id === "needs_you" || tab.id === "needs_action"
-                        ? "bg-[var(--accent)] text-[#0A0A0A] font-bold"
-                        : "bg-[var(--line)] text-[var(--ink-2)]"
+                      "text-[11px] px-1.5 py-0.5 rounded-full tabular-nums shrink-0",
+                      isActive
+                        ? tab.id === "needs_you" || tab.id === "needs_action"
+                          ? "bg-[var(--accent)] text-[#0A0A0A] font-bold"
+                          : "bg-white/20 text-white font-semibold"
+                        : tab.id === "needs_you" || tab.id === "needs_action"
+                          ? "bg-[var(--accent)] text-[#0A0A0A] font-bold"
+                          : "bg-[var(--line)] text-[var(--ink-2)]"
                     )}
                   >
                     {tab.count}

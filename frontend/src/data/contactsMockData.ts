@@ -66,12 +66,14 @@ export interface ContactItem {
   unitRole?: string;
   phone: string;
   email: string;
+  secondaryPhones?: string[];
+  secondaryEmails?: string[];
   address?: string;
   propertyAddress: string;
   residentialAddress: string;
   agreementPeriod: string;
   preferredChannel?: "gmail" | "whatsapp";
-  status: "active" | "inactive" | "pending";
+  status: "active" | "inactive" | "pending" | "ended" | "ending_soon" | string;
   rentStatus?: "up_to_date" | "overdue" | "unknown" | string;
   monthlyRentEur?: number | null; // from the lease's BRIXX contract; null when unknown
   depositEur?: number | null;

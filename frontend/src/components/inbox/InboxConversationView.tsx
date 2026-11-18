@@ -14,6 +14,8 @@ import {
   Ticket,
   Reply,
   FileText,
+  AlertTriangle,
+  Link2,
 } from "lucide-react";
 import { InboxThread, ThreadMessage } from "@/types/inbox";
 import { Avatar } from "@/components/ui/Avatar";
@@ -73,6 +75,31 @@ export function InboxConversationView({
   const [replyingTo, setReplyingTo] = useState<{ id: string; text: string; sender: string } | null>(null);
   const timelineEndRef = useRef<HTMLDivElement>(null);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
+  const [isLinkingTenant, setIsLinkingTenant] = useState(false);
+  const [linkSuccessName, setLinkSuccessName] = useState<string | null>(null);
+
+  const handleLinkTenant = async () => {
+    if (!thread) return;
+    const cId = thread.caseId || thread.id;
+    if (!cId) return;
+    setIsLinkingTenant(true);
+    try {
+      const res = await fetch(`/api/inbox/threads/${cId}/link-tenant`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenant_id: thread.matchedTenant?.id }),
+      });
+      if (!res.ok) throw new Error("Failed to link tenant");
+      const data = await res.json();
+      setLinkSuccessName(data.tenantName);
+      thread.isUnregisteredSender = false;
+      thread.senderName = data.tenantName;
+    } catch (err) {
+      console.error("Link tenant failed", err);
+    } finally {
+      setIsLinkingTenant(false);
+    }
+  };
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const mobileMoreMenuRef = useRef<HTMLDivElement>(null);
 
@@ -496,6 +523,38 @@ export function InboxConversationView({
 
       {/* 2. Timeline (The only scrolling part, Section 5.2 & 6.2) */}
       <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-3 sm:py-4 space-y-3 sm:space-y-4">
+        {/* Unregistered Sender Warning Banner */}
+        {thread.isUnregisteredSender && thread.matchedTenant && !linkSuccessName && (
+          <div className="mb-3 p-3 rounded-[var(--radius-ctl)] bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 shadow-2xs">
+            <div className="flex items-start gap-2.5 text-[12px] text-amber-900 dark:text-amber-200">
+              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-semibold">Unregistered Sender: </span>
+                <span className="font-mono bg-amber-100 dark:bg-amber-900/50 px-1 py-0.5 rounded text-[11px]">{thread.senderContact}</span> is not on the lease for{" "}
+                <span className="font-semibold">{thread.matchedTenant.unit}</span>.
+                <div className="text-[11px] text-amber-700 dark:text-amber-300 mt-0.5">
+                  Registered Leaseholder: <span className="font-semibold">{thread.matchedTenant.name}</span>
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleLinkTenant}
+              disabled={isLinkingTenant}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11.5px] font-semibold rounded-[var(--radius-ctl)] bg-amber-600 hover:bg-amber-700 text-white shadow-2xs transition-colors shrink-0 cursor-pointer disabled:opacity-50"
+            >
+              <Link2 className="w-3.5 h-3.5" />
+              <span>{isLinkingTenant ? "Linking..." : `Link to ${thread.matchedTenant.name}`}</span>
+            </button>
+          </div>
+        )}
+
+        {linkSuccessName && (
+          <div className="mb-3 p-2.5 rounded-[var(--radius-ctl)] bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 flex items-center gap-2 text-[12px] text-emerald-800 dark:text-emerald-200 shadow-2xs">
+            <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span>Successfully linked <span className="font-mono">{thread.senderContact}</span> as a secondary contact to <strong>{linkSuccessName}</strong>.</span>
+          </div>
+        )}
         {/* Simple line for conversation history: only visible if user clicks (user request) */}
         {earlierMessages.length > 0 && (
           <div className="flex items-center gap-3 my-2">

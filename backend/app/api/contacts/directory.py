@@ -5,7 +5,7 @@ here, or adds a contractor, tenant or maintenance person before they ever write.
 """
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Annotated, Any
 from uuid import UUID
@@ -47,6 +47,8 @@ class ContactOut(BaseModel):
     unit_role: str = Field(alias="unitRole")
     email: str
     phone: str
+    secondary_emails: list[str] = Field(default_factory=list, alias="secondaryEmails")
+    secondary_phones: list[str] = Field(default_factory=list, alias="secondaryPhones")
     property_address: str = Field(alias="propertyAddress")
     residential_address: str = Field(alias="residentialAddress")
     agreement_period: str = Field(alias="agreementPeriod")
@@ -117,17 +119,37 @@ def _role_label(category: str, trade: str | None) -> str:
     return _ROLE_LABEL[category]
 
 
-def _identities(session: Session, company_id: UUID, person_ids: list[UUID]) -> dict[UUID, dict[Channel, str]]:
+@dataclass
+class _Identities:
+    primary_email: str = ""
+    primary_phone: str = ""
+    secondary_emails: list[str] = field(default_factory=list)
+    secondary_phones: list[str] = field(default_factory=list)
+
+
+def _identities(session: Session, company_id: UUID, person_ids: list[UUID]) -> dict[UUID, _Identities]:
     rows = session.execute(
-        select(ChannelIdentity.person_id, ChannelIdentity.channel, ChannelIdentity.identity).where(
+        select(ChannelIdentity.person_id, ChannelIdentity.channel, ChannelIdentity.identity)
+        .where(
             ChannelIdentity.company_id == company_id,
             ChannelIdentity.person_id.in_(person_ids),
             ChannelIdentity.valid_to.is_(None),
         )
+        .order_by(ChannelIdentity.valid_from.asc().nulls_last(), ChannelIdentity.id.asc())
     ).all()
-    found: dict[UUID, dict[Channel, str]] = defaultdict(dict)
+    found: dict[UUID, _Identities] = defaultdict(_Identities)
     for person_id, channel, identity in rows:
-        found[person_id].setdefault(channel, identity)
+        p = found[person_id]
+        if channel == Channel.gmail:
+            if not p.primary_email:
+                p.primary_email = identity
+            elif identity != p.primary_email and identity not in p.secondary_emails:
+                p.secondary_emails.append(identity)
+        elif channel == Channel.whatsapp:
+            if not p.primary_phone:
+                p.primary_phone = identity
+            elif identity != p.primary_phone and identity not in p.secondary_phones:
+                p.secondary_phones.append(identity)
     return found
 
 
@@ -164,7 +186,7 @@ def _overdue_tenants(session: Session, company_id: UUID, person_ids: list[UUID])
 def _contact(
     session: Session,
     person: Person,
-    identities: dict[Channel, str],
+    idents: _Identities,
     open_cases: int,
     facts: UnitFacts,
     is_overdue: bool = False,
@@ -174,17 +196,28 @@ def _contact(
     tenancy = _tenancy(session, person.company_id, person.id) if category == "tenant" else _Tenancy()
     rent, deposit = facts.for_lease(tenancy.lease_ref)
     role = _role_label(category, person.trade)
+    today = datetime.now(UTC).date()
+    status_val = "active"
+    if category == "tenant" and tenancy.end:
+        if tenancy.end < today:
+            status_val = "ended"
+        elif (tenancy.end - today).days <= 90:
+            status_val = "ending_soon"
+
     return ContactOut(
         id=str(person.id),
         name=person.display_name.strip(),
         category=category,
         trade_or_role=role,
         unit_role=tenancy.unit if category == "tenant" else (person.trade.capitalize() if person.trade else role),
-        email=identities.get(Channel.gmail, ""),
-        phone=identities.get(Channel.whatsapp, ""),
+        email=idents.primary_email,
+        phone=idents.primary_phone,
+        secondary_emails=idents.secondary_emails,
+        secondary_phones=idents.secondary_phones,
         property_address=tenancy.address,
         residential_address=tenancy.address,
         agreement_period=tenancy.period,
+        status=status_val,
         rent_status="overdue" if is_overdue else ("up_to_date" if rent_known else "unknown"),
         monthly_rent_eur=rent,
         deposit_eur=deposit,
@@ -200,10 +233,11 @@ def _contact(
 def _one(session: Session, person: Person) -> ContactOut:
     ids = [person.id]
     overdue_set = _overdue_tenants(session, person.company_id, ids)
+    idents = _identities(session, person.company_id, ids).get(person.id, _Identities())
     return _contact(
         session,
         person,
-        _identities(session, person.company_id, ids).get(person.id, {}),
+        idents,
         _open_cases(session, person.company_id, ids).get(person.id, 0),
         unit_facts(session, person.company_id, datetime.now(UTC).date()),
         is_overdue=person.id in overdue_set,
@@ -248,7 +282,7 @@ def list_contacts(
                 _contact(
                     session,
                     person,
-                    identities.get(person.id, {}),
+                    identities.get(person.id, _Identities()),
                     cases.get(person.id, 0),
                     facts,
                     is_overdue=person.id in overdue_set,
