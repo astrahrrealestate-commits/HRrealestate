@@ -119,6 +119,13 @@ def parse_command(text: str) -> Command:
     return Command(CommandKind.question, text=clean)
 
 
+def fallback_command(text: str) -> Command | None:
+    """The exact command in `text`, for when the planner is down (outage or spent budget); None for anything else.
+    Normally the planner decides the intent, so a command word is no longer a shortcut."""
+    cmd = parse_command(text)
+    return None if cmd.kind is CommandKind.question else cmd
+
+
 def _target(token: str) -> tuple[int | None, str | None] | None:
     """A position (1–999) or a 6-character task reference."""
     if token.isdigit() and len(token) <= 3:
@@ -247,3 +254,9 @@ def run_command(
         if company is None:
             return "Unknown company."
         return _apply(session, company, cmd, now)
+
+
+def run_fallback(engine: Engine, settings: Settings, company_id: UUID, text: str, *, now: datetime) -> str | None:
+    """The planner is down: run `text` when it is an exact command (no model needed), else None."""
+    cmd = fallback_command(text)
+    return None if cmd is None else run_command(engine, settings, company_id, cmd, now=now)

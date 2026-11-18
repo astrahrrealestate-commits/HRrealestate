@@ -10,6 +10,7 @@ from uuid import UUID
 from pydantic_core import to_jsonable_python
 
 from app.context import CompiledContext, compile_concierge_context
+from app.contracts import Intent
 from app.core.errors import AgentFailedError, BudgetExceededError
 from app.db.enums import TurnStatus
 from app.llm.agents.concierge import CONCIERGE
@@ -17,7 +18,7 @@ from app.llm.agents.owner_qa import FALLBACK_ANSWER, CaseBrief
 from app.llm.page_blocks import NO_PAGE, PagePrompt
 from app.pipeline.concierge import is_transient
 from app.pipeline.concierge_base import StepResult
-from app.pipeline.owner_commands import LIMIT_ANSWER
+from app.pipeline.owner_commands import LIMIT_ANSWER, CommandKind, fallback_command
 from app.pipeline.work_repo import short_ref
 
 MAX_BRIEF_CASES = 20
@@ -49,7 +50,7 @@ def fallback_for(exc: BaseException) -> Fallback:
 
 @dataclass(frozen=True)
 class Outcome:
-    """What a finished turn stores. `plan`/`results` stay None on the fast path and on fallbacks."""
+    """What a finished turn stores. `plan`/`results` stay None on fallbacks."""
 
     answer: str
     plan: dict[str, Any] | None = None
@@ -146,3 +147,12 @@ def assemble_answer(results: Sequence[StepResult]) -> str:
 def stored_answer(results: Sequence[dict[str, Any]]) -> str:
     """The answer of results stored by an earlier run (a retried turn finishes without executing again)."""
     return answer_lines([str(r.get("summary") or "") for r in results])
+
+
+def resumes(text: str, plan: dict[str, Any] | None, results: list[dict[str, Any]] | None) -> bool:
+    """A planned turn resumed when its stored plan has a `resume` step; the outage fallback stores no plan, so the
+    text decides (the exact `resume` command)."""
+    if plan is not None:
+        return any(step.get("intent") == Intent.resume for step in plan.get("steps", []))
+    cmd = fallback_command(text)
+    return results is None and cmd is not None and cmd.kind is CommandKind.resume

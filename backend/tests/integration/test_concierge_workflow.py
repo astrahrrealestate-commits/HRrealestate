@@ -1,10 +1,10 @@
-"""Super Agent turns end to end on Postgres + DBOS: fast path, planned question, budget, fallbacks, replay, refusal."""
+"""Super Agent turns end to end on Postgres + DBOS: planned messages, budget, outage fallbacks, replay, refusal."""
 
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 from unittest.mock import patch
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from dbos import DBOS, DBOSClient, SetWorkflowID, WorkflowHandle
@@ -13,12 +13,14 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.api.v1.enqueue import enqueue_turn
+from app.contracts import ConciergePlan, Intent, PlanStep
 from app.core.errors import AgentFailedError
 from app.core.settings import Settings
 from app.core.workflow_names import CONCIERGE_QUEUE, concierge_workflow_id
-from app.db.enums import TurnStatus
+from app.db.enums import TaskStatus, TurnStatus
 from app.db.models import ActionRow, AgentTurn, Approval, Company, ModelCall, OwnerAccount, Send, TaskRow
 from app.llm.agents.owner_qa import FALLBACK_ANSWER, REFUSAL_ANSWER
+from app.llm.calls import CallResult
 from app.pipeline import concierge_turns, owner_commands
 from app.workflows import concierge
 from app.workflows.deps import set_engine
@@ -80,17 +82,64 @@ def _run_wf(turn_id: UUID) -> Any:
         return DBOS.start_workflow(concierge.concierge_turn, str(turn_id)).get_result()
 
 
-def test_tasks_command_takes_the_fast_path_without_a_model(env: Env, test_settings: Settings) -> None:
+def _plan_of(*intents: str) -> ConciergePlan:
+    steps = [PlanStep(intent=Intent(i), case_id=None, task_ref=None, text=None, view=None) for i in intents]
+    return ConciergePlan(in_scope=True, steps=steps, reply=None)
+
+
+def _paused(env: Env) -> bool:
+    with Session(env.engine) as s:
+        return bool(s.scalar(select(Company.paused).where(Company.id == env.cid)))
+
+
+def test_tasks_goes_to_the_planner_like_any_message(env: Env) -> None:
     seed_task(env.engine, env.cid, "Call plumber")
     turn_id = _turn(env, "tasks")
     assert _run_wf(turn_id) == "done"
     row = _row(env, turn_id)
-    cmd = owner_commands.parse_command("tasks")
-    expected = owner_commands.run_command(env.engine, test_settings, env.cid, cmd, now=row.created_at)
-    assert (row.status, row.answer) == (TurnStatus.done, expected)
+    assert row.status is TurnStatus.done
     assert "Call plumber" in (row.answer or "")
-    assert row.plan is None
-    assert row.results is None
+    assert row.plan is not None
+    assert [s["intent"] for s in row.plan["steps"]] == ["list_tasks"]
+    assert _calls(env, "concierge") == 1
+
+
+def test_a_message_starting_with_done_is_planned_and_completes_no_task(env: Env) -> None:
+    seed_task(env.engine, env.cid, "Call plumber")
+    turn_id = _turn(env, "done with the roof leak, what is the status?")
+    assert _run_wf(turn_id) == "done"
+    assert _calls(env, "concierge") == 1
+    with Session(env.engine) as s:
+        assert s.scalar(select(func.count()).select_from(TaskRow).where(TaskRow.status == TaskStatus.done)) == 0
+
+
+def test_pause_phrase_reaches_planner_and_pauses_via_plan(env: Env, test_settings: Settings) -> None:
+    turn_id = _turn(env, "please hold off on proposals")
+    result = CallResult(output=_plan_of("pause"), model_call_id=uuid4())
+    with patch("app.pipeline.concierge_turns.run_agent", return_value=result) as agent:
+        concierge_turns.run_turn(env.engine, test_settings, turn_id)
+    assert agent.call_count == 1
+    assert _paused(env)
+    assert (_row(env, turn_id).status, _row(env, turn_id).plan is not None) == (TurnStatus.done, True)
+
+
+def test_planner_failure_runs_exact_command(env: Env, test_settings: Settings) -> None:
+    turn_id = _turn(env, "tasks")
+    with patch("app.pipeline.concierge_turns.run_agent", side_effect=AgentFailedError("concierge: boom")):
+        concierge_turns.run_turn(env.engine, test_settings, turn_id)
+    row = _row(env, turn_id)
+    assert row.status is TurnStatus.done
+    assert (row.answer or "").startswith(("Open tasks", "No open tasks."))
+    assert (row.plan, row.results) == (None, None)
+    assert _calls(env, "owner_qa") == 0
+
+
+def test_budget_limit_still_pauses(env: Env, test_settings: Settings) -> None:
+    settings = test_settings.model_copy(update={"llm_daily_calls_cap": 0})
+    turn_id = _turn(env, "pause")
+    concierge_turns.run_turn(env.engine, settings, turn_id)
+    assert _paused(env)
+    assert _row(env, turn_id).status is TurnStatus.done
     assert _calls(env) == 0
 
 
@@ -257,14 +306,26 @@ def test_symbols_only_are_answered_without_a_model(env: Env) -> None:
     assert _calls(env) == 0
 
 
-def test_resume_command_unpauses(env: Env) -> None:
+def _pause(env: Env) -> None:
     with Session(env.engine) as s, s.begin():
         s.execute(update(Company).where(Company.id == env.cid).values(paused=True))
+
+
+def test_resume_command_unpauses_when_the_planner_is_down(env: Env, test_settings: Settings) -> None:
+    _pause(env)
     turn_id = _turn(env, "resume")
-    assert _run_wf(turn_id) == "done"
-    with Session(env.engine) as s:
-        assert s.scalar(select(Company.paused).where(Company.id == env.cid)) is False
-    assert _calls(env) == 0
+    with patch("app.pipeline.concierge_turns.run_agent", side_effect=AgentFailedError("concierge: boom")):
+        concierge_turns.run_turn(env.engine, test_settings, turn_id)
+    assert not _paused(env)
+    assert concierge_turns.turn_state(env.engine, turn_id)["resume"] is True  # no stored plan: read from the text
+
+
+def test_a_planned_resume_turn_is_a_resume_for_the_workflow(env: Env, test_settings: Settings) -> None:
+    turn_id = _turn(env, "please get going again")
+    result = CallResult(output=_plan_of("resume"), model_call_id=uuid4())
+    with patch("app.pipeline.concierge_turns.run_agent", return_value=result):
+        concierge_turns.run_turn(env.engine, test_settings, turn_id)
+    assert concierge_turns.turn_state(env.engine, turn_id)["resume"] is True  # read from the stored plan
 
 
 def test_each_status_change_moves_updated_at(env: Env, test_settings: Settings) -> None:
@@ -280,7 +341,11 @@ def test_each_status_change_moves_updated_at(env: Env, test_settings: Settings) 
         seen.append((mid.status, mid.updated_at))
         return real(engine, settings, start, timer, research)
 
-    with patch("app.pipeline.concierge_turns._outcome", side_effect=spy):
+    down = AgentFailedError("concierge: boom")
+    with (
+        patch("app.pipeline.concierge_turns._outcome", side_effect=spy),
+        patch("app.pipeline.concierge_turns.run_agent", side_effect=down),
+    ):
         concierge_turns.run_turn(env.engine, test_settings, turn_id)
     row = _row(env, turn_id)
     [(running_status, running_at)] = seen

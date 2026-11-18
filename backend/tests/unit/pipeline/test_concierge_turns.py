@@ -19,7 +19,7 @@ from app.llm.page_blocks import NO_PAGE
 from app.pipeline import concierge_turns as ct
 from app.pipeline.concierge_base import StepResult
 from app.pipeline.concierge_outcome import APOLOGY, PROMPT_REF, Outcome
-from app.pipeline.owner_commands import LIMIT_ANSWER, NOT_A_QUESTION
+from app.pipeline.owner_commands import LIMIT_ANSWER, NOT_A_QUESTION, CommandKind
 
 AT = datetime(2026, 10, 7, 9, 0, tzinfo=UTC)
 M = "app.pipeline.concierge_turns"
@@ -28,6 +28,8 @@ PLAN = ConciergePlan(
     steps=[PlanStep(intent=Intent.list_tasks, case_id=None, task_ref=None, text=None, view=None)],
     reply=None,
 )
+
+LISTED = [{"intent": "list_tasks", "ok": True, "summary": "No open tasks.", "data": None, "view": "tasks"}]
 
 
 def _start(text: str, results: list[dict[str, Any]] | None = None, plan: dict[str, Any] | None = None) -> ct.TurnStart:
@@ -48,11 +50,58 @@ def io() -> Iterator[dict[str, MagicMock]]:
         yield {"brief": brief, "agent": agent, "plan": rp, "cmd": cmd, "update": upd}
 
 
-def test_exact_command_takes_the_fast_path_without_a_model(io: dict[str, MagicMock]) -> None:
+@pytest.mark.parametrize("text", ["tasks", "pause", "done #abc123", "done with the roof leak, what is the status?"])
+def test_every_message_reaches_the_planner_even_an_exact_command(io: dict[str, MagicMock], text: str) -> None:
+    out = ct._outcome(MagicMock(), MagicMock(), _start(text))
+    assert io["agent"].call_count == 1
+    io["cmd"].assert_not_called()  # no keyword gate: the plan decides, run_plan executes
+    assert out.answer == "No open tasks."
+
+
+def test_planner_failure_runs_the_exact_command(io: dict[str, MagicMock]) -> None:
+    io["agent"].side_effect = AgentFailedError("concierge: boom")
     out = ct._outcome(MagicMock(), MagicMock(), _start("tasks"))
     assert out == Outcome("cmd reply")
-    io["agent"].assert_not_called()
+    assert io["cmd"].call_count == 1
+    assert io["cmd"].call_args.args[3].kind is CommandKind.tasks
     assert io["cmd"].call_args.kwargs["now"] == AT
+    io["plan"].assert_not_called()
+
+
+def test_budget_limit_still_runs_the_exact_command(io: dict[str, MagicMock]) -> None:
+    io["agent"].side_effect = BudgetExceededError("concierge_daily_calls")
+    out = ct._outcome(MagicMock(), MagicMock(), _start("pause"))
+    assert out == Outcome("cmd reply")
+    assert io["cmd"].call_args.args[3].kind is CommandKind.pause
+
+
+def test_budget_limit_on_other_text_keeps_the_limit_answer(io: dict[str, MagicMock]) -> None:
+    io["agent"].side_effect = BudgetExceededError("concierge_daily_calls")
+    assert ct._outcome(MagicMock(), MagicMock(), _start("please hold off on proposals")) == Outcome(LIMIT_ANSWER)
+    io["cmd"].assert_not_called()
+
+
+def _turn_row(text: str, plan: dict[str, Any] | None, results: list[dict[str, Any]] | None = None) -> MagicMock:
+    return MagicMock(status=TurnStatus.done, company_id=uuid4(), text=text, plan=plan, results=results)
+
+
+@pytest.mark.parametrize(
+    ("text", "plan", "results", "expected"),
+    [
+        ("please start again", {"in_scope": True, "steps": [{"intent": "resume"}], "reply": None}, LISTED, True),
+        ("resume", {"in_scope": True, "steps": [{"intent": "list_tasks"}], "reply": None}, LISTED, False),
+        ("resume", None, None, True),  # the outage fallback stores no plan
+        ("Resume", None, None, True),
+        ("tasks", None, None, False),
+        ("resume", PLAN.model_dump(mode="json"), LISTED, False),
+    ],
+)
+def test_turn_state_resume(text: str, plan: dict[str, Any] | None, results: Any, expected: bool) -> None:
+    session_cls = MagicMock()
+    session_cls.return_value.__enter__.return_value.scalar.return_value = _turn_row(text, plan, results)
+    with patch(f"{M}.Session", session_cls):
+        state = ct.turn_state(MagicMock(), uuid4())
+    assert (state["status"], state["resume"]) == ("done", expected)
 
 
 def test_screened_text_never_reaches_the_model(io: dict[str, MagicMock]) -> None:
@@ -167,9 +216,6 @@ def test_run_turn_other_error_fails_with_type_name_only() -> None:
         ct.run_turn(MagicMock(), MagicMock(), uuid4())
     outcome = finish.call_args.args[3]
     assert (outcome.status, outcome.answer, outcome.error) == (TurnStatus.failed, APOLOGY, "ValueError")
-
-
-LISTED = [{"intent": "list_tasks", "ok": True, "summary": "No open tasks.", "data": None, "view": "tasks"}]
 
 
 def test_plan_is_stored_before_it_runs_and_results_right_after(io: dict[str, MagicMock]) -> None:

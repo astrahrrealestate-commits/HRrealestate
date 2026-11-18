@@ -4,7 +4,7 @@ Needs the stack's fake providers, DASHBOARD_AUTH_PROVIDER=fake and DASHBOARD_SES
 switched to outbound_mode=send and its owner to the dashboard channel (fake providers only, the simulator refuses
 prod). Flow: tenant writes over WhatsApp and Gmail -> inbox -> approval list -> decide `ok` -> post "tasks" to the
 agent and poll the conversation. Rows asserted: an owner_feed approval card, one `sends` row to the tenant, one
-agent turn `done`, no model call for the fast path.
+agent turn `done` with exactly one model call (the planner decides every message).
 """
 
 import time
@@ -53,8 +53,8 @@ def dashboard_problems(facts: Facts, tenant_targets: frozenset[str]) -> list[str
             found.append(f"send went to {target!r} with status {status.value}")
     if facts.turn_statuses != (TurnStatus.done,):
         found.append(f"agent turns: {[s.value for s in facts.turn_statuses]}, expected one done")
-    if facts.model_calls_after_turn:
-        found.append(f"{facts.model_calls_after_turn} model calls on the fast path, expected 0")
+    if facts.model_calls_after_turn != 1:
+        found.append(f"{facts.model_calls_after_turn} model calls for the agent turn, expected 1 (the planner)")
     return found
 
 

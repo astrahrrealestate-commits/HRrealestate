@@ -1,11 +1,12 @@
 """Super Agent turns (spec §4): create a turn, then run it inside one DBOS step.
 
-`run_turn` order: exact owner commands take the fast path (no model, works when the budget is spent); a question is
-screened, planned by the concierge agent (one model call), executed by `run_plan`, and the answer is assembled from
-the step summaries. The plan is stored before it executes and the results right after (status stays `running`), so
-a retried step reuses the stored plan (no second model call) and never executes stored results again. The work clock
-is the turn's `created_at`, so a retried step replays the same decisions; `updated_at` uses the database clock at
-each write so every status change moves the SSE turn cursor.
+`run_turn` order: every message is screened (empty, symbols only or too long never reaches the model), planned by the
+concierge agent (one model call: the model decides the intent), executed by `run_plan`, and the answer is assembled
+from the step summaries. Exact commands (`tasks`, `pause`, `done #ref`) are only the outage fallback: when the planner
+fails or the budget is spent they run through `owner_commands`. The plan is stored before it executes and the results
+right after (status stays `running`), so a retried step reuses the stored plan (no second model call) and never
+executes stored results again. The work clock is the turn's `created_at`, so a retried step replays the same decisions;
+`updated_at` uses the database clock at each write so every status change moves the SSE turn cursor.
 A turn opened on a dashboard page carries its validated page context (stored by `create_turn`); its server facts are
 resolved once and stored on the turn before the model call, so a retry plans and answers from the same facts
 (`concierge_page`); the `answer` step and the owner_qa fallback get the same stored page.
@@ -53,6 +54,7 @@ from app.pipeline.concierge_outcome import (
     failed_outcome,
     fallback_for,
     result_json,
+    resumes,
     stored_answer,
 )
 from app.pipeline.concierge_reply import prepare_plan, stored_plan
@@ -222,18 +224,17 @@ def _plan(
 ) -> ConciergePlan | Outcome:
     briefs, tasks, history = brief
     compiled = compile_prompt(start.text, history, briefs, tasks, concierge_page.stored_prompt(start.page))
+    context = CallContext(start.company_id, CONCIERGE_PURPOSE, prefix_hash=compiled.prefix_hash)
     try:
         with timer.measure(PLANNER):
-            result = run_agent(
-                engine,
-                settings,
-                CONCIERGE,
-                compiled.prompt_text,
-                CallContext(start.company_id, CONCIERGE_PURPOSE, prefix_hash=compiled.prefix_hash),
-            )
+            result = run_agent(engine, settings, CONCIERGE, compiled.prompt_text, context)
     except Exception as exc:
         kind = fallback_for(exc)
         log.info("concierge.planner_fallback", company_id=str(start.company_id), fallback=kind.value)
+        if kind in (Fallback.limit, Fallback.owner_qa):  # an exact command (`pause`, `tasks`) still works
+            ran = owner_commands.run_fallback(engine, settings, start.company_id, start.text, now=start.at)
+            if ran is not None:
+                return Outcome(ran)
         if kind is Fallback.limit:
             return Outcome(owner_commands.LIMIT_ANSWER)
         if kind is Fallback.owner_qa:
@@ -272,11 +273,7 @@ def _outcome(
     if start.results is not None:  # executed by an earlier attempt: finish, never execute twice
         return Outcome(stored_answer(start.results), start.plan, start.results, PROMPT_REF)
     if start.plan is None:
-        cmd = owner_commands.parse_command(start.text)
-        if cmd.kind is not owner_commands.CommandKind.question:
-            return Outcome(owner_commands.run_command(engine, settings, start.company_id, cmd, now=start.at))
-        refused = owner_commands.screen_question(start.text)
-        if refused is not None:
+        if (refused := owner_commands.screen_question(start.text)) is not None:
             return Outcome(refused)
         with timer.measure(PAGE_RESOLVE):
             start = _page(engine, start)
@@ -330,12 +327,11 @@ def fail_turn(engine: Engine, turn_id: UUID, error: str) -> None:
 
 
 def turn_state(engine: Engine, turn_id: UUID) -> dict[str, str | bool]:
-    """Final status, company and whether the turn was the `resume` command (the workflow then re-runs approved
-    actions, exactly as the WhatsApp path does)."""
+    """Final status, company and whether the turn resumed (a `resume` plan step, or the exact `resume` command in an
+    outage); the workflow then re-runs approved actions, exactly as the WhatsApp path does."""
     with Session(engine) as session:
         turn = session.scalar(select(AgentTurn).where(AgentTurn.id == turn_id))
     if turn is None:
         return {"status": "missing", "company_id": "", "resume": False}
-    resumed = turn.status is TurnStatus.done and turn.plan is None and turn.results is None
-    resumed = resumed and owner_commands.parse_command(turn.text).kind is owner_commands.CommandKind.resume
+    resumed = turn.status is TurnStatus.done and resumes(turn.text, turn.plan, turn.results)
     return {"status": turn.status.value, "company_id": str(turn.company_id), "resume": resumed}

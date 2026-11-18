@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.api.v1.auth import COOKIE, CSRF_HEADER, CSRF_VALUE, Principal, issue_session
 from app.core.settings import Settings
 from app.db.enums import TurnStatus
-from app.db.models import AgentConversation, AgentTurn, Company, OwnerAccount
+from app.db.models import AgentConversation, AgentTurn, Company, ModelCall, OwnerAccount
 from app.main import create_app
 from app.pipeline import concierge_turns, read_turns
 
@@ -77,7 +77,7 @@ def world(migrated_engine: Engine, pg_url: str) -> Iterator[World]:
             client.cookies.set(COOKIE, issue_session(settings, principal, datetime.now(UTC)))
             yield World(client, wf, migrated_engine, ca.id, owner.id, other.id, foreign.id, sibling.id)
         ids = [ca.id, cb.id]
-        for model in (AgentTurn, AgentConversation, OwnerAccount):
+        for model in (ModelCall, AgentTurn, AgentConversation, OwnerAccount):
             s.query(model).filter(model.company_id.in_(ids)).delete(synchronize_session=False)
         s.query(Company).filter(Company.id.in_(ids)).delete()
         s.commit()

@@ -2,7 +2,7 @@ from datetime import timedelta
 
 import pytest
 
-from app.pipeline.owner_commands import CommandKind, parse_command, parse_duration
+from app.pipeline.owner_commands import CommandKind, fallback_command, parse_command, parse_duration
 
 
 @pytest.mark.parametrize(
@@ -48,3 +48,12 @@ def test_task_reference() -> None:
     assert (cmd.kind, cmd.ref) == (CommandKind.done, "a1b2c3")
     snooze = parse_command("snooze a1b2c3 2d")
     assert (snooze.kind, snooze.ref, snooze.duration) == (CommandKind.snooze, "a1b2c3", timedelta(days=2))
+
+
+def test_fallback_command_is_parse_command_unless_it_is_a_question() -> None:
+    assert fallback_command(" Tasks ") == parse_command("tasks")
+    assert fallback_command("done #abc123") == parse_command("done #abc123")
+    assert fallback_command("snooze 2 4h") == parse_command("snooze 2 4h")
+    assert fallback_command("what is going on with Jansen?") is None
+    assert fallback_command("done with the roof leak, what is the status?") is None
+    assert fallback_command("please hold off on proposals") is None
