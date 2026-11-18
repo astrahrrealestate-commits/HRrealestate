@@ -74,7 +74,7 @@ select = ["E", "W", "F", "I", "B", "UP", "S", "DTZ", "T20", "PGH", "SIM", "RUF",
 ignore = ["RUF001", "RUF002", "RUF003"]  # German text (ß, umlauts) in strings/comments is legitimate
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S105", "S106", "S311", "PT011"]
+"tests/**" = ["S101", "S105", "S106", "S311", "PT011", "S603"]
 "app/db/alembic/**" = ["ERA001"]
 # camelCase Pydantic fields are the frontend SPA's JSON wire format (frontend/src/lib/api.ts), not Python style
 "app/api/agent/routes.py" = ["N815"]

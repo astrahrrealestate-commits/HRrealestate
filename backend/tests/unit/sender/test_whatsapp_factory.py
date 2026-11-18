@@ -49,11 +49,14 @@ def test_missing_credentials_fail_loudly(provider: str, sender_kw: dict[str, Any
 
 def test_sendzen_template_payload_and_message_id() -> None:
     import json
+
     import httpx
     import respx
+
     from app.channels.whatsapp.payloads import template
 
     with respx.mock(assert_all_called=True) as router:
+
         def check_request(request: httpx.Request) -> httpx.Response:
             body = json.loads(request.content)
             assert body.get("template_name") == "estateos_pending"
