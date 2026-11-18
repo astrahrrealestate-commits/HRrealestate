@@ -23,7 +23,7 @@ class WhatsAppStatus(BaseModel):
     """`configured` is false for the built-in fake provider: no real WhatsApp account is attached."""
 
     configured: bool
-    provider: Literal["fake", "cloud_api", "360dialog"]
+    provider: Literal["fake", "cloud_api", "360dialog", "sendzen"]
 
 
 @router.get("/whatsapp/status")

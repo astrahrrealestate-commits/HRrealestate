@@ -930,9 +930,9 @@ class LinkTenantRequest(BaseModel):
 )
 def link_thread_tenant(
     case_id: str,
+    engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
     req: LinkTenantRequest | None = None,
-    engine: Annotated[Engine, Depends(get_engine)] = None,
-    principal: Annotated[Principal, Depends(require_session)] = None,
 ) -> dict[str, Any]:
     company_id = principal.company_id
     raw_id = case_id.replace("case-", "")
