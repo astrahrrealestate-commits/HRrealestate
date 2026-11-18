@@ -8016,7 +8016,8 @@
             "enum": [
               "fake",
               "cloud_api",
-              "360dialog"
+              "360dialog",
+              "sendzen"
             ],
             "title": "Provider",
             "type": "string"
