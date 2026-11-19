@@ -76,6 +76,9 @@ class MaintenanceTicketItem(BaseModel):
     originalMessage: str | None = None
     tenantDraft: str | None = None
     contractorDraft: str | None = None
+    source: str = "estateos"
+    channel: str | None = None
+    location: str | None = None
 
 
 def _without_contact_and_messages(ticket: MaintenanceTicketItem) -> MaintenanceTicketItem:

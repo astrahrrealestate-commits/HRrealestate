@@ -61,6 +61,9 @@ export interface MaintenanceTicket {
   originalMessage?: string;
   tenantDraft?: string;
   contractorDraft?: string;
+  source?: string;
+  channel?: string;
+  location?: string | null;
 }
 
 const MOCK_MAINTENANCE_TICKETS: MaintenanceTicket[] = [];
@@ -254,8 +257,8 @@ function MaintenanceContent() {
         contractorEmail: updated.contractorEmail,
         poBudgetCap: updated.poBudgetCap,
         notes: updated.notes,
-        contractorDraft: updated.contractorDraft,
-        tenantDraft: updated.tenantDraft,
+        contractorDraft: updated.contractorDraft || undefined,
+        tenantDraft: updated.tenantDraft || undefined,
       });
       if (!result.success) {
         setTickets(previous);
@@ -303,8 +306,8 @@ function MaintenanceContent() {
         approvalNote: "Authorized by Harjot Singh",
         dispatchContractor: options.dispatchContractor ?? true,
         notifyTenant: options.notifyTenant ?? true,
-        contractorMessage: target.contractorDraft,
-        tenantMessage: target.tenantDraft,
+        contractorMessage: target.contractorDraft || undefined,
+        tenantMessage: target.tenantDraft || undefined,
         poBudgetCap: target.poBudgetCap,
       });
       if (res && res.status === "authorized") {
@@ -680,6 +683,19 @@ function MaintenanceContent() {
                               <span className="font-semibold text-[var(--ink)] shrink-0 font-mono text-[13px]">
                                 {ticket.ticketNumber}
                               </span>
+                              {isBrixxTicket(ticket) ? (
+                                <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200/60 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800/50 shrink-0">
+                                  BRIXX
+                                </span>
+                              ) : ticket.source === "linked" ? (
+                                <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200/60 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800/50 shrink-0">
+                                  Linked
+                                </span>
+                              ) : (
+                                <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/50 shrink-0">
+                                  Chat
+                                </span>
+                              )}
                               {urgent && <UrgentLabel />}
                               <span className="text-[var(--ink)] font-medium truncate">
                                 {ticket.issueTitle}
@@ -755,6 +771,11 @@ function MaintenanceContent() {
                           <span className="font-mono font-semibold text-[13.5px] text-[var(--ink)]">
                             {ticket.ticketNumber}
                           </span>
+                          {isBrixxTicket(ticket) && (
+                            <span className="text-[9.5px] uppercase font-semibold px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 border border-purple-200/60 shrink-0">
+                              BRIXX
+                            </span>
+                          )}
                           <span className="text-[13.5px] font-medium text-[var(--ink)] truncate">
                             {ticket.issueTitle}
                           </span>
@@ -815,6 +836,19 @@ function MaintenanceContent() {
                     <span className="text-[13px] text-[var(--ink-2)] font-medium truncate">
                       {selectedTicket.unitLabel}
                     </span>
+                    {isBrixxTicket(selectedTicket) ? (
+                      <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200/60 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800/50 shrink-0">
+                        BRIXX Work Order
+                      </span>
+                    ) : selectedTicket.source === "linked" ? (
+                      <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/60 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800/50 shrink-0">
+                        BRIXX Linked · WhatsApp
+                      </span>
+                    ) : (
+                      <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/50 shrink-0">
+                        Inbound Chat
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
@@ -861,26 +895,52 @@ function MaintenanceContent() {
                     </p>
                   </div>
 
-                  {/* Original Inbound Tenant Message (Clean, warm, non-boxy) */}
+                  {/* Issue Description / Tenant Report Box */}
                   <div className="rounded-2xl bg-[var(--bg)]/80 border border-[var(--line)]/70 p-4 space-y-2 select-text shadow-2xs">
                     <div className="flex items-center justify-between text-[11px] font-semibold text-[var(--ink-3)]">
                       <div className="flex items-center gap-1.5 text-[var(--ink-2)]">
-                        <MessageSquare className="w-3.5 h-3.5 text-blue-500" />
-                        <span>Inbound Tenant Distress Message</span>
+                        {isBrixxTicket(selectedTicket) ? (
+                          <>
+                            <Wrench className="w-3.5 h-3.5 text-purple-600" />
+                            <span>Work Order & Issue Description</span>
+                          </>
+                        ) : (
+                          <>
+                            <MessageSquare className="w-3.5 h-3.5 text-blue-500" />
+                            <span>Inbound Tenant Distress Message</span>
+                          </>
+                        )}
                       </div>
-                      <span className="text-[10px] font-mono uppercase bg-[var(--pane)] px-2 py-0.5 rounded border border-[var(--line)]">
-                        Original Message
+                      <span className="text-[10px] font-mono uppercase bg-[var(--pane)] px-2 py-0.5 rounded border border-[var(--line)] text-[var(--ink-3)]">
+                        {isBrixxTicket(selectedTicket) ? "BRIXX Record" : "Original Message"}
                       </span>
                     </div>
-                    <p className="text-[13.5px] text-[var(--ink)] leading-relaxed italic">
-                      "{selectedTicket.originalMessage || selectedTicket.notes}"
+                    <p
+                      className={cn(
+                        "text-[13.5px] text-[var(--ink)] leading-relaxed",
+                        !isBrixxTicket(selectedTicket) && "italic"
+                      )}
+                    >
+                      {isBrixxTicket(selectedTicket)
+                        ? (selectedTicket.originalMessage || selectedTicket.issueTitle || selectedTicket.notes)
+                        : `"${selectedTicket.originalMessage || selectedTicket.notes}"`}
                     </p>
+                    {isBrixxTicket(selectedTicket) && selectedTicket.notes && (
+                      <div className="pt-1.5 flex items-center gap-2 text-[11px] text-[var(--ink-3)]">
+                        <span className="px-2 py-0.5 rounded bg-[var(--pane)] border border-[var(--line)] font-medium">
+                          {selectedTicket.notes}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Compact Two-Column Grid: Contractor, Budget cap, SLA, Unit */}
                   {isBrixxTicket(selectedTicket) ? (
-                    <div className="rounded-2xl bg-[var(--bg)]/50 border border-[var(--line)]/70 p-4 text-[12.5px] text-[var(--ink-2)]">
-                      This ticket comes from BRIXX{selectedTicket.contractorName ? ` · contractor: ${selectedTicket.contractorName}` : ""}. Change or dispatch it in BRIXX.
+                    <div className="rounded-2xl bg-[var(--bg)]/50 border border-[var(--line)]/70 p-3.5 text-[12px] text-[var(--ink-2)] flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-purple-500 shrink-0" />
+                        <span>Master work order originates from BRIXX ERP. Core status updates and invoicing are managed in BRIXX.</span>
+                      </div>
                     </div>
                   ) : (
                   <div className="rounded-2xl bg-[var(--bg)]/50 border border-[var(--line)]/70 p-4 space-y-3">
@@ -966,79 +1026,188 @@ function MaintenanceContent() {
                       </span>
                     </div>
 
-                    {/* Contractor Dispatch Card with Phone & Email */}
-                    <div className="rounded-2xl border border-[var(--line)] bg-[var(--bg)]/80 p-4 space-y-3 select-text shadow-2xs">
-                      {/* Contractor Contact Header */}
-                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)]/60 pb-3">
-                        <div className="flex items-center gap-2">
-                          <Wrench className="w-4 h-4 text-[var(--accent-ink)]" />
-                          <div>
-                            <span className="font-semibold text-[13px] text-[var(--ink)] block">
-                              {selectedTicket.contractorName}
+                    {/* Contractor Dispatch Card */}
+                    {isBrixxTicket(selectedTicket) ? (
+                      <div className="rounded-2xl border border-[var(--line)] bg-[var(--bg)]/80 p-4 space-y-3.5 select-text shadow-2xs">
+                        {/* Contractor Contact Header */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)]/60 pb-3">
+                          <div className="flex items-center gap-2">
+                            <Wrench className="w-4 h-4 text-purple-600" />
+                            <div>
+                              <span className="font-semibold text-[13px] text-[var(--ink)] block">
+                                {selectedTicket.contractorName || "No contractor assigned in BRIXX"}
+                              </span>
+                              <span className="text-[11px] text-[var(--ink-3)]">
+                                {selectedTicket.contractorTrade || "General"} · {selectedTicket.contractorName ? "Assigned in BRIXX" : "Awaiting assignment"}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Direct Communication Channels */}
+                          {selectedTicket.contractorName && (
+                            <div className="flex items-center gap-2">
+                              {selectedTicket.contractorPhone ? (
+                                <a
+                                  href={`tel:${selectedTicket.contractorPhone}`}
+                                  className="inline-flex items-center gap-1 text-[11.5px] font-mono text-[var(--ink-2)] bg-[var(--pane)] hover:bg-[var(--selected)] px-2.5 py-1 rounded-md border border-[var(--line)] transition-colors"
+                                  title="Call contractor"
+                                >
+                                  <Phone className="w-3 h-3 text-emerald-600" />
+                                  <span>{selectedTicket.contractorPhone}</span>
+                                </a>
+                              ) : (
+                                <span className="text-[11px] text-[var(--ink-3)] italic">No phone on file</span>
+                              )}
+                              {selectedTicket.contractorEmail ? (
+                                <a
+                                  href={`mailto:${selectedTicket.contractorEmail}`}
+                                  className="inline-flex items-center gap-1 text-[11.5px] font-mono text-[var(--ink-2)] bg-[var(--pane)] hover:bg-[var(--selected)] px-2.5 py-1 rounded-md border border-[var(--line)] transition-colors"
+                                  title="Email contractor"
+                                >
+                                  <Mail className="w-3 h-3 text-blue-600" />
+                                  <span>{selectedTicket.contractorEmail}</span>
+                                </a>
+                              ) : null}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Dispatch Status / Information */}
+                        <div className="rounded-xl bg-[var(--pane)] p-3 border border-[var(--line)] space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11.5px] font-semibold text-[var(--ink)] flex items-center gap-1.5">
+                              {selectedTicket.status === "dispatched" ? (
+                                <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold">
+                                  <Check className="w-3.5 h-3.5" />
+                                  Work Order Dispatched in BRIXX
+                                </span>
+                              ) : selectedTicket.status === "completed" ? (
+                                <span className="inline-flex items-center gap-1 text-[var(--ink-2)] font-semibold">
+                                  <Check className="w-3.5 h-3.5" />
+                                  Work Order Completed in BRIXX
+                                </span>
+                              ) : (
+                                <span className="text-amber-600 dark:text-amber-400 font-semibold">
+                                  Scheduled in BRIXX
+                                </span>
+                              )}
                             </span>
-                            <span className="text-[11px] text-[var(--ink-3)]">
-                              {selectedTicket.contractorTrade} · Approved Partner
+                            <span className="text-[10px] text-[var(--ink-3)] font-mono">Source: BRIXX ERP</span>
+                          </div>
+                          <p className="text-[11.5px] text-[var(--ink-2)] leading-relaxed">
+                            {selectedTicket.contractorName
+                              ? `Work order is tracked in BRIXX with ${selectedTicket.contractorName}. Master status updates, invoices, and completions are managed directly in BRIXX.`
+                              : "This ticket was created in BRIXX without an assigned contractor. Assign a contractor in BRIXX to dispatch."}
+                          </p>
+                        </div>
+
+                        {/* Optional Follow-up / Chaser Actions */}
+                        {selectedTicket.contractorName && selectedTicket.status !== "completed" && (
+                          <div className="pt-1 flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-[11px] text-[var(--ink-3)]">Need to follow up or chase contractor?</span>
+                            <div className="flex items-center gap-2">
+                              {selectedTicket.contractorPhone && (
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => handleOpenWhatsAppToContractor(selectedTicket)}
+                                  className="text-emerald-600 hover:text-emerald-700 bg-emerald-50/60 hover:bg-emerald-100/60 dark:bg-emerald-950/20 dark:hover:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 font-semibold cursor-pointer text-xs"
+                                  icon={<ExternalLink className="w-3.5 h-3.5 text-emerald-600" />}
+                                  title="Send follow-up WhatsApp to contractor"
+                                >
+                                  Follow-up via WhatsApp
+                                </Button>
+                              )}
+                              {selectedTicket.contractorEmail && (
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => handleOpenGmailToContractor(selectedTicket)}
+                                  className="text-blue-600 hover:text-blue-700 bg-blue-50/60 hover:bg-blue-100/60 dark:bg-blue-950/20 dark:hover:bg-blue-950/40 border border-blue-300 dark:border-blue-800 font-semibold cursor-pointer text-xs"
+                                  icon={<ExternalLink className="w-3.5 h-3.5 text-blue-600" />}
+                                  title="Send follow-up email to contractor"
+                                >
+                                  Send Email
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-[var(--line)] bg-[var(--bg)]/80 p-4 space-y-3 select-text shadow-2xs">
+                        {/* Contractor Contact Header */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)]/60 pb-3">
+                          <div className="flex items-center gap-2">
+                            <Wrench className="w-4 h-4 text-[var(--accent-ink)]" />
+                            <div>
+                              <span className="font-semibold text-[13px] text-[var(--ink)] block">
+                                {selectedTicket.contractorName}
+                              </span>
+                              <span className="text-[11px] text-[var(--ink-3)]">
+                                {selectedTicket.contractorTrade} · Approved Partner
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Direct Communication Channels */}
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center gap-1 text-[11.5px] font-mono text-[var(--ink-2)] bg-[var(--pane)] px-2.5 py-1 rounded-md border border-[var(--line)]">
+                              <Phone className="w-3 h-3 text-emerald-600" />
+                              <span>{selectedTicket.contractorPhone || "No phone on file"}</span>
+                            </span>
+                            <span className="inline-flex items-center gap-1 text-[11.5px] font-mono text-[var(--ink-2)] bg-[var(--pane)] px-2.5 py-1 rounded-md border border-[var(--line)]">
+                              <Mail className="w-3 h-3 text-blue-600" />
+                              <span>{selectedTicket.contractorEmail || "No email on file"}</span>
                             </span>
                           </div>
                         </div>
 
-                        {/* Direct Communication Channels */}
-                        <div className="flex items-center gap-2">
-                          <span className="inline-flex items-center gap-1 text-[11.5px] font-mono text-[var(--ink-2)] bg-[var(--pane)] px-2.5 py-1 rounded-md border border-[var(--line)]">
-                            <Phone className="w-3 h-3 text-emerald-600" />
-                            <span>{selectedTicket.contractorPhone || "No phone on file"}</span>
-                          </span>
-                          <span className="inline-flex items-center gap-1 text-[11.5px] font-mono text-[var(--ink-2)] bg-[var(--pane)] px-2.5 py-1 rounded-md border border-[var(--line)]">
-                            <Mail className="w-3 h-3 text-blue-600" />
-                            <span>{selectedTicket.contractorEmail || "No email on file"}</span>
-                          </span>
+                        {/* Work Order Staged Message */}
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="font-semibold text-[var(--ink-3)] uppercase tracking-wider text-[10px]">
+                              Staged Work Order Dispatch Text
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setIsEditModalOpen(true)}
+                              className="text-[11px] font-semibold text-[var(--accent-ink)] hover:underline cursor-pointer"
+                            >
+                              Edit Text
+                            </button>
+                          </div>
+                          <p className="text-[12.5px] text-[var(--ink-2)] leading-relaxed bg-[var(--pane)] p-3 rounded-xl border border-[var(--line)] font-sans">
+                            {selectedTicket.contractorDraft ||
+                              `Beste ${selectedTicket.contractorName}, spoedmelding voor ${selectedTicket.unitLabel}: ${selectedTicket.issueTitle}. Huurder ${selectedTicket.tenantName} (${selectedTicket.tenantPhone}). Geautoriseerd budgetplafond: ${selectedTicket.poBudgetCap}. Gelieve ETA te bevestigen.`}
+                          </p>
                         </div>
-                      </div>
 
-                      {/* Work Order Staged Message */}
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span className="font-semibold text-[var(--ink-3)] uppercase tracking-wider text-[10px]">
-                            Staged Work Order Dispatch Text
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setIsEditModalOpen(true)}
-                            className="text-[11px] font-semibold text-[var(--accent-ink)] hover:underline cursor-pointer"
+                        {/* Quick 1-Click External Dispatch Links */}
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => handleOpenWhatsAppToContractor(selectedTicket)}
+                            className="text-emerald-600 hover:text-emerald-700 bg-emerald-50/60 hover:bg-emerald-100/60 dark:bg-emerald-950/20 dark:hover:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 font-semibold cursor-pointer text-xs"
+                            icon={<ExternalLink className="w-3.5 h-3.5 text-emerald-600" />}
+                            title="Open WhatsApp Web or App with this work order pre-filled to contractor"
                           >
-                            Edit Text
-                          </button>
+                            Send via WhatsApp
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => handleOpenGmailToContractor(selectedTicket)}
+                            className="text-blue-600 hover:text-blue-700 bg-blue-50/60 hover:bg-blue-100/60 dark:bg-blue-950/20 dark:hover:bg-blue-950/40 border border-blue-300 dark:border-blue-800 font-semibold cursor-pointer text-xs"
+                            icon={<ExternalLink className="w-3.5 h-3.5 text-blue-600" />}
+                            title="Open Gmail with this work order pre-filled to contractor"
+                          >
+                            Send via Gmail
+                          </Button>
                         </div>
-                        <p className="text-[12.5px] text-[var(--ink-2)] leading-relaxed bg-[var(--pane)] p-3 rounded-xl border border-[var(--line)] font-sans">
-                          {selectedTicket.contractorDraft ||
-                            `Beste ${selectedTicket.contractorName}, spoedmelding voor ${selectedTicket.unitLabel}: ${selectedTicket.issueTitle}. Huurder ${selectedTicket.tenantName} (${selectedTicket.tenantPhone}). Geautoriseerd budgetplafond: ${selectedTicket.poBudgetCap}. Gelieve ETA te bevestigen.`}
-                        </p>
                       </div>
-
-                      {/* Quick 1-Click External Dispatch Links */}
-                      <div className="flex flex-wrap items-center gap-2 pt-1">
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => handleOpenWhatsAppToContractor(selectedTicket)}
-                          className="text-emerald-600 hover:text-emerald-700 bg-emerald-50/60 hover:bg-emerald-100/60 dark:bg-emerald-950/20 dark:hover:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 font-semibold cursor-pointer text-xs"
-                          icon={<ExternalLink className="w-3.5 h-3.5 text-emerald-600" />}
-                          title="Open WhatsApp Web or App with this work order pre-filled to contractor"
-                        >
-                          Send via WhatsApp
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => handleOpenGmailToContractor(selectedTicket)}
-                          className="text-blue-600 hover:text-blue-700 bg-blue-50/60 hover:bg-blue-100/60 dark:bg-blue-950/20 dark:hover:bg-blue-950/40 border border-blue-300 dark:border-blue-800 font-semibold cursor-pointer text-xs"
-                          icon={<ExternalLink className="w-3.5 h-3.5 text-blue-600" />}
-                          title="Open Gmail with this work order pre-filled to contractor"
-                        >
-                          Send via Gmail
-                        </Button>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 </div>
 
@@ -1164,8 +1333,8 @@ function MaintenanceContent() {
 }
 
 /** BRIXX tickets are read-only here: they are changed and dispatched in BRIXX itself. */
-function isBrixxTicket(ticket: { id: string }): boolean {
-  return ticket.id.toLowerCase().startsWith("brixx-");
+function isBrixxTicket(ticket: { id: string; source?: string }): boolean {
+  return ticket.source === "brixx" || ticket.id.toLowerCase().startsWith("brixx-");
 }
 
 export default function MaintenancePage() {

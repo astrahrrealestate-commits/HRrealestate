@@ -578,6 +578,9 @@ export interface MaintenanceTicket {
   originalMessage?: string;
   tenantDraft?: string;
   contractorDraft?: string;
+  source?: string;
+  channel?: string;
+  location?: string | null;
 }
 
 export interface MaintenanceStats {

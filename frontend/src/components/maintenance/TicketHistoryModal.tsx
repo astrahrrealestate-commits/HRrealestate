@@ -90,6 +90,23 @@ type ApiAuditEvent = {
 
 const ROLES = ["tenant", "system", "owner", "contractor"] as const;
 
+function cleanHtml(raw: string): string {
+  if (!raw) return "";
+  if (!raw.includes("<") && !raw.includes("&")) return raw;
+  return raw
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<\/(?:p|div|tr|li|h[1-6])>/gi, " ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function toTimelineEvent(ev: ApiAuditEvent): TimelineEvent {
   const [stateFrom, stateTo] = (ev.stateChange || "").split(" → ");
   const type: TimelineEvent["type"] =
@@ -163,7 +180,7 @@ export function TicketHistoryModal({
 
   const handleCopyTimeline = () => {
     const text = events
-      .map((ev) => `[${ev.timestamp}] ${ev.actor}: ${ev.title} - ${ev.description}`)
+      .map((ev) => `[${ev.timestamp}] ${ev.actor}: ${ev.title} - ${cleanHtml(ev.description)}`)
       .join("\n\n");
     navigator.clipboard.writeText(text);
     setCopied(true);
@@ -338,7 +355,7 @@ export function TicketHistoryModal({
 
                   {/* Description Box */}
                   <div className="p-3.5 rounded-[12px] bg-[#F6F6F4] border border-[#E8E8E5] text-[13px] text-[#333333] leading-relaxed">
-                    {ev.description}
+                    {cleanHtml(ev.description)}
 
                     {/* Attachments if any */}
                     {ev.details?.attachments && ev.details.attachments.length > 0 && (

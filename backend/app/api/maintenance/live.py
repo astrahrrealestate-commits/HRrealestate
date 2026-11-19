@@ -183,6 +183,9 @@ def _ticket(session: Session, case: Case, edits: dict[str, Any] | None = None) -
         "originalMessage": _first_inbound_text(session, case),
         "contractorDraft": to_contractor,
         "tenantDraft": to_tenant,
+        "source": "linked" if case.brixx_ref else "estateos",
+        "channel": "whatsapp" if tenant_phone and "@" not in tenant_phone else "gmail",
+        "location": "",
     }
     if edits:  # the owner's persisted display edits win over derived values; unknown keys and blanks are dropped
         ticket.update({k: v for k, v in edits.items() if k in ticket and v not in (None, "")})

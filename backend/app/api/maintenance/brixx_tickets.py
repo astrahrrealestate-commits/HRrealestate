@@ -7,6 +7,8 @@ approve/dispatch actions and its edits belong in BRIXX. Units and people are res
 `brixx_ref`, so only what the mapper already knows is named; anything else is an empty string, never a guess.
 """
 
+import html
+import re
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -24,6 +26,17 @@ TICKET_TYPE, TICKET_TYPE_PK = "typ_tickettype", "typ_tickettypeid"
 LOCATION, LOCATION_PK = "tst_ticket_locatie", "tst_ticket_locatieid"
 PREFIX = "brixx-"
 _DONE = ("AFGEHANDELD", "GESLOTEN", "AFGEROND", "GEANNULEERD")
+
+
+def _clean_html(raw: str | None) -> str:
+    """Strip HTML tags and unescape entities for readable plain text."""
+    if not raw:
+        return ""
+    text = re.sub(r"(?i)<br\s*/?>", " ", raw)
+    text = re.sub(r"(?i)</(?:p|div|tr|li|h[1-6])>", " ", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = html.unescape(text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def is_brixx_ticket(ticket_id: str) -> bool:
@@ -97,11 +110,16 @@ def _ticket(
     unit = units.get(str(col.pick_int(row, (col.VHE_PK,))))
     tenant = people.get(str(col.pick_int(row, (col.RELATIE_PK,))))
     contractor = people.get(str(col.pick_int(row, ("dienstverlenerid",))))
-    title = col.pick_text(row, ("titel", "omschrijving"), 200) or "BRIXX ticket"
+    title = col.pick_text(row, ("titel",), 200) or col.pick_text(row, ("omschrijving",), 200) or "BRIXX ticket"
+    raw_desc = col.pick_text(row, ("omschrijving",), 2000)
+    cleaned_desc = _clean_html(raw_desc)
     kind = kinds.get(col.pick_int(row, (TICKET_TYPE_PK,)) or -1, "")
     place = places.get(col.pick_int(row, (LOCATION_PK,)) or -1, "")
     reported = col.pick(row, col.CREATED)
     status = status_of(row)
+    if not cleaned_desc or cleaned_desc == title:
+        place_info = f" ({place})" if place else ""
+        cleaned_desc = f"{title}{place_info}. Official ticket logged in BRIXX."
     return {
         "id": f"{PREFIX}{key}",
         "ticketNumber": f"BRIXX-{key}",
@@ -121,9 +139,12 @@ def _ticket(
         "poBudgetCap": "",
         "reportedAt": reported.strftime("%Y-%m-%d") if hasattr(reported, "strftime") else str(reported or ""),
         "notes": " · ".join(part for part in (f"BRIXX {kind}".strip() if kind else "", place) if part),
-        "originalMessage": None,
+        "originalMessage": cleaned_desc,
         "contractorDraft": None,
         "tenantDraft": None,
+        "source": "brixx",
+        "channel": "brixx",
+        "location": place or "",
     }
 
 
@@ -159,8 +180,9 @@ def brixx_history(session: Session, company_id: UUID, ticket_id: str) -> tuple[s
             and col.pick_int(message, (col.RELATIE_PK,)) not in erased
         ):
             when = col.pick(message, ("actiedatum",)) or col.pick(message, col.CREATED)
-            text = col.pick_text(message, ("bericht",), 500) or ""
-            events.append(_event(f"brixx-msg-{col.pick_int(message, (MESSAGES_PK,))}", when, "Message in BRIXX", text))
+            text = col.pick_text(message, ("bericht",), 2000) or ""
+            cleaned = _clean_html(text)
+            events.append(_event(f"brixx-msg-{col.pick_int(message, (MESSAGES_PK,))}", when, "Message in BRIXX", cleaned))
     if (closed := col.pick(row, ("datumgesloten",))) is not None:
         events.append(_event(f"{ticket_id}-closed", closed, "Ticket closed in BRIXX", ""))
     events.sort(key=lambda e: e["timestamp"])
