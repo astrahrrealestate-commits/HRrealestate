@@ -6,19 +6,27 @@
  * bare `fetch` sends no cookie, so every dashboard route answers 401 outside local development.
  */
 
+const isLocalhost =
+  typeof window !== "undefined" &&
+  (window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1" ||
+    window.location.hostname.endsWith(".localhost"));
+
 export const BACKEND_BASE_URL =
-  typeof window !== "undefined"
+  typeof window !== "undefined" && isLocalhost
     ? ""
     : process.env.NEXT_PUBLIC_API_URL !== undefined
       ? process.env.NEXT_PUBLIC_API_URL
-      : "http://127.0.0.1:8000";
+      : typeof window !== "undefined"
+        ? ""
+        : "http://127.0.0.1:8000";
 
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 export function backendUrl(pathOrUrl: string): string {
-  if (typeof window !== "undefined") {
-    // In browser, always use relative paths so Next.js rewrites proxy to backend via IPv4
+  if (typeof window !== "undefined" && isLocalhost) {
+    // In local browser development, always use relative paths so Next.js rewrites proxy to backend via IPv4
     if (BACKEND_BASE_URL && pathOrUrl.startsWith(BACKEND_BASE_URL)) {
       pathOrUrl = pathOrUrl.slice(BACKEND_BASE_URL.length);
     } else if (pathOrUrl.startsWith("http://localhost:8000") || pathOrUrl.startsWith("http://127.0.0.1:8000")) {
@@ -33,7 +41,9 @@ export function backendUrl(pathOrUrl: string): string {
     return pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`;
   }
   if (pathOrUrl.startsWith("http")) return pathOrUrl;
-  return `${BACKEND_BASE_URL || "http://127.0.0.1:8000"}${pathOrUrl}`;
+  const base = BACKEND_BASE_URL || (typeof window === "undefined" ? "http://127.0.0.1:8000" : "");
+  if (!base) return pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`;
+  return `${base.replace(/\/+$/, "")}/${pathOrUrl.replace(/^\/+/, "")}`;
 }
 
 type ApiHealthListener = (healthy: boolean) => void;
