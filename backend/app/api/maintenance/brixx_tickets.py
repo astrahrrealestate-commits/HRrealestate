@@ -93,9 +93,7 @@ def brixx_tickets(
     kinds = _benaming(session, TICKET_TYPE, TICKET_TYPE_PK, company_id)
     places = _benaming(session, LOCATION, LOCATION_PK, company_id)
     cases = session.scalars(select(Case).where(Case.company_id == company_id, Case.brixx_ref.is_not(None))).all()
-    linked_cases: dict[str, Case] = {
-        str(c.brixx_ref).lower().removeprefix("brixx-"): c for c in cases if c.brixx_ref
-    }
+    linked_cases: dict[str, Case] = {str(c.brixx_ref).lower().removeprefix("brixx-"): c for c in cases if c.brixx_ref}
     rows.sort(key=lambda row: str(col.pick(row, col.CREATED) or ""), reverse=True)
     return [
         _ticket(
@@ -141,10 +139,10 @@ def _ticket(
         inbound = _first_inbound_text(session, linked_case)
         if inbound and inbound.strip():
             cleaned_desc = inbound.strip()
-        actions = session.scalars(select(ActionRow).where(ActionRow.case_id == linked_case.id)).all()
-        contractor_name = contractor.display_name if contractor else ""
-        tenant_name = tenant.display_name if tenant else ""
-        unit_label = (unit.label or unit.address) if unit else ""
+        actions = list(session.scalars(select(ActionRow).where(ActionRow.case_id == linked_case.id)).all())
+        contractor_name = (contractor.display_name or "") if contractor else ""
+        tenant_name = (tenant.display_name or "") if tenant else ""
+        unit_label = ((unit.label or unit.address) or "") if unit else ""
         phone = identity_of(session, tenant.id, phone=True) if tenant and contacts else ""
         contractor_draft, tenant_draft = _drafts(
             actions,

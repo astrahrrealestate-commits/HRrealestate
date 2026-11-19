@@ -17,6 +17,8 @@ function age(item: AttentionItem): string {
   return item.kind === "rent" ? `${item.ageDays} days late` : `open ${item.ageDays} days`;
 }
 
+const INITIAL_LIMIT = 4;
+
 /** What BRIXX holds for the owner: open tickets, rent in arrears, leases ending. Hidden when there is none. */
 export function BrixxAttentionCard({
   items,
@@ -29,8 +31,14 @@ export function BrixxAttentionCard({
   urgentTotal: number;
   onlyUrgent: boolean;
 }) {
-  const shown = onlyUrgent ? items.filter((i) => i.urgent && i.kind !== "rent") : items;
-  if (shown.length === 0) return null;
+  const [expanded, setExpanded] = React.useState(false);
+
+  const allFiltered = onlyUrgent ? items.filter((i) => i.urgent && i.kind !== "rent") : items;
+  if (allFiltered.length === 0) return null;
+
+  const shown = expanded ? allFiltered : allFiltered.slice(0, INITIAL_LIMIT);
+  const hasMore = allFiltered.length > INITIAL_LIMIT;
+
   return (
     <Card className="mb-4" data-testid="brixx-attention">
       <div className="flex items-center justify-between mb-3">
@@ -79,6 +87,24 @@ export function BrixxAttentionCard({
           );
         })}
       </ul>
+      {hasMore && (
+        <div className="mt-3 pt-2.5 border-t border-[var(--line)] flex items-center justify-between text-xs">
+          <button
+            type="button"
+            onClick={() => setExpanded((prev) => !prev)}
+            className="font-medium text-[var(--accent)] hover:underline flex items-center gap-1 cursor-pointer"
+          >
+            {expanded ? "Show less" : `Show all (${allFiltered.length} items)`}
+          </button>
+          <Link
+            href="/money"
+            className="text-[var(--ink-3)] hover:text-[var(--ink)] hover:underline flex items-center gap-1"
+          >
+            <span>View rent in /money</span>
+            <span aria-hidden="true">→</span>
+          </Link>
+        </div>
+      )}
     </Card>
   );
 }

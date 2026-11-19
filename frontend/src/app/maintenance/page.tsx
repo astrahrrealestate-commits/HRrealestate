@@ -359,7 +359,7 @@ function MaintenanceContent() {
     () =>
       tickets.filter(
         (t) =>
-          (t.urgency === "emergency" || t.urgency === "high" || t.isOverdue) &&
+          (t.urgency === "emergency" || t.isOverdue) &&
           t.status !== "completed"
       ).length,
     [tickets]
@@ -372,34 +372,51 @@ function MaintenanceContent() {
     [tickets]
   );
 
-  // 2. Filter logic: 3 Tabs (Open, Needs approval, Done) + search + status dropdown
+  // Operational priority weight (lower = higher priority at top of queue)
+  const priorityWeight = (t: MaintenanceTicket): number => {
+    if (t.status === "pending_approval" && t.urgency === "emergency") return 1;
+    if (t.isOverdue && t.status !== "completed") return 2;
+    if (t.status === "pending_approval" && t.urgency === "high") return 3;
+    if (t.status === "pending_approval") return 4;
+    if (t.status === "dispatched" || t.status === "scheduled") return 5;
+    if (t.status === "completed") return 7;
+    return 6;
+  };
+
+  // 2. Filter logic: 3 Tabs (Open, Needs approval, Done) + search + status dropdown + priority sorting
   const filteredTickets = useMemo(() => {
-    return tickets.filter((t) => {
-      // 1. Tab filter
-      if (activeTab === "open" && t.status === "completed") return false;
-      if (activeTab === "needs_approval" && t.status !== "pending_approval") return false;
-      if (activeTab === "done" && t.status !== "completed") return false;
+    return tickets
+      .filter((t) => {
+        // 1. Tab filter
+        if (activeTab === "open" && t.status === "completed") return false;
+        if (activeTab === "needs_approval" && t.status !== "pending_approval") return false;
+        if (activeTab === "done" && t.status !== "completed") return false;
 
-      // 2. Finer status dropdown filter (if not "all")
-      if (statusFilter !== "all" && t.status !== statusFilter) return false;
+        // 2. Finer status dropdown filter (if not "all")
+        if (statusFilter !== "all" && t.status !== statusFilter) return false;
 
-      // 2b. Category dropdown filter (if not "all")
-      if (categoryFilter !== "all" && (t.category || "").toLowerCase() !== categoryFilter.toLowerCase()) return false;
+        // 2b. Category dropdown filter (if not "all")
+        if (categoryFilter !== "all" && (t.category || "").toLowerCase() !== categoryFilter.toLowerCase()) return false;
 
-      // 3. Search query
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const match =
-          t.ticketNumber.toLowerCase().includes(q) ||
-          t.issueTitle.toLowerCase().includes(q) ||
-          t.unitLabel.toLowerCase().includes(q) ||
-          t.contractorName.toLowerCase().includes(q) ||
-          t.tenantName.toLowerCase().includes(q);
-        if (!match) return false;
-      }
+        // 3. Search query
+        if (searchQuery.trim()) {
+          const q = searchQuery.toLowerCase().trim();
+          const match =
+            t.ticketNumber.toLowerCase().includes(q) ||
+            t.issueTitle.toLowerCase().includes(q) ||
+            t.unitLabel.toLowerCase().includes(q) ||
+            t.contractorName.toLowerCase().includes(q) ||
+            t.tenantName.toLowerCase().includes(q);
+          if (!match) return false;
+        }
 
-      return true;
-    });
+        return true;
+      })
+      .sort((a, b) => {
+        const weightDiff = priorityWeight(a) - priorityWeight(b);
+        if (weightDiff !== 0) return weightDiff;
+        return (b.reportedAt || "").localeCompare(a.reportedAt || "") || b.ticketNumber.localeCompare(a.ticketNumber);
+      });
   }, [tickets, activeTab, statusFilter, categoryFilter, searchQuery]);
 
   const selectedTicket = useMemo(() => {
@@ -672,7 +689,10 @@ function MaintenanceContent() {
                   <tbody className="divide-y divide-[var(--line)] text-[13.5px]">
                     {filteredTickets.map((ticket) => {
                       const isSelected = ticket.id === selectedTicketId;
-                      const urgent = ticket.urgency === "emergency" || ticket.urgency === "high" || ticket.isOverdue;
+                      const isEmergency = ticket.urgency === "emergency";
+                      const isOverdue = ticket.isOverdue;
+                      const urgent = isEmergency || isOverdue;
+                      const isHigh = ticket.urgency === "high" && !urgent;
 
                       return (
                         <tr
@@ -692,6 +712,11 @@ function MaintenanceContent() {
                                 {ticket.ticketNumber}
                               </span>
                               {urgent && <UrgentLabel />}
+                              {isHigh && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-500 border border-amber-500/20 uppercase tracking-wider shrink-0">
+                                  High
+                                </span>
+                              )}
                               <span className="text-[var(--ink)] font-medium truncate">
                                 {ticket.issueTitle}
                               </span>
@@ -748,7 +773,10 @@ function MaintenanceContent() {
               <div className="md:hidden divide-y divide-[var(--line)]">
                 {filteredTickets.map((ticket) => {
                   const isSelected = ticket.id === selectedTicketId;
-                  const urgent = ticket.urgency === "emergency" || ticket.urgency === "high" || ticket.isOverdue;
+                  const isEmergency = ticket.urgency === "emergency";
+                  const isOverdue = ticket.isOverdue;
+                  const urgent = isEmergency || isOverdue;
+                  const isHigh = ticket.urgency === "high" && !urgent;
 
                   return (
                     <button
@@ -771,6 +799,11 @@ function MaintenanceContent() {
                           </span>
                         </div>
                         {urgent && <UrgentLabel />}
+                        {isHigh && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-500 border border-amber-500/20 uppercase tracking-wider shrink-0">
+                            High
+                          </span>
+                        )}
                       </div>
 
                       {/* Line 2: unit, status, age/SLA */}
@@ -839,8 +872,13 @@ function MaintenanceContent() {
                       <span>Edit Ticket</span>
                     </button>}
 
-                    {(selectedTicket.urgency === "emergency" || selectedTicket.urgency === "high" || selectedTicket.isOverdue) && (
+                    {(selectedTicket.urgency === "emergency" || selectedTicket.isOverdue) && (
                       <UrgentLabel />
+                    )}
+                    {selectedTicket.urgency === "high" && !selectedTicket.isOverdue && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-500 border border-amber-500/20 uppercase tracking-wider">
+                        High
+                      </span>
                     )}
                     <StatusText status={getStatusLabel(selectedTicket)} />
 

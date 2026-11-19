@@ -105,8 +105,12 @@ def test_open_brixx_tickets_overdue_rent_and_ending_leases_are_listed(db: Sessio
 
 
 def test_urgent_items_come_first(db: Session, seeded: Company) -> None:
-    flags = [i.urgent for i in attention_items(db, seeded.id, TODAY, OWNER)]
-    assert flags == sorted(flags, reverse=True)
+    items = attention_items(db, seeded.id, TODAY, OWNER)
+    kinds = [i.kind for i in items]
+    assert set(kinds[:4]) == {"ticket", "lease"}
+    assert all(k == "rent" for k in kinds[4:])
+    op_flags = [i.urgent for i in items if i.kind != "rent"]
+    assert op_flags == sorted(op_flags, reverse=True)
 
 
 def test_nothing_from_another_company_is_listed(db: Session, seeded: Company) -> None:

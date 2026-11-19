@@ -156,9 +156,16 @@ def lease_items(session: Session, company_id: UUID, today: date, viewer: Viewer)
     ]
 
 
-def _order(item: AttentionItem) -> tuple[bool, int, str]:
-    """Urgent first; then tickets and rent by how long they have waited, leases by how soon they end."""
-    return (not item.urgent, item.ageDays if item.kind == "lease" else -item.ageDays, item.id)
+def _order(item: AttentionItem) -> tuple[int, bool, int, int, str]:
+    """Operational items (tickets, leases) rank first (urgent first); unreconciled rent sinks to bottom."""
+    group = 1 if item.kind == "rent" else 0
+    return (
+        group,
+        not item.urgent,
+        0 if item.kind == "ticket" else 1,
+        item.ageDays if item.kind == "lease" else -item.ageDays,
+        item.id,
+    )
 
 
 def attention_items(session: Session, company_id: UUID, today: date, viewer: Viewer) -> list[AttentionItem]:
