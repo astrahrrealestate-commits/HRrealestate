@@ -218,10 +218,13 @@ def get_maintenance_tickets(
     category: str = Query(default="all", description="all, electrical, plumbing, heating, appliance, structural"),
 ) -> MaintenanceTicketsResponse:
     with Session(engine) as session:
-        live = live_tickets(session, principal.company_id)
         from_brixx = brixx_tickets(session, principal.company_id)  # read-only: the owner's tickets in BRIXX
+        if from_brixx:
+            all_tickets = from_brixx
+        else:
+            live = live_tickets(session, principal.company_id)
+            all_tickets = [t for t in live if t.get("source") == "linked"] or live
 
-    all_tickets = [*live, *from_brixx]
     tickets = list(all_tickets)
 
     if urgency != "all":

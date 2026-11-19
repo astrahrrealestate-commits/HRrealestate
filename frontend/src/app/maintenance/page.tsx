@@ -325,7 +325,10 @@ function MaintenanceContent() {
       showToast("No contractor phone number on this ticket.");
       return;
     }
-    const body = ticket.contractorDraft || `Beste ${ticket.contractorName}, spoedmelding voor ${ticket.unitLabel}: ${ticket.issueTitle}. Geautoriseerd budgetplafond: ${ticket.poBudgetCap}. Gelieve ETA te bevestigen.`;
+    const isDispatched = ticket.status === "dispatched" || ticket.status === "scheduled" || ticket.status === "completed";
+    const body = isDispatched
+      ? `Beste ${ticket.contractorName}, graag een korte update over werkbon ${ticket.ticketNumber} voor ${ticket.unitLabel} (${ticket.issueTitle}). Wat is de huidige status of geplande afronding? Alvast bedankt!`
+      : (ticket.contractorDraft || `Beste ${ticket.contractorName}, spoedmelding voor ${ticket.unitLabel}: ${ticket.issueTitle}. Geautoriseerd budgetplafond: ${ticket.poBudgetCap}. Gelieve ETA te bevestigen.`);
     const url = `https://wa.me/${phone}?text=${encodeURIComponent(body)}`;
     window.open(url, "_blank", "noopener,noreferrer");
   };
@@ -336,8 +339,13 @@ function MaintenanceContent() {
       showToast("No contractor email address on this ticket.");
       return;
     }
-    const subject = `[Work Order] ${ticket.issueTitle} - ${ticket.unitLabel}`;
-    const body = ticket.contractorDraft || `Hi ${ticket.contractorName}, emergency work order for ${ticket.unitLabel}: ${ticket.issueTitle}. Authorized budget cap: ${ticket.poBudgetCap}. Please confirm your earliest ETA.`;
+    const isDispatched = ticket.status === "dispatched" || ticket.status === "scheduled" || ticket.status === "completed";
+    const subject = isDispatched
+      ? `[Follow-up] ${ticket.ticketNumber}: ${ticket.issueTitle} - ${ticket.unitLabel}`
+      : `[Work Order] ${ticket.issueTitle} - ${ticket.unitLabel}`;
+    const body = isDispatched
+      ? `Beste ${ticket.contractorName},\n\nGraag een korte update over werkbon ${ticket.ticketNumber} voor ${ticket.unitLabel} (${ticket.issueTitle}).\n\nWat is de huidige status of de geplande datum van afronding?\n\nMet vriendelijke groet,\nHarjot Singh — EstateOS`
+      : (ticket.contractorDraft || `Hi ${ticket.contractorName}, emergency work order for ${ticket.unitLabel}: ${ticket.issueTitle}. Authorized budget cap: ${ticket.poBudgetCap}. Please confirm your earliest ETA.`);
     const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.open(url, "_blank", "noopener,noreferrer");
   };

@@ -16,9 +16,9 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.maintenance.live import category_of, identity_of
+from app.api.maintenance.live import _drafts, _first_inbound_text, category_of, identity_of
 from app.db.brixx_erasure import erased_relatie_ids
-from app.db.models import Person, Unit
+from app.db.models import ActionRow, Case, Person, Unit
 from app.directory.brixx import columns as col
 
 TICKET, TICKET_PK = "tst_ticket", "tst_ticketid"
@@ -92,8 +92,24 @@ def brixx_tickets(
     units, people = _units(session, company_id), _people(session, company_id)
     kinds = _benaming(session, TICKET_TYPE, TICKET_TYPE_PK, company_id)
     places = _benaming(session, LOCATION, LOCATION_PK, company_id)
+    cases = session.scalars(select(Case).where(Case.company_id == company_id, Case.brixx_ref.is_not(None))).all()
+    linked_cases: dict[str, Case] = {
+        str(c.brixx_ref).lower().removeprefix("brixx-"): c for c in cases if c.brixx_ref
+    }
     rows.sort(key=lambda row: str(col.pick(row, col.CREATED) or ""), reverse=True)
-    return [_ticket(session, row, units, people, kinds, places, contacts=contacts) for row in rows]
+    return [
+        _ticket(
+            session,
+            row,
+            units,
+            people,
+            kinds,
+            places,
+            contacts=contacts,
+            linked_case=linked_cases.get(str(col.pick_int(row, (TICKET_PK,)))),
+        )
+        for row in rows
+    ]
 
 
 def _ticket(
@@ -105,21 +121,40 @@ def _ticket(
     places: dict[int, str],
     *,
     contacts: bool = True,
+    linked_case: Case | None = None,
 ) -> dict[str, Any]:
     key = col.pick_int(row, (TICKET_PK,))
     unit = units.get(str(col.pick_int(row, (col.VHE_PK,))))
     tenant = people.get(str(col.pick_int(row, (col.RELATIE_PK,))))
     contractor = people.get(str(col.pick_int(row, ("dienstverlenerid",))))
-    title = col.pick_text(row, ("titel",), 200) or col.pick_text(row, ("omschrijving",), 200) or "BRIXX ticket"
-    raw_desc = col.pick_text(row, ("omschrijving",), 2000)
-    cleaned_desc = _clean_html(raw_desc)
+    title = col.pick_text(row, ("titel", "omschrijving"), 200) or "BRIXX ticket"
     kind = kinds.get(col.pick_int(row, (TICKET_TYPE_PK,)) or -1, "")
     place = places.get(col.pick_int(row, (LOCATION_PK,)) or -1, "")
     reported = col.pick(row, col.CREATED)
     status = status_of(row)
-    if not cleaned_desc or cleaned_desc == title:
-        place_info = f" ({place})" if place else ""
-        cleaned_desc = f"{title}{place_info}. Official ticket logged in BRIXX."
+    place_info = f" ({place})" if place else ""
+    cleaned_desc = f"{title}{place_info}. Official ticket logged in BRIXX."
+
+    contractor_draft: str | None = None
+    tenant_draft: str | None = None
+    if linked_case is not None:
+        inbound = _first_inbound_text(session, linked_case)
+        if inbound and inbound.strip():
+            cleaned_desc = inbound.strip()
+        actions = session.scalars(select(ActionRow).where(ActionRow.case_id == linked_case.id)).all()
+        contractor_name = contractor.display_name if contractor else ""
+        tenant_name = tenant.display_name if tenant else ""
+        unit_label = (unit.label or unit.address) if unit else ""
+        phone = identity_of(session, tenant.id, phone=True) if tenant and contacts else ""
+        contractor_draft, tenant_draft = _drafts(
+            actions,
+            tenant=tenant_name,
+            unit=unit_label,
+            phone=phone,
+            issue=title,
+            contractor=contractor_name,
+        )
+
     return {
         "id": f"{PREFIX}{key}",
         "ticketNumber": f"BRIXX-{key}",
@@ -140,8 +175,8 @@ def _ticket(
         "reportedAt": reported.strftime("%Y-%m-%d") if hasattr(reported, "strftime") else str(reported or ""),
         "notes": " · ".join(part for part in (f"BRIXX {kind}".strip() if kind else "", place) if part),
         "originalMessage": cleaned_desc,
-        "contractorDraft": None,
-        "tenantDraft": None,
+        "contractorDraft": contractor_draft,
+        "tenantDraft": tenant_draft,
         "source": "brixx",
         "channel": "brixx",
         "location": place or "",
@@ -182,7 +217,8 @@ def brixx_history(session: Session, company_id: UUID, ticket_id: str) -> tuple[s
             when = col.pick(message, ("actiedatum",)) or col.pick(message, col.CREATED)
             text = col.pick_text(message, ("bericht",), 2000) or ""
             cleaned = _clean_html(text)
-            events.append(_event(f"brixx-msg-{col.pick_int(message, (MESSAGES_PK,))}", when, "Message in BRIXX", cleaned))
+            msg_id = f"brixx-msg-{col.pick_int(message, (MESSAGES_PK,))}"
+            events.append(_event(msg_id, when, "Message in BRIXX", cleaned))
     if (closed := col.pick(row, ("datumgesloten",))) is not None:
         events.append(_event(f"{ticket_id}-closed", closed, "Ticket closed in BRIXX", ""))
     events.sort(key=lambda e: e["timestamp"])
