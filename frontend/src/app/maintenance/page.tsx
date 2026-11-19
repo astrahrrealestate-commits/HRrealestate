@@ -683,19 +683,6 @@ function MaintenanceContent() {
                               <span className="font-semibold text-[var(--ink)] shrink-0 font-mono text-[13px]">
                                 {ticket.ticketNumber}
                               </span>
-                              {isBrixxTicket(ticket) ? (
-                                <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200/60 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800/50 shrink-0">
-                                  BRIXX
-                                </span>
-                              ) : ticket.source === "linked" ? (
-                                <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200/60 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800/50 shrink-0">
-                                  Linked
-                                </span>
-                              ) : (
-                                <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/50 shrink-0">
-                                  Chat
-                                </span>
-                              )}
                               {urgent && <UrgentLabel />}
                               <span className="text-[var(--ink)] font-medium truncate">
                                 {ticket.issueTitle}
@@ -771,11 +758,6 @@ function MaintenanceContent() {
                           <span className="font-mono font-semibold text-[13.5px] text-[var(--ink)]">
                             {ticket.ticketNumber}
                           </span>
-                          {isBrixxTicket(ticket) && (
-                            <span className="text-[9.5px] uppercase font-semibold px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 border border-purple-200/60 shrink-0">
-                              BRIXX
-                            </span>
-                          )}
                           <span className="text-[13.5px] font-medium text-[var(--ink)] truncate">
                             {ticket.issueTitle}
                           </span>
@@ -836,19 +818,6 @@ function MaintenanceContent() {
                     <span className="text-[13px] text-[var(--ink-2)] font-medium truncate">
                       {selectedTicket.unitLabel}
                     </span>
-                    {isBrixxTicket(selectedTicket) ? (
-                      <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200/60 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800/50 shrink-0">
-                        BRIXX Work Order
-                      </span>
-                    ) : selectedTicket.source === "linked" ? (
-                      <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/60 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800/50 shrink-0">
-                        BRIXX Linked · WhatsApp
-                      </span>
-                    ) : (
-                      <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/50 shrink-0">
-                        Inbound Chat
-                      </span>
-                    )}
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
