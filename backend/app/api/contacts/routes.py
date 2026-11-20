@@ -18,7 +18,7 @@ from app.api.v1.auth import Principal, require_session
 from app.contracts import ActionType, Channel, Direction
 from app.core.logging import get_logger
 from app.core.settings import Settings
-from app.db.models import ActionRow, CaseLink, ChannelIdentity, MessageRow, Person, UnderstandingRow
+from app.db.models import ActionRow, Case, CaseLink, ChannelIdentity, MessageRow, Person, UnderstandingRow
 from app.pipeline import propose
 
 router = APIRouter(prefix="/api/contacts", tags=["contacts"], dependencies=[Depends(require_section("contacts"))])
@@ -193,19 +193,42 @@ def get_contact_communications(
                 elif pi.channel == Channel.whatsapp:
                     target_phones.add(pi.identity.strip().replace(" ", ""))
 
-        # 2. Query MessageRow matching person_id, sender_identity, or linked cases
+        # 2. Query MessageRow matching person_id, sender_identity, linked cases, or shared thread_refs
         identities = list(target_emails | target_phones)
         filter_conds = []
         if matched_person:
             filter_conds.append(MessageRow.person_id == matched_person.id)
+            filter_conds.append(
+                MessageRow.id.in_(
+                    select(CaseLink.message_id)
+                    .join(Case, Case.id == CaseLink.case_id)
+                    .where(Case.company_id == company_id, Case.primary_person_id == matched_person.id)
+                )
+            )
         if identities:
             filter_conds.append(MessageRow.sender_identity.in_(identities))
 
         live_messages: list[MessageRow] = []
         if filter_conds:
+            # Also capture full conversation threads (including manager outbound replies)
+            matched_threads = session.scalars(
+                select(MessageRow.thread_ref)
+                .where(
+                    MessageRow.company_id == company_id,
+                    or_(*filter_conds),
+                    MessageRow.thread_ref.is_not(None),
+                )
+                .distinct()
+            ).all()
+
+            final_conds = list(filter_conds)
+            valid_threads = [t for t in matched_threads if t]
+            if valid_threads:
+                final_conds.append(MessageRow.thread_ref.in_(valid_threads))
+
             live_messages = (
                 session.query(MessageRow)
-                .filter(MessageRow.company_id == company_id, or_(*filter_conds))
+                .filter(MessageRow.company_id == company_id, or_(*final_conds))
                 .order_by(MessageRow.sent_at.desc())
                 .limit(50)
                 .all()

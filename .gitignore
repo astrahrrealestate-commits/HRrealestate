@@ -72,3 +72,12 @@ terraform.rc
 # live BRIXX metadata snapshot (python -m app.dev.brixx discover): regenerable, consumed into a committed
 # migration by codegen, never itself committed. The small, stable `metadata_example/` fixture is tracked.
 backend/tests/fixtures/brixx/metadata/
+
+# historical email migration local test artifacts
+backend/scripts/edgecase_emails/
+backend/scripts/*.log
+backend/scripts/generate_edgecase_test_emails.py
+backend/scripts/run_and_verify_email_tests.py
+backend/scripts/seed_realistic_brixx_tickets.py
+backend/scripts/check_budzinski.py
+backend/scripts/test_comms_api.py
