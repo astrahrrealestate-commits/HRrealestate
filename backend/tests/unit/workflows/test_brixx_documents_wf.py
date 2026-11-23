@@ -24,7 +24,10 @@ SYNC_PAGES: Callable[[str, str], None] = brixx_sync._sync_pages
 
 def test_names_and_workflow_id_are_fixed() -> None:
     assert (BRIXX_DOCUMENTS_QUEUE, BRIXX_DOWNLOAD_DOCUMENT) == ("brixx_documents", "brixx.download_document")
-    assert brixx_document_workflow_id(COMPANY, 42, "v3|u2026", 2) == f"brixxdoc:{COMPANY}:42:v3|u2026:2"
+    assert brixx_document_workflow_id(COMPANY, 42, "v3|u2026", 2) == f"brixxdoc:{COMPANY}:42:v3|u2026:2:"
+    assert brixx_document_workflow_id(COMPANY, 42, "v3|u2026", 2, "c8fb21c0fba7e40d") == (
+        f"brixxdoc:{COMPANY}:42:v3|u2026:2:c8fb21c0"
+    )  # a new deploy never reuses (and is never swallowed by) an older deploy's queued workflow
 
 
 @pytest.mark.parametrize(
@@ -100,7 +103,11 @@ def test_enqueue_hook_claims_first_then_enqueues_one_deterministic_workflow_per_
         call.enqueue(brixx_documents.download_document, COMPANY, 42, "v1"),
         call.enqueue(brixx_documents.download_document, COMPANY, 43, "v2"),
     ]
-    assert ids == [brixx_document_workflow_id(COMPANY, 42, "v1", 1), brixx_document_workflow_id(COMPANY, 43, "v2", 3)]
+    version = brixx_documents.DBOS.application_version
+    assert ids == [
+        brixx_document_workflow_id(COMPANY, 42, "v1", 1, version),
+        brixx_document_workflow_id(COMPANY, 43, "v2", 3, version),
+    ]
 
 
 def _sync_pages_with(table: str) -> MagicMock:

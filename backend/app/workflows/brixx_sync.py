@@ -49,6 +49,7 @@ from app.workflows import queues
 from app.workflows.brixx_common import BRIXX_RETRY, FAILED, OK, error_name, info_from_json
 from app.workflows.brixx_documents import enqueue_document_downloads
 from app.workflows.brixx_map import map_after_run
+from app.workflows.brixx_reaper import reap_stranded
 from app.workflows.deps import brixx_api, get_engine
 
 log = get_logger(__name__)
@@ -74,6 +75,16 @@ def company_step() -> str | None:
     with Session(get_engine()) as session:
         found = session.scalar(sa.select(Company.id).order_by(Company.created_at).limit(1))
     return None if found is None else str(found)
+
+
+@DBOS.step(name="brixx.reap_stranded")
+def reap_stranded_step() -> int:
+    """Cancel BRIXX workflows an older deploy stranded (see brixx_reaper); a failure here never stops the sync."""
+    try:
+        return reap_stranded(int(datetime.now(UTC).timestamp() * 1000))
+    except Exception as exc:
+        log.warning("brixx.reap_failed", error=error_name(exc))
+        return 0
 
 
 @DBOS.step(name="brixx.list_tables", **BRIXX_RETRY)
@@ -115,6 +126,7 @@ def sync_all(scheduled_time: datetime, context: Any) -> None:
     if company_id is None:
         log.info("brixx.sync_skipped", reason="no_company")
         return
+    reap_stranded_step()
     try:
         tables, listing_error = list_tables_step(), None
     except Exception as exc:  # BrixxAuthError is not retried; anything else outlived its retries

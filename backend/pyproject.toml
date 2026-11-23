@@ -86,6 +86,7 @@ ignore = ["RUF001", "RUF002", "RUF003"]  # German text (ß, umlauts) in strings/
 "app/api/maintenance/routes.py" = ["N815"]
 "app/api/v1/money.py" = ["N815"]
 "app/api/properties/routes.py" = ["N815"]
+"app/api/tenants/documents.py" = ["N815"]
 "app/api/tenants/routes.py" = ["N815"]
 # SQL-generation prompt: long example lines are prompt text, wrapping them would change what the model reads
 "app/tools/query_agent/prompt.py" = ["E501"]

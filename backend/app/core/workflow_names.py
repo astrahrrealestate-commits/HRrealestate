@@ -50,13 +50,17 @@ def brixx_run_workflow_id(run_id: object, table: str) -> str:
     return f"brixx:{run_id}:{table}"
 
 
-def brixx_document_workflow_id(company_id: object, document_id: int, version: str, attempt: int) -> str:
-    """`brixxdoc:<company_id>:<document_id>:<version>:<attempt>`: one download attempt of one document version.
+def brixx_document_workflow_id(
+    company_id: object, document_id: int, version: str, attempt: int, app_version: str = ""
+) -> str:
+    """`brixxdoc:<company_id>:<document_id>:<version>:<attempt>:<app version>`: one download attempt of one version.
 
     A repeated enqueue (the next sync while the download is still queued) is deduplicated by DBOS; a failed version
-    is claimed again with the next attempt number, so it gets a new workflow.
+    is claimed again with the next attempt number, so it gets a new workflow. The application version is part of the
+    id so that a workflow an older deploy left queued (which the new version can never run) does not swallow the
+    enqueue of the same claim.
     """
-    return f"brixxdoc:{company_id}:{document_id}:{version}:{attempt}"
+    return f"brixxdoc:{company_id}:{document_id}:{version}:{attempt}:{app_version[:8]}"
 
 
 def brixx_reconcile_workflow_id(run_id: object, table: str) -> str:

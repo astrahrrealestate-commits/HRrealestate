@@ -381,3 +381,16 @@ bidirectional translation controls onto the new unified Composer, and fixed what
   through `safe_name`; only rows from BRIXX (`brixx_ref`) are listed. Three "urgent" numbers differ on purpose:
   pulse `emergencyCount` = emergency cases + BRIXX tickets flagged urgent (dispatch incidents), the Urgent chip =
   urgent threads + every urgent BRIXX item, the briefing headline = urgent cases + every urgent BRIXX item.
+- [x] BRIXX documents in the tenant profile (2026-11-23): the Tenants page had no documents at all (`documents: []` was
+  hard-coded and no tab existed). New "Documents" tab (`TenantDocumentsPanel`) fed by `GET /api/tenants/{id}/documents`
+  (list) and `.../documents/{document_id}/file` (bytes from object storage; 409 until the file is downloaded; only PDF and
+  images inline, everything else a download, `nosniff` + sandbox CSP; the file route re-derives the tenant's documents
+  so a document of another tenant is a 404; `tenants` section only). Documents of a tenant = linked to their relatie
+  (`PRG_RELATIEDOCUMENT`, `PRG_DOCUMENT_LINK` type 10), their contracts (9), units (12) and buildings (11)
+  (`app/directory/brixx/tenant_documents.py`). **Why no file was ever available:** stage had 3,482 BRIXX documents and
+  0 stored. DBOS runs only workflows of its own application version (a hash of the workflow source, ADR 0001), so a
+  deploy strands what the previous version had queued: one PENDING download from 2026-11-16 held the single slot of the
+  `brixx_documents` queue (concurrency 1) and 199 ENQUEUED ones could never run (the next sync's claim re-used their
+  id, so DBOS deduplicated it away); 476 + 272 BRIXX workflows of old versions were stranded on stage. Fix:
+  `brixx_reaper.reap_stranded` (first step of every `brixx.sync_all`) cancels BRIXX-queue workflows of another
+  application version untouched for 30 minutes, and the download workflow id now carries the application version.

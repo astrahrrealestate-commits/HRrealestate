@@ -12,6 +12,7 @@ import {
   Mail,
   MessageSquare,
   FileText,
+  FolderOpen,
   Wrench,
   Send,
   CheckCheck,
@@ -51,6 +52,7 @@ import {
 } from "@/lib/api";
 import { formatClock } from "@/lib/clock";
 import { ContactFormModal } from "@/components/contacts/ContactFormModal";
+import { TenantDocumentsPanel } from "@/components/contacts/TenantDocumentsPanel";
 import type { SavedContact } from "@/lib/contactsWriteApi";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { FlagUK, FlagNL } from "@/components/ui/FlagIcons";
@@ -203,10 +205,10 @@ function TenantsContent() {
     });
   };
 
-  // Detail pane tabs: "mails" | "whatsapp" | "brixx" | "tickets"
-  const [activeTab, setActiveTab] = useState<"mails" | "whatsapp" | "brixx" | "tickets">("mails");
+  // Detail pane tabs: "mails" | "whatsapp" | "brixx" | "documents" | "tickets"
+  const [activeTab, setActiveTab] = useState<"mails" | "whatsapp" | "brixx" | "documents" | "tickets">("mails");
 
-  const handleSelectTab = (tab: "mails" | "whatsapp" | "brixx" | "tickets", contactId?: string) => {
+  const handleSelectTab = (tab: "mails" | "whatsapp" | "brixx" | "documents" | "tickets", contactId?: string) => {
     setActiveTab(tab);
     if (contactId) {
       setMobileInfoPref({ contactId, expanded: false });
@@ -1106,6 +1108,20 @@ function TenantsContent() {
 
                     <button
                       type="button"
+                      onClick={() => handleSelectTab("documents", activeContact.id)}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 py-[9px] px-[14px] pb-[11px] text-[13px] font-medium border-b-2 transition-all cursor-pointer whitespace-nowrap",
+                        activeTab === "documents"
+                          ? "border-[#0f172a] text-[#0f172a] font-semibold"
+                          : "border-transparent text-[#64748b] hover:text-[#0f172a]"
+                      )}
+                    >
+                      <FolderOpen className="w-4 h-4" />
+                      <span>{t("Documents")}</span>
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={() => handleSelectTab("tickets", activeContact.id)}
                       className={cn(
                         "inline-flex items-center gap-1.5 py-[9px] px-[14px] pb-[11px] text-[13px] font-medium border-b-2 transition-all cursor-pointer whitespace-nowrap",
@@ -1847,6 +1863,11 @@ function TenantsContent() {
                         )}
                       </div>
                     </div>
+                  )}
+
+                  {/* TAB VIEW 3b: Documents (BRIXX files of the tenant, their contract, unit and building) */}
+                  {activeTab === "documents" && (
+                    <TenantDocumentsPanel tenantId={activeContact.id} name={activeContact.name} />
                   )}
 
                   {/* TAB VIEW 4: Tickets */}

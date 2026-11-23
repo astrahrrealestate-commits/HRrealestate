@@ -166,6 +166,7 @@ def create_app(
 
     api.include_router(properties.router)
 
+    api.include_router(tenants.documents_router)  # before the router with `/{tenant_id}`: more specific paths first
     api.include_router(tenants.router)
     api.include_router(contacts.directory_router)
     api.include_router(contacts.router)
