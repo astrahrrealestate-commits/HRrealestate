@@ -12,8 +12,9 @@ from app.llm.render import data_block
 # v3 adds the plan's own `reply` (single-call answers), v4 the document intents, v5 lets `reply` carry amounts found in
 # `<data>`/`<page_facts>`, v7 `needs_research` and a conversational `reply`, v8 the `remember`, `calendar` and
 # `rent_status` intents, redrafts ("make it shorter") as `draft_reply`, and the negation, word and several-requests
-# rules; v1-v7 stay published and loadable (evals: version=vN).
-PROMPT_VERSION = "v8"
+# rules, v9 the Astra persona, no placeholder `calendar` steps, database-vs-document routing and directory lookups;
+# v1-v8 stay published and loadable (evals: version=vN).
+PROMPT_VERSION = "v9"
 MAX_HISTORY = 12  # lines: `owner:` and `assistant:` for each of 6 turns
 MAX_HISTORY_LINE = 420  # an `owner: ` prefix plus 400 characters
 

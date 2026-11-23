@@ -1605,7 +1605,8 @@ def ask_agent(
             bool(re.search(r"\b(pdf|document|drive\b|file\b|clause|agreement for this case|scan\b)\b", q_low))
             and not bool(
                 re.search(
-                    r"\b(how many|count|list all|show all|total|which|active|who is|who are|expir|profit|spend|revenue|margin|vacan)\b",
+                    r"\b(how many|count|list all|show all|total|which|active|who is|who are|expir"
+                    r"|profit|spend|revenue|margin|vacan)\b",
                     q_low,
                 )
             )
@@ -1651,7 +1652,10 @@ def ask_agent(
                         doc_ans = (
                             f"**Document Intelligence (Verified RAG):**\n\n{chat_doc_ans}\n\n"
                             if chat_doc_ans
-                            else f"**Document Intelligence (Verified RAG):**\n\n**{matched_doc.title}** ({matched_doc.doc_type.capitalize()})\n\n{clean_snippet}\n\n"
+                            else (
+                                f"**Document Intelligence (Verified RAG):**\n\n"
+                                f"**{matched_doc.title}** ({matched_doc.doc_type.capitalize()})\n\n{clean_snippet}\n\n"
+                            )
                         )
                         if matched_doc.drive_folder:
                             doc_ans += f"📁 **Google Drive Location:** `{matched_doc.drive_folder}`\n"

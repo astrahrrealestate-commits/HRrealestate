@@ -274,8 +274,11 @@ def _reply(prompt: str, low: str) -> str:
 
 def _query_data(low: str, question: str) -> dict[str, object] | None:
     if re.search(
-        r"\b(how many|count of|total number|list all|show all|active leases|all leases|which units|which tenants|which contractors|profit|revenue|expir|how big is)\b"
-        r"|\b(?:what|which|list|show|display|give me|get|find)\s+(?:all\s+|my\s+|are\s+)?(?:active\s+|open\s+|current\s+|all\s+|recent\s+)?(?:leases?|tickets?|ticketes|cases?|tenants?|units?|contractors?|tasks?|visits?|quotes?)\b"
+        r"\b(how many|count of|total number|list all|show all|active leases|all leases"
+        r"|which units|which tenants|which contractors|profit|revenue|expir|how big is)\b"
+        r"|\b(?:what|which|list|show|display|give me|get|find)\s+(?:all\s+|my\s+|are\s+)?"
+        r"(?:active\s+|open\s+|current\s+|all\s+|recent\s+)?"
+        r"(?:leases?|tickets?|ticketes|cases?|tenants?|units?|contractors?|visits?|quotes?)\b"
         r"|\b(?:open\s+tickets?|open\s+cases?|what\s+open|open\s+ticketes)\b",
         low,
     ):
