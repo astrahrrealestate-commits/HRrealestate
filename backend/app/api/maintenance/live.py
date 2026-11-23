@@ -167,6 +167,7 @@ def _ticket(session: Session, case: Case, edits: dict[str, Any] | None = None) -
         "issueTitle": issue,
         "unitLabel": unit_label,
         "tenantName": tenant_name,
+        "tenantId": str(person.id) if person else "",
         "tenantPhone": tenant_phone,
         "category": category_of(trade),
         "contractorName": contractor.display_name if contractor else "",

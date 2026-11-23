@@ -49,6 +49,8 @@ import {
   generateEmailDrafts,
   sendEmailReply,
   generateWhatsAppDrafts,
+  getMaintenanceTickets,
+  type MaintenanceTicket,
 } from "@/lib/api";
 import { formatClock } from "@/lib/clock";
 import { ContactFormModal } from "@/components/contacts/ContactFormModal";
@@ -244,6 +246,25 @@ function TenantsContent() {
       dbContacts[0]
     );
   }, [dbContacts, selectedContactId]);
+
+  // Tickets raised by the active tenant (the API tags every ticket with its tenant's directory id)
+  const [tenantTickets, setTenantTickets] = useState<MaintenanceTicket[]>([]);
+  const [ticketsLoaded, setTicketsLoaded] = useState(false);
+  const activeContactId = activeContact?.id;
+  useEffect(() => {
+    setTenantTickets([]);
+    setTicketsLoaded(false);
+    if (!activeContactId) return;
+    let isMounted = true;
+    getMaintenanceTickets().then(({ tickets, isLive }) => {
+      if (!isMounted) return;
+      setTenantTickets(tickets.filter((tk) => tk.tenantId === activeContactId));
+      setTicketsLoaded(isLive);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [activeContactId]);
 
   const isMobileInfoExpanded =
     activeContact && mobileInfoPref.contactId === activeContact.id ? mobileInfoPref.expanded : true;
@@ -1873,15 +1894,44 @@ function TenantsContent() {
                   {/* TAB VIEW 4: Tickets */}
                   {activeTab === "tickets" && (
                     <div className="flex-1 flex flex-col p-3.5 sm:p-6 space-y-4 bg-white">
-                      {(
+                      {tenantTickets.length > 0 ? (
+                        <ul className="space-y-2">
+                          {tenantTickets.map((tk) => (
+                            <li key={tk.id}>
+                              <button
+                                type="button"
+                                onClick={() => router.push(`/maintenance?ticket=${encodeURIComponent(tk.id)}`)}
+                                className="w-full text-left p-3 rounded-[8px] border border-[#e2e8f0] hover:bg-[#f8fafc] cursor-pointer"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-sm font-semibold text-[#111215] truncate">{tk.issueTitle}</span>
+                                  <span className="text-[10px] font-semibold uppercase tracking-wider text-[#475569] shrink-0">
+                                    {tk.status.replace(/_/g, " ")}
+                                  </span>
+                                </div>
+                                <div className="text-xs text-[#64748b] mt-1">
+                                  {tk.ticketNumber}
+                                  {tk.unitLabel ? ` · ${tk.unitLabel}` : ""}
+                                  {tk.reportedAt ? ` · ${tk.reportedAt}` : ""}
+                                  {tk.contractorName ? ` · ${tk.contractorName}` : ""}
+                                </div>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
                         <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white border border-dashed border-[#e2e8f0] rounded-[8px]">
                           <div className="w-12 h-12 rounded-full bg-[#f1f5f9] flex items-center justify-center text-[#64748b] mb-3">
                             <Wrench className="w-5 h-5 stroke-[1.5]" />
                           </div>
-                          <h3 className="text-sm font-semibold text-[#111215]">No active ticket repairs</h3>
-                          <p className="text-xs text-[#64748b] max-w-sm mt-1">
-                            There are currently no open work orders or contractor dispatches logged for {activeContact.name}.
-                          </p>
+                          <h3 className="text-sm font-semibold text-[#111215]">
+                            {ticketsLoaded ? "No tickets" : "Loading tickets..."}
+                          </h3>
+                          {ticketsLoaded && (
+                            <p className="text-xs text-[#64748b] max-w-sm mt-1">
+                              There are no tickets logged for {activeContact.name}.
+                            </p>
+                          )}
                         </div>
                       )}
                     </div>

@@ -562,6 +562,7 @@ export interface MaintenanceTicket {
   issueTitle: string;
   unitLabel: string;
   tenantName: string;
+  tenantId?: string;
   tenantPhone: string;
   category: "electrical" | "plumbing" | "heating" | "appliance" | "structural";
   contractorName: string;

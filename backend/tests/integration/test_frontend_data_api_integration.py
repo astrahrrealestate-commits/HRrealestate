@@ -231,6 +231,17 @@ def test_a_ticket_with_no_recorded_facts_shows_none_instead_of_invented_ones(por
         assert invented not in rendered
 
 
+def test_a_ticket_carries_its_tenants_id_so_the_tenant_tab_can_list_it(portfolio: Portfolio) -> None:
+    with Session(portfolio.engine) as s:
+        case = s.get(Case, portfolio.maintenance_case)
+        assert case is not None
+        case.primary_person_id = portfolio.anouk
+        s.commit()
+    data = portfolio.client.get("/api/maintenance/tickets").json()
+    ticket = next(t for t in data["tickets"] if t["id"] == str(portfolio.maintenance_case))
+    assert ticket["tenantId"] == str(portfolio.anouk)
+
+
 def test_the_contractor_comes_from_the_requested_action_and_sets_the_category(portfolio: Portfolio) -> None:
     with Session(portfolio.engine) as s:
         person = Person(

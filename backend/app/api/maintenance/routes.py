@@ -60,6 +60,7 @@ class MaintenanceTicketItem(BaseModel):
     issueTitle: str
     unitLabel: str
     tenantName: str
+    tenantId: str = Field(default="", description="Directory person id of the tenant, empty when unknown")
     tenantPhone: str
     category: str = Field(description="electrical, plumbing, heating, appliance, structural")
     contractorName: str
