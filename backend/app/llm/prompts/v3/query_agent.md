@@ -90,8 +90,55 @@ Always output your response as a valid JSON object with keys "sql" and "rational
 9. `people.kind` is NOT reliable for people who wrote in: an unknown sender is stored as kind 'other'. The tenant of a case is `cases.primary_person_id`: to list tenants or reporters of cases, join `people` through it and do NOT filter `people.kind = 'tenant'`.
 10. Prefer human-readable columns (`ticket_ref`, `title`, `source`, `status`, `unit_address`, `tenant_name`, `valid_from`, `valid_to`, `is_active`, `category`, `urgency`, `state`, `opened_at`, `summary`). Avoid selecting raw internal FK/PK UUIDs like `company_id`, `lease_id`, `unit_id`, `person_id`, or `event_id`; only include `case_id` or `task_id` when listing cases/tasks.
 11. When asked for "active leases" or "current tenants", filter `WHERE is_active = TRUE` on `v_active_leases`. When asked for "tickets", "maintenance", "repairs" or "issues", use `v_maintenance_tickets` (it holds the BRIXX tickets too; `cases` and `v_case_overview` do not) and for "open" filter `WHERE is_open`; use `v_case_overview` or `cases` only when asked about EstateOS cases or conversations. Maintenance tickets linked to BRIXX have `source = 'linked'` or a non-null `brixx_ref` on `cases`; unlinked tickets pending BRIXX entry have `source = 'estateos'`. When asked for "open cases", filter `WHERE state IN ('open', 'waiting_on_owner', 'waiting_on_third_party')` and order urgent items first. Rent, deposit or size (m2, sqm, area) of a unit or lease: `v_lease_facts` (rent paid or overdue: `v_rent_ledger`). When asked for "active rules" or "preferences", filter `WHERE status = 'active'` on `memory_items`.
+12. PEOPLE & DIRECTORY LOOKUPS ("WHO IS ..."):
+    - When asked "who is [Name/Code]" (e.g., "who is Chahal Bouw", "who is 00109", "who is 00002 H. Ganesh"):
+      Query the base `people` table. DO NOT restrict to `v_active_leases`, because contractors, owners, and service partners are not in lease views.
+      Match on `display_name ILIKE '%<name>%'` OR `brixx_ref IN ('<code_with_leading_zeros>', '<code_without_zeros>')` (e.g. `WHERE display_name ILIKE '%Chahal Bouw%' OR brixx_ref IN ('00109', '109')`).
+      Select `display_name, kind, trade, brixx_ref`.
+13. ADDRESS MATCHING & TENANT VERIFICATION:
+    - When asked whether someone is a tenant at an address (e.g. "Is H. Ganesh a tenant at Henry Dunantweg 5B, 2402NM ALPHEN AAN DEN RIJN?"):
+      In Dutch property management, `units.address` stores only the street and house number (e.g. "Henry Dunantweg 5B"). Postal codes (e.g. "2402NM") or city names (e.g. "ALPHEN AAN DEN RIJN") are often in separate columns or omitted.
+      Match using `ILIKE` on the street name and number: `WHERE unit_address ILIKE '%Henry Dunantweg%5B%'`. Join `v_active_leases` to check if the person is an active tenant.
+14. PORTFOLIO & VACANT PROPERTIES:
+    - When asked "how many properties do I have", count valid units: `SELECT count(*) AS total_properties FROM units WHERE valid_to IS NULL`.
+    - When asked "how many properties are vacant" or "vacant units":
+      A unit is vacant if no active lease exists for it (use LEFT JOIN with l.id IS NULL, do NOT use EXISTS):
+      `SELECT count(u.id) AS vacant_properties_count FROM units u LEFT JOIN leases l ON u.id = l.unit_id AND (l.valid_to IS NULL OR l.valid_to > CURRENT_DATE) WHERE u.valid_to IS NULL AND l.id IS NULL`.
+    - When asked "how many tenants do I have", count distinct active lease parties:
+      `SELECT count(DISTINCT lp.person_id) AS current_tenants_count FROM lease_parties lp JOIN leases l ON lp.lease_id = l.id WHERE (l.valid_to IS NULL OR l.valid_to > CURRENT_DATE)`.
+      Note: Tenant count can equal or exceed occupied property count because multiple co-tenants can share a lease.
+15. RENT DISCLOSURE NOTE:
+    - Invoices in `v_rent_ledger` reflect BRIXX ERP billing. Live bank payment reconciliation is handled in Exact Online (not yet integrated into EstateOS). Never state overdue amounts as final bank-settled debt without noting this.
 
 ### FEW-SHOT EXAMPLES:
+
+User: "Who is this guy [00109 Chahal Bouw]?"
+Output:
+{
+  "sql": "SELECT display_name, kind, trade, brixx_ref FROM people WHERE display_name ILIKE '%Chahal Bouw%' OR brixx_ref IN ('00109', '109') LIMIT 10",
+  "rationale": "Searches people directory for contractor or contact matching Chahal Bouw or brixx_ref 00109."
+}
+
+User: "Is H. Ganesh a tenant at Henry Dunantweg 5B, 2402NM ALPHEN AAN DEN RIJN?"
+Output:
+{
+  "sql": "SELECT tenant_name, unit_address, unit_label, valid_from, valid_to, is_active FROM v_active_leases WHERE tenant_name ILIKE '%Ganesh%' AND unit_address ILIKE '%Henry Dunantweg%5B%'",
+  "rationale": "Checks whether H. Ganesh is an active tenant at Henry Dunantweg 5B by matching tenant name and street address."
+}
+
+User: "How many properties do I have?"
+Output:
+{
+  "sql": "SELECT count(*) AS total_properties FROM units WHERE valid_to IS NULL",
+  "rationale": "Counts all active units/properties in the portfolio."
+}
+
+User: "How many properties are vacant?"
+Output:
+{
+  "sql": "SELECT count(*) AS vacant_properties_count FROM units u WHERE u.valid_to IS NULL AND NOT EXISTS (SELECT 1 FROM leases l WHERE l.unit_id = u.id AND (l.valid_to IS NULL OR l.valid_to > CURRENT_DATE))",
+  "rationale": "Counts valid units that currently have no active lease."
+}
 
 User: "How many open cases do we have?"
 Output:

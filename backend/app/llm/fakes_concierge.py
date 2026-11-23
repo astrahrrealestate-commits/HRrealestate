@@ -272,6 +272,17 @@ def _reply(prompt: str, low: str) -> str:
     return offline_answer(prompt, low)
 
 
+def _query_data(low: str, question: str) -> dict[str, object] | None:
+    if re.search(
+        r"\b(how many|count of|total number|list all|show all|active leases|all leases|which units|which tenants|which contractors|profit|revenue|expir|how big is)\b"
+        r"|\b(?:what|which|list|show|display|give me|get|find)\s+(?:all\s+|my\s+|are\s+)?(?:active\s+|open\s+|current\s+|all\s+|recent\s+)?(?:leases?|tickets?|ticketes|cases?|tenants?|units?|contractors?|tasks?|visits?|quotes?)\b"
+        r"|\b(?:open\s+tickets?|open\s+cases?|what\s+open|open\s+ticketes)\b",
+        low,
+    ):
+        return _plan(_step("query_data", text=_safe(question)))
+    return None
+
+
 def _route(prompt: str, question: str) -> dict[str, object]:
     data = "\n".join(re.findall(r"<data>\n(.*?)\n</data>", prompt, flags=re.S))
     low = _NEGATED.sub(" ", question.lower())
@@ -287,6 +298,7 @@ def _route(prompt: str, question: str) -> dict[str, object]:
         or _by_case(low, data.lower())
         or _calendar_or_rent(low, question)
         or _documents(low, question, case_id)
+        or _query_data(low, question)
         or _simple(low)
         or _plan(_step("answer", text=_safe(question)))
     )

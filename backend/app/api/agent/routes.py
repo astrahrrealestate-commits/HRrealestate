@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.api.agent.cards import ActionButtonData, AssistantCardData, PreviewCardData, build_cards_list
 from app.api.agent.cards import CardActionData as CardActionData  # re-exported: callers import the card shapes here
-from app.api.agent.draft_requests import channel_note, rewrite_answer
+from app.api.agent.draft_requests import channel_note
 from app.api.agent.fallback import domain_fallback_answer
 from app.api.agent.focus import new_chat_fact, next_focus
 from app.api.agent.intent_responses import (
@@ -33,7 +33,6 @@ from app.api.agent.intent_responses import (
     rest_position,
 )
 from app.api.agent.property_scope import property_scope
-from app.api.agent.rent_guard import rent_data_answer
 from app.api.agent.steps import asks_for_clarification, display_steps
 from app.api.deps import get_engine, get_settings_dep
 from app.api.v1.access import require_agent
@@ -527,13 +526,18 @@ def _resolve_calendar_action(
     q_low = query.lower()
     is_inquiry = bool(re.search(r"\b(what|which|show|list|view|check|any|hoeveel|welke|wat)\b", q_low))
     is_schedule_command = not is_inquiry and (
-        q_low.startswith(("schedule ", "book ", "set up ", "plan "))
+        q_low.startswith(("schedule ", "book ", "set up ", "setup ", "plan "))
         or bool(
-            re.search(r"\b(schedule\s+(?!to|of\b)|book\s+(?!to|of\b)|set up\s+|plan\s+visit|inplannen|boeken)\b", q_low)
+            re.search(
+                r"\b(schedule\s+(?!to|of\b)|book\s+(?!to|of\b)|set\s*up\s+|plan\s+visit|inplannen|boeken)\b", q_low
+            )
         )
     )
     is_calendar_query = bool(
-        re.search(r"\b(calendar|visit|visits|appointment|appointments|scheduled|booked|afspraak|agenda)\b", q_low)
+        re.search(
+            r"\b(calendar|visit|visits|appointment|appointments|meeting|meetings|scheduled|booked|afspraak|agenda)\b",
+            q_low,
+        )
     )
 
     if not (is_schedule_command or is_calendar_query):
@@ -552,13 +556,9 @@ def _resolve_calendar_action(
                     target_case = session.get(Case, b.case_id)
                     break
 
-            if not target_case and briefs:
-                target_case = session.get(Case, briefs[0].case_id)
-
             if target_case and target_case.unit_id:
                 target_unit = session.get(Unit, target_case.unit_id)
 
-            addr = (target_unit.address or target_unit.label) if target_unit else "Portfolio Unit"
             contractors = list(
                 session.scalars(
                     select(Person)
@@ -577,6 +577,41 @@ def _resolve_calendar_action(
                 if any(tok in q_low for tok in name_tokens):
                     matched_c = c_person
                     break
+
+            # Guard: If no specific property and no specific contractor was named, do NOT invent dummy placeholders.
+            has_property = target_unit is not None or any(
+                w in q_low
+                for w in (
+                    "keizersgracht",
+                    "pieter",
+                    "dunantweg",
+                    "dorpsstraat",
+                    "unit",
+                    "street",
+                    "weg",
+                    "gracht",
+                    "laan",
+                )
+            )
+            has_contractor = matched_c is not None or any(
+                w in q_low for w in ("kevin", "plumber", "electrician", "technician", "loodgieter")
+            )
+            has_explicit_details = (has_property and has_contractor) or any(char.isdigit() for char in q_low)
+
+            if not has_property and not has_contractor and not has_explicit_details:
+                clarify_msg = (
+                    "Which property and which tenant or contractor would you like to schedule this for, "
+                    "and what day or time works best?"
+                )
+                return clarify_msg, None, [], ["Awaiting appointment details"]
+
+            if not target_case and briefs:
+                target_case = session.get(Case, briefs[0].case_id)
+
+            if target_case and target_case.unit_id and not target_unit:
+                target_unit = session.get(Unit, target_case.unit_id)
+
+            addr = (target_unit.address or target_unit.label) if target_unit else "Portfolio Unit"
             if not matched_c and contractors:
                 matched_c = contractors[0]
 
@@ -988,6 +1023,69 @@ def _sanitize_suggestions(
     return cleaned[:3]
 
 
+def _resolve_query_navigation(question: str, columns: list[str]) -> tuple[str, str]:
+    """Determine the optimal target frontend page and button label for an analytical query result."""
+    q_low = question.lower()
+    col_str = " ".join(str(c).lower() for c in columns)
+
+    # 1. Tenants / Leases check (including common typos)
+    if (
+        bool(
+            re.search(
+                r"\b(tenant|tenants|tenat|tenats|tenaant|tenaants|huurder|huurders|lease|leases|huurcontract)\b", q_low
+            )
+        )
+        or "tenant" in col_str
+        or "lease" in col_str
+    ):
+        return "/tenants", "Open Tenants"
+
+    # 2. Properties / Vacancy check
+    if (
+        bool(re.search(r"\b(property|properties|unit|units|vacant|vacancy|portfolio|building|pand|panden)\b", q_low))
+        or "unit" in col_str
+        or "address" in col_str
+        or "propert" in col_str
+        or "vacan" in col_str
+    ):
+        return "/properties", "Open Properties"
+
+    # 3. Financial / Rates / Rent Money check (word boundaries avoid matching 'currently' for 'rent')
+    if bool(
+        re.search(
+            r"\b(profit|revenue|income|margin|rent|arrears|overdue|collection|ledger|money|rate|quote|quotes|invoice|invoices|factuur|overcharge|spend|expense|cost)\b",
+            q_low,
+        )
+    ) or any(c in col_str for c in ("profit", "spend", "invoice", "overdue", "rate", "eur", "cents")):
+        return "/money", "Open Money"
+
+    # 4. Waiting radar
+    if bool(re.search(r"\b(waiting|chase|chases)\b", q_low)) or "waiting" in col_str or "chase" in col_str:
+        return "/waiting", "Open Waiting"
+
+    # 5. Documents
+    if bool(re.search(r"\b(document|documents|file|filed|pdf)\b", q_low)) or "doc" in col_str:
+        return "/documents", "Open Documents"
+
+    # 6. Maintenance & Tickets
+    if (
+        bool(re.search(r"\b(ticket|tickets|case|cases|maintenance|maintnace|repair|issue)\b", q_low))
+        or "ticket" in col_str
+        or "urgency" in col_str
+    ):
+        return "/maintenance", "Open Maintenance"
+
+    # 7. Contacts & Contractors
+    if bool(re.search(r"\b(contractor|contractors|contact|contacts)\b", q_low)) or "contractor" in col_str:
+        return "/contacts", "Open Contacts"
+
+    # 8. Calendar & Visits
+    if bool(re.search(r"\b(visit|visits|calendar|schedule|appointment|afspraak)\b", q_low)) or "start" in col_str:
+        return "/calendar", "Open Calendar"
+
+    return "/", "Open Dashboard"
+
+
 def _build_query_preview_card(
     question: str,
     display_rows: list[dict[str, Any]],
@@ -997,8 +1095,12 @@ def _build_query_preview_card(
     """Build a structured preview card (`tenant_lease` or `data_table`) from sanitized query results."""
     if not display_rows or not columns:
         return None, []
+
+    target_url, action_label = _resolve_query_navigation(question, columns)
+    nav_action = ActionButtonData(label=action_label, actionType="navigate", payload=target_url, isPrimary=True)
+
     if row_count == 1 and len(columns) <= 1:
-        return None, []
+        return None, [nav_action]
 
     q_low = question.lower()
     money_cols = {
@@ -1103,7 +1205,8 @@ def _build_query_preview_card(
     elif (
         "Lease Start" in columns
         or "Lease End" in columns
-        or any(w in q_low for w in ("lease", "leases", "tenant", "tenants"))
+        or any("tenant" in str(c).lower() or "lease" in str(c).lower() for c in columns)
+        or any(w in q_low for w in ("lease", "leases", "tenant", "tenants", "tenat", "tenats", "tenaant", "tenaants"))
     ):
         badge_label = "LEASES" if ("lease" in q_low or "Lease Start" in columns) else "TENANTS"
         badge_color = "emerald"
@@ -1147,6 +1250,39 @@ def _build_query_preview_card(
         title = f"Scheduled Visits ({row_count})"
         target_url = "/calendar"
         action_label = "Open Calendar"
+    elif (
+        "Unit" in columns
+        or "Address" in columns
+        or "Unit Address" in columns
+        or "Property" in columns
+        or any(
+            "unit" in str(c).lower()
+            or "address" in str(c).lower()
+            or "vacan" in str(c).lower()
+            or "propert" in str(c).lower()
+            for c in columns
+        )
+        or any(
+            w in q_low
+            for w in (
+                "property",
+                "properties",
+                "unit",
+                "units",
+                "vacant",
+                "vacancy",
+                "portfolio",
+                "building",
+                "pand",
+                "panden",
+            )
+        )
+    ):
+        badge_label = "PROPERTIES" if "vacan" not in q_low else "VACANT UNITS"
+        badge_color = "amber" if "vacan" in q_low else "blue"
+        title = f"Vacant Properties ({row_count})" if "vacan" in q_low else f"Portfolio Properties ({row_count})"
+        target_url = "/properties"
+        action_label = "Open Properties"
     else:
         badge_label = "PORTFOLIO DATA"
         badge_color = "blue"
@@ -1463,67 +1599,19 @@ def ask_agent(
                 now=now,
                 briefs=briefs,
             )
-        no_rewrite = rewrite_answer(req.query)
-        if no_rewrite:
-            return _finish_agent_response(
-                engine=engine,
-                conv_id=conv_id,
-                req=req,
-                ans_text=no_rewrite,
-                case_refs=[],
-                suggested_action=None,
-                action_buttons=[],
-                step_descriptions=[],
-                preview_card=None,
-                cards_list=[],
-                pipeline_stage="rewrite_unsupported",
-                fallback_reason=None,
-                suggestions=["Show open tickets", "What should I do first?", "Check calendar"],
-                now=now,
-                briefs=briefs,
+
+        # Document RAG ONLY for explicit document/file/PDF retrieval (never for analytics or counts)
+        is_explicit_doc_inquiry = (
+            bool(re.search(r"\b(pdf|document|drive\b|file\b|clause|agreement for this case|scan\b)\b", q_low))
+            and not bool(
+                re.search(
+                    r"\b(how many|count|list all|show all|total|which|active|who is|who are|expir|profit|spend|revenue|margin|vacan)\b",
+                    q_low,
+                )
             )
-        no_rent_data = rent_data_answer(req.query)
-        if no_rent_data:
-            return _finish_agent_response(
-                engine=engine,
-                conv_id=conv_id,
-                req=req,
-                ans_text=no_rent_data,
-                case_refs=[],
-                suggested_action=None,
-                action_buttons=[],
-                step_descriptions=["Checked which rent data is connected"],
-                preview_card=None,
-                cards_list=[],
-                pipeline_stage="rent_data_unavailable",
-                fallback_reason=None,
-                suggestions=["What should I do first?", "Show open tickets", "List active leases"],
-                now=now,
-                briefs=briefs,
-            )
-        # Specific Task Trigger: Document / Lease / Contract / Terms query
-        doc_pattern = (
-            r"\b(lease|agreement|contract|deposit|borg|document|pdf|clause|terms|notice period|sublet"
-            r"|huurovereenkomst)\b"
+            and not any(w in q_low for w in ["message", "messages", "reply", "email", "mail", "whatsapp"])
         )
-        is_contractor_inquiry = bool(re.search(r"\bcontractor(s)?\b", q_low))
-        is_comm_inquiry = any(w in q_low for w in ["message", "messages", "reply", "email", "mail", "whatsapp"])
-        is_lease_analytics = (
-            bool(re.search(r"\b(list|show|how many|count|which|active|expiring|all|current)\b.*\bleases?\b", q_low))
-            or bool(re.search(r"\bleases?\b.*\b(active|count|total|list|expiring|status)\b", q_low))
-        ) and not bool(
-            re.search(
-                r"\b(pdf|document|doc|clause|terms|deposit|borg|agreement|contract|drive|file|read|find|open|pull)\b",
-                q_low,
-            )
-        )
-        is_doc_task = (
-            bool(re.search(doc_pattern, q_low))
-            and not is_contractor_inquiry
-            and not is_comm_inquiry
-            and not is_lease_analytics
-        )
-        if is_doc_task:
+        if is_explicit_doc_inquiry:
             try:
                 embedder = build_embedder(settings)
                 hits = search_hybrid(session, company_id, req.query, DocFilter(), embedder, limit=3)
@@ -1545,7 +1633,6 @@ def ask_agent(
                             ).all()
                         )
                         doc_full_text = "\n".join(matched_chunks) if matched_chunks else clean_snippet
-
                         doc_context = (
                             f"Matched Document: {matched_doc.title} ({matched_doc.doc_type})\n"
                             f"Full Verified Document Content:\n{doc_full_text}"
@@ -1561,16 +1648,11 @@ def ask_agent(
                             company_id,
                             _system_prompt(req.query, page_facts=doc_context),
                         )
-
-                        if chat_doc_ans:
-                            doc_ans = f"**Document Intelligence (Verified RAG):**\n\n{chat_doc_ans}\n\n"
-                        else:
-                            doc_ans = (
-                                f"**Document Intelligence (Verified RAG):**\n\n"
-                                f"**{matched_doc.title}** ({matched_doc.doc_type.capitalize()})\n\n"
-                                f"{clean_snippet}\n\n"
-                            )
-
+                        doc_ans = (
+                            f"**Document Intelligence (Verified RAG):**\n\n{chat_doc_ans}\n\n"
+                            if chat_doc_ans
+                            else f"**Document Intelligence (Verified RAG):**\n\n**{matched_doc.title}** ({matched_doc.doc_type.capitalize()})\n\n{clean_snippet}\n\n"
+                        )
                         if matched_doc.drive_folder:
                             doc_ans += f"📁 **Google Drive Location:** `{matched_doc.drive_folder}`\n"
                         if drive_url:
@@ -1594,7 +1676,6 @@ def ask_agent(
                                 isPrimary=False,
                             )
                         )
-
                         unit_label = "Portfolio Document"
                         doc_text_low = (matched_doc.title + " " + (matched_doc.drive_folder or "")).lower()
                         unit_rows = session.scalars(
@@ -1614,7 +1695,6 @@ def ask_agent(
                             body=clean_snippet,
                             targetUrl=drive_url or "/documents",
                         )
-
                         return AskAgentResponse(
                             answer=_clean_executive_answer(doc_ans),
                             suggestedAction="Open in Google Drive" if drive_url else "View in Documents",
@@ -1628,98 +1708,6 @@ def ask_agent(
                         )
             except Exception as rag_err:
                 log.warning("api.superagent.rag_trigger_failed", error=str(rag_err))
-
-        # Specific Task Trigger: Natural Language Analytics / Custom Query Agent (PostgreSQL)
-        is_draft_or_action_cmd = bool(
-            re.search(
-                r"\b(draft|drafted|reply|send|chase|remind|escalate|snooze|approve|email|whatsapp|message)\b",
-                q_low,
-            )
-        )
-        is_count_or_list_query = (
-            not is_draft_or_action_cmd
-            and not _is_prioritization_query(q_low)
-            and bool(
-                re.search(
-                    r"\b(how many|count of|total number|list all|show all|which units|which contractors|which tenants"
-                    r"|total cases|total open|open tickets count|hoeveel|overzicht)\b"
-                    r"|\b(?:list|show|display|give me|get|find)\s+(?:all\s+|my\s+)?"
-                    r"(?:active\s+|open\s+|current\s+|all\s+|recent\s+)?"
-                    r"(?:leases?|tickets?|ticketes|cases?|tenants?|units?|contractors?|tasks?|visits?|quotes?)\b"
-                    r"|\b(?:what|which)\s+(?:are\s+(?:the\s+|my\s+)?|do\s+i\s+have\s+|"
-                    r"open\s+|active\s+|current\s+|all\s+)?"
-                    r"(?:leases?|tickets?|ticketes|cases?|tenants?|units?|contractors?|tasks?|visits?|quotes?)"
-                    r"(?:\s+(?:i\s+have|do\s+i\s+have|are\s+(?:open|active|available)))?\b"
-                    r"|\bdo\s+i\s+have\b.*\b(?:leases?|tickets?|ticketes|cases?|tenants?|units?|contractors?|tasks?|visits?|quotes?)\b"
-                    r"|\b(?:active leases?|open tickets?|open ticketes|open cases?|all leases|all tickets"
-                    r"|all tenants|all contractors|all units|maintenance tickets?|maintnace tickets?"
-                    r"|maintenace tickets?)\b",
-                    q_low,
-                )
-            )
-        )
-        if is_count_or_list_query and re.search(
-            r"\b(?:what|which)\b.*\b(?:status|happened|details|wrong|with)\b", q_low
-        ):
-            is_count_or_list_query = False
-        is_database_keyword = any(k in q_low for k in ["query database", "sql query", "postgres", "run query"])
-        if is_count_or_list_query or is_database_keyword:
-            try:
-                from app.tools.query_agent.agent import run_query_agent
-
-                q_res = run_query_agent(engine, settings, company_id, req.query, history=history)
-                if q_res.ok:
-                    q_card, q_actions = _build_query_preview_card(
-                        req.query, q_res.display_rows, q_res.columns, q_res.row_count
-                    )
-                    q_cards_list = build_cards_list([q_card]) if q_card else []
-                    if not q_actions:
-                        fallback_nav_url = (
-                            "/tenants" if "lease" in q_low or "tenant" in q_low else ("/maintenance" if briefs else "/")
-                        )
-                        fallback_nav_lbl = (
-                            "Open Tenants"
-                            if fallback_nav_url == "/tenants"
-                            else ("View Maintenance" if fallback_nav_url == "/maintenance" else "Open Dashboard")
-                        )
-                        q_actions = [
-                            ActionButtonData(
-                                label=fallback_nav_lbl,
-                                actionType="navigate",
-                                payload=fallback_nav_url,
-                                isPrimary=True,
-                            )
-                        ]
-                    query_steps = [
-                        "Checked portfolio records",
-                        f"Retrieved {q_res.row_count} matching record{'s' if q_res.row_count != 1 else ''}",
-                    ]
-                    if "lease" in q_low or "tenant" in q_low:
-                        q_suggestions = ["Show open tickets", "Which leases expire soon?", "What should I do first?"]
-                    elif "ticket" in q_low or "case" in q_low or "maint" in q_low:
-                        q_suggestions = ["What should I do first?", "Draft replies for tickets", "List active leases"]
-                    else:
-                        q_suggestions = ["List active leases", "Show open tickets", "What should I do first?"]
-                    return _finish_agent_response(
-                        engine=engine,
-                        conv_id=conv_id,
-                        req=req,
-                        ans_text=q_res.answer,
-                        case_refs=[str(b.case_id) for b in briefs] if briefs else [],
-                        suggested_action=q_actions[0].label if q_actions else None,
-                        action_buttons=q_actions,
-                        step_descriptions=query_steps,
-                        preview_card=q_card,
-                        cards_list=q_cards_list,
-                        pipeline_stage="query_agent",
-                        fallback_reason=None,
-                        suggestions=q_suggestions,
-                        now=now,
-                        briefs=briefs,
-                        preview_cards=[q_card] if q_card else [],
-                    )
-            except Exception as qa_err:
-                log.warning("api.superagent.query_agent_trigger_failed", error=str(qa_err))
 
     live_cases_text = (
         "\n".join(

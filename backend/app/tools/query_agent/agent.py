@@ -11,7 +11,7 @@ from uuid import UUID
 
 import httpx
 from pydantic import BaseModel, Field
-from sqlalchemy import Engine
+from sqlalchemy import Engine, text
 
 from app.contracts import PromptRef
 from app.core.errors import AgentFailedError
@@ -177,7 +177,7 @@ def _call_gemini(
     gemini_key = settings.gemini_api_key.get_secret_value() if settings.gemini_api_key else None
     if not gemini_key:
         return None
-    for model in ["gemini-2.5-flash", "gemini-2.0-flash"]:
+    for model in ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"]:
         try:
             resp = httpx.post(
                 f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_key}",
@@ -413,13 +413,108 @@ def synthesize_query_answer(
         return None
 
 
-def format_answer(question: str, rows: list[dict[str, Any]], row_count: int) -> str:
+def _synthesize_occupancy_breakdown(
+    engine: Engine | None,
+    company_id: UUID | None,
+    question: str,
+    col_name: str,
+    val: Any,
+) -> str | None:
+    """Provides a clear, contextual breakdown for occupancy queries (avoiding confusing bare isolated numbers)."""
+    if engine is None or company_id is None:
+        return None
+
+    q_low = question.lower()
+    col_low = col_name.lower()
+
+    is_tenant_q = (
+        bool(re.search(r"\b(tenant|tenants|tenat|tenats|tenaant|tenaants|huurder|huurders)\b", q_low))
+        or "tenant" in col_low
+    )
+    is_vacant_q = bool(re.search(r"\b(vacant|vacancy|leegstand|leegstaand)\b", q_low)) or "vacan" in col_low
+    is_occupied_q = bool(re.search(r"\b(occupied|bezet|verhuurd)\b", q_low)) or "occup" in col_low
+    is_prop_q = (
+        bool(re.search(r"\b(property|properties|unit|units|portfolio|pand|panden)\b", q_low))
+        or "propert" in col_low
+        or "unit" in col_low
+    )
+
+    if not (is_tenant_q or is_vacant_q or is_occupied_q or is_prop_q):
+        return None
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(text(f"SET LOCAL app.current_company_id = '{company_id}';"))
+            row = (
+                conn.execute(
+                    text("""
+                    SELECT
+                        (SELECT count(*) FROM units WHERE valid_to IS NULL) AS total_units,
+                        (SELECT count(DISTINCT unit_id) FROM leases
+                         WHERE (valid_to IS NULL OR valid_to > CURRENT_DATE)) AS occupied_units,
+                        (SELECT count(DISTINCT lp.person_id) FROM lease_parties lp
+                         JOIN leases l ON lp.lease_id = l.id
+                         WHERE (l.valid_to IS NULL OR l.valid_to > CURRENT_DATE)) AS active_tenants;
+                """)
+                )
+                .mappings()
+                .first()
+            )
+            if not row:
+                return None
+
+            total = int(row["total_units"] or 0)
+            occupied = int(row["occupied_units"] or 0)
+            vacant = max(0, total - occupied)
+            tenants = int(row["active_tenants"] or 0)
+
+            if is_vacant_q:
+                return (
+                    f"You have **{vacant} vacant properties** out of **{total} total properties**. "
+                    f"The remaining **{occupied} occupied properties** house **{tenants} active tenants** "
+                    "(due to joint co-tenants)."
+                )
+            if is_tenant_q:
+                return (
+                    f"You have **{tenants} active tenants** residing across **{occupied} occupied properties** "
+                    f"(several leases have co-tenants/partners). **{vacant} properties** are currently vacant, "
+                    f"for a total of **{total} properties**."
+                )
+            if is_occupied_q:
+                return (
+                    f"You have **{occupied} occupied properties** out of **{total} total properties**, "
+                    f"housing **{tenants} active tenants**. The remaining **{vacant} properties** are currently vacant."
+                )
+            if is_prop_q:
+                return (
+                    f"You have **{total} total properties** in your portfolio "
+                    f"(**{occupied} currently occupied** by {tenants} active tenants, and **{vacant} vacant**)."
+                )
+    except Exception as exc:
+        log.warning("query_agent.occupancy_breakdown_failed", error=str(exc))
+        return None
+
+    return None
+
+
+def format_answer(
+    question: str,
+    rows: list[dict[str, Any]],
+    row_count: int,
+    *,
+    engine: Engine | None = None,
+    company_id: UUID | None = None,
+) -> str:
     """Formulates a factual, executive summary directly from sanitized rows."""
     if row_count == 0 or not rows:
         return f'I queried your portfolio records for *"{question}"*, but found 0 matching entries.'
 
     if row_count == 1 and len(rows[0]) == 1:
         col_name, val = next(iter(rows[0].items()))
+        if engine is not None and company_id is not None:
+            breakdown = _synthesize_occupancy_breakdown(engine, company_id, question, col_name, val)
+            if breakdown:
+                return breakdown
         clean_label = _human_col_label(col_name)
         formatted_val = _format_cell_value(col_name, val, clip_summary=False)
         return f"**Result:** **{formatted_val}** ({clean_label})"
@@ -526,7 +621,7 @@ def run_query_agent(
 
         cols, display_rows = sanitize_rows_for_display(exec_res.rows)
         answer = synthesize_query_answer(question, display_rows, exec_res.row_count, settings) or format_answer(
-            question, exec_res.rows, exec_res.row_count
+            question, exec_res.rows, exec_res.row_count, engine=engine, company_id=company_id
         )
         return QueryAgentResponse(
             ok=True,
