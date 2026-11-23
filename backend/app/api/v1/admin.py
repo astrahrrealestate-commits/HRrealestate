@@ -235,3 +235,18 @@ def edit_profile(profile_id: UUID, body: ProfilePatch, who: Admin, engine: Engin
         out = _profile(row)
     log.info("admin.profile.edited", email_hash=email_fingerprint(email), role=out.role, active=out.is_active)
     return out
+
+
+@router.delete("/profiles/{profile_id}", status_code=204, summary="Delete a profile")
+def delete_profile(profile_id: UUID, who: Admin, engine: Engine_) -> None:
+    with Session(engine) as session, session.begin():
+        rows = _locked_admins_and_target(session, who.company_id, profile_id)
+        row = next((r for r in rows if r.id == profile_id), None)
+        if row is None:
+            raise HTTPException(status_code=404, detail="profile not found")
+        if row.email.lower() == who.email.lower():
+            raise HTTPException(status_code=409, detail="you cannot delete your own profile")
+        _check_edit_allowed(who, rows, row, stays_admin=False, stays_active=False)
+        email = row.email
+        session.delete(row)
+    log.info("admin.profile.deleted", email_hash=email_fingerprint(email))

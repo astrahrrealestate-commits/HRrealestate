@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# ruff: noqa: E501, I001, F401, T201, UP017
+# ruff: noqa: E501, I001, F401, T201, UP017, S110
 """Historical Email Ingestion Tool for EstateOS (Staging & Production).
 
 Connects directly to IMAP (Gmail via App Password) or reads local .eml directories,
@@ -97,6 +97,9 @@ MARKETING_SPAM_DOMAINS = [
     "elevenlabs.io",
     "upstash.com",
 ]
+
+# Target Gmail label (keep empty by default; set here or pass via --label CLI argument)
+TARGET_LABEL = ""
 
 
 def parse_date(date_header: str | None) -> datetime.datetime:
@@ -589,6 +592,7 @@ def process_parsed_emails(
     allowed_emails: set[str] | None = None,
     include_unregistered: bool = True,
     dry_run: bool = False,
+    label_mode: bool = False,
 ) -> None:
     """Sorts emails chronologically, builds threads, applies filters, and ingests into DB."""
     parsed_emails.sort(key=lambda x: x["sent_at"])
@@ -611,7 +615,7 @@ def process_parsed_emails(
 
     for item in parsed_emails:
         sender = item["sender_email"]
-        if allowed_emails is not None:
+        if not label_mode and allowed_emails is not None:
             relevant, reason = is_relevant_email(item, allowed_emails, include_unregistered=include_unregistered)
             if not relevant:
                 print(f" -> [SKIPPED] {item['sent_at'].strftime('%Y-%m-%d')} | {sender:28} | {reason}")
@@ -685,6 +689,70 @@ def import_eml_directory(
     )
 
 
+def find_imap_folder(imap_client: imaplib.IMAP4_SSL, target_name: str) -> str | None:
+    """Finds exact or case-insensitive matching IMAP folder."""
+    try:
+        status, f_list = imap_client.list()
+        if status != "OK" or not f_list:
+            return None
+        folders = []
+        for fe in f_list:
+            decoded = fe.decode("utf-8", errors="ignore")
+            if ' "/" ' in decoded:
+                folders.append(decoded.split(' "/" ')[1].strip('"'))
+            elif ' " " ' in decoded:
+                folders.append(decoded.split(' " " ')[1].strip('"'))
+
+        for f in folders:
+            if f == target_name:
+                return f
+        for f in folders:
+            if f.lower() == target_name.lower():
+                return f
+        for f in folders:
+            if f.lower().endswith(f"/{target_name.lower()}"):
+                return f
+    except Exception:
+        pass
+    return None
+
+
+def fetch_label_message_numbers(
+    mail: imaplib.IMAP4_SSL,
+    label: str,
+    since_days: int = 0,
+) -> tuple[str, list[bytes]]:
+    """Selects the label folder or searches via Gmail X-GM-RAW to get message numbers."""
+    matched_folder = find_imap_folder(mail, label)
+
+    search_criteria = ["ALL"]
+    since_str = ""
+    if since_days > 0:
+        since_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=since_days)
+        search_criteria = [f'(SINCE "{since_date.strftime("%d-%b-%Y")}")']
+        since_str = f' after:{since_date.strftime("%Y/%m/%d")}'
+
+    # Attempt 1: Direct IMAP folder selection
+    if matched_folder:
+        res, _ = mail.select(f'"{matched_folder}"', readonly=True)
+        if res == "OK":
+            res, data = mail.search(None, *search_criteria)
+            if res == "OK" and data and data[0]:
+                return matched_folder, data[0].split()
+            return matched_folder, []
+
+    # Attempt 2: Search [Gmail]/All Mail using Gmail X-GM-RAW extension
+    all_mail_folder = find_imap_folder(mail, "[Gmail]/All Mail") or "[Gmail]/All Mail"
+    res, _ = mail.select(f'"{all_mail_folder}"', readonly=True)
+    if res == "OK":
+        raw_query = f'label:"{label}"{since_str}'
+        res, data = mail.search(None, "X-GM-RAW", f'"{raw_query}"')
+        if res == "OK" and data and data[0]:
+            return all_mail_folder, data[0].split()
+
+    return label, []
+
+
 def fetch_and_import_imap(
     session: Session,
     storage: Any,
@@ -693,6 +761,7 @@ def fetch_and_import_imap(
     imap_host: str,
     imap_user: str,
     imap_password: str,
+    label: str = "",
     since_days: int = 60,
     folders: list[str] | None = None,
     allowed_emails: set[str] | None = None,
@@ -700,9 +769,6 @@ def fetch_and_import_imap(
     dry_run: bool = False,
 ) -> None:
     """Connects to IMAP (Gmail), retrieves emails, and processes them chronologically."""
-    if not folders:
-        folders = ["INBOX", "[Gmail]/Sent Mail"]
-
     print(f"\nConnecting to IMAP {imap_host}:993 as {imap_user}...")
     try:
         mail = imaplib.IMAP4_SSL(imap_host, 993)
@@ -716,10 +782,59 @@ def fetch_and_import_imap(
         print("  3. Pass the 16-character code as the password.\n")
         raise
 
-    # Get available server folders
+    parsed_emails: list[dict[str, Any]] = []
+    seen_msg_ids: set[str] = set()
+
+    # If label is specified, ONLY import emails with this label
+    if label:
+        print(f"Scanning target label '{label}' (ONLY this label's emails will be imported)...")
+        folder_target, msg_nums = fetch_label_message_numbers(mail, label, since_days=since_days)
+        if not msg_nums:
+            print(f" -> 0 emails in label '{label}' ({folder_target}).")
+        else:
+            print(f" -> Found {len(msg_nums)} emails in '{label}' ({folder_target}). Downloading RFC 822 messages...")
+            for num in msg_nums:
+                res, msg_data = mail.fetch(num, "(RFC822)")
+                if res != "OK" or not msg_data or not msg_data[0]:
+                    continue
+                raw_bytes = msg_data[0][1]
+                try:
+                    msg = email.message_from_bytes(raw_bytes, policy=policy.default)
+                    parsed = parse_eml_message(
+                        msg, source_name=f"{folder_target} #{num.decode()}", manager_emails=[imap_user]
+                    )
+                    mid = parsed.get("message_id")
+                    if mid and mid in seen_msg_ids:
+                        continue
+                    if mid:
+                        seen_msg_ids.add(mid)
+                    parsed_emails.append(parsed)
+                except Exception as e:
+                    print(f"Warning: Failed to parse email #{num}: {e}")
+
+        mail.logout()
+        print(f"Total fetched from IMAP for label '{label}': {len(parsed_emails)} unique emails.")
+
+        process_parsed_emails(
+            session=session,
+            storage=storage,
+            settings=settings,
+            company_id=company_id,
+            parsed_emails=parsed_emails,
+            allowed_emails=None,
+            include_unregistered=True,
+            dry_run=dry_run,
+            label_mode=True,
+        )
+        return
+
+    # Fallback when running without a label: scan default folders
+    if not folders:
+        folders = ["INBOX", "[Gmail]/Sent Mail"]
+
     status, f_list = mail.list()
     available_folders = []
-    if status == "OK":
+    if status == "OK" and f_list:
         for fe in f_list:
             decoded = fe.decode("utf-8", errors="ignore")
             if ' "/" ' in decoded:
@@ -730,13 +845,9 @@ def fetch_and_import_imap(
         since_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=since_days)
         search_criteria = [f'(SINCE "{since_date.strftime("%d-%b-%Y")}")']
 
-    parsed_emails: list[dict[str, Any]] = []
-    seen_msg_ids: set[str] = set()
-
     for folder in folders:
         folder_target = folder
         if folder not in available_folders:
-            # Fallback for sent mail names
             fallback = next((f for f in available_folders if "sent" in f.lower()), None)
             if fallback and "sent" in folder.lower():
                 folder_target = fallback
@@ -789,12 +900,19 @@ def fetch_and_import_imap(
         allowed_emails=allowed_emails,
         include_unregistered=include_unregistered,
         dry_run=dry_run,
+        label_mode=False,
     )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="EstateOS Historical Email Ingestion Pipeline (Staging/Production)")
     parser.add_argument("--dry-run", action="store_true", help="Preview email matches without modifying database")
+    parser.add_argument(
+        "--label",
+        type=str,
+        default="",
+        help="Specific Gmail label to import (REQUIRED for IMAP: only emails with this label will be imported)",
+    )
     parser.add_argument("--eml-dir", type=str, help="Path to local directory of .eml files")
     parser.add_argument("--imap-user", type=str, help="Gmail / IMAP email address to connect to")
     parser.add_argument("--imap-password", type=str, help="16-character Google App Password (prompted if omitted)")
@@ -818,15 +936,25 @@ def main() -> None:
     storage = build_storage(settings)
     company_id = UUID(args.company_id)
 
+    # Determine target label (no fallback when IMAP is used)
+    label = (args.label or TARGET_LABEL).strip()
+    if args.imap_user and not label and not args.eml_dir:
+        label = input("Enter Gmail Label to import (required, only this label will be imported): ").strip()
+        if not label:
+            print("[ERROR] A Gmail label is required. Only emails with this label will be imported.")
+            sys.exit(1)
+
     print("===================================================================")
     print("      ESTATEOS HISTORICAL EMAIL INGESTION PIPELINE (STAGE)         ")
     print("===================================================================")
     print(f"Database URL : {settings.database_url}")
     print(f"Company ID   : {company_id}")
+    if label:
+        print(f"Target Label : '{label}' (ONLY emails with this label will be imported)")
     print(f"Mode         : {'DRY RUN (Preview Only)' if args.dry_run else 'LIVE INGESTION'}")
 
     with Session(engine) as session:
-        # Step 1: Auto-discover active tenants and contractors from database
+        # Auto-discover active tenants and contractors from database (for reference & linking)
         tenants, contractors, allowed_emails = discover_stage_entities(session, company_id)
         print("\n-------------------------------------------------------------------")
         print("STAGE DIRECTORY AUTO-DISCOVERY:")
@@ -841,8 +969,10 @@ def main() -> None:
             print(f"    * {c['name']:25} <{em}>")
         print("-------------------------------------------------------------------")
 
-        active_filter = None if args.all_senders else allowed_emails
-        if active_filter:
+        active_filter = None if (args.all_senders or label) else allowed_emails
+        if label:
+            print(f"Notice: Label Mode Active ('{label}'). All emails with this label will be imported.")
+        elif active_filter:
             print(f"Stage Allowlist Active: Filtering for {len(active_filter)} known tenant/contractor addresses.")
         else:
             print("Notice: Auto-filter disabled (--all-senders). Ingesting all incoming mail.")
@@ -861,6 +991,7 @@ def main() -> None:
                 imap_host=args.imap_host,
                 imap_user=args.imap_user,
                 imap_password=imap_pw,
+                label=label,
                 since_days=args.since_days,
                 allowed_emails=active_filter,
                 include_unregistered=True,
@@ -888,12 +1019,12 @@ def main() -> None:
             return
 
         print("\n[USAGE]")
-        print("1. Direct IMAP (Gmail with App Password):")
+        print("1. Direct IMAP (Gmail with App Password and Label):")
         print(
-            "   python backend/scripts/import_historical_emails.py --imap-user client@gmail.com --imap-password 'abcd efgh ijkl mnop'"
+            "   python backend/scripts/import_historical_emails.py --imap-user client@gmail.com --label 'ClientLabel'"
         )
         print("\n2. Dry-Run Preview (Test IMAP without modifying DB):")
-        print("   python backend/scripts/import_historical_emails.py --imap-user client@gmail.com --dry-run")
+        print("   python backend/scripts/import_historical_emails.py --imap-user client@gmail.com --label 'ClientLabel' --dry-run")
         print("\n3. Local .eml Directory:")
         print("   python backend/scripts/import_historical_emails.py --eml-dir backend/scripts/edgecase_emails")
         sys.exit(0)

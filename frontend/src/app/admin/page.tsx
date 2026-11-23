@@ -6,12 +6,12 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { Button } from "@/components/ui/Button";
-import { Search, ShieldCheck, UserPlus } from "lucide-react";
+import { Search, ShieldCheck, Trash2, UserPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import { ProfileBuilder } from "@/components/admin/ProfileBuilder";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
-import { Profile, SectionInfo, listProfiles, listSections, updateProfile } from "@/lib/adminApi";
+import { Profile, SectionInfo, deleteProfile, listProfiles, listSections, updateProfile } from "@/lib/adminApi";
 import { useLanguage } from "@/context/LanguageContext";
 
 const roleLabel = (role: string) => (role === "member" || role === "manager" ? "Member" : "Superadmin");
@@ -68,6 +68,22 @@ function AdminContent() {
     const result = await updateProfile(profile.id, { is_active: active });
     if (result.ok) saved(result.data);
     else setActionError(result.error);
+  };
+
+  const removeProfile = async (profile: Profile) => {
+    if (
+      !window.confirm(
+        `Permanently delete ${profile.name} (${profile.email}) from team whitelist? This cannot be undone.`
+      )
+    )
+      return;
+    setActionError(null);
+    const result = await deleteProfile(profile.id);
+    if (result.ok) {
+      setProfiles((prev) => (prev ? prev.filter((p) => p.id !== profile.id) : []));
+    } else {
+      setActionError(result.error);
+    }
   };
 
   const activeCount = profiles?.filter((p) => p.is_active).length ?? 0;
@@ -191,6 +207,17 @@ function AdminContent() {
                           className="text-xs border border-[var(--line)]"
                         >
                           {profile.is_active ? "Switch off" : "Switch on"}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={isYou}
+                          title={isYou ? "You cannot delete your own profile" : undefined}
+                          onClick={() => void removeProfile(profile)}
+                          className="text-xs border border-rose-200 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 mr-1" />
+                          Delete
                         </Button>
                       </div>
                     </div>

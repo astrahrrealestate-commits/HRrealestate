@@ -47,14 +47,12 @@ def seed_dev_tenant(
                 ),
             )
 
-        # Seed authorized users for platform login (all active staff set as owner)
+        # Seed authorized users for platform login (only Harjot, Suryansh, Astra, and Aditya)
         default_allowed = [
             ("harjot@estateos.internal", "Harjot Singh", "owner"),
-            ("tyagisurya.04@gmail.com", "Surya Tyagi", "owner"),
-            ("chandan.p@fwc.co.in", "Chandan P", "owner"),
+            ("tyagisurya.04@gmail.com", "Suryansh Tyagi", "owner"),
             ("aditya@seedicon.com", "Aditya", "owner"),
-            ("sambit.b@fwc.co.in", "Sambit B", "owner"),
-            ("avinash.p@fwc.co.in", "Avinash P", "owner"),
+            ("astrahrrealestate@gmail.com", "Astra Real Estate", "owner"),
         ]
         for u_email, u_name, u_role in default_allowed:
             existing = session.scalar(
@@ -100,7 +98,13 @@ def seed_dev_tenant(
                 )
 
         # Remove non-staff accounts from login whitelist if previously seeded
-        for removed_email in ["vipint9902@gmail.com", "suryanstyagi.work@gmail.com"]:
+        for removed_email in [
+            "vipint9902@gmail.com",
+            "suryanstyagi.work@gmail.com",
+            "chandan.p@fwc.co.in",
+            "sambit.b@fwc.co.in",
+            "avinash.p@fwc.co.in",
+        ]:
             to_remove = session.scalar(
                 select(AllowedUser).where(AllowedUser.company_id == company_id, AllowedUser.email == removed_email)
             )
