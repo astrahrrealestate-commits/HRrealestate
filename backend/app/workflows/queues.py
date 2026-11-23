@@ -10,9 +10,10 @@ back), so 0.25 s is the short end that stays cheap; a turn waits at most about a
 slot is free.
 At most `Settings.concierge_worker_concurrency` turns run at once per worker (each is mostly a model call).
 
-The `brixx_documents` queue downloads BRIXX document files with `concurrency=1` across all workers: next to the
-`brixx` table syncs (16 per worker) BRIXX sees at most one extra request, and a large first backlog of files never
-queues in front of the 15-minute table syncs (which it would on the shared `brixx` queue).
+The `brixx_documents` queue downloads BRIXX document files with `concurrency=3` across all workers: next to the
+`brixx` table syncs (16 per worker) BRIXX sees at most three extra requests, and a large first backlog of files never
+queues in front of the 15-minute table syncs (which it would on the shared `brixx` queue). One at a time was too slow
+for the first backlog (thousands of files, a tenant waiting to open one).
 
 The `finance` queue (M11 quote checker) runs decision-day snapshots and quote reviews, at most
 `FINANCE_WORKER_CONCURRENCY` per worker; each run makes one model call (job_items or quote_reader; a recheck none).
@@ -73,7 +74,7 @@ def register_queues(settings: Settings) -> None:
     # run's last table finishes -- never fired). 16 drains a tick well within the 15-minute window now that the
     # per-table retry storms (404s, bad primary keys) are fixed elsewhere and no longer waste concurrency slots.
     _handles[BRIXX_QUEUE] = DBOS.register_queue(BRIXX_QUEUE, worker_concurrency=16)
-    _handles[BRIXX_DOCUMENTS_QUEUE] = DBOS.register_queue(BRIXX_DOCUMENTS_QUEUE, concurrency=1)
+    _handles[BRIXX_DOCUMENTS_QUEUE] = DBOS.register_queue(BRIXX_DOCUMENTS_QUEUE, concurrency=3)
     _handles[CONCIERGE_QUEUE] = DBOS.register_queue(
         CONCIERGE_QUEUE,
         worker_concurrency=settings.concierge_worker_concurrency,

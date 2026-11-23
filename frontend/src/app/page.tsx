@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { format } from "date-fns";
+import { formatLongDay } from "@/lib/clock";
 import { ArrowRight, Check, Send, AlertTriangle, ShieldCheck, ChevronDown, Ticket, Wrench, Mail, MessageSquare, Pencil, Clock, Shield } from "lucide-react";
 import { AstraIcon } from "@/components/ui/AstraBrand";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -468,10 +468,10 @@ export default function TodayPage() {
   ], [currentNeedsYouCount, currentUrgentCount, metrics.autonomousActionsWeek, t]);
 
   // Today Date & Greeting - Defer evaluation to client mount to prevent Next.js prerender error
-  const [todayFormatted, setTodayFormatted] = useState<string>("Thursday 15 October");
+  const [todayFormatted, setTodayFormatted] = useState<string>("");
 
   useEffect(() => {
-    setTodayFormatted(format(new Date(), "EEEE d MMMM"));
+    setTodayFormatted(formatLongDay(new Date()));
   }, []);
 
   // Lead rows fallback with dynamic slicing (20-50 limit when leads tab is active, Row 56)
@@ -1818,6 +1818,9 @@ export default function TodayPage() {
             <CalendarApprovalsCard
               onApproveSuccess={(_eventId, title) => {
                 showToast(`Visit approved & synced to Google Calendar: ${title}`);
+              }}
+              onInviteAnswered={(title, response) => {
+                showToast(`Invite ${response}: ${title}`);
               }}
             />
           )}

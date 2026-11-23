@@ -465,7 +465,7 @@ function TenantsContent() {
           snippet: textToSend.slice(0, 100),
           body: textToSend,
           date: "Today",
-          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          time: formatClock(new Date()),
           category: email.category,
           priority: getEmailPriority(email),
         };
@@ -494,7 +494,7 @@ function TenantsContent() {
           id: res.message_id,
           sender: "owner",
           text: text,
-          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          time: formatClock(new Date()),
           date: "Today",
           status: "sent",
         };

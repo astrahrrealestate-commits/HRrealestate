@@ -402,3 +402,26 @@ bidirectional translation controls onto the new unified Composer, and fixed what
   `test_a_ticket_carries_its_tenants_id_so_the_tenant_tab_can_list_it`, `test_the_tenant_filter_lists_only_that_tenants_tickets_and_never_another_companys`,
   `test_a_brixx_ticket_carries_its_tenants_id`, `test_an_owner_edit_cannot_re_point_a_ticket_to_another_tenant`
   (integration; need Docker, not run on this machine).
+- [x] BRIXX document backlog drains in about 90 minutes instead of 4-5 hours (2026-11-23): stage after the reaper had
+  173 of 3,482 files stored and claimed 200 per 15-minute sync with one download at a time. `MAX_CLAIMS` is now 600 per
+  sync and the `brixx_documents` queue runs 3 downloads at once (the table syncs already make 16 requests per worker,
+  so 3 extra is modest); the Documents tab re-checks every 15 s while files are on their way.
+
+## Incoming Google Calendar invites (dashboard, 2026-11-23)
+- [x] Invites sent straight to the owner (contractor/tenant/inspector, via Google Calendar) surface in the "Visits &
+  Calendar Approvals" card under "Incoming Invites": Accept / Decline patch the owner's own RSVP on Google
+  (`events.patch`, `sendUpdates=all`); Reschedule opens the event in Google Calendar (the API cannot propose a new time)
+- [x] Property-related only: organiser email is a current Gmail `ChannelIdentity` of the company, or the event
+  location contains one of the company's unit addresses; friends/doctors are ignored. Respond route only answers an
+  invite that is still pending and matched, so it cannot touch arbitrary events. Additive: calendar agent, DBOS
+  workflows, prompts and evals untouched
+- [x] Evidence: `uv run pytest tests/unit/api/test_calendar_invites.py` -> `12 passed` (5 failed with the matcher and
+  RSVP call broken); `make quick` -> `3440 passed`
+- [ ] `tests/integration/test_calendar_invite_directory.py` written, not run (Docker would not start on this machine)
+- [ ] Not yet verified against a live Google account (the test mailbox needs a real invite sent to it)
+
+## Dutch time everywhere, no invented calendar data (2026-11-23)
+- [x] Every time a person reads is Europe/Amsterdam 24 h: frontend `lib/clock.ts` helpers, backend `app/core/localtime.py`; query-agent timestamps, calendar agent slots and the agent's calendar replies converted from UTC
+- [x] No invented meetings: a request with no stated day and time raises `TimeNotStatedError` and the owner is asked (no "next business morning" slot, no default contractor, no guessed property or case); the fake Google Calendar is gone from production (`get_calendar_client` raises `CalendarUnavailableError`, free/busy failure is an error, never "free"); approve returns 503 instead of marking an event confirmed; frontend sample events, optimistic approve and made-up "Today HH:mm" fallbacks removed
+- [x] Evidence: `make quick` -> `3447 passed`; frontend `tsc --noEmit` clean
+- [ ] Not exercised against a live Google account or in a browser; `page_text.stamp()` (model-facing prompt text) still prints UTC, a prompt-version change

@@ -102,6 +102,15 @@ Still open (fix in this order):
   `credentials/{company_id}/...` before a second company exists. The task role that signs media links can also read
   the object (no path reaches it: every presigned key comes from `content_key`). The module does not log the account
   email, the file path or the token-exchange response body.
+- **Calendar invites (RSVP) are an owner-click write outside `sender/`.** `POST /api/calendar/invites/{id}/respond`
+  patches the owner's own RSVP with `sendUpdates=all`, so Google tells the organiser (a tenant or contractor). It is
+  deliberate: an RSVP is that notice, it needs an owner click, and it is not a message the product composes, so
+  `outbound_mode` and company pause do not gate it. Only a pending invite that matches the company's directory can be
+  answered. A match is by organiser email (a known person; the address is shown beside the name) or by unit address in
+  the location (whole address, 8+ characters, flagged "unknown sender" in the UI); a forged organiser or location can
+  still make a stranger's invite appear, which is why the owner sees the sender's address and decides. Known gaps:
+  the calendar client is the installation's one Google account (see the credentials note above), so with a second
+  company this must be bound per company first; GET has no cache or rate limit beyond the global one.
 - The "AI draft" options in contacts are fixed templates.
 - **Rent is unknown.** Amounts and arrears are reported as 0 / `unknown` until the BRIXX rent mirror exists.
 - v1 rate limits and the per-owner cap of 4 live event streams (`stream_slots.py`) are per process.

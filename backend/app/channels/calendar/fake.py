@@ -37,6 +37,9 @@ class FakeCalendarClient(CalendarClientProtocol):
         location: str | None = None,
         description: str | None = None,
         event_id: str | None = None,
+        organizer_email: str | None = None,
+        organizer_name: str | None = None,
+        self_response_status: str | None = None,
     ) -> CalendarEvent:
         """Helper to seed calendar with prior existing bookings for conflict testing."""
         eid = event_id or f"gcal_evt_{uuid4().hex[:12]}"
@@ -50,6 +53,9 @@ class FakeCalendarClient(CalendarClientProtocol):
             status="confirmed",
             html_link=f"https://calendar.google.com/calendar/event?eid={eid}",
             created_at=datetime.now(UTC),
+            organizer_email=organizer_email,
+            organizer_name=organizer_name,
+            self_response_status=self_response_status,
         )
         self._events[eid] = evt
         return evt
@@ -109,6 +115,9 @@ class FakeCalendarClient(CalendarClientProtocol):
             html_link=curr.html_link,
             created_at=curr.created_at,
             metadata={**curr.metadata, **updates.get("metadata", {})},
+            organizer_email=curr.organizer_email,
+            organizer_name=curr.organizer_name,
+            self_response_status=updates.get("self_response_status", curr.self_response_status),
         )
         self._events[event_id] = updated
         return updated
@@ -129,6 +138,20 @@ class FakeCalendarClient(CalendarClientProtocol):
                 html_link=curr.html_link,
                 created_at=curr.created_at,
                 metadata=curr.metadata,
+                organizer_email=curr.organizer_email,
+                organizer_name=curr.organizer_name,
+                self_response_status=curr.self_response_status,
             )
             return True
         return False
+
+    def list_pending_invites(self, start: datetime, end: datetime) -> list[CalendarEvent]:
+        """Seeded events whose owner RSVP is still `needsAction`."""
+        return [e for e in self.list_events(start, end) if e.self_response_status == "needsAction"]
+
+    def respond_to_invite(self, event_id: str, response: str) -> CalendarEvent | None:
+        """Record the owner's RSVP; None when the event is unknown or not an open invite."""
+        curr = self._events.get(event_id)
+        if curr is None or curr.status == "cancelled" or curr.self_response_status is None:
+            return None
+        return self.update_event(event_id, {"self_response_status": response})

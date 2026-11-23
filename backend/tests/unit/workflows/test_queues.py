@@ -56,7 +56,7 @@ def test_other_queues_keep_their_options() -> None:
     assert registered["timers"] == {"worker_concurrency": 2}
     assert registered["documents"] == {"partition_concurrency": 1}
     assert registered["brixx"] == {"worker_concurrency": 16}
-    assert registered["brixx_documents"] == {"concurrency": 1}  # one BRIXX download at a time, across workers
+    assert registered["brixx_documents"] == {"concurrency": 3}  # three BRIXX downloads at a time, across workers
 
 
 def test_the_chat_queue_handle_is_the_registered_one() -> None:

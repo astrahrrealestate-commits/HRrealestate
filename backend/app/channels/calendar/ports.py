@@ -4,6 +4,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
 
+from app.core.errors import EstateOSError
+
+
+class CalendarUnavailableError(EstateOSError):
+    """Google Calendar is not connected or did not answer. We never assume a free calendar or a saved event."""
+
 
 @dataclass(frozen=True)
 class TimeSlot:
@@ -31,6 +37,12 @@ class CalendarEvent:
     html_link: str | None = None
     created_at: datetime | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    organizer_email: str | None = None
+    organizer_name: str | None = None
+    self_response_status: str | None = None  # the connected owner's own RSVP; None when they are not an attendee
+
+
+INVITE_RESPONSES = ("accepted", "declined", "tentative")
 
 
 @dataclass(frozen=True)
@@ -63,4 +75,12 @@ class CalendarClientProtocol(Protocol):
 
     def delete_event(self, event_id: str) -> bool:
         """Delete an event by its external calendar ID."""
+        ...
+
+    def list_pending_invites(self, start: datetime, end: datetime) -> list[CalendarEvent]:
+        """Events someone else organised where the owner's own RSVP is still `needsAction`."""
+        ...
+
+    def respond_to_invite(self, event_id: str, response: str) -> CalendarEvent | None:
+        """Set the owner's RSVP (`accepted`, `declined`, `tentative`); None when the event is not an open invite."""
         ...

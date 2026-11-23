@@ -16,6 +16,7 @@ from sqlalchemy import Engine, text
 from app.contracts import PromptRef
 from app.core.errors import AgentFailedError
 from app.core.ids import case_ref
+from app.core.localtime import to_local
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.llm.calls import AgentSpec, CallContext, run_agent
@@ -278,6 +279,10 @@ def _human_col_label(col: str) -> str:
     return col.replace("_", " ").strip().title()
 
 
+def _amsterdam_stamp(dt: datetime) -> str:
+    return to_local(dt).strftime("%d %b %Y, %H:%M")
+
+
 def _format_cell_value(col: str, val: Any, *, clip_summary: bool = True) -> str:
     if val is None:
         return "—"
@@ -286,7 +291,7 @@ def _format_cell_value(col: str, val: Any, *, clip_summary: bool = True) -> str:
             return "Active" if val else "Ended"
         return "Yes" if val else "No"
     if isinstance(val, datetime):
-        return val.strftime("%d %b %Y, %H:%M")
+        return _amsterdam_stamp(val)
     if isinstance(val, date):
         return val.strftime("%d %b %Y")
     if isinstance(val, Decimal):
@@ -310,7 +315,7 @@ def _format_cell_value(col: str, val: Any, *, clip_summary: bool = True) -> str:
     if _ISO_DT_RE.match(s):
         try:
             dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-            return dt.strftime("%d %b %Y, %H:%M")
+            return _amsterdam_stamp(dt)
         except ValueError:
             pass
     if _ISO_DATE_RE.match(s):

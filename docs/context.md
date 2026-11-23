@@ -1,6 +1,6 @@
 # Project context (auto)
 
-Generated: 2026-11-14T13:31:18.579Z
+Generated: 2026-11-23T09:19:21.451Z
 
 ## Detected stack
 
@@ -8,61 +8,64 @@ Generated: 2026-11-14T13:31:18.579Z
 
 ## Git
 
-- Branch: `main`
-- HEAD: `cc98029`
+- Branch: `dev`
+- HEAD: `37a8247`
 
 ## Recent commits
 
-- `cc98029` fix(frontend): send a real PageView member to PUT /api/v1/agent/page _(Aditya Jain, 2026-11-14)_
-- `51e229e` fix(login): make login endpoints resolve the backend on a split-host deploy, restore gated dev sign-in _(Aditya Jain, 2026-11-14)_
-- `1876cd9` fix(frontend): remove the dev-login button from the client-facing login page _(Aditya Jain, 2026-11-14)_
-- `ab0feac` refactor: split backend and frontend into proper sibling folders _(Aditya Jain, 2026-11-14)_
-- `e6353e9` feat(frontend): production Docker image, deploy guide, repo structure docs _(Aditya Jain, 2026-11-14)_
-- `fa0bd68` chore: remove unreferenced one-off root scripts _(Aditya Jain, 2026-11-14)_
-- `de479d1` chore: remove unused root-level files _(Aditya Jain, 2026-11-14)_
-- `4e6a206` chore(llm): remove Groq fallback, standardize all agent and SQL queries on Gemini _(Suryansh Tyagi, 2026-11-14)_
-- `e9f2482` ci: rename the prod branch to dev in workflow triggers _(Aditya Jain, 2026-11-14)_
-- `5dff784` ci: gate stage and prod the same as main _(Aditya Jain, 2026-11-14)_
-- `71cc8ac` fix(context,tools): restore gates broken by the Astra rename, wrap long lines _(Aditya Jain, 2026-11-14)_
-- `123da06` feat(knowledge,agent): add Knowledge Base for Harjot persona, separate Reports nav, rename Super Agent to Astra _(Suryansh Tyagi, 2026-11-14)_
-- `902e6db` feat(mobile): redesign mobile menu to match dark rgba(24,24,24,1) mockup _(Suryansh Tyagi, 2026-11-13)_
-- `9ce9224` style(branding): calibrate REAL ESTATE wordmark size for balanced proportions _(Suryansh Tyagi, 2026-11-13)_
-- `de6c614` feat(branding): implement high-DPI vector typography for REAL ESTATE wordmark _(Suryansh Tyagi, 2026-11-13)_
-- `d63a984` feat(branding): enlarge REAL ESTATE wordmark and remove sidebar search bar _(Suryansh Tyagi, 2026-11-13)_
-- `1b4e652` feat(branding): enlarge logo and make logo the single interactive toggle _(Suryansh Tyagi, 2026-11-13)_
-- `712ecab` feat(layout): eliminate duplicate logo and add manual sidebar toggle _(Suryansh Tyagi, 2026-11-13)_
-- `85b9c16` feat(branding): update app and login page logo to HR Real Estate _(Suryansh Tyagi, 2026-11-13)_
-- `38cd91e` feat(superagent): read-only analytics views (0044) and dynamic chat thread titles _(Suryansh Tyagi, 2026-11-13)_
+- `37a8247` chore: sync pending context doc, concierge eval reports and Connections tab display override _(Aditya Jain, 2026-11-23)_
+- `6eb17e6` fix(calendar): Dutch time everywhere and no invented meetings _(Aditya Jain, 2026-11-23)_
+- `40d2315` feat(calendar): show and answer incoming Google Calendar invites on the dashboard _(Aditya Jain, 2026-11-23)_
+- `20b9c78` chore(merge): bring hrrealestate/dev into the documents work _(Aditya Jain, 2026-11-23)_
+- `1ea1c3b` feat(brixx): drain the document backlog faster and refresh the Documents tab while files arrive _(Aditya Jain, 2026-11-23)_
+- `fa1a50b` fix(test): provide required primary keys in test_tenant_documents mirror fixtures _(Suryansh Tyagi, 2026-11-23)_
+- `0bd13ef` merge: pull latest changes from hr-remote/dev and resolve line wrapping _(Suryansh Tyagi, 2026-11-23)_
+- `bc9d5f9` fix(tenants): address review of the Tickets tab _(Aditya Jain, 2026-11-23)_
+- `3b74423` fix(tenants): list a tenant's tickets in the Tickets tab _(Aditya Jain, 2026-11-23)_
+- `cb39774` fix(ci): fix ruff E501 line lengths, golden eval task routing, and bump inscriptis to 2.7.7 _(Suryansh Tyagi, 2026-11-23)_
+- `8c25d03` feat(brixx): tenant documents tab, document API and a reaper for workflows an old deploy stranded _(Aditya Jain, 2026-11-23)_
+- `80359f4` fix(brixx): skip only PG_/SQL_ catalogs on 404; pin v8 hash and v9 rules _(Aditya Jain, 2026-11-23)_
+- `76906ca` feat(calendar): add top-N calendar approvals widget directly after needs-you on main dashboard _(Suryansh Tyagi, 2026-11-23)_
+- `57eb9f7` fix(brixx): skip listed tables BRIXX cannot describe so runs stop failing _(Aditya Jain, 2026-11-23)_
+- `61dddbe` fix(concierge): restore published prompt v8, ship the Astra persona as v9 _(Aditya Jain, 2026-11-23)_
+- `16e925e` feat(superagent): upgrade to Gemini 3.8 Flash, add Astra persona, and enhance query agent _(Suryansh Tyagi, 2026-11-23)_
+- `1ce8a41` feat(scripts): add mailbox-to-mailbox sync tool for old-to-new Gmail migration _(Suryansh Tyagi, 2026-11-20)_
+- `e0a4517` fix(contacts): support full thread continuity in communications API & add staging IMAP migration script _(Suryansh Tyagi, 2026-11-20)_
+- `43a64a1` fix(maintenance,dashboard): deprioritize unreconciled rent and add priority sort for maintenance _(Suryansh Tyagi, 2026-11-19)_
+- `74869f2` fix(maintenance): resolve CI ruff and brixx name checks, single-source brixx tickets, and add contextual follow-up drafting _(Suryansh Tyagi, 2026-11-19)_
 
 ## Inferred recent decisions
 
-- `cc98029` fix(frontend): send a real PageView member to PUT /api/v1/agent/page
-- `51e229e` fix(login): make login endpoints resolve the backend on a split-host deploy, restore gated dev sign-in
-- `1876cd9` fix(frontend): remove the dev-login button from the client-facing login page
-- `ab0feac` refactor: split backend and frontend into proper sibling folders
-- `e6353e9` feat(frontend): production Docker image, deploy guide, repo structure docs
-- `71cc8ac` fix(context,tools): restore gates broken by the Astra rename, wrap long lines
-- `123da06` feat(knowledge,agent): add Knowledge Base for Harjot persona, separate Reports nav, rename Super Agent to Astra
-- `902e6db` feat(mobile): redesign mobile menu to match dark rgba(24,24,24,1) mockup
-- `de6c614` feat(branding): implement high-DPI vector typography for REAL ESTATE wordmark
-- `d63a984` feat(branding): enlarge REAL ESTATE wordmark and remove sidebar search bar
-- `1b4e652` feat(branding): enlarge logo and make logo the single interactive toggle
-- `712ecab` feat(layout): eliminate duplicate logo and add manual sidebar toggle
-- `85b9c16` feat(branding): update app and login page logo to HR Real Estate
-- `38cd91e` feat(superagent): read-only analytics views (0044) and dynamic chat thread titles
+- `6eb17e6` fix(calendar): Dutch time everywhere and no invented meetings
+- `40d2315` feat(calendar): show and answer incoming Google Calendar invites on the dashboard
+- `1ea1c3b` feat(brixx): drain the document backlog faster and refresh the Documents tab while files arrive
+- `fa1a50b` fix(test): provide required primary keys in test_tenant_documents mirror fixtures
+- `bc9d5f9` fix(tenants): address review of the Tickets tab
+- `3b74423` fix(tenants): list a tenant's tickets in the Tickets tab
+- `cb39774` fix(ci): fix ruff E501 line lengths, golden eval task routing, and bump inscriptis to 2.7.7
+- `8c25d03` feat(brixx): tenant documents tab, document API and a reaper for workflows an old deploy stranded
+- `80359f4` fix(brixx): skip only PG_/SQL_ catalogs on 404; pin v8 hash and v9 rules
+- `76906ca` feat(calendar): add top-N calendar approvals widget directly after needs-you on main dashboard
+- `57eb9f7` fix(brixx): skip listed tables BRIXX cannot describe so runs stop failing
+- `61dddbe` fix(concierge): restore published prompt v8, ship the Astra persona as v9
+- `16e925e` feat(superagent): upgrade to Gemini 3.8 Flash, add Astra persona, and enhance query agent
+- `1ce8a41` feat(scripts): add mailbox-to-mailbox sync tool for old-to-new Gmail migration
+- `e0a4517` fix(contacts): support full thread continuity in communications API & add staging IMAP migration script
+- `43a64a1` fix(maintenance,dashboard): deprioritize unreconciled rent and add priority sort for maintenance
+- `74869f2` fix(maintenance): resolve CI ruff and brixx name checks, single-source brixx tickets, and add contextual follow-up drafting
 
 ## Hotspots
 
-- 65x — `docs/PROGRESS.md`
+- 81x — `docs/PROGRESS.md`
 - 50x — `app/api/agent/routes.py`
-- 42x — `frontend/src/components/assistant/AskEstateOSPanel.tsx`
+- 45x — `frontend/src/components/assistant/AskEstateOSPanel.tsx`
+- 38x — `frontend/src/lib/api.ts`
 - 38x — `pyproject.toml`
+- 35x — `docs/dashboard-api.md`
 - 35x — `app/api/inbox/routes.py`
 - 34x — `app/core/settings.py`
-- 31x — `docs/dashboard-api.md`
-- 29x — `frontend/src/lib/api.ts`
-- 28x — `.env.example`
-- 27x — `Makefile`
+- 29x — `frontend/src/app/page.tsx`
+- 28x — `frontend/src/app/tenants/page.tsx`
 
 ## Top-level tree
 
@@ -105,13 +108,9 @@ Generated: 2026-11-14T13:31:18.579Z
 .claude/skills/retro/
 .claude/skills/ship/
 .claude/worktrees/
-.claude/worktrees/m-bugfix-sweep/
-.claude/worktrees/m-founderos-lessons/
+.claude/worktrees/brixx-docs/
 .coverage
 .data/
-.data/models/
-.data/models/opus-mt-en-nl/
-.data/models/opus-mt-nl-en/
 .env
 .env.example.bak
 .hypothesis/
@@ -267,4 +266,8 @@ Generated: 2026-11-14T13:31:18.579Z
 .hypothesis/constants/1b8f41e38f01284b
 .hypothesis/constants/1b9c22884a6f6147
 .hypothesis/constants/1bdadf4880ad507f
+.hypothesis/constants/1bdd85f9d037852f
+.hypothesis/constants/1be411ee2443de67
+.hypothesis/constants/1be8d5608ceaab27
+.hypothesis/constants/1c0df7e4b973cf7a
 ```

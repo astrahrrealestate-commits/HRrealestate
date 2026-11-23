@@ -275,7 +275,7 @@ def test_sanitize_rows_for_display_strips_internal_ids_and_formats_values():
     assert row["Property"] == "Keizersgracht 42-A, 1015 CR Amsterdam"
     assert row["Tenant"] == "Vipin Tyagi"
     assert row["Lease Start"] == "02 Nov 2026"
-    assert row["Opened"] == "11 Nov 2026, 11:24"
+    assert row["Opened"] == "11 Nov 2026, 12:24"
     assert row["Status"] == "Active"
 
 
@@ -302,7 +302,7 @@ def test_format_answer_renders_clean_bullets_without_pipes_or_uuids():
     assert " | " not in ans
     assert "01a1ca59-c6cb-7e02-bd67-f86ff1b72267" not in ans
     assert "#b72267" in ans
-    assert "11 Nov 2026, 11:24" in ans
+    assert "11 Nov 2026, 12:24" in ans
     assert "Anouk de Jong" in ans
 
 

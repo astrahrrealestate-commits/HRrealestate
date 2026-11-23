@@ -7,6 +7,7 @@
 import { InboxThread } from "@/types/inbox";
 import { caseRefTail, ticketRef } from "@/lib/caseRef";
 import { BACKEND_BASE_URL, apiFetch } from "@/lib/backend";
+import { localDayNumber, localWallToDate } from "@/lib/clock";
 import { PulseMetrics, AutonomousActionLog } from "@/types/dashboard";
 import { INITIAL_METRICS, RECENT_AUTONOMOUS_LOGS } from "@/data/mockData";
 import { StalledItem, INITIAL_STALLED_ITEMS } from "@/components/today/UnresponsiveRadarCard";
@@ -32,35 +33,25 @@ export interface ApprovalDecideResponse {
   executedAt: string;
 }
 
+function parseClockPart(part: string): [number, number] | null {
+  const [h, m] = part.split(":").map(Number);
+  return !isNaN(h) && !isNaN(m) ? [h, m] : null;
+}
+
+/** "Today 09:30" / "Yesterday 09:30" are the company's (Amsterdam) wall clock, not the browser's. An unreadable
+ * stamp gives "" rather than an invented time. */
 function parseTimestampToIso(ts?: string): string {
-  if (!ts) return new Date().toISOString();
+  if (!ts) return "";
   const trimmed = ts.trim();
-  if (trimmed.startsWith("Today")) {
-    const timePart = trimmed.replace("Today", "").trim();
+  for (const [word, daysAgo] of [["Today", 0], ["Yesterday", 1]] as const) {
+    if (!trimmed.startsWith(word)) continue;
     const now = new Date();
-    if (timePart) {
-      const [h, m] = timePart.split(":").map(Number);
-      if (!isNaN(h) && !isNaN(m)) {
-        now.setHours(h, m, 0, 0);
-      }
-    }
-    return now.toISOString();
-  }
-  if (trimmed.startsWith("Yesterday")) {
-    const timePart = trimmed.replace("Yesterday", "").trim();
-    const yest = new Date();
-    yest.setDate(yest.getDate() - 1);
-    if (timePart) {
-      const [h, m] = timePart.split(":").map(Number);
-      if (!isNaN(h) && !isNaN(m)) {
-        yest.setHours(h, m, 0, 0);
-      }
-    }
-    return yest.toISOString();
+    const clock = parseClockPart(trimmed.replace(word, "").trim());
+    if (!clock) return "";
+    return localWallToDate(localDayNumber(now) - daysAgo, clock[0], clock[1]).toISOString();
   }
   const parsed = new Date(ts);
-  if (!isNaN(parsed.getTime())) return parsed.toISOString();
-  return new Date().toISOString();
+  return isNaN(parsed.getTime()) ? "" : parsed.toISOString();
 }
 
 /**
@@ -1777,63 +1768,9 @@ export interface FetchCalendarEventsParams {
   caseId?: string;
 }
 
-function getDynamicIsoDate(daysFromNow: number, hour: number, minute: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + daysFromNow);
-  d.setHours(hour, minute, 0, 0);
-  return d.toISOString();
-}
-
-export function getDefaultCalendarEvents(): CalendarEvent[] {
-  return [
-    {
-      id: "cal-evt-101",
-      caseId: "case-001",
-      title: "Central Heating Valve Replacement & Radiator Bleed",
-      location: "Singel 412, 1016 AK Amsterdam",
-      startTime: getDynamicIsoDate(1, 10, 0),
-      endTime: getDynamicIsoDate(1, 11, 30),
-      status: "proposed",
-      eventType: "contractor_repair",
-      attendees: [{ displayName: "Kevin van Dijk (Chahal Bouw)", email: "kevin@chahalbouw.nl" }],
-      lockboxCode: "4912# (Side gate key safe)",
-      description: "Tenant reported no heat in 2nd floor bedroom. Kevin van Dijk confirmed availability for diagnostic and radiator valve fitting.",
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: "cal-evt-102",
-      caseId: "case-002",
-      title: "Post-Storm Gutter & Roof Leakage Diagnostic",
-      location: "Henry Dunantweg 5B, 2402 NM Alphen aan den Rijn",
-      startTime: getDynamicIsoDate(2, 13, 30),
-      endTime: getDynamicIsoDate(2, 14, 45),
-      status: "proposed",
-      eventType: "contractor_repair",
-      attendees: [{ displayName: "Bram Visser (Dakbeheer)", email: "bram@dakbeheer.nl" }],
-      lockboxCode: "3388# (Utility closet)",
-      description: "Water ingress detected near ceiling joinery. Contractor requested roof hatch inspection slot.",
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: "cal-evt-103",
-      caseId: "case-003",
-      title: "Pre-Moveout Handover & Meter Inspection",
-      location: "Keizersgracht 42-A, 1015 CR Amsterdam",
-      startTime: getDynamicIsoDate(3, 9, 0),
-      endTime: getDynamicIsoDate(3, 10, 0),
-      status: "proposed",
-      eventType: "inspection",
-      attendees: [{ displayName: "Anouk de Jong (Tenant)", email: "anouk@dejong.nl" }],
-      lockboxCode: "Tenant present (No lockbox needed)",
-      description: "Scheduled key handover, paint inspection, and smart meter recording before lease termination.",
-      createdAt: new Date().toISOString(),
-    },
-  ];
-}
-
 /**
- * Fetches calendar events from backend API (GET /api/calendar/events),
- * falling back to default operational events if the endpoint is empty or unreachable.
+ * Fetches calendar events from backend API (GET /api/calendar/events). Only real events: when the endpoint is empty
+ * or unreachable the list is empty and `isLive` is false. No sample events are ever shown.
  */
 export async function getCalendarEvents(
   params?: FetchCalendarEventsParams
@@ -1851,20 +1788,14 @@ export async function getCalendarEvents(
     });
     if (res.ok) {
       const data = await res.json();
-      if (Array.isArray(data?.events) && data.events.length > 0) {
+      if (Array.isArray(data?.events)) {
         return { events: data.events, total: data.total ?? data.events.length, isLive: true };
       }
     }
   } catch (err) {
-    console.warn("Failed to fetch live calendar events, using fallback data:", err);
+    console.warn("Failed to fetch calendar events:", err);
   }
-
-  const fallbacks = getDefaultCalendarEvents();
-  const filtered = params?.status
-    ? fallbacks.filter((e) => e.status === params.status)
-    : fallbacks;
-
-  return { events: filtered, total: filtered.length, isLive: false };
+  return { events: [], total: 0, isLive: false };
 }
 
 /**
@@ -1886,12 +1817,70 @@ export async function approveCalendarEvent(
       return { ok: true, event: data };
     }
     const errData = await res.json().catch(() => null);
-    console.warn(`Calendar approve returned ${res.status}:`, errData);
-    // Optimistic fallback for local or demo events
-    return { ok: true };
-  } catch (err: any) {
-    console.warn("Network error during calendar approve, using optimistic confirmation:", err);
-    return { ok: true };
+    return { ok: false, error: errData?.detail ?? `HTTP ${res.status}` };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "network error" };
   }
 }
 
+
+// ---------------------------------------------------------------------------
+// Incoming Google Calendar invites (sent to the owner directly, not proposed by EstateOS)
+// ---------------------------------------------------------------------------
+
+export type InviteResponse = "accepted" | "declined" | "tentative";
+
+export interface IncomingInvite {
+  id: string;
+  title: string;
+  startTime: string;
+  endTime: string;
+  location?: string | null;
+  organizerEmail: string;
+  organizerName?: string | null;
+  htmlLink?: string | null;
+  matchedBy: "organizer" | "address";
+  person?: { name: string; kind: string; trade?: string | null } | null;
+  unit?: { id: string; label: string } | null;
+}
+
+/** GET /api/calendar/invites: pending invites that concern a known contact or one of our properties. */
+export async function getIncomingInvites(): Promise<IncomingInvite[]> {
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/calendar/invites`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return Array.isArray(data?.invites) ? data.invites : [];
+    }
+  } catch (err) {
+    console.warn("Failed to fetch incoming calendar invites:", err);
+  }
+  return [];
+}
+
+/** POST /api/calendar/invites/{id}/respond: one click sets the owner's RSVP on Google Calendar. */
+export async function respondToInvite(
+  eventId: string,
+  response: InviteResponse
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await apiFetch(
+      `${BACKEND_BASE_URL}/api/calendar/invites/${encodeURIComponent(eventId)}/respond`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ response }),
+        signal: AbortSignal.timeout(10000),
+      }
+    );
+    if (res.ok) return { ok: true };
+    const err = await res.json().catch(() => null);
+    return { ok: false, error: err?.detail ?? `HTTP ${res.status}` };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "network error" };
+  }
+}

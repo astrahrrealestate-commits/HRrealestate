@@ -17,12 +17,13 @@ from app.api.deps import get_engine
 from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import decide_limit
-from app.channels.calendar import CalendarAttendee, CalendarEventCreate, get_calendar_client
+from app.channels.calendar import CalendarAttendee, CalendarEventCreate, CalendarUnavailableError, get_calendar_client
+from app.core.localtime import to_local
 from app.core.logging import get_logger
 from app.db.enums import CaseEventKind
 from app.db.models import Case, CaseEvent, Unit
 from app.db.models.calendar import CalendarEventRow
-from app.llm.agents.calendar import propose_calendar_event
+from app.llm.agents.calendar import TimeNotStatedError, propose_calendar_event
 
 router = APIRouter(
     prefix="/api/calendar",
@@ -46,7 +47,7 @@ class CalendarEventResponse(BaseModel):
     location: str | None = None
     attendees: list[dict[str, Any]] = Field(default_factory=list)
     lockboxCode: str | None = None
-    createdAt: str
+    createdAt: str | None = None
     confirmedAt: str | None = None
     htmlLink: str | None = None
 
@@ -68,8 +69,8 @@ class CreateCalendarEventRequest(BaseModel):
 class ProposeSlotRequest(BaseModel):
     messageText: str
     propertyAddress: str
-    contractorName: str | None = "Kevin van Dijk (Technician)"
-    contractorEmail: str | None = "kevin@chahalbouw.nl"
+    contractorName: str | None = None
+    contractorEmail: str | None = None
     lockboxCode: str | None = None
     caseId: str | None = None
 
@@ -90,7 +91,7 @@ def _event_response(r: CalendarEventRow, html_link: str | None = None, *, full: 
         location=r.location,
         attendees=(r.attendees or []) if full else [],
         lockboxCode=r.lockbox_code if full else None,
-        createdAt=r.created_at.isoformat() if r.created_at else datetime.now(UTC).isoformat(),
+        createdAt=r.created_at.isoformat() if r.created_at else None,
         confirmedAt=r.confirmed_at.isoformat() if r.confirmed_at else None,
         htmlLink=html_link
         or (f"https://calendar.google.com/calendar/event?eid={r.external_event_id}" if r.external_event_id else None),
@@ -130,15 +131,19 @@ def propose_slot(
     req: ProposeSlotRequest,
 ) -> dict[str, Any]:
     """Parse text, detect timing & lockbox, check Google Calendar busy slots, and propose an appointment."""
-    client = get_calendar_client()
-    proposal = propose_calendar_event(
-        message_text=req.messageText,
-        property_address=req.propertyAddress,
-        calendar_client=client,
-        contractor_name=req.contractorName,
-        contractor_email=req.contractorEmail,
-        lockbox_pin=req.lockboxCode,
-    )
+    try:
+        proposal = propose_calendar_event(
+            message_text=req.messageText,
+            property_address=req.propertyAddress,
+            calendar_client=get_calendar_client(),
+            contractor_name=req.contractorName,
+            contractor_email=req.contractorEmail,
+            lockbox_pin=req.lockboxCode,
+        )
+    except TimeNotStatedError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except CalendarUnavailableError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
     return {
         "title": proposal.title,
@@ -157,7 +162,6 @@ def propose_slot(
         else None,
         "notes": proposal.notes,
         "requiresLockbox": proposal.requires_lockbox,
-        "clarificationNeeded": proposal.clarification_needed,
     }
 
 
@@ -251,9 +255,7 @@ def approve_calendar_event(
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="event is cancelled")
         if evt.status == "confirmed":
             return _event_response(evt)
-        client = get_calendar_client()
-
-        # 1. Push to Google Calendar via client protocol
+        # 1. Push to Google Calendar first; nothing is marked confirmed unless Google really saved it
         attendees = [
             CalendarAttendee(email=a.get("email", ""), display_name=a.get("displayName"))
             for a in (evt.attendees or [])
@@ -268,7 +270,10 @@ def approve_calendar_event(
             attendees=attendees,
             metadata={"case_id": str(evt.case_id)} if evt.case_id else {},
         )
-        created_gcal = client.create_event(gcal_create)
+        try:
+            created_gcal = get_calendar_client().create_event(gcal_create)
+        except CalendarUnavailableError as exc:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
         # 2. Update DB status and external event ID
         evt.status = "confirmed"
@@ -279,7 +284,7 @@ def approve_calendar_event(
         if evt.case_id:
             case = session.get(Case, evt.case_id)
             if case:
-                sched_stamp = evt.start_time.strftime("%A %b %d at %H:%M")
+                sched_stamp = to_local(evt.start_time).strftime("%A %b %d at %H:%M")
                 note_text = f"Visit scheduled on Google Calendar for {sched_stamp} ({evt.title})."
                 existing_sum = (case.summary or "").strip()
                 if "Visit scheduled on Google Calendar" not in existing_sum:

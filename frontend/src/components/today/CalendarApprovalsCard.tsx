@@ -19,8 +19,10 @@ import {
   Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatClock, formatWeekdayDate, localDayNumber } from "@/lib/clock";
 import { useLanguage } from "@/context/LanguageContext";
 import { SectionHeader } from "@/components/ui/SectionHeader";
+import { IncomingInvitesSection } from "@/components/today/IncomingInvitesSection";
 import {
   CalendarEvent,
   getCalendarEvents,
@@ -30,6 +32,7 @@ import {
 export interface CalendarApprovalsCardProps {
   initialEvents?: CalendarEvent[];
   onApproveSuccess?: (eventId: string, title: string) => void;
+  onInviteAnswered?: (title: string, response: "accepted" | "declined" | "tentative") => void;
   className?: string;
 }
 
@@ -41,29 +44,29 @@ function formatSlot(startIso: string, endIso: string): string {
     const end = new Date(endIso);
     const now = new Date();
 
-    const isToday = start.toDateString() === now.toDateString();
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const isTomorrow = start.toDateString() === tomorrow.toDateString();
+    const ahead = localDayNumber(start) - localDayNumber(now);
+    const isToday = ahead === 0;
+    const isTomorrow = ahead === 1;
 
     const dateLabel = isToday
       ? "Today"
       : isTomorrow
       ? "Tomorrow"
-      : start.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+      : formatWeekdayDate(start);
 
-    const startTime = start.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
-    const endTime = end.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const startTime = formatClock(start);
+    const endTime = formatClock(end);
 
     return `${dateLabel} · ${startTime} – ${endTime}`;
   } catch {
-    return "Scheduled Time";
+    return "";
   }
 }
 
 export function CalendarApprovalsCard({
   initialEvents,
   onApproveSuccess,
+  onInviteAnswered,
   className,
 }: CalendarApprovalsCardProps) {
   const { t } = useLanguage();
@@ -119,7 +122,6 @@ export function CalendarApprovalsCard({
               ...e,
               status: "confirmed",
               confirmedAt: new Date().toISOString(),
-              externalEventId: e.externalEventId || "gcal-synced",
             }
           : e
       )
@@ -229,6 +231,8 @@ export function CalendarApprovalsCard({
           </button>
         </div>
       </div>
+
+      <IncomingInvitesSection onAnswered={onInviteAnswered} />
 
       {/* Content list */}
       {isLoading ? (
