@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.channels.brixx.fake import FakeBrixxApi, FakeTable
 from app.channels.brixx.models import BrixxField, BrixxTable
-from app.core.errors import BrixxAuthError, BrixxError
+from app.core.errors import BrixxAuthError, BrixxError, BrixxNotFoundError
 from app.db.enums import BrixxRunKind, BrixxRunStatus
 from app.db.models import Company
 from app.db.models.brixx import BrixxSyncRun, BrixxSyncTableState
@@ -318,3 +318,16 @@ def test_live_column_the_mirror_lacks_lands_in_extra_and_flags_drift(env: Env) -
     with Session(env.mirror.engine) as s:
         extras = list(s.scalars(sa.select(table.c._extra).where(table.c.company_id == env.company_id)))
     assert extras == [{"nieuw": "x"}, {"nieuw": "x"}]
+
+
+def test_listed_table_brixx_cannot_describe_is_skipped_not_a_failed_run(env: Env) -> None:
+    api = env.install({"PRG_A": 3, "PG_CLASS": 1})  # BRIXX lists Postgres catalogs it then answers 404 for
+    api.fail_describe("PG_CLASS", BrixxNotFoundError("BRIXX request failed (HTTP 404)"), once=False)
+
+    brixx_sync.sync_all(SCHEDULED, None)
+
+    [run] = env.runs()
+    assert (run.status, run.error) == (BrixxRunStatus.succeeded, None)  # else the dashboard shows "Stale" forever
+    assert env.mirrored("PRG_A") == 3
+    assert env.fetches("PG_CLASS") == []
+    assert "PG_CLASS" not in env.marked
