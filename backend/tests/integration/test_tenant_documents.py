@@ -61,7 +61,14 @@ def _doc(session: Session, company: UUID, key: int, name: str, size: int = 100, 
 
 def _link(session: Session, company: UUID, key: int, kind: int, entity: int, **extra: Any) -> None:
     _mirror(
-        session, "prg_document_link", company, prg_documentid=key, entiteitid=entity, sys_entiteittypeid=kind, **extra
+        session,
+        "prg_document_link",
+        company,
+        prg_document_linkid=key,
+        prg_documentid=key,
+        entiteitid=entity,
+        sys_entiteittypeid=kind,
+        **extra,
     )
 
 
@@ -115,13 +122,34 @@ def world(migrated_engine: Engine, pg_url: str) -> Iterator[World]:
         ):
             _doc(s, cid, key, name, size=100 + key)
         _mirror(
-            s, "prg_relatiedocument", cid, prg_documentid=1, prg_relatieid=1, typ_relatiedocumentid=7, indverwijderd=0
+            s,
+            "prg_relatiedocument",
+            cid,
+            prg_relatiedocumentid=1,
+            prg_documentid=1,
+            prg_relatieid=1,
+            typ_relatiedocumentid=7,
+            indverwijderd=0,
         )
         _mirror(
-            s, "prg_relatiedocument", cid, prg_documentid=6, prg_relatieid=2, typ_relatiedocumentid=7, indverwijderd=0
+            s,
+            "prg_relatiedocument",
+            cid,
+            prg_relatiedocumentid=2,
+            prg_documentid=6,
+            prg_relatieid=2,
+            typ_relatiedocumentid=7,
+            indverwijderd=0,
         )
         _mirror(
-            s, "prg_relatiedocument", cid, prg_documentid=7, prg_relatieid=1, typ_relatiedocumentid=7, indverwijderd=1
+            s,
+            "prg_relatiedocument",
+            cid,
+            prg_relatiedocumentid=3,
+            prg_documentid=7,
+            prg_relatieid=1,
+            typ_relatiedocumentid=7,
+            indverwijderd=1,
         )
         _link(s, cid, 2, 9, 500)  # contract
         _link(s, cid, 3, 12, 100)  # unit

@@ -13,6 +13,7 @@ import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import { ThreadRow, ThreadRowItem } from "@/components/ui/ThreadRow";
 import { StatLine, StatItem } from "@/components/ui/StatLine";
 import { SectionHeader } from "@/components/ui/SectionHeader";
+import { CalendarApprovalsCard } from "@/components/today/CalendarApprovalsCard";
 import { Button } from "@/components/ui/Button";
 import { formatCurrency, cn } from "@/lib/utils";
 import { useLanguage } from "@/context/LanguageContext";
@@ -1810,6 +1811,15 @@ export default function TodayPage() {
               )}
             </div>
           </section>
+          )}
+
+          {/* Section 1.5: Calendar & Visit Approvals (Top N proposed appointments awaiting Harjot's confirmation) */}
+          {(activeSection === "all" || activeSection === "needs_you" || activeSection === "urgent") && (
+            <CalendarApprovalsCard
+              onApproveSuccess={(_eventId, title) => {
+                showToast(`Visit approved & synced to Google Calendar: ${title}`);
+              }}
+            />
           )}
 
           {/* Section 2: Waiting on others (Unresponsive cases, Section 2.3 T3 & 5.3) */}
