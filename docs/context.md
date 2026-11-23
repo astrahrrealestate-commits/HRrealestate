@@ -1,6 +1,6 @@
 # Project context (auto)
 
-Generated: 2026-11-23T09:16:04.267Z
+Generated: 2026-11-23T09:19:21.451Z
 
 ## Detected stack
 
@@ -9,10 +9,11 @@ Generated: 2026-11-23T09:16:04.267Z
 ## Git
 
 - Branch: `dev`
-- HEAD: `6eb17e6`
+- HEAD: `37a8247`
 
 ## Recent commits
 
+- `37a8247` chore: sync pending context doc, concierge eval reports and Connections tab display override _(Aditya Jain, 2026-11-23)_
 - `6eb17e6` fix(calendar): Dutch time everywhere and no invented meetings _(Aditya Jain, 2026-11-23)_
 - `40d2315` feat(calendar): show and answer incoming Google Calendar invites on the dashboard _(Aditya Jain, 2026-11-23)_
 - `20b9c78` chore(merge): bring hrrealestate/dev into the documents work _(Aditya Jain, 2026-11-23)_
@@ -32,7 +33,6 @@ Generated: 2026-11-23T09:16:04.267Z
 - `e0a4517` fix(contacts): support full thread continuity in communications API & add staging IMAP migration script _(Suryansh Tyagi, 2026-11-20)_
 - `43a64a1` fix(maintenance,dashboard): deprioritize unreconciled rent and add priority sort for maintenance _(Suryansh Tyagi, 2026-11-19)_
 - `74869f2` fix(maintenance): resolve CI ruff and brixx name checks, single-source brixx tickets, and add contextual follow-up drafting _(Suryansh Tyagi, 2026-11-19)_
-- `7a1e231` fix(maintenance): remove CHAT, LINKED, and BRIXX badge tags from maintenance tickets _(Suryansh Tyagi, 2026-11-19)_
 
 ## Inferred recent decisions
 
@@ -53,7 +53,6 @@ Generated: 2026-11-23T09:16:04.267Z
 - `e0a4517` fix(contacts): support full thread continuity in communications API & add staging IMAP migration script
 - `43a64a1` fix(maintenance,dashboard): deprioritize unreconciled rent and add priority sort for maintenance
 - `74869f2` fix(maintenance): resolve CI ruff and brixx name checks, single-source brixx tickets, and add contextual follow-up drafting
-- `7a1e231` fix(maintenance): remove CHAT, LINKED, and BRIXX badge tags from maintenance tickets
 
 ## Hotspots
 

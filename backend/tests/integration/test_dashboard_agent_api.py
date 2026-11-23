@@ -271,9 +271,10 @@ def test_three_requests_in_one_message_all_run_against_postgres(world: World) ->
             s.query(TaskRow).filter(TaskRow.id == task_id).delete()
 
 
-def test_calendar_step_proposes_a_visit_against_postgres(world: World) -> None:
-    """A planned `calendar` step stores one PROPOSED event for the owner's company and answers with its approve card.
-    The step's text is model output: another company's contractor it names is never invited."""
+def test_calendar_step_never_books_with_another_companys_contractor(world: World) -> None:
+    """A planned `calendar` step names a contractor that only another company has. The step's text is model output:
+    that contractor is never used, nothing is guessed in its place, no event is stored for either company and the
+    owner is asked for the property and contractor."""
     from datetime import date
     from unittest.mock import patch
 
@@ -310,12 +311,10 @@ def test_calendar_step_proposes_a_visit_against_postgres(world: World) -> None:
         body = r.json()
         with Session(world.engine) as s:
             events = s.scalars(select(CalendarEventRow).where(CalendarEventRow.company_id.in_([world.company, other])))
-            [event] = events.all()
-        assert (event.company_id, event.status, event.attendees) == (world.company, "proposed", [])
-        assert "Bram" not in event.title
-        assert body["debugInfo"]["pipeline_stage"] == "calendar"
-        assert (body["previewCard"]["type"], body["previewCard"]["actionId"]) == ("calendar_item", str(event.id))
-        assert body["actions"][0]["payload"] == f"/api/calendar/events/{event.id}/approve"
+            assert events.all() == []
+        assert "Bram" not in body["answer"]
+        assert "which property and which contractor" in body["answer"]
+        assert body["previewCard"] is None
     finally:
         with Session(world.engine) as s, s.begin():
             s.query(CalendarEventRow).filter(CalendarEventRow.company_id.in_([world.company, other])).delete()
