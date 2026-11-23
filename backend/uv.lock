@@ -504,7 +504,7 @@ requires-dist = [
     { name = "google-api-python-client", specifier = ">=2.150" },
     { name = "google-auth", specifier = ">=2.36" },
     { name = "httpx", specifier = ">=0.28" },
-    { name = "inscriptis", specifier = ">=2.5" },
+    { name = "inscriptis", specifier = ">=2.7.6" },
     { name = "itsdangerous", specifier = ">=2.2.0" },
     { name = "mail-parser-reply", specifier = ">=1.30" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.45.1" },
@@ -970,15 +970,15 @@ wheels = [
 
 [[package]]
 name = "inscriptis"
-version = "2.7.5"
+version = "2.7.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lxml" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/28/e1/6a22a16abbe9111c119f95265f148c3eaee8a0065858e14084f1660ec53b/inscriptis-2.7.5.tar.gz", hash = "sha256:3ce15f75ed7ae3ecf45c0c39458774011483c382686a61d04e49949104d44092", size = 1098396, upload-time = "2026-09-29T17:40:33.647Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/20/a1/5d24cf6443a7bd0233a72de98bef624856970ddb3849fdc27751de0f0678/inscriptis-2.7.7.tar.gz", hash = "sha256:d98d6a2e06dbc21f087a6938efa59fb5746483c0e4ee2174a93936633c5fab2d", size = 1599339, upload-time = "2026-11-19T13:15:03.267Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b4/be/7c0ce8f475269cef0e43e48ea1e103a3afe948277cf2fd3bc4a00470a424/inscriptis-2.7.5-py3-none-any.whl", hash = "sha256:5d6fcf405f6d9efe29b55c44b062573d88af3dfddde48c124b778ab4c7133f40", size = 47734, upload-time = "2026-09-29T17:40:31.583Z" },
+    { url = "https://files.pythonhosted.org/packages/6d/87/f6f09fa45808a22ebcd3cdd4580098c3a001a2f050cf1455b17189a698d3/inscriptis-2.7.7-py3-none-any.whl", hash = "sha256:3937b9dee5df4386e3873639c64aa63684559e28551dba1e1faedc4f67308128", size = 48210, upload-time = "2026-11-19T13:15:01.336Z" },
 ]
 
 [[package]]
