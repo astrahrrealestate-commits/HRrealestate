@@ -929,7 +929,7 @@ def test_clean_executive_answer_formats_case_uuids_and_iso_timestamps():
     assert "Opening cases" not in cleaned
     assert "**Ticket #b72267**" in cleaned
     assert "|" not in cleaned
-    assert "11 Nov 2026, 11:24" in cleaned
+    assert "11 Nov 2026, 12:24" in cleaned  # 11:24 UTC is 12:24 in Amsterdam
     assert "https://example.com/tickets/01a1ca59-c6cb-7e02-bd67-f86ff1b72267" in cleaned
 
 

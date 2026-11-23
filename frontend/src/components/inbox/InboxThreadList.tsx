@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { differenceInCalendarDays } from "date-fns";
+import { localDayNumber } from "@/lib/clock";
 import { InboxThread } from "@/types/inbox";
 import { ThreadRow, ThreadRowItem } from "@/components/ui/ThreadRow";
 import { isUrgent, isNeedsYou } from "@/lib/selectors";
@@ -61,7 +61,7 @@ export function InboxThreadList({
       const receivedDate = new Date(t.receivedAt);
       const diff = isNaN(receivedDate.getTime())
         ? 0
-        : differenceInCalendarDays(now, receivedDate);
+        : localDayNumber(now) - localDayNumber(receivedDate);
 
       if (diff === 0) {
         todayGroup.push(t);

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { MoneyTransaction } from "@/data/moneyMockData";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { formatStamp } from "@/lib/clock";
 
 interface TransactionDetailSheetProps {
   transaction: MoneyTransaction | null;
@@ -44,13 +45,13 @@ export function TransactionDetailSheet({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center md:justify-end bg-black/50 md:bg-black/20 backdrop-blur-xs md:backdrop-blur-none">
-      
+
       {/* Backdrop click dismiss */}
       <div className="absolute inset-0" onClick={onClose} />
 
       {/* Sheet panel: Full-width bottom sheet on mobile, 440px right panel on desktop */}
       <div className="relative w-full md:w-[440px] md:h-full max-h-[85vh] md:max-h-full bg-[var(--pane)] border-t md:border-t-0 md:border-l border-[var(--line)] rounded-t-2xl md:rounded-none flex flex-col shadow-2xl overflow-hidden animate-in slide-in-from-bottom md:slide-in-from-right duration-200">
-        
+
         {/* Mobile handle indicator */}
         <div className="w-12 h-1.5 bg-[var(--line)] rounded-full mx-auto mt-2.5 mb-1 md:hidden" />
 
@@ -89,7 +90,7 @@ export function TransactionDetailSheet({
 
         {/* Sheet Content (Scrollable) */}
         <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6 text-xs text-[var(--ink)]">
-          
+
           {/* Amount Display */}
           <div className="bg-[var(--selected)]/40 border border-[var(--line)] rounded-xl p-4 flex items-center justify-between">
             <div>
@@ -254,7 +255,7 @@ Category        : ${transaction.category}
 Amount          : € ${Math.abs(transaction.amountEur).toLocaleString("nl-NL", { minimumFractionDigits: 2 })}
 Direction       : ${transaction.direction === "inflow" ? "INFLOW / RENT RECEIVED" : "OUTFLOW / EXPENSE"}
 Status          : ${transaction.status.toUpperCase()}
-Generated At    : ${new Date().toISOString()}
+Generated At    : ${formatStamp(new Date())} (Amsterdam)
 ========================================================
 Verified and exported via EstateOS Financial Module
 ========================================================`;

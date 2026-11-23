@@ -4,6 +4,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
 
+from app.core.errors import EstateOSError
+
+
+class CalendarUnavailableError(EstateOSError):
+    """Google Calendar is not connected or did not answer. We never assume a free calendar or a saved event."""
+
 
 @dataclass(frozen=True)
 class TimeSlot:

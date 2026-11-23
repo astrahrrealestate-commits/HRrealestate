@@ -13,14 +13,13 @@ from app.channels.calendar.ports import (
     CalendarClientProtocol,
     CalendarEvent,
     CalendarEventCreate,
+    CalendarUnavailableError,
     TimeSlot,
 )
 from app.core.logging import get_logger
 from app.core.settings import get_settings
 
 log = get_logger(__name__)
-
-_global_fake_client: FakeCalendarClient | None = None
 
 
 def _google_client() -> GoogleCalendarClient | None:
@@ -41,28 +40,20 @@ def _google_client() -> GoogleCalendarClient | None:
 
 
 def get_calendar_client(credentials: dict[str, Any] | None = None) -> CalendarClientProtocol:
-    """Returns live GoogleCalendarClient if configured, otherwise singleton FakeCalendarClient."""
-
-    global _global_fake_client
+    """The live Google Calendar client. Raises `CalendarUnavailableError` when none is connected: there is no fake
+    fallback, so a missing calendar is never read as "free" and no event is ever pretended saved."""
 
     try:
         live = _google_client()
-
-    except Exception as exc:  # unreadable settings or token: fall back to the fake, but say why
+    except Exception as exc:  # unreadable settings or token
         log.warning("calendar.google_client_unavailable", error=type(exc).__name__)
-
-        live = None
+        raise CalendarUnavailableError("Google Calendar is not connected") from exc
 
     if live is not None:
         return live
-
     if credentials and "service" in credentials:
         return GoogleCalendarClient(service=credentials["service"])
-
-    if _global_fake_client is None:
-        _global_fake_client = FakeCalendarClient(credentials=credentials)
-
-    return _global_fake_client
+    raise CalendarUnavailableError("Google Calendar is not connected")
 
 
 __all__ = [
@@ -70,6 +61,7 @@ __all__ = [
     "CalendarClientProtocol",
     "CalendarEvent",
     "CalendarEventCreate",
+    "CalendarUnavailableError",
     "FakeCalendarClient",
     "GoogleCalendarClient",
     "TimeSlot",

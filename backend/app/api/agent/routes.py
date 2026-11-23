@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
+from app.api.agent.calendar_match import open_case_on, unit_named
 from app.api.agent.cards import ActionButtonData, AssistantCardData, PreviewCardData, build_cards_list
 from app.api.agent.cards import CardActionData as CardActionData  # re-exported: callers import the card shapes here
 from app.api.agent.draft_requests import channel_note
@@ -38,7 +39,7 @@ from app.api.deps import get_engine, get_settings_dep
 from app.api.v1.access import require_agent
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import ask_limit
-from app.channels.calendar import get_calendar_client
+from app.channels.calendar import CalendarUnavailableError, get_calendar_client
 from app.context.compiler import compile_concierge_context
 from app.context.selection import rank_cases
 from app.context.super_agent_prompt import build_super_agent_system_prompt
@@ -46,6 +47,7 @@ from app.contracts import ActionType, Channel, ConciergePlan, Direction, Intent,
 from app.core.errors import AgentFailedError, NotFoundError
 from app.core.ids import case_ref as short_case_ref
 from app.core.ids import new_id
+from app.core.localtime import to_local
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import MemoryStatus, PersonKind, TurnStatus
@@ -68,7 +70,7 @@ from app.db.models import (
 )
 from app.db.models.calendar import CalendarEventRow
 from app.db.models.finance import QuoteRow
-from app.llm.agents.calendar import propose_calendar_event
+from app.llm.agents.calendar import TimeNotStatedError, propose_calendar_event
 from app.llm.agents.concierge import CONCIERGE, MAX_HISTORY, concierge_prompt
 from app.llm.agents.owner_qa import CaseBrief
 from app.llm.budget import CONCIERGE_PURPOSE
@@ -543,21 +545,11 @@ def _resolve_calendar_action(
     if not (is_schedule_command or is_calendar_query):
         return None, None, [], []
 
-    client = get_calendar_client()
-
     with Session(engine) as session:
         # 1. HARJOT ASKS TO SCHEDULE / BOOK AN APPOINTMENT
         if is_schedule_command:
-            target_unit = None
-            target_case = None
-            for b in briefs:
-                lbl = (b.label or "").lower()
-                if ("keizersgracht" in q_low and "keizersgracht" in lbl) or ("pieter" in q_low and "pieter" in lbl):
-                    target_case = session.get(Case, b.case_id)
-                    break
-
-            if target_case and target_case.unit_id:
-                target_unit = session.get(Unit, target_case.unit_id)
+            target_unit = unit_named(session, company_id, q_low)
+            target_case = open_case_on(session, company_id, target_unit) if target_unit else None
 
             contractors = list(
                 session.scalars(
@@ -578,53 +570,22 @@ def _resolve_calendar_action(
                     matched_c = c_person
                     break
 
-            # Guard: If no specific property and no specific contractor was named, do NOT invent dummy placeholders.
-            has_property = target_unit is not None or any(
-                w in q_low
-                for w in (
-                    "keizersgracht",
-                    "pieter",
-                    "dunantweg",
-                    "dorpsstraat",
-                    "unit",
-                    "street",
-                    "weg",
-                    "gracht",
-                    "laan",
+            # Never guess which property or contractor: the owner named them or we ask.
+            if target_unit is None or matched_c is None:
+                return (
+                    "I could not tell which property and which contractor this visit is for. "
+                    "Please name both, plus the day and time.",
+                    None,
+                    [],
+                    ["Awaiting appointment details"],
                 )
+
+            addr = target_unit.address or target_unit.label
+            contractor_name = (
+                f"{matched_c.display_name} ({matched_c.trade.capitalize()})"
+                if matched_c.trade
+                else matched_c.display_name
             )
-            has_contractor = matched_c is not None or any(
-                w in q_low for w in ("kevin", "plumber", "electrician", "technician", "loodgieter")
-            )
-            has_explicit_details = (has_property and has_contractor) or any(char.isdigit() for char in q_low)
-
-            if not has_property and not has_contractor and not has_explicit_details:
-                clarify_msg = (
-                    "Which property and which tenant or contractor would you like to schedule this for, "
-                    "and what day or time works best?"
-                )
-                return clarify_msg, None, [], ["Awaiting appointment details"]
-
-            if not target_case and briefs:
-                target_case = session.get(Case, briefs[0].case_id)
-
-            if target_case and target_case.unit_id and not target_unit:
-                target_unit = session.get(Unit, target_case.unit_id)
-
-            addr = (target_unit.address or target_unit.label) if target_unit else "Portfolio Unit"
-            if not matched_c and contractors:
-                matched_c = contractors[0]
-
-            if matched_c:
-                contractor_name = (
-                    f"{matched_c.display_name} ({matched_c.trade.capitalize()})"
-                    if matched_c.trade
-                    else matched_c.display_name
-                )
-            elif "kevin" in q_low:
-                contractor_name = "Kevin van Dijk (Technician)"
-            else:
-                contractor_name = "Assigned Contractor"
 
             contractor_email: str | None = None
             if matched_c:
@@ -641,14 +602,30 @@ def _resolve_calendar_action(
                 if c_ident and c_ident.identity:
                     contractor_email = str(c_ident.identity).strip()
 
-            proposal = propose_calendar_event(
-                message_text=query,
-                property_address=addr,
-                calendar_client=client,
-                contractor_name=contractor_name,
-                contractor_email=contractor_email,
-                lockbox_pin=getattr(target_unit, "lockbox_code", None) if target_unit else None,
-            )
+            try:
+                proposal = propose_calendar_event(
+                    message_text=query,
+                    property_address=addr,
+                    calendar_client=get_calendar_client(),
+                    contractor_name=contractor_name,
+                    contractor_email=contractor_email,
+                    lockbox_pin=getattr(target_unit, "lockbox_code", None),
+                )
+            except TimeNotStatedError:
+                return (
+                    "Which day and time should the visit be? I do not guess a meeting time.",
+                    None,
+                    [],
+                    ["Awaiting appointment time"],
+                )
+            except CalendarUnavailableError:
+                return (
+                    "Google Calendar is not connected right now, so I cannot check your availability or book. "
+                    "Connect it in Connections and ask again.",
+                    None,
+                    [],
+                    ["Google Calendar unavailable"],
+                )
 
             # Persist proposed event in DB
             evt_row = CalendarEventRow(
@@ -668,8 +645,8 @@ def _resolve_calendar_action(
             session.add(evt_row)
             session.commit()
 
-            start_str = proposal.start_time.strftime("%A, %b %d at %H:%M")
-            end_str = proposal.end_time.strftime("%H:%M")
+            start_str = to_local(proposal.start_time).strftime("%A, %b %d at %H:%M")
+            end_str = to_local(proposal.end_time).strftime("%H:%M")
             time_window_str = f"{start_str} – {end_str}"
 
             access_line = (
@@ -681,10 +658,11 @@ def _resolve_calendar_action(
                 f"Lockbox: #{proposal.lockbox_code}\n" if proposal.lockbox_code else "Lockbox: None (Tenant access)\n"
             )
 
+            status_note = f"collision: {proposal.conflict_reason}" if proposal.has_conflict else "no calendar conflicts"
             ans = (
                 f"I have checked your schedule and prepared an appointment for **{contractor_name}** at **{addr}** "
                 f"on **{time_window_str}**.\n\n"
-                f"• **Status**: Proposed (No calendar conflicts)\n"
+                f"• **Status**: Proposed ({status_note})\n"
                 f"{access_line}"
                 f"Tap **Approve & Add to Google Calendar** below to sync."
             )
@@ -741,8 +719,8 @@ def _resolve_calendar_action(
             if events:
                 event_lines = []
                 for e in events[:5]:
-                    date_lbl = e.start_time.strftime("%a %b %d · %H:%M")
-                    loc = e.location or "Portfolio Unit"
+                    date_lbl = to_local(e.start_time).strftime("%a %b %d · %H:%M")
+                    loc = e.location or "no location set"
                     st_badge = f"[{e.status.upper()}]"
                     event_lines.append(f"• **{e.title}** ({st_badge})\n  {date_lbl} at {loc}")
                 sched_text = "\n".join(event_lines)
@@ -902,7 +880,7 @@ _RAW_UUID_RE = re.compile(
     r"(?<![/?=&-])\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b(?![/?=&-])",
     re.IGNORECASE,
 )
-_ISO_DT_INLINE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})\b")
+_ISO_DT_INLINE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2})?(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})\b")
 _HIDDEN_PIPE_ID_FIELD_RE = re.compile(
     r"\*\*(?:Lease|Company|Unit|Person|Event|Action|Message)\s+id:?\*\*:?\s*#?[0-9a-f-]+\s*\|\s*",
     re.IGNORECASE,
@@ -911,8 +889,9 @@ _HIDDEN_PIPE_ID_FIELD_RE = re.compile(
 
 def _format_iso_match(match: re.Match[str]) -> str:
     try:
-        dt = datetime.fromisoformat(f"{match.group(1)} {match.group(2)}")
-        return dt.strftime("%d %b %Y, %H:%M")
+        offset = "+00:00" if match.group(3) == "Z" else match.group(3)
+        dt = datetime.fromisoformat(f"{match.group(1)} {match.group(2)}{offset}")
+        return to_local(dt).strftime("%d %b %Y, %H:%M")
     except ValueError:
         return match.group(0)
 
@@ -1516,7 +1495,7 @@ def ask_agent(
                         snippet = " ".join(text.split())[:180]
                         dir_val = getattr(direction, "value", str(direction))
                         dir_label = "Inbound from tenant/contractor" if dir_val == "inbound" else "Outbound"
-                        date_str = sent_at.strftime("%d %b %H:%M") if sent_at else ""
+                        date_str = to_local(sent_at).strftime("%d %b %H:%M") if sent_at else ""
                         case_msgs_map[cid].append(f'[{date_str} {dir_label} via {channel}]: "{snippet}"')
             except Exception as e:
                 log.warning("api.superagent.case_msgs_enrich_failed", error=str(e))
@@ -2662,7 +2641,7 @@ def get_conversation_detail(
                     id=str(t.id),
                     sender=sender,
                     text=text or "",
-                    timestamp=t.created_at.strftime("%H:%M") if t.created_at else "",
+                    timestamp=to_local(t.created_at).strftime("%H:%M") if t.created_at else "",
                     steps=steps_raw,
                     previewCard=PreviewCardData.model_validate(preview_raw) if preview_raw else None,
                     previewCards=[PreviewCardData.model_validate(pc) for pc in preview_cards_raw if pc],

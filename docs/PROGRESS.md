@@ -419,3 +419,9 @@ bidirectional translation controls onto the new unified Composer, and fixed what
   RSVP call broken); `make quick` -> `3440 passed`
 - [ ] `tests/integration/test_calendar_invite_directory.py` written, not run (Docker would not start on this machine)
 - [ ] Not yet verified against a live Google account (the test mailbox needs a real invite sent to it)
+
+## Dutch time everywhere, no invented calendar data (2026-11-23)
+- [x] Every time a person reads is Europe/Amsterdam 24 h: frontend `lib/clock.ts` helpers, backend `app/core/localtime.py`; query-agent timestamps, calendar agent slots and the agent's calendar replies converted from UTC
+- [x] No invented meetings: a request with no stated day and time raises `TimeNotStatedError` and the owner is asked (no "next business morning" slot, no default contractor, no guessed property or case); the fake Google Calendar is gone from production (`get_calendar_client` raises `CalendarUnavailableError`, free/busy failure is an error, never "free"); approve returns 503 instead of marking an event confirmed; frontend sample events, optimistic approve and made-up "Today HH:mm" fallbacks removed
+- [x] Evidence: `make quick` -> `3447 passed`; frontend `tsc --noEmit` clean
+- [ ] Not exercised against a live Google account or in a browser; `page_text.stamp()` (model-facing prompt text) still prints UTC, a prompt-version change

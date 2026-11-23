@@ -40,7 +40,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { askAgent, approveInboxDraft, approveStandingRule, AssistantCard, PreviewCardData, updateAgentConversation } from "@/lib/api";
-import { formatClock } from "@/lib/clock";
+import { formatClock, formatShortDate } from "@/lib/clock";
 import { AstraIcon, AstraWordmark } from "@/components/ui/AstraBrand";
 
 export interface AssistantAction {
@@ -484,7 +484,7 @@ export function AskEstateOSPanel({
         id: c.id,
         title: c.title || "Untitled Chat",
         date: c.last_turn_at
-          ? new Date(c.last_turn_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+          ? formatShortDate(new Date(c.last_turn_at))
           : "Today",
       }));
     }

@@ -612,7 +612,7 @@ export function InboxConversationView({
               const d = new Date(m.sentAt);
               if (!isNaN(d.getTime())) return formatClock(d);
             }
-            return (m.timeFormatted || "08:15")
+            return (m.timeFormatted || "")
               .replace(/^(today|yesterday)\s*/i, "")
               .trim();
           };

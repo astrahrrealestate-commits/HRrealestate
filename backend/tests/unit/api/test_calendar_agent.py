@@ -12,10 +12,11 @@ Verifies:
 9. The planner, not a word, decides what is a calendar request.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,12 +27,15 @@ from app.api.agent.intent_responses import calendar_segment
 from app.channels.calendar import (
     CalendarAttendee,
     CalendarEventCreate,
+    CalendarUnavailableError,
     FakeCalendarClient,
 )
 from app.contracts import CaseState, Category, ConciergePlan, Intent, PlanStep, Urgency
 from app.core.settings import Settings
-from app.db.models import CalendarEventRow, Case, Company, Unit
+from app.db.enums import PersonKind
+from app.db.models import CalendarEventRow, Case, Company, Person, Unit
 from app.llm.agents.calendar import (
+    TimeNotStatedError,
     detect_lockbox_need,
     extract_time_window,
     propose_calendar_event,
@@ -40,6 +44,8 @@ from app.main import create_app
 from app.pipeline.concierge import StepResult
 from app.pipeline.concierge_reads import CALENDAR_POINTER
 from tests.api_auth import as_owner, with_conversation
+
+AMSTERDAM = ZoneInfo("Europe/Amsterdam")
 
 SETTINGS = Settings(
     database_url="postgresql+psycopg://u:p@localhost:1/db",
@@ -75,7 +81,7 @@ def _plan(*steps: PlanStep) -> ConciergePlan:
 
 
 def test_extract_time_window_range_dutch_and_english():
-    ref = datetime(2026, 10, 28, 9, 0, tzinfo=UTC)  # Wednesday
+    ref = datetime(2026, 10, 28, 9, 0, tzinfo=AMSTERDAM)  # Wednesday
 
     # Dutch range
     tw_nl = extract_time_window("Monteur kan morgen tussen 11:30 en 12:30 komen", reference_date=ref)
@@ -95,7 +101,7 @@ def test_extract_time_window_range_dutch_and_english():
 
 
 def test_extract_time_window_specific_hour_and_day():
-    ref = datetime(2026, 10, 28, 9, 0, tzinfo=UTC)  # Wednesday
+    ref = datetime(2026, 10, 28, 9, 0, tzinfo=AMSTERDAM)  # Wednesday
 
     # Friday at 3 PM
     tw = extract_time_window("Schedule inspection for Friday at 3 PM", reference_date=ref)
@@ -116,13 +122,31 @@ def test_detect_lockbox_need():
     assert detect_lockbox_need("Please fix the leaking pipe in the bathroom") is False
 
 
-def test_missing_time_graceful_fallback():
-    ref = datetime(2026, 10, 28, 9, 0, tzinfo=UTC)
-    tw = extract_time_window("There is a leak under the sink, please send someone", reference_date=ref)
-    assert tw.is_default_fallback is True
-    assert tw.confidence == 0.50
-    assert tw.start_time.hour == 10
-    assert tw.end_time.hour == 11
+def test_missing_time_is_never_invented():
+    ref = datetime(2026, 10, 28, 9, 0, tzinfo=AMSTERDAM)
+    with pytest.raises(TimeNotStatedError):
+        extract_time_window("There is a leak under the sink, please send someone", reference_date=ref)
+    with pytest.raises(TimeNotStatedError):
+        extract_time_window("Kevin can come at 15:00", reference_date=ref)  # a time but no day
+    with pytest.raises(TimeNotStatedError):
+        extract_time_window("Kevin can come tomorrow", reference_date=ref)  # a day but no time
+
+
+def test_propose_endpoint_asks_when_no_time_is_stated():
+    app = as_owner(create_app(SETTINGS, engine=MagicMock(), workflow_client=MagicMock()))
+    with TestClient(app) as client:
+        res = client.post("/api/calendar/propose", json={"messageText": "please come by", "propertyAddress": "X 1"})
+    assert res.status_code == 422
+
+
+def test_no_calendar_connected_is_an_error_not_a_free_calendar():
+    app = as_owner(create_app(SETTINGS, engine=MagicMock(), workflow_client=MagicMock()))
+    with (
+        patch("app.api.calendar.routes.get_calendar_client", side_effect=CalendarUnavailableError("not connected")),
+        TestClient(app) as client,
+    ):
+        res = client.post("/api/calendar/propose", json={"messageText": "morgen om 15:00", "propertyAddress": "X 1"})
+    assert res.status_code == 503
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +156,7 @@ def test_missing_time_graceful_fallback():
 
 def test_fake_calendar_client_lifecycle():
     client = FakeCalendarClient(credentials={"fake": "mock_test_token"})
-    now = datetime(2026, 10, 30, 10, 0, tzinfo=UTC)
+    now = datetime(2026, 10, 30, 10, 0, tzinfo=AMSTERDAM)
 
     # 1. Create event
     created = client.create_event(
@@ -172,7 +196,7 @@ def test_fake_calendar_client_lifecycle():
 
 def test_conflict_detection_and_alternative_proposal():
     client = FakeCalendarClient()
-    friday_3pm = datetime(2026, 10, 30, 15, 0, tzinfo=UTC)
+    friday_3pm = datetime(2026, 10, 30, 15, 0, tzinfo=AMSTERDAM)
 
     # Pre-seed a conflicting event on Friday 15:00 - 16:00
     client.seed_event(
@@ -187,7 +211,7 @@ def test_conflict_detection_and_alternative_proposal():
         message_text="Schedule Kevin for Friday at 3 PM",
         property_address="Keizersgracht 42-A",
         calendar_client=client,
-        reference_date=datetime(2026, 10, 28, 9, 0, tzinfo=UTC),
+        reference_date=datetime(2026, 10, 28, 9, 0, tzinfo=AMSTERDAM),
     )
 
     assert proposal.has_conflict is True
@@ -282,6 +306,13 @@ def test_super_agent_schedule_command_returns_preview_card():
     )
 
     company = Company(id=TEST_COMP_ID, name="EstateOS Test")
+    kevin = Person(
+        id=uuid4(),
+        company_id=TEST_COMP_ID,
+        kind=PersonKind.contractor,
+        display_name="Kevin van Dijk",
+        trade="technician",
+    )
     mock_sess = MagicMock()
 
     def mock_scalars(query):
@@ -294,6 +325,11 @@ def test_super_agent_schedule_command_returns_preview_card():
             result.first.return_value = mock_case
         elif "from calendar_events" in q_str:
             result.all.return_value = []
+        elif "from units" in q_str:
+            result.all.return_value = [mock_unit]
+        elif "from people" in q_str:
+            result.all.return_value = [kevin]
+            result.first.return_value = kevin
         else:
             result.first.return_value = None
             result.all.return_value = []
@@ -349,8 +385,8 @@ def test_super_agent_calendar_schedule_inquiry():
         id=uuid4(),
         company_id=TEST_COMP_ID,
         title="Plumbing Inspection · Keizersgracht 42-A",
-        start_time=datetime(2026, 10, 30, 15, 0, tzinfo=UTC),
-        end_time=datetime(2026, 10, 30, 16, 0, tzinfo=UTC),
+        start_time=datetime(2026, 10, 30, 15, 0, tzinfo=AMSTERDAM),
+        end_time=datetime(2026, 10, 30, 16, 0, tzinfo=AMSTERDAM),
         location="Keizersgracht 42-A",
         status="confirmed",
         event_type="contractor_repair",
@@ -416,7 +452,7 @@ DRAFTED = StepResult(
 
 
 def _portfolio_session() -> MagicMock:
-    """One open case on Keizersgracht 42-A; no contractors and nothing on the calendar."""
+    """One open case on Keizersgracht 42-A, one plumber on file, nothing on the calendar."""
     company = Company(id=TEST_COMP_ID, name="EstateOS Test")
     unit = Unit(id=UNIT_ID, company_id=TEST_COMP_ID, address="Keizersgracht 42-A")
     case = Case(
@@ -428,7 +464,19 @@ def _portfolio_session() -> MagicMock:
         state=CaseState.waiting_on_third_party,
         summary="Leaking kitchen tap.",
     )
-    rows: dict[str, list[Any]] = {"from companies": [company], "from cases": [case]}
+    plumber = Person(
+        id=UUID(int=15),
+        company_id=TEST_COMP_ID,
+        kind=PersonKind.contractor,
+        display_name="Jan Plumber",
+        trade="plumber",
+    )
+    rows: dict[str, list[Any]] = {
+        "from companies": [company],
+        "from cases": [case],
+        "from people": [plumber],
+        "from units": [unit],
+    }
     by_model: dict[Any, Any] = {Company: company, Case: case, Unit: unit}
 
     def scalars(query: object) -> MagicMock:
@@ -478,11 +526,11 @@ def _events_added(sess: MagicMock) -> list[CalendarEventRow]:
 
 def test_calendar_intent_books_a_visit() -> None:
     """No calendar word in the message: the planner's `calendar` step books the visit (its text is the request)."""
-    plan = _plan(_step(Intent.calendar, text="book the plumber Thursday at ten"))
-    data, sess, resolve = _ask(plan, "can the plumber come Thursday at ten")
+    plan = _plan(_step(Intent.calendar, text="book the plumber Thursday at 10:00 at Keizersgracht"))
+    data, sess, resolve = _ask(plan, "can the plumber come Thursday at 10:00 at Keizersgracht")
 
     resolve.assert_called_once()
-    assert resolve.call_args.args[0] == "book the plumber Thursday at ten"
+    assert resolve.call_args.args[0] == "book the plumber Thursday at 10:00 at Keizersgracht"
     assert data["debugInfo"]["pipeline_stage"] == "calendar"
     assert data["previewCard"]["type"] == "calendar_item"
     assert [c["type"] for c in data["cards"]] == ["calendar_item"]
@@ -541,7 +589,8 @@ def test_negated_schedule_books_nothing() -> None:
 def test_calendar_and_draft_in_one_message() -> None:
     run_plan = MagicMock(return_value=[DRAFTED])
     plan = _plan(
-        _step(Intent.draft_reply, case_id=CASE_ID), _step(Intent.calendar, text="book the plumber Thursday at 10:00")
+        _step(Intent.draft_reply, case_id=CASE_ID),
+        _step(Intent.calendar, text="book the plumber Thursday at 10:00 at Keizersgracht"),
     )
     data, sess, _ = _ask(plan, "Draft a reply to the tenant and book the plumber Thursday at 10:00", run_plan=run_plan)
 

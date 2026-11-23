@@ -60,3 +60,40 @@ export function formatStamp(date: Date): string {
   const p = localParts(date);
   return `${formatDate(date)} ${p.hh}:${p.mm}`;
 }
+
+const MONTHS_LONG = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+const MONTHS_SHORT = MONTHS_LONG.map((m) => m.slice(0, 3));
+
+const weekdayLong = new Intl.DateTimeFormat("en-GB", { timeZone: APP_TIME_ZONE, weekday: "long" });
+
+/** "Thursday 15 October" in the company's zone. */
+export function formatLongDay(date: Date): string {
+  const p = localParts(date);
+  return `${weekdayLong.format(date)} ${p.day} ${MONTHS_LONG[p.month - 1]}`;
+}
+
+/** "15 Oct" in the company's zone. */
+export function formatShortDate(date: Date): string {
+  const p = localParts(date);
+  return `${p.day} ${MONTHS_SHORT[p.month - 1]}`;
+}
+
+/** "Thu 15 Oct" in the company's zone. */
+export function formatWeekdayDate(date: Date): string {
+  return `${localParts(date).weekday} ${formatShortDate(date)}`;
+}
+
+/** The instant at which the company's wall clock reads `hour:minute` on the local day `dayNumber` (see localDayNumber). */
+export function localWallToDate(dayNumber: number, hour: number, minute: number): Date {
+  const wall = dayNumber * 86_400_000 + (hour * 60 + minute) * 60_000;
+  let guess = wall;
+  for (let i = 0; i < 2; i++) {
+    const p = localParts(new Date(guess));
+    const shown = Date.UTC(p.year, p.month - 1, p.day, Number(p.hh), Number(p.mm));
+    guess += wall - shown;
+  }
+  return new Date(guess);
+}

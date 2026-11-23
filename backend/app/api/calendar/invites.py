@@ -21,7 +21,7 @@ from app.api.deps import get_engine
 from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import decide_limit
-from app.channels.calendar import CalendarEvent, get_calendar_client
+from app.channels.calendar import CalendarEvent, CalendarUnavailableError, get_calendar_client
 from app.contracts import Channel
 from app.core.logging import get_logger
 from app.db.models import ChannelIdentity, Person, Unit
@@ -136,7 +136,10 @@ def _load_directory(session: Session, company_id: UUID) -> tuple[dict[str, Known
 
 def _property_invites(engine: Engine, company_id: UUID) -> list[IncomingInvite]:
     now = datetime.now(UTC)
-    events = get_calendar_client().list_pending_invites(now, now + LOOKAHEAD)
+    try:
+        events = get_calendar_client().list_pending_invites(now, now + LOOKAHEAD)
+    except CalendarUnavailableError:
+        return []  # not connected: no invites are known, none are invented
     if not events:
         return []
     with Session(engine) as session:
