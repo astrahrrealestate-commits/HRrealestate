@@ -91,7 +91,7 @@ def test_draft_and_chase_expected_only_when_asked() -> None:
             assert g.group == "reply"
 
 
-@pytest.mark.parametrize("version", ["v8", "v5", "v4", "v3", "v2"])
+@pytest.mark.parametrize("version", ["v9", "v8", "v5", "v4", "v3", "v2"])
 def test_fake_passes_every_runnable_case(version: str) -> None:
     result = concierge_eval.run(version, _fake())
     assert result.misses == []

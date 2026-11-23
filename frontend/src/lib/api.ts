@@ -562,6 +562,7 @@ export interface MaintenanceTicket {
   issueTitle: string;
   unitLabel: string;
   tenantName: string;
+  tenantId?: string;
   tenantPhone: string;
   category: "electrical" | "plumbing" | "heating" | "appliance" | "structural";
   contractorName: string;
@@ -598,10 +599,12 @@ export interface MaintenanceStats {
 export async function getMaintenanceTickets(params: {
   status?: string;
   category?: string;
+  tenantId?: string;
 } = {}): Promise<{ tickets: MaintenanceTicket[]; stats: MaintenanceStats | null; isLive: boolean }> {
   const query = new URLSearchParams();
   if (params.status && params.status !== "all") query.set("status", params.status);
   if (params.category && params.category !== "all") query.set("category", params.category);
+  if (params.tenantId) query.set("tenant_id", params.tenantId);
 
   try {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/maintenance/tickets?${query.toString()}`, {

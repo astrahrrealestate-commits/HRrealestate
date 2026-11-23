@@ -12,6 +12,7 @@ import {
   Mail,
   MessageSquare,
   FileText,
+  FolderOpen,
   Wrench,
   Send,
   CheckCheck,
@@ -48,9 +49,12 @@ import {
   generateEmailDrafts,
   sendEmailReply,
   generateWhatsAppDrafts,
+  getMaintenanceTickets,
+  type MaintenanceTicket,
 } from "@/lib/api";
 import { formatClock } from "@/lib/clock";
 import { ContactFormModal } from "@/components/contacts/ContactFormModal";
+import { TenantDocumentsPanel } from "@/components/contacts/TenantDocumentsPanel";
 import type { SavedContact } from "@/lib/contactsWriteApi";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { FlagUK, FlagNL } from "@/components/ui/FlagIcons";
@@ -203,10 +207,10 @@ function TenantsContent() {
     });
   };
 
-  // Detail pane tabs: "mails" | "whatsapp" | "brixx" | "tickets"
-  const [activeTab, setActiveTab] = useState<"mails" | "whatsapp" | "brixx" | "tickets">("mails");
+  // Detail pane tabs: "mails" | "whatsapp" | "brixx" | "documents" | "tickets"
+  const [activeTab, setActiveTab] = useState<"mails" | "whatsapp" | "brixx" | "documents" | "tickets">("mails");
 
-  const handleSelectTab = (tab: "mails" | "whatsapp" | "brixx" | "tickets", contactId?: string) => {
+  const handleSelectTab = (tab: "mails" | "whatsapp" | "brixx" | "documents" | "tickets", contactId?: string) => {
     setActiveTab(tab);
     if (contactId) {
       setMobileInfoPref({ contactId, expanded: false });
@@ -242,6 +246,32 @@ function TenantsContent() {
       dbContacts[0]
     );
   }, [dbContacts, selectedContactId]);
+
+  // Tickets raised by the active tenant: fetched (filtered by the API) while the Tickets tab is open. The result
+  // remembers whose it is, so a slow answer for a previous tenant is never shown for the current one.
+  const [ticketsFetch, setTicketsFetch] = useState<{
+    forId: string;
+    tickets: MaintenanceTicket[];
+    live: boolean;
+  } | null>(null);
+  const activeContactId = activeContact?.id;
+  useEffect(() => {
+    if (activeTab !== "tickets" || !activeContactId) return;
+    let isMounted = true;
+    getMaintenanceTickets({ tenantId: activeContactId }).then(({ tickets, isLive }) => {
+      if (isMounted) setTicketsFetch({ forId: activeContactId, tickets, live: isLive });
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [activeContactId, activeTab]);
+  const currentTickets = ticketsFetch && ticketsFetch.forId === activeContactId ? ticketsFetch : null;
+  const tenantTickets = currentTickets?.tickets ?? [];
+  const ticketsState: "loading" | "ready" | "unavailable" = !currentTickets
+    ? "loading"
+    : currentTickets.live
+      ? "ready"
+      : "unavailable";
 
   const isMobileInfoExpanded =
     activeContact && mobileInfoPref.contactId === activeContact.id ? mobileInfoPref.expanded : true;
@@ -1106,6 +1136,20 @@ function TenantsContent() {
 
                     <button
                       type="button"
+                      onClick={() => handleSelectTab("documents", activeContact.id)}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 py-[9px] px-[14px] pb-[11px] text-[13px] font-medium border-b-2 transition-all cursor-pointer whitespace-nowrap",
+                        activeTab === "documents"
+                          ? "border-[#0f172a] text-[#0f172a] font-semibold"
+                          : "border-transparent text-[#64748b] hover:text-[#0f172a]"
+                      )}
+                    >
+                      <FolderOpen className="w-4 h-4" />
+                      <span>{t("Documents")}</span>
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={() => handleSelectTab("tickets", activeContact.id)}
                       className={cn(
                         "inline-flex items-center gap-1.5 py-[9px] px-[14px] pb-[11px] text-[13px] font-medium border-b-2 transition-all cursor-pointer whitespace-nowrap",
@@ -1849,18 +1893,58 @@ function TenantsContent() {
                     </div>
                   )}
 
+                  {/* TAB VIEW 3b: Documents (BRIXX files of the tenant, their contract, unit and building) */}
+                  {activeTab === "documents" && (
+                    <TenantDocumentsPanel tenantId={activeContact.id} name={activeContact.name} />
+                  )}
+
                   {/* TAB VIEW 4: Tickets */}
                   {activeTab === "tickets" && (
                     <div className="flex-1 flex flex-col p-3.5 sm:p-6 space-y-4 bg-white">
-                      {(
+                      {tenantTickets.length > 0 ? (
+                        <ul className="space-y-2">
+                          {tenantTickets.map((tk) => (
+                            <li key={tk.id}>
+                              <button
+                                type="button"
+                                onClick={() => router.push(`/maintenance?ticket=${encodeURIComponent(tk.id)}`)}
+                                className="w-full text-left p-3 rounded-[8px] border border-[#e2e8f0] hover:bg-[#f8fafc] cursor-pointer"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-sm font-semibold text-[#111215] truncate">{tk.issueTitle}</span>
+                                  <span className="text-[10px] font-semibold uppercase tracking-wider text-[#475569] shrink-0">
+                                    {tk.status.replace(/_/g, " ")}
+                                  </span>
+                                </div>
+                                <div className="text-xs text-[#64748b] mt-1">
+                                  {tk.ticketNumber}
+                                  {tk.unitLabel ? ` · ${tk.unitLabel}` : ""}
+                                  {tk.reportedAt ? ` · ${tk.reportedAt}` : ""}
+                                  {tk.contractorName ? ` · ${tk.contractorName}` : ""}
+                                </div>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
                         <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white border border-dashed border-[#e2e8f0] rounded-[8px]">
                           <div className="w-12 h-12 rounded-full bg-[#f1f5f9] flex items-center justify-center text-[#64748b] mb-3">
                             <Wrench className="w-5 h-5 stroke-[1.5]" />
                           </div>
-                          <h3 className="text-sm font-semibold text-[#111215]">No active ticket repairs</h3>
-                          <p className="text-xs text-[#64748b] max-w-sm mt-1">
-                            There are currently no open work orders or contractor dispatches logged for {activeContact.name}.
-                          </p>
+                          <h3 className="text-sm font-semibold text-[#111215]">
+                            {ticketsState === "loading"
+                              ? "Loading tickets..."
+                              : ticketsState === "unavailable"
+                                ? "Tickets unavailable"
+                                : "No tickets"}
+                          </h3>
+                          {ticketsState !== "loading" && (
+                            <p className="text-xs text-[#64748b] max-w-sm mt-1">
+                              {ticketsState === "unavailable"
+                                ? "Could not reach the server. Try again in a moment."
+                                : `There are no tickets logged for ${activeContact.name}.`}
+                            </p>
+                          )}
                         </div>
                       )}
                     </div>

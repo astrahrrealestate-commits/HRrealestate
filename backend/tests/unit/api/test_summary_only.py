@@ -66,14 +66,15 @@ def test_the_original_thread_is_not_changed() -> None:
 
 def test_a_ticket_keeps_its_status_and_budget_but_loses_phones_notes_and_drafts() -> None:
     ticket = MaintenanceTicketItem(
-        id="t1", ticketNumber="#005", issueTitle="Leak", unitLabel="4B", tenantName="Anouk", tenantPhone="0611111111",
+        id="t1", ticketNumber="#005", issueTitle="Leak", unitLabel="4B", tenantName="Anouk", tenantId="p-1",
+        tenantPhone="0611111111",
         category="plumbing", contractorName="Bakker", contractorTrade="plumber", contractorPhone="0622222222",
         contractorEmail="bakker@x.test", urgency="high", status="pending_approval", slaRemaining="2h",
         poBudgetCap="500", reportedAt="2026-11-01", notes="gate code 1234", originalMessage="help",
         tenantDraft="we are on it", contractorDraft="please come",
     )  # fmt: skip
     out = _without_contact_and_messages(ticket)
-    assert out.tenantName == "Anouk"
+    assert (out.tenantName, out.tenantId) == ("Anouk", "p-1")  # the directory id is not contact data
     kept = (out.ticketNumber, out.status, out.poBudgetCap, out.contractorName)
     assert kept == ("#005", "pending_approval", "500", "Bakker")
     assert (out.tenantPhone, out.contractorPhone, out.contractorEmail, out.notes) == ("", None, None, "")

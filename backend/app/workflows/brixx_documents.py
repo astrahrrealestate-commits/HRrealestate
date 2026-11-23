@@ -2,8 +2,8 @@
 
 `enqueue_document_downloads` runs inside the table's sync workflow: a step claims up to `MAX_CLAIMS` versions
 (commits them as `pending`, Postgres before work), then the body enqueues one workflow per claim with the id
-`brixxdoc:<company>:<document>:<version>:<attempt>` on the `brixx_documents` queue (concurrency 1). The rest of a
-large backlog is claimed by later syncs, so every workflow stays short.
+`brixxdoc:<company>:<document>:<version>:<attempt>:<app version>` on the `brixx_documents` queue (concurrency 1).
+The rest of a large backlog is claimed by later syncs, so every workflow stays short.
 
 Workflow bodies only sequence steps. The download step is retry-safe: a settled version is not downloaded again and
 equal bytes map to one object and one row. 401/403 settles the version as `forbidden`. `BrixxAuthError` and
@@ -61,7 +61,9 @@ def enqueue_document_downloads(company_id: str, info: dict[str, Any]) -> int:
     """Workflow-body helper: claim, then enqueue one deterministic download workflow per claimed version."""
     claims = claim_documents_step(company_id, info)
     for document_id, version, attempt in claims:
-        with SetWorkflowID(brixx_document_workflow_id(company_id, document_id, version, attempt)):
+        with SetWorkflowID(
+            brixx_document_workflow_id(company_id, document_id, version, attempt, DBOS.application_version)
+        ):
             queues.brixx_documents_queue().enqueue(download_document, company_id, document_id, version)
     return len(claims)
 

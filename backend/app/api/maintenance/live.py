@@ -146,6 +146,9 @@ def ticket_with_edits(session: Session, case: Case) -> dict[str, Any]:
     return _ticket(session, case, edit.fields if edit else None)
 
 
+LOCKED_FIELDS = frozenset({"tenantId"})  # identity of the ticket and its tenant: an owner edit never re-points them
+
+
 def _ticket(session: Session, case: Case, edits: dict[str, Any] | None = None) -> dict[str, Any]:
     unit = session.get(Unit, case.unit_id) if case.unit_id else None
     unit_label = (unit.address or unit.label) if unit else "Unknown unit"
@@ -167,6 +170,7 @@ def _ticket(session: Session, case: Case, edits: dict[str, Any] | None = None) -
         "issueTitle": issue,
         "unitLabel": unit_label,
         "tenantName": tenant_name,
+        "tenantId": str(person.id) if person else "",
         "tenantPhone": tenant_phone,
         "category": category_of(trade),
         "contractorName": contractor.display_name if contractor else "",
@@ -178,7 +182,7 @@ def _ticket(session: Session, case: Case, edits: dict[str, Any] | None = None) -
         "slaRemaining": "Dispatched" if dispatched else "",
         "isOverdue": False,
         "poBudgetCap": "",
-        "reportedAt": case.opened_at.strftime("%H:%M") if case.opened_at else "",
+        "reportedAt": case.opened_at.strftime("%Y-%m-%d %H:%M") if case.opened_at else "",
         "notes": case.summary,
         "originalMessage": _first_inbound_text(session, case),
         "contractorDraft": to_contractor,
@@ -188,5 +192,7 @@ def _ticket(session: Session, case: Case, edits: dict[str, Any] | None = None) -
         "location": "",
     }
     if edits:  # the owner's persisted display edits win over derived values; unknown keys and blanks are dropped
-        ticket.update({k: v for k, v in edits.items() if k in ticket and v not in (None, "")})
+        ticket.update(
+            {k: v for k, v in edits.items() if k in ticket and k not in LOCKED_FIELDS and v not in (None, "")}
+        )
     return ticket

@@ -73,6 +73,24 @@ READS: dict[str, tuple[Group, ...]] = {
         ledger.PAID_ON,
         ledger.REVERSED,
     ),
+    # Tenant documents (app/directory/brixx/tenant_documents.py): columns are named there with their types.
+    "prg_document": (
+        ("prg_documentid",),
+        ("benaming",),
+        ("filenaam",),
+        ("groottebytes",),
+        ("typ_documentcategorieid",),
+        col.CREATED,
+    ),
+    "prg_relatiedocument": (
+        ("prg_documentid",),
+        (col.RELATIE_PK,),
+        ("typ_relatiedocumentid",),
+        ("indverwijderd",),
+    ),
+    "prg_document_link": (("prg_documentid",), ("entiteitid",), ("sys_entiteittypeid",)),
+    "typ_documentcategorie": (("typ_documentcategorieid",), ("benaming",)),
+    "typ_relatiedocument": (("typ_relatiedocumentid",), ("benaming",)),
     # Maintenance feed (app/api/maintenance/brixx_tickets.py); its own names are literals there, kept equal by the test.
     "tst_ticket": (
         ("tst_ticketid",),

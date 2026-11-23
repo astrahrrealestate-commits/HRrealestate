@@ -228,7 +228,7 @@ What the agent reads for an open thread or case (the memory pack, server facts i
   reads the same text.
 
 Answers use the page too, in one model call: for a question about the page, the conversation, a case, a draft or
-the tasks, the planner (prompt `concierge/v8`; v4 added the document steps, v6 the `query_data` step and `suggestions`, v7 `needs_research` for open questions, v8 the `remember`, `calendar` and `rent_status` steps) writes the answer itself in the plan's
+the tasks, the planner (prompt `concierge/v9`; v4 added the document steps, v6 the `query_data` step and `suggestions`, v7 `needs_research` for open questions, v8 the `remember`, `calendar` and `rent_status` steps, v9 the Astra persona and clarifying questions instead of placeholder calendar steps) writes the answer itself in the plan's
 `reply` and plans an `answer` step, which shows it. A `reply` is used only when every step of the plan is `answer` or
 `open_view`: a plan with any action (a draft, a chase, a task change, pause/resume, a document step) shows no model
 text, only each step's own summary, and its stored `reply` is null. Before the owner sees it, `reply` is screened:

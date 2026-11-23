@@ -159,6 +159,7 @@ def _ticket(
         "issueTitle": title,
         "unitLabel": (unit.label or unit.address) if unit else "",
         "tenantName": tenant.display_name if tenant else "",
+        "tenantId": str(tenant.id) if tenant else "",
         "tenantPhone": identity_of(session, tenant.id, phone=True) if tenant and contacts else "",
         "category": category_of(f"{title} {place} {(contractor.trade or '') if contractor else ''}"),
         "contractorName": contractor.display_name if contractor else "",

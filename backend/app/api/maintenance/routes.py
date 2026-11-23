@@ -60,6 +60,7 @@ class MaintenanceTicketItem(BaseModel):
     issueTitle: str
     unitLabel: str
     tenantName: str
+    tenantId: str = Field(default="", description="Directory person id of the tenant, empty when unknown")
     tenantPhone: str
     category: str = Field(description="electrical, plumbing, heating, appliance, structural")
     contractorName: str
@@ -216,6 +217,9 @@ def get_maintenance_tickets(
     urgency: str = Query(default="all", description="all, emergency, high, normal, low"),
     status: str = Query(default="all", description="all, pending_approval, dispatched, scheduled, completed"),
     category: str = Query(default="all", description="all, electrical, plumbing, heating, appliance, structural"),
+    tenant_id: str = Query(
+        default="", description="Only this tenant's tickets (directory person id); stats stay global"
+    ),
 ) -> MaintenanceTicketsResponse:
     with Session(engine) as session:
         from_brixx = brixx_tickets(session, principal.company_id)  # read-only: the owner's tickets in BRIXX
@@ -231,6 +235,8 @@ def get_maintenance_tickets(
         tickets = [t for t in tickets if t["urgency"] == urgency]
     if status != "all":
         tickets = [t for t in tickets if t["status"] == status]
+    if tenant_id:
+        tickets = [t for t in tickets if t.get("tenantId") == tenant_id]
     if category != "all":  # the SPA sends it (frontend/src/lib/api.ts getMaintenanceTickets)
         tickets = [t for t in tickets if t["category"] == category]
 
