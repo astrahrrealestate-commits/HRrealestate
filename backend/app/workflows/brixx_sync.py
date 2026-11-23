@@ -11,9 +11,9 @@ Failure policy: `BrixxAuthError`, `BrixxNotFoundError` and `StaleRunError` are n
 step; retrying cannot help until the token is replaced, BRIXX actually has the resource, or the rival run finishes).
 Other `BrixxError`/`BrixxStoreError`s and database errors are retried with backoff. A child never raises for a
 failed table: it returns `failed:<ErrorClass>` so the parent can mark the run `failed` (class and table names only)
-while the other tables finish. A listed table BRIXX cannot describe (404: its PG_*/SQL_* catalogs) is `skipped`,
-not failed, so it cannot keep the run, and the dashboard's "Stale" badge, red. The fixed cron (`*/15`) does not
-read `brixx_sync_interval_minutes`: that setting is not used for scheduling.
+while the other tables finish. A listed PG_*/SQL_* catalog BRIXX cannot describe (404) is `skipped`, not failed, so
+it cannot keep the run, and the dashboard's "Stale" badge, red; a 404 on any other table still fails it.
+The fixed cron (`*/15`) does not read `brixx_sync_interval_minutes`: that setting is not used for scheduling.
 
 Mirror tables come from generated migrations, so a child writes only through the columns the migrated mirror table has
 (`app.directory.brixx.mirror`). A table the mirror cannot store yet (no migration for it, or its primary key missing)
@@ -53,6 +53,7 @@ from app.workflows.deps import brixx_api, get_engine
 
 log = get_logger(__name__)
 
+_CATALOG_PREFIXES = ("PG_", "SQL_")  # Postgres catalogs BRIXX lists but answers 404 for
 SKIPPED = "skipped"  # the mirror has no storable table for it yet: drift, not a failure
 _RUN_NAMESPACE = uuid5(NAMESPACE_URL, "https://estateos.invalid/brixx/sync-run")
 _MAX_ERROR = 1000
@@ -219,8 +220,10 @@ def mark_success_step(company_id: str, run_id: str, table: str, upd: str | None,
 def _sync_pages(run_id: str, table: str) -> str:
     try:
         info = describe_step(table)
-    except BrixxNotFoundError:  # listed Postgres catalogs (PG_*, SQL_*): 404 is permanent, not a failure
-        log.warning("brixx.sync_table_skipped", table=table, reason="not_describable")
+    except BrixxNotFoundError:
+        if not table.upper().startswith(_CATALOG_PREFIXES):
+            raise  # a business table that starts 404ing is a real failure: the run stays red
+        log.info("brixx.sync_table_skipped", table=table, reason="catalog_not_describable")
         return SKIPPED
     if info is None:
         log.warning("brixx.sync_table_skipped", table=table, reason="no_usable_primary_key")

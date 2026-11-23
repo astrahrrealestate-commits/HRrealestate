@@ -331,3 +331,16 @@ def test_listed_table_brixx_cannot_describe_is_skipped_not_a_failed_run(env: Env
     assert env.mirrored("PRG_A") == 3
     assert env.fetches("PG_CLASS") == []
     assert "PG_CLASS" not in env.marked
+
+
+def test_business_table_that_starts_404ing_still_fails_the_run(env: Env) -> None:
+    api = env.install({"PRG_A": 3, "PRG_B": 2})
+    api.fail_describe("PRG_B", BrixxNotFoundError("BRIXX request failed (HTTP 404)"), once=False)
+
+    brixx_sync.sync_all(SCHEDULED, None)
+
+    [run] = env.runs()
+    assert run.status == BrixxRunStatus.failed
+    assert run.error is not None
+    assert "PRG_B" in run.error
+    assert env.mirrored("PRG_A") == 3

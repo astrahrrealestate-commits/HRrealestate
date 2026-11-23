@@ -81,7 +81,7 @@ def test_prompt_escapes_hostile_text_in_every_block() -> None:
     assert prompt.rstrip().endswith("</message>")
 
 
-def test_prompt_v8_is_current_and_loads_with_hash() -> None:
+def test_prompt_v9_is_current_and_loads_with_hash() -> None:
     loaded = load_prompt(CONCIERGE.prompt)
     assert CONCIERGE.prompt.key == "concierge/v9"
     assert re.fullmatch(r"[0-9a-f]{64}", loaded.sha256)
@@ -203,6 +203,23 @@ def test_prompt_v7_extends_v6_with_needs_research_and_keeps_every_safety_rule() 
 
 
 V7_SHA256 = "0f1caaf2ff6fbaf7e678c48c58bf0ec1b26268ebd70d5d88053434a35a7d50af"  # published: never changes
+V8_SHA256 = "e01272ea5ea2beedccc43c3edc9f893b216a6c8fda0f67458627e88e067e7f2d"  # published: never changes
+
+
+def test_v8_stays_published_byte_for_byte_and_v9_adds_the_persona_and_routing_rules() -> None:
+    """16e925e once edited v8 in place; the hash pin catches that. v9 carries the persona, clarify-before-calendar,
+    database-vs-document routing and directory lookups, and keeps `text` null for redrafts."""
+    assert load_prompt(PromptRef(name="concierge", version="v8")).sha256 == V8_SHA256
+    v8 = load_prompt(PromptRef(name="concierge", version="v8")).text
+    v9 = load_prompt(PromptRef(name="concierge", version="v9")).text
+    assert "You are Astra" in v9
+    assert "Astra" not in v8
+    for rule in ("CLARIFICATION BEFORE ACTIONS", "DATABASE VS DOCUMENT ROUTING", "PEOPLE, CONTRACTORS & BRIXX REFS"):
+        assert rule in v9
+        assert rule not in v8
+    assert "NEVER invent dummy values" in v9
+    assert "passing Harjot's instructions in `text`" not in v9
+    assert "drafting" not in v9.lower()
 
 
 def test_v8_prompt_names_the_new_intents_and_the_three_rules() -> None:
