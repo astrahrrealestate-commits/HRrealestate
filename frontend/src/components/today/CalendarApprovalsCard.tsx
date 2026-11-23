@@ -21,6 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/context/LanguageContext";
 import { SectionHeader } from "@/components/ui/SectionHeader";
+import { IncomingInvitesSection } from "@/components/today/IncomingInvitesSection";
 import {
   CalendarEvent,
   getCalendarEvents,
@@ -30,6 +31,7 @@ import {
 export interface CalendarApprovalsCardProps {
   initialEvents?: CalendarEvent[];
   onApproveSuccess?: (eventId: string, title: string) => void;
+  onInviteAnswered?: (title: string, response: "accepted" | "declined" | "tentative") => void;
   className?: string;
 }
 
@@ -64,6 +66,7 @@ function formatSlot(startIso: string, endIso: string): string {
 export function CalendarApprovalsCard({
   initialEvents,
   onApproveSuccess,
+  onInviteAnswered,
   className,
 }: CalendarApprovalsCardProps) {
   const { t } = useLanguage();
@@ -229,6 +232,8 @@ export function CalendarApprovalsCard({
           </button>
         </div>
       </div>
+
+      <IncomingInvitesSection onAnswered={onInviteAnswered} />
 
       {/* Content list */}
       {isLoading ? (

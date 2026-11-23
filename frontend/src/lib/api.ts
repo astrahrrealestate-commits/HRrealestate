@@ -1895,3 +1895,63 @@ export async function approveCalendarEvent(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Incoming Google Calendar invites (sent to the owner directly, not proposed by EstateOS)
+// ---------------------------------------------------------------------------
+
+export type InviteResponse = "accepted" | "declined" | "tentative";
+
+export interface IncomingInvite {
+  id: string;
+  title: string;
+  startTime: string;
+  endTime: string;
+  location?: string | null;
+  organizerEmail: string;
+  organizerName?: string | null;
+  htmlLink?: string | null;
+  matchedBy: "organizer" | "address";
+  person?: { name: string; kind: string; trade?: string | null } | null;
+  unit?: { id: string; label: string } | null;
+}
+
+/** GET /api/calendar/invites: pending invites that concern a known contact or one of our properties. */
+export async function getIncomingInvites(): Promise<IncomingInvite[]> {
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/calendar/invites`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return Array.isArray(data?.invites) ? data.invites : [];
+    }
+  } catch (err) {
+    console.warn("Failed to fetch incoming calendar invites:", err);
+  }
+  return [];
+}
+
+/** POST /api/calendar/invites/{id}/respond: one click sets the owner's RSVP on Google Calendar. */
+export async function respondToInvite(
+  eventId: string,
+  response: InviteResponse
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await apiFetch(
+      `${BACKEND_BASE_URL}/api/calendar/invites/${encodeURIComponent(eventId)}/respond`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ response }),
+        signal: AbortSignal.timeout(10000),
+      }
+    );
+    if (res.ok) return { ok: true };
+    const err = await res.json().catch(() => null);
+    return { ok: false, error: err?.detail ?? `HTTP ${res.status}` };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "network error" };
+  }
+}

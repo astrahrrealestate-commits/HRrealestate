@@ -1819,6 +1819,9 @@ export default function TodayPage() {
               onApproveSuccess={(_eventId, title) => {
                 showToast(`Visit approved & synced to Google Calendar: ${title}`);
               }}
+              onInviteAnswered={(title, response) => {
+                showToast(`Invite ${response}: ${title}`);
+              }}
             />
           )}
 
