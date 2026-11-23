@@ -38,6 +38,11 @@ const KEBAB_BUTTON =
   "p-1 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors cursor-pointer";
 const MENU_ITEM =
   "w-full px-3 py-1.5 text-left text-[12px] font-medium flex items-center gap-2 cursor-pointer disabled:opacity-60";
+// Display overrides (owner's request): the tab shows BRIXX as connected and WhatsApp as not connected whatever the server
+// reports. Set both to false to show the live state again (the live fetches below keep running).
+const SHOW_BRIXX_CONNECTED = true;
+const SHOW_WHATSAPP_DISCONNECTED = true;
+
 const BADGE =
   "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-normal text-zinc-600 dark:text-zinc-300 bg-zinc-100/90 dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/60";
 
@@ -287,8 +292,9 @@ export function ConnectionsModal({ isOpen, onClose }: ConnectionsModalProps) {
     );
   };
 
-  const waStatusLine =
-    whatsApp === undefined
+  const waStatusLine = SHOW_WHATSAPP_DISCONNECTED
+    ? "Not connected"
+    : whatsApp === undefined
       ? "Checking connection status..."
       : whatsApp === null
         ? "Could not check the connection status"
@@ -296,8 +302,9 @@ export function ConnectionsModal({ isOpen, onClose }: ConnectionsModalProps) {
           ? `Connected through ${whatsApp.provider} · set up on the server`
           : "Not connected · the server uses the built-in test provider";
 
-  const brixxStatusLine =
-    brixx === undefined
+  const brixxStatusLine = SHOW_BRIXX_CONNECTED
+    ? "Connected"
+    : brixx === undefined
       ? "Checking sync status..."
       : brixx === null
         ? "Could not check the sync status"
@@ -413,7 +420,9 @@ export function ConnectionsModal({ isOpen, onClose }: ConnectionsModalProps) {
             description="Instant tenant dispatch & messaging"
             statusLine={waStatusLine}
           >
-            {whatsApp === undefined ? (
+            {SHOW_WHATSAPP_DISCONNECTED ? (
+              <span className={BADGE}>{t("Not connected", "Niet verbonden")}</span>
+            ) : whatsApp === undefined ? (
               <Loader2 className="w-4 h-4 animate-spin text-zinc-400" aria-label="Checking" />
             ) : whatsApp === null ? (
               retryButton
@@ -432,7 +441,12 @@ export function ConnectionsModal({ isOpen, onClose }: ConnectionsModalProps) {
             description="Financial modeling, cash flow ledger & property forecasting"
             statusLine={brixxStatusLine}
           >
-            {brixx === undefined ? (
+            {SHOW_BRIXX_CONNECTED ? (
+              <span className={BADGE}>
+                <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
+                {t("Connected", "Verbonden")}
+              </span>
+            ) : brixx === undefined ? (
               <Loader2 className="w-4 h-4 animate-spin text-zinc-400" aria-label="Checking" />
             ) : brixx === null ? (
               retryButton
