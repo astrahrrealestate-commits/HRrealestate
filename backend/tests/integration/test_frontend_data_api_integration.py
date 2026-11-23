@@ -242,6 +242,70 @@ def test_a_ticket_carries_its_tenants_id_so_the_tenant_tab_can_list_it(portfolio
     assert ticket["tenantId"] == str(portfolio.anouk)
 
 
+def test_a_ticket_without_a_tenant_has_an_empty_tenant_id(portfolio: Portfolio) -> None:
+    data = portfolio.client.get("/api/maintenance/tickets").json()
+    ticket = next(t for t in data["tickets"] if t["id"] == str(portfolio.maintenance_case))
+    assert ticket["tenantId"] == ""
+
+
+def test_the_tenant_filter_lists_only_that_tenants_tickets_and_never_another_companys(portfolio: Portfolio) -> None:
+    with Session(portfolio.engine) as s:
+        case = s.get(Case, portfolio.maintenance_case)
+        assert case is not None
+        case.primary_person_id = portfolio.anouk
+        other = s.scalars(select(Person).where(Person.display_name == "Carla Smit")).one()
+        theirs = s.scalars(select(Case).where(Case.summary == "Their burst pipe")).one()
+        theirs.primary_person_id = other.id
+        s.commit()
+        other_id = str(other.id)
+    mine = portfolio.client.get(f"/api/maintenance/tickets?tenant_id={portfolio.anouk}").json()
+    assert [t["id"] for t in mine["tickets"]] == [str(portfolio.maintenance_case)]
+    assert mine["stats"]["openCount"] >= 1  # stats stay portfolio-wide
+    assert portfolio.client.get(f"/api/maintenance/tickets?tenant_id={portfolio.prinsen}").json()["tickets"] == []
+    assert portfolio.client.get(f"/api/maintenance/tickets?tenant_id={other_id}").json()["tickets"] == []
+    assert "Their burst pipe" not in str(portfolio.client.get("/api/maintenance/tickets").json())
+
+
+def test_an_owner_edit_cannot_re_point_a_ticket_to_another_tenant(portfolio: Portfolio) -> None:
+    with Session(portfolio.engine) as s:
+        case = s.get(Case, portfolio.maintenance_case)
+        assert case is not None
+        case.primary_person_id = portfolio.anouk
+        s.add(
+            TicketEdit(
+                company_id=portfolio.company, case_id=portfolio.maintenance_case,
+                fields={"tenantId": str(portfolio.prinsen), "issueTitle": "Edited"},
+            )
+        )  # fmt: skip
+        s.commit()
+    ticket = next(
+        t
+        for t in portfolio.client.get("/api/maintenance/tickets").json()["tickets"]
+        if t["id"] == str(portfolio.maintenance_case)
+    )
+    assert (ticket["issueTitle"], ticket["tenantId"]) == ("Edited", str(portfolio.anouk))
+
+
+def test_a_brixx_ticket_carries_its_tenants_id(portfolio: Portfolio) -> None:
+    from sqlalchemy import text
+
+    with Session(portfolio.engine) as s:
+        person = s.get(Person, portfolio.anouk)
+        assert person is not None
+        person.brixx_ref = "9"
+        s.execute(
+            text(
+                "insert into brixx.tst_ticket (company_id, tst_ticketid, titel, indurgent, indverwijderd, newdatetime,"
+                " prg_relatieid) values (:c, 9101, 'Lekkage', 0, 0, now(), 9)"
+            ),
+            {"c": portfolio.company},
+        )
+        s.commit()
+    listed = portfolio.client.get(f"/api/maintenance/tickets?tenant_id={portfolio.anouk}").json()["tickets"]
+    assert [(t["ticketNumber"], t["tenantId"]) for t in listed] == [("BRIXX-9101", str(portfolio.anouk))]
+    assert portfolio.client.get(f"/api/maintenance/tickets?tenant_id={portfolio.prinsen}").json()["tickets"] == []
+
+
 def test_the_contractor_comes_from_the_requested_action_and_sets_the_category(portfolio: Portfolio) -> None:
     with Session(portfolio.engine) as s:
         person = Person(

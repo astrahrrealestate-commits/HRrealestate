@@ -247,24 +247,31 @@ function TenantsContent() {
     );
   }, [dbContacts, selectedContactId]);
 
-  // Tickets raised by the active tenant (the API tags every ticket with its tenant's directory id)
-  const [tenantTickets, setTenantTickets] = useState<MaintenanceTicket[]>([]);
-  const [ticketsLoaded, setTicketsLoaded] = useState(false);
+  // Tickets raised by the active tenant: fetched (filtered by the API) while the Tickets tab is open. The result
+  // remembers whose it is, so a slow answer for a previous tenant is never shown for the current one.
+  const [ticketsFetch, setTicketsFetch] = useState<{
+    forId: string;
+    tickets: MaintenanceTicket[];
+    live: boolean;
+  } | null>(null);
   const activeContactId = activeContact?.id;
   useEffect(() => {
-    setTenantTickets([]);
-    setTicketsLoaded(false);
-    if (!activeContactId) return;
+    if (activeTab !== "tickets" || !activeContactId) return;
     let isMounted = true;
-    getMaintenanceTickets().then(({ tickets, isLive }) => {
-      if (!isMounted) return;
-      setTenantTickets(tickets.filter((tk) => tk.tenantId === activeContactId));
-      setTicketsLoaded(isLive);
+    getMaintenanceTickets({ tenantId: activeContactId }).then(({ tickets, isLive }) => {
+      if (isMounted) setTicketsFetch({ forId: activeContactId, tickets, live: isLive });
     });
     return () => {
       isMounted = false;
     };
-  }, [activeContactId]);
+  }, [activeContactId, activeTab]);
+  const currentTickets = ticketsFetch && ticketsFetch.forId === activeContactId ? ticketsFetch : null;
+  const tenantTickets = currentTickets?.tickets ?? [];
+  const ticketsState: "loading" | "ready" | "unavailable" = !currentTickets
+    ? "loading"
+    : currentTickets.live
+      ? "ready"
+      : "unavailable";
 
   const isMobileInfoExpanded =
     activeContact && mobileInfoPref.contactId === activeContact.id ? mobileInfoPref.expanded : true;
@@ -1925,11 +1932,17 @@ function TenantsContent() {
                             <Wrench className="w-5 h-5 stroke-[1.5]" />
                           </div>
                           <h3 className="text-sm font-semibold text-[#111215]">
-                            {ticketsLoaded ? "No tickets" : "Loading tickets..."}
+                            {ticketsState === "loading"
+                              ? "Loading tickets..."
+                              : ticketsState === "unavailable"
+                                ? "Tickets unavailable"
+                                : "No tickets"}
                           </h3>
-                          {ticketsLoaded && (
+                          {ticketsState !== "loading" && (
                             <p className="text-xs text-[#64748b] max-w-sm mt-1">
-                              There are no tickets logged for {activeContact.name}.
+                              {ticketsState === "unavailable"
+                                ? "Could not reach the server. Try again in a moment."
+                                : `There are no tickets logged for ${activeContact.name}.`}
                             </p>
                           )}
                         </div>

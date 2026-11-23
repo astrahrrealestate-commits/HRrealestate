@@ -394,3 +394,11 @@ bidirectional translation controls onto the new unified Composer, and fixed what
   id, so DBOS deduplicated it away); 476 + 272 BRIXX workflows of old versions were stranded on stage. Fix:
   `brixx_reaper.reap_stranded` (first step of every `brixx.sync_all`) cancels BRIXX-queue workflows of another
   application version untouched for 30 minutes, and the download workflow id now carries the application version.
+- [x] Tenant Tickets tab (2026-11-23): the tab on the Tenants page was a hard-coded empty state. Every ticket from
+  `GET /api/maintenance/tickets` now carries `tenantId` (the tenant's directory person id; `""` when the case or BRIXX
+  ticket has no known tenant; an owner edit can never overwrite it), and the endpoint takes `tenant_id` to list one
+  tenant's tickets (stats stay portfolio-wide). The tab fetches only while it is open and shows loading / unavailable /
+  empty states. Live tickets' `reportedAt` is now `YYYY-MM-DD HH:MM` (was the time only). Tests:
+  `test_a_ticket_carries_its_tenants_id_so_the_tenant_tab_can_list_it`, `test_the_tenant_filter_lists_only_that_tenants_tickets_and_never_another_companys`,
+  `test_a_brixx_ticket_carries_its_tenants_id`, `test_an_owner_edit_cannot_re_point_a_ticket_to_another_tenant`
+  (integration; need Docker, not run on this machine).
