@@ -2,7 +2,7 @@
 
 `enqueue_document_downloads` runs inside the table's sync workflow: a step claims up to `MAX_CLAIMS` versions
 (commits them as `pending`, Postgres before work), then the body enqueues one workflow per claim with the id
-`brixxdoc:<company>:<document>:<version>:<attempt>:<app version>` on the `brixx_documents` queue (concurrency 1).
+`brixxdoc:<company>:<document>:<version>:<attempt>:<app version>` on the `brixx_documents` queue (concurrency 3).
 The rest of a large backlog is claimed by later syncs, so every workflow stays short.
 
 Workflow bodies only sequence steps. The download step is retry-safe: a settled version is not downloaded again and
@@ -33,7 +33,7 @@ from app.workflows.deps import brixx_api, get_deps, get_engine
 
 log = get_logger(__name__)
 
-MAX_CLAIMS = 200  # per sync of PRG_DOCUMENT (every 15 min): bounds the step output and the enqueue loop
+MAX_CLAIMS = 600  # per sync of PRG_DOCUMENT (every 15 min): bounds the step output and the enqueue loop
 
 
 def download_retryable(exc: BaseException) -> bool:

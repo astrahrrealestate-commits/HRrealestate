@@ -402,3 +402,7 @@ bidirectional translation controls onto the new unified Composer, and fixed what
   `test_a_ticket_carries_its_tenants_id_so_the_tenant_tab_can_list_it`, `test_the_tenant_filter_lists_only_that_tenants_tickets_and_never_another_companys`,
   `test_a_brixx_ticket_carries_its_tenants_id`, `test_an_owner_edit_cannot_re_point_a_ticket_to_another_tenant`
   (integration; need Docker, not run on this machine).
+- [x] BRIXX document backlog drains in about 90 minutes instead of 4-5 hours (2026-11-23): stage after the reaper had
+  173 of 3,482 files stored and claimed 200 per 15-minute sync with one download at a time. `MAX_CLAIMS` is now 600 per
+  sync and the `brixx_documents` queue runs 3 downloads at once (the table syncs already make 16 requests per worker,
+  so 3 extra is modest); the Documents tab re-checks every 15 s while files are on their way.

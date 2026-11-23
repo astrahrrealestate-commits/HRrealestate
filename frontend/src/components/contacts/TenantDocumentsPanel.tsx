@@ -41,7 +41,9 @@ function Row({ doc }: { doc: TenantDocument }) {
           Open
         </a>
       ) : (
-        <span className="shrink-0 text-[11px] text-[#94a3b8]">Being fetched from BRIXX</span>
+        <span className="shrink-0 inline-flex items-center gap-1 text-[11px] text-[#94a3b8]">
+          <Loader2 className="w-3 h-3 animate-spin" /> Fetching from BRIXX...
+        </span>
       )}
     </li>
   );
@@ -63,6 +65,24 @@ export function TenantDocumentsPanel({ tenantId, name }: { tenantId: string; nam
   }, [tenantId]);
 
   const result = loaded?.tenantId === tenantId ? loaded.result : null;
+  const waiting = result?.ok ? result.total - result.available : 0;
+
+  // Files are downloaded from BRIXX in the background: while some are still on their way, look again (for 10 minutes).
+  useEffect(() => {
+    if (waiting === 0) return;
+    let current = true;
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      if (Date.now() - started > 10 * 60 * 1000) return window.clearInterval(timer);
+      getTenantDocuments(tenantId).then((r) => {
+        if (current && r.ok) setLoaded({ tenantId, result: r });
+      });
+    }, 15000);
+    return () => {
+      current = false;
+      window.clearInterval(timer);
+    };
+  }, [tenantId, waiting]);
 
   return (
     <div className="flex-1 flex flex-col p-3.5 sm:p-6 space-y-4 bg-white" data-testid="tenant-documents">
@@ -70,7 +90,9 @@ export function TenantDocumentsPanel({ tenantId, name }: { tenantId: string; nam
         <h3 className="text-sm font-semibold text-[#111215]">Documents</h3>
         <p className="text-xs text-[#64748b] mt-0.5">
           {result?.ok
-            ? `${result.total} in BRIXX for ${name}, ${result.available} ready to open`
+            ? `${result.total} in BRIXX for ${name}, ${result.available} ready to open${
+                result.total > result.available ? " (the rest are being fetched and appear here by themselves)" : ""
+              }`
             : `Files BRIXX holds for ${name}`}
         </p>
       </div>
