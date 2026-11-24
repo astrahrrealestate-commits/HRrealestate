@@ -6,6 +6,7 @@ Three kinds of keys are replaced by `[redacted]`, at any depth and case-insensit
 Table names, page numbers, counts and error class names stay readable.
 """
 
+import logging
 import re
 from collections.abc import MutableMapping
 from typing import Any
@@ -38,14 +39,21 @@ PERSONAL_KEYS = frozenset(
 ROW_KEYS = frozenset({"row", "rows", "record", "records", "row_values"})
 _DENIED = SECRET_KEYS | PERSONAL_KEYS
 _BEARER = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+")
+_CHAT_PATH = re.compile(r"(/api/chats/)[^/?#\s\"']+")  # the chat key of /api/chats/{chat_key}/... is a phone number
+CHAT_KEY_MASK = "{chat_key}"
 _MAX_DEPTH = 8
+
+
+def mask_chat_paths(text: str) -> str:
+    """`/api/chats/+31612345678/messages` -> `/api/chats/{chat_key}/messages`: a contact's number is personal data."""
+    return _CHAT_PATH.sub(rf"\1{CHAT_KEY_MASK}", text)
 
 
 def _scrub(value: Any, depth: int) -> Any:
     if depth > _MAX_DEPTH:
         return REDACTED
     if isinstance(value, str):
-        return _BEARER.sub(f"Bearer {REDACTED}", value)
+        return mask_chat_paths(_BEARER.sub(f"Bearer {REDACTED}", value))
     if isinstance(value, MutableMapping):
         return {key: _scrub_item(key, item, depth) for key, item in value.items()}
     if isinstance(value, list | tuple):
@@ -71,3 +79,33 @@ def redact_event(_logger: object, _method: str, event_dict: MutableMapping[str, 
 def sentry_denylist() -> list[str]:
     """Sentry's default deny list plus the same keys the log processor redacts."""
     return [*DEFAULT_DENYLIST, *sorted(_DENIED | ROW_KEYS)]
+
+
+def scrub_chat_paths(value: Any, depth: int = 0) -> Any:
+    """Mask chat keys in every string of a Sentry event or breadcrumb (URLs, transaction names, messages, data)."""
+    if depth > _MAX_DEPTH:
+        return value
+    if isinstance(value, str):
+        return mask_chat_paths(value)
+    if isinstance(value, dict):
+        return {key: scrub_chat_paths(item, depth + 1) for key, item in value.items()}
+    if isinstance(value, list):
+        return [scrub_chat_paths(item, depth + 1) for item in value]
+    return value
+
+
+def sentry_before_send(event: Any, _hint: Any) -> Any:
+    return scrub_chat_paths(event)
+
+
+def sentry_before_breadcrumb(crumb: Any, _hint: Any) -> Any:
+    return scrub_chat_paths(crumb)
+
+
+class ChatPathFilter(logging.Filter):
+    """Masks the chat key in uvicorn's access line (`POST /api/chats/+316.../messages HTTP/1.1`)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(mask_chat_paths(a) if isinstance(a, str) else a for a in record.args)
+        return True

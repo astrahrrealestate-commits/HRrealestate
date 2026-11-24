@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session
 from app.contracts import Channel, Direction
 from app.contracts.message import normalise_identity
 from app.core.wa_window import window_open
-from app.db.models import Case, CaseLink, ChannelAccount, ChannelIdentity, MessageRow, OwnerAccount
+from app.db.models import Case, CaseLink, ChannelIdentity, MessageRow
+from app.db.own_addresses import own_addresses
 from app.sender.errors import SendBlockedError
 
 CANDIDATES = 50
@@ -42,18 +43,6 @@ def canonical(identity: str) -> str | None:
         return normalise_identity(identity)
     except ValueError:
         return None
-
-
-def own_addresses(session: Session, company_id: UUID) -> set[str]:
-    """Every address that belongs to the company itself: owner numbers/emails and its channel accounts."""
-    raw = [
-        *session.scalars(select(OwnerAccount.whatsapp_e164).where(OwnerAccount.company_id == company_id)),
-        *session.scalars(
-            select(OwnerAccount.email).where(OwnerAccount.company_id == company_id, OwnerAccount.email.is_not(None))
-        ),
-        *session.scalars(select(ChannelAccount.address).where(ChannelAccount.company_id == company_id)),
-    ]
-    return {c for value in raw if value and (c := canonical(value))}
 
 
 def _current_identities(session: Session, company_id: UUID, person_id: UUID, channel: Channel) -> set[str]:

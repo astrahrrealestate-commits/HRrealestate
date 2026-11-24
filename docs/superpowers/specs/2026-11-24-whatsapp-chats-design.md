@@ -91,9 +91,11 @@ person with three open cases is one chat, as in WhatsApp. Cases appear as links 
   read / failed), failed sends with a **Retry** that is a fresh send with a new client id only after he confirms.
   Images inline, documents as file chips, voice notes with an audio player and transcript when one exists.
   Messages held or flagged `suspicious` are shown with that state.
-- **Composer states:** window open (normal), window closed ("Free-form replies closed since <time>; templates are
-  not available yet"), `draft` mode ("Sending is switched off for this company"), no recipient rule match (cannot
-  reply). Disabled composer still shows suggestions as copyable text.
+- **Composer states** (`composer.state` of the thread, with `window_closes_at`), in the order of the sender's gates:
+  `paused` (company paused), `draft_mode` ("Sending is switched off for this company"), `no_recipient` (the number
+  never wrote to the company, or is the company's own: an owner number, owner email or channel account; cannot
+  reply), `window_closed` ("Free-form replies closed since <time>; templates are not available yet"), `open`
+  (normal). So draft mode wins over a closed window. Disabled composer still shows suggestions as copyable text.
 - **Mobile:** single pane with back navigation (he may use it on a phone browser).
 
 ### 5.2 Backend API (`backend/app/api/v1/chats.py`, section access reuses `inbox`)
@@ -103,7 +105,7 @@ person with three open cases is one chat, as in WhatsApp. Cases appear as links 
 | `GET /chats?before=&limit=&filter=&q=` | chat list page (cursor like `/inbox`, limit ≤ 100) |
 | `GET /chats/{chat_key}/messages?before=&limit=` | messages, oldest-first page, with attachments (presigned, short TTL) and quote info |
 | `POST /chats/{chat_key}/read` | mark read up to now |
-| `POST /chats/{chat_key}/messages` | owner-typed send. Body: `client_msg_id` (UUID from the browser), `text` (1–4096). Returns the stored message |
+| `POST /chats/{chat_key}/messages` | owner-typed send. Body (no other field): `client_msg_id` (UUID from the browser), `text` (1-4096 characters, stored and sent exactly as typed, so the unstripped length counts; not blank), `suggestion_action_id` (optional: the chat's own open `reply_draft`). Stores the pending outbound row, then enqueues `chat.send_message`. **202** with the stored message; **404** unknown, foreign, malformed or own-number chat (same body); **409** the composer is not `open` (`cannot send: <state>`), or the `client_msg_id` already names a message of another chat or with other text; **422** invalid body or suggestion; **429** over 30 sends a minute per owner. A replay of the same `client_msg_id` and text returns the stored row and re-enqueues the same workflow id, before any composer check |
 | `GET /chats/{chat_key}/suggestions` | pending reply drafts for the newest inbound message (reuses existing `reply_draft` actions) |
 
 `chat_key` is the canonical E.164 number. Malformed, unknown and foreign keys all return the same 404 (as

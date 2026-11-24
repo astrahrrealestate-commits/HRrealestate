@@ -432,5 +432,10 @@ bidirectional translation controls onto the new unified Composer, and fixed what
   dashboard spec section 5 and security.md updated; the contacts `whatsapp/send` route keeps its 501 and now points to
   Chats. Tests: `tests/unit/test_owner_chat_gates.py`, `tests/integration/test_owner_chat_send.py`, `tests/integration/test_owner_chat_guards.py`
 - [x] Review fixes: migration 0050 (unique outbound `client_msg_id` per company), validated `client_msg_id`, per-contact cap (20/h), the stuck sweep settles dead chat sends and their rows, `assert_chat` / dispatch tests
-- [ ] Workflow, API route and composer (Tasks 6 to 8) not built yet; nothing can call `send_chat_message` from the UI
+- [x] Chats API for typing: `POST /api/chats/{chat_key}/messages` (store the pending row, then enqueue `chat:{company}:{client_msg_id}`;
+  replay-safe on `meta.client_msg_id`, 404 for own numbers, 409 when the composer is closed or the id was reused, 30/min
+  own limiter group), `GET /api/chats/{chat_key}/suggestions`, `composer` state on the thread (`app/api/chats/send.py`,
+  `composer.py`, `app/db/own_addresses.py` shared with the sender). Chat keys are masked in the uvicorn access log and in
+  Sentry. Tests: `tests/integration/test_chats_send_api.py`, `tests/unit/core/test_redaction.py`, `tests/unit/core/test_telemetry.py`
+- [ ] Frontend composer (Task 8) not built yet
 - [ ] Needs a plain Meta Cloud API number (no coexistence, no templates): see ADR 0013

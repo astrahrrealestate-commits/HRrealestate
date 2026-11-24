@@ -24,11 +24,12 @@ from app.core.logging import get_logger
 from app.core.wa_window import window_open
 from app.db.enums import DeliveryStatus, SendStatus
 from app.db.models import Company, MessageRow, Send
+from app.db.own_addresses import own_addresses
 from app.sender.delivery import REUSED_KEY, ExecOutcome, SenderDeps, claim, send_claimed
 from app.sender.errors import SendBlockedError
 from app.sender.owner_chat_settle import NO_CLIENT_ID, chat_key, mark_row, prior_send, replay, settle
 from app.sender.plan import Plan
-from app.sender.recipient import canonical, own_addresses
+from app.sender.recipient import canonical
 from app.sender.tenant_gate import CAP_WINDOW, CHAT_KEY_PREFIX, cap_reached, owner_targets
 
 log = get_logger(__name__)

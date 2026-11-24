@@ -20,18 +20,30 @@ from app.api.v1.ratelimit import RateLimiter
 from app.contracts import ActionType, CaseState, Category, Channel, Direction, OutboundMode, Urgency
 from app.core.workflow_names import CHAT_QUEUE, CHAT_SEND
 from app.db.enums import ActionStatus, DeliveryStatus, PipelineStatus, RawEventStatus
-from app.db.models import ActionRow, Case, ChatRead, Company, OwnerAccount, UnderstandingRow
+from app.db.models import (
+    ActionRow,
+    AllowedUser,
+    Case,
+    ChannelAccount,
+    ChatRead,
+    Company,
+    OwnerAccount,
+    UnderstandingRow,
+)
 from app.db.models.ingestion import MessageRow, RawEvent
 from app.main import create_app
 from app.pipeline.understand import requeue_candidates
 from app.storage.memory import MemoryStorage
-from tests.integration.access_support import CSRF, make_settings
+from tests.integration.access_support import CSRF, add_person_to_team, make_settings
 
 pytestmark = pytest.mark.integration
 TINA = "+31612345678"
 BOB = "+31687654321"  # last wrote 30 h ago: window closed
+CARL = "+31644444444"  # a second open chat
 ECHO = "+31633333333"  # only ever echoed outbound: nobody to answer
 ONLY_B = "+31622222222"
+OWNER_NUMBER = "+31699999998"  # the owner's own number: never a chat we may answer
+ACCOUNT_NUMBER = "+31655555555"  # a number of one of the company's channel accounts
 UNKNOWN = "+31699999999"
 NOT_FOUND = {"detail": "chat not found"}
 NOW = datetime.now(UTC)
@@ -93,11 +105,15 @@ def world(migrated_engine: Engine, pg_url: str) -> Iterator[World]:
         a, b = Company(name="A", outbound_mode=OutboundMode.send), Company(name="B", outbound_mode=OutboundMode.send)
         s.add_all([a, b])
         s.flush()
-        owner = OwnerAccount(company_id=a.id, display_name="H", whatsapp_e164="+31699999998", email="h@a.test")
+        owner = OwnerAccount(company_id=a.id, display_name="H", whatsapp_e164=OWNER_NUMBER, email="h@a.test")
         s.add(owner)
         tina = _msg(s, a.id, TINA, 60)
         _msg(s, a.id, BOB, 30 * 60)
         _msg(s, a.id, ECHO, 10, Direction.outbound)
+        _msg(s, a.id, CARL, 20)
+        _msg(s, a.id, OWNER_NUMBER, 5)
+        _msg(s, a.id, ACCOUNT_NUMBER, 5)
+        s.add(ChannelAccount(company_id=a.id, channel=Channel.whatsapp, address=ACCOUNT_NUMBER))
         _msg(s, b.id, ONLY_B, 5)
         case_id = _case(s, a.id)
         s.commit()
@@ -110,7 +126,8 @@ def world(migrated_engine: Engine, pg_url: str) -> Iterator[World]:
         ids = [a.id, b.id]
         for model in (ActionRow, UnderstandingRow, ChatRead, MessageRow, Case, RawEvent):
             s.query(model).filter(model.company_id.in_(ids)).delete(synchronize_session=False)
-        s.query(OwnerAccount).filter(OwnerAccount.company_id.in_(ids)).delete(synchronize_session=False)
+        for model in (AllowedUser, ChannelAccount, OwnerAccount):
+            s.query(model).filter(model.company_id.in_(ids)).delete(synchronize_session=False)
         s.query(Company).filter(Company.id.in_(ids)).delete()
         s.commit()
 
@@ -136,6 +153,8 @@ def _composer(world: World, key: str) -> dict[str, Any]:
 
 
 def _set_company(world: World, **fields: Any) -> None:
+    if not fields:
+        return
     with Session(world.engine) as s, s.begin():
         s.query(Company).filter(Company.id == world.cid).update(fields)
 
@@ -173,10 +192,9 @@ def test_send_inserts_pending_row_then_enqueues_with_workflow_id(world: World) -
 
 def test_double_post_same_client_msg_id_one_row_one_enqueue_id(world: World) -> None:
     cmid = uuid4()
-    first, second = _post(world, cmid), _post(world, cmid, "other words")
+    first, second = _post(world, cmid), _post(world, cmid)
     assert (first.status_code, second.status_code) == (202, 202)
     assert first.json()["id"] == second.json()["id"]
-    assert second.json()["text"] == "Hallo Tina"  # the replay returns the stored row, not the new text
     assert len(_rows(world, cmid)) == 1
     ids = {call.args[0]["workflow_id"] for call in world.enqueue.call_args_list}
     assert ids == {f"chat:{world.cid}:{cmid}"}  # a replay re-enqueues the same id: DBOS dedupes it
@@ -216,6 +234,34 @@ def test_lost_race_integrity_error_rereads_the_winner(world: World, monkeypatch:
     assert len(_rows(world, cmid)) == 1
 
 
+def test_replay_with_different_text_is_409_and_stores_nothing_new(world: World) -> None:
+    cmid = uuid4()
+    first = _post(world, cmid, "one")
+    other = _post(world, cmid, "two")
+    assert (other.status_code, other.json()) == (409, {"detail": "client message id already used with different text"})
+    assert [r.text for r in _rows(world, cmid)] == ["one"]
+    assert _post(world, cmid, "one").json()["id"] == first.json()["id"]
+
+
+def test_lost_race_to_a_twin_in_another_chat_is_409(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    cmid = uuid4()
+    assert _post(world, cmid, key=CARL).status_code == 202
+    real = send_module.find_by_client_id
+    calls: list[int] = []
+
+    def blind_first(session: Session, company_id: UUID, client_msg_id: str) -> MessageRow | None:
+        calls.append(1)
+        return None if len(calls) == 1 else real(session, company_id, client_msg_id)
+
+    monkeypatch.setattr(send_module, "find_by_client_id", blind_first)
+    response = _post(world, cmid, key=TINA)  # the lookup misses, the insert loses, the winner is CARL's row
+    assert (response.status_code, response.json()) == (
+        409,
+        {"detail": "client message id already used in another chat"},
+    )
+    assert len(_rows(world, cmid)) == 1
+
+
 def test_enqueue_failure_keeps_the_pending_row_and_a_repost_recovers(world: World) -> None:
     cmid = uuid4()
     world.enqueue.side_effect = RuntimeError("queue down")
@@ -239,6 +285,7 @@ def test_empty_whitespace_too_long_and_nul_text_are_422(world: World, text: str)
 
 def test_4096_chars_and_a_non_uuid_client_id(world: World) -> None:
     assert _post(world, uuid4(), "x" * 4096).status_code == 202
+    assert _post(world, uuid4(), " " + "x" * 4096).status_code == 422  # the unstripped text is what is sent
     assert _post(world, "not-a-uuid").status_code == 422
     assert _post(world, "c-1; drop").status_code == 422
 
@@ -318,12 +365,14 @@ def test_composer_state_open_window_closed_draft_mode_paused_no_recipient(world:
     assert _composer(world, ECHO)["state"] == "paused"
 
 
-def test_send_is_rate_limited(world: World) -> None:
+def test_send_is_rate_limited_in_its_own_group(world: World) -> None:
     world.client.app.state.rate_limiter = RateLimiter(clock=lambda: 0.0)  # type: ignore[attr-defined]  # no refill
     cmid = uuid4()
-    codes = [_post(world, cmid).status_code for _ in range(121)]
-    assert codes[:120] == [202] * 120
-    assert codes[120] == 429
+    codes = [_post(world, cmid).status_code for _ in range(31)]
+    assert codes[:30] == [202] * 30
+    assert codes[30] == 429
+    decide = world.client.post(f"/api/inbox/approvals/{uuid4()}/decide", json={}, headers=CSRF)
+    assert decide.status_code != 429  # exhausting chat sends does not starve the approve/decide bucket
 
 
 def test_pipeline_does_not_process_dashboard_row(world: World) -> None:
@@ -351,3 +400,63 @@ def test_suggestions_endpoint_returns_variants_and_none_when_absent(world: World
     for key in (UNKNOWN, ONLY_B, "nope"):
         response = world.client.get(f"/api/chats/{key}/suggestions")
         assert (response.status_code, response.json()) == (404, NOT_FOUND)
+
+
+@pytest.mark.parametrize("number", [OWNER_NUMBER, ACCOUNT_NUMBER])
+def test_own_and_owner_numbers_are_no_recipient_and_cannot_be_sent_to(world: World, number: str) -> None:
+    assert _composer(world, number)["state"] == "no_recipient"
+    response = _post(world, uuid4(), key=number)
+    assert (response.status_code, response.json()) == (404, NOT_FOUND)
+    assert _rows(world) == []
+    world.enqueue.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("change", "state", "key"),
+    [
+        ({"outbound_mode": OutboundMode.draft}, "draft_mode", TINA),
+        ({"paused": True}, "paused", TINA),
+        ({}, "window_closed", BOB),
+    ],
+)
+def test_a_new_message_is_refused_while_the_composer_is_closed(
+    world: World, change: dict[str, Any], state: str, key: str
+) -> None:
+    _set_company(world, **change)
+    response = _post(world, uuid4(), key=key)
+    assert (response.status_code, response.json()) == (409, {"detail": f"cannot send: {state}"})
+    assert _rows(world) == []
+    world.enqueue.assert_not_called()
+
+
+def test_a_replay_while_the_composer_is_closed_returns_the_row_and_re_enqueues(world: World) -> None:
+    cmid = uuid4()
+    first = _post(world, cmid)
+    _set_company(world, outbound_mode=OutboundMode.draft)
+    again = _post(world, cmid)
+    assert (again.status_code, again.json()["id"]) == (202, first.json()["id"])
+    assert world.enqueue.call_count == 2
+    assert len(_rows(world, cmid)) == 1
+
+
+def test_draft_mode_wins_over_window_closed(world: World) -> None:
+    _set_company(world, outbound_mode=OutboundMode.draft)
+    assert _composer(world, BOB)["state"] == "draft_mode"
+
+
+def test_a_chat_with_no_person_or_identity_can_be_sent_to(world: World) -> None:
+    thread = world.client.get(f"/api/chats/{TINA}/messages").json()
+    assert (thread["name"], thread["person_kind"]) == (None, None)  # nobody in the directory knows this number
+    assert _post(world, uuid4()).status_code == 202
+
+
+def test_the_inbox_section_guards_send_and_suggestions(world: World, pg_url: str) -> None:
+    clerk = add_person_to_team(world.engine, world.cid, "clerk@a.test", role="member", sections=["contacts"])
+    settings = make_settings(pg_url)
+    with TestClient(world.client.app) as other:
+        other.cookies.set(COOKIE, issue_session(settings, clerk, datetime.now(UTC)))
+        body = {"client_msg_id": str(uuid4()), "text": "x"}
+        assert other.post(f"/api/chats/{TINA}/messages", json=body, headers=CSRF).status_code == 403
+        assert other.get(f"/api/chats/{TINA}/suggestions").status_code == 403
+    world.enqueue.assert_not_called()
+    assert _rows(world) == []

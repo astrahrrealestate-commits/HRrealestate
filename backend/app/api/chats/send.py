@@ -16,15 +16,17 @@ from sqlalchemy import Engine, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.chats.routes import NOT_FOUND, ChatNotFoundError, _to_message
+from app.api.chats.composer import composer_state, is_own_number
+from app.api.chats.routes import NOT_FOUND, ChatNotFoundError, to_message
 from app.api.chats.schemas import ChatMessage, SendChatMessageRequest, SuggestionsOut
 from app.api.deps import WorkflowClient, get_engine, get_workflow_client
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.enqueue import enqueue_chat_send
-from app.api.v1.session_limits import decide_limit
+from app.api.v1.session_limits import chat_send_limit
 from app.contracts import Channel, Direction
 from app.core.logging import get_logger
 from app.db.enums import PipelineStatus, RawEventStatus
+from app.db.models import Company
 from app.db.models.ingestion import MessageRow, RawEvent
 from app.pipeline import chat_repo
 
@@ -32,11 +34,22 @@ send_router = APIRouter()
 log = get_logger(__name__)
 DASHBOARD = "dashboard"
 DUPLICATE_CHAT = "client message id already used in another chat"
+TEXT_CHANGED = "client message id already used with different text"
 BAD_SUGGESTION = "suggestion is not an open reply draft of this chat"
 
 
 class ClientIdReusedError(Exception):
     """The same `client_msg_id` already names a message of a different chat."""
+
+
+class ClientTextChangedError(Exception):
+    """The same `client_msg_id` already names a message with other text."""
+
+
+class ComposerClosedError(Exception):
+    def __init__(self, state: str) -> None:
+        super().__init__(state)
+        self.state = state
 
 
 class SuggestionInvalidError(Exception):
@@ -51,6 +64,13 @@ def find_by_client_id(session: Session, company_id: UUID, client_msg_id: str) ->
         MessageRow.meta["client_msg_id"].as_string() == client_msg_id,
     )
     return session.scalars(stmt).first()
+
+
+def _meta(client_msg_id: UUID, suggestion_id: UUID | None) -> dict[str, object]:
+    meta: dict[str, object] = {"client_msg_id": str(client_msg_id), "type": "text", "dashboard": True}
+    if suggestion_id is not None:
+        meta["suggestion_action_id"] = str(suggestion_id)
+    return meta
 
 
 def insert_pending(
@@ -73,9 +93,6 @@ def insert_pending(
     )
     session.add(raw)
     session.flush()
-    meta: dict[str, object] = {"client_msg_id": str(client_msg_id), "type": "text", "dashboard": True}
-    if suggestion_id is not None:
-        meta["suggestion_action_id"] = str(suggestion_id)
     row = MessageRow(
         company_id=company_id,
         raw_event_id=raw.id,
@@ -87,7 +104,7 @@ def insert_pending(
         sent_at=now,
         text=text,
         delivery_status=None,
-        meta=meta,
+        meta=_meta(client_msg_id, suggestion_id),
         pipeline_status=PipelineStatus.done,  # the pipeline runs on inbound messages only
     )
     session.add(row)
@@ -95,35 +112,51 @@ def insert_pending(
     return row
 
 
+def _replay(row: MessageRow, chat_key: str, req: SendChatMessageRequest) -> ChatMessage:
+    """The stored row of an earlier POST with this `client_msg_id`, if it really is the same message."""
+    if row.thread_ref != chat_key:
+        raise ClientIdReusedError
+    if row.text != req.text:
+        raise ClientTextChangedError
+    return to_message(row, [], (False, None), None)
+
+
+def _check_new(session: Session, company_id: UUID, chat_key: str, req: SendChatMessageRequest, now: datetime) -> None:
+    """A new message needs a chat we may answer, an open composer and (if named) the chat's own open suggestion."""
+    inbound = chat_repo.latest_inbound(session, company_id, chat_key)
+    if inbound is None or is_own_number(session, company_id, chat_key):
+        raise ChatNotFoundError  # a number that never wrote to us, or one of our own, is not a chat we may answer
+    state = composer_state(session.get(Company, company_id), inbound, now).state
+    if state != "open":
+        raise ComposerClosedError(state)
+    if req.suggestion_action_id is not None:
+        own, _ = chat_repo.suggestions(session, company_id, chat_key)
+        if own != req.suggestion_action_id:
+            raise SuggestionInvalidError
+
+
 def _store_once(
     engine: Engine, company_id: UUID, chat_key: str, req: SendChatMessageRequest, now: datetime
 ) -> ChatMessage:
     with Session(engine) as session, session.begin():
         existing = find_by_client_id(session, company_id, str(req.client_msg_id))
-        if existing is not None:
-            if existing.thread_ref != chat_key:
-                raise ClientIdReusedError
-            return _to_message(existing, [], (False, None), None)
-        if chat_repo.latest_inbound(session, company_id, chat_key) is None:
-            raise ChatNotFoundError  # a number that never wrote to this company is not a chat we may answer
-        if req.suggestion_action_id is not None:
-            own, _ = chat_repo.suggestions(session, company_id, chat_key)
-            if own != req.suggestion_action_id:
-                raise SuggestionInvalidError
+        if existing is not None:  # a replay is answered before any gate: the first POST already passed them
+            return _replay(existing, chat_key, req)
+        _check_new(session, company_id, chat_key, req, now)
         row = insert_pending(session, company_id, chat_key, req.client_msg_id, req.text, req.suggestion_action_id, now)
-        return _to_message(row, [], (False, None), None)
+        return to_message(row, [], (False, None), None)
 
 
 def _store(engine: Engine, company_id: UUID, key: str, req: SendChatMessageRequest, now: datetime) -> ChatMessage:
     chat_key = chat_repo.parse_chat_key(key)
     try:
         return _store_once(engine, company_id, chat_key, req, now)
-    except IntegrityError:  # a twin POST won the unique index between our lookup and insert: return its row
+    except IntegrityError:  # a twin POST won the unique index between our lookup and insert: answer from its row
         with Session(engine) as session:
             winner = find_by_client_id(session, company_id, str(req.client_msg_id))
-            if winner is None or winner.thread_ref != chat_key:
+            if winner is None:
                 raise
-            return _to_message(winner, [], (False, None), None)
+            return _replay(winner, chat_key, req)
 
 
 def _enqueue(client: WorkflowClient, company_id: UUID, client_msg_id: UUID, message_id: UUID) -> None:
@@ -134,7 +167,7 @@ def _enqueue(client: WorkflowClient, company_id: UUID, client_msg_id: UUID, mess
         log.warning("chats.enqueue_failed", error_type=type(exc).__name__, message_id=str(message_id))
 
 
-@send_router.post("/{chat_key}/messages", status_code=202, dependencies=[Depends(decide_limit)])
+@send_router.post("/{chat_key}/messages", status_code=202, dependencies=[Depends(chat_send_limit)])
 async def send_message(
     chat_key: str,
     body: SendChatMessageRequest,
@@ -150,6 +183,10 @@ async def send_message(
         raise HTTPException(status_code=422, detail=BAD_SUGGESTION) from None
     except ClientIdReusedError:
         raise HTTPException(status_code=409, detail=DUPLICATE_CHAT) from None
+    except ClientTextChangedError:
+        raise HTTPException(status_code=409, detail=TEXT_CHANGED) from None
+    except ComposerClosedError as closed:
+        raise HTTPException(status_code=409, detail=f"cannot send: {closed.state}") from None
     await run_in_threadpool(_enqueue, client, principal.company_id, body.client_msg_id, message.id)
     log.info("chats.send_stored", message_id=str(message.id))
     return message

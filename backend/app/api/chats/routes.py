@@ -74,7 +74,7 @@ def _attachment(a: AttachmentRow, storage: ObjectStorage) -> AttachmentOut:
     )
 
 
-def _to_message(
+def to_message(
     m: MessageRow,
     atts: list[AttachmentOut],
     flag: tuple[bool, str | None],
@@ -126,7 +126,7 @@ def _read_thread(
         by_message: dict[UUID, list[AttachmentOut]] = defaultdict(list)
         for a in found:
             by_message[a.message_id].append(_attachment(a, storage))
-        out = [_to_message(m, by_message[m.id], flags.get(m.id, (False, None)), _quote_of(m, quoted)) for m in messages]
+        out = [to_message(m, by_message[m.id], flags.get(m.id, (False, None)), _quote_of(m, quoted)) for m in messages]
     log.info("chats.thread_read", messages=len(out))
     return ChatThread(chat_key=chat_key, name=name, person_kind=kind, case_id=case_id, messages=out, composer=composer)
 

@@ -14,6 +14,7 @@ from app.api.v1.auth import Principal, require_session
 from app.api.v1.ratelimit import AGENT_PER_MIN, DECISION_PER_MIN, _reject, limiter_for
 
 TRANSLATE_PER_MIN = 30  # a first open of a Dutch message or draft; cached texts never reach the model
+CHAT_SEND_PER_MIN = 30  # owner-typed WhatsApp sends: a person types, so far below the decision bucket
 SYNC_PER_MIN = 6  # each call pulls Gmail and starts the AI pipeline: it costs money
 
 
@@ -28,5 +29,6 @@ def limit_session(group: str, per_minute: int) -> Callable[..., None]:
 
 ask_limit = limit_session("agent", AGENT_PER_MIN)
 decide_limit = limit_session("decision", DECISION_PER_MIN)
+chat_send_limit = limit_session("chat_send", CHAT_SEND_PER_MIN)
 sync_limit = limit_session("sync", SYNC_PER_MIN)
 translate_limit = limit_session("translate", TRANSLATE_PER_MIN)

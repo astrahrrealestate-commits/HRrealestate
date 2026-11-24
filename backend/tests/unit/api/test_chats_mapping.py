@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.api.chats.routes import _attachment, _to_message
+from app.api.chats.routes import _attachment, to_message
 from app.contracts import Channel, Direction
 from app.db.enums import DeliveryStatus
 from app.db.models.ingestion import AttachmentRow, MessageRow
@@ -61,7 +61,7 @@ def _row(**kw: Any) -> MessageRow:
 
 
 def _out(row: MessageRow) -> Any:
-    return _to_message(row, [], (False, None), None)
+    return to_message(row, [], (False, None), None)
 
 
 def test_pending_only_for_a_row_our_send_path_created() -> None:

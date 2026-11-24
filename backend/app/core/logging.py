@@ -4,7 +4,7 @@ import logging
 
 import structlog
 
-from app.core.redaction import redact_event
+from app.core.redaction import ChatPathFilter, redact_event
 
 
 def configure_logging(env: str) -> None:
@@ -25,6 +25,14 @@ def configure_logging(env: str) -> None:
         logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=False,
     )
+    _mask_access_log_paths()
+
+
+def _mask_access_log_paths() -> None:
+    """uvicorn's access log is the only request log: keep contact numbers out of its paths."""
+    access = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, ChatPathFilter) for f in access.filters):
+        access.addFilter(ChatPathFilter())
 
 
 def get_logger(name: str) -> structlog.typing.FilteringBoundLogger:
