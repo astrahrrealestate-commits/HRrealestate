@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# ruff: noqa: E501, I001, F401, T201, UP017, S110
+# ruff: noqa
 """Dedicated 30-Day Historical Backfill Script for Vastgoed Mailbox.
 
 Ingests historical emails from Google Workspace mailbox (info@hrrealestate.nl) under
