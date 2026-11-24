@@ -7,12 +7,13 @@ nothing. A reason stored in `meta["send_error"]` is a short sentence, never the 
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import Engine, select, update
 from sqlalchemy.orm import Session
 
+from app.contracts import Channel, Direction
 from app.db.enums import DeliveryStatus, SendStatus
 from app.db.models import MessageRow, Send
-from app.sender.delivery import STUCK, ExecOutcome, SenderDeps, stuck
+from app.sender.delivery import STUCK, STUCK_AFTER, ExecOutcome, SenderDeps
 
 _DONE = (DeliveryStatus.sent, DeliveryStatus.delivered, DeliveryStatus.read)
 
@@ -69,17 +70,32 @@ def prior_send(send: Send | None) -> ExecOutcome | None:
     return None
 
 
-def settle_stuck(deps: SenderDeps, company_id: UUID, key: str, now: datetime) -> ExecOutcome | None:
-    """A `sending` row older than STUCK_AFTER belongs to an attempt that died mid-call: mark it failed, once."""
-    with Session(deps.engine) as session, session.begin():
-        found = session.execute(
-            select(Send.status, Send.attempted_at).where(Send.company_id == company_id, Send.idempotency_key == key)
-        ).first()
-        if found is None or found[0] is not SendStatus.sending or not stuck(found[1], now):
-            return None
-        session.execute(
+def settle_stuck_chat(engine: Engine, company_id: UUID, key: str, now: datetime) -> bool:
+    """A chat `sending` row older than STUCK_AFTER belongs to an attempt that died mid-call: mark the send and the
+    message row failed in one transaction. The conditional UPDATE has one winner; True only for that caller."""
+    client = key.split(":", 2)[2] if key.count(":") >= 2 else ""
+    with Session(engine) as session, session.begin():
+        won = session.execute(
             update(Send)
-            .where(Send.company_id == company_id, Send.idempotency_key == key, Send.status == SendStatus.sending)
+            .where(
+                Send.company_id == company_id,
+                Send.idempotency_key == key,
+                Send.status == SendStatus.sending,
+                (Send.attempted_at.is_(None)) | (Send.attempted_at <= now - STUCK_AFTER),
+            )
             .values(status=SendStatus.failed, error=STUCK)
+            .returning(Send.id)
+        ).first()
+        if won is None:
+            return False
+        message_id = session.scalar(
+            select(MessageRow.id).where(
+                MessageRow.company_id == company_id,
+                MessageRow.channel == Channel.whatsapp,
+                MessageRow.direction == Direction.outbound,
+                MessageRow.meta["client_msg_id"].as_string() == client,
+            )
         )
-    return ExecOutcome("failed", reason=STUCK)
+        if message_id is not None:
+            mark_row(session, company_id, message_id, DeliveryStatus.failed, wamid=None, error=STUCK)
+    return True

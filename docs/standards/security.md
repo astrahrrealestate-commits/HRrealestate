@@ -13,16 +13,20 @@ the architectural invariants in [CLAUDE.md](../../CLAUDE.md). A **blocker** fail
 - A new tenant-scoped feature ships a cross-tenant test: company A's data is invisible to company B.
 
 ## 2. Approval and send isolation
-- Nothing reaches a tenant, contractor or third party without Harjot's approve click (invariant 5). Only `app/sender/`
+- Nothing AI-drafted reaches a tenant, contractor or third party without Harjot's approve click (invariant 5); text he
+  types himself in Chats is his own click (ADR 0013, next bullet). Only `app/sender/`
   imports send settings or outbound adapters; the sender re-checks approval status, `draft_version`, company pause,
   `outbound_mode`, the recipient (from the DB) and `sends.idempotency_key`.
 - A second send class exists since ADR 0013: an **owner-typed WhatsApp message** from the Chats page (his own click on
   text he typed). It needs no approval row, so its safety is the recipient and the gates, all in
   `app/sender/owner_chat.py`: recipient from the stored row's `thread_ref` (never a request or payload value), the
   number must have written to this company, must not be an owner or company number, `outbound_mode=send`, company not
-  paused, 23 h window, own hourly cap (`owner_chat_sends_per_hour`), claimed `sends` key `chat:{company_id}:{client_msg_id}`,
-  and a failed or ambiguous provider call is never retried automatically. The API must verify the chat key belongs to
-  the session's company before it stores the row; the sender re-checks it anyway.
+  paused, 23 h window, own hourly caps (`owner_chat_sends_per_hour` per company, `owner_chat_sends_per_number_per_hour`
+  per contact), claimed `sends` key `chat:{company_id}:{client_msg_id}` (`client_msg_id` is a short `[A-Za-z0-9_-]`
+  token, unique per company through a partial index on `messages`), and a failed or ambiguous provider call is never
+  retried automatically. A send whose worker died mid-call is settled as failed by the 5-minute stuck sweep
+  (`app.sender.stuck`) once it is older than `STUCK_AFTER`, so a bubble never stays "sending" for ever. The API must
+  verify the chat key belongs to the session's company before it stores the row; the sender re-checks it anyway.
 - The Super Agent and every other model can **propose**, never approve or send. Recipients are never read from model
   output or from message text.
 - Risk is never downgraded to unblock a flow. If a guard blocks you, fix the cause or ask; do not route around it.
@@ -92,7 +96,8 @@ Closed on 2026-11-12:
 Still open (fix in this order):
 - **Profiles limit sections, not actions** (ADR 0012). A member sees only the sections a superadmin switched on; every
   router is guarded per request and a test walks the OpenAPI document to keep it so. Anyone who holds a section that
-  offers approve/send can approve and send; `reports`/`dashboard` profiles read the lists their pages summarise
+  offers approve/send can approve and send; a profile with the `inbox` section (which the Chats page uses) can also type
+  and send WhatsApp messages to contacts (ADR 0013); `reports`/`dashboard` profiles read the lists their pages summarise
   without message bodies, drafts, phone numbers or emails (the feed, calendar and attachments follow the same rule).
   The Super Agent (`/api/agent`, `/api/v1/agent`) answers from the whole portfolio, so it is refused (403, and its
   button is hidden) unless the profile opens every data section (`Access.can_use_agent`); scoping its tools per

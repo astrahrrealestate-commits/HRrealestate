@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     tenant_sends_per_hour: int = 30
     # Owner-typed WhatsApp sends from the Chats page (ADR 0013): a separate per-company hourly cap.
     owner_chat_sends_per_hour: int = 200
+    owner_chat_sends_per_number_per_hour: int = 20  # to one contact: a typing slip or a loop cannot flood a tenant
 
     # Channels (spec M2 §4). Defaults are fakes: everything runs without provider access; prod refuses fakes.
     whatsapp_provider: Literal["fake", "cloud_api", "360dialog", "sendzen"] = "fake"

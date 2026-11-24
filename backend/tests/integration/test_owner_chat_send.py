@@ -1,9 +1,8 @@
 """Owner-typed WhatsApp sends (ADR 0013): the sender trusts only the stored outbound row, never a passed-in number."""
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import UUID
 
 import pytest
 from sqlalchemy import Engine, select, update
@@ -15,75 +14,20 @@ from app.contracts import Channel, Direction, OutboundMode
 from app.core.ids import new_id
 from app.core.workflow_names import chat_workflow_id
 from app.db.enums import DeliveryStatus, SendStatus
-from app.db.models import Company, MessageRow, RawEvent, Send
+from app.db.models import ChannelAccount, Company, MessageRow, Send
 from app.sender.delivery import STUCK_AFTER, SenderDeps
 from app.sender.owner_chat import send_chat_message
 from app.sender.tenant_gate import tenant_sends_last_hour
+from tests.integration.chat_send_support import TEXT, Pending, add_inbound, all_sends, pending_row, row_of, send_of
 from tests.integration.conftest import purge_company
 from tests.integration.send_mode_support import OWNER, TENANT_NR, Env, make_env, prior_send, set_company
 
 pytestmark = pytest.mark.integration
 
-TEXT = "Dag mevrouw, de monteur komt morgen tussen 9 en 11."
-
-
-@dataclass
-class Pending:
-    id: UUID
-    client_msg_id: UUID
-
-    def key(self, env: Env) -> str:
-        return chat_workflow_id(env.company_id, self.client_msg_id)
-
 
 @pytest.fixture
 def env(migrated_engine: Engine, committed_company: Company) -> Env:
     return make_env(migrated_engine, committed_company)
-
-
-def add_inbound(env: Env, sender: str, *, company_id: UUID | None = None, age: timedelta = timedelta(hours=1)) -> None:
-    cid, at = company_id or env.company_id, datetime.now(UTC) - age
-    with Session(env.engine) as s, s.begin():
-        raw = RawEvent(company_id=cid, provider=Channel.whatsapp, provider_msg_id=f"in-{new_id()}", payload={})
-        s.add(raw)
-        s.flush()
-        s.add(MessageRow(
-            company_id=cid, raw_event_id=raw.id, channel=Channel.whatsapp, provider_msg_id=raw.provider_msg_id,
-            thread_ref=sender, sender_identity=sender, direction=Direction.inbound, sent_at=at, created_at=at,
-            text="Hallo",
-        ))  # fmt: skip
-
-
-def pending_row(env: Env, thread: str = TENANT_NR, text: str = TEXT, **meta: Any) -> Pending:
-    """What the API stores before it enqueues: an outbound row with no delivery status yet."""
-    client = new_id()
-    with Session(env.engine) as s, s.begin():
-        raw = RawEvent(company_id=env.company_id, provider=Channel.whatsapp, provider_msg_id=f"o-{client}", payload={})
-        s.add(raw)
-        s.flush()
-        row = MessageRow(
-            company_id=env.company_id, raw_event_id=raw.id, channel=Channel.whatsapp,
-            provider_msg_id=f"pending:{client}", thread_ref=thread, sender_identity=OWNER, direction=Direction.outbound,
-            sent_at=datetime.now(UTC), text=text, meta={"client_msg_id": str(client), **meta},
-        )  # fmt: skip
-        s.add(row)
-        s.flush()
-        return Pending(row.id, client)
-
-
-def row_of(env: Env, message_id: UUID) -> MessageRow:
-    with Session(env.engine) as s:
-        return s.scalars(select(MessageRow).where(MessageRow.id == message_id)).one()
-
-
-def send_of(env: Env, key: str) -> Send | None:
-    with Session(env.engine) as s:
-        return s.scalar(select(Send).where(Send.company_id == env.company_id, Send.idempotency_key == key))
-
-
-def chat_sends(env: Env) -> int:
-    with Session(env.engine) as s:
-        return len(list(s.scalars(select(Send.id).where(Send.company_id == env.company_id))))
 
 
 def assert_refused(env: Env, p: Pending, reason: str) -> None:
@@ -134,7 +78,7 @@ def test_replay_same_message_sends_once(env: Env) -> None:
     assert (first.status, second.status) == ("sent", "already")
     assert second.provider_ref == first.provider_ref
     assert len(env.wa.sent) == 1
-    assert chat_sends(env) == 1
+    assert all_sends(env) == 1
 
 
 def test_replay_after_send_finished_but_row_not_updated_finishes_the_row(env: Env) -> None:
@@ -193,9 +137,23 @@ def test_message_of_another_company_is_not_found(env: Env, migrated_engine: Engi
         purge_company(migrated_engine, other.id)
 
 
-def test_owner_number_and_company_account_numbers_are_refused(env: Env) -> None:
+def test_owner_number_is_refused(env: Env) -> None:
     add_inbound(env, OWNER)  # the owner writing from his own phone is an inbound row too
     assert_refused(env, pending_row(env, thread=OWNER), "this number belongs to the company")
+
+
+def test_company_whatsapp_account_number_is_refused(env: Env) -> None:
+    account = "+31600000200"
+    with Session(env.engine) as s, s.begin():
+        s.add(ChannelAccount(company_id=env.company_id, channel=Channel.whatsapp, address=account))
+    add_inbound(env, account)  # an echo of the company's own line is an inbound row too
+    assert_refused(env, pending_row(env, thread=account), "this number belongs to the company")
+
+
+@pytest.mark.parametrize("thread", ["0612345678", "abc"])
+def test_non_e164_thread_ref_is_refused_as_no_inbound(env: Env, thread: str) -> None:
+    add_inbound(env, thread)
+    assert_refused(env, pending_row(env, thread=thread), "no inbound message from this number")
 
 
 def test_paused_company_is_refused(env: Env) -> None:
@@ -272,8 +230,24 @@ def test_owner_chat_cap_refuses_at_the_cap_and_passes_below_it(env: Env) -> None
 
 
 def test_owner_chat_cap_is_separate_from_tenant_cap(env: Env) -> None:
-    for _ in range(env.deps.tenant_sends_per_hour):
+    deps = replace(env.deps, owner_chat_sends_per_hour=30)  # counting these 30 tenant sends would refuse this one
+    for _ in range(30):
         prior_send(env, "+31611111111")  # AI-drafted tenant replies, as many as the tenant cap allows
+    assert send_chat_message(deps, env.company_id, pending_row(env).id).status == "sent"
+
+
+def test_per_number_cap_19_passes_and_20_refuses(env: Env) -> None:
+    for _ in range(19):
+        prior_send(env, TENANT_NR, key=chat_workflow_id(env.company_id, new_id()))
+    assert send_chat_message(env.deps, env.company_id, pending_row(env).id).status == "sent"  # the 20th message
+    again = send_chat_message(env.deps, env.company_id, pending_row(env).id)  # 20 already went to this number
+    assert (again.status, again.reason) == ("blocked", "too many messages to this number this hour")
+    assert len(env.wa.sent) == 1
+
+
+def test_per_number_cap_counts_only_that_number(env: Env) -> None:
+    for _ in range(20):
+        prior_send(env, "+31600000777", key=chat_workflow_id(env.company_id, new_id()))
     assert send_chat_message(env.deps, env.company_id, pending_row(env).id).status == "sent"
 
 
@@ -284,21 +258,18 @@ def test_chat_sends_do_not_count_against_the_tenant_cap(env: Env) -> None:
         assert tenant_sends_last_hour(s, env.company_id, "exec:x:1", datetime.now(UTC)) == 0
 
 
-def test_attempt_that_died_mid_call_is_settled_failed_not_left_sending(env: Env) -> None:
-    p = pending_row(env)
-    old = datetime.now(UTC) - STUCK_AFTER - timedelta(minutes=1)
-    prior_send(env, TENANT_NR, status=SendStatus.sending, key=p.key(env), attempted_at=old)
-    outcome = send_chat_message(env.deps, env.company_id, p.id)
-    assert outcome.status == "failed"
-    row = row_of(env, p.id)
-    assert row.delivery_status is DeliveryStatus.failed
-    assert row.meta["send_error"].startswith("delivery status unknown")
-    assert env.wa.sent == []
-
-
 def test_fresh_sending_row_is_left_to_its_holder(env: Env) -> None:
     p = pending_row(env)
     prior_send(env, TENANT_NR, status=SendStatus.sending, key=p.key(env), attempted_at=datetime.now(UTC))
+    assert send_chat_message(env.deps, env.company_id, p.id).status == "in_progress"
+    assert row_of(env, p.id).delivery_status is None
+    assert env.wa.sent == []
+
+
+def test_old_sending_row_is_left_to_the_sweep_not_settled_by_the_attempt(env: Env) -> None:
+    p = pending_row(env)
+    old = datetime.now(UTC) - STUCK_AFTER - timedelta(minutes=1)
+    prior_send(env, TENANT_NR, status=SendStatus.sending, key=p.key(env), attempted_at=old)
     assert send_chat_message(env.deps, env.company_id, p.id).status == "in_progress"
     assert row_of(env, p.id).delivery_status is None
     assert env.wa.sent == []
@@ -321,5 +292,9 @@ def test_row_without_client_msg_id_is_not_sent(env: Env) -> None:
     p = pending_row(env)
     with Session(env.engine) as s, s.begin():
         s.execute(update(MessageRow).where(MessageRow.id == p.id).values(meta={}))
-    assert send_chat_message(env.deps, env.company_id, p.id).status == "blocked"
+    outcome = send_chat_message(env.deps, env.company_id, p.id)
+    assert (outcome.status, outcome.reason) == ("blocked", "message has no client id")
+    row = row_of(env, p.id)
+    assert row.delivery_status is DeliveryStatus.failed
+    assert row.meta["send_error"] == "message has no client id"
     assert env.wa.sent == []

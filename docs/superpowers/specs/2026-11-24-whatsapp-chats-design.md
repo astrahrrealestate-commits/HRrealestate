@@ -114,17 +114,24 @@ polls every 8 s as a fallback (as the Inbox does).
 
 One locked transaction, then the provider call after commit, mirroring `execute.py`:
 
-1. **Recipient** derived from the DB only: the chat's number must be the `sender_identity` of an inbound WhatsApp
-   message of this company, must not be one of the company's own addresses (`_own_addresses`), and must not be an
-   owner number. The request carries a `chat_key`, never a free-form `to`.
-2. **Window:** newest inbound from that number within 24 h (`whatsapp_window_open`), else refuse with the reason.
+1. **Recipient** derived from the DB only: the stored outbound row's `thread_ref` (canonical E.164; the request carries
+   a `chat_key`, never a free-form `to`) must be the `sender_identity` of an inbound WhatsApp message of this company,
+   must not be one of the company's own addresses (`own_addresses`, promoted from the private `_own_addresses`) or an
+   owner number or email.
+2. **Window:** the newest inbound from that number must be inside the 23 h window (`wa_window.window_open`, exactly at
+   the boundary is closed), else refuse with the reason.
 3. **Mode and pause:** company not paused, `outbound_mode == send`, else refuse.
-4. **Cap:** a separate per-company hourly cap for owner-typed sends (new setting, default 200/h) plus the existing
-   120/min decision-write rate limit. The AI-draft cap stays untouched.
-5. **Idempotency:** key `chat:{company_id}:{client_msg_id}`. A double click, retry or two tabs produce one send.
-6. Claim the `sends` row (existing `claim`), insert the **outbound `messages` row** (`direction=outbound`,
-   `delivery_status=sent`, provider id after the call), then call the provider. Ambiguous failures record "unknown"
-   and are never auto-retried; the UI shows "may not have been delivered".
+4. **Caps:** a separate per-company hourly cap for owner-typed sends (`owner_chat_sends_per_hour`, default 200/h), a
+   per-contact cap (`owner_chat_sends_per_number_per_hour`, default 20/h), plus the existing 120/min decision-write
+   rate limit. The AI-draft cap stays untouched, and chat sends do not count against it.
+5. **Idempotency:** key `chat:{company_id}:{client_msg_id}`; `client_msg_id` must match `[A-Za-z0-9_-]{1,64}` and is
+   unique per company among outbound WhatsApp rows (migration 0050). A double click, retry or two tabs produce one send.
+6. Built flow: the API (Task 7) stores the outbound `messages` row first (`direction=outbound`, `delivery_status`
+   NULL = pending, placeholder provider id) and enqueues. The sender claims the `sends` row (existing `claim`) in one
+   transaction under the company lock, calls the provider after commit, then writes the wamid into
+   `provider_msg_id` and `delivery_status = sent`. A refusal or a provider failure writes `delivery_status = failed`
+   and `meta.send_error` (a short reason, no text). Ambiguous failures record "unknown" and are never auto-retried;
+   the UI shows "may not have been delivered". A send whose worker died is settled as failed by the stuck sweep.
 7. Delivery/read ticks arrive through the existing status webhook handling
    (`ingestion/repository.py` rank-based status update). The pipeline skips outbound rows (`process.py`).
 8. If the text came from a suggestion, the request carries `suggestion_action_id`; the action is closed as handled

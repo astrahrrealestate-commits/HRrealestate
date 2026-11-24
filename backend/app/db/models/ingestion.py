@@ -13,6 +13,9 @@ from app.db.base import Base, CompanyScoped, str_enum
 from app.db.enums import DeliveryStatus, ExtractionStatus, PipelineStatus, RawEventStatus
 
 THREAD_KEY_SQL = "coalesce(thread_ref, provider_msg_id)"  # a message's thread key (what thread pages filter on)
+CLIENT_MSG_ID_INDEX = "uq_messages_chat_client_msg_id"
+CLIENT_MSG_ID_SQL = "(meta ->> 'client_msg_id')"  # the browser's id of an owner-typed WhatsApp message (ADR 0013)
+CLIENT_MSG_ID_WHERE = "channel = 'whatsapp' AND direction = 'outbound' AND (meta ->> 'client_msg_id') IS NOT NULL"
 
 
 class RawEvent(Base, CompanyScoped):
@@ -47,6 +50,14 @@ class MessageRow(Base, CompanyScoped):
         # Thread page scan (page_memory/page_facts: channel + thread key); expression index, migration 0012
         Index("ix_messages_company_channel_thread", "company_id", "channel", sql_text(THREAD_KEY_SQL)),
         Index(None, "company_id", "created_at"),  # newest message per company: page pre-warm freshness (0016)
+        # One outbound WhatsApp row per owner-typed message: the same `client_msg_id` can never name two rows (0050)
+        Index(
+            CLIENT_MSG_ID_INDEX,
+            "company_id",
+            sql_text(CLIENT_MSG_ID_SQL),
+            unique=True,
+            postgresql_where=sql_text(CLIENT_MSG_ID_WHERE),
+        ),
     )
 
     raw_event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("raw_events.id"), index=True)

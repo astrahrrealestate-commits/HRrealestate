@@ -51,6 +51,7 @@ class SenderDeps:
     gmail_sender: Callable[[str], GmailDrafts] | None = None
     tenant_sends_per_hour: int = 30
     owner_chat_sends_per_hour: int = 200
+    owner_chat_sends_per_number_per_hour: int = 20
 
 
 @dataclass(frozen=True)

@@ -430,6 +430,7 @@ bidirectional translation controls onto the new unified Composer, and fixed what
 - [x] Slice 2, owner-typed sends, sender side: ADR 0013, `app/sender/owner_chat.py` (`send_chat_message`, `assert_chat`,
   pure `chat_refusal`), `owner_chat_sends_per_hour` (200), `chat:{company_id}:{client_msg_id}` key, CLAUDE.md invariant 5,
   dashboard spec section 5 and security.md updated; the contacts `whatsapp/send` route keeps its 501 and now points to
-  Chats. Tests: `tests/unit/test_owner_chat_gates.py`, `tests/integration/test_owner_chat_send.py`
+  Chats. Tests: `tests/unit/test_owner_chat_gates.py`, `tests/integration/test_owner_chat_send.py`, `tests/integration/test_owner_chat_guards.py`
+- [x] Review fixes: migration 0050 (unique outbound `client_msg_id` per company), validated `client_msg_id`, per-contact cap (20/h), the stuck sweep settles dead chat sends and their rows, `assert_chat` / dispatch tests
 - [ ] Workflow, API route and composer (Tasks 6 to 8) not built yet; nothing can call `send_chat_message` from the UI
 - [ ] Needs a plain Meta Cloud API number (no coexistence, no templates): see ADR 0013

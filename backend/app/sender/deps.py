@@ -50,4 +50,5 @@ def build_sender_deps(settings: Settings, engine: Engine) -> SenderDeps:
         gmail_sender=reply_sender if gmail_send_configured(settings, sender) else None,
         tenant_sends_per_hour=settings.tenant_sends_per_hour,
         owner_chat_sends_per_hour=settings.owner_chat_sends_per_hour,
+        owner_chat_sends_per_number_per_hour=settings.owner_chat_sends_per_number_per_hour,
     )

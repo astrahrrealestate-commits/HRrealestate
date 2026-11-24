@@ -3,7 +3,7 @@
 AI property-management assistant (Phase 1) for one owner, Harjot. Reads tenant/contractor WhatsApp + Gmail,
 links messages to cases, proposes typed actions with 2–3 drafts. Harjot uses **only the dashboard** (backend API in
 `backend/app/api/v1`, frontend in `frontend/`) and one **Super Agent**; WhatsApp/Gmail messages are mirrored there.
-**Tenant sends happen only after his approve click**, via `backend/app/sender/`, behind `outbound_mode` (default `draft`).
+**AI-drafted tenant sends happen only after his approve click; messages he types himself in Chats are his own click (ADR 0013)**, always via `backend/app/sender/`, behind `outbound_mode` (default `draft`).
 Design: [dashboard spec](docs/superpowers/specs/2026-10-15-dashboard-super-agent-design.md), [ADR 0006](docs/adr/0006-dashboard-owner-channel.md).
 
 Repo layout: `backend/` (Python — app, tests, evals, docker, pyproject.toml, uv.lock) and `frontend/` (Next.js) are
