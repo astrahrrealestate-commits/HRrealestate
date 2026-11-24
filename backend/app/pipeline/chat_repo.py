@@ -25,12 +25,14 @@ __all__ = [
     "BadChatKeyError",
     "ChatFilter",
     "ChatSummary",
+    "chat_contact",
     "chat_list",
     "chat_messages",
     "latest_case_id",
     "latest_inbound",
     "mark_read",
     "parse_chat_key",
+    "quoted_messages",
     "suggestions",
 ]
 
@@ -161,21 +163,48 @@ def chat_list(
     if before is not None:
         stmt = stmt.where(tuple_(r.c.sent_at, r.c.id) < tuple_(*before))
     stmt = stmt.order_by(r.c.sent_at.desc(), r.c.id.desc()).limit(max(1, min(limit, MAX_PAGE)))
-    return [
-        ChatSummary(
-            chat_key=row.ref,
-            name=row.display_name,
-            person_kind=row.person_kind,
-            last_message_id=row.id,
-            last_at=row.sent_at,
-            last_text=row.text,
-            last_kind=row.msg_kind,
-            last_direction=row.direction,
-            last_delivery=row.delivery,
-            unread=row.unread,
+    return [_summary(row) for row in session.execute(stmt)]
+
+
+def _summary(row: Any) -> ChatSummary:
+    return ChatSummary(
+        chat_key=row.ref,
+        name=row.display_name,
+        person_kind=row.person_kind,
+        last_message_id=row.id,
+        last_at=row.sent_at,
+        last_text=row.text,
+        last_kind=row.msg_kind,
+        last_direction=row.direction,
+        last_delivery=row.delivery,
+        unread=row.unread,
+    )
+
+
+def chat_contact(session: Session, company_id: UUID, chat_key: str) -> tuple[str | None, PersonKind | None]:
+    """Name and kind of the person whose current WhatsApp identity is `chat_key`; (None, None) for a stranger."""
+    stmt = (
+        select(Person.display_name, Person.kind)
+        .join(ChannelIdentity, ChannelIdentity.person_id == Person.id)
+        .where(
+            Person.company_id == company_id,
+            ChannelIdentity.company_id == company_id,
+            ChannelIdentity.channel == Channel.whatsapp,
+            ChannelIdentity.identity == chat_key,
+            ChannelIdentity.valid_to.is_(None),
         )
-        for row in session.execute(stmt)
-    ]
+        .limit(1)
+    )
+    row = session.execute(stmt).first()
+    return (row.display_name, row.kind) if row is not None else (None, None)
+
+
+def quoted_messages(session: Session, company_id: UUID, provider_ids: set[str]) -> dict[str, MessageRow]:
+    """WhatsApp messages of this company by `provider_msg_id`, for resolving the messages a reply quotes."""
+    if not provider_ids:
+        return {}
+    stmt = select(MessageRow).where(*_chat_messages_of(company_id), MessageRow.provider_msg_id.in_(provider_ids))
+    return {m.provider_msg_id: m for m in session.scalars(stmt)}
 
 
 def chat_messages(

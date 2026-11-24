@@ -163,6 +163,74 @@ def test_other_company_never_listed_and_messages_empty(db: Session, company: Com
     assert [c.chat_key for c in _list(db, other.id)] == [TINA]
 
 
+def test_other_companys_person_never_names_my_chat(db: Session, company: Company) -> None:
+    other = Company(name="Other")
+    db.add(other)
+    db.flush()
+    _person(db, other.id, "Foreign Tina", PersonKind.tenant, TINA)
+    _msg(db, company.id, TINA, 1)
+    chat = _list(db, company.id)[0]
+    assert (chat.name, chat.person_kind) == (None, None)
+    assert chat_repo.chat_contact(db, company.id, TINA) == (None, None)
+    assert chat_repo.chat_contact(db, other.id, TINA) == ("Foreign Tina", PersonKind.tenant)
+    assert _keys(db, company.id, filter="tenants") == []
+    assert _keys(db, company.id, q="foreign") == []
+
+
+def test_chat_contact_names_current_identity_only(db: Session, company: Company) -> None:
+    person = _person(db, company.id, "Tina Tenant", PersonKind.tenant, TINA)
+    assert chat_repo.chat_contact(db, company.id, TINA) == ("Tina Tenant", PersonKind.tenant)
+    assert chat_repo.chat_contact(db, company.id, BOB) == (None, None)
+    db.query(ChannelIdentity).filter_by(person_id=person.id).update({"valid_to": date(2026, 6, 1)})
+    assert chat_repo.chat_contact(db, company.id, TINA) == (None, None)
+
+
+def test_foreign_links_and_drafts_on_my_messages_are_ignored(db: Session, company: Company) -> None:
+    other = Company(name="Other")
+    db.add(other)
+    db.flush()
+    inbound = _msg(db, company.id, TINA, 1)
+    foreign_case = Case(company_id=other.id, category=Category.other, urgency=Urgency.normal, state=CaseState.open)
+    db.add(foreign_case)
+    db.flush()
+    db.add(CaseLink(company_id=other.id, case_id=foreign_case.id, message_id=inbound.id, method=LinkMethod.thread))
+    db.add(
+        ActionRow(
+            company_id=other.id, case_id=foreign_case.id, type=ActionType.reply_draft,
+            payload={"body_variants": ["leaked"]}, rationale="r", context_ref=[inbound.id],
+            status=ActionStatus.pending_approval,
+        )
+    )  # fmt: skip
+    db.flush()
+    assert chat_repo.latest_case_id(db, company.id, TINA) is None
+    assert chat_repo.suggestions(db, company.id, TINA) == (None, [])
+
+
+def test_latest_case_id_is_the_newest_linked_case(db: Session, company: Company) -> None:
+    older, newer = _msg(db, company.id, TINA, 1), _msg(db, company.id, TINA, 2)
+    _msg(db, company.id, TINA, 3)  # newest message has no case: the newest linked one still wins
+    cases = []
+    for message in (older, newer):
+        case = Case(company_id=company.id, category=Category.other, urgency=Urgency.normal, state=CaseState.open)
+        db.add(case)
+        db.flush()
+        db.add(CaseLink(company_id=company.id, case_id=case.id, message_id=message.id, method=LinkMethod.thread))
+        cases.append(case)
+    db.flush()
+    assert chat_repo.latest_case_id(db, company.id, TINA) == cases[1].id
+
+
+def test_quoted_messages_resolve_by_provider_id_in_my_company_only(db: Session, company: Company) -> None:
+    other = Company(name="Other")
+    db.add(other)
+    db.flush()
+    mine = _msg(db, company.id, TINA, 1)
+    theirs = _msg(db, other.id, TINA, 2)
+    found = chat_repo.quoted_messages(db, company.id, {mine.provider_msg_id, theirs.provider_msg_id, "missing"})
+    assert found == {mine.provider_msg_id: mine}
+    assert chat_repo.quoted_messages(db, company.id, set()) == {}
+
+
 def test_chat_messages_pages_oldest_first(db: Session, company: Company) -> None:
     rows = [_msg(db, company.id, TINA, n) for n in range(1, 6)]
     _msg(db, company.id, BOB, 9)
