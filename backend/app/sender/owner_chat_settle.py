@@ -11,6 +11,7 @@ from sqlalchemy import Engine, select, update
 from sqlalchemy.orm import Session
 
 from app.contracts import Channel, Direction
+from app.core.workflow_names import chat_workflow_id
 from app.db.enums import DeliveryStatus, SendStatus
 from app.db.models import MessageRow, Send
 from app.sender.delivery import STUCK, STUCK_AFTER, ExecOutcome, SenderDeps
@@ -98,4 +99,36 @@ def settle_stuck_chat(engine: Engine, company_id: UUID, key: str, now: datetime)
         )
         if message_id is not None:
             mark_row(session, company_id, message_id, DeliveryStatus.failed, wamid=None, error=STUCK)
+    return True
+
+
+def fail_exhausted(engine: Engine, company_id: UUID, message_id: UUID, reason: str) -> bool:
+    """The workflow's step ran out of retries: nobody else will settle the row, so mark it failed with `reason`.
+
+    Only a still-pending row (`delivery_status IS NULL`) whose `sends` row is not `sent` or `sending` is touched: a send
+    that went out (or is held by a live attempt) is settled by its own path, never reported as failed here. True only
+    when this call marked the row."""
+    with Session(engine) as session, session.begin():
+        row = session.scalar(
+            select(MessageRow)
+            .where(
+                MessageRow.id == message_id,
+                MessageRow.company_id == company_id,
+                MessageRow.channel == Channel.whatsapp,
+                MessageRow.direction == Direction.outbound,
+                MessageRow.delivery_status.is_(None),
+            )
+            .with_for_update()
+        )
+        if row is None:
+            return False
+        send = session.scalar(
+            select(Send).where(
+                Send.company_id == company_id,
+                Send.idempotency_key == chat_workflow_id(company_id, row.meta.get("client_msg_id")),
+            )
+        )
+        if send is not None and send.status in (SendStatus.sent, SendStatus.sending):
+            return False
+        mark_row(session, company_id, message_id, DeliveryStatus.failed, wamid=None, error=reason)
     return True

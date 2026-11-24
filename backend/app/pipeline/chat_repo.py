@@ -39,7 +39,7 @@ __all__ = [
 
 ChatFilter = Literal["all", "unread", "tenants", "contractors"]
 MAX_SUGGESTIONS = 3
-_OPEN_DRAFT = (ActionStatus.proposed, ActionStatus.pending_approval)
+OPEN_DRAFT = (ActionStatus.proposed, ActionStatus.pending_approval)
 _E164 = re.compile(r"\+[0-9]{1,15}")
 
 
@@ -287,7 +287,7 @@ def suggestions(session: Session, company_id: UUID, chat_key: str) -> tuple[UUID
         .where(
             ActionRow.company_id == company_id,
             ActionRow.type == ActionType.reply_draft,
-            ActionRow.status.in_(_OPEN_DRAFT),
+            ActionRow.status.in_(OPEN_DRAFT),
             ActionRow.context_ref.contains([inbound.id]),
         )
         .order_by(ActionRow.created_at.desc(), ActionRow.id.desc())

@@ -28,6 +28,7 @@ def test_every_named_queue_is_registered_at_boot() -> None:
         "timers",
         "documents",
         "concierge",
+        "chat",
         "brixx",
         "brixx_documents",
         "finance",
@@ -47,6 +48,15 @@ def test_the_chat_queue_polls_fast_with_concurrency_from_settings() -> None:
     }
     assert queues.CONCIERGE_POLL_SECONDS == 0.25
     assert _register(_settings(concierge_worker_concurrency=2))["concierge"]["worker_concurrency"] == 2
+
+
+def test_the_owner_chat_send_queue_polls_as_fast_as_the_concierge_queue() -> None:
+    assert workflow_names.CHAT_QUEUE == queues.CHAT_QUEUE == "chat"
+    assert _register(_settings())["chat"] == {
+        "worker_concurrency": queues.CHAT_WORKER_CONCURRENCY,
+        "polling_interval_sec": queues.CHAT_POLL_SECONDS,
+    }
+    assert queues.CHAT_POLL_SECONDS == queues.CONCIERGE_POLL_SECONDS
 
 
 def test_other_queues_keep_their_options() -> None:

@@ -6,6 +6,8 @@ from uuid import UUID
 from app.api.deps import WorkflowClient
 from app.core.workflow_names import (
     BACKFILL_DOCUMENTS,
+    CHAT_QUEUE,
+    CHAT_SEND,
     CONCIERGE_QUEUE,
     CONCIERGE_TURN,
     DD_REVIEW,
@@ -16,6 +18,7 @@ from app.core.workflow_names import (
     FINANCE_RECHECK,
     PIPELINE_QUEUE,
     REORG_PLAN,
+    chat_workflow_id,
     concierge_workflow_id,
     dd_workflow_id,
     exec_workflow_id,
@@ -95,3 +98,14 @@ def enqueue_finance_recheck(client: WorkflowClient, quote_id: UUID, company_id: 
         "workflow_id": finance_recheck_workflow_id(quote_id, n),
     }
     client.enqueue(options, str(quote_id), str(company_id), n)
+
+
+def enqueue_chat_send(client: WorkflowClient, company_id: UUID, client_msg_id: UUID, message_id: UUID) -> None:
+    """`chat:{company_id}:{client_msg_id}` on the chat queue, after the outbound row committed: a repeated click (same
+    `client_msg_id`) is deduped by DBOS, and the same id is the `sends` idempotency key."""
+    options = {
+        "queue_name": CHAT_QUEUE,
+        "workflow_name": CHAT_SEND,
+        "workflow_id": chat_workflow_id(company_id, client_msg_id),
+    }
+    client.enqueue(options, str(company_id), str(message_id))

@@ -10,6 +10,7 @@ GMAIL_SYNC_QUEUE = "gmail_sync"  # concurrency 1: syncs never overlap, no DB loc
 TIMERS_QUEUE = "timers"  # due timers never wait behind LLM pipeline work (their lease starts at claim)
 DOCUMENTS_QUEUE = "documents"  # partitioned per company, concurrency 1: Drive folder creation never races
 CONCIERGE_QUEUE = "concierge"  # Super Agent turns: never wait behind pipeline work; short poll interval
+CHAT_QUEUE = "chat"  # owner-typed WhatsApp sends (ADR 0013): a person waits on the click; short poll interval
 BRIXX_QUEUE = "brixx"  # BRIXX mirror table syncs: slow upstream, never competes with pipeline work
 BRIXX_DOCUMENTS_QUEUE = "brixx_documents"  # BRIXX file downloads, one at a time: never delays the table syncs
 FINANCE_QUEUE = "finance"  # price snapshots and quote reviews (M11): never wait behind pipeline work
