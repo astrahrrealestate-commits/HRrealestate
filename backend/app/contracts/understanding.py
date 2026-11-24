@@ -5,7 +5,7 @@ overwrites it with the `PromptRef.key` actually used (M4).
 """
 
 from enum import StrEnum
-from typing import Annotated, Self
+from typing import Annotated, Any, Self
 
 from pydantic import Field, StringConstraints, model_validator
 
@@ -21,6 +21,18 @@ class Category(StrEnum):
     admin = "admin"
     spam = "spam"
     other = "other"
+
+
+class SenderRole(StrEnum):
+    """Who the model thinks wrote a property-related message. A display and drafting-register hint only: the directory
+    decides who a person is, and recipients never come from this (ADR 0014)."""
+
+    tenant = "tenant"
+    contractor = "contractor"
+    legal = "legal"  # advocate, notary, bailiff
+    vve = "vve"  # homeowners' association or building admin
+    business = "business"  # bank, tax office, utility, software or other vendor
+    prospect = "prospect"  # someone asking to view or rent
 
 
 class Urgency(StrEnum):
@@ -62,4 +74,17 @@ class Understanding(Contract):
     entities: Entities
     suspicious: Suspicious
     confidence: Annotated[float, Field(ge=0.0, le=1.0)]
+    sender_role: SenderRole | None  # None when the sender is unclear or the mail is not about the portfolio
     prompt_version: Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*/v[0-9]+$")]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_role_for_noise_or_suspicious(cls, data: Any) -> Any:
+        """Spam and suspicious mail get no label: a phishing mail claiming to be a lawyer must not look like one."""
+        if not isinstance(data, dict) or data.get("sender_role") is None:
+            return data
+        suspicious = data.get("suspicious")
+        flagged = suspicious.flag if isinstance(suspicious, Suspicious) else bool((suspicious or {}).get("flag"))
+        if flagged or data.get("category") in (Category.spam, Category.spam.value):
+            return {**data, "sender_role": None}
+        return data

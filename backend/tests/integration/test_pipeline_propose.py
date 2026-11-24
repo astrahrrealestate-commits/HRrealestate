@@ -37,6 +37,7 @@ def _setup(
         entities=Entities.none(),
         suspicious=Suspicious(flag=suspicious, reason="IBAN change" if suspicious else None),
         confidence=0.9,
+        sender_role=None,
         prompt_version="understanding/v2",
     )
     with Session(engine) as s, s.begin():

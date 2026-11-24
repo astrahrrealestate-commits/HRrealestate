@@ -22,6 +22,7 @@ UND = Understanding(
     entities=Entities.none(),
     suspicious=Suspicious(flag=False, reason=None),
     confidence=0.9,
+    sender_role=None,
     prompt_version="understanding/v2",
 )
 

@@ -15,8 +15,8 @@ the digest, the evals and the API schema.
   draft. `understanding` v3 only sharpens that scope.
 - **Label second.** A sender role is computed after intent, from the directory first (`Person.kind`, `LeaseParty`),
   then from an optional `Understanding.sender_role` hint, else `Contact`. Computed on read, never stored on the case.
-- **No new `Category`, no migration.** `sender_role` is an optional field in the JSONB `understandings.body`,
-  defaulting to `None`; noise forbids a role.
+- **No new `Category`, no migration.** `sender_role` is a required-but-nullable field (strict LLM schemas allow no defaults) in the JSONB
+  `understandings.body`; rows stored earlier read as `null` through a shim; noise forbids a role.
 - **The model never decides who gets a message.** The role is display and drafting-register only; recipients and
   person kind come from the DB (invariants 5 and 6).
 - **Order of work:** resolver and UI first (no model change), then `understanding` v3, then `proposer` v5.

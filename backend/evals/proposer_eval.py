@@ -39,7 +39,7 @@ SIGN_OFF = "met vriendelijke groet"
 _UND = Understanding(
     category=Category.maintenance, intent="Tenant message", urgency=Urgency.normal, requires_reply=True,
     entities=Entities.none(), suspicious=Suspicious(flag=False, reason=None), confidence=0.9,
-    prompt_version="understanding/v2",
+    sender_role=None, prompt_version="understanding/v2",
 )  # fmt: skip
 
 

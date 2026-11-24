@@ -12,7 +12,12 @@ from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import PipelineStatus
 from app.db.models import AttachmentRow, MessageRow, OwnerAccount, UnderstandingRow
-from app.llm.agents.understanding import MAX_UNDERSTANDING_BODY_CHARS, UNDERSTANDING, understanding_prompt
+from app.llm.agents.understanding import (
+    MAX_UNDERSTANDING_BODY_CHARS,
+    UNDERSTANDING,
+    sender_shown_to_model,
+    understanding_prompt,
+)
 from app.llm.calls import CallContext, run_agent
 from app.llm.render import AttachmentMeta
 from app.pipeline.injection_scan import scan
@@ -56,6 +61,7 @@ def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> 
             channel=msg.channel,
             subject=subject,
             attachments=att_metas,
+            sender=sender_shown_to_model(msg.channel, msg.sender_identity),
         )
         company_id = msg.company_id
         wordless_with_files = not msg.text.strip() and bool(attachments)

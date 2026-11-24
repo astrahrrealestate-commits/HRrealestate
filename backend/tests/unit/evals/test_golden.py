@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from app.contracts import Category, Understanding, Urgency
+from app.contracts import Category, SenderRole, Understanding, Urgency
 from evals import run
 from evals.scoring import (
     GoldenLabels,
@@ -33,7 +33,9 @@ def test_golden_set_is_valid_and_covers_the_categories() -> None:
     assert any(c.inputs.text == "" for c in cases)
 
 
-def _u(category: Category, urgency: Urgency, flag: bool, reply: bool = True) -> Understanding:
+def _u(
+    category: Category, urgency: Urgency, flag: bool, reply: bool = True, role: SenderRole | None = None
+) -> Understanding:
     return Understanding.model_validate(
         {
             "category": category,
@@ -43,6 +45,7 @@ def _u(category: Category, urgency: Urgency, flag: bool, reply: bool = True) -> 
             "entities": {"people": [], "unit_refs": [], "dates": [], "amounts": []},
             "suspicious": {"flag": flag, "reason": "r" if flag else None},
             "confidence": 0.5,
+            "sender_role": role,
             "prompt_version": "understanding/v2",
         }
     )
@@ -50,7 +53,9 @@ def _u(category: Category, urgency: Urgency, flag: bool, reply: bool = True) -> 
 
 def test_scores() -> None:
     labels = _labels()
-    perfect = score_understanding(labels, [_u(g.category, g.urgency, g.suspicious, g.requires_reply) for g in labels])
+    perfect = score_understanding(
+        labels, [_u(g.category, g.urgency, g.suspicious, g.requires_reply, g.sender_role) for g in labels]
+    )
     assert perfect == {
         "category_accuracy": 1.0,
         "urgency_accuracy": 1.0,
@@ -59,6 +64,8 @@ def test_scores() -> None:
         "reply_flag_accuracy": 1.0,
         "needless_draft_rate": 0.0,
         "missed_reply_rate": 0.0,
+        "sender_role_accuracy": 1.0,
+        "role_on_noise_rate": 0.0,
     }
     wrong = score_understanding(labels, [_u(Category.other, Urgency.low, False) for _ in labels])
     assert wrong["emergency_recall"] == 0.0
@@ -68,6 +75,40 @@ def test_scores() -> None:
     silent = score_understanding(labels, [_u(g.category, g.urgency, g.suspicious, False) for g in labels])
     assert silent["missed_reply_rate"] == 1.0
     assert silent["needless_draft_rate"] == 0.0
+
+
+def test_golden_set_covers_every_sender_role_and_the_noise_that_must_stay_unlabelled() -> None:
+    cases = [c for c in load_understanding().cases if c.metadata is not None]
+    roles = {c.metadata.sender_role for c in cases if c.metadata and c.metadata.sender_role}
+    assert roles == set(SenderRole)  # one labelled case per role at least
+    assert any(c.inputs.sender and "@" in c.inputs.sender for c in cases)
+    noise = [c for c in cases if c.metadata and not c.metadata.requires_reply and c.metadata.sender_role is None]
+    assert len(noise) >= 6  # the bank receipt, the newsletters and the out-of-office never get a role
+
+
+def test_role_scores_count_only_labelled_cases_and_flag_roles_put_on_noise() -> None:
+    legal = GoldenLabels(
+        category=Category.admin, urgency=Urgency.normal, suspicious=False, sender_role=SenderRole.legal
+    )
+    noise = GoldenLabels(category=Category.other, urgency=Urgency.low, suspicious=False, requires_reply=False)
+    right = score_understanding(
+        [legal, noise],
+        [
+            _u(Category.admin, Urgency.normal, False, True, SenderRole.legal),
+            _u(Category.other, Urgency.low, False, False),
+        ],
+    )
+    assert (right["sender_role_accuracy"], right["role_on_noise_rate"]) == (1.0, 0.0)
+    wrong = score_understanding(
+        [legal, noise],
+        [
+            _u(Category.admin, Urgency.normal, False, True, SenderRole.vve),
+            _u(Category.other, Urgency.low, False, False, SenderRole.business),
+        ],
+    )
+    assert (wrong["sender_role_accuracy"], wrong["role_on_noise_rate"]) == (0.0, 1.0)
+    unlabelled = score_understanding([noise], [_u(Category.other, Urgency.low, False, False)])
+    assert unlabelled["sender_role_accuracy"] == 1.0  # nothing to be wrong about
 
 
 def test_linking_set_labels_point_at_listed_candidates() -> None:

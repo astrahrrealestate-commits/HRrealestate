@@ -429,5 +429,6 @@ bidirectional translation controls onto the new unified Composer, and fixed what
 ## Sender roles after intent (2026-11-24; spec [2026-11-24-sender-roles-design.md](superpowers/specs/2026-11-24-sender-roles-design.md) · [ADR 0014](adr/0014-sender-roles-after-intent.md) · branch `m-sender-roles`)
 - [x] Spec and ADR 0014: intent first, label second, no new `Category`, no migration
 - [x] Step 1: directory-based sender label (`app/api/inbox/sender_label.py`); inbox shows Tenant only for tenants and lease parties, everyone else is a Contact shown by property or organisation, never "Unassigned Unit"; frontend maps the `contact` role and adds an "Others" filter. Known gap: a contact whose text names a leased unit still gets the "Link to Tenant" banner until step 2 (legal, VvE, business hints)
-- [ ] Step 2: `understanding` v3 + optional `sender_role` + golden cases + eval gate
+- [x] Step 2 (code, fake model): `Understanding.sender_role` (required-nullable, dropped for spam/suspicious), v3 prompt with scope rule and `From:` line, `_with_defaults` shim for stored rows, resolver role hint, banner suppressed for legal/VvE/business/prospect/contractor, 14 golden cases + `sender_role_accuracy`/`role_on_noise_rate`
+- [ ] Step 2 gate: `make eval agent=understanding version=v3` on a real model (none configured here: `LLM_MODEL=fake`), then switch `UNDERSTANDING` to v3 and repin the tests that name v2
 - [ ] Step 3: `proposer` v5 per-role register

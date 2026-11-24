@@ -50,11 +50,28 @@ v3 of the prompt only sharpens the scope: mail that is not about the managed por
 | 3 | nothing matched | neutral `Contact` |
 
 `sender_role` is `None` whenever the message is noise (validator: spam implies `None`). It lives in the existing
-JSONB `understandings.body`; old rows validate through the default `None`. It is a display hint only. Recipients,
+JSONB `understandings.body`. LLM-facing contracts must be OpenAI strict schemas (every field required, no defaults,
+`tests/unit/contracts/test_llm_schema.py`), so the field is required but nullable; rows stored before it existed gain
+`sender_role: null` when read (the same shim as `requires_reply`, `pipeline/propose.py`). It is a display hint only. Recipients,
 person kind and lease links never read it (invariants 5 and 6).
 
 The label is computed when the inbox is read, from stored facts. Nothing is written back, so there is no backfill and
 a wrong label is fixed by fixing the rule.
+
+**Step 2 details**
+- v3 shows the model a `From:` line inside the untrusted `<message>` block (email senders only; a phone number adds
+  nothing to triage and stays out). `understanding_prompt(..., sender=)` is generic; `sender_shown_to_model` passes it
+  only while `UNDERSTANDING` points at a prompt in `SENDER_AWARE_PROMPTS`, so v1 and v2 inputs are byte-identical.
+- A model `tenant` hint is ignored for the label: an unknown "tenant" stays a Contact so the unregistered-sender
+  banner can still offer to link them. `contractor`, `legal`, `vve`, `business`, `prospect` label a sender the
+  directory cannot place; `prospect` goes to the existing `inquiries` audience. Those roles also drop the banner.
+- Spam and suspicious mail never keep a role (contract validator), so a phishing mail claiming to be a lawyer is
+  unlabelled.
+- Golden set: 14 synthetic cases (each role, vendor spam, an automatic notice, a phishing "lawyer"); new scores
+  `sender_role_accuracy` (only where a role is expected) and `role_on_noise_rate` (must stay 0).
+- **`UNDERSTANDING` stays pinned to v2** until `make eval agent=understanding version=v3` has run against a real
+  model and is at least as good as v2 on every existing metric. The dev stack has `LLM_MODEL=fake` and no provider
+  keys, so that gate has not run; the switch is one line (`version="v3"`, plus the pin tests that name v2).
 
 **Display rules** (`app/api/inbox/sender_label.py`, pure, unit tested)
 - Tenant: unit from the case, else the unit named in the thread, else `Unassigned Unit` (a tenant with no unit
@@ -83,7 +100,7 @@ a wrong label is fixed by fixing the rule.
 
 - Step 1: unit tests for the resolver (precedence, free-mail domains, property-or-organisation), plus an inbox API
   test with a lawyer, a bank and a tenant thread. Seen red first.
-- Step 2: contract tests (old body validates, noise forbids a role), fake model, ~12 new golden cases (advocate,
+- Step 2: contract tests (old body validates through the shim, noise forbids a role), fake model, ~12 new golden cases (advocate,
   VvE, bank, tax, vendor, prospect, "I am a lawyer" injection), `make eval agent=understanding version=v3`.
 - Step 3: proposer eval cases per role.
 - Always: `make check`, OpenAPI snapshot update, frontend `tsc` and lint.

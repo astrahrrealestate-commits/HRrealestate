@@ -274,11 +274,13 @@ def _trusted(action: Action, loaded: Loaded) -> Action:
     return action.model_copy(update=update)
 
 
-def _with_reply_flag(body: dict[str, Any]) -> dict[str, Any]:
-    """Understandings stored before `requires_reply` existed: spam never needed an answer, anything else did."""
-    if "requires_reply" in body:
-        return body
-    return {**body, "requires_reply": body.get("category") != Category.spam.value}
+def _with_defaults(body: dict[str, Any]) -> dict[str, Any]:
+    """Understandings stored before a field existed: no `requires_reply` (spam never needed an answer, anything else
+    did) and no `sender_role` (unknown)."""
+    out = {"sender_role": None, **body}
+    if "requires_reply" not in out:
+        out["requires_reply"] = out.get("category") != Category.spam.value
+    return out
 
 
 def record_draft(session: Session, company_id: UUID, row: ActionRow, key: str) -> None:
@@ -315,7 +317,7 @@ def _prepare(
         if case_id is None:
             return ProposeResult()
         case = case_repo.get_case(session, msg.company_id, case_id)
-        understanding = Understanding.model_validate(_with_reply_flag(und.body))
+        understanding = Understanding.model_validate(_with_defaults(und.body))
         if not understanding.requires_reply and not understanding.suspicious.flag:
             return ProposeResult()  # nothing to answer: no proposal, no draft, no model call (suspicious mail stays)
         return _load(session, msg, case, understanding, embedder, documents=replay)

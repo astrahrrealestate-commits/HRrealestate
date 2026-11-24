@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import WorkflowClient, get_engine, get_ingest_deps, get_storage, get_workflow_client
 from app.api.inbox import decide as inbox_decide
-from app.api.inbox.sender_label import UNASSIGNED_UNIT, SenderKind, resolve_sender_label, unit_display
+from app.api.inbox.sender_label import UNASSIGNED_UNIT, resolve_sender_label, role_hint_of, unit_display
 from app.api.inbox.summary import headline_only
 from app.api.inbox.time_labels import when_label
 from app.api.inbox.translate import annotate_translations
@@ -231,11 +231,13 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
             )
             is not None
         )
+        sender_und = session.query(UnderstandingRow).filter(UnderstandingRow.message_id == tenant_msg.id).first()
         sender_label = resolve_sender_label(
             person_kind=person.kind if person else None,
             trade=person.trade if person else None,
             is_lease_party=is_lease_party,
             contractor_hint=is_contractor,
+            role_hint=role_hint_of(sender_und.body if sender_und and isinstance(sender_und.body, dict) else {}),
         )
 
         is_unregistered_sender = False
@@ -264,7 +266,7 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
                 if (
                     sender_clean not in known_identities
                     and (not person or person.kind == PersonKind.other)
-                    and sender_label.kind is not SenderKind.contractor
+                    and sender_label.may_be_tenant
                 ):
                     is_unregistered_sender = True
                     matched_tenant_info = {
@@ -556,7 +558,7 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
 
         role_label = sender_label.role_detail
         audience_label = sender_label.audience
-        recipient_role = sender_label.kind.value
+        recipient_role = sender_label.recipient_role
 
         annotate_translations(session, company_id, msgs_data, [*gmail_drafts, *whatsapp_drafts])
         ticket_code = f"BRIXX-{case.brixx_ref}" if case.brixx_ref else f"#{case_ref(case.id)}"

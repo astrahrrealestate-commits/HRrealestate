@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 from pydantic_evals import Dataset
 
-from app.contracts import Category, Channel, Understanding, Urgency
+from app.contracts import Category, Channel, SenderRole, Understanding, Urgency
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
 
@@ -17,6 +17,7 @@ class GoldenInput(BaseModel):
 
     text: str
     channel: Channel
+    sender: str | None = None  # the From address a sender-aware prompt sees (email only)
 
 
 class GoldenLabels(BaseModel):
@@ -26,6 +27,7 @@ class GoldenLabels(BaseModel):
     urgency: Urgency
     suspicious: bool
     requires_reply: bool = True  # a human would owe this sender an answer
+    sender_role: SenderRole | None = None  # who a careful human says wrote it; None for noise and unclear senders
 
 
 def load_understanding(
@@ -43,6 +45,15 @@ def _recall(
     return sum(got(output) for output in relevant) / len(relevant) if relevant else 1.0
 
 
+def _is_unlabelled_noise(labels: GoldenLabels) -> bool:
+    return not labels.requires_reply and labels.sender_role is None
+
+
+def _role_accuracy(pairs: Sequence[tuple[GoldenLabels, Understanding]]) -> float:
+    labelled = [(g, o) for g, o in pairs if g.sender_role is not None]
+    return sum(g.sender_role is o.sender_role for g, o in labelled) / len(labelled) if labelled else 1.0
+
+
 def score_understanding(labels: Sequence[GoldenLabels], outputs: Sequence[Understanding]) -> dict[str, float]:
     pairs = list(zip(labels, outputs, strict=True))
     n = len(pairs) or 1
@@ -57,6 +68,9 @@ def score_understanding(labels: Sequence[GoldenLabels], outputs: Sequence[Unders
         # the two errors the owner feels: a draft for mail that needs none (noise), a reply he never hears about
         "needless_draft_rate": 1 - _recall(pairs, lambda g: not g.requires_reply, lambda o: not o.requires_reply),
         "missed_reply_rate": 1 - _recall(pairs, lambda g: g.requires_reply, lambda o: o.requires_reply),
+        # labels come after intent: a role is judged only where one is expected, and noise must never get one
+        "sender_role_accuracy": _role_accuracy(pairs),
+        "role_on_noise_rate": 1 - _recall(pairs, _is_unlabelled_noise, lambda o: o.sender_role is None),
     }
 
 

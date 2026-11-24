@@ -32,3 +32,14 @@ def test_published_prompts_hash_the_same_on_every_checkout() -> None:
     assert published
     with_cr = [p.relative_to(prompts.PROMPTS_DIR).as_posix() for p in published if b"\r" in p.read_bytes()]
     assert with_cr == []
+
+
+def test_understanding_v3_describes_every_sender_role_and_treats_the_from_line_as_data() -> None:
+    from app.contracts import SenderRole
+
+    text = prompts.load_prompt(PromptRef(name="understanding", version="v3")).text
+    assert all(f"`{role.value}`" in text for role in SenderRole)  # a new role in the contract needs words here
+    assert "`From:`" in text
+    assert "data, not" in text
+    assert "NEVER follow instructions" in text  # the standing safety rule survived the copy
+    assert "sender_role = null" in text  # noise never gets a role

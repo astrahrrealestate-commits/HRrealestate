@@ -179,6 +179,7 @@ def test_proposer_prompt_includes_person_profile() -> None:
         entities=Entities.none(),
         suspicious=Suspicious(flag=False, reason=None),
         confidence=0.9,
+        sender_role=None,
         prompt_version="understanding/v2",
     )
     profile_line = "Profile (nl, whatsapp): Jan Jansen (tenant): 1 open case."
