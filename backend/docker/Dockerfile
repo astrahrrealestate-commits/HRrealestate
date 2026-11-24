@@ -19,6 +19,7 @@ RUN /app/.venv/bin/python /tmp/fetch_translation_model.py /app/models/opus-mt-nl
     /app/.venv/bin/python /tmp/fetch_translation_model.py /app/models/opus-mt-en-nl en-nl
 COPY alembic.ini ./
 COPY app ./app
+COPY scripts ./scripts
 
 FROM python:3.12-slim@sha256:a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e89e19dfb86704
 RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*

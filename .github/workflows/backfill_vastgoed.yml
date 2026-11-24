@@ -1,0 +1,147 @@
+name: Historical Email Backfill (Vastgoed 30-Day)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target AWS environment"
+        required: true
+        type: choice
+        default: "prod"
+        options:
+          - prod
+          - stage
+      dry_run:
+        description: "Run in dry-run mode (0 DB writes, 0 LLM calls)"
+        required: true
+        type: boolean
+        default: false
+      since_days:
+        description: "Days of history to backfill"
+        required: true
+        type: string
+        default: "30"
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    name: Run Backfill on ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4.0.2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'eu-north-1' }}
+
+      - name: Resolve Environment Configuration
+        id: env-config
+        run: |
+          ENV_NAME="${{ inputs.environment }}"
+          if [ "$ENV_NAME" = "prod" ]; then
+            echo "ECS_CLUSTER=estateos-prod-cluster" >> $GITHUB_ENV
+            echo "API_SERVICE=estateos-prod-api-service" >> $GITHUB_ENV
+            echo "TASK_FAMILY=estateos-prod-migrator" >> $GITHUB_ENV
+          else
+            echo "ECS_CLUSTER=estateos-stage-cluster" >> $GITHUB_ENV
+            echo "API_SERVICE=estateos-stage-api-service" >> $GITHUB_ENV
+            echo "TASK_FAMILY=estateos-stage-migrator" >> $GITHUB_ENV
+          fi
+
+      - name: Launch One-Shot Backfill Task in ECS
+        run: |
+          echo "Resolving active network configuration from $ECS_CLUSTER / $API_SERVICE..."
+          NET_CONFIG=$(aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$API_SERVICE" \
+            --region "${{ secrets.AWS_REGION || 'eu-north-1' }}" \
+            --query 'services[0].networkConfiguration.awsvpcConfiguration' \
+            --output json)
+
+          SUBNETS=$(echo "$NET_CONFIG" | jq -r '.subnets | join(",")')
+          SGS=$(echo "$NET_CONFIG" | jq -r '.securityGroups | join(",")')
+
+          echo "Using Subnets: $SUBNETS"
+          echo "Using Security Groups: $SGS"
+
+          # Prepare container command overrides
+          CMD_ARGS='["python", "scripts/backfill_vastgoed_30d.py", "--since-days", "${{ inputs.since_days }}"]'
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            CMD_ARGS='["python", "scripts/backfill_vastgoed_30d.py", "--since-days", "${{ inputs.since_days }}", "--dry-run"]'
+          fi
+
+          OVERRIDES=$(cat <<EOF
+          {
+            "containerOverrides": [
+              {
+                "name": "migrator",
+                "command": $CMD_ARGS
+              }
+            ]
+          }
+          EOF
+          )
+
+          echo "Launching one-shot backfill task using family $TASK_FAMILY..."
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "$ECS_CLUSTER" \
+            --task-definition "$TASK_FAMILY" \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SGS],assignPublicIp=ENABLED}" \
+            --overrides "$OVERRIDES" \
+            --region "${{ secrets.AWS_REGION || 'eu-north-1' }}" \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          if [ -z "$TASK_ARN" ] || [ "$TASK_ARN" = "None" ]; then
+            echo "::error::Failed to launch ECS backfill task."
+            exit 1
+          fi
+
+          echo "ECS Task launched: $TASK_ARN"
+          echo "Waiting for backfill task to finish..."
+
+          aws ecs wait tasks-stopped \
+            --cluster "$ECS_CLUSTER" \
+            --tasks "$TASK_ARN" \
+            --region "${{ secrets.AWS_REGION || 'eu-north-1' }}"
+
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster "$ECS_CLUSTER" \
+            --tasks "$TASK_ARN" \
+            --region "${{ secrets.AWS_REGION || 'eu-north-1' }}" \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text)
+
+          echo "Container finished with exit code: $EXIT_CODE"
+
+          # Retrieve and display CloudWatch logs
+          LOG_STREAM=$(aws logs describe-log-streams \
+            --log-group-name "/ecs/$TASK_FAMILY" \
+            --order-by LastEventTime \
+            --descending \
+            --limit 1 \
+            --region "${{ secrets.AWS_REGION || 'eu-north-1' }}" \
+            --query 'logStreams[0].logStreamName' \
+            --output text)
+
+          if [ -n "$LOG_STREAM" ] && [ "$LOG_STREAM" != "None" ]; then
+            echo "==================== ECS BACKFILL LOGS ===================="
+            aws logs get-log-events \
+              --log-group-name "/ecs/$TASK_FAMILY" \
+              --log-stream-name "$LOG_STREAM" \
+              --region "${{ secrets.AWS_REGION || 'eu-north-1' }}" \
+              --query 'events[*].message' \
+              --output text
+            echo "============================================================"
+          fi
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "::error::Backfill failed with exit code $EXIT_CODE"
+            exit 1
+          fi

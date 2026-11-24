@@ -39,6 +39,7 @@ evals/reports/*
 
 # local fake-provider storage and simulator keys
 .data/
+scratch/
 
 # frontend (Next.js)
 frontend/node_modules/
