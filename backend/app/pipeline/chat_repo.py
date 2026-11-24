@@ -28,6 +28,7 @@ __all__ = [
     "chat_contact",
     "chat_list",
     "chat_messages",
+    "is_pending_send",
     "latest_case_id",
     "latest_inbound",
     "mark_read",
@@ -39,7 +40,7 @@ __all__ = [
 ChatFilter = Literal["all", "unread", "tenants", "contractors"]
 MAX_SUGGESTIONS = 3
 _OPEN_DRAFT = (ActionStatus.proposed, ActionStatus.pending_approval)
-_E164 = re.compile(r"\+\d{1,15}")
+_E164 = re.compile(r"\+[0-9]{1,15}")
 
 
 class BadChatKeyError(EstateOSError):
@@ -67,7 +68,19 @@ class ChatSummary:
     last_kind: str | None
     last_direction: Direction
     last_delivery: DeliveryStatus | None
+    last_pending: bool
     unread: int
+
+
+def is_pending_send(direction: Direction, delivery: DeliveryStatus | None, meta: dict[str, Any]) -> bool:
+    """An outbound row our own send path created (it carries the browser's `client_msg_id`) that has no delivery
+    status and no send error yet. Business-app echoes and old outbound rows without a status are not pending."""
+    return (
+        direction == Direction.outbound
+        and delivery is None
+        and meta.get("client_msg_id") is not None
+        and not meta.get("send_error")
+    )
 
 
 def _chat_messages_of(company_id: UUID, m: Any = MessageRow) -> tuple[ColumnElement[bool], ...]:
@@ -84,6 +97,12 @@ def _ranked(company_id: UUID) -> Select[tuple[object, ...]]:
         MessageRow.meta["type"].as_string().label("msg_kind"),
         MessageRow.direction.label("direction"),
         MessageRow.delivery_status.label("delivery"),
+        and_(
+            MessageRow.direction == Direction.outbound,
+            MessageRow.delivery_status.is_(None),
+            MessageRow.meta["client_msg_id"].as_string().is_not(None),
+            MessageRow.meta["send_error"].as_string().is_(None),
+        ).label("pending"),
         func.row_number()
         .over(partition_by=MessageRow.thread_ref, order_by=(MessageRow.sent_at.desc(), MessageRow.id.desc()))
         .label("rn"),
@@ -177,6 +196,7 @@ def _summary(row: Any) -> ChatSummary:
         last_kind=row.msg_kind,
         last_direction=row.direction,
         last_delivery=row.delivery,
+        last_pending=bool(row.pending),
         unread=row.unread,
     )
 

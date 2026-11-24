@@ -6,10 +6,13 @@ import {
   chatPreview,
   chatTitle,
   groupByDay,
+  isInlineImage,
   isSafeMediaUrl,
   listTime,
   mergeMessages,
   roleLabel,
+  sameMessages,
+  tickFromStatus,
   tickFor,
   totalUnread,
 } from "@/lib/chats";
@@ -27,6 +30,7 @@ function item(over: Partial<ChatItem> = {}): ChatItem {
     last_kind: "text",
     last_direction: "inbound",
     last_delivery: null,
+    last_pending: false,
     unread: 0,
     cursor: "2026-11-23T09:12:00+00:00|m1",
     ...over,
@@ -87,9 +91,15 @@ describe("groupByDay", () => {
 });
 
 describe("tickFor", () => {
-  it("is pending without a delivery status", () => {
-    expect(tickFor(msg())).toBe("pending");
+  it("is pending only for a message our own send path has not confirmed yet", () => {
     expect(tickFor(msg({ pending: true }))).toBe("pending");
+  });
+  it("shows a neutral sent tick for an outbound row with no status that is not pending (echo, old row)", () => {
+    expect(tickFor(msg())).toBe("sent");
+    expect(tickFromStatus(null)).toBe("sent");
+    expect(tickFromStatus(null, false)).toBe("sent");
+    expect(tickFromStatus(null, true)).toBe("pending");
+    expect(tickFromStatus("read", true)).toBe("pending");
   });
   it("maps the delivery status", () => {
     expect(tickFor(msg({ delivery_status: "sent" }))).toBe("sent");
@@ -156,13 +166,13 @@ describe("isSafeMediaUrl", () => {
 describe("listTime", () => {
   const now = new Date("2026-11-24T12:00:00+00:00");
   it("shows the clock for today, the weekday within a week, else the date", () => {
-    expect(listTime("2026-11-24T08:05:00+00:00", now, TZ)).toBe("09:05");
-    expect(listTime("2026-11-23T08:05:00+00:00", now, TZ)).toBe("Yesterday");
-    expect(listTime("2026-11-20T08:05:00+00:00", now, TZ)).toBe("Fri");
-    expect(listTime("2026-10-02T08:05:00+00:00", now, TZ)).toBe("2 Oct");
+    expect(listTime("2026-11-24T08:05:00+00:00", now)).toBe("09:05");
+    expect(listTime("2026-11-23T08:05:00+00:00", now)).toBe("Yesterday");
+    expect(listTime("2026-11-20T08:05:00+00:00", now)).toBe("Fri");
+    expect(listTime("2026-10-02T08:05:00+00:00", now)).toBe("2 Oct");
   });
   it("uses the local day, not UTC", () => {
-    expect(listTime("2026-11-23T23:30:00+00:00", now, TZ)).toBe("00:30");
+    expect(listTime("2026-11-23T23:30:00+00:00", now)).toBe("00:30");
   });
 });
 
@@ -172,5 +182,33 @@ describe("chatKeyFromParam", () => {
     expect(chatKeyFromParam(" 31612345678")).toBe("+31612345678");
     expect(chatKeyFromParam(null)).toBeNull();
     expect(chatKeyFromParam("")).toBeNull();
+  });
+});
+
+describe("isInlineImage", () => {
+  it("shows only raster types a browser renders without running anything", () => {
+    for (const ok of ["image/png", "image/jpeg", "image/gif", "image/webp", "IMAGE/PNG; q=1"]) {
+      expect(isInlineImage(ok)).toBe(true);
+    }
+    for (const bad of ["image/svg+xml", "image/x-icon", "image/tiff", "text/html", "application/pdf", ""]) {
+      expect(isInlineImage(bad)).toBe(false);
+    }
+  });
+});
+
+describe("sameMessages", () => {
+  const att = (url: string) => ({ id: "f", filename: "a.jpg", mime_type: "image/jpeg", size_bytes: 3, url });
+  it("is true for the same messages even though the presigned URLs were re-signed", () => {
+    const a = [msg({ id: "1", attachments: [att("https://s3/x?sig=1")] }), msg({ id: "2" })];
+    const b = [msg({ id: "1", attachments: [att("https://s3/x?sig=2")] }), msg({ id: "2" })];
+    expect(sameMessages(a, b)).toBe(true);
+  });
+  it("notices a new message, a status change, a text change or a different flag", () => {
+    const base = [msg({ id: "1" })];
+    expect(sameMessages(base, [...base, msg({ id: "2" })])).toBe(false);
+    expect(sameMessages(base, [msg({ id: "1", delivery_status: "read" })])).toBe(false);
+    expect(sameMessages(base, [msg({ id: "1", text: "edited" })])).toBe(false);
+    expect(sameMessages(base, [msg({ id: "1", suspicious: true })])).toBe(false);
+    expect(sameMessages(base, [msg({ id: "1", attachments: [att("u")] })])).toBe(false);
   });
 });

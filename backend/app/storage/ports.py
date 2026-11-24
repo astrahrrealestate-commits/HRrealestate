@@ -25,8 +25,11 @@ class ObjectStorage(Protocol):
 
     def exists(self, key: str) -> bool: ...
 
-    def presigned_url(self, key: str, ttl_seconds: int) -> str:
-        """Time-limited GET URL for `key`. `ttl_seconds` is clamped to `1..MAX_PRESIGN_TTL_S`."""
+    def presigned_url(
+        self, key: str, ttl_seconds: int, *, content_type: str | None = None, disposition: str | None = None
+    ) -> str:
+        """Time-limited GET URL for `key`. `ttl_seconds` is clamped to `1..MAX_PRESIGN_TTL_S`. `content_type` and
+        `disposition` force the response's Content-Type and Content-Disposition, whatever was stored."""
         ...
 
 
@@ -42,6 +45,16 @@ def validate_key(key: str) -> str:
     if len(key.encode()) > 1024 or any(len(part.encode()) > 255 for part in parts):
         raise ValueError("storage key too long (1024 bytes total, 255 per segment)")
     return key
+
+
+def response_overrides(content_type: str | None, disposition: str | None) -> dict[str, str]:
+    """The `response-*` query parameters of a presigned GET (S3 names them; the other adapters mirror them)."""
+    out: dict[str, str] = {}
+    if content_type:
+        out["response-content-type"] = content_type
+    if disposition:
+        out["response-content-disposition"] = disposition
+    return out
 
 
 def clamp_ttl(ttl_seconds: int) -> int:

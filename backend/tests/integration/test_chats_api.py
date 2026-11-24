@@ -76,10 +76,10 @@ def _msg(s: Session, cid: UUID, number: str, n: int, **kw: Any) -> MessageRow:
     return row
 
 
-def _attachment(s: Session, cid: UUID, message_id: UUID, name: str, key: str) -> None:
+def _attachment(s: Session, cid: UUID, message_id: UUID, name: str, key: str, mime: str = "image/jpeg") -> None:
     s.add(
         AttachmentRow(
-            company_id=cid, message_id=message_id, s3_key=key, mime_type="image/jpeg", filename=name,
+            company_id=cid, message_id=message_id, s3_key=key, mime_type=mime, filename=name,
             size_bytes=3, sha256="ab" * 32,
         )
     )  # fmt: skip
@@ -94,7 +94,9 @@ def _seed_a(s: Session, a: Company) -> tuple[list[MessageRow], UUID]:
     )
     t4 = _msg(s, a.id, TINA, 4, direction=Direction.outbound, meta={"send_error": "window closed"},
               delivery_status=DeliveryStatus.failed)  # fmt: skip
-    t5 = _msg(s, a.id, TINA, 5, direction=Direction.outbound, meta={"reply_to": "wamid.bob1"})  # queued, no status
+    t5 = _msg(s, a.id, TINA, 5, direction=Direction.outbound,
+              meta={"reply_to": "wamid.bob1", "client_msg_id": "c-5"})  # our send path: queued, no status  # fmt: skip
+    t6 = _msg(s, a.id, TINA, 6, direction=Direction.outbound, meta={"echo": True})  # Business-app echo, no status
     _msg(s, a.id, BOB, 7, pid="wamid.bob1", text="boiler")
     body = {"suspicious": {"flag": True, "reason": "r" * 300}}
     s.add(UnderstandingRow(company_id=a.id, message_id=t3.id, category=Category.other, urgency=Urgency.normal,
@@ -109,7 +111,7 @@ def _seed_a(s: Session, a: Company) -> tuple[list[MessageRow], UUID]:
     s.add(case)
     s.flush()
     s.add(CaseLink(company_id=a.id, case_id=case.id, message_id=t3.id, method=LinkMethod.thread))
-    return [t1, t2, t3, t4, t5], case.id
+    return [t1, t2, t3, t4, t5, t6], case.id
 
 
 def _seed_b(s: Session, b: Company, leak_into: UUID) -> None:
@@ -165,6 +167,7 @@ def test_list_is_company_scoped_and_newest_first(world: World) -> None:
     assert tina["name"] == "Tina Tenant"
     assert tina["person_kind"] == "tenant"
     assert tina["last_direction"] == "outbound"
+    assert (tina["last_delivery"], tina["last_pending"]) == (None, False)  # the newest Tina row is an echo
     assert tina["unread"] == 2
     stamp, _, last_id = tina["cursor"].partition("|")
     assert last_id == tina["last_message_id"]
@@ -208,20 +211,21 @@ def test_thread_carries_name_case_and_message_state(world: World) -> None:
     assert thread["case_id"] == str(world.case_id)
     messages = thread["messages"]
     assert [m["id"] for m in messages] == [str(i) for i in world.tina_ids]  # oldest first
-    sent, failed, queued = messages[1], messages[3], messages[4]
+    sent, failed, queued, echo = messages[1], messages[3], messages[4], messages[5]
     assert (sent["delivery_status"], sent["pending"], sent["error"]) == ("sent", False, None)
     assert (failed["delivery_status"], failed["pending"], failed["error"]) == ("failed", False, "window closed")
     assert (queued["delivery_status"], queued["pending"]) == (None, True)
+    assert (echo["delivery_status"], echo["pending"]) == (None, False)  # an echo is not ours to send: shown as sent
     assert messages[0]["pending"] is False  # inbound never pending
     assert messages[2]["kind"] == "image"
 
 
 def test_messages_paging_before_cursor(world: World) -> None:
     newest = world.client.get(f"/api/chats/{TINA}/messages", params={"limit": 2}).json()["messages"]
-    assert [m["id"] for m in newest] == [str(i) for i in world.tina_ids[3:]]
+    assert [m["id"] for m in newest] == [str(i) for i in world.tina_ids[4:]]
     cursor = f"{newest[0]['sent_at']}|{newest[0]['id']}"
     older = world.client.get(f"/api/chats/{TINA}/messages", params={"limit": 2, "before": cursor}).json()["messages"]
-    assert [m["id"] for m in older] == [str(i) for i in world.tina_ids[1:3]]
+    assert [m["id"] for m in older] == [str(i) for i in world.tina_ids[2:4]]
 
 
 def test_empty_before_page_is_200_with_the_chat_header(world: World) -> None:
@@ -241,6 +245,27 @@ def test_messages_include_attachment_presigned_url_with_ttl(world: World) -> Non
     url = attachments[0]["url"]
     assert int(parse_qs(urlparse(url).query)["expires_in"][0]) == MAX_PRESIGN_TTL_S
     assert "media/a/ab/abc" in url
+
+
+def test_unsafe_attachment_types_get_forced_download_urls(world: World) -> None:
+    with Session(world.engine) as s:
+        _attachment(s, world.cid, world.tina_ids[0], "page.html", "media/a/11/html", mime="text/html")
+        _attachment(s, world.cid, world.tina_ids[0], "logo.svg", "media/a/22/svg", mime="image/svg+xml")
+        s.commit()
+    by_name = {a["filename"]: a["url"] for a in _messages(world)[0]["attachments"]}
+    for name in ("page.html", "logo.svg"):
+        query = parse_qs(urlparse(by_name[name]).query)
+        assert query["response-content-type"] == ["application/octet-stream"]
+        assert query["response-content-disposition"][0].startswith("attachment;")
+
+
+def test_list_last_pending_follows_the_send_path_rule(world: World) -> None:
+    with Session(world.engine) as s:
+        _msg(s, world.cid, BOB, 20, direction=Direction.outbound, meta={"client_msg_id": "c-bob"})
+        s.commit()
+    listed = {c["chat_key"]: c for c in world.client.get("/api/chats").json()}
+    assert listed[BOB]["last_pending"] is True
+    assert listed[TINA]["last_pending"] is False
 
 
 def test_messages_do_not_leak_other_company_attachments(world: World) -> None:

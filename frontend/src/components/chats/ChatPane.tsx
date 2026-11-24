@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { markChatRead } from "@/lib/chatsApi";
 import { notifyChatsChanged } from "@/hooks/useChatUnread";
 import { useChatThread } from "@/hooks/useChatThread";
@@ -18,15 +18,21 @@ interface ChatPaneProps {
 export function ChatPane({ chatKey, onBack, onRead }: ChatPaneProps) {
   const { thread, messages, failed, hasOlder, loadingOlder, loadOlder } = useChatThread(chatKey);
   const newestId = messages[messages.length - 1]?.id;
+  const onReadRef = useRef(onRead);
+  useEffect(() => {
+    onReadRef.current = onRead;
+  });
 
+  // Only a new chat or a new newest message marks it read: a filter click or a keystroke in the search box changes
+  // `onRead` but must not post again.
   useEffect(() => {
     if (!newestId) return;
     void markChatRead(chatKey).then((ok) => {
       if (!ok) return;
-      onRead();
+      onReadRef.current();
       notifyChatsChanged();
     });
-  }, [chatKey, newestId, onRead]);
+  }, [chatKey, newestId]);
 
   if (!thread) {
     return (

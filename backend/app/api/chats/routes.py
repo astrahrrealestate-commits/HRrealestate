@@ -1,5 +1,6 @@
 """Chats read API: the chat list, one chat's messages, and the read marker. Cookie session, `inbox` section."""
 
+import urllib.parse
 from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Annotated
@@ -12,10 +13,10 @@ from sqlalchemy.orm import Session
 
 from app.api.chats.schemas import ChatItem, ChatMessage, ChatQuote, ChatThread
 from app.api.deps import get_engine, get_storage
+from app.api.inbox.routes import INLINE_TYPES
 from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.schemas import AttachmentOut
-from app.contracts import Direction
 from app.core.logging import get_logger
 from app.db.models.ingestion import AttachmentRow, MessageRow
 from app.pipeline import chat_repo
@@ -33,6 +34,7 @@ router = APIRouter(prefix="/api/chats", tags=["chats"], dependencies=[Depends(re
 log = get_logger(__name__)
 NOT_FOUND = "chat not found"  # one body for malformed, unknown and foreign keys: nothing to tell them apart
 MAX_QUERY_LEN = 100
+MAX_ERROR_LEN = 200  # a provider error text can be long; the owner sees a short reason
 
 
 class ChatNotFoundError(Exception):
@@ -51,12 +53,23 @@ def _read_list(
 
 
 def _attachment(a: AttachmentRow, storage: ObjectStorage) -> AttachmentOut:
+    """Only the image and PDF types a browser can show without running anything are served inline; everything else
+    (html, svg, xml, unknown) is forced to an opaque download, whatever the sender claimed."""
+    mime = (a.mime_type or "").split(";")[0].strip().lower()
+    inline = mime in INLINE_TYPES
+    filename = urllib.parse.quote(a.filename or "attachment", safe="")
+    disposition = f"{'inline' if inline else 'attachment'}; filename*=UTF-8''{filename}"
     return AttachmentOut(
         id=a.id,
         filename=a.filename,
         mime_type=a.mime_type,
         size_bytes=a.size_bytes,
-        url=storage.presigned_url(a.s3_key, MAX_PRESIGN_TTL_S),
+        url=storage.presigned_url(
+            a.s3_key,
+            MAX_PRESIGN_TTL_S,
+            content_type=mime if inline else "application/octet-stream",
+            disposition=disposition,
+        ),
     )
 
 
@@ -74,12 +87,12 @@ def _to_message(
         text=m.text,
         kind=m.meta.get("type"),
         delivery_status=m.delivery_status,
-        error=str(error) if error else None,
+        error=str(error)[:MAX_ERROR_LEN] if error else None,
         suspicious=flag[0],
         suspicious_reason=flag[1],
         reply_to=ChatQuote(id=quoted.id, text=quoted.text) if quoted is not None else None,
         attachments=atts,
-        pending=m.direction == Direction.outbound and m.delivery_status is None and not error,
+        pending=chat_repo.is_pending_send(m.direction, m.delivery_status, m.meta),
     )
 
 

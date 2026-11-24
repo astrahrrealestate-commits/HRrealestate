@@ -2,15 +2,27 @@
 
 import { useEffect, useRef } from "react";
 
+interface PollingOptions {
+  /** A new key runs `tick` at once (e.g. the filter changed). */
+  restartKey?: string;
+  /** False pauses polling entirely, e.g. when the profile may not open the section. Default true. */
+  enabled?: boolean;
+}
+
 /** Runs `tick` now and then every `intervalMs`, but only while the tab is visible; it runs again as soon as the tab
- * comes back. `tick` may change between renders without restarting the timer. A new `restartKey` runs it at once. */
-export function usePolling(tick: () => void | Promise<void>, intervalMs: number, restartKey?: string): void {
+ * comes back. `tick` may change between renders without restarting the timer. */
+export function usePolling(
+  tick: () => void | Promise<void>,
+  intervalMs: number,
+  { restartKey, enabled = true }: PollingOptions = {}
+): void {
   const latest = useRef(tick);
   useEffect(() => {
     latest.current = tick;
   });
 
   useEffect(() => {
+    if (!enabled) return;
     const run = () => {
       if (!document.hidden) void latest.current();
     };
@@ -21,5 +33,5 @@ export function usePolling(tick: () => void | Promise<void>, intervalMs: number,
       clearInterval(timer);
       document.removeEventListener("visibilitychange", run);
     };
-  }, [intervalMs, restartKey]);
+  }, [intervalMs, restartKey, enabled]);
 }

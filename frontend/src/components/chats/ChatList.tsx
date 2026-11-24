@@ -1,6 +1,5 @@
 import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { APP_TIME_ZONE } from "@/lib/clock";
 import { chatPreview, chatTitle, listTime, roleLabel, tickFromStatus } from "@/lib/chats";
 import type { ChatFilter, ChatItem } from "@/types/chats";
 import { TickIcon } from "@/components/chats/TickIcon";
@@ -39,12 +38,12 @@ function ChatRow({ item, selected, onSelect }: { item: ChatItem; selected: boole
             {title}
           </span>
           <span className="shrink-0 text-[11px] text-[var(--ink-3)] tabular-nums">
-            {listTime(item.last_at, new Date(), APP_TIME_ZONE)}
+            {listTime(item.last_at, new Date())}
           </span>
         </div>
         <div className="flex items-center justify-between gap-2 mt-0.5">
           <span className="flex items-center gap-1 min-w-0 text-xs text-[var(--ink-3)]">
-            {item.last_direction === "outbound" && <TickIcon tick={tickFromStatus(item.last_delivery)} />}
+            {item.last_direction === "outbound" && <TickIcon tick={tickFromStatus(item.last_delivery, item.last_pending)} />}
             <span className="truncate">{chatPreview(item)}</span>
           </span>
           <span className="flex items-center gap-1.5 shrink-0">

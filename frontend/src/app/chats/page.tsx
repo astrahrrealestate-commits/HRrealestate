@@ -55,7 +55,7 @@ function ChatsView() {
                 <ChatPane
                   key={chatKey}
                   chatKey={chatKey}
-                  onBack={() => router.push("/chats", { scroll: false })}
+                  onBack={() => router.replace("/chats", { scroll: false })}
                   onRead={list.refresh}
                 />
               ) : (

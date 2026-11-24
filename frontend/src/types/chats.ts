@@ -16,6 +16,7 @@ export interface ChatItem {
   last_kind: string | null;
   last_direction: Direction;
   last_delivery: DeliveryStatus | null;
+  last_pending: boolean;
   unread: number;
   cursor: string;
 }

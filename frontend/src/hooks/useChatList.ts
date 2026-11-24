@@ -16,6 +16,15 @@ interface Pages {
   extraDone: boolean;
 }
 
+const tailOf = (items: ChatItem[]) => items[items.length - 1]?.chat_key;
+
+/** A polled first page. Older pages loaded earlier are kept only while the first page still ends at the same chat:
+ * once it shifted (a chat from further down moved up), the old pages would leave a gap, so they are dropped. */
+function nextPages(prev: Pages | null, key: string, first: ChatItem[]): Pages {
+  const keep = prev?.key === key && tailOf(prev.first) === tailOf(first);
+  return { key, first, extra: keep ? prev.extra : [], extraDone: keep && prev.extraDone };
+}
+
 export interface ChatListState {
   items: ChatItem[] | null;
   failed: boolean;
@@ -44,10 +53,10 @@ export function useChatList(filter: ChatFilter, query: string): ChatListState {
     const res = await getChats({ filter, q, limit: PAGE });
     if (current.current !== key) return;
     setFailed(res === null);
-    if (res) setPages((p) => ({ key, first: res, extra: p?.key === key ? p.extra : [], extraDone: p?.key === key && p.extraDone }));
+    if (res) setPages((p) => nextPages(p, key, res));
   }, [filter, q, key]);
 
-  usePolling(refresh, POLL_MS, key);
+  usePolling(refresh, POLL_MS, { restartKey: key });
 
   const live = pages?.key === key ? pages : null;
   const loadMore = useCallback(() => {

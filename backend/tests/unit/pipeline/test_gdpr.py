@@ -148,3 +148,41 @@ def test_erase_person_skips_the_mirror_without_a_numeric_brixx_ref(monkeypatch: 
     monkeypatch.setattr(gdpr, "purge_brixx_relatie", no_purge)
 
     assert erase_person(session, person.company_id, person.id).brixx_rows_purged == 0
+
+
+def test_erase_person_deletes_the_read_markers_of_their_whatsapp_chats() -> None:
+    from app.contracts import Channel
+
+    session = MagicMock()
+    company_id, person_id = uuid4(), uuid4()
+    session.scalars.side_effect = [
+        MagicMock(all=MagicMock(return_value=[])),  # messages
+        MagicMock(all=MagicMock(return_value=[])),  # memories
+        MagicMock(
+            all=MagicMock(
+                return_value=[
+                    ChannelIdentity(
+                        id=uuid4(), company_id=company_id, person_id=person_id, channel=Channel.whatsapp,
+                        identity="+31612345678",
+                    ),
+                    ChannelIdentity(
+                        id=uuid4(), company_id=company_id, person_id=person_id, channel=Channel.gmail,
+                        identity="jan@example.test",
+                    ),
+                ]
+            )
+        ),
+    ]  # fmt: skip
+    session.scalar.side_effect = [None, Person(id=person_id, company_id=company_id, display_name="Jan")]
+
+    erase_person(session, company_id, person_id)
+
+    deletes = [
+        str(call.args[0].compile(compile_kwargs={"literal_binds": True}))
+        for call in session.execute.call_args_list
+        if "DELETE FROM chat_reads" in str(call.args[0])
+    ]
+    assert len(deletes) == 1
+    assert company_id.hex in deletes[0]  # scoped to the company
+    assert "+31612345678" in deletes[0]
+    assert "jan@example.test" not in deletes[0]  # only WhatsApp identities name a chat

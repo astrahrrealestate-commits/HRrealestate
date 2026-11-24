@@ -38,3 +38,37 @@ def test_local_url_is_relative_and_hides_server_path(tmp_path: Path) -> None:
     url = LocalStorage(tmp_path).presigned_url("media/a/b", 60)
     assert url.startswith("/dev-storage/media/a/b?")
     assert str(tmp_path) not in url
+
+
+def _query(url: str) -> dict[str, list[str]]:
+    return parse_qs(urlparse(url).query)
+
+
+def test_memory_presign_carries_forced_type_and_disposition() -> None:
+    url = MemoryStorage().presigned_url(
+        "media/a/b", 60, content_type="application/octet-stream", disposition="attachment; filename*=UTF-8''x"
+    )
+    query = _query(url)
+    assert query["response-content-type"] == ["application/octet-stream"]
+    assert query["response-content-disposition"] == ["attachment; filename*=UTF-8''x"]
+    assert _expires(url, "expires_in") == 60
+
+
+def test_local_presign_carries_forced_type_and_disposition(tmp_path: Path) -> None:
+    url = LocalStorage(tmp_path).presigned_url("media/a/b", 60, content_type="image/png", disposition="inline")
+    assert _query(url)["response-content-type"] == ["image/png"]
+    assert _query(url)["response-content-disposition"] == ["inline"]
+
+
+def test_s3_presign_signs_the_response_overrides() -> None:
+    client = boto3.client("s3", region_name="eu-central-1", aws_access_key_id="k", aws_secret_access_key="s")
+    url = S3Storage(client, "bucket").presigned_url(
+        "media/a/b", 60, content_type="application/octet-stream", disposition="attachment"
+    )
+    query = _query(url)
+    assert query["response-content-type"] == ["application/octet-stream"]
+    assert query["response-content-disposition"] == ["attachment"]
+
+
+def test_presign_without_overrides_adds_no_response_params() -> None:
+    assert "response-content-type" not in _query(MemoryStorage().presigned_url("media/a/b", 60))

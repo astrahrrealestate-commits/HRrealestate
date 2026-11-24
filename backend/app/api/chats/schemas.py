@@ -21,6 +21,7 @@ class ChatItem(BaseModel):
     last_kind: str | None
     last_direction: Direction
     last_delivery: DeliveryStatus | None
+    last_pending: bool
     unread: int
     cursor: str
 

@@ -1,5 +1,6 @@
 /** Pure helpers of the Chats page (no React, no I/O). */
 
+import { APP_TIME_ZONE, localDayNumber } from "@/lib/clock";
 import type { ChatItem, ChatMessage, DeliveryStatus, PersonKind } from "@/types/chats";
 
 export type Tick = "pending" | "sent" | "delivered" | "read" | "failed";
@@ -15,6 +16,13 @@ export function chatPreview(item: ChatItem): string {
   const text = item.last_text.trim();
   const body = text || KIND_LABELS[item.last_kind ?? ""] || "Message";
   return item.last_direction === "outbound" ? `You: ${body}` : body;
+}
+
+const INLINE_IMAGES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+/** Only these are drawn in an <img>; every other file type (svg included) is a download chip. */
+export function isInlineImage(mime: string): boolean {
+  return INLINE_IMAGES.has(mime.split(";")[0].trim().toLowerCase());
 }
 
 const dayKey = (tz: string) =>
@@ -43,11 +51,12 @@ export function groupByDay(
   return groups.map(({ day, messages: ms }) => ({ day, messages: ms }));
 }
 
-/** The tick of an outbound message: no delivery status yet means it has not left (or was not confirmed) yet. */
+/** The tick of an outbound message. A clock only while our own send is in flight (`pending`); a row with no delivery
+ * status that is not pending (a Business-app echo, an old row) is neutrally "sent". */
 export function tickFromStatus(status: DeliveryStatus | null, pending = false): Tick {
   if (status === "failed") return "failed";
-  if (pending || status === null) return "pending";
-  return status;
+  if (pending) return "pending";
+  return status ?? "sent";
 }
 
 export function tickFor(m: ChatMessage): Tick {
@@ -95,18 +104,11 @@ export function isSafeMediaUrl(url: string): boolean {
   return /^https?:\/\//i.test(url) || (url.startsWith("/") && !url.startsWith("//"));
 }
 
-const dayNumber = (d: Date, tz: string): number => {
-  const [y, m, day] = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" })
-    .format(d)
-    .split("-")
-    .map(Number);
-  return Math.floor(Date.UTC(y, m - 1, day) / 86_400_000);
-};
-
 /** The time column of a chat row: the clock today, "Yesterday", the weekday within a week, else "2 Oct". */
-export function listTime(iso: string, now: Date, tz: string): string {
+export function listTime(iso: string, now: Date): string {
   const at = new Date(iso);
-  const age = dayNumber(now, tz) - dayNumber(at, tz);
+  const tz = APP_TIME_ZONE;
+  const age = localDayNumber(now) - localDayNumber(at);
   if (age <= 0) {
     return new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(at);
   }
@@ -119,4 +121,26 @@ export function listTime(iso: string, now: Date, tz: string): string {
 export function chatKeyFromParam(raw: string | null): string | null {
   if (!raw) return null;
   return raw.startsWith(" ") ? `+${raw.slice(1)}` : raw;
+}
+
+/** Whether a polled page holds the same messages as the one already shown. Attachment URLs are ignored: they are
+ * signed anew on every request, so comparing them would call every page with a file in it changed. */
+export function sameMessages(a: ChatMessage[], b: ChatMessage[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((x, i) => {
+      const y = b[i];
+      return (
+        x.id === y.id &&
+        x.text === y.text &&
+        x.delivery_status === y.delivery_status &&
+        x.pending === y.pending &&
+        x.error === y.error &&
+        x.suspicious === y.suspicious &&
+        x.suspicious_reason === y.suspicious_reason &&
+        x.reply_to?.id === y.reply_to?.id &&
+        x.attachments.map((f) => f.id).join() === y.attachments.map((f) => f.id).join()
+      );
+    })
+  );
 }

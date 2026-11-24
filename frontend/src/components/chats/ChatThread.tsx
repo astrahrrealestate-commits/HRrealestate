@@ -20,22 +20,28 @@ interface ChatThreadProps {
 export function ChatThread({ messages, hasOlder, loadingOlder, onLoadOlder }: ChatThreadProps) {
   const box = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
-  const heightBefore = useRef<number | null>(null);
+  // Set when "Load older" is clicked; kept until that older page is really in (the oldest message changed), however
+  // many polls arrive meanwhile, so his place is restored exactly once.
+  const anchor = useRef<{ height: number; oldestId: string | undefined } | null>(null);
   const days = useMemo(() => groupByDay(messages, APP_TIME_ZONE), [messages]);
+  const oldestId = messages[0]?.id;
 
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
-    if (heightBefore.current !== null) {
-      el.scrollTop += el.scrollHeight - heightBefore.current;
-      heightBefore.current = null;
-    } else if (stick.current) {
-      el.scrollTop = el.scrollHeight;
+    const waiting = anchor.current;
+    if (waiting && oldestId !== waiting.oldestId) {
+      el.scrollTop += el.scrollHeight - waiting.height;
+      anchor.current = null;
+      return;
     }
-  }, [messages]);
+    if (waiting && loadingOlder) return; // the older page is still on its way: do not jump to the newest
+    anchor.current = null; // the request ended without adding anything
+    if (stick.current) el.scrollTop = el.scrollHeight;
+  }, [messages, oldestId, loadingOlder]);
 
   const loadOlder = () => {
-    heightBefore.current = box.current?.scrollHeight ?? null;
+    anchor.current = { height: box.current?.scrollHeight ?? 0, oldestId };
     onLoadOlder();
   };
 
@@ -61,7 +67,7 @@ export function ChatThread({ messages, hasOlder, loadingOlder, onLoadOlder }: Ch
         </div>
       )}
       {days.map((group) => (
-        <section key={`${group.day}-${group.messages[0].id}`} className="space-y-1.5">
+        <section key={group.day} className="space-y-1.5">
           <div className="flex justify-center py-1">
             <span className="rounded-full bg-white/80 border border-[var(--line)] px-3 py-0.5 text-[11px] font-medium text-[var(--ink-3)]">
               {group.day}

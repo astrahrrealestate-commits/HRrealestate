@@ -1,7 +1,7 @@
 import { AlertTriangle, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatClock } from "@/lib/clock";
-import { isSafeMediaUrl, tickFor } from "@/lib/chats";
+import { isInlineImage, isSafeMediaUrl, tickFor } from "@/lib/chats";
 import type { ChatAttachment, ChatMessage } from "@/types/chats";
 import { TickIcon } from "@/components/chats/TickIcon";
 
@@ -15,7 +15,7 @@ function Attachment({ a }: { a: ChatAttachment }) {
   if (!isSafeMediaUrl(a.url)) {
     return <div className="text-xs text-[var(--ink-3)]">{label} (unavailable)</div>;
   }
-  if (a.mime_type.startsWith("image/")) {
+  if (isInlineImage(a.mime_type)) {
     return (
       <a href={a.url} target="_blank" rel="noopener noreferrer">
         {/* eslint-disable-next-line @next/next/no-img-element -- presigned storage URL, not an optimisable asset */}
