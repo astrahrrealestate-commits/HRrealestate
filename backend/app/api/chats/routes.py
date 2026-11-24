@@ -11,6 +11,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
+from app.api.chats.composer import read_composer
 from app.api.chats.schemas import ChatItem, ChatMessage, ChatQuote, ChatThread
 from app.api.deps import get_engine, get_storage
 from app.api.inbox.routes import INLINE_TYPES
@@ -80,6 +81,7 @@ def _to_message(
     quoted: MessageRow | None,
 ) -> ChatMessage:
     error = m.meta.get("send_error")
+    client_id = m.meta.get("client_msg_id")
     return ChatMessage(
         id=m.id,
         direction=m.direction,
@@ -93,6 +95,7 @@ def _to_message(
         reply_to=ChatQuote(id=quoted.id, text=quoted.text) if quoted is not None else None,
         attachments=atts,
         pending=chat_repo.is_pending_send(m.direction, m.delivery_status, m.meta),
+        client_msg_id=str(client_id) if client_id else None,
     )
 
 
@@ -119,12 +122,13 @@ def _read_thread(
         quoted = chat_repo.quoted_messages(session, company_id, chat_key, refs)
         name, kind = chat_repo.chat_contact(session, company_id, chat_key)
         case_id = chat_repo.latest_case_id(session, company_id, chat_key)
+        composer = read_composer(session, company_id, chat_key, datetime.now(UTC))
         by_message: dict[UUID, list[AttachmentOut]] = defaultdict(list)
         for a in found:
             by_message[a.message_id].append(_attachment(a, storage))
         out = [_to_message(m, by_message[m.id], flags.get(m.id, (False, None)), _quote_of(m, quoted)) for m in messages]
     log.info("chats.thread_read", messages=len(out))
-    return ChatThread(chat_key=chat_key, name=name, person_kind=kind, case_id=case_id, messages=out)
+    return ChatThread(chat_key=chat_key, name=name, person_kind=kind, case_id=case_id, messages=out, composer=composer)
 
 
 def _mark_read(engine: Engine, company_id: UUID, key: str) -> None:
