@@ -162,7 +162,9 @@ def _load(
         profile_line = f"{profile_line} | {brixx_note}" if profile_line else brixx_note
         contractors = []
     persona = _persona(session, msg.company_id)
-    person = session.get(Person, case.primary_person_id) if case.primary_person_id else None
+    person = session.scalar(
+        select(Person).where(Person.company_id == msg.company_id, Person.id == case.primary_person_id)
+    )
     sender = sender_label_for(session, msg.company_id, person, role_hint=und.sender_role, contractor_hint=False)
     ctx = ProposerContext(
         case_id=case.id,

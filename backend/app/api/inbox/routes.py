@@ -225,7 +225,11 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
         if not unit_label:
             unit_label = UNASSIGNED_UNIT
 
-        sender_und = session.query(UnderstandingRow).filter(UnderstandingRow.message_id == tenant_msg.id).first()
+        sender_und = (
+            session.query(UnderstandingRow)
+            .filter(UnderstandingRow.company_id == company_id, UnderstandingRow.message_id == tenant_msg.id)
+            .first()
+        )
         sender_label = sender_label_for(
             session,
             company_id,

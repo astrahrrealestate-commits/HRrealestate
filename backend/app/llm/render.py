@@ -21,7 +21,8 @@ RAW_FACTOR = 4  # raw input read per capped character, before normalising (forma
 MAX_ATTACHMENTS = 10
 BLOCK_TAGS = (
     "message", "data", "waiting", "contractors", "attachments", "file", "case", "mode", "history", "page_facts",
-    "page_snapshot", "owner_guidance", "current_draft", "document", "excerpts", "persona",
+    "page_snapshot", "owner_guidance", "current_draft", "document", "excerpts", "persona", "sender",
+    "person_profile",
 )  # fmt: skip
 
 # Applied after NFKC: fullwidth and small forms are already plain there, and U+2329/U+232A became U+3008/U+3009.

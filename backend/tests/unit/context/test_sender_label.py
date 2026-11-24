@@ -140,3 +140,13 @@ def test_the_stored_role_is_read_tolerantly() -> None:
     assert role_hint_of({}) is None  # a row stored before the field existed
     assert role_hint_of({"sender_role": "notary_public"}) is None  # a value since removed
     assert role_hint_of({"sender_role": 7}) is None
+
+
+def test_a_stored_role_on_flagged_or_spam_mail_is_not_shown() -> None:
+    """Defence in depth: rows written before the validator, or flagged by the scanner afterwards, read as unlabelled."""
+    flagged = {"sender_role": "legal", "suspicious": {"flag": True, "reason": "scanner: injection"}}
+    assert role_hint_of(flagged) is None
+    assert role_hint_of({"sender_role": "business", "category": "spam"}) is None
+    assert (
+        role_hint_of({"sender_role": "legal", "category": "admin", "suspicious": {"flag": False}}) is SenderRole.legal
+    )

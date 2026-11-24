@@ -82,6 +82,7 @@ def thread_of(migrated_engine: Engine, pg_url: str) -> Iterator[Thread]:
         role: str | None = None,
         text: str | None = None,
         leased_unit: str | None = None,
+        flagged: bool = False,
     ) -> dict[str, Any]:
         with Session(migrated_engine) as s:
             company = Company(name="Sender roles")
@@ -99,7 +100,11 @@ def thread_of(migrated_engine: Engine, pg_url: str) -> Iterator[Thread]:
             if text is not None:
                 s.query(MessageRow).filter(MessageRow.company_id == company.id).update({"text": text})
             for row in s.query(UnderstandingRow).filter(UnderstandingRow.company_id == company.id):
-                row.body = {**row.body, "sender_role": role}
+                row.body = {
+                    **row.body,
+                    "sender_role": role,
+                    "suspicious": {"flag": flagged, "reason": "scanner: injection" if flagged else None},
+                }
             if leased_unit is not None:
                 _lease(s, company.id, leased_unit)
             s.commit()
@@ -204,3 +209,9 @@ def test_an_unplaced_sender_naming_a_leased_unit_still_gets_the_banner(thread_of
 def test_the_directory_beats_the_model_role(thread_of: Thread) -> None:
     thread = thread_of("anouk@example.nl", PersonKind.tenant, role="legal")
     assert (thread["recipientRole"], thread["recipientRoleDetail"]) == ("tenant", "Tenant")
+
+
+def test_a_flagged_mail_shows_no_role_even_if_the_stored_row_has_one(thread_of: Thread) -> None:
+    """The injection scanner flags a mail after the model labelled it: a phishing "lawyer" stays a plain Contact."""
+    thread = thread_of("klaassen@advocaten-secure-demo.nl", role="legal", flagged=True)
+    assert (thread["recipientRoleDetail"], thread["audience"]) == ("Contact", "others")

@@ -5,12 +5,13 @@ The label comes after the intent: it is only a display hint and never picks a re
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.contracts import SenderRole
+from app.contracts import Category, SenderRole
 from app.db.enums import PersonKind
 from app.db.models import LeaseParty, Person
 
@@ -115,9 +116,15 @@ def _contractor(trade: str | None) -> SenderLabel:
     return SenderLabel(SenderKind.contractor, detail, "contractors", "contractor")
 
 
-def role_hint_of(understanding_body: dict[str, object]) -> SenderRole | None:
-    """The role the model stored for a message; anything unreadable (an old row, a value since removed) is None."""
+def role_hint_of(understanding_body: dict[str, Any]) -> SenderRole | None:
+    """The role the model stored for a message. Anything unreadable (an old row, a value since removed) is None, and so
+    is a role on mail flagged suspicious or spam: the scanner can flag a mail after the model answered."""
     raw = understanding_body.get("sender_role")
+    suspicious = understanding_body.get("suspicious")
+    if isinstance(suspicious, dict) and suspicious.get("flag"):
+        return None
+    if understanding_body.get("category") == Category.spam.value:
+        return None
     try:
         return SenderRole(raw) if isinstance(raw, str) else None
     except ValueError:

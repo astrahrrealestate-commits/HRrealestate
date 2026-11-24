@@ -84,7 +84,10 @@ class Understanding(Contract):
         if not isinstance(data, dict) or data.get("sender_role") is None:
             return data
         suspicious = data.get("suspicious")
-        flagged = suspicious.flag if isinstance(suspicious, Suspicious) else bool((suspicious or {}).get("flag"))
+        if isinstance(suspicious, Suspicious):
+            flagged = suspicious.flag
+        else:
+            flagged = isinstance(suspicious, dict) and bool(suspicious.get("flag"))
         if flagged or data.get("category") in (Category.spam, Category.spam.value):
             return {**data, "sender_role": None}
         return data

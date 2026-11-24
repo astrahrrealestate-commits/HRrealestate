@@ -85,3 +85,16 @@ def test_the_role_field_is_required_so_the_llm_schema_stays_strict() -> None:
     del body["sender_role"]
     with pytest.raises(ValidationError):
         Understanding.model_validate(body)
+
+
+@pytest.mark.parametrize("suspicious", ["yes", 7, ["flag"]])
+def test_a_malformed_suspicious_value_is_a_validation_error_not_a_crash(suspicious: object) -> None:
+    body = _u(sender_role=SenderRole.legal).model_dump(mode="json")
+    with pytest.raises(ValidationError):
+        Understanding.model_validate({**body, "suspicious": suspicious})
+
+
+def test_the_role_is_dropped_for_a_flagged_dict_body_too() -> None:
+    body = _u().model_dump(mode="json")
+    flagged = {**body, "sender_role": "legal", "suspicious": {"flag": True, "reason": "iban change"}}
+    assert Understanding.model_validate(flagged).sender_role is None

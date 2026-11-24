@@ -6,7 +6,7 @@ from uuid import UUID
 from sqlalchemy import Engine, or_, select
 from sqlalchemy.orm import Session
 
-from app.contracts import Direction, Suspicious
+from app.contracts import Direction, Suspicious, Understanding
 from app.core.errors import AgentFailedError, BudgetExceededError
 from app.core.logging import get_logger
 from app.core.settings import Settings
@@ -15,6 +15,7 @@ from app.db.models import AttachmentRow, MessageRow, OwnerAccount, Understanding
 from app.llm.agents.understanding import (
     MAX_UNDERSTANDING_BODY_CHARS,
     UNDERSTANDING,
+    sees_sender,
     sender_shown_to_model,
     understanding_prompt,
 )
@@ -24,6 +25,17 @@ from app.pipeline.injection_scan import scan
 
 log = get_logger(__name__)
 BUDGET_BLOCKED = "budget"  # pipeline_error tag on a pending message waiting for the AI limit to reset
+
+
+def settle_sender_role(und: Understanding, *, prompted: bool, scanner_flagged: bool) -> Understanding:
+    """Keep the model's `sender_role` only if the prompt described it and nothing flagged the mail afterwards.
+
+    Every prompt version ships the same output schema, so an older prompt's model may still fill the field with a guess.
+    The injection scanner flips `suspicious` after the answer, which the contract validator never sees.
+    """
+    if und.sender_role is None or (prompted and not scanner_flagged):
+        return und
+    return und.model_copy(update={"sender_role": None})
 
 
 def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> UUID | None:
@@ -78,6 +90,11 @@ def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> 
                 update={"suspicious": Suspicious(flag=True, reason=f"scanner: {scan_reason}")}
             )
             log.warning("pipeline.understand.injection_scanner_hit", message_id=str(message_id), reason=scan_reason)
+        understanding_data = settle_sender_role(
+            understanding_data,
+            prompted=sees_sender(UNDERSTANDING.prompt.version),
+            scanner_flagged=scan_reason is not None,
+        )
         model_call_id = res.model_call_id
 
         with Session(engine) as session, session.begin():
