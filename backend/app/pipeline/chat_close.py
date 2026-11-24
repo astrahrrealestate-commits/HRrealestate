@@ -18,31 +18,51 @@ from app.pipeline import work_repo
 from app.pipeline.chat_repo import OPEN_DRAFT
 
 
-def _suggestion_id(session: Session, company_id: UUID, message_id: UUID) -> UUID | None:
-    meta = session.scalar(
-        select(MessageRow.meta).where(
+def _suggestion(session: Session, company_id: UUID, message_id: UUID) -> tuple[UUID, str] | None:
+    """(action id, chat thread) the stored outbound message names, or None."""
+    row = session.execute(
+        select(MessageRow.meta, MessageRow.thread_ref).where(
             MessageRow.id == message_id,
             MessageRow.company_id == company_id,
             MessageRow.channel == Channel.whatsapp,
             MessageRow.direction == Direction.outbound,
         )
-    )
-    raw = meta.get("suggestion_action_id") if meta else None
+    ).first()
+    raw = row[0].get("suggestion_action_id") if row else None
+    if row is None or not isinstance(raw, str) or not row[1]:
+        return None
     try:
-        return UUID(raw) if isinstance(raw, str) else None
+        return UUID(raw), row[1]
     except ValueError:
         return None
+
+
+def _in_chat(session: Session, company_id: UUID, action: ActionRow, thread: str) -> bool:
+    """The draft answers an inbound message of this very chat (its `context_ref`), never another contact's."""
+    found = session.scalar(
+        select(MessageRow.id)
+        .where(
+            MessageRow.company_id == company_id,
+            MessageRow.id.in_(action.context_ref),
+            MessageRow.channel == Channel.whatsapp,
+            MessageRow.direction == Direction.inbound,
+            MessageRow.thread_ref == thread,
+        )
+        .limit(1)
+    )
+    return found is not None
 
 
 def close_suggestion(engine: Engine, company_id: UUID, message_id: UUID) -> bool:
     """Supersede the reply draft the message came from. Idempotent; True only when this call closed it.
 
-    Only an open `reply_draft` of this company is touched: one that was approved, executed or already closed in the
-    meantime is left exactly as it is."""
+    Only an open `reply_draft` of this company that answers a message of this message's own chat is touched: one that
+    was approved, executed or already closed in the meantime, or belongs to another chat, is left exactly as it is."""
     with Session(engine) as session, session.begin():
-        action_id = _suggestion_id(session, company_id, message_id)
-        if action_id is None:
+        named = _suggestion(session, company_id, message_id)
+        if named is None:
             return False
+        action_id, thread = named
         live = session.scalars(
             select(Approval)
             .where(
@@ -62,7 +82,7 @@ def close_suggestion(engine: Engine, company_id: UUID, message_id: UUID) -> bool
             )
             .with_for_update()
         )
-        if action is None:
+        if action is None or not _in_chat(session, company_id, action, thread):
             return False
         for approval in live:
             approval.status = ApprovalStatus.expired

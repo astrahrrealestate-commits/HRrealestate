@@ -22,6 +22,7 @@ from app.db.models.pipeline import ActionRow, CaseLink
 from app.pipeline.read_repo import MAX_PAGE, Cursor
 
 __all__ = [
+    "OPEN_DRAFT",
     "BadChatKeyError",
     "ChatFilter",
     "ChatSummary",
@@ -73,8 +74,7 @@ class ChatSummary:
 
 
 def is_pending_send(direction: Direction, delivery: DeliveryStatus | None, meta: dict[str, Any]) -> bool:
-    """An outbound row our own send path created (it carries the browser's `client_msg_id`) that has no delivery
-    status and no send error yet. Business-app echoes and old outbound rows without a status are not pending."""
+    """An outbound row of our own send path (it has a `client_msg_id`) with no delivery status or send error yet."""
     return (
         direction == Direction.outbound
         and delivery is None
@@ -220,8 +220,7 @@ def chat_contact(session: Session, company_id: UUID, chat_key: str) -> tuple[str
 
 
 def quoted_messages(session: Session, company_id: UUID, chat_key: str, provider_ids: set[str]) -> dict[str, MessageRow]:
-    """Messages of this chat by `provider_msg_id`, for resolving the messages a reply quotes. The id is unique per
-    (company, channel), so each maps to one row."""
+    """Messages of this chat by `provider_msg_id` (unique per company and channel), to resolve what a reply quotes."""
     if not provider_ids:
         return {}
     stmt = select(MessageRow).where(

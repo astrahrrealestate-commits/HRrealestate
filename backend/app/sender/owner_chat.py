@@ -22,12 +22,11 @@ from app.channels.whatsapp import payloads
 from app.contracts import Channel, Direction, OutboundMode
 from app.core.logging import get_logger
 from app.core.wa_window import window_open
-from app.core.workflow_names import chat_workflow_id
 from app.db.enums import DeliveryStatus, SendStatus
 from app.db.models import Company, MessageRow, Send
 from app.sender.delivery import REUSED_KEY, ExecOutcome, SenderDeps, claim, send_claimed
 from app.sender.errors import SendBlockedError
-from app.sender.owner_chat_settle import mark_row, prior_send, replay, settle
+from app.sender.owner_chat_settle import NO_CLIENT_ID, chat_key, mark_row, prior_send, replay, settle
 from app.sender.plan import Plan
 from app.sender.recipient import canonical, own_addresses
 from app.sender.tenant_gate import CAP_WINDOW, CHAT_KEY_PREFIX, cap_reached, owner_targets
@@ -45,9 +44,7 @@ DUPLICATE = "duplicate client message id"
 EMPTY = "message is empty"
 TOO_LONG = "message is too long"
 NOT_FOUND = "message not found"
-NO_CLIENT_ID = "message has no client id"
 NO_CAP = 2**31  # `assert_chat` re-checks the gates but not the cap: the claim transaction counted it
-_CLIENT_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _PHONE = re.compile(r"\+[1-9][0-9]{6,14}")
 _COUNTED = (SendStatus.pending, SendStatus.sending, SendStatus.sent)
 
@@ -87,14 +84,6 @@ def chat_refusal(
     if len(text) > payloads.TEXT_BODY_MAX:
         return TOO_LONG
     return None
-
-
-def chat_key(company_id: UUID, row: MessageRow) -> str | None:
-    """The send key of a stored row, or None when its `client_msg_id` is not a short plain token (it joins the key)."""
-    client = row.meta.get("client_msg_id")
-    if not isinstance(client, str) or _CLIENT_ID.fullmatch(client) is None:
-        return None
-    return chat_workflow_id(company_id, client)
 
 
 def contact_number(row: MessageRow) -> str | None:

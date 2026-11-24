@@ -10,23 +10,24 @@ from uuid import UUID
 import pytest
 from dbos import DBOS, DBOSClient, SetWorkflowID, WorkflowHandle
 from dbos._error import DBOSMaxStepRetriesExceeded
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, select, update
 from sqlalchemy.orm import Session
 
 from app.api.v1.enqueue import enqueue_chat_send
 from app.channels.whatsapp.outbound import WhatsAppSendError
-from app.contracts import ActionType, Channel, Direction, Urgency
+from app.contracts import ActionType, CaseState, Category, Channel, Direction, Urgency
 from app.core.settings import Settings
 from app.core.workflow_names import CHAT_QUEUE
-from app.db.enums import ActionStatus, ApprovalStatus, DeliveryStatus, SendStatus
-from app.db.models import ActionRow, Approval, Company, MessageRow, RawEvent
+from app.db.enums import ActionStatus, ApprovalStatus, DeliveryStatus, SendStatus, TaskStatus
+from app.db.models import ActionRow, Approval, Case, Company, MessageRow, RawEvent, Send, TaskRow
 from app.ingestion.repository import status_event_id
 from app.pipeline import approvals, chat_repo
-from app.sender.owner_chat_settle import fail_exhausted
+from app.sender.owner_chat_settle import NO_CLIENT_ID, fail_exhausted
 from app.workflows import chat_send
 from app.workflows.deps import set_engine, set_sender_deps
 from app.workflows.runtime import launch
-from tests.integration.chat_send_support import Pending, pending_row, row_of, send_of
+from tests.integration.chat_send_support import Pending, add_inbound, all_sends, pending_row, row_of, send_of
+from tests.integration.conftest import purge_company
 from tests.integration.send_mode_support import TENANT_NR, Env, make_env, prior_send, set_company
 
 pytestmark = pytest.mark.integration
@@ -75,16 +76,25 @@ def _inbound_id(env: Env) -> UUID:
         ).first()  # type: ignore[return-value]  # make_env stores one
 
 
-def _draft(env: Env, status: ActionStatus = ActionStatus.pending_approval) -> UUID:
+def _draft(
+    env: Env,
+    status: ActionStatus = ActionStatus.pending_approval,
+    *,
+    company_id: UUID | None = None,
+    case_id: UUID | None = None,
+    context: list[UUID] | None = None,
+) -> UUID:
+    cid = company_id or env.company_id
+    refs = context if context is not None else [_inbound_id(env)]
     with Session(env.engine) as s, s.begin():
         action = ActionRow(
-            company_id=env.company_id, case_id=env.case_id, type=ActionType.reply_draft,
+            company_id=cid, case_id=case_id or env.case_id, type=ActionType.reply_draft,
             payload={"kind": "reply_draft", "channel": "whatsapp", "body_variants": ["Optie A", "Optie B"]},
-            rationale="r", context_ref=[_inbound_id(env)], status=status,
+            rationale="r", context_ref=refs, status=status,
         )  # fmt: skip
         s.add(action)
         s.flush()
-        approvals.open_approval(s, env.company_id, action.id, 1, urgency=Urgency.normal, now=datetime.now(UTC))
+        approvals.open_approval(s, cid, action.id, 1, urgency=Urgency.normal, now=datetime.now(UTC))
         return action.id
 
 
@@ -207,16 +217,124 @@ def test_in_progress_ends_the_run_and_changes_nothing(env: Env) -> None:
     assert _action(env, action_id).status is ActionStatus.pending_approval  # not closed: nothing was sent
 
 
-def test_terminal_handler_never_overwrites_a_settled_or_sent_row(env: Env) -> None:
+def _sent_send(env: Env, p: Pending, ref: str) -> None:
+    with Session(env.engine) as s, s.begin():
+        s.add(
+            Send(
+                company_id=env.company_id, idempotency_key=p.key(env), channel=Channel.whatsapp, target=TENANT_NR,
+                status=SendStatus.sent, provider_ref=ref,
+            )
+        )  # fmt: skip
+
+
+def test_terminal_handler_never_overwrites_a_settled_row_or_another_companys(env: Env) -> None:
     settled = pending_row(env)
     assert _run(env, settled) == "sent"
     assert fail_exhausted(env.engine, env.company_id, settled.id, "gave up") is False
     assert row_of(env, settled.id).delivery_status is DeliveryStatus.sent
-    held = pending_row(env)  # the send went out but the row was never settled
-    prior_send(env, TENANT_NR, status=SendStatus.sent, key=held.key(env))
-    assert fail_exhausted(env.engine, env.company_id, held.id, "gave up") is False
-    assert row_of(env, held.id).delivery_status is None
+    held = pending_row(env)
     assert fail_exhausted(env.engine, UUID(int=1), held.id, "gave up") is False  # another company's id: untouched
+    assert row_of(env, held.id).delivery_status is None
+
+
+def test_terminal_handler_settles_a_sent_send_as_sent_with_its_wamid(env: Env) -> None:
+    p = pending_row(env)  # the provider took it and the send was recorded, but the row was never settled
+    _sent_send(env, p, "wamid.PRIOR1")
+    assert fail_exhausted(env.engine, env.company_id, p.id, "gave up") is True
+    row = row_of(env, p.id)
+    assert (row.delivery_status, row.provider_msg_id) == (DeliveryStatus.sent, "wamid.PRIOR1")
+    assert "send_error" not in row.meta
+
+
+def test_terminal_handler_leaves_a_send_held_by_a_live_attempt_alone(env: Env) -> None:
+    p = pending_row(env)
+    prior_send(env, TENANT_NR, status=SendStatus.sending, key=p.key(env), attempted_at=datetime.now(UTC))
+    assert fail_exhausted(env.engine, env.company_id, p.id, "gave up") is False
+    assert row_of(env, p.id).delivery_status is None
+
+
+def test_terminal_handler_without_a_valid_client_id_marks_failed_not_a_none_key(env: Env) -> None:
+    p = pending_row(env)
+    with Session(env.engine) as s, s.begin():
+        s.execute(update(MessageRow).where(MessageRow.id == p.id).values(meta={"type": "text"}))
+    assert fail_exhausted(env.engine, env.company_id, p.id, "gave up") is True
+    row = row_of(env, p.id)
+    assert (row.delivery_status, row.meta["send_error"]) == (DeliveryStatus.failed, NO_CLIENT_ID)
+    assert all_sends(env) == 0
+
+
+def test_already_branch_settles_the_row_replays_the_receipt_and_closes_the_suggestion(env: Env) -> None:
+    action_id = _draft(env)
+    p = pending_row(env, suggestion_action_id=str(action_id))
+    _sent_send(env, p, "wamid.PRIOR1")  # an earlier run died after the send was recorded
+    with Session(env.engine) as s, s.begin():
+        s.add(
+            RawEvent(
+                company_id=env.company_id,
+                provider=Channel.whatsapp,
+                provider_msg_id=status_event_id("wamid.PRIOR1", DeliveryStatus.delivered),
+                payload={},
+            )
+        )
+    assert _run(env, p) == "already"
+    row = row_of(env, p.id)
+    assert (row.delivery_status, row.provider_msg_id) == (DeliveryStatus.delivered, "wamid.PRIOR1")
+    assert env.wa.sent == []
+    assert _action(env, action_id).status is ActionStatus.superseded
+
+
+def test_closing_a_suggestion_closes_the_actions_open_tasks(env: Env) -> None:
+    action_id = _draft(env)  # opening the approval creates the owner's open task for it
+    with Session(env.engine) as s:
+        assert s.scalars(select(TaskRow.status).where(TaskRow.action_id == action_id)).all() == [TaskStatus.open]
+    assert _run(env, pending_row(env, suggestion_action_id=str(action_id))) == "sent"
+    with Session(env.engine) as s:
+        assert s.scalars(select(TaskRow.status).where(TaskRow.action_id == action_id)).all() == [TaskStatus.done]
+
+
+def test_a_suggestion_of_another_company_is_left_alone(env: Env, migrated_engine: Engine) -> None:
+    with Session(migrated_engine, expire_on_commit=False) as s:
+        other = Company(name="Other BV")
+        s.add(other)
+        s.flush()
+        case = Case(company_id=other.id, category=Category.other, urgency=Urgency.normal, state=CaseState.open)
+        s.add(case)
+        s.commit()
+    try:
+        foreign = _draft(env, company_id=other.id, case_id=case.id)
+        assert _run(env, pending_row(env, suggestion_action_id=str(foreign))) == "sent"
+        assert _action(env, foreign).status is ActionStatus.pending_approval
+        assert _approval(env, foreign).status is ApprovalStatus.pending
+    finally:
+        purge_company(migrated_engine, other.id)
+
+
+def test_a_suggestion_of_another_chat_or_without_context_is_left_alone(env: Env) -> None:
+    add_inbound(env, "+31688888888")
+    with Session(env.engine) as s:
+        elsewhere = s.scalars(
+            select(MessageRow.id).where(
+                MessageRow.company_id == env.company_id, MessageRow.sender_identity == "+31688888888"
+            )
+        ).one()
+    other_chat, no_context = _draft(env, context=[elsewhere]), _draft(env, context=[])
+    for action_id in (other_chat, no_context):
+        assert _run(env, pending_row(env, suggestion_action_id=str(action_id))) == "sent"
+        assert _action(env, action_id).status is ActionStatus.pending_approval
+        assert _approval(env, action_id).status is ApprovalStatus.pending
+
+
+def test_only_retry_exhaustion_is_handled_other_errors_propagate_untouched(
+    env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(*_a: object, **_k: object) -> None:
+        raise ValueError("bug")
+
+    monkeypatch.setattr("app.workflows.chat_send.send_chat_message", boom)
+    p = pending_row(env)
+    with pytest.raises(ValueError):
+        _run(env, p)
+    assert row_of(env, p.id).delivery_status is None  # not our exhaustion: the stuck sweep and the owner see it
 
 
 def test_api_enqueue_runs_the_send_on_the_chat_queue(env: Env, test_settings: Settings) -> None:

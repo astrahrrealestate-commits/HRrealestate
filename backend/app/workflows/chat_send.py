@@ -6,8 +6,9 @@ nothing the stuck sweep cannot see. The body only orders steps; every read, writ
 - `chat.send`: `send_chat_message`. A definitely-not-sent provider error resets the `sends` row to pending and
   re-raises, so the step retries (`SEND_RETRY`); a refusal or an ambiguous failure settles the row as failed and is
   never retried.
-- Retries exhausted: the row would stay `delivery_status` NULL with nobody to settle it, so `chat.fail_exhausted`
-  marks it failed (only while it is still NULL and its send is neither sent nor sending), then the error is re-raised.
+- Retries exhausted (`DBOSMaxStepRetriesExceeded`, nothing else): the row would stay `delivery_status` NULL with nobody
+  to settle it, so `chat.fail_exhausted` settles it (see `owner_chat_settle.fail_exhausted`), then the error is
+  re-raised. Any other error escapes untouched.
 - `in_progress` (another attempt holds the send) ends this run with no change: that attempt reports, or the 5-minute
   sweep (`app.sender.stuck`) settles it. This run never loops and never re-enqueues.
 - After a send: `chat.replay_statuses` applies a `delivered`/`read` receipt that arrived before the wamid was stored,
@@ -18,6 +19,7 @@ from typing import Any
 from uuid import UUID
 
 from dbos import DBOS
+from dbos._error import DBOSMaxStepRetriesExceeded
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -56,7 +58,9 @@ def send_step(company_id: str, message_id: str) -> list[str]:
 
 @DBOS.step(name="chat.fail_exhausted", **STEP_RETRY)
 def fail_exhausted_step(company_id: str, message_id: str) -> bool:
-    return fail_exhausted(get_engine(), UUID(company_id), UUID(message_id), GAVE_UP)
+    settled = fail_exhausted(get_engine(), UUID(company_id), UUID(message_id), GAVE_UP)
+    log.error("chat.send_gave_up", message_id=message_id, settled=settled)
+    return settled
 
 
 @DBOS.step(name="chat.replay_statuses", **STEP_RETRY)
@@ -74,8 +78,7 @@ def close_suggestion_step(company_id: str, message_id: str) -> bool:
 def chat_send_wf(company_id: str, message_id: str) -> str:
     try:
         status, _reason, wamid = send_step(company_id, message_id)
-    except Exception as exc:  # retries exhausted (or any error escaping the step): settle the row, then fail the run
-        log.error("chat.send_gave_up", message_id=message_id, error=type(exc).__name__)
+    except DBOSMaxStepRetriesExceeded:  # only this: any other error propagates untouched
         fail_exhausted_step(company_id, message_id)
         raise
     if status in ("sent", "already"):  # "already": a replay after the send was recorded; both steps are idempotent

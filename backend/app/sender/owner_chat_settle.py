@@ -4,6 +4,7 @@ Every write is conditional on the row still being pending (`delivery_status IS N
 nothing. A reason stored in `meta["send_error"]` is a short sentence, never the message text.
 """
 
+import re
 from datetime import datetime
 from uuid import UUID
 
@@ -17,6 +18,16 @@ from app.db.models import MessageRow, Send
 from app.sender.delivery import STUCK, STUCK_AFTER, ExecOutcome, SenderDeps
 
 _DONE = (DeliveryStatus.sent, DeliveryStatus.delivered, DeliveryStatus.read)
+_CLIENT_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+NO_CLIENT_ID = "message has no client id"
+
+
+def chat_key(company_id: UUID, row: MessageRow) -> str | None:
+    """The send key of a stored row, or None when its `client_msg_id` is not a short plain token (it joins the key)."""
+    client = row.meta.get("client_msg_id")
+    if not isinstance(client, str) or _CLIENT_ID.fullmatch(client) is None:
+        return None
+    return chat_workflow_id(company_id, client)
 
 
 def mark_row(
@@ -73,9 +84,21 @@ def prior_send(send: Send | None) -> ExecOutcome | None:
 
 def settle_stuck_chat(engine: Engine, company_id: UUID, key: str, now: datetime) -> bool:
     """A chat `sending` row older than STUCK_AFTER belongs to an attempt that died mid-call: mark the send and the
-    message row failed in one transaction. The conditional UPDATE has one winner; True only for that caller."""
+    message row failed in one transaction. The conditional UPDATE has one winner; True only for that caller.
+
+    Lock order: the message row first, then the `sends` row, as `_prepare` does (company, message, send)."""
     client = key.split(":", 2)[2] if key.count(":") >= 2 else ""
     with Session(engine) as session, session.begin():
+        message_id = session.scalar(
+            select(MessageRow.id)
+            .where(
+                MessageRow.company_id == company_id,
+                MessageRow.channel == Channel.whatsapp,
+                MessageRow.direction == Direction.outbound,
+                MessageRow.meta["client_msg_id"].as_string() == client,
+            )
+            .with_for_update()
+        )
         won = session.execute(
             update(Send)
             .where(
@@ -89,25 +112,19 @@ def settle_stuck_chat(engine: Engine, company_id: UUID, key: str, now: datetime)
         ).first()
         if won is None:
             return False
-        message_id = session.scalar(
-            select(MessageRow.id).where(
-                MessageRow.company_id == company_id,
-                MessageRow.channel == Channel.whatsapp,
-                MessageRow.direction == Direction.outbound,
-                MessageRow.meta["client_msg_id"].as_string() == client,
-            )
-        )
         if message_id is not None:
             mark_row(session, company_id, message_id, DeliveryStatus.failed, wamid=None, error=STUCK)
     return True
 
 
 def fail_exhausted(engine: Engine, company_id: UUID, message_id: UUID, reason: str) -> bool:
-    """The workflow's step ran out of retries: nobody else will settle the row, so mark it failed with `reason`.
+    """The workflow's step ran out of retries: settle a row nobody else will settle. True when this call settled it.
 
-    Only a still-pending row (`delivery_status IS NULL`) whose `sends` row is not `sent` or `sending` is touched: a send
-    that went out (or is held by a live attempt) is settled by its own path, never reported as failed here. True only
-    when this call marked the row."""
+    Only a still-pending row (`delivery_status IS NULL`) is touched, and the row's own `sends` row decides how:
+    - `sent`: the provider took it and only the row was left behind, so the row becomes `sent` with that wamid;
+    - `sending`: a live attempt holds it and will report, or the 5-minute sweep settles it: nothing changes;
+    - anything else (pending after a definitely-not-sent error, failed, none): the row becomes `failed` with `reason`.
+    A row without a usable `client_msg_id` has no send key to look up and fails with `NO_CLIENT_ID`."""
     with Session(engine) as session, session.begin():
         row = session.scalar(
             select(MessageRow)
@@ -122,13 +139,15 @@ def fail_exhausted(engine: Engine, company_id: UUID, message_id: UUID, reason: s
         )
         if row is None:
             return False
-        send = session.scalar(
-            select(Send).where(
-                Send.company_id == company_id,
-                Send.idempotency_key == chat_workflow_id(company_id, row.meta.get("client_msg_id")),
-            )
-        )
-        if send is not None and send.status in (SendStatus.sent, SendStatus.sending):
+        key = chat_key(company_id, row)
+        if key is None:
+            mark_row(session, company_id, message_id, DeliveryStatus.failed, wamid=None, error=NO_CLIENT_ID)
+            return True
+        send = session.scalar(select(Send).where(Send.company_id == company_id, Send.idempotency_key == key))
+        if send is not None and send.status is SendStatus.sending:
             return False
-        mark_row(session, company_id, message_id, DeliveryStatus.failed, wamid=None, error=reason)
+        if send is not None and send.status is SendStatus.sent:
+            mark_row(session, company_id, message_id, DeliveryStatus.sent, wamid=send.provider_ref, error=None)
+        else:
+            mark_row(session, company_id, message_id, DeliveryStatus.failed, wamid=None, error=reason)
     return True
