@@ -92,20 +92,24 @@ if __name__ == "__main__":
     elif args.add:
         add_allowed_user(args.add, name=args.name, role=args.role)
     else:
-        # Default seed run
+        # Default seed run (only Harjot, Suryansh, Astra, and Aditya)
         print("Seeding default allowed users...")
         add_allowed_user("harjot@estateos.internal", name="Harjot Singh", role="owner")
-        add_allowed_user("tyagisurya.04@gmail.com", name="Surya Tyagi", role="owner")
-        add_allowed_user("chandan.p@fwc.co.in", name="Chandan P", role="owner")
+        add_allowed_user("tyagisurya.04@gmail.com", name="Suryansh Tyagi", role="owner")
         add_allowed_user("aditya@seedicon.com", name="Aditya", role="owner")
-        add_allowed_user("sambit.b@fwc.co.in", name="Sambit B", role="owner")
-        add_allowed_user("avinash.p@fwc.co.in", name="Avinash P", role="owner")
+        add_allowed_user("astrahrrealestate@gmail.com", name="Astra Real Estate", role="owner")
 
         # Cleanup removed users
         settings = get_settings()
         engine = make_engine(str(settings.database_url))
         with Session(engine) as session, session.begin():
-            for rm in ["vipint9902@gmail.com", "suryanstyagi.work@gmail.com"]:
+            for rm in [
+                "vipint9902@gmail.com",
+                "suryanstyagi.work@gmail.com",
+                "chandan.p@fwc.co.in",
+                "sambit.b@fwc.co.in",
+                "avinash.p@fwc.co.in",
+            ]:
                 company = session.scalars(select(Company).limit(1)).first()  # the dev company, as add_allowed_user
                 u = session.scalar(
                     select(AllowedUser).where(AllowedUser.company_id == company.id, AllowedUser.email == rm)

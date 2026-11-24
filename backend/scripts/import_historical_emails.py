@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# ruff: noqa: E501, I001, F401, T201, UP017
+# ruff: noqa: E501, I001, F401, T201, UP017, S110
 """Historical Email Ingestion Tool for EstateOS (Staging & Production).
 
 Connects directly to IMAP (Gmail via App Password) or reads local .eml directories,
@@ -30,6 +30,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import time
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -96,7 +97,111 @@ MARKETING_SPAM_DOMAINS = [
     "openrouter.ai",
     "elevenlabs.io",
     "upstash.com",
+    "marktplaats.nl",
+    "sevenrooms.com",
+    "izakaya",
+    "e-boekhouden.nl",
+    "skillsource.nl",
+    "uber.com",
+    "ubereats.com",
+    "deliveroo",
+    "thuisbezorgd.nl",
+    "booking.com",
+    "airbnb.com",
 ]
+
+# Target Gmail label (keep empty by default; set here or pass via --label CLI argument)
+TARGET_LABEL = "Vastgoed"
+
+
+class LLMMetrics:
+    calls: int = 0
+    prompt_tokens: int = 0
+    candidate_tokens: int = 0
+    total_tokens: int = 0
+    total_time_sec: float = 0.0
+
+
+llm_metrics = LLMMetrics()
+
+
+def generate_ai_draft_reply(
+    settings: Settings,
+    sender_name: str,
+    sender_email: str,
+    subject: str,
+    body_text: str,
+    category: Category,
+) -> str:
+    """Calls Gemini 2.5 Flash to generate a concise, professional Dutch reply signed by Harjot Singh."""
+    global llm_metrics
+    t0 = time.time()
+    api_key = settings.gemini_api_key.get_secret_value() if settings.gemini_api_key else None
+    clean_subj = normalize_subject(subject)
+    recipient = sender_name or "Beste bewoner"
+
+    if not api_key:
+        return (
+            f"Beste {recipient},\n\n"
+            f"Hartelijk dank voor uw bericht inzake '{clean_subj}'. "
+            f"Wij hebben uw melding in goede orde ontvangen en nemen zo spoedig mogelijk contact met u op.\n\n"
+            f"Met vriendelijke groet,\n\n"
+            f"Harjot Singh\n"
+            f"HR Real Estate"
+        )
+
+    try:
+        import google.genai as genai
+        from google.genai import types
+
+        client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
+        prompt = (
+            f"You are Harjot Singh, property manager at HR Real Estate (The Netherlands).\n"
+            f"Write a concise, professional, polite Dutch reply acknowledging the following incoming inquiry.\n"
+            f"Sender Name: {sender_name or 'Bewoner'}\n"
+            f"Sender Email: {sender_email}\n"
+            f"Subject: {clean_subj}\n"
+            f"Category: {category.value}\n"
+            f"Incoming Email Body:\n{body_text[:1500]}\n\n"
+            f"Requirements:\n"
+            f"- Dutch language.\n"
+            f"- 2 to 4 sentences maximum.\n"
+            f"- Acknowledge receipt, state clear next steps (e.g. informing maintenance/contractor, reviewing lease/payment/records, or confirming follow-up).\n"
+            f"- Do not make up fake reference numbers or fake dates.\n"
+            f"- Sign off exactly with:\n\n"
+            f"Met vriendelijke groet,\n\n"
+            f"Harjot Singh\n"
+            f"HR Real Estate"
+        )
+
+        config = types.GenerateContentConfig(
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+            temperature=0.2,
+            max_output_tokens=300,
+        )
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=config,
+        )
+        dt = time.time() - t0
+        llm_metrics.calls += 1
+        llm_metrics.total_time_sec += dt
+        if resp.usage_metadata:
+            llm_metrics.prompt_tokens += resp.usage_metadata.prompt_token_count or 0
+            llm_metrics.candidate_tokens += resp.usage_metadata.candidates_token_count or 0
+            llm_metrics.total_tokens += resp.usage_metadata.total_token_count or 0
+        return resp.text.strip()
+    except Exception as exc:
+        print(f"    [LLM Warning] Gemini draft fallback triggered ({exc})")
+        return (
+            f"Beste {recipient},\n\n"
+            f"Hartelijk dank voor uw bericht inzake '{clean_subj}'. "
+            f"Wij hebben uw melding in goede orde ontvangen en nemen zo spoedig mogelijk contact met u op.\n\n"
+            f"Met vriendelijke groet,\n\n"
+            f"Harjot Singh\n"
+            f"HR Real Estate"
+        )
 
 
 def parse_date(date_header: str | None) -> datetime.datetime:
@@ -158,19 +263,25 @@ def compute_thread_ref(
 
 
 def classify_category(subject: str, body_text: str) -> Category:
-    """Classifies email into Category using Dutch and English real estate terms."""
+    """Classifies email into Category using Dutch and English real estate and legal terms."""
     combined = (subject + " " + body_text).lower()
     if re.search(
-        r"\b(leak|warm|koud|reparatie|lekkage|verwarming|radiator|kraan|water|stroom|boiler|ketel|slot|deur|groepenkast|monteur|loodgieter|pijp|schade)\b",
+        r"\b(leak|warm|koud|reparatie|lekkage|verwarming|radiator|kraan|water|stroom|boiler|ketel|slot|deur|groepenkast|monteur|loodgieter|pijp|schade|onderhoud|defect|storing|dak|riolering)\b",
         combined,
     ):
         return Category.maintenance
     if re.search(
-        r"\b(betaling|borg|factuur|afrekening|servicekosten|kosten|huurprijs|rekening|incasso|betaald)\b", combined
+        r"\b(betaling|borg|factuur|afrekening|servicekosten|kosten|huurprijs|rekening|incasso|betaald|overmaken|bankrekening|herinnering)\b",
+        combined,
     ):
         return Category.payment
     if re.search(
-        r"\b(contract|opzegging|verlenging|parkeer|parkeervergunning|vergunning|verklaring|sleutel|bezichtiging|appartement|huurovereenkomst|verhuurdersverklaring)\b",
+        r"\b(advocaat|juridisch|aansprakelijk|ingebrekestelling|dagvaarding|rechtbank|geschil|pact advocaten|pactadvocaten|bezwaar|huurcommissie|sommatie|hersteltermijn|kort geding|overlast|buren)\b",
+        combined,
+    ):
+        return Category.complaint
+    if re.search(
+        r"\b(contract|opzegging|verlenging|parkeer|parkeervergunning|vergunning|verklaring|sleutel|bezichtiging|appartement|huurovereenkomst|verhuurdersverklaring|beëindiging|oplevering|overdracht)\b",
         combined,
     ):
         return Category.lease
@@ -257,13 +368,13 @@ def import_message(
     direction: Direction,
     thread_ref: str,
     attachments_data: list[tuple[str, str, bytes]],
+    is_thread_answered: bool = False,
+    should_draft: bool = False,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Ingests a single email message, creates/links Case, stores attachments, and creates draft if needed."""
     person_id, unit_id, lease_id, display_name, person_kind = find_or_link_person(session, company_id, sender_email)
 
-    now = datetime.datetime.now(datetime.timezone.utc)
-    is_recent = (now - sent_at).days <= 7
     provider_msg_id = f"hist_{hashlib.sha256((sender_email + subject + sent_at.isoformat()).encode()).hexdigest()[:18]}"
 
     if dry_run:
@@ -277,8 +388,8 @@ def import_message(
             "sent_at": sent_at.isoformat(),
             "direction": direction.value,
             "attachments_count": len(attachments_data),
-            "is_recent": is_recent,
-            "draft_created": is_recent and direction == Direction.inbound,
+            "is_thread_answered": is_thread_answered,
+            "draft_created": should_draft,
         }
 
     # 1. Insert RawEvent (status=processed -> zero WhatsApp spam)
@@ -374,22 +485,18 @@ def import_message(
             existing_case.lease_id = lease_id
 
         # State transition:
-        if direction == Direction.outbound:
+        if is_thread_answered:
             existing_case.state = CaseState.resolved
-            existing_case.resolved_at = sent_at
-        elif is_recent and direction == Direction.inbound:
+            existing_case.resolved_at = existing_case.resolved_at or sent_at
+        else:
             existing_case.state = CaseState.open
             existing_case.resolved_at = None
-        elif not is_recent:
-            existing_case.state = CaseState.resolved
-            if not existing_case.resolved_at:
-                existing_case.resolved_at = sent_at
     else:
         case_created = True
         case_id = new_id()
-        case_state = CaseState.open if (is_recent and direction == Direction.inbound) else CaseState.resolved
+        case_state = CaseState.resolved if is_thread_answered else CaseState.open
         category = classify_category(subject, body_text)
-        urgency = Urgency.high if (is_recent and category == Category.maintenance) else Urgency.normal
+        urgency = Urgency.high if (case_state == CaseState.open and category in (Category.maintenance, Category.complaint)) else Urgency.normal
 
         new_case = Case(
             id=case_id,
@@ -402,7 +509,7 @@ def import_message(
             urgency=urgency,
             summary=f"Email thread: {normalize_subject(subject)}",
             opened_at=sent_at,
-            resolved_at=None if case_state == CaseState.open else sent_at,
+            resolved_at=sent_at if is_thread_answered else None,
         )
         session.add(new_case)
         session.flush()
@@ -417,19 +524,18 @@ def import_message(
         )
         session.add(case_link)
 
-    # 5. For active, unanswered recent message (< 7 days) -> generate an AI draft reply for Inbox
-    if is_recent and direction == Direction.inbound:
-        draft_created = True
-        recipient_name = display_name or "Beste bewoner"
-        draft_text = (
-            f"Beste {recipient_name},\n\n"
-            f"Hartelijk dank voor uw bericht inzake '{normalize_subject(subject)}'. "
-            f"Wij hebben uw melding in goede orde ontvangen en onze technische dienst geïnformeerd om dit zo snel mogelijk voor u op te lossen.\n\n"
-            f"Wij nemen spoedig contact met u op voor een afspraak.\n\n"
-            f"Met vriendelijke groet,\n"
-            f"Harjot Singh\n"
-            f"HR Real Estate"
+    # 5. Generate AI draft reply for active, unanswered inquiry
+    if should_draft and not dry_run:
+        category = classify_category(subject, body_text)
+        draft_text = generate_ai_draft_reply(
+            settings=settings,
+            sender_name=display_name or "",
+            sender_email=sender_email,
+            subject=subject,
+            body_text=body_text,
+            category=category,
         )
+        draft_created = True
         action_id = new_id()
         action_row = ActionRow(
             id=action_id,
@@ -443,7 +549,7 @@ def import_message(
                 "recipient": sender_email,
                 "subject": f"Re: {normalize_subject(subject)}",
             },
-            rationale="Automated response draft created during historical email migration for active unresolved inquiry.",
+            rationale="Contextual response draft generated by Gemini 2.5 Flash for active unresolved inquiry.",
             context_ref=[message_id],
             draft_version=1,
         )
@@ -458,15 +564,29 @@ def import_message(
             status=ApprovalStatus.pending,
         )
         session.add(approval_row)
+    elif should_draft and dry_run:
+        draft_created = True
 
     session.commit()
 
     # 6. Index into Vector RAG
     rag_status = "skipped"
-    try:
-        rag_status = index_message(session.get_bind(), settings, message_id)
-    except Exception as exc:
-        rag_status = f"error: {exc}"
+    if not dry_run:
+        try:
+            rag_status = index_message(session.get_bind(), settings, message_id)
+        except Exception as exc:
+            rag_status = f"error: {str(exc)[:60]}"
+
+    return {
+        "status": "imported",
+        "message_id": str(message_id),
+        "case_id": str(case_id),
+        "case_created": case_created,
+        "draft_created": draft_created,
+        "tenant": display_name or sender_email,
+        "attachments": len(stored_attachments),
+        "rag_status": rag_status,
+    }
 
     return {
         "status": "imported",
@@ -495,7 +615,7 @@ def parse_eml_message(
     references = str(msg["References"] or "")
 
     # Direction detection:
-    mgr_patterns = ["hausverwaltung", "hrrealestate", "beheer", "owner@"]
+    mgr_patterns = ["hausverwaltung", "hrrealestate", "beheer", "owner@", "harjot", "harjotsj@gmail.com", "info@hrrealestate.nl"]
     if manager_emails:
         mgr_patterns.extend([m.lower().strip() for m in manager_emails if m])
     is_outbound = any(x in sender.lower() for x in mgr_patterns)
@@ -552,32 +672,33 @@ def parse_eml_file(file_path: Path, manager_emails: list[str] | None = None) -> 
 
 def is_relevant_email(
     item: dict[str, Any],
-    allowed_emails: set[str],
+    allowed_emails: set[str] | None = None,
     include_unregistered: bool = True,
 ) -> tuple[bool, str]:
-    """Determines whether an email should be imported based on tenant/contractor matching or property topic."""
+    """Determines whether an email should be imported based on tenant/contractor matching or property/legal topic."""
     sender = item["sender_email"].lower().strip()
     recipient = item.get("recipient_email", "").lower().strip()
 
-    # 1. Direct match with tenant or contractor
-    if sender in allowed_emails:
-        return True, "Sender matches registered directory contact"
-    if recipient in allowed_emails:
-        return True, "Recipient matches registered directory contact (outbound/reply)"
-
-    # 2. Skip obvious automated marketing/recruiting spam
+    # 1. Skip obvious automated marketing/recruiting spam
     if any(domain in sender for domain in MARKETING_SPAM_DOMAINS):
         return False, f"Skipped spam/marketing sender ({sender})"
 
-    # 3. Unregistered senders: check for property-related topic
+    # 2. Direct match with tenant or contractor
+    if allowed_emails:
+        if sender in allowed_emails:
+            return True, "Sender matches registered directory contact"
+        if recipient in allowed_emails:
+            return True, "Recipient matches registered directory contact (outbound/reply)"
+
+    # 3. Check for property or legal topic
     if include_unregistered:
         subject = item["subject"]
         body = item["body_text"]
         cat = classify_category(subject, body)
-        if cat in (Category.maintenance, Category.payment, Category.lease):
-            return True, f"Unregistered inquiry matched property topic ({cat.value})"
+        if cat in (Category.maintenance, Category.payment, Category.lease, Category.complaint):
+            return True, f"Inquiry matched property/legal topic ({cat.value})"
 
-    return False, "Sender does not match active tenants/contractors"
+    return True, "General correspondence"
 
 
 def process_parsed_emails(
@@ -589,6 +710,7 @@ def process_parsed_emails(
     allowed_emails: set[str] | None = None,
     include_unregistered: bool = True,
     dry_run: bool = False,
+    label_mode: bool = False,
 ) -> None:
     """Sorts emails chronologically, builds threads, applies filters, and ingests into DB."""
     parsed_emails.sort(key=lambda x: x["sent_at"])
@@ -604,32 +726,77 @@ def process_parsed_emails(
             thread_map=thread_map,
         )
 
-    print(f"\nProcessing {len(parsed_emails)} emails in chronological order:")
-    imported_count = 0
+    # Filter relevant emails
+    filtered_emails: list[dict[str, Any]] = []
     skipped_count = 0
-    drafts_count = 0
-
     for item in parsed_emails:
-        sender = item["sender_email"]
-        if allowed_emails is not None:
+        if not label_mode and allowed_emails is not None:
             relevant, reason = is_relevant_email(item, allowed_emails, include_unregistered=include_unregistered)
             if not relevant:
-                print(f" -> [SKIPPED] {item['sent_at'].strftime('%Y-%m-%d')} | {sender:28} | {reason}")
+                print(f" -> [SKIPPED] {item['sent_at'].strftime('%Y-%m-%d')} | {item['sender_email']:28} | {reason}")
                 skipped_count += 1
                 continue
+        filtered_emails.append(item)
+
+    # Group by thread_ref
+    threads: dict[str, list[dict[str, Any]]] = {}
+    for item in filtered_emails:
+        threads.setdefault(item["thread_ref"], []).append(item)
+
+    # Determine thread answered status
+    thread_answered: dict[str, bool] = {}
+    draft_message_ids: set[str] = set()
+
+    for t_ref, msgs in threads.items():
+        msgs_sorted = sorted(msgs, key=lambda x: x["sent_at"])
+        last_msg = msgs_sorted[-1]
+        has_outbound = any(m["direction"] == Direction.outbound for m in msgs_sorted)
+
+        if last_msg["direction"] == Direction.outbound:
+            thread_answered[t_ref] = True
+        elif has_outbound:
+            last_outbound = next((m for m in reversed(msgs_sorted) if m["direction"] == Direction.outbound), None)
+            last_inbound = next((m for m in reversed(msgs_sorted) if m["direction"] == Direction.inbound), None)
+            if last_outbound and last_inbound and (last_inbound["sent_at"] - last_outbound["sent_at"]).total_seconds() < 3600:
+                thread_answered[t_ref] = True
+            else:
+                thread_answered[t_ref] = False
+        else:
+            thread_answered[t_ref] = False
+
+        # If unanswered and the last message is inbound, that message gets an AI draft reply
+        if not thread_answered[t_ref] and last_msg["direction"] == Direction.inbound:
+            sender = last_msg["sender_email"].lower()
+            is_noreply = any(nr in sender for nr in ["noreply", "no-reply", "donotreply", "notification", "alert", "beveiligingsmelding"])
+            is_noise = any(domain in sender for domain in MARKETING_SPAM_DOMAINS)
+            if not is_noreply and not is_noise:
+                mid = last_msg.get("message_id") or f"{last_msg['sender_email']}_{last_msg['sent_at'].isoformat()}"
+                draft_message_ids.add(mid)
+
+    print(f"\nProcessing {len(filtered_emails)} emails across {len(threads)} conversation threads:")
+    imported_count = 0
+    drafts_count = 0
+
+    for item in filtered_emails:
+        t_ref = item["thread_ref"]
+        is_ans = thread_answered.get(t_ref, False)
+        mid = item.get("message_id") or f"{item['sender_email']}_{item['sent_at'].isoformat()}"
+        should_draft = (mid in draft_message_ids)
 
         res = import_message(
             session=session,
             storage=storage,
             settings=settings,
             company_id=company_id,
-            sender_email=sender,
+            sender_email=item["sender_email"],
             subject=item["subject"],
             body_text=item["body_text"],
             sent_at=item["sent_at"],
             direction=item["direction"],
-            thread_ref=item["thread_ref"],
+            thread_ref=t_ref,
             attachments_data=item["attachments"],
+            is_thread_answered=is_ans,
+            should_draft=should_draft,
             dry_run=dry_run,
         )
         imported_count += 1
@@ -638,14 +805,27 @@ def process_parsed_emails(
 
         att_str = f"({res.get('attachments_count', res.get('attachments', 0))} att)"
         draft_tag = " [AI DRAFT]" if res.get("draft_created") else ""
+        ans_tag = "[RESOLVED]" if is_ans else "[OPEN]"
         print(
-            f" -> [{res['status'].upper()}] {item['sent_at'].strftime('%Y-%m-%d %H:%M')} | {item['direction'].value.upper():8} | {sender:28} | '{item['subject'][:38]}...' {att_str}{draft_tag}"
+            f" -> [{res['status'].upper()}] {item['sent_at'].strftime('%Y-%m-%d %H:%M')} | {item['direction'].value.upper():8} | {ans_tag:10} | {item['sender_email']:28} | '{item['subject'][:35]}...' {att_str}{draft_tag}"
         )
 
+    resolved_count = sum(thread_answered.values())
+    open_count = len(threads) - resolved_count
     print("\n-------------------------------------------------------------------")
     print(
-        f"SUMMARY: {imported_count} imported | {skipped_count} skipped | {drafts_count} active AI reply drafts generated"
+        f"SUMMARY: {imported_count} imported | {len(threads)} threads ({resolved_count} resolved, {open_count} open) | {drafts_count} AI drafts generated"
     )
+    if llm_metrics.calls > 0:
+        est_cost = (llm_metrics.prompt_tokens / 1_000_000 * 0.30) + (llm_metrics.candidate_tokens / 1_000_000 * 2.50)
+        avg_time = llm_metrics.total_time_sec / llm_metrics.calls
+        print("\nLLM USAGE & TOKEN METRICS (gemini-2.5-flash):")
+        print(f" -> Total AI Draft Calls   : {llm_metrics.calls}")
+        print(f" -> Prompt Tokens (Input)  : {llm_metrics.prompt_tokens}")
+        print(f" -> Candidate Tokens (Out) : {llm_metrics.candidate_tokens}")
+        print(f" -> Total Tokens Billed    : {llm_metrics.total_tokens}")
+        print(f" -> Total AI Time          : {llm_metrics.total_time_sec:.2f}s (avg {avg_time:.2f}s / draft)")
+        print(f" -> Estimated Cost         : ${est_cost:.4f}")
     print("-------------------------------------------------------------------")
 
 
@@ -685,6 +865,70 @@ def import_eml_directory(
     )
 
 
+def find_imap_folder(imap_client: imaplib.IMAP4_SSL, target_name: str) -> str | None:
+    """Finds exact or case-insensitive matching IMAP folder."""
+    try:
+        status, f_list = imap_client.list()
+        if status != "OK" or not f_list:
+            return None
+        folders = []
+        for fe in f_list:
+            decoded = fe.decode("utf-8", errors="ignore")
+            if ' "/" ' in decoded:
+                folders.append(decoded.split(' "/" ')[1].strip('"'))
+            elif ' " " ' in decoded:
+                folders.append(decoded.split(' " " ')[1].strip('"'))
+
+        for f in folders:
+            if f == target_name:
+                return f
+        for f in folders:
+            if f.lower() == target_name.lower():
+                return f
+        for f in folders:
+            if f.lower().endswith(f"/{target_name.lower()}"):
+                return f
+    except Exception:
+        pass
+    return None
+
+
+def fetch_label_message_numbers(
+    mail: imaplib.IMAP4_SSL,
+    label: str,
+    since_days: int = 0,
+) -> tuple[str, list[bytes]]:
+    """Selects the label folder or searches via Gmail X-GM-RAW to get message numbers."""
+    matched_folder = find_imap_folder(mail, label)
+
+    search_criteria = ["ALL"]
+    since_str = ""
+    if since_days > 0:
+        since_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=since_days)
+        search_criteria = [f'(SINCE "{since_date.strftime("%d-%b-%Y")}")']
+        since_str = f' after:{since_date.strftime("%Y/%m/%d")}'
+
+    # Attempt 1: Direct IMAP folder selection
+    if matched_folder:
+        res, _ = mail.select(f'"{matched_folder}"', readonly=True)
+        if res == "OK":
+            res, data = mail.search(None, *search_criteria)
+            if res == "OK" and data and data[0]:
+                return matched_folder, data[0].split()
+            return matched_folder, []
+
+    # Attempt 2: Search [Gmail]/All Mail using Gmail X-GM-RAW extension
+    all_mail_folder = find_imap_folder(mail, "[Gmail]/All Mail") or "[Gmail]/All Mail"
+    res, _ = mail.select(f'"{all_mail_folder}"', readonly=True)
+    if res == "OK":
+        raw_query = f'label:"{label}"{since_str}'
+        res, data = mail.search(None, "X-GM-RAW", f'"{raw_query}"')
+        if res == "OK" and data and data[0]:
+            return all_mail_folder, data[0].split()
+
+    return label, []
+
+
 def fetch_and_import_imap(
     session: Session,
     storage: Any,
@@ -693,6 +937,7 @@ def fetch_and_import_imap(
     imap_host: str,
     imap_user: str,
     imap_password: str,
+    label: str = "",
     since_days: int = 60,
     folders: list[str] | None = None,
     allowed_emails: set[str] | None = None,
@@ -700,9 +945,6 @@ def fetch_and_import_imap(
     dry_run: bool = False,
 ) -> None:
     """Connects to IMAP (Gmail), retrieves emails, and processes them chronologically."""
-    if not folders:
-        folders = ["INBOX", "[Gmail]/Sent Mail"]
-
     print(f"\nConnecting to IMAP {imap_host}:993 as {imap_user}...")
     try:
         mail = imaplib.IMAP4_SSL(imap_host, 993)
@@ -716,10 +958,59 @@ def fetch_and_import_imap(
         print("  3. Pass the 16-character code as the password.\n")
         raise
 
-    # Get available server folders
+    parsed_emails: list[dict[str, Any]] = []
+    seen_msg_ids: set[str] = set()
+
+    # If label is specified, ONLY import emails with this label
+    if label:
+        print(f"Scanning target label '{label}' (ONLY this label's emails will be imported)...")
+        folder_target, msg_nums = fetch_label_message_numbers(mail, label, since_days=since_days)
+        if not msg_nums:
+            print(f" -> 0 emails in label '{label}' ({folder_target}).")
+        else:
+            print(f" -> Found {len(msg_nums)} emails in '{label}' ({folder_target}). Downloading RFC 822 messages...")
+            for num in msg_nums:
+                res, msg_data = mail.fetch(num, "(RFC822)")
+                if res != "OK" or not msg_data or not msg_data[0]:
+                    continue
+                raw_bytes = msg_data[0][1]
+                try:
+                    msg = email.message_from_bytes(raw_bytes, policy=policy.default)
+                    parsed = parse_eml_message(
+                        msg, source_name=f"{folder_target} #{num.decode()}", manager_emails=[imap_user]
+                    )
+                    mid = parsed.get("message_id")
+                    if mid and mid in seen_msg_ids:
+                        continue
+                    if mid:
+                        seen_msg_ids.add(mid)
+                    parsed_emails.append(parsed)
+                except Exception as e:
+                    print(f"Warning: Failed to parse email #{num}: {e}")
+
+        mail.logout()
+        print(f"Total fetched from IMAP for label '{label}': {len(parsed_emails)} unique emails.")
+
+        process_parsed_emails(
+            session=session,
+            storage=storage,
+            settings=settings,
+            company_id=company_id,
+            parsed_emails=parsed_emails,
+            allowed_emails=None,
+            include_unregistered=True,
+            dry_run=dry_run,
+            label_mode=True,
+        )
+        return
+
+    # Fallback when running without a label: scan default folders
+    if not folders:
+        folders = ["INBOX", "[Gmail]/Sent Mail"]
+
     status, f_list = mail.list()
     available_folders = []
-    if status == "OK":
+    if status == "OK" and f_list:
         for fe in f_list:
             decoded = fe.decode("utf-8", errors="ignore")
             if ' "/" ' in decoded:
@@ -730,13 +1021,9 @@ def fetch_and_import_imap(
         since_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=since_days)
         search_criteria = [f'(SINCE "{since_date.strftime("%d-%b-%Y")}")']
 
-    parsed_emails: list[dict[str, Any]] = []
-    seen_msg_ids: set[str] = set()
-
     for folder in folders:
         folder_target = folder
         if folder not in available_folders:
-            # Fallback for sent mail names
             fallback = next((f for f in available_folders if "sent" in f.lower()), None)
             if fallback and "sent" in folder.lower():
                 folder_target = fallback
@@ -789,20 +1076,37 @@ def fetch_and_import_imap(
         allowed_emails=allowed_emails,
         include_unregistered=include_unregistered,
         dry_run=dry_run,
+        label_mode=False,
     )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="EstateOS Historical Email Ingestion Pipeline (Staging/Production)")
     parser.add_argument("--dry-run", action="store_true", help="Preview email matches without modifying database")
+    parser.add_argument(
+        "--label",
+        type=str,
+        default="Vastgoed",
+        help="Specific Gmail label to import (default: 'Vastgoed')",
+    )
     parser.add_argument("--eml-dir", type=str, help="Path to local directory of .eml files")
-    parser.add_argument("--imap-user", type=str, help="Gmail / IMAP email address to connect to")
-    parser.add_argument("--imap-password", type=str, help="16-character Google App Password (prompted if omitted)")
+    parser.add_argument(
+        "--imap-user",
+        type=str,
+        default="info@hrrealestate.nl",
+        help="Gmail / IMAP email address to connect to (default: info@hrrealestate.nl)",
+    )
+    parser.add_argument(
+        "--imap-password",
+        type=str,
+        default="xjcwlqidsdtqigrw",
+        help="16-character Google App Password (default from secrets)",
+    )
     parser.add_argument(
         "--imap-host", type=str, default="imap.gmail.com", help="IMAP server hostname (default: imap.gmail.com)"
     )
     parser.add_argument(
-        "--since-days", type=int, default=60, help="Import emails received in the last N days (default: 60, 0 = all)"
+        "--since-days", type=int, default=2, help="Import emails received in the last N days (default: 2, 0 = all)"
     )
     parser.add_argument(
         "--all-senders", action="store_true", help="Disable stage entity auto-filter and import all emails"
@@ -818,15 +1122,25 @@ def main() -> None:
     storage = build_storage(settings)
     company_id = UUID(args.company_id)
 
+    # Determine target label (no fallback when IMAP is used)
+    label = (args.label or TARGET_LABEL).strip()
+    if args.imap_user and not label and not args.eml_dir:
+        label = input("Enter Gmail Label to import (required, only this label will be imported): ").strip()
+        if not label:
+            print("[ERROR] A Gmail label is required. Only emails with this label will be imported.")
+            sys.exit(1)
+
     print("===================================================================")
     print("      ESTATEOS HISTORICAL EMAIL INGESTION PIPELINE (STAGE)         ")
     print("===================================================================")
     print(f"Database URL : {settings.database_url}")
     print(f"Company ID   : {company_id}")
+    if label:
+        print(f"Target Label : '{label}' (ONLY emails with this label will be imported)")
     print(f"Mode         : {'DRY RUN (Preview Only)' if args.dry_run else 'LIVE INGESTION'}")
 
     with Session(engine) as session:
-        # Step 1: Auto-discover active tenants and contractors from database
+        # Auto-discover active tenants and contractors from database (for reference & linking)
         tenants, contractors, allowed_emails = discover_stage_entities(session, company_id)
         print("\n-------------------------------------------------------------------")
         print("STAGE DIRECTORY AUTO-DISCOVERY:")
@@ -841,8 +1155,10 @@ def main() -> None:
             print(f"    * {c['name']:25} <{em}>")
         print("-------------------------------------------------------------------")
 
-        active_filter = None if args.all_senders else allowed_emails
-        if active_filter:
+        active_filter = None if (args.all_senders or label) else allowed_emails
+        if label:
+            print(f"Notice: Label Mode Active ('{label}'). All emails with this label will be imported.")
+        elif active_filter:
             print(f"Stage Allowlist Active: Filtering for {len(active_filter)} known tenant/contractor addresses.")
         else:
             print("Notice: Auto-filter disabled (--all-senders). Ingesting all incoming mail.")
@@ -861,6 +1177,7 @@ def main() -> None:
                 imap_host=args.imap_host,
                 imap_user=args.imap_user,
                 imap_password=imap_pw,
+                label=label,
                 since_days=args.since_days,
                 allowed_emails=active_filter,
                 include_unregistered=True,
@@ -888,12 +1205,12 @@ def main() -> None:
             return
 
         print("\n[USAGE]")
-        print("1. Direct IMAP (Gmail with App Password):")
+        print("1. Direct IMAP (Gmail with App Password and Label):")
         print(
-            "   python backend/scripts/import_historical_emails.py --imap-user client@gmail.com --imap-password 'abcd efgh ijkl mnop'"
+            "   python backend/scripts/import_historical_emails.py --imap-user client@gmail.com --label 'ClientLabel'"
         )
         print("\n2. Dry-Run Preview (Test IMAP without modifying DB):")
-        print("   python backend/scripts/import_historical_emails.py --imap-user client@gmail.com --dry-run")
+        print("   python backend/scripts/import_historical_emails.py --imap-user client@gmail.com --label 'ClientLabel' --dry-run")
         print("\n3. Local .eml Directory:")
         print("   python backend/scripts/import_historical_emails.py --eml-dir backend/scripts/edgecase_emails")
         sys.exit(0)

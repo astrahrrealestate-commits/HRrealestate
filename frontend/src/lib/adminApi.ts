@@ -66,3 +66,5 @@ export const createProfile = (draft: ProfileDraft) =>
   call<Profile>("/profiles", { method: "POST", body: JSON.stringify(draft) });
 export const updateProfile = (id: string, patch: Partial<Omit<ProfileDraft, "email">> & { is_active?: boolean }) =>
   call<Profile>(`/profiles/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
+export const deleteProfile = (id: string) =>
+  call<void>(`/profiles/${encodeURIComponent(id)}`, { method: "DELETE" });

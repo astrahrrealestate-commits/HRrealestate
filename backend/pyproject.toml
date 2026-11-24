@@ -67,7 +67,7 @@ required-version = "==0.12.5"  # same uv everywhere: local, pre-commit, CI, dock
 [tool.ruff]
 line-length = 120
 target-version = "py312"
-extend-exclude = ["app/db/alembic/versions"]
+extend-exclude = ["app/db/alembic/versions", "scripts"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "UP", "S", "DTZ", "T20", "PGH", "SIM", "RUF", "ASYNC", "C4", "PT", "N", "ERA"]
