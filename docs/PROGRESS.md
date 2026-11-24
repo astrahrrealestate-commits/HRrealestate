@@ -425,3 +425,9 @@ bidirectional translation controls onto the new unified Composer, and fixed what
 - [x] No invented meetings: a request with no stated day and time raises `TimeNotStatedError` and the owner is asked (no "next business morning" slot, no default contractor, no guessed property or case); the fake Google Calendar is gone from production (`get_calendar_client` raises `CalendarUnavailableError`, free/busy failure is an error, never "free"); approve returns 503 instead of marking an event confirmed; frontend sample events, optimistic approve and made-up "Today HH:mm" fallbacks removed
 - [x] Evidence: `make quick` -> `3447 passed`; frontend `tsc --noEmit` clean
 - [ ] Not exercised against a live Google account or in a browser; `page_text.stamp()` (model-facing prompt text) still prints UTC, a prompt-version change
+
+## Sender roles after intent (2026-11-24; spec [2026-11-24-sender-roles-design.md](superpowers/specs/2026-11-24-sender-roles-design.md) · [ADR 0014](adr/0014-sender-roles-after-intent.md) · branch `m-sender-roles`)
+- [x] Spec and ADR 0014: intent first, label second, no new `Category`, no migration
+- [x] Step 1: directory-based sender label (`app/api/inbox/sender_label.py`); inbox shows Tenant only for tenants and lease parties, everyone else is a Contact shown by property or organisation, never "Unassigned Unit"; frontend maps the `contact` role and adds an "Others" filter. Known gap: a contact whose text names a leased unit still gets the "Link to Tenant" banner until step 2 (legal, VvE, business hints)
+- [ ] Step 2: `understanding` v3 + optional `sender_role` + golden cases + eval gate
+- [ ] Step 3: `proposer` v5 per-role register

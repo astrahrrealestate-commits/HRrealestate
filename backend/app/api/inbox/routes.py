@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import WorkflowClient, get_engine, get_ingest_deps, get_storage, get_workflow_client
 from app.api.inbox import decide as inbox_decide
+from app.api.inbox.sender_label import UNASSIGNED_UNIT, SenderKind, resolve_sender_label, unit_display
 from app.api.inbox.summary import headline_only
 from app.api.inbox.time_labels import when_label
 from app.api.inbox.translate import annotate_translations
@@ -211,7 +212,7 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
         unit = session.get(Unit, case.unit_id) if case.unit_id else None
         unit_label = (unit.address or unit.label) if unit else None
 
-        if not unit_label or unit_label == "Unassigned Unit":
+        if not unit_label or unit_label == UNASSIGNED_UNIT:
             # Check all message texts and subjects in the thread for mentions of known units
             all_text = " ".join(
                 [
@@ -222,11 +223,24 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
             unit_label = unit_named_in(all_text, company_units)
 
         if not unit_label:
-            unit_label = "Unassigned Unit"
+            unit_label = UNASSIGNED_UNIT
+
+        is_lease_party = person is not None and (
+            session.scalar(
+                select(LeaseParty.id).where(LeaseParty.company_id == company_id, LeaseParty.person_id == person.id)
+            )
+            is not None
+        )
+        sender_label = resolve_sender_label(
+            person_kind=person.kind if person else None,
+            trade=person.trade if person else None,
+            is_lease_party=is_lease_party,
+            contractor_hint=is_contractor,
+        )
 
         is_unregistered_sender = False
         matched_tenant_info = None
-        if unit_label != "Unassigned Unit":
+        if unit_label != UNASSIGNED_UNIT:
             lease_rows = session.execute(
                 select(Person.id, Person.display_name, ChannelIdentity.identity)
                 .select_from(Lease)
@@ -250,7 +264,7 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
                 if (
                     sender_clean not in known_identities
                     and (not person or person.kind == PersonKind.other)
-                    and not is_contractor
+                    and sender_label.kind is not SenderKind.contractor
                 ):
                     is_unregistered_sender = True
                     matched_tenant_info = {
@@ -258,6 +272,9 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
                         "name": tenant_name,
                         "unit": unit_label,
                     }
+
+        if unit_label == UNASSIGNED_UNIT:  # only a tenant is ever shown without a unit; others show their organisation
+            unit_label = unit_display(sender_label.kind, None, sender_email)
 
         actions = (
             session.query(ActionRow).filter(ActionRow.case_id == case.id).order_by(ActionRow.created_at.desc()).all()
@@ -452,12 +469,8 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
                 m_sender_type = "owner"
                 m_sender_name = "Harjot Singh"
                 m_sender_contact = m.sender_identity or (get_settings().owner_email or "owner@estateos.com")
-            elif is_contractor:
-                m_sender_type = "contractor"
-                m_sender_name = sender_name
-                m_sender_contact = sender_email
             else:
-                m_sender_type = "tenant"
+                m_sender_type = sender_label.kind.value
                 m_sender_name = sender_name
                 m_sender_contact = sender_email
 
@@ -541,10 +554,9 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
             latest_msg.meta.get("subject") if isinstance(latest_msg.meta, dict) else None
         ) or f"{case.category.value.title()} - {unit_label}"
 
-        trade_name = ((person.trade if person else None) or "Plumber").title()
-        role_label = f"Contractor · {trade_name}" if is_contractor else "Tenant"
-        audience_label = "contractors" if is_contractor else "tenants"
-        recipient_role = "contractor" if is_contractor else "tenant"
+        role_label = sender_label.role_detail
+        audience_label = sender_label.audience
+        recipient_role = sender_label.kind.value
 
         annotate_translations(session, company_id, msgs_data, [*gmail_drafts, *whatsapp_drafts])
         ticket_code = f"BRIXX-{case.brixx_ref}" if case.brixx_ref else f"#{case_ref(case.id)}"
