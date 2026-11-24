@@ -199,11 +199,14 @@ def chat_contact(session: Session, company_id: UUID, chat_key: str) -> tuple[str
     return (row.display_name, row.kind) if row is not None else (None, None)
 
 
-def quoted_messages(session: Session, company_id: UUID, provider_ids: set[str]) -> dict[str, MessageRow]:
-    """WhatsApp messages of this company by `provider_msg_id`, for resolving the messages a reply quotes."""
+def quoted_messages(session: Session, company_id: UUID, chat_key: str, provider_ids: set[str]) -> dict[str, MessageRow]:
+    """Messages of this chat by `provider_msg_id`, for resolving the messages a reply quotes. The id is unique per
+    (company, channel), so each maps to one row."""
     if not provider_ids:
         return {}
-    stmt = select(MessageRow).where(*_chat_messages_of(company_id), MessageRow.provider_msg_id.in_(provider_ids))
+    stmt = select(MessageRow).where(
+        *_chat_messages_of(company_id), MessageRow.thread_ref == chat_key, MessageRow.provider_msg_id.in_(provider_ids)
+    )
     return {m.provider_msg_id: m for m in session.scalars(stmt)}
 
 

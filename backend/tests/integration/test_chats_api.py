@@ -32,6 +32,7 @@ from app.db.models import (
 from app.db.models.ingestion import AttachmentRow, MessageRow, RawEvent
 from app.main import create_app
 from app.storage.memory import MemoryStorage
+from app.storage.ports import MAX_PRESIGN_TTL_S
 from tests.integration.access_support import CSRF, add_person_to_team
 
 pytestmark = pytest.mark.integration
@@ -93,8 +94,8 @@ def _seed_a(s: Session, a: Company) -> tuple[list[MessageRow], UUID]:
     )
     t4 = _msg(s, a.id, TINA, 4, direction=Direction.outbound, meta={"send_error": "window closed"},
               delivery_status=DeliveryStatus.failed)  # fmt: skip
-    t5 = _msg(s, a.id, TINA, 5, direction=Direction.outbound)  # queued: no delivery status yet
-    _msg(s, a.id, BOB, 7, text="boiler")
+    t5 = _msg(s, a.id, TINA, 5, direction=Direction.outbound, meta={"reply_to": "wamid.bob1"})  # queued, no status
+    _msg(s, a.id, BOB, 7, pid="wamid.bob1", text="boiler")
     body = {"suspicious": {"flag": True, "reason": "r" * 300}}
     s.add(UnderstandingRow(company_id=a.id, message_id=t3.id, category=Category.other, urgency=Urgency.normal,
                            body=body, prompt_version="v1"))  # fmt: skip
@@ -221,15 +222,24 @@ def test_messages_paging_before_cursor(world: World) -> None:
     cursor = f"{newest[0]['sent_at']}|{newest[0]['id']}"
     older = world.client.get(f"/api/chats/{TINA}/messages", params={"limit": 2, "before": cursor}).json()["messages"]
     assert [m["id"] for m in older] == [str(i) for i in world.tina_ids[1:3]]
-    before_all = {"before": f"{T0.isoformat()}|{world.cid}"}  # a page with no messages is the same 404 as no chat
-    assert world.client.get(f"/api/chats/{TINA}/messages", params=before_all).json() == NOT_FOUND
+
+
+def test_empty_before_page_is_200_with_the_chat_header(world: World) -> None:
+    before_all = {"before": f"{T0.isoformat()}|{world.cid}"}  # older than every message: end of history, not a 404
+    response = world.client.get(f"/api/chats/{TINA}/messages", params=before_all)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["messages"] == []
+    assert (body["name"], body["person_kind"], body["case_id"]) == ("Tina Tenant", "tenant", str(world.case_id))
+    for key in (UNKNOWN, ONLY_B, "tina@example.test"):  # a chat with no messages at all stays the one 404
+        assert world.client.get(f"/api/chats/{key}/messages", params=before_all).json() == NOT_FOUND
 
 
 def test_messages_include_attachment_presigned_url_with_ttl(world: World) -> None:
     attachments = _messages(world)[2]["attachments"]
     assert [a["filename"] for a in attachments] == ["p.jpg"]
     url = attachments[0]["url"]
-    assert int(parse_qs(urlparse(url).query)["expires_in"][0]) <= 300
+    assert int(parse_qs(urlparse(url).query)["expires_in"][0]) == MAX_PRESIGN_TTL_S
     assert "media/a/ab/abc" in url
 
 
@@ -255,8 +265,13 @@ def test_quote_resolves_text_from_same_company_only(world: World) -> None:
     assert messages[0]["reply_to"] is None
 
 
+def test_quote_of_a_message_in_another_chat_is_not_resolved(world: World) -> None:
+    assert _messages(world)[4]["reply_to"] is None  # "wamid.bob1" is Bob's message: a quote stays inside its chat
+
+
 def test_read_clears_unread_in_list(world: World) -> None:
-    assert world.client.get("/api/chats", params={"filter": "unread"}).json()[1]["chat_key"] == TINA
+    listed = {c["chat_key"]: c for c in world.client.get("/api/chats", params={"filter": "unread"}).json()}
+    assert listed[TINA]["unread"] == 2
     response = world.client.post(f"/api/chats/{TINA}/read", headers=CSRF)
     assert response.status_code == 204
     assert response.content == b""

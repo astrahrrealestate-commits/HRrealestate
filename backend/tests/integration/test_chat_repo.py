@@ -220,15 +220,16 @@ def test_latest_case_id_is_the_newest_linked_case(db: Session, company: Company)
     assert chat_repo.latest_case_id(db, company.id, TINA) == cases[1].id
 
 
-def test_quoted_messages_resolve_by_provider_id_in_my_company_only(db: Session, company: Company) -> None:
+def test_quoted_messages_resolve_by_provider_id_inside_my_chat_only(db: Session, company: Company) -> None:
     other = Company(name="Other")
     db.add(other)
     db.flush()
     mine = _msg(db, company.id, TINA, 1)
-    theirs = _msg(db, other.id, TINA, 2)
-    found = chat_repo.quoted_messages(db, company.id, {mine.provider_msg_id, theirs.provider_msg_id, "missing"})
-    assert found == {mine.provider_msg_id: mine}
-    assert chat_repo.quoted_messages(db, company.id, set()) == {}
+    elsewhere = _msg(db, company.id, BOB, 2)
+    theirs = _msg(db, other.id, TINA, 3)
+    ids = {mine.provider_msg_id, elsewhere.provider_msg_id, theirs.provider_msg_id, "missing"}
+    assert chat_repo.quoted_messages(db, company.id, TINA, ids) == {mine.provider_msg_id: mine}
+    assert chat_repo.quoted_messages(db, company.id, TINA, set()) == {}
 
 
 def test_chat_messages_pages_oldest_first(db: Session, company: Company) -> None:

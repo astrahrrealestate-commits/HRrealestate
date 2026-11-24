@@ -83,6 +83,11 @@ def _to_message(
     )
 
 
+def _quote_of(m: MessageRow, quoted: dict[str, MessageRow]) -> MessageRow | None:
+    ref = m.meta.get("reply_to")
+    return quoted.get(str(ref)) if ref else None
+
+
 def _read_thread(
     engine: Engine, storage: ObjectStorage, company_id: UUID, key: str, before: str | None, limit: int
 ) -> ChatThread:
@@ -90,22 +95,21 @@ def _read_thread(
     cursor = parse_cursor(before) if before else None
     with Session(engine) as session:
         messages = chat_repo.chat_messages(session, company_id, chat_key, before=cursor, limit=limit)
-        if not messages:
-            raise ChatNotFoundError
+        if not messages and (
+            cursor is None or not chat_repo.chat_messages(session, company_id, chat_key, before=None, limit=1)
+        ):
+            raise ChatNotFoundError  # an empty `before` page of a chat that has messages is just the end of history
         ids = [m.id for m in messages]
         found = attachments_for(session, company_id, ids)
         flags = suspicious_flags(session, company_id, ids)
         refs = {str(m.meta["reply_to"]) for m in messages if m.meta.get("reply_to")}
-        quoted = chat_repo.quoted_messages(session, company_id, refs)
+        quoted = chat_repo.quoted_messages(session, company_id, chat_key, refs)
         name, kind = chat_repo.chat_contact(session, company_id, chat_key)
         case_id = chat_repo.latest_case_id(session, company_id, chat_key)
         by_message: dict[UUID, list[AttachmentOut]] = defaultdict(list)
         for a in found:
             by_message[a.message_id].append(_attachment(a, storage))
-        out = [
-            _to_message(m, by_message[m.id], flags.get(m.id, (False, None)), quoted.get(str(m.meta.get("reply_to"))))
-            for m in messages
-        ]
+        out = [_to_message(m, by_message[m.id], flags.get(m.id, (False, None)), _quote_of(m, quoted)) for m in messages]
     log.info("chats.thread_read", messages=len(out))
     return ChatThread(chat_key=chat_key, name=name, person_kind=kind, case_id=case_id, messages=out)
 
