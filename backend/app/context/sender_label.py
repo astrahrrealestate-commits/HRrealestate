@@ -5,9 +5,14 @@ The label comes after the intent: it is only a display hint and never picks a re
 
 from dataclasses import dataclass
 from enum import StrEnum
+from uuid import UUID
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.contracts import SenderRole
 from app.db.enums import PersonKind
+from app.db.models import LeaseParty, Person
 
 UNASSIGNED_UNIT = "Unassigned Unit"
 UNLISTED_CONTACT = "Unlisted contact"
@@ -83,6 +88,26 @@ def resolve_sender_label(
     if contractor_hint or role_hint is SenderRole.contractor:
         return _contractor(trade)
     return _FROM_MODEL.get(role_hint, _CONTACT) if role_hint else _CONTACT
+
+
+def sender_label_for(
+    session: Session, company_id: UUID, person: Person | None, *, role_hint: SenderRole | None, contractor_hint: bool
+) -> SenderLabel:
+    """The label of a thread's sender: the directory's facts about `person` (their kind, any lease they sign) first."""
+    is_lease_party = (
+        person is not None
+        and session.scalar(
+            select(LeaseParty.id).where(LeaseParty.company_id == company_id, LeaseParty.person_id == person.id)
+        )
+        is not None
+    )
+    return resolve_sender_label(
+        person_kind=person.kind if person else None,
+        trade=person.trade if person else None,
+        is_lease_party=is_lease_party,
+        contractor_hint=contractor_hint,
+        role_hint=role_hint,
+    )
 
 
 def _contractor(trade: str | None) -> SenderLabel:

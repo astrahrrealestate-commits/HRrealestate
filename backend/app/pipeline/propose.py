@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.context.person_profile import person_profile_line
 from app.context.persona import get_persona_row, stamp_persona
+from app.context.sender_label import SenderKind, sender_label_for
 from app.contracts import (
     Action,
     ActionType,
@@ -161,6 +162,8 @@ def _load(
         profile_line = f"{profile_line} | {brixx_note}" if profile_line else brixx_note
         contractors = []
     persona = _persona(session, msg.company_id)
+    person = session.get(Person, case.primary_person_id) if case.primary_person_id else None
+    sender = sender_label_for(session, msg.company_id, person, role_hint=und.sender_role, contractor_hint=False)
     ctx = ProposerContext(
         case_id=case.id,
         channel=msg.channel,
@@ -175,6 +178,7 @@ def _load(
         excerpts=_case_documents(session, msg, case, embedder) if documents else (),
         person_profile=profile_line,
         persona=persona,
+        sender_kind=sender.kind.value,
     )
     return Loaded(ctx, msg.company_id, bool(company and company.paused))
 
@@ -230,6 +234,18 @@ def _with_sources(action: Action, excerpts: Sequence[Passage]) -> str:
     return f"{action.rationale} (documents in view: {titles})"
 
 
+LEGAL_REVIEW_NOTE = "Legal sender: read the original before approving this reply."
+
+
+def _rationale(action: Action, loaded: "Loaded") -> str:
+    """What the card says about a draft: the documents it relied on, and a nudge to read a lawyer's letter first.
+    Decided by code from the resolved sender, never by the model."""
+    text = _with_sources(action, loaded.ctx.excerpts)
+    if action.type is ActionType.reply_draft and loaded.ctx.sender_kind == SenderKind.legal.value:
+        return f"{text} {LEGAL_REVIEW_NOTE}"
+    return text
+
+
 def _persist(
     session: Session, loaded: Loaded, message_id: UUID, actions: list[Action], key: str | None
 ) -> ProposeResult:
@@ -244,7 +260,7 @@ def _persist(
             case_id=loaded.ctx.case_id,
             type=a.type,
             payload=a.payload.model_dump(mode="json"),
-            rationale=_with_sources(a, loaded.ctx.excerpts),
+            rationale=_rationale(a, loaded),
             context_ref=[message_id],
             draft_version=1,
             status=_STATUS[decision.verdict],

@@ -19,7 +19,6 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import WorkflowClient, get_engine, get_ingest_deps, get_storage, get_workflow_client
 from app.api.inbox import decide as inbox_decide
-from app.api.inbox.sender_label import UNASSIGNED_UNIT, resolve_sender_label, role_hint_of, unit_display
 from app.api.inbox.summary import headline_only
 from app.api.inbox.time_labels import when_label
 from app.api.inbox.translate import annotate_translations
@@ -29,6 +28,7 @@ from app.api.v1 import enqueue
 from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import decide_limit, sync_limit
+from app.context.sender_label import UNASSIGNED_UNIT, role_hint_of, sender_label_for, unit_display
 from app.contracts import ActionType, ButtonChoice, Category, Channel, Direction
 from app.core.errors import NotFoundError
 from app.core.ids import case_ref
@@ -225,19 +225,13 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
         if not unit_label:
             unit_label = UNASSIGNED_UNIT
 
-        is_lease_party = person is not None and (
-            session.scalar(
-                select(LeaseParty.id).where(LeaseParty.company_id == company_id, LeaseParty.person_id == person.id)
-            )
-            is not None
-        )
         sender_und = session.query(UnderstandingRow).filter(UnderstandingRow.message_id == tenant_msg.id).first()
-        sender_label = resolve_sender_label(
-            person_kind=person.kind if person else None,
-            trade=person.trade if person else None,
-            is_lease_party=is_lease_party,
-            contractor_hint=is_contractor,
+        sender_label = sender_label_for(
+            session,
+            company_id,
+            person,
             role_hint=role_hint_of(sender_und.body if sender_und and isinstance(sender_und.body, dict) else {}),
+            contractor_hint=is_contractor,
         )
 
         is_unregistered_sender = False

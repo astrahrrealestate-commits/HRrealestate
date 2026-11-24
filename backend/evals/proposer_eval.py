@@ -50,6 +50,7 @@ class DraftInput(BaseModel):
     current_draft: list[str] = Field(default_factory=list)
     channel: Channel = Channel.whatsapp
     case_summary: str = ""
+    sender_kind: str | None = None  # a SenderKind value; only a role-aware prompt (v5+) sees it
 
 
 class DraftLabel(BaseModel):
@@ -79,7 +80,7 @@ def context(inputs: DraftInput, guidance: str | None, persona: Persona | None = 
     return ProposerContext(
         case_id=UUID(int=1), channel=inputs.channel, subject=None, message_text=inputs.message, understanding=_UND,
         case_state="open", case_summary=inputs.case_summary, waiting=(), contractors=(), mode="reply",
-        guidance=guidance, current_draft=tuple(inputs.current_draft), persona=persona,
+        guidance=guidance, current_draft=tuple(inputs.current_draft), persona=persona, sender_kind=inputs.sender_kind,
     )  # fmt: skip
 
 
@@ -136,7 +137,7 @@ def run(version: str, settings: Settings) -> EvalResult:
     async def task(inputs: DraftInput) -> DraftOutput:
         guidance = guidance_for(inputs.guidance)  # the owner's own message
         ctx = context(inputs, guidance.text, persona)
-        output = PROPOSER_GUIDED.finalize((await agent.run(proposer_prompt(ctx))).output, loaded)
+        output = PROPOSER_GUIDED.finalize((await agent.run(proposer_prompt(ctx, version))).output, loaded)
         replies = [a.payload for a in output.actions if isinstance(a.payload, ReplyDraftPayload)]
         variants = list(replies[0].body_variants) if replies else []
         return DraftOutput(variants=variants, guidance=guidance.text, redacted=guidance.redacted, source=inputs.message)

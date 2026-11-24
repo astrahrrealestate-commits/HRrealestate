@@ -73,7 +73,7 @@ a wrong label is fixed by fixing the rule.
   model and is at least as good as v2 on every existing metric. The dev stack has `LLM_MODEL=fake` and no provider
   keys, so that gate has not run; the switch is one line (`version="v3"`, plus the pin tests that name v2).
 
-**Display rules** (`app/api/inbox/sender_label.py`, pure, unit tested)
+**Display rules** (`app/context/sender_label.py`, pure, unit tested)
 - Tenant: unit from the case, else the unit named in the thread, else `Unassigned Unit` (a tenant with no unit
   really is a gap). Unregistered-sender banner as today.
 - Anyone else: the property named in the thread if exactly one matches, else the sender's organisation (email
@@ -88,6 +88,17 @@ a wrong label is fixed by fixing the rule.
    (no drop in category or `requires_reply` accuracy against v2). Resolver step 2 and banner suppression.
 3. **`proposer` v5.** Receives the resolved role as prompt data; formal register for legal, VvE and business. Still
    approval-gated. Legal drafts carry a "needs owner review" flag.
+   - The resolver moved to `app/context/sender_label.py` (the pipeline may not import `app.api`). One lookup,
+     `sender_label_for`, serves the inbox and the proposer: directory first, then the stored model role.
+   - `ProposerContext.sender_kind` is rendered as `<sender>\nrole: ...\n</sender>` only for prompts in
+     `ROLE_AWARE_PROMPTS` (`v5`), so v1 to v4 prompts stay byte-identical. `proposer/v5` is v4 plus a "Who you are
+     writing to" section (tenant, contractor, legal, vve, business, prospect, contact) and a standing rule never to
+     disclose a tenant's details to anyone else.
+   - The review flag is code, not model: a reply draft to a `legal` sender gets "Legal sender: read the original before
+     approving this reply." appended to its rationale on the approval card. The draft stays pending, still his to approve.
+   - Like step 2, `PROPOSER_PERSONA` stays on v4 until `make eval agent=proposer version=v5` has run on a real model
+     (five new `real_only` golden cases: legal, VvE, business, prospect, and a stranger asking about a tenant). The
+     switch is one line plus the pin tests.
 
 ## 5. Safety
 

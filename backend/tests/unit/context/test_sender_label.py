@@ -1,6 +1,6 @@
 """Who a thread's sender is, for the inbox labels: decided from the directory, never from message text."""
 
-from app.api.inbox.sender_label import SenderKind, organisation_of, resolve_sender_label, role_hint_of, unit_display
+from app.context.sender_label import SenderKind, organisation_of, resolve_sender_label, role_hint_of, unit_display
 from app.contracts import SenderRole
 from app.db.enums import PersonKind
 

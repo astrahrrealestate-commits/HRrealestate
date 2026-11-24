@@ -10,6 +10,9 @@ of the case's own documents in view (ADR 0008): that adds an `<excerpts>` block 
 A call that carries the owner's persona (his writing-style markdown, added as a `<persona>` block) uses `proposer/v4`,
 which handles every mode above. Production always loads the persona, so v1 to v3 stay published (immutable) and are
 used only by calls built without one (tests, evals of older versions).
+`proposer/v5` is v4 plus the sender's role (`<sender>`, ADR 0014): how to write to a tenant, a contractor, a lawyer, the
+VvE, a business or a prospect. Only prompts in `ROLE_AWARE_PROMPTS` are shown the block, so every earlier prompt stays
+byte-identical; `PROPOSER_PERSONA` moves to v5 once the proposer eval has run against a real model.
 """
 
 from collections.abc import Sequence
@@ -23,6 +26,7 @@ from app.llm.calls import AgentSpec
 from app.llm.prompts import LoadedPrompt
 from app.llm.render import data_block, escape
 
+ROLE_AWARE_PROMPTS = frozenset({"v5"})
 MAX_PERSONA_CHARS = 8000  # the persona markdown's limit (a data block holds at most this many characters)
 
 
@@ -59,6 +63,7 @@ class ProposerContext:
     current_draft: Sequence[str] = ()  # the variants of the draft being replaced (owner-requested drafts only)
     person_profile: str | None = None
     persona: Persona | None = None  # the owner's writing persona (v4 prompt)
+    sender_kind: str | None = None  # who wrote, from the directory then the model's role (a SenderKind value; v5)
 
     @property
     def guided(self) -> bool:
@@ -125,7 +130,15 @@ def _excerpts(items: Sequence[Passage]) -> str:
     return data_block("excerpts", "\n\n---\n\n".join(entries), len(entries) * (MAX_EXCERPT + 200))
 
 
-def proposer_prompt(ctx: ProposerContext) -> str:
+def _sender_block(ctx: ProposerContext, version: str) -> list[str]:
+    """Only a role-aware prompt sees the role, and only a resolved one; the value is one of our own enum words."""
+    if version not in ROLE_AWARE_PROMPTS or not ctx.sender_kind:
+        return []
+    return [f"<sender>\nrole: {escape(ctx.sender_kind, 'sender')}\n</sender>"]
+
+
+def proposer_prompt(ctx: ProposerContext, version: str | None = None) -> str:
+    """`version` defaults to the prompt `proposer_spec(ctx)` would load; evals pass the version they are scoring."""
     u = ctx.understanding
     case = (
         f"<case>\ncase_id: {ctx.case_id}\nchannel: {ctx.channel.value}\nstate: {ctx.case_state}\n"
@@ -139,6 +152,7 @@ def proposer_prompt(ctx: ProposerContext) -> str:
         [
             f"<mode>{ctx.mode}</mode>",
             case,
+            *_sender_block(ctx, version or proposer_spec(ctx).prompt.version),
             *persona_block,
             *profile_block,
             data_block("data", data),

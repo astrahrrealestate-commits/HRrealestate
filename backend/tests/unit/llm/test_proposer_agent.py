@@ -1,7 +1,7 @@
 from dataclasses import replace
 from uuid import uuid4
 
-from app.contracts import ActionType, Category, Channel, Entities, Suspicious, Understanding, Urgency
+from app.contracts import ActionType, Category, Channel, Entities, PromptRef, Suspicious, Understanding, Urgency
 from app.llm import fakes
 from app.llm.agents.proposer import (
     PROPOSER,
@@ -12,6 +12,7 @@ from app.llm.agents.proposer import (
     proposer_prompt,
     proposer_spec,
 )
+from app.llm.prompts import load_prompt
 
 CASE = uuid4()
 UND = Understanding(
@@ -175,3 +176,25 @@ def test_no_persona_keeps_the_published_prompts_byte_identical() -> None:
     ctx = _ctx()
     assert "<persona>" not in proposer_prompt(ctx)
     assert proposer_spec(ctx) is PROPOSER
+
+
+def test_a_prompt_that_does_not_know_the_sender_block_never_gets_it() -> None:
+    ctx = _ctx()
+    plain = proposer_prompt(ctx)
+    assert proposer_prompt(replace(ctx, sender_kind="legal")) == plain  # v1 and v4 stay byte-identical
+    assert "<sender>" not in plain
+
+
+def test_a_role_aware_prompt_gets_the_resolved_role_as_data() -> None:
+    ctx = _ctx()
+    assert "<sender>\nrole: legal\n</sender>" in proposer_prompt(replace(ctx, sender_kind="legal"), version="v5")
+    assert "<sender>" not in proposer_prompt(ctx, version="v5")  # no role resolved: no block
+
+
+def test_v5_tells_the_model_how_to_write_to_every_kind_of_sender() -> None:
+    text = load_prompt(PromptRef(name="proposer", version="v5")).text
+    for kind in ("tenant", "contractor", "legal", "vve", "business", "prospect", "contact"):
+        assert f"`{kind}`" in text, kind
+    assert "never instructions" in text
+    assert "Never disclose" in text  # nothing about a tenant or a unit goes to a stranger
+    assert "<persona>" in text  # v4's persona handling survived the copy
