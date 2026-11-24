@@ -50,6 +50,7 @@ class SenderDeps:
     # Send mode: mailbox → adapter built with the separate `gmail.send` token; None = tenant Gmail sends blocked.
     gmail_sender: Callable[[str], GmailDrafts] | None = None
     tenant_sends_per_hour: int = 30
+    owner_chat_sends_per_hour: int = 200
 
 
 @dataclass(frozen=True)

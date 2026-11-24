@@ -18,6 +18,7 @@ from app.contracts import ActionType, Channel, Direction, InteractiveChannel, Ow
 from app.db.models import ActionRow, ChannelAccount, ChannelIdentity, MessageRow, OwnerAccount, Person
 from app.sender.errors import SendBlockedError as SendBlockedError
 from app.sender.gmail_reply import gmail_draft as _gmail_draft
+from app.sender.owner_chat import assert_chat
 from app.sender.plan import Plan as Plan
 from app.sender.recipient import latest_inbound
 from app.sender.tenant_plans import assert_tenant, tenant_plan
@@ -130,6 +131,9 @@ def plan_for(session: Session, action: ActionRow, variant: int, key: str, *, sen
 def assert_allowed(session: Session, company_id: UUID, plan: Plan) -> None:
     """Re-checked right before every claim. A tenant plan passes only through `assert_tenant` (send mode re-read and
     recipient re-derived now); everything else must be a Gmail draft or go to the owner."""
+    if plan.chat_message_id is not None:
+        assert_chat(session, company_id, plan)
+        return
     if plan.tenant_send:
         assert_tenant(session, company_id, plan)
         return

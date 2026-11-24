@@ -16,6 +16,13 @@ the architectural invariants in [CLAUDE.md](../../CLAUDE.md). A **blocker** fail
 - Nothing reaches a tenant, contractor or third party without Harjot's approve click (invariant 5). Only `app/sender/`
   imports send settings or outbound adapters; the sender re-checks approval status, `draft_version`, company pause,
   `outbound_mode`, the recipient (from the DB) and `sends.idempotency_key`.
+- A second send class exists since ADR 0013: an **owner-typed WhatsApp message** from the Chats page (his own click on
+  text he typed). It needs no approval row, so its safety is the recipient and the gates, all in
+  `app/sender/owner_chat.py`: recipient from the stored row's `thread_ref` (never a request or payload value), the
+  number must have written to this company, must not be an owner or company number, `outbound_mode=send`, company not
+  paused, 23 h window, own hourly cap (`owner_chat_sends_per_hour`), claimed `sends` key `chat:{company_id}:{client_msg_id}`,
+  and a failed or ambiguous provider call is never retried automatically. The API must verify the chat key belongs to
+  the session's company before it stores the row; the sender re-checks it anyway.
 - The Super Agent and every other model can **propose**, never approve or send. Recipients are never read from model
   output or from message text.
 - Risk is never downgraded to unblock a flow. If a guard blocks you, fix the cause or ask; do not route around it.

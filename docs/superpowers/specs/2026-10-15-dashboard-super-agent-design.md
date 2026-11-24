@@ -110,6 +110,12 @@ Writes return the new state. Every write goes through the same services and guar
 - Import-linter and the edit hook keep `SenderSettings` and `channels.*.outbound` private to `app/sender/`; the new
   `app/api/v1` and `app/services` may not import them. Test: no outbound call exists outside an approved `sends` row.
 
+> **Amendment 2026-11-24 (ADR 0013):** owner-typed WhatsApp text from the Chats page is a second allowed send class.
+> It needs no approval row (Harjot typed it and clicked send), but the recipient is still derived from the DB
+> (the stored thread of an outbound row, a number that wrote to the company before, never an own number), and
+> `outbound_mode=send`, company pause, the 23 h window, `sends.idempotency_key` and an own hourly cap apply.
+> Everything above stays true for AI-drafted actions; the Super Agent still cannot send.
+
 ### 6. Ingestion visibility
 The inbox is a query over `messages` + `threads` + `message_attachments`. Nothing new is stored. Outbound messages we
 send appear in the same thread (direction `outbound`) with delivery status (`sent/delivered/read/failed`).

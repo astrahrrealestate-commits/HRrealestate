@@ -368,8 +368,8 @@ def get_contact_communications(
 
 
 NO_DIRECT_SEND = (
-    "Direct sends are not available. Draft the message and approve it in the inbox: EstateOS sends only drafts "
-    "that the owner approved there."
+    "Direct sends are not available from the contacts page. Type WhatsApp messages on the Chats page; to send a "
+    "drafted reply, approve it in the inbox."
 )
 
 

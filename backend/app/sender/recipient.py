@@ -44,7 +44,7 @@ def canonical(identity: str) -> str | None:
         return None
 
 
-def _own_addresses(session: Session, company_id: UUID) -> set[str]:
+def own_addresses(session: Session, company_id: UUID) -> set[str]:
     """Every address that belongs to the company itself: owner numbers/emails and its channel accounts."""
     raw = [
         *session.scalars(select(OwnerAccount.whatsapp_e164).where(OwnerAccount.company_id == company_id)),
@@ -100,7 +100,7 @@ def tenant_recipient(session: Session, company_id: UUID, case_id: UUID, channel:
     if case.primary_person_id is None:
         raise SendBlockedError("case has no contact person")
     allowed = _current_identities(session, company_id, case.primary_person_id, channel)
-    allowed -= _own_addresses(session, company_id)
+    allowed -= own_addresses(session, company_id)
     for msg in _candidates(session, company_id, case_id, channel):
         identity = canonical(msg.sender_identity)
         if identity is not None and identity in allowed:

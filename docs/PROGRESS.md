@@ -425,3 +425,11 @@ bidirectional translation controls onto the new unified Composer, and fixed what
 - [x] No invented meetings: a request with no stated day and time raises `TimeNotStatedError` and the owner is asked (no "next business morning" slot, no default contractor, no guessed property or case); the fake Google Calendar is gone from production (`get_calendar_client` raises `CalendarUnavailableError`, free/busy failure is an error, never "free"); approve returns 503 instead of marking an event confirmed; frontend sample events, optimistic approve and made-up "Today HH:mm" fallbacks removed
 - [x] Evidence: `make quick` -> `3447 passed`; frontend `tsc --noEmit` clean
 - [ ] Not exercised against a live Google account or in a browser; `page_text.stamp()` (model-facing prompt text) still prints UTC, a prompt-version change
+
+## WhatsApp Chats (2026-11-24, branch m-chats)
+- [x] Slice 2, owner-typed sends, sender side: ADR 0013, `app/sender/owner_chat.py` (`send_chat_message`, `assert_chat`,
+  pure `chat_refusal`), `owner_chat_sends_per_hour` (200), `chat:{company_id}:{client_msg_id}` key, CLAUDE.md invariant 5,
+  dashboard spec section 5 and security.md updated; the contacts `whatsapp/send` route keeps its 501 and now points to
+  Chats. Tests: `tests/unit/test_owner_chat_gates.py`, `tests/integration/test_owner_chat_send.py`
+- [ ] Workflow, API route and composer (Tasks 6 to 8) not built yet; nothing can call `send_chat_message` from the UI
+- [ ] Needs a plain Meta Cloud API number (no coexistence, no templates): see ADR 0013

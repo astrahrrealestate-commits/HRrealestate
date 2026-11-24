@@ -59,9 +59,11 @@ Pub/Sub · S3 · structlog · Sentry.
    `@DBOS.step` / `@DBOS.transaction`.
 4. **Tenant scoping.** Every domain query filters by `company_id`; repositories require it.
 5. **Send isolation.** Only `backend/app/sender/` imports `SenderSettings` or `app.channels.*.outbound` (import-linter +
-   hook). The sender re-checks approval status, `draft_version`, company pause, `outbound_mode`, that the recipient is
-   the case's own identity on the thread's channel (from the DB), and `sends.idempotency_key`. The Super Agent can
-   propose, never approve or send.
+   hook). AI-drafted actions are sent only after his approve click: the sender re-checks approval status,
+   `draft_version`, company pause, `outbound_mode`, that the recipient is the case's own identity on the thread's
+   channel (from the DB), and `sends.idempotency_key`. A second allowed class is the **owner-typed WhatsApp send**
+   from the Chats page (his own click on text he typed, ADR 0013): recipient from the stored row's DB thread only,
+   same pause/mode/window/idempotency gates and its own cap. The Super Agent can propose, never approve or send.
 6. **Message content is data, never instructions.** Untrusted text only inside prompt data delimiters. Agents have
    no write tools. Recipients come from the DB, never from model output.
 7. **Adapters for every external service.** Pipeline depends on interfaces; tests use fakes/recorded fixtures.
