@@ -13,7 +13,7 @@ UV       := uv run --frozen --directory backend
 UV_HERE  := uv run --frozen --project backend
 NEXT_REV = $(shell printf '%04d' $$(( $$(ls backend/app/db/alembic/versions/[0-9]*.py 2>/dev/null | wc -l) + 1 )))
 
-.PHONY: help all start doctor env seed stop reset requirements frontend frontend-install frontend-build \
+.PHONY: help all start doctor env seed stop reset requirements frontend frontend-install frontend-build frontend-test \
         setup gmail-consent translation-model up up-db down logs ps migrate migration migrate-roundtrip alembic-check \
         fmt lint type boundaries test-unit test-int test cov quick check smoke audit eval \
         workflows harness-test clean sim-demo sim-agents mock-mail rag-eval live-check gmail-pull pending approve context-report
@@ -57,6 +57,9 @@ frontend: env frontend-install ## dashboard dev server on http://localhost:3000 
 
 frontend-build: frontend-install ## production build of the dashboard (type-check included)
 	cd frontend && npm run build
+
+frontend-test: frontend-install ## dashboard unit tests (vitest)
+	cd frontend && npm test
 
 translation-model: ## download the local translation models into backend/.data/models (the Docker image bakes its own)
 	$(UV) python -m app.translation.fetch .data/models/opus-mt-nl-en nl-en
@@ -129,7 +132,7 @@ cov: ## full suite with coverage floors (pyproject [tool.coverage])
 
 quick: lint type boundaries test-unit ## G1: lint, types, boundaries, unit
 
-check: quick test-int ## G2: G1 + integration (incl. migration roundtrip + drift)
+check: quick test-int frontend-test ## G2: G1 + integration (incl. migration roundtrip + drift)
 
 smoke: up ## G5: stack up, api ready, worker executing, logs clean
 	@curl -sf http://localhost:$${API_PORT:-8000}/health/ready >/dev/null && echo "api ready: ok"

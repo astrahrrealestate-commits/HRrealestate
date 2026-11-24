@@ -19,6 +19,7 @@ export const ADMIN_PATH = "/admin";
 
 const SECTION_ROUTES: ReadonlyArray<readonly [string, SectionKey]> = [
   ["/inbox", "inbox"],
+  ["/chats", "inbox"],
   ["/properties", "properties"],
   ["/tenants", "tenants"],
   ["/contacts", "contacts"],
