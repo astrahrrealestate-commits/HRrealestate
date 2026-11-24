@@ -18,6 +18,7 @@ from email.parser import BytesHeaderParser, BytesParser
 from inscriptis import get_text
 from mailparser_reply import EmailReplyParser
 
+from app.channels.gmail.forward import FORWARD_MARKERS, origin_from_text
 from app.channels.gmail.parsed import ParsedAttachment, ParsedEmail
 from app.channels.text_clean import clean_filename, clean_header, clean_mime, clean_text
 from app.core.logging import get_logger
@@ -36,11 +37,6 @@ MAX_REFERENCES_CHARS = 16_000
 
 _REPLY_PARSER = EmailReplyParser(languages=["nl", "de", "en"])
 _CID_REF = re.compile(r"cid:([^\"'\s>)]+)", re.IGNORECASE)
-_FORWARD_MARKERS = re.compile(
-    r"^-{3,}\s*(Forwarded message|Weitergeleitete Nachricht|Original-Nachricht)\s*-{3,}\s*$"
-    r"|^(Begin forwarded message|Anfang der weitergeleiteten Nachricht):\s*$",
-    re.IGNORECASE | re.MULTILINE,
-)
 _REPLY_SUBJECT = re.compile(r"^\s*(re|aw|antw|sv|vs)\s*:", re.IGNORECASE)
 
 
@@ -135,6 +131,18 @@ def _forwarded_block(container: EmailMessage) -> tuple[str, bytes]:
     return f"---------- Forwarded message ----------\n{header}\n\n{text}".strip(), inner.as_bytes()
 
 
+def _attached_origin(leaves: list[_Part]) -> tuple[str, str | None] | None:
+    """Original sender of an attached `message/rfc822` (its From header)."""
+    for leaf in leaves:
+        if clean_mime(leaf.part.get_content_type()) != "message/rfc822" or not leaf.part.is_multipart():
+            continue
+        inner = leaf.part.get_payload(0)
+        origin = _addresses(inner, "From") if isinstance(inner, EmailMessage) else []
+        if origin:
+            return origin[0][0], origin[0][1] or None
+    return None
+
+
 def _referenced_cids(leaves: list[_Part]) -> set[str]:
     cids: set[str] = set()
     for leaf in leaves:
@@ -204,7 +212,7 @@ def _collect(
 
 def _strip_quotes(text: str, *, is_reply: bool) -> tuple[str, bool]:
     too_big = len(text) > QUOTE_STRIP_MAX_CHARS or any(len(line) > QUOTE_STRIP_MAX_LINE for line in text.split("\n"))
-    if not text or not is_reply or too_big or _FORWARD_MARKERS.search(text):
+    if not text or not is_reply or too_big or FORWARD_MARKERS.search(text):
         return text, False
     try:
         reply = _REPLY_PARSER.parse_reply(text=re.sub(r"[ \t]{2,}", " ", text)).rstrip()
@@ -241,9 +249,12 @@ def _parse(raw: bytes) -> ParsedEmail:
     is_reply = bool(in_reply_to or references or _REPLY_SUBJECT.match(subject))
     text, stripped = _strip_quotes(full_text, is_reply=is_reply)
     sender = _addresses(msg, "From")
+    origin = _attached_origin(leaves) or origin_from_text(full_text)
     return ParsedEmail(
         from_addr=sender[0][0] if sender else None,
         from_name=(sender[0][1] or None) if sender else None,
+        forwarded_from=origin[0] if origin else None,
+        forwarded_from_name=origin[1] if origin else None,
         to=[a for a, _ in _addresses(msg, "To")],
         cc=[a for a, _ in _addresses(msg, "Cc")],
         subject=subject,

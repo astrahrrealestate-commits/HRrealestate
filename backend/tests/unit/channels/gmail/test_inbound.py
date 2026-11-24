@@ -349,3 +349,52 @@ def test_empty_plain_falls_back_to_html() -> None:
 def test_meta_records_the_receiving_mailbox_lowercased(recorded: Load) -> None:
     _, meta, _ = to_message(gm(recorded, "plain"), company_id=uuid4(), raw_event_id=uuid4(), mailbox=MAILBOX.upper())
     assert meta["mailbox"] == MAILBOX
+
+
+# ---- forwards from the owner's own address ------------------------------------------------------------------------
+
+OWNER = "harjot.owner@example.test"
+INLINE_FWD = (
+    f"From: Harjot <{OWNER}>\r\nTo: {MAILBOX}\r\nSubject: Fwd: Heizung kaputt\r\n\r\n"
+    "Zie hieronder.\r\n\r\n---------- Forwarded message ---------\r\n"
+    "From: Tenant 001 <tenant-001@example.test>\r\nDate: Mon, 6 Oct 2025 at 08:00\r\n"
+    "Subject: Heizung kaputt\r\nTo: <harjot.owner@example.test>\r\n\r\nDie Heizung ist kalt.\r\n"
+).encode()
+DUTCH_FWD = INLINE_FWD.replace(b"Forwarded message", b"Doorgestuurd bericht").replace(b"From: Tenant", b"Van: Tenant")
+
+
+def forwarded(raw: bytes, forwarders: frozenset[str] = frozenset({OWNER})):  # type: ignore[no-untyped-def]
+    api = {"id": "f1", "threadId": "t1", "internalDate": str(int(WHEN.timestamp() * 1000)), "labelIds": ["INBOX"]}
+    import base64
+
+    api["raw"] = base64.urlsafe_b64encode(raw).decode()
+    return to_message(
+        parse_api_message(api), company_id=uuid4(), raw_event_id=uuid4(), mailbox=MAILBOX, forwarders=forwarders
+    )
+
+
+@pytest.mark.parametrize("raw", [INLINE_FWD, DUTCH_FWD])
+def test_owner_forward_is_attributed_to_the_original_sender(raw: bytes) -> None:
+    msg, meta, _ = forwarded(raw)
+    assert msg.sender_identity == "tenant-001@example.test"
+    assert meta["from"] == "tenant-001@example.test"
+    assert meta["from_name"] == "Tenant 001"
+    assert meta["forwarded_by"] == OWNER
+    assert "Die Heizung ist kalt." in msg.text
+
+
+def test_forward_from_a_stranger_keeps_the_forwarder() -> None:
+    msg, meta, _ = forwarded(INLINE_FWD, forwarders=frozenset())
+    assert msg.sender_identity == OWNER
+    assert "forwarded_by" not in meta
+
+
+def test_owner_mail_without_a_forward_stays_the_owner() -> None:
+    msg, _, _ = forwarded(f"From: {OWNER}\r\nSubject: hi\r\n\r\nNiets doorgestuurd.\r\n".encode())
+    assert msg.sender_identity == OWNER
+
+
+def test_forward_of_another_owner_address_is_not_remapped() -> None:
+    raw = INLINE_FWD.replace(b"tenant-001@example.test", OWNER.encode())
+    msg, _, _ = forwarded(raw)
+    assert msg.sender_identity == OWNER

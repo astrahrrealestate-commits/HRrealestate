@@ -23,8 +23,21 @@ def _placeholder(parsed: ParsedEmail) -> str:
     return f"[no text — {len(names)} {noun}: {', '.join(names)}]"
 
 
+def _real_sender(parsed: ParsedEmail, from_addr: str, forwarders: frozenset[str]) -> tuple[str, str | None, str | None]:
+    """(sender address, display name, forwarder). A mail forwarded by the owner (From is one of `forwarders`) is
+    attributed to the original sender quoted in the forward, so the tenant maps instead of the owner's own address."""
+    if from_addr in forwarders and parsed.forwarded_from and parsed.forwarded_from not in forwarders:
+        return parsed.forwarded_from, parsed.forwarded_from_name, from_addr
+    return from_addr, parsed.from_name, None
+
+
 def to_message(
-    gm: GmailMessage, *, company_id: UUID, raw_event_id: UUID, mailbox: str
+    gm: GmailMessage,
+    *,
+    company_id: UUID,
+    raw_event_id: UUID,
+    mailbox: str,
+    forwarders: frozenset[str] = frozenset(),
 ) -> tuple[Message, dict[str, Any], list[ParsedAttachment]]:
     """`Message`, row metadata and attachments (stored by ingestion).
 
@@ -37,6 +50,7 @@ def to_message(
     if parsed.from_addr is None:
         raise UnroutableMessageError(f"gmail message {gm.id} has no usable From address")
     mailbox = mailbox.lower()
+    sender, sender_name, forwarded_by = _real_sender(parsed, parsed.from_addr, forwarders)
     # Only Gmail's SENT label proves the owner sent it: a From header equal to the mailbox is trivially forgeable.
     outbound = "SENT" in gm.label_ids
     try:
@@ -44,7 +58,7 @@ def to_message(
             channel=Channel.gmail,
             provider_msg_id=gm.id,
             thread_ref=gm.thread_id,
-            sender_identity=mailbox if outbound else parsed.from_addr,
+            sender_identity=mailbox if outbound else sender,
             direction=Direction.outbound if outbound else Direction.inbound,
             sent_at=gm.internal_date,
             text=parsed.text or _placeholder(parsed),
@@ -60,9 +74,10 @@ def to_message(
         "message_id": parsed.message_id,
         "in_reply_to": parsed.in_reply_to,
         "references": parsed.references,
-        "from": parsed.from_addr,
-        "from_name": parsed.from_name,
-        "from_self_unsent": (not outbound and parsed.from_addr == mailbox) or None,
+        "from": sender,
+        "from_name": sender_name,
+        "forwarded_by": forwarded_by,
+        "from_self_unsent": (not outbound and sender == mailbox) or None,
         "full_text": parsed.full_text if parsed.quote_stripped else None,
         "skipped_parts": parsed.skipped,
         "parse_error": parsed.parse_error or None,
