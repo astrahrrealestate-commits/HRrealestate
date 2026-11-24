@@ -3,6 +3,7 @@
 from app.db.models.brixx import BrixxDocument, BrixxSyncRun, BrixxSyncTableState
 from app.db.models.brixx_directory import BrixxErasedRef, BrixxReconcileSeen
 from app.db.models.calendar import CalendarEventRow
+from app.db.models.chat import ChatRead
 from app.db.models.dashboard import AgentConversation, AgentPageState, AgentTurn, OwnerFeed
 from app.db.models.diligence import DDDocumentRead, DDReview, DDReviewDocument
 from app.db.models.directory import ChannelIdentity, DirectoryImport, Lease, LeaseParty, Person, PersonProfile, Unit
@@ -54,6 +55,7 @@ __all__ = [
     "CaseLink",
     "ChannelAccount",
     "ChannelIdentity",
+    "ChatRead",
     "Company",
     "DDDocumentRead",
     "DDReview",

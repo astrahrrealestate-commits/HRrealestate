@@ -12,9 +12,9 @@ from sqlalchemy.orm import Session
 
 from app.contracts import Channel, Direction
 from app.contracts.message import normalise_identity
+from app.core.wa_window import window_open
 from app.db.models import Case, CaseLink, ChannelAccount, ChannelIdentity, MessageRow, OwnerAccount
 from app.sender.errors import SendBlockedError
-from app.sender.owner_window import WINDOW
 
 CANDIDATES = 50
 TENANT_CHANNELS = (Channel.whatsapp, Channel.gmail)
@@ -111,4 +111,4 @@ def tenant_recipient(session: Session, company_id: UUID, case_id: UUID, channel:
 def whatsapp_window_open(msg: MessageRow, now: datetime) -> bool:
     """Free-form WhatsApp is allowed within WINDOW of the inbound's receipt time; exactly at the boundary is closed."""
     received = min(msg.sent_at, msg.created_at)  # the older of the two clocks: the conservative anchor
-    return received > now - WINDOW
+    return window_open(received, now)
