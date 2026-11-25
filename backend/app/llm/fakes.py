@@ -40,6 +40,19 @@ _SUSPICIOUS = (
 )
 
 
+_ROLE_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("legal", r"advocat|notaris|notary|gerechtsdeurwaarder|bailiff|mr\. "),
+    ("vve", r"\bvve\b|vereniging van eigenaren"),
+    ("business", r"rabobank|belastingdienst|essent|liander|vattenfall|\bwaterbedrijf\b"),
+    ("prospect", r"bezichtiging|viewing|interested in renting|geïnteresseerd in (het )?huren"),
+)
+
+
+def _fake_sender_role(low: str) -> str | None:
+    """The first role whose words appear. The contract drops it again for spam and suspicious mail."""
+    return next((role for role, pattern in _ROLE_PATTERNS if re.search(pattern, low)), None)
+
+
 def _fake_understanding(prompt: str) -> dict[str, object]:
     low = prompt.lower()
     if re.search(r"(contract|kündigung|opzeg|verhuis)", low):
@@ -83,6 +96,7 @@ def _fake_understanding(prompt: str) -> dict[str, object]:
         "entities": {"people": [], "unit_refs": [], "dates": [], "amounts": []},
         "suspicious": suspicious,
         "confidence": 0.6,
+        "sender_role": None if no_reply else _fake_sender_role(low),
         "prompt_version": "understanding/v2",
     }
 

@@ -107,6 +107,7 @@ def _tenant_chaser(
         entities=Entities.none(),
         suspicious=Suspicious(flag=False, reason=None),
         confidence=1.0,
+        sender_role=None,
         prompt_version="understanding/v2",
     )
     persona = load_persona(engine, case.company_id)

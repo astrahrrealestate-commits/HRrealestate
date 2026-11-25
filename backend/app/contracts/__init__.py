@@ -57,7 +57,7 @@ from app.contracts.prompt_ref import PromptRef
 from app.contracts.proposal import Proposal
 from app.contracts.rag import FactKind, PassageScore, QueryPlan, RerankResult
 from app.contracts.summary import CaseSummary
-from app.contracts.understanding import Category, Entities, Suspicious, Understanding, Urgency
+from app.contracts.understanding import Category, Entities, SenderRole, Suspicious, Understanding, Urgency
 
 __all__ = [
     "ALLOWED",
@@ -121,6 +121,7 @@ __all__ = [
     "ReplyDraftPayload",
     "RequestContractorPayload",
     "RerankResult",
+    "SenderRole",
     "SnapshotBasis",
     "Suspicious",
     "Understanding",

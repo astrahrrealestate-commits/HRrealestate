@@ -2,7 +2,7 @@ export type ChannelType = "whatsapp" | "gmail" | "portal";
 
 export type UrgencyLevel = "emergency" | "high" | "normal" | "low";
 
-export type RecipientRole = "tenant" | "contractor" | "supplier" | "internal" | "inquiry";
+export type RecipientRole = "tenant" | "contractor" | "supplier" | "internal" | "inquiry" | "contact";
 
 export interface DraftOption {
   id: string;

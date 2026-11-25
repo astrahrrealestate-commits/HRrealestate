@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from app.contracts import Category, Entities, Money, Suspicious, Understanding, Urgency
+from app.contracts import Category, Entities, Money, SenderRole, Suspicious, Understanding, Urgency
 
 
 def _u(**kw: Any) -> Understanding:
@@ -16,6 +16,7 @@ def _u(**kw: Any) -> Understanding:
         "entities": Entities.none(),
         "suspicious": Suspicious(flag=False, reason=None),
         "confidence": 0.9,
+        "sender_role": None,
         "prompt_version": "understanding/v2",
     }
     return Understanding(**{**base, **kw})
@@ -63,3 +64,37 @@ def test_money_bounds(kw: dict[str, Any]) -> None:
 def test_entities_required_for_llm() -> None:
     with pytest.raises(ValidationError):
         Entities()  # type: ignore[call-arg]
+
+
+def test_a_sender_role_is_kept_for_property_mail() -> None:
+    u = _u(category=Category.admin, sender_role=SenderRole.legal)
+    assert Understanding.model_validate_json(u.model_dump_json()).sender_role is SenderRole.legal
+
+
+def test_spam_never_carries_a_sender_role() -> None:
+    assert _u(category=Category.spam, requires_reply=False, sender_role=SenderRole.business).sender_role is None
+
+
+def test_suspicious_mail_never_carries_a_sender_role() -> None:
+    suspicious = Suspicious(flag=True, reason="asks to change the IBAN")
+    assert _u(suspicious=suspicious, sender_role=SenderRole.legal).sender_role is None
+
+
+def test_the_role_field_is_required_so_the_llm_schema_stays_strict() -> None:
+    body = _u().model_dump(mode="json")
+    del body["sender_role"]
+    with pytest.raises(ValidationError):
+        Understanding.model_validate(body)
+
+
+@pytest.mark.parametrize("suspicious", ["yes", 7, ["flag"]])
+def test_a_malformed_suspicious_value_is_a_validation_error_not_a_crash(suspicious: object) -> None:
+    body = _u(sender_role=SenderRole.legal).model_dump(mode="json")
+    with pytest.raises(ValidationError):
+        Understanding.model_validate({**body, "suspicious": suspicious})
+
+
+def test_the_role_is_dropped_for_a_flagged_dict_body_too() -> None:
+    body = _u().model_dump(mode="json")
+    flagged = {**body, "sender_role": "legal", "suspicious": {"flag": True, "reason": "iban change"}}
+    assert Understanding.model_validate(flagged).sender_role is None

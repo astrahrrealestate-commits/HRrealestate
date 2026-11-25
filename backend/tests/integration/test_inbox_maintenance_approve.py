@@ -359,7 +359,7 @@ def _thread_unit(w: World) -> str:
     ("text", "expected"),
     [
         ("Factuur groepenkast Prinsengracht 118-B, graag betalen", "Prinsengracht 118-B, 1015 EA Amsterdam"),
-        ("De keuken van Emma en Lars is kapot", "Unassigned Unit"),
+        ("De keuken van Emma en Lars is kapot", "y.test"),  # no unit named: the contact shows its organisation
     ],
 )
 def test_a_thread_takes_the_unit_its_text_names_from_the_companys_own_units(

@@ -32,7 +32,8 @@ def test_fake_passes_every_runnable_case() -> None:
     result = proposer_eval.run("v2", _fake())
     assert result.misses == []
     assert result.scores == {"reply_rate": 1.0, "guidance_follow": 1.0, "language_ok": 1.0, "forbidden_rate": 0.0}
-    assert len(runnable(load(), _fake()).cases) == len(load().cases) - 1  # the English case is real_only
+    real_only = [c for c in load().cases if c.metadata and c.metadata.real_only]
+    assert len(runnable(load(), _fake()).cases) == len(load().cases) - len(real_only)  # the fake cannot do these
 
 
 def _out(*variants: str, guidance: str | None = "draft", redacted: bool = False) -> DraftOutput:
@@ -69,3 +70,14 @@ def test_runner_lists_the_proposer(
     assert "forbidden_rate: 0.00" in capsys.readouterr().out
     (report,) = tmp_path.glob("proposer-v2-*.md")
     assert "| guidance_follow | 1.00 |" in report.read_text(encoding="utf-8")
+
+
+def test_golden_set_has_a_case_per_sender_role_and_a_privacy_case() -> None:
+    kinds = {c.inputs.sender_kind for c in load().cases}
+    assert {"legal", "vve", "business", "prospect", "contact"} <= kinds
+    privacy = [
+        c for c in load().cases if c.inputs.sender_kind == "contact" and c.metadata and c.metadata.never_mentions
+    ]
+    assert privacy  # a stranger asking about a tenant must get none of the tenant's details
+    role_cases = [c for c in load().cases if c.inputs.sender_kind]
+    assert all(c.metadata and c.metadata.real_only for c in role_cases)  # the keyword fake ignores the role
