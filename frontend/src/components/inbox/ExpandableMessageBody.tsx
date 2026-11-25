@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef, useCallback } from "react";
 import { cn } from "@/lib/utils";
 
 export interface ParsedMessageText {
@@ -59,8 +59,67 @@ export function parseQuotedText(raw: string | null | undefined): ParsedMessageTe
 
 interface ExpandableMessageBodyProps {
   body: string | null | undefined;
+  bodyHtml?: string | null;
   className?: string;
   isOwner?: boolean;
+}
+
+function wrapEmailSrcDoc(htmlContent: string): string {
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none';" />
+<base target="_blank" />
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: #111827;
+    background: transparent;
+    overflow-wrap: anywhere;
+  }
+  img { max-width: 100%; height: auto; }
+  table { max-width: 100% !important; height: auto !important; }
+  pre, code { white-space: pre-wrap; word-break: break-word; }
+  a { color: #1a73e8; }
+</style>
+</head>
+<body>${htmlContent}</body>
+</html>`;
+}
+
+function SandboxedHtmlBody({ htmlContent }: { htmlContent: string }) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [frameHeight, setFrameHeight] = useState<number>(160);
+  const srcDoc = useMemo(() => wrapEmailSrcDoc(htmlContent), [htmlContent]);
+
+  const measureHeight = useCallback(() => {
+    const el = iframeRef.current;
+    const doc = el?.contentDocument;
+    if (!doc) return;
+    const bodyHeight = doc.body?.scrollHeight || 0;
+    const docHeight = doc.documentElement?.scrollHeight || 0;
+    const next = Math.max(40, Math.min(Math.max(bodyHeight, docHeight) + 8, 2400));
+    setFrameHeight(next);
+  }, []);
+
+  return (
+    <div className="w-full overflow-x-auto">
+      <iframe
+        ref={iframeRef}
+        title="Email message content"
+        srcDoc={srcDoc}
+        sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+        onLoad={measureHeight}
+        style={{ height: `${frameHeight}px` }}
+        className="w-full min-w-[260px] border-0 bg-transparent block"
+      />
+    </div>
+  );
 }
 
 const URL_REGEX = /(https?:\/\/[^\s<>()]+)/g;
@@ -101,14 +160,48 @@ function renderLinkifiedText(text: string, isOwner: boolean): React.ReactNode {
 
 export function ExpandableMessageBody({
   body,
+  bodyHtml,
   className = "text-[13.5px] leading-relaxed whitespace-pre-line select-text [overflow-wrap:anywhere]",
   isOwner = false,
 }: ExpandableMessageBodyProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const { cleanBody, quotedText } = useMemo(() => parseQuotedText(body), [body]);
+  const [showPlainText, setShowPlainText] = useState(false);
+
+  if (bodyHtml && !showPlainText) {
+    return (
+      <div className="space-y-2 min-w-0">
+        <SandboxedHtmlBody htmlContent={bodyHtml} />
+        {cleanBody && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowPlainText(true);
+            }}
+            className="text-[11px] text-[var(--ink-3)] hover:text-[var(--ink)] underline cursor-pointer"
+          >
+            View plain text
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-1.5 min-w-0">
+      {bodyHtml && showPlainText && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowPlainText(false);
+          }}
+          className="text-[11px] text-[var(--ink-3)] hover:text-[var(--ink)] underline cursor-pointer"
+        >
+          View formatted email
+        </button>
+      )}
       <p className={cn(className, "[overflow-wrap:anywhere]")}>
         {renderLinkifiedText(cleanBody, isOwner)}
       </p>

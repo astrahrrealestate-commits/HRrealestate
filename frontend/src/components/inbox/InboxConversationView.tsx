@@ -735,7 +735,7 @@ export function InboxConversationView({
                         </p>
                       </div>
                     )}
-                    <ExpandableMessageBody body={msg.body} isOwner={true} />
+                    <ExpandableMessageBody body={msg.body} bodyHtml={msg.bodyHtml} isOwner={true} />
                     <div className="flex items-center justify-end gap-1 mt-1 text-[11px] font-mono text-white/80 sm:text-[var(--ink-3)]">
                       <span>{displayTime}</span>
                       <CheckCheck className="w-3.5 h-3.5 text-sky-200 sm:text-[var(--ink-3)]" />
@@ -747,8 +747,13 @@ export function InboxConversationView({
               ) : (
                 // Incoming bubble (left, --selected fill, no border)
                 <div className="flex flex-col items-start space-y-1 group min-w-0">
-                  <div className="relative bg-[var(--selected)] text-[var(--ink)] rounded-2xl rounded-tl-xs px-4 py-2.5 max-w-[85%] sm:max-w-[75%] min-w-0 overflow-hidden">
-                    <ExpandableMessageBody body={msg.body} isOwner={false} />
+                  <div
+                    className={cn(
+                      "relative bg-[var(--selected)] text-[var(--ink)] rounded-2xl rounded-tl-xs px-4 py-2.5 min-w-0 overflow-hidden",
+                      msg.bodyHtml ? "w-full max-w-[92%] sm:max-w-[85%]" : "max-w-[85%] sm:max-w-[75%]"
+                    )}
+                  >
+                    <ExpandableMessageBody body={msg.body} bodyHtml={msg.bodyHtml} isOwner={false} />
 
                     {/* Attachments (Photos & Documents) */}
                     {msg.attachments && msg.attachments.length > 0 && (

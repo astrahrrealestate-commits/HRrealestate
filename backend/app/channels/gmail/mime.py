@@ -15,10 +15,10 @@ from email import policy
 from email.message import EmailMessage
 from email.parser import BytesHeaderParser, BytesParser
 
-from inscriptis import get_text
 from mailparser_reply import EmailReplyParser
 
 from app.channels.gmail.forward import FORWARD_MARKERS, origin_from_text
+from app.channels.gmail.html_sanitize import html_to_clean_text, looks_like_html, sanitize_email_html
 from app.channels.gmail.parsed import ParsedAttachment, ParsedEmail
 from app.channels.text_clean import clean_filename, clean_header, clean_mime, clean_text
 from app.core.logging import get_logger
@@ -88,8 +88,8 @@ def _is_attachment(part: EmailMessage) -> bool:
 
 def _as_text(part: EmailMessage) -> str:
     text = _decoded(part)
-    if part.get_content_subtype() == "html":
-        text = get_text(text)
+    if part.get_content_subtype() == "html" or (part.get_content_subtype() == "plain" and looks_like_html(text)):
+        return html_to_clean_text(text)
     return "\n".join(line.rstrip() for line in clean_text(text).split("\n")).strip()
 
 
@@ -232,6 +232,18 @@ def _choose_body(msg: EmailMessage, leaves: list[_Part]) -> EmailMessage | None:
     return None
 
 
+def _choose_html(msg: EmailMessage, leaves: list[_Part], body: EmailMessage | None) -> str | None:
+    """Sanitized HTML body from a text/html alternative, or from a text/plain part that carries raw HTML."""
+    html_part = msg.get_body(preferencelist=("html",))
+    if isinstance(html_part, EmailMessage) and any(leaf.part is html_part for leaf in leaves):
+        return sanitize_email_html(_decoded(html_part))
+    if body is not None and body.get_content_subtype() == "plain":
+        raw = _decoded(body)
+        if looks_like_html(raw):
+            return sanitize_email_html(raw)
+    return None
+
+
 def _cap(text: str) -> str:
     return text if len(text) <= MAX_TEXT_CHARS else text[:MAX_TEXT_CHARS] + "\n[… truncated]"
 
@@ -243,6 +255,7 @@ def _parse(raw: bytes) -> ParsedEmail:
     body = _choose_body(msg, leaves)
     extra_text, attachments = _collect(leaves, body, skipped)
     full_text = "\n\n".join(t for t in [_as_text(body) if body else "", *extra_text] if t).strip()
+    html_body = _choose_html(msg, leaves, body)
     subject = _header(msg, "Subject") or ""
     in_reply_to = _header(msg, "In-Reply-To", MAX_REFERENCES_CHARS)
     references = _header(msg, "References", MAX_REFERENCES_CHARS)
@@ -263,6 +276,7 @@ def _parse(raw: bytes) -> ParsedEmail:
         references=references,
         text=_cap(text),
         full_text=_cap(full_text),
+        html=html_body,
         quote_stripped=stripped,
         attachments=attachments,
         skipped=skipped,

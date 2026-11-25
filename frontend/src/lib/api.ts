@@ -170,6 +170,7 @@ export async function getInboxThreads(
                   sentAt: m.sentAt || parseTimestampToIso(m.timestamp || t.timestamp),
                   timeFormatted: m.timeFormatted || (m.timestamp || "Today"),
                   body: m.body || m.content || "",
+                  bodyHtml: m.bodyHtml || null,
                   bodyEnglish: m.bodyEnglish || undefined,
                   bodyDutch: m.bodyDutch || undefined,
                   language: m.language,

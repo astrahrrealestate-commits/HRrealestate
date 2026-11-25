@@ -79,6 +79,7 @@ def to_message(
         "forwarded_by": forwarded_by,
         "from_self_unsent": (not outbound and sender == mailbox) or None,
         "full_text": parsed.full_text if parsed.quote_stripped else None,
+        "body_html": parsed.html,
         "skipped_parts": parsed.skipped,
         "parse_error": parsed.parse_error or None,
         "to": parsed.to,

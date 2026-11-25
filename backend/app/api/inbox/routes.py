@@ -39,6 +39,7 @@ from app.api.v1 import enqueue
 from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import decide_limit, sync_limit
+from app.channels.gmail.html_sanitize import html_to_clean_text, looks_like_html, sanitize_email_html
 from app.context.sender_label import UNASSIGNED_UNIT, resolve_sender_label, role_hint_of, unit_display
 from app.contracts import ActionType, ButtonChoice, CaseState, Category, Channel, Direction
 from app.core.errors import NotFoundError
@@ -437,6 +438,12 @@ def _assemble_thread(
                 prep.sender_name,
                 prep.sender_email,
             )
+        m_meta = m.meta if isinstance(m.meta, dict) else {}
+        raw_html = m_meta.get("body_html") if isinstance(m_meta.get("body_html"), str) else None
+        raw_text = m.text or ""
+        if not raw_html and looks_like_html(raw_text):
+            raw_html = sanitize_email_html(raw_text)
+        clean_body = html_to_clean_text(raw_text) if looks_like_html(raw_text) else raw_text
         msgs_data.append(
             {
                 "id": str(m.id),
@@ -445,12 +452,13 @@ def _assemble_thread(
                 "senderContact": m_sender_contact,
                 "sentAt": m_dt.isoformat(),
                 "timeFormatted": m_time_fmt,
-                "content": m.text,
-                "body": m.text,
+                "content": clean_body,
+                "body": clean_body,
+                "bodyHtml": raw_html,
                 "isIncoming": m_is_incoming,
                 "channel": m.channel.value if m.channel else "gmail",
                 "attachments": attachments_map.get(m.id, []),
-                "subject": (m.meta.get("subject", "Communication") if isinstance(m.meta, dict) else "Communication"),
+                "subject": m_meta.get("subject", "Communication"),
             }
         )
 
@@ -516,6 +524,9 @@ def _assemble_thread(
     hide_drafts = status_str == "approved" or (bool(msgs_data) and msgs_data[-1].get("sender") == "owner")
     ticket_code = f"BRIXX-{case.brixx_ref}" if case.brixx_ref else f"#{case_ref(case.id)}"
 
+    latest_raw_text = prep.latest_msg.text or ""
+    latest_clean_snippet = html_to_clean_text(latest_raw_text) if looks_like_html(latest_raw_text) else latest_raw_text
+
     return {
         "id": f"case-{case.id}",
         "caseId": str(case.id),
@@ -532,7 +543,7 @@ def _assemble_thread(
         "urgency": case.urgency.value if case.urgency else "normal",
         "unit": unit_label,
         "title": subject_str,
-        "lastMessageSnippet": prep.latest_msg.text[:140] if prep.latest_msg.text else "",
+        "lastMessageSnippet": latest_clean_snippet[:140],
         "timestamp": rel_label,
         "receivedAt": sent_dt.isoformat(),
         "channel": prep.channel_str,

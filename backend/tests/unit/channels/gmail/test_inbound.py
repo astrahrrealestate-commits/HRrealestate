@@ -398,3 +398,22 @@ def test_forward_of_another_owner_address_is_not_remapped() -> None:
     raw = INLINE_FWD.replace(b"tenant-001@example.test", OWNER.encode())
     msg, _, _ = forwarded(raw)
     assert msg.sender_identity == OWNER
+
+
+def test_raw_html_inside_text_plain_is_converted_to_clean_text_and_sanitized_html() -> None:
+    raw = (
+        b"From: info@vvegemak.nl\r\n"
+        b"Content-Type: text/plain; charset=utf-8\r\n\r\n"
+        b'<html><head><style type="text/css">.auto-style1{color:#2C3C82;}</style></head>'
+        b'<body><script>alert(1)</script><p class="auto-style1" onclick="evil()">De heer H.S.J. Jhutty</p>'
+        b'<a href="javascript:alert(2)">bad</a><a href="https://vvegemak.nl">ok</a></body></html>'
+    )
+    parsed = parse_email(raw)
+    assert "De heer H.S.J. Jhutty" in parsed.text
+    assert "<html" not in parsed.text
+    assert parsed.html is not None
+    assert "<style>.auto-style1{color:#2C3C82;}</style>" in parsed.html
+    assert "<script" not in parsed.html
+    assert "onclick" not in parsed.html
+    assert "javascript:" not in parsed.html
+    assert 'href="https://vvegemak.nl"' in parsed.html

@@ -27,6 +27,7 @@ export interface ThreadMessage {
   sentAt: string;
   timeFormatted: string;
   body: string;
+  bodyHtml?: string | null;
   bodyEnglish?: string; // cached English for a Dutch message; filled on demand by POST /api/inbox/translate
   bodyDutch?: string; // cached Dutch for an English message
   language?: "nl" | "en" | "unknown"; // from the server's language check
