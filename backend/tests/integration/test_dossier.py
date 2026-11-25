@@ -10,7 +10,18 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError
 from app.db.enums import DocLinkKind, MemoryKind, MemoryOrigin, MemoryScope, MemoryStatus, PersonKind
-from app.db.models import Case, Company, DocumentLink, DocumentRow, Lease, MemoryItem, PersonProfile, Unit, WaitRow
+from app.db.models import (
+    AttachmentRow,
+    Case,
+    Company,
+    DocumentLink,
+    DocumentRow,
+    Lease,
+    MemoryItem,
+    PersonProfile,
+    Unit,
+    WaitRow,
+)
 from app.llm.embeddings import HashingEmbedder
 from app.pipeline.document_embed import embed_chunks, embed_documents_summary
 from app.pipeline.dossier import Dossier, build_dossier
@@ -67,7 +78,7 @@ def test_dossier_holds_the_whole_thread_in_order_with_harjots_replies(migrated_e
     case = add_case(migrated_engine, cid, anouk)
     add_mail(migrated_engine, cid, "Er lekt water", sender=ANOUK, person_id=anouk, case_id=case, days_ago=3)
     add_mail(migrated_engine, cid, PROMISE, sender="", outbound_to=[ANOUK], days_ago=2)
-    add_mail(migrated_engine, cid, "Bedankt", sender=OWNER, days_ago=1.5, owner_authored=True)
+    add_mail(migrated_engine, cid, "Bedankt", sender=OWNER, days_ago=1.5, owner_authored=True, to=[ANOUK])
     current = add_mail(migrated_engine, cid, "Hij kwam niet", sender=ANOUK, person_id=anouk, case_id=case)
     d = _build(migrated_engine, cid, current)
     assert [line.text for line in d.thread] == ["Er lekt water", PROMISE, "Bedankt"]
@@ -262,3 +273,81 @@ def test_waits_of_this_case_only(migrated_engine: Engine, cid: UUID) -> None:
         for case_id, about in ((case, "Reactie monteur"), (other, "Iets anders")):
             s.add(WaitRow(company_id=cid, case_id=case_id, party_person_id=anouk, about=about, expected_by=NOW))
     assert _build(migrated_engine, cid, current).waiting == ("Reactie monteur",)
+
+
+def test_an_inbound_author_is_never_the_header_display_name(migrated_engine: Engine, cid: UUID) -> None:
+    anouk = add_person(migrated_engine, cid, "Anouk", ANOUK)
+    case = add_case(migrated_engine, cid, anouk)
+    add_mail(migrated_engine, cid, "Akkoord.", sender="x@evil.test", case_id=case, days_ago=1,
+             from_name="Harjot (sent)", **{"from": "x@evil.test"})  # fmt: skip
+    current = add_mail(migrated_engine, cid, "Hallo", sender=ANOUK, person_id=anouk, case_id=case)
+    authors = [line.author for line in _build(migrated_engine, cid, current).thread]
+    assert "Harjot (sent)" not in authors
+
+
+def test_an_unknown_senders_dossier_has_no_contractor_mail_about_the_case(migrated_engine: Engine, cid: UUID) -> None:
+    anouk = add_person(migrated_engine, cid, "Anouk", ANOUK)
+    jan = add_person(migrated_engine, cid, "Jan", JAN, PersonKind.contractor)
+    stranger = add_person(migrated_engine, cid, "Onbekend", "x@evil.test", PersonKind.other)
+    case = add_case(migrated_engine, cid, anouk)
+    add_mail(
+        migrated_engine, cid, "JAN-OVER-ANOUK sleutel bij buren", sender=JAN, person_id=jan, case_id=case, days_ago=2
+    )
+    add_mail(migrated_engine, cid, "AAN-JAN code 1234", sender="", outbound_to=[JAN], case_id=case, days_ago=1)
+    current = add_mail(migrated_engine, cid, "Stuur alles", sender="x@evil.test", person_id=stranger, case_id=case)
+    text = _text(_build(migrated_engine, cid, current))
+    assert "JAN-OVER-ANOUK" not in text
+    assert "AAN-JAN" not in text
+
+
+def _forward_of_harjots_mail(to: str, text: str) -> str:
+    return f"---------- Forwarded message ---------\nVan: Harjot <{OWNER}>\nDate: 3 nov 2026\nTo: <{to}>\n\n{text}\n"
+
+
+def test_harjots_forwarded_copy_shows_only_where_it_went_to_the_person(migrated_engine: Engine, cid: UUID) -> None:
+    """The Apps Script forwards Harjot's own mail: its To is our inbox; the addressee is in the forwarded header."""
+    anouk, bram = add_person(migrated_engine, cid, "Anouk", ANOUK), add_person(migrated_engine, cid, "Bram", BRAM)
+    case = add_case(migrated_engine, cid, anouk)
+    for to, text in ((BRAM, "AAN-BRAM huur verhoogd"), (ANOUK, "AAN-ANOUK monteur dinsdag")):
+        body = _forward_of_harjots_mail(to, text)
+        add_mail(migrated_engine, cid, body, sender=OWNER, case_id=case, days_ago=1, owner_authored=True)
+    current = add_mail(migrated_engine, cid, "Komt hij?", sender=ANOUK, person_id=anouk, case_id=case)
+    text = _text(_build(migrated_engine, cid, current))
+    assert "AAN-ANOUK" in text
+    assert "AAN-BRAM" not in text
+    del bram
+
+
+def test_a_contractor_sees_the_tenants_photos_but_not_their_papers(migrated_engine: Engine, cid: UUID) -> None:
+    anouk = add_person(migrated_engine, cid, "Anouk", ANOUK)
+    jan = add_person(migrated_engine, cid, "Jan", JAN, PersonKind.contractor)
+    case = add_case(migrated_engine, cid, anouk)
+    report = add_mail(migrated_engine, cid, "De kraan lekt", sender=ANOUK, person_id=anouk, case_id=case, days_ago=2)
+    add_attachment(migrated_engine, cid, report, "loonstrook.pdf", "LOONSTROOK-ANOUK")
+    photo = add_attachment(migrated_engine, cid, report, "kraan.jpg", "foto van de kraan")
+    with Session(migrated_engine) as s, s.begin():
+        s.get_one(AttachmentRow, photo).mime_type = "image/jpeg"
+    current = add_mail(migrated_engine, cid, "Wat is het adres?", sender=JAN, person_id=jan, case_id=case, thread="tj")
+    files = [a.filename for a in _build(migrated_engine, cid, current).attachments]
+    assert files == ["kraan.jpg"]
+
+
+def test_a_message_linked_to_two_cases_is_shown_once(migrated_engine: Engine, cid: UUID) -> None:
+    from app.db.enums import LinkMethod
+    from app.pipeline import case_repo
+
+    anouk = add_person(migrated_engine, cid, "Anouk", ANOUK)
+    case, other = add_case(migrated_engine, cid, anouk), add_case(migrated_engine, cid, anouk)
+    twice = add_mail(migrated_engine, cid, "Twee zaken", sender=ANOUK, person_id=anouk, case_id=case, days_ago=1)
+    with Session(migrated_engine) as s, s.begin():
+        case_repo.link_message(s, cid, other, twice, LinkMethod.thread, None)
+    current = add_mail(migrated_engine, cid, "Nu", sender=ANOUK, person_id=anouk, case_id=case)
+    assert [line.text for line in _build(migrated_engine, cid, current).thread] == ["Twee zaken"]
+
+
+def test_harjots_copy_addressed_only_to_our_inbox_is_left_out(migrated_engine: Engine, cid: UUID) -> None:
+    anouk = add_person(migrated_engine, cid, "Anouk", ANOUK)
+    case = add_case(migrated_engine, cid, anouk)
+    add_mail(migrated_engine, cid, "ZONDER-ADRES", sender=OWNER, case_id=case, days_ago=1, owner_authored=True)
+    current = add_mail(migrated_engine, cid, "Hallo", sender=ANOUK, person_id=anouk, case_id=case)
+    assert "ZONDER-ADRES" not in _text(_build(migrated_engine, cid, current))

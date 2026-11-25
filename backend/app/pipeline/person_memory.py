@@ -1,6 +1,7 @@
 """Person memory (M13 T7): refresh what EstateOS remembers about one person from their own mail, only when stale."""
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -14,7 +15,7 @@ from app.contracts.person_memory import PersonMemory
 from app.core.errors import EstateOSError
 from app.core.logging import get_logger
 from app.core.settings import Settings
-from app.db.models import Case, ChannelIdentity, MessageRow, PersonProfile
+from app.db.models import Case, ChannelIdentity, MessageRow, PersonProfile, UnderstandingRow
 from app.db.models.ingestion import not_chat_only
 from app.llm.agents.person_memory import PERSON_MEMORY, person_memory_prompt
 from app.llm.calls import CallContext, run_agent
@@ -120,12 +121,25 @@ def refresh_person_memory(
     return memory
 
 
+def _drafts(body: dict[str, Any] | None) -> bool:
+    if not body:
+        return True  # unreadable mail still reaches a person: keep their memory current
+    return body.get("requires_reply", True) is not False or bool((body.get("suspicious") or {}).get("flag"))
+
+
 def refresh_for_message(engine: Engine, settings: Settings, message_id: UUID) -> None:
     """Pipeline step, live mail only. Memory helps a draft but never blocks one: any failure keeps the old memory."""
     with Session(engine) as session:
         msg = session.get(MessageRow, message_id)
         if msg is None or msg.person_id is None or is_history(msg) or is_owner_authored(msg):
             return
+        body = session.scalar(
+            select(UnderstandingRow.body).where(
+                UnderstandingRow.company_id == msg.company_id, UnderstandingRow.message_id == msg.id
+            )
+        )
+        if not _drafts(body):
+            return  # only a mail that gets a draft needs the memory; a thank-you costs no quality-tier call
         company_id, person_id = msg.company_id, msg.person_id
     try:
         refresh_person_memory(engine, settings, company_id, person_id)

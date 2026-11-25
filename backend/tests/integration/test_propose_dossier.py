@@ -206,3 +206,24 @@ def test_the_fake_proposer_writes_drafts_that_pass_the_standard(
 
 def test_inbox_without_a_proposal_offers_no_draft_text_and_no_confidence() -> None:
     assert _build_drafts(None, "Anouk") == ([], [], None)
+
+
+def test_an_emergency_keeps_its_escalation_when_both_drafts_are_generic(
+    migrated_engine: Engine, committed_company: Company, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cid = committed_company.id
+    prompts: list[str] = []
+    base = _answers(monkeypatch, [GENERIC, GENERIC])
+    first = fakes.fake_proposer
+
+    def drop_escalation_on_retry(prompt: str) -> dict[str, object]:
+        out = first(prompt)
+        prompts.append(prompt)
+        if len(prompts) == 2:
+            out["actions"] = [a for a in out["actions"] if a["type"] != "escalate"]  # type: ignore[index,union-attr]
+        return out
+
+    monkeypatch.setattr(fakes, "fake_proposer", drop_escalation_on_retry)
+    propose_for_message(migrated_engine, settings, _mail(migrated_engine, cid, urgency=Urgency.emergency))
+    assert len(base) == 2
+    assert ActionType.escalate in {a.type for a in _actions(migrated_engine, cid)}

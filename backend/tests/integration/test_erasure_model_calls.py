@@ -139,3 +139,53 @@ def test_pipeline_calls_for_a_message_record_its_id(
         rows = s.execute(select(ModelCall.purpose, ModelCall.message_ids).where(ModelCall.company_id == cid)).all()
     assert rows
     assert all(ids == [mid] for _, ids in rows), rows
+
+
+def test_erasure_clears_other_peoples_memory_that_names_the_person(
+    migrated_engine: Engine, committed_company: Company, settings: Settings
+) -> None:
+    from app.db.models import PersonProfile
+
+    cid = committed_company.id
+    anouk = add_person(migrated_engine, cid, "Anouk de Vries", ANOUK)
+    jan = add_person(migrated_engine, cid, "Jan", "jan@bouw.test")
+    add_mail(migrated_engine, cid, "Ok", sender=ANOUK, person_id=anouk)
+    memory = {"summary": "Werkt bij Anouk de Vries", "commitments": [], "preferences": [], "open_issues": []}
+    other = {"summary": "Anders", "commitments": [], "preferences": [], "open_issues": []}
+    bram = add_person(migrated_engine, cid, "Bram", BRAM)
+    with Session(migrated_engine) as s, s.begin():
+        s.add(PersonProfile(company_id=cid, person_id=jan, memory=memory))
+        s.add(PersonProfile(company_id=cid, person_id=bram, memory=other))
+    _erase(migrated_engine, cid, anouk)
+    with Session(migrated_engine) as s:
+        rows = dict(s.execute(select(PersonProfile.person_id, PersonProfile.memory)).tuples().all())
+    assert rows[jan] is None
+    assert rows[bram] == other
+
+
+def test_a_stock_phrase_in_the_persons_mail_blanks_nobody_elses_calls(
+    migrated_engine: Engine, committed_company: Company, settings: Settings
+) -> None:
+    cid = committed_company.id
+    anouk = add_person(migrated_engine, cid, "Anouk", ANOUK)
+    add_mail(migrated_engine, cid, "Ok\nVerzonden vanaf mijn iPhone", sender=ANOUK, person_id=anouk)
+    add_mail(migrated_engine, cid, "Ja\nMet vriendelijke groeten, Anouk", sender=ANOUK, person_id=anouk)
+    kept = _call(
+        migrated_engine, settings, cid, "Bram: lekkage.\nVerzonden vanaf mijn iPhone\nMet vriendelijke groeten,"
+    )
+    _erase(migrated_engine, cid, anouk)
+    assert "lekkage" in str(_row(migrated_engine, kept).input)
+
+
+def test_a_call_tagged_with_other_messages_is_judged_by_its_tags(
+    migrated_engine: Engine, committed_company: Company, settings: Settings
+) -> None:
+    """Tagged calls list every message in their prompt; only untagged ones are searched by text."""
+    cid = committed_company.id
+    anouk = add_person(migrated_engine, cid, "Anouk de Vries", ANOUK)
+    bram = add_person(migrated_engine, cid, "Bram", BRAM)
+    add_mail(migrated_engine, cid, SECRET, sender=ANOUK, person_id=anouk)
+    bram_mid = add_mail(migrated_engine, cid, "Mijn buurvrouw Anouk de Vries klaagt.", sender=BRAM, person_id=bram)
+    tagged = _call(migrated_engine, settings, cid, "Mijn buurvrouw Anouk de Vries klaagt.", (bram_mid,))
+    _erase(migrated_engine, cid, anouk)
+    assert "buurvrouw" in str(_row(migrated_engine, tagged).input)

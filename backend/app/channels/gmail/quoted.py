@@ -12,11 +12,12 @@ from app.channels.gmail.forward import FORWARD_MARKERS
 _PREFIX = r"^[ \t>]{0,40}"
 _EMAIL = re.compile(r"[\w.+'-]+@[\w-]+(?:\.[\w-]+)+")
 # "On … <a@b> wrote:" and its Dutch and German forms, which mail-parser-reply misses (Gmail and Apple Mail in Dutch).
-# Clients wrap the line, so it may span three lines; lengths are bounded, because the text is hostile input.
+# Clients wrap the line, so it may span three lines (never across a blank line, so a sentence that opens with a date
+# above it stays in the new part); lengths are bounded, because the text is hostile input.
 _LINE = r"[^\n]{0,300}"
 _ATTRIBUTION = re.compile(
-    _PREFIX + r"(?:On|Op|Am)\b(?=" + _LINE + r"\d)(?:" + _LINE + r"\n){0,2}?" + _LINE + r"(?:\bwrote[ \t]{0,3}:"
-    r"|\b(?:schreef|schrieb)\b[^\n:]{0,200}(?:mailto:)?[^\n:]{0,200}:|\bhet volgende geschreven[ \t]{0,3}:)[ \t]{0,5}$",
+    _PREFIX + r"(?:On|Op|Am)\b(?=" + _LINE + r"\d)(?:[^\n]{1,300}\n){0,2}?" + _LINE + r"(?:\bwrote[ \t]{0,3}:"
+    r"|\b(?:schreef|schrieb)\b[^\n]{0,400}:|\bhet volgende geschreven[ \t]{0,3}:)[ \t]{0,5}$",
     re.IGNORECASE | re.MULTILINE,
 )
 _TIME = re.compile(
@@ -43,9 +44,13 @@ class QuotedMessage:
     text: str
 
 
+MAX_SCAN = 50_000  # quoted history further down is older still; hostile text is bounded before any pattern runs
+
+
 def _boundaries(text: str) -> list[re.Match[str]]:
     """Every place an earlier message starts, in order. A first forward marker is not one: the forwarded mail is the
     message itself, and the header block under the marker belongs to it."""
+    text = text[:MAX_SCAN]
     forwards = list(FORWARD_MARKERS.finditer(text))
     header = range(0)
     if forwards:

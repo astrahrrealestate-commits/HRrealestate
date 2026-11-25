@@ -111,3 +111,25 @@ def test_hostile_text_is_split_quickly() -> None:
     for text in ("Op 1 " + "schreef " * 40_000, ("On 1\n" * 40_000), "Van: x\n" * 40_000, ">" * 200_000):
         split_quoted(text)
     assert time.perf_counter() - start < 5
+
+
+def test_many_lines_of_hostile_attributions_split_quickly() -> None:
+    text = "\n".join("Op 1 " + "schreef " * 36 for _ in range(1_500))
+    start = time.perf_counter()
+    split_quoted(text)
+    assert time.perf_counter() - start < 1.5
+
+
+@pytest.mark.parametrize(
+    ("lead", "attribution"),
+    [
+        ("Op 3 november is de lekkage begonnen.", "Op 4 nov 2026 om 10:12 schreef Harjot <h@x.nl>:"),
+        ("On 3 March the plumber came.", "On Mon, Mar 4, 2026 at 10:12 Harjot <h@x.nl> wrote:"),
+    ],
+)
+def test_a_sentence_starting_with_a_date_above_the_attribution_stays_in_the_new_part(
+    lead: str, attribution: str
+) -> None:
+    new, quoted = split_quoted(f"Beste Harjot,\n\n{lead}\n\n{attribution}\n> Eerder bericht.\n")
+    assert new == f"Beste Harjot,\n\n{lead}"
+    assert quoted.startswith(attribution)
