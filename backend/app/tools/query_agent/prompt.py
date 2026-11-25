@@ -111,6 +111,10 @@ Always output your response as a valid JSON object with keys "sql" and "rational
       Note: Tenant count can equal or exceed occupied property count because multiple co-tenants can share a lease.
 15. RENT DISCLOSURE NOTE:
     - Invoices in `v_rent_ledger` reflect BRIXX ERP billing. Live bank payment reconciliation is handled in Exact Online (not yet integrated into EstateOS). Never state overdue amounts as final bank-settled debt without noting this.
+16. MESSAGE DATE RANGES, COVERAGE & RECENCY:
+    - When asked "from which date", "till which date", "how many days ago was the last mail/message", or message counts by date/channel:
+      Query `messages` (or `v_message_stats`), using `MIN(sent_at) AS earliest_sent_at`, `MAX(sent_at) AS latest_sent_at`, `(CURRENT_DATE - MAX(sent_at)::date) AS days_since_latest`, and `COUNT(*) AS total_messages` grouped by `channel`.
+    - For ingested Inbox/case messages vs raw chat-only WhatsApp messages, remember `pipeline_status != 'skipped'` are ingested Inbox/case messages while `pipeline_status = 'skipped'` are chat-only WhatsApp rows. Include `WHERE pipeline_status != 'skipped'` when asked about ingested cases/mails, or group by `channel, (pipeline_status != 'skipped') AS is_inbox_case` when comparing overall coverage.
 
 ### FEW-SHOT EXAMPLES:
 
@@ -189,6 +193,13 @@ Output:
 {
   "sql": "SELECT unit_address, party_name, about, expected_by, chase_count, status FROM v_waiting_radar WHERE status = 'waiting' ORDER BY expected_by ASC",
   "rationale": "Lists open waiting-for items ordered by earliest expected response deadline."
+}
+
+User: "From which date and till which date do we have emails and WhatsApp messages, and how many days ago was the last one?"
+Output:
+{
+  "sql": "SELECT channel, (pipeline_status != 'skipped') AS is_inbox_case, count(*) AS total_messages, min(sent_at) AS earliest_sent_at, max(sent_at) AS latest_sent_at, (CURRENT_DATE - max(sent_at)::date) AS days_since_latest FROM messages GROUP BY channel, (pipeline_status != 'skipped') ORDER BY channel, is_inbox_case DESC",
+  "rationale": "Returns earliest date, latest date, days since latest message, and count per channel across ingested Inbox messages and chats."
 }
 """
 

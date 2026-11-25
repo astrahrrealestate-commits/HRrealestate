@@ -14,7 +14,7 @@ export type MessageCategory =
   | "general"
   | "other";
 
-export type ThreadStatus = "needs_approval" | "approved" | "rejected" | "replied" | "closed";
+export type ThreadStatus = "needs_approval" | "approved" | "rejected" | "replied" | "closed" | "fyi";
 export type SortOption = "urgency" | "latest" | "oldest";
 export type AudienceFilter = "all" | "tenants" | "contractors" | "inquiries";
 export type UrgencyFilter = "all" | "emergency" | "high" | "normal" | "low";

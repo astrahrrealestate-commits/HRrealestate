@@ -23,6 +23,7 @@ import {
   snoozeThread,
 } from "@/lib/api";
 import { needsYouCount, isUrgent } from "@/lib/selectors";
+import { fetchInboxThreadById } from "@/lib/inboxSingleThread";
 import { cn } from "@/lib/utils";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -145,21 +146,49 @@ function InboxContent() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  const deepLinkedRef = useRef<string>("");
+
   useEffect(() => {
     if (threadParam) {
       const matched = findMatchingThread(threads, threadParam);
       if (matched) {
         setSelectedThreadId(matched.id);
-        if (matched.status === "approved" || matched.status === "replied" || matched.status === "closed") {
+        if (
+          matched.status === "approved" ||
+          matched.status === "replied" ||
+          matched.status === "closed" ||
+          matched.status === "fyi" ||
+          matched.status === "rejected" ||
+          isActivelySnoozed(matched)
+        ) {
           setActiveTab("all");
         }
       } else {
         setSelectedThreadId(threadParam);
+        if (loadState === "ready" && deepLinkedRef.current !== threadParam) {
+          deepLinkedRef.current = threadParam;
+          void fetchInboxThreadById(threadParam).then((fetched) => {
+            if (!mountedRef.current || !fetched) return;
+            setThreads((prev) => (findMatchingThread(prev, fetched.id) ? prev : [fetched, ...prev]));
+            setSelectedThreadId(fetched.id);
+            if (
+              fetched.status === "approved" ||
+              fetched.status === "replied" ||
+              fetched.status === "closed" ||
+              fetched.status === "fyi" ||
+              fetched.status === "rejected" ||
+              isActivelySnoozed(fetched)
+            ) {
+              setActiveTab("all");
+            }
+          });
+        }
       }
     } else {
+      deepLinkedRef.current = "";
       setSelectedThreadId("");
     }
-  }, [threadParam, threads]);
+  }, [threadParam, threads, loadState]);
 
   useEffect(() => {
     const handleCustomNav = (e: Event) => {
@@ -223,8 +252,14 @@ function InboxContent() {
               isRead: t.isRead !== undefined ? t.isRead : old.isRead,
             };
           });
-          if (prev.length <= 20) return mergedLive;
+          const currentParam = threadParamRef.current;
           const liveIds = new Set(mergedLive.map((t) => t.id));
+          if (prev.length <= 20) {
+            const pinned = currentParam
+              ? prev.filter((t) => !liveIds.has(t.id) && Boolean(findMatchingThread([t], currentParam)))
+              : [];
+            return pinned.concat(mergedLive);
+          }
           return mergedLive.concat(prev.filter((t) => !liveIds.has(t.id)));
         });
 
@@ -232,7 +267,7 @@ function InboxContent() {
         if (live.length > 0 && currentParam) {
           const m = findMatchingThread(live, currentParam);
           if (m) setSelectedThreadId(m.id);
-        } else if (live.length === 0) {
+        } else if (live.length === 0 && !currentParam) {
           setSelectedThreadId("");
         }
       })

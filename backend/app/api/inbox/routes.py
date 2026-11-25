@@ -509,6 +509,8 @@ def _assemble_thread(
 
     msgs_data.sort(key=lambda x: x.get("sentAt", ""))
     has_owner_reply = any(m.get("sender") == "owner" for m in msgs_data)
+    has_pending_action = any(a.status in (ActionStatus.pending_approval, ActionStatus.exception) for a in actions)
+    requires_reply = und_body.get("requires_reply") if isinstance(und_body, dict) else None
     status_str = "needs_approval"
     if case.state in (CaseState.closed, CaseState.resolved):
         status_str = "closed"
@@ -516,6 +518,8 @@ def _assemble_thread(
         status_str = "approved"
     elif approval and approval.status == ApprovalStatus.rejected:
         status_str = "rejected"
+    elif approval is None and not has_pending_action and requires_reply is False:
+        status_str = "fyi"
 
     last_read = getattr(case, "last_read_at", None)
     if last_read is not None and last_read.tzinfo is None:
@@ -585,6 +589,49 @@ def _assemble_thread(
     }
 
 
+def _assemble_cases(
+    session: Session,
+    company_id: UUID,
+    cases: list[Case],
+    *,
+    has_filters: bool = False,
+    channel: str = "all",
+    audience: str = "all",
+    category: str = "all",
+    limit: int = 20,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    """Hydrates a list of Case rows into frontend thread dicts."""
+    if not cases:
+        return []
+    now_dt = datetime.now(UTC)
+    msg_batch = load_messages_batch(session, company_id, cases)
+    company_tz = ZoneInfo(msg_batch.company.timezone if msg_batch.company else "Europe/Amsterdam")
+    prepared = _prepare_cases(
+        cases,
+        msg_batch,
+        has_filters=has_filters,
+        channel=channel,
+        audience=audience,
+        category=category,
+        limit=limit,
+        offset=offset,
+    )
+    if not prepared:
+        return []
+
+    kept_case_ids = [p.case.id for p in prepared]
+    kept_msg_ids = [m.id for p in prepared for m in p.messages]
+    unit_labels = {p.raw_unit_label for p in prepared if p.raw_unit_label != UNASSIGNED_UNIT}
+    details = load_details_batch(session, company_id, kept_case_ids, kept_msg_ids, unit_labels, now_dt.date())
+
+    live_threads = [_assemble_thread(p, msg_batch, details, company_tz=company_tz, now_dt=now_dt) for p in prepared]
+    all_msgs = [m for t in live_threads for m in t["messages"]]
+    all_drafts = [d for t in live_threads for d in (*t["gmailDrafts"], *t["whatsappDrafts"])]
+    annotate_translations(session, company_id, all_msgs, all_drafts)
+    return live_threads
+
+
 def _build_live_threads(
     session: Session,
     company_id: UUID,
@@ -614,15 +661,10 @@ def _build_live_threads(
         with contextlib.suppress(ValueError):
             base_q = base_q.filter(Case.category == Category(category))
     cases = base_q.all() if has_filters else base_q.offset(offset).limit(limit).all()
-    if not cases:
-        return []
-
-    now_dt = datetime.now(UTC)
-    msg_batch = load_messages_batch(session, company_id, cases)
-    company_tz = ZoneInfo(msg_batch.company.timezone if msg_batch.company else "Europe/Amsterdam")
-    prepared = _prepare_cases(
+    return _assemble_cases(
+        session,
+        company_id,
         cases,
-        msg_batch,
         has_filters=has_filters,
         channel=channel,
         audience=audience,
@@ -630,19 +672,6 @@ def _build_live_threads(
         limit=limit,
         offset=offset,
     )
-    if not prepared:
-        return []
-
-    kept_case_ids = [p.case.id for p in prepared]
-    kept_msg_ids = [m.id for p in prepared for m in p.messages]
-    unit_labels = {p.raw_unit_label for p in prepared if p.raw_unit_label != UNASSIGNED_UNIT}
-    details = load_details_batch(session, company_id, kept_case_ids, kept_msg_ids, unit_labels, now_dt.date())
-
-    live_threads = [_assemble_thread(p, msg_batch, details, company_tz=company_tz, now_dt=now_dt) for p in prepared]
-    all_msgs = [m for t in live_threads for m in t["messages"]]
-    all_drafts = [d for t in live_threads for d in (*t["gmailDrafts"], *t["whatsappDrafts"])]
-    annotate_translations(session, company_id, all_msgs, all_drafts)
-    return live_threads
 
 
 @router.get(
@@ -711,6 +740,36 @@ def get_inbox_stats(
     """Returns metric counters for inbox triage badges computed via lightweight SQL counts."""
     with Session(engine) as session:
         return inbox_stats_counts(session, principal.company_id)
+
+
+@router.get(
+    "/threads/{case_id}",
+    summary="Get Single Inbox Thread",
+    description="Fetches one communications thread by case ID (used for direct deep-links from Today/Dashboard).",
+)
+def get_inbox_thread(
+    case_id: str,
+    engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
+) -> dict[str, Any]:
+    """Fetches a single thread by case ID regardless of pagination offset."""
+    clean_id = case_id.replace("case-", "")
+    try:
+        c_uuid = UUID(clean_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid case ID") from None
+
+    with Session(engine) as session:
+        case = session.scalar(select(Case).where(Case.company_id == principal.company_id, Case.id == c_uuid))
+        if not case:
+            raise HTTPException(status_code=404, detail="Case not found")
+        built = _assemble_cases(session, principal.company_id, [case], limit=1)
+    if not built:
+        raise HTTPException(status_code=404, detail="Thread not available")
+    thread = built[0]
+    if not principal.access.can("inbox"):
+        thread = headline_only(thread)
+    return {"thread": thread}
 
 
 _SYNC_LOCK = threading.Lock()

@@ -173,9 +173,12 @@ export function InboxConversationView({
     }
   }, [thread?.id, thread?.status, thread?.messages?.length, thread?.draftProposal, initialDraft]);
 
-  // Scroll to bottom when messages update
+  // Scroll only the message pane container (never outer window/body)
   useEffect(() => {
-    timelineEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = timelineEndRef.current?.parentElement;
+    if (container) {
+      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    }
   }, [localMessages.length, isSent]);
 
   // Keyboard shortcut listener (Section 5.2): 'a' accept, 'r' reject, 'Esc' back
@@ -342,7 +345,7 @@ export function InboxConversationView({
           <Avatar name={thread.senderName} channel={thread.channel} size="default" />
 
           <div className="flex items-center justify-end">
-            {thread.ticketNumber ? (
+            {thread.category === "maintenance" && thread.ticketNumber ? (
               <button
                 type="button"
                 onClick={() => setIsTicketModalOpen(true)}
@@ -499,7 +502,7 @@ export function InboxConversationView({
 
         {/* Desktop Header Actions */}
         <div className="flex items-center gap-1 shrink-0">
-          {thread.ticketNumber && (
+          {thread.category === "maintenance" && thread.ticketNumber && (
             <Button
               variant="ghost"
               size="sm"
@@ -946,7 +949,7 @@ export function InboxConversationView({
       />
 
       {/* In-Place Maintenance Ticket Modal */}
-      {thread.ticketNumber && (
+      {thread.category === "maintenance" && thread.ticketNumber && (
         <EditTicketModal
           ticket={{
             id: thread.caseId || thread.id,
@@ -955,7 +958,7 @@ export function InboxConversationView({
             unitLabel: thread.unitLabel || "Unassigned Unit",
             tenantName: thread.senderName || "Tenant",
             tenantPhone: thread.senderContact || "",
-            category: "electrical",
+            category: "appliance",
             contractorName: thread.aiUnderstanding?.suggestedContractor || "",
             contractorTrade: "",
             urgency: thread.urgency === "emergency" ? "emergency" : "normal",
@@ -967,7 +970,7 @@ export function InboxConversationView({
             notes: thread.caseSummary || "",
             originalMessage: thread.latestSnippet || "",
             contractorDraft: "",
-            tenantDraft: `Beste ${thread.senderName?.split(" ")[0] || "huurder"}, we hebben je melding over ${thread.subject?.toLowerCase() || "het onderhoud"} ontvangen. Onze monteur is geautoriseerd en neemt contact op. Met vriendelijke groet, Harjot`,
+            tenantDraft: thread.draftProposal?.drafts?.[0]?.text || "",
           }}
           isOpen={isTicketModalOpen}
           onClose={() => setIsTicketModalOpen(false)}

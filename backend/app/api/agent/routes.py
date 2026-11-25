@@ -50,7 +50,7 @@ from app.core.ids import new_id
 from app.core.localtime import to_local
 from app.core.logging import get_logger
 from app.core.settings import Settings
-from app.db.enums import MemoryStatus, PersonKind, TurnStatus
+from app.db.enums import MemoryStatus, PersonKind, PipelineStatus, TurnStatus
 from app.db.models import (
     ActionRow,
     AgentConversation,
@@ -172,6 +172,49 @@ def _case_label(session: Session, case: Case) -> str:
     name = person.display_name if person else "Unknown sender"
     cat = case.category.value if case.category else "general"
     return f"{name} · {addr} ({cat})"
+
+
+def _message_coverage_fact(session: Session, company_id: UUID, now: datetime) -> str:
+    """Compact per-channel message date coverage (earliest, latest, days ago, count) for <page_facts>."""
+    local_now = to_local(now)
+    lines = [f"Current local time: {local_now:%Y-%m-%d %H:%M} ({local_now:%A})"]
+    try:
+        is_chat = MessageRow.pipeline_status == PipelineStatus.skipped
+        rows = session.execute(
+            select(
+                MessageRow.channel,
+                is_chat,
+                func.count(MessageRow.id),
+                func.min(MessageRow.sent_at),
+                func.max(MessageRow.sent_at),
+            )
+            .where(MessageRow.company_id == company_id)
+            .group_by(MessageRow.channel, is_chat)
+            .order_by(MessageRow.channel, is_chat)
+        ).all()
+        if not rows:
+            lines.append("Message archive coverage: no messages stored yet.")
+        else:
+            lines.append("Message archive coverage (verified SQL):")
+            for ch, chat_only, cnt, first_dt, last_dt in rows:
+                ch_val = getattr(ch, "value", str(ch))
+                scope = (
+                    "WhatsApp (Chats)"
+                    if (ch_val == "whatsapp" and chat_only)
+                    else ("WhatsApp (Inbox cases)" if ch_val == "whatsapp" else "Gmail (Inbox)")
+                )
+                first_loc = to_local(first_dt) if first_dt else None
+                last_loc = to_local(last_dt) if last_dt else None
+                first_str = f"{first_loc:%Y-%m-%d %H:%M}" if first_loc else "unknown"
+                if last_loc:
+                    days_ago = max(0, (local_now.date() - last_loc.date()).days)
+                    last_str = f"{last_loc:%Y-%m-%d %H:%M} ({days_ago} day{'s' if days_ago != 1 else ''} ago)"
+                else:
+                    last_str = "unknown"
+                lines.append(f"- {scope}: {int(cnt or 0)} messages, from {first_str} to {last_str}")
+    except Exception:
+        return ""
+    return "\n".join(lines)
 
 
 def _system_prompt(
@@ -1468,6 +1511,9 @@ def ask_agent(
         page_facts_text = ""
         if page_row and isinstance(page_row.resolved, dict):
             page_facts_text = page_row.resolved.get("facts", "") or ""
+        coverage_text = _message_coverage_fact(session, company_id, now)
+        if coverage_text:
+            page_facts_text = f"{page_facts_text}\n\n{coverage_text}".strip() if page_facts_text else coverage_text
 
         cases = session.scalars(
             select(Case)
@@ -2004,12 +2050,20 @@ def ask_agent(
             thread_summary=thread_summary,
             focus_case_id=focus_cid,
         )
-        researched = _research_answer(req.query, settings, engine, company_id, system_prompt, req.history)
+        try:
+            researched = _research_answer(req.query, settings, engine, company_id, system_prompt, req.history)
+        except Exception as res_err:
+            log.warning("api.superagent.research_fallback_failed", error=type(res_err).__name__)
+            researched = None
         if researched is not None:
             research_steps = researched.steps
             chat_resp: str | None = researched.answer
         else:
-            chat_resp = _generate_chat_answer(req.query, settings, engine, company_id, system_prompt, req.history)
+            try:
+                chat_resp = _generate_chat_answer(req.query, settings, engine, company_id, system_prompt, req.history)
+            except Exception as chat_err:
+                log.warning("api.superagent.chat_fallback_failed", error=type(chat_err).__name__)
+                chat_resp = None
         if chat_resp:
             ans_text = chat_resp
         elif needs_fallback:

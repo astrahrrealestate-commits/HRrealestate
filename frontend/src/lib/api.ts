@@ -150,7 +150,7 @@ export async function getInboxThreads(
             senderContact,
             unitLabel,
             buildingName: t.buildingName || "Centrum Portfolio",
-            category: t.category || "maintenance",
+            category: t.category || "other",
             urgency: t.urgency || "normal",
             status: t.status || "needs_approval",
             isRead: typeof t.isRead === "boolean" ? t.isRead : undefined,
@@ -1077,8 +1077,12 @@ export async function askAgent(
   history?: string[],
   conversationId?: string | null
 ): Promise<AskAgentResponse> {
-  const fallbackAns: AskAgentResponse = {
-    answer: "Unable to reach the EstateOS backend right now. Please verify the API connection and try again.",
+  const buildErrorResponse = (
+    answer: string,
+    stage: string,
+    reason: string
+  ): AskAgentResponse => ({
+    answer,
     caseRefs: [],
     suggestedAction: "View Maintenance Hub",
     actions: [
@@ -1091,10 +1095,10 @@ export async function askAgent(
     ],
     executedAt: new Date().toISOString(),
     debugInfo: {
-      pipeline_stage: "network_error",
-      fallback_reason: "Backend request failed",
+      pipeline_stage: stage,
+      fallback_reason: reason,
     },
-  };
+  });
 
   try {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/agent/ask`, {
@@ -1104,17 +1108,57 @@ export async function askAgent(
         Accept: "application/json",
       },
       body: JSON.stringify({ query, context, history, conversation_id: conversationId || null }),
-      signal: AbortSignal.timeout(35000),
+      signal: AbortSignal.timeout(55000),
     });
 
     if (res.ok) {
       return await res.json();
     }
+
+    let detail = "";
+    try {
+      const errBody = await res.json();
+      detail = typeof errBody?.detail === "string" ? errBody.detail : "";
+    } catch {
+      // non-JSON error body
+    }
+    if (res.status === 401) {
+      return buildErrorResponse(
+        "Your session has expired. Please refresh or sign in again to continue.",
+        "auth_error",
+        "HTTP 401"
+      );
+    }
+    if (res.status === 429) {
+      return buildErrorResponse(
+        detail || "Rate limit reached — please wait a few seconds before asking again.",
+        "rate_limited",
+        "HTTP 429"
+      );
+    }
+    return buildErrorResponse(
+      detail
+        ? `Astra encountered a server error (${res.status}): ${detail}`
+        : `Astra encountered a server error (HTTP ${res.status}). Please try again.`,
+      "server_error",
+      `HTTP ${res.status}`
+    );
   } catch (err) {
     console.warn("Failed to reach /api/agent/ask, using contextual fallback:", err);
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      return buildErrorResponse(
+        "The request took too long to answer (>55s). Try a shorter or more specific question.",
+        "timeout",
+        "Client timeout (55s)"
+      );
+    }
   }
 
-  return fallbackAns;
+  return buildErrorResponse(
+    "Unable to reach the EstateOS backend right now. Please verify the API connection and try again.",
+    "network_error",
+    "Backend request failed"
+  );
 }
 
 export async function getAgentConversations(): Promise<ConversationSummaryItem[]> {

@@ -322,11 +322,17 @@ export function EditTicketModal({
               <div className="flex items-center justify-between text-[11px]">
                 <div className="flex items-center gap-1.5 font-semibold text-[var(--ink)]">
                   <Wrench className="w-3.5 h-3.5 text-[var(--accent-ink)]" />
-                  <span>Work Order for Contractor ({contractorName})</span>
+                  <span>
+                    {contractorName.trim()
+                      ? `Work Order for Contractor (${contractorName.trim()})`
+                      : "Work Order for Contractor (No contractor assigned)"}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] text-[var(--ink-3)] font-mono">{contractorDraft.length}/1500</span>
-                  <span className="text-[var(--ink-3)] font-mono">WhatsApp Dispatch</span>
+                  <span className="text-[var(--ink-3)] font-mono">
+                    {contractorEmail.trim() && !contractorPhone.trim() ? "Email Dispatch" : "WhatsApp Dispatch"}
+                  </span>
                 </div>
               </div>
               <textarea

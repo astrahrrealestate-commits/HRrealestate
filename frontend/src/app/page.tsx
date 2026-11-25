@@ -84,6 +84,7 @@ export default function TodayPage() {
   const [mobileEmergencyTab, setMobileEmergencyTab] = useState<"tenant" | "contractor">("tenant");
   const [mobileBriefingTextExpanded, setMobileBriefingTextExpanded] = useState<boolean>(false);
   const [nudgedItemIds, setNudgedItemIds] = useState<Record<string, boolean>>({});
+  const [showAllUrgent, setShowAllUrgent] = useState<boolean>(false);
   const [showAllNeedsYou, setShowAllNeedsYou] = useState<boolean>(false);
   const [activeSection, setActiveSection] = useState<"all" | "urgent" | "needs_you" | "waiting" | "leads" | "overview">("all");
 
@@ -96,8 +97,8 @@ export default function TodayPage() {
     tenantName: "Tenant",
     tenantPhone: "",
     category: "appliance",
-    contractorName: "Assigned Contractor",
-    contractorTrade: "Maintenance",
+    contractorName: "",
+    contractorTrade: "",
     contractorPhone: "",
     urgency: "normal",
     status: "pending_approval",
@@ -322,6 +323,15 @@ export default function TodayPage() {
     const targetKey = key || ticket.id || ticket.ticketNumber;
     if (actionLockRef.current[`dispatch-${targetKey}`]) return;
 
+    const contractorPhone = ticket.contractorPhone?.trim() || "";
+    const contractorEmail = ticket.contractorEmail?.trim() || "";
+    if (!contractorPhone && !contractorEmail) {
+      showToast("No contractor contact assigned. Add contractor details first.");
+      setActiveEditTicket(ticket);
+      setIsEditModalOpen(true);
+      return;
+    }
+
     // Row 37: Check that work order details are not empty
     const currentOrder = customContractorText[ticket.ticketNumber] ?? ticket.contractorDraft ?? "";
     if (customContractorText[ticket.ticketNumber] !== undefined && !customContractorText[ticket.ticketNumber].trim()) {
@@ -359,21 +369,18 @@ export default function TodayPage() {
     }
 
     // Open Contractor Channel (WhatsApp or Email) for human review and dispatch
-    const contractorPhone = ticket.contractorPhone || "+31 6 88 12 34 56";
-    const contractorEmail = ticket.contractorEmail || "dispatch@chahalbouw.nl";
-
     if (contractorPhone) {
       const cleanPhone = contractorPhone.replace(/[^0-9]/g, "");
       const waUrl = cleanPhone
         ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(currentOrder.trim())}`
         : `https://web.whatsapp.com/send?text=${encodeURIComponent(currentOrder.trim())}`;
       window.open(waUrl, "_blank");
-      showToast(`Work order copied to clipboard & opened in WhatsApp for ${ticket.contractorName}.`);
+      showToast(`Work order copied to clipboard & opened in WhatsApp for ${ticket.contractorName || "Contractor"}.`);
     } else if (contractorEmail) {
       const subject = `Work Order ${ticket.ticketNumber} - ${ticket.unitLabel} [Cap: ${ticket.poBudgetCap}]`;
       const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(contractorEmail)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(currentOrder.trim())}`;
       window.open(gmailUrl, "_blank");
-      showToast(`Work order copied to clipboard & opened in Gmail for ${ticket.contractorName}.`);
+      showToast(`Work order copied to clipboard & opened in Gmail for ${ticket.contractorName || "Contractor"}.`);
     }
 
     setTimeout(() => {
@@ -795,9 +802,9 @@ export default function TodayPage() {
                 {briefingData?.summarySentence ? (
                   <span>{briefingData.summarySentence} </span>
                 ) : briefingKind === "daily" ? (
-                  <>Since yesterday evening I read 22 messages and answered 17. </>
+                  <>Live triage queue: </>
                 ) : (
-                  <>Portfolio operating at peak efficiency across all 110 units. </>
+                  <>Weekly portfolio summary: </>
                 )}
                 <Link
                   href="/inbox"
@@ -853,9 +860,9 @@ export default function TodayPage() {
                 {briefingData?.summarySentence ? (
                   <span>{briefingData.summarySentence} </span>
                 ) : briefingKind === "daily" ? (
-                  <>Since yesterday evening I read 22 messages and answered 17. </>
+                  <>Live triage queue: </>
                 ) : (
-                  <>Portfolio operating at peak efficiency across all 110 units. </>
+                  <>Weekly portfolio summary: </>
                 )}
                 <Link
                   href="/inbox"
@@ -1743,8 +1750,12 @@ export default function TodayPage() {
             )
           )}
 
-          {/* Additional urgent messages rendered as compact rows (like Needs You) */}
-          {(activeSection === "all" || activeSection === "urgent") && otherUrgentThreads.length > 0 && (
+          {/* Additional urgent messages rendered as compact rows (Top 3 + View more, like Needs You) */}
+          {(activeSection === "all" || activeSection === "urgent") && otherUrgentThreads.length > 0 && (() => {
+            const urgentLimit = activeSection === "urgent" || showAllUrgent ? 50 : 3;
+            const visibleUrgent = otherUrgentThreads.slice(0, urgentLimit);
+            const hiddenUrgentCount = Math.max(0, otherUrgentThreads.length - visibleUrgent.length);
+            return (
             <section id="section-urgent-list" className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] overflow-hidden">
               <div className="px-4 sm:px-5 py-3 border-b border-[var(--line)] bg-[var(--pane)]">
                 <SectionHeader
@@ -1755,7 +1766,7 @@ export default function TodayPage() {
                 />
               </div>
               <div className="divide-y divide-[var(--line)]">
-                {otherUrgentThreads.slice(0, activeSection === "urgent" ? 50 : 10).map((thread) => (
+                {visibleUrgent.map((thread) => (
                   <ThreadRow
                     key={thread.id}
                     t={toThreadRowItem(thread)}
@@ -1765,12 +1776,29 @@ export default function TodayPage() {
                   />
                 ))}
               </div>
+              {(hiddenUrgentCount > 0 || (showAllUrgent && otherUrgentThreads.length > 3 && activeSection === "all")) && (
+                <div className="px-4 sm:px-5 py-2.5 border-t border-[var(--line)] bg-[var(--bg)]/50 flex items-center justify-between text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setShowAllUrgent((prev) => !prev)}
+                    className="font-semibold text-[var(--ink)] hover:underline cursor-pointer"
+                  >
+                    {showAllUrgent
+                      ? t("Show fewer")
+                      : `${t("View more")} (+${hiddenUrgentCount})`}
+                  </button>
+                  <Link href="/inbox?tab=needs_you" className="font-medium text-[var(--accent-ink)] hover:underline">
+                    {t("Open Inbox →")}
+                  </Link>
+                </div>
+              )}
             </section>
-          )}
+            );
+          })()}
 
-          {/* Section 1: Needs You (Priority-sorted threads using ThreadRow, with Show more + real Done/Snooze) */}
+          {/* Section 1: Needs You (Top 3 priority-sorted threads + View more + real Done/Snooze) */}
           {(activeSection === "all" || activeSection === "needs_you") && (() => {
-            const visibleLimit = activeSection === "needs_you" || showAllNeedsYou ? 50 : 5;
+            const visibleLimit = activeSection === "needs_you" || showAllNeedsYou ? 50 : 3;
             const visibleNeedsYou = needsYouThreads.slice(0, visibleLimit);
             const hiddenCount = Math.max(0, needsYouThreads.length - visibleNeedsYou.length);
             return (
@@ -1818,6 +1846,9 @@ export default function TodayPage() {
                         const tChannel = thread.channel === "gmail" ? "gmail" : "whatsapp";
                         const isReplied = Boolean(tenantReplySentMap[thread.id]);
                         const isDispatched = Boolean(contractorDispatchedMap[thread.id]);
+                        const hasContractorContact = Boolean(
+                          mTicket.contractorPhone?.trim() || mTicket.contractorEmail?.trim()
+                        );
 
                         return (
                           <div className="bg-[var(--bg)]/50 border-b border-[var(--line)] px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -1826,7 +1857,8 @@ export default function TodayPage() {
                                 {mTicket.ticketNumber} Maintenance
                               </span>
                               <span className="text-[var(--ink-3)] hidden sm:inline truncate max-w-xs">
-                                Cap: {mTicket.poBudgetCap} · {mTicket.contractorName}
+                                {mTicket.poBudgetCap ? `Cap: ${mTicket.poBudgetCap} · ` : ""}
+                                {mTicket.contractorName || t("No contractor assigned")}
                               </span>
                             </div>
 
@@ -1871,6 +1903,11 @@ export default function TodayPage() {
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  if (!hasContractorContact) {
+                                    setActiveEditTicket(mTicket);
+                                    setIsEditModalOpen(true);
+                                    return;
+                                  }
                                   handleDispatchContractor(mTicket, thread.id);
                                 }}
                                 disabled={isDispatched}
@@ -1878,11 +1915,19 @@ export default function TodayPage() {
                                   "inline-flex items-center justify-center gap-1 px-2 md:px-2.5 py-1.5 md:py-1 rounded-lg md:rounded text-[11.5px] md:text-xs font-semibold transition-colors cursor-pointer truncate",
                                   isDispatched
                                     ? "bg-[var(--bg)] text-[var(--ink-2)] border border-[var(--line)]"
-                                    : "bg-[var(--ink)] hover:bg-[var(--ink)]/90 text-white"
+                                    : hasContractorContact
+                                      ? "bg-[var(--ink)] hover:bg-[var(--ink)]/90 text-white"
+                                      : "bg-[var(--pane)] hover:bg-[var(--selected)] text-[var(--ink)] border border-[var(--line)]"
                                 )}
                               >
                                 <Wrench className="w-3 h-3 text-[var(--accent)] shrink-0" />
-                                <span className="truncate">{isDispatched ? t("Dispatched") : t("Dispatch")}</span>
+                                <span className="truncate">
+                                  {isDispatched
+                                    ? t("Dispatched")
+                                    : hasContractorContact
+                                      ? t("Dispatch")
+                                      : t("Assign Contractor")}
+                                </span>
                               </button>
                             </div>
                           </div>
@@ -1897,7 +1942,7 @@ export default function TodayPage() {
                 </div>
               )}
             </div>
-            {(hiddenCount > 0 || (showAllNeedsYou && needsYouThreads.length > 5 && activeSection === "all")) && (
+            {(hiddenCount > 0 || (showAllNeedsYou && needsYouThreads.length > 3 && activeSection === "all")) && (
               <div className="px-4 sm:px-5 py-2.5 border-t border-[var(--line)] bg-[var(--bg)]/50 flex items-center justify-between text-xs">
                 <button
                   type="button"
@@ -1906,7 +1951,7 @@ export default function TodayPage() {
                 >
                   {showAllNeedsYou
                     ? t("Show fewer")
-                    : `${t("Show more")} (+${hiddenCount})`}
+                    : `${t("View more")} (+${hiddenCount})`}
                 </button>
                 <Link href="/inbox" className="font-medium text-[var(--accent-ink)] hover:underline">
                   {t("Review all in Inbox →")}
