@@ -94,6 +94,7 @@ export interface InboxThread {
   aiUnderstanding?: AiUnderstandingCard;
   whenYouApprove?: string[];
   caseSummary?: string; // Rolling summary from backend Case.summary
+  attachments?: ThreadMessage["attachments"];
   messages: ThreadMessage[];
   inResponseToSnippet?: string; // What message the draft is answering
   draftProposal?: {

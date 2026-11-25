@@ -82,10 +82,19 @@ class ApprovalDecideRequest(BaseModel):
 DEFAULT_SEEDED_THREADS: list[dict[str, Any]] = []
 
 
-def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, Any]]:
+def _build_live_threads(
+    session: Session, company_id: UUID, limit: int = 20, offset: int = 0
+) -> list[dict[str, Any]]:
     """Builds rich frontend-compatible thread structures from the PostgreSQL records of `company_id` only."""
     live_threads: list[dict[str, Any]] = []
-    cases = session.query(Case).filter(Case.company_id == company_id).order_by(Case.opened_at.desc()).limit(20).all()
+    cases = (
+        session.query(Case)
+        .filter(Case.company_id == company_id)
+        .order_by(Case.opened_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
     company = session.get(Company, company_id)
     company_tz = ZoneInfo(company.timezone if company else "Europe/Amsterdam")
     company_units = [(u.label, u.address) for u in session.query(Unit).filter(Unit.company_id == company_id)]
@@ -603,7 +612,7 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
                 "messages": msgs_data,
             }
         )
-        if len(live_threads) >= 50:
+        if len(live_threads) >= limit:
             break
     return live_threads
 
@@ -618,12 +627,15 @@ def get_inbox_threads(
     channel: str = Query(default="all", description="all, gmail, whatsapp"),
     audience: str = Query(default="all", description="all, tenants, contractors"),
     category: str = Query(default="all", description="all, contractor_repairs, contractor_money"),
+    limit: int = Query(default=20, ge=1, le=100, description="Max threads to return"),
+    offset: int = Query(default=0, ge=0, description="Pagination offset"),
     *,
     principal: Annotated[Principal, Depends(require_session)],
 ) -> dict[str, Any]:
     """Retrieves inbox threads enriched with agent-drafted proposals."""
     with Session(engine) as session:
-        live_threads = _build_live_threads(session, principal.company_id)
+        live_threads = _build_live_threads(session, principal.company_id, limit=limit, offset=offset)
+        total_cases = session.query(func.count(Case.id)).filter(Case.company_id == principal.company_id).scalar() or 0
     if not principal.access.can("inbox"):
         live_threads = [headline_only(t) for t in live_threads]
 
@@ -649,7 +661,10 @@ def get_inbox_threads(
 
     return {
         "threads": threads,
-        "total": len(threads),
+        "total": total_cases,
+        "has_more": (offset + len(live_threads)) < total_cases,
+        "offset": offset,
+        "limit": limit,
         "syncedAt": datetime.now(UTC).isoformat(),
     }
 

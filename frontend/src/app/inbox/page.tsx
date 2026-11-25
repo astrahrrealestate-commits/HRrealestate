@@ -130,6 +130,8 @@ function InboxContent() {
 
   const [threads, setThreads] = useState<InboxThread[]>([]);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
+  const [hasMore, setHasMore] = useState<boolean>(true);
+  const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
 
   const [activeTab, setActiveTab] = useState<string>("needs_you");
 
@@ -269,8 +271,8 @@ function InboxContent() {
     const fetchThreads = () => {
       if (inFlight) return;
       inFlight = true;
-      getInboxThreads()
-        .then(({ threads: live, isLive }) => {
+      getInboxThreads({ limit: 20, offset: 0 })
+        .then(({ threads: live, isLive, hasMore: more }) => {
           if (!isMounted) return;
           if (!isLive) {
             // A failed load must not wipe what is already on screen or pose as an empty inbox.
@@ -278,7 +280,12 @@ function InboxContent() {
             return;
           }
           setLoadState("ready");
-          setThreads(live);
+          if (more !== undefined) setHasMore(more);
+          setThreads((prev) => {
+            if (prev.length <= 20) return live;
+            const liveMap = new Map(live.map((t) => [t.id, t]));
+            return live.concat(prev.filter((t) => !liveMap.has(t.id)));
+          });
           if (live.length > 0) {
             if (threadParam) {
               const m = findMatchingThread(live, threadParam);
@@ -391,10 +398,31 @@ function InboxContent() {
       }
 
     },
-
     [router]
-
   );
+
+  const handleLoadMore = useCallback(async () => {
+    if (isLoadingMore || !hasMore) return;
+    setIsLoadingMore(true);
+    try {
+      const { threads: moreThreads, hasMore: more } = await getInboxThreads({
+        limit: 20,
+        offset: threads.length,
+      });
+      if (moreThreads && moreThreads.length > 0) {
+        setThreads((prev) => {
+          const existingIds = new Set(prev.map((t) => t.id));
+          const additions = moreThreads.filter((t) => !existingIds.has(t.id));
+          return [...prev, ...additions];
+        });
+      }
+      setHasMore(Boolean(more));
+    } catch (err) {
+      console.warn("Failed to load more threads:", err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [isLoadingMore, hasMore, threads.length]);
 
 
 
@@ -952,19 +980,16 @@ function InboxContent() {
             <div className="flex-1 min-h-0 overflow-hidden pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-0">
 
               <InboxThreadList
-
                 threads={filteredAndSortedThreads}
                 loadState={threads.length > 0 && loadState === "error" ? "ready" : loadState}
                 isFiltered={Boolean(searchQuery.trim()) || selectedFilterIds.length > 0}
-
                 selectedThreadId={activeThread?.id || ""}
-
                 onSelectThread={handleSelectThread}
-
                 onDone={handleMarkDone}
-
                 onSnooze={handleSnooze}
-
+                hasMore={hasMore && !searchQuery.trim() && selectedFilterIds.length === 0}
+                isLoadingMore={isLoadingMore}
+                onLoadMore={handleLoadMore}
               />
 
             </div>

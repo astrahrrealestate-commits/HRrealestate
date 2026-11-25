@@ -22,6 +22,8 @@ export interface FetchThreadsParams {
   channel?: "all" | "gmail" | "whatsapp";
   audience?: "all" | "tenants" | "contractors";
   category?: "all" | "contractor_repairs" | "contractor_money";
+  limit?: number;
+  offset?: number;
 }
 
 export interface ApprovalDecideResponse {
@@ -60,11 +62,13 @@ function parseTimestampToIso(ts?: string): string {
  */
 export async function getInboxThreads(
   params: FetchThreadsParams = {}
-): Promise<{ threads: InboxThread[]; isLive: boolean }> {
+): Promise<{ threads: InboxThread[]; isLive: boolean; total?: number; hasMore?: boolean }> {
   const query = new URLSearchParams();
   if (params.channel && params.channel !== "all") query.set("channel", params.channel);
   if (params.audience && params.audience !== "all") query.set("audience", params.audience);
   if (params.category && params.category !== "all") query.set("category", params.category);
+  if (params.limit !== undefined) query.set("limit", String(params.limit));
+  if (params.offset !== undefined) query.set("offset", String(params.offset));
 
   try {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/threads?${query.toString()}`, {
@@ -133,6 +137,7 @@ export async function getInboxThreads(
             latestSnippet: cleanSnippet,
             inResponseToSnippet: cleanSnippet,
             caseSummary: t.aiSummary || t.caseSummary || "",
+            attachments: t.attachments || [],
             messages: (Array.isArray(t.messages) && t.messages.length > 0)
               ? t.messages.map((m: any) => ({
                   id: m.id || `msg-${Math.random()}`,
@@ -147,6 +152,7 @@ export async function getInboxThreads(
                   language: m.language,
                   channel: m.channel || channel,
                   replyTo: m.replyTo,
+                  attachments: m.attachments || [],
                 }))
               : [
                   {
@@ -158,6 +164,7 @@ export async function getInboxThreads(
                     timeFormatted: "Today",
                     body: t.lastMessageSnippet || "",
                     channel,
+                    attachments: t.attachments || [],
                   },
                 ],
             draftProposal: (!isApproved && !lastMsgIsOutbound && (gDrafts.length > 0 || wDrafts.length > 0))
@@ -173,7 +180,12 @@ export async function getInboxThreads(
               : undefined,
           };
         });
-        return { threads: liveThreads, isLive: true };
+        return {
+          threads: liveThreads,
+          isLive: true,
+          total: data.total ?? liveThreads.length,
+          hasMore: Boolean(data.has_more),
+        };
       }
     }
   } catch {
@@ -181,7 +193,7 @@ export async function getInboxThreads(
   }
 
   // Backend unreachable: show nothing rather than seed threads that look like the owner's mail.
-  return { threads: [], isLive: false };
+  return { threads: [], isLive: false, total: 0, hasMore: false };
 }
 
 type SyncResult = { synced: boolean; newMessages: number; message: string };

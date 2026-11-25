@@ -105,6 +105,13 @@ export function getSnippet(rawMessage: string | null | undefined, maxLength = 90
     text = text.replace(pattern, "");
   }
 
+  // 1b. Strip quoted reply chains (e.g. "Op ... schreef:", "On ... wrote:", or lines starting with ">")
+  const quoteDelimiterRegex = /(?:\r?\n)+(?:On\s+[^\n]+?\bwrote:|Op\s+[^\n]+?\bschreef|.+?\bużytkownik\s+[^\n]+?\bnapisał:|-----Original Message-----|-----Oorspronkelijk bericht-----|From:\s*[^\n]+\nSent:\s*|Van:\s*[^\n]+\nVerzonden:\s*|>[\s\S]*)/i;
+  const quoteMatch = text.search(quoteDelimiterRegex);
+  if (quoteMatch > 0) {
+    text = text.slice(0, quoteMatch);
+  }
+
   // 2. Strip raw ISO timestamps
   text = text.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?/g, "");
 
