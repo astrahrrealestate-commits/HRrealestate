@@ -14,6 +14,8 @@ interface InboxThreadListProps {
   /** The list is empty because of a search, a filter or a tab, not because the inbox is. */
   isFiltered?: boolean;
   selectedThreadId: string;
+  checkedIds?: Set<string>;
+  onToggleCheck?: (threadId: string) => void;
   onSelectThread: (threadId: string) => void;
   onDone?: (threadId: string) => void;
   onSnooze?: (threadId: string) => void;
@@ -40,6 +42,8 @@ export function InboxThreadList({
   loadState = "ready",
   isFiltered = false,
   selectedThreadId,
+  checkedIds,
+  onToggleCheck,
   onSelectThread,
   onDone,
   onSnooze,
@@ -154,6 +158,8 @@ export function InboxThreadList({
                   key={t.id}
                   t={rowItem}
                   selected={t.id === selectedThreadId}
+                  checked={checkedIds?.has(t.id)}
+                  onToggleCheck={onToggleCheck ? () => onToggleCheck(t.id) : undefined}
                   onSelect={() => onSelectThread(t.id)}
                   onDone={onDone ? () => onDone(t.id) : undefined}
                   onSnooze={onSnooze ? () => onSnooze(t.id) : undefined}

@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, useRef, Suspense } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
+import { ResizeHandle, usePersistedPaneSize } from "@/components/ui/ResizableSplit";
 import {
   Search,
   Paperclip,
@@ -33,6 +34,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { usePolling } from "@/hooks/usePolling";
 import {
   ContactItem,
   ContactEmailItem,
@@ -108,6 +110,7 @@ function ContactsContent() {
   const contactParam = searchParams.get("contact");
   const superAgent = useSuperAgent();
   const { t } = useLanguage();
+  const { size: listWidth, applyDelta: resizeList, commitSize: commitList, resetSize: resetList } = usePersistedPaneSize("estateos_contacts_list_w", 240, 180, 420);
 
   // Left Sidebar Filter state
   const [filterAudience, setFilterAudience] = useState<"all" | "tenant" | "contractor">("all");
@@ -333,34 +336,34 @@ function ContactsContent() {
     el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
   }, [whatsappInput, activeTab]);
 
-  // Live background polling for live communications (updates every 8s)
+  const activeContactIdRef = useRef<string | null>(null);
+  const contactId = activeContact?.id ?? "";
+  const contactEmail = activeContact?.email;
+  const contactPhone = activeContact?.phone;
   useEffect(() => {
-    let isMounted = true;
-    async function fetchLiveComms() {
-      if (!activeContact) return;
-      try {
-        const comms = await getContactCommunications(
-          activeContact.id,
-          activeContact.email,
-          activeContact.phone
-        );
-        if (comms && isMounted) {
-          setLiveEmails(comms.emails || []);
-          setLiveWhatsApp(comms.whatsapp_messages || []);
-          setWhatsAppDrafts(comms.suggested_whatsapp_drafts || []);
-        }
-      } catch (err) {
-        // Silently preserve current state when backend is offline
-      }
-    }
+    activeContactIdRef.current = contactId || null;
+  }, [contactId]);
 
-    fetchLiveComms();
-    const interval = setInterval(fetchLiveComms, 8000);
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, [activeContact?.id, activeContact?.email, activeContact?.phone]);
+  // Live background polling for live communications (pauses when tab is hidden)
+  const fetchLiveComms = useCallback(async () => {
+    if (!contactId) return;
+    const requestedId = contactId;
+    try {
+      const comms = await getContactCommunications(requestedId, contactEmail, contactPhone);
+      if (comms && activeContactIdRef.current === requestedId) {
+        setLiveEmails(comms.emails || []);
+        setLiveWhatsApp(comms.whatsapp_messages || []);
+        setWhatsAppDrafts(comms.suggested_whatsapp_drafts || []);
+      }
+    } catch {
+      // Silently preserve current state when backend is offline
+    }
+  }, [contactId, contactEmail, contactPhone]);
+
+  usePolling(fetchLiveComms, 10000, {
+    enabled: Boolean(contactId),
+    restartKey: contactId,
+  });
 
   const handleSelectEmailDraft = (emailId: string, variant: AIDraftVariant) => {
     setEmailDraftChoices((prev) => ({ ...prev, [emailId]: variant.id }));
@@ -556,11 +559,12 @@ function ContactsContent() {
             id="mainContainer"
             className="flex-1 m-0 md:mr-[10px] md:mb-[10px] bg-white md:rounded-[14px] md:border md:border-[#27272a] md:shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-row overflow-hidden relative transition-all duration-300"
           >
-            {/* PANEL 1: CONTACTS LIST SIDEBAR (220px, subtle neutral #fafafa) */}
+            {/* PANEL 1: CONTACTS LIST SIDEBAR (Resizable on md+) */}
             <div
+              style={{ ["--list-w" as string]: `${listWidth}px` }}
               className={cn(
-                "w-[220px] min-w-[220px] shrink-0 flex flex-col border-r border-[#e8e9eb] bg-[#fafafa] overflow-hidden",
-                contactParam ? "hidden md:flex" : "flex w-full md:w-[220px]"
+                "shrink-0 flex flex-col border-r border-[#e8e9eb] bg-[#fafafa] overflow-hidden",
+                contactParam ? "hidden md:flex md:w-[var(--list-w)]" : "flex w-full md:w-[var(--list-w)]"
               )}
             >
               {/* Header */}
@@ -726,6 +730,15 @@ function ContactsContent() {
                 )}
               </div>
             </div>
+
+            <ResizeHandle
+              orientation="horizontal"
+              ariaLabel="Resize contacts list"
+              className="hidden md:block"
+              onDragDelta={resizeList}
+              onDragEnd={commitList}
+              onDoubleClick={resetList}
+            />
 
             {/* PANEL 2: CONTACT DETAIL */}
             <div

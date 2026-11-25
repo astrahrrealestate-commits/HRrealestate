@@ -5,6 +5,8 @@ directory tables. Rent amounts and lockbox codes are not stored there yet, so th
 (unknown, see `rentDataAvailable` on the dashboard pulse) and no lockbox code is ever returned.
 """
 
+from collections import defaultdict
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Annotated
 from uuid import UUID
@@ -77,69 +79,107 @@ def _for_viewer(item: UnitItem, principal: Principal) -> UnitItem:
     return item.model_copy(update={"tenantPhone": None, "tenantEmail": None})
 
 
-def _item(session: Session, unit: Unit, today: date, facts: UnitFacts) -> UnitItem:
-    """The unit with its current lease: one that has not ended (open-ended, or ending today or later)."""
-    lease = session.scalars(
+@dataclass(frozen=True)
+class _UnitBatch:
+    leases_by_unit: dict[UUID, Lease]
+    tenants_by_lease: dict[UUID, Person]
+    identities_by_person: dict[UUID, tuple[str | None, str | None]]
+    rent_by_unit: dict[UUID, TenantRentPayment]
+    open_tickets_by_unit: dict[UUID, int]
+
+
+def _load_units_batch(session: Session, company_id: UUID, unit_ids: list[UUID], today: date) -> _UnitBatch:
+    if not unit_ids:
+        return _UnitBatch({}, {}, {}, {}, {})
+
+    leases_by_unit: dict[UUID, Lease] = {}
+    for lease in session.scalars(
         select(Lease)
         .where(
-            Lease.company_id == unit.company_id,
-            Lease.unit_id == unit.id,
+            Lease.company_id == company_id,
+            Lease.unit_id.in_(unit_ids),
             (Lease.valid_to.is_(None)) | (Lease.valid_to >= today),
             Lease.valid_from <= today,
         )
         .order_by(Lease.valid_from.desc())
-    ).first()
-    tenant = None
-    tenant_phone = None
-    tenant_email = None
-    monthly_rent = 0.0
-    rent_status = None
+    ).all():
+        if lease.unit_id not in leases_by_unit:
+            leases_by_unit[lease.unit_id] = lease
 
-    if lease is not None:
-        tenant = session.scalars(
-            select(Person)
-            .join(LeaseParty, LeaseParty.person_id == Person.id)
+    lease_ids = [lease.id for lease in leases_by_unit.values()]
+    tenants_by_lease: dict[UUID, Person] = {}
+    if lease_ids:
+        for lid, person in session.execute(
+            select(LeaseParty.lease_id, Person)
+            .join(Person, Person.id == LeaseParty.person_id)
             .where(
-                LeaseParty.company_id == unit.company_id,
-                LeaseParty.lease_id == lease.id,
+                LeaseParty.company_id == company_id,
+                LeaseParty.lease_id.in_(lease_ids),
                 LeaseParty.role == "tenant",
             )
-        ).first()
+        ).all():
+            if lid not in tenants_by_lease:
+                tenants_by_lease[lid] = person
 
-        if tenant is not None:
-            identities = session.scalars(
-                select(ChannelIdentity).where(
-                    ChannelIdentity.company_id == unit.company_id,
-                    ChannelIdentity.person_id == tenant.id,
-                    ChannelIdentity.valid_to.is_(None),
-                )
-            ).all()
-            tenant_phone = next((i.identity for i in identities if i.channel == Channel.whatsapp), None)
-            tenant_email = next((i.identity for i in identities if i.channel == Channel.gmail), None)
-
-            rent_record = session.scalars(
-                select(TenantRentPayment)
-                .where(
-                    TenantRentPayment.company_id == unit.company_id,
-                    TenantRentPayment.unit_id == unit.id,
-                )
-                .order_by(TenantRentPayment.billing_month.desc())
-            ).first()
-            if rent_record:
-                monthly_rent = float(rent_record.contract_rent_cents) / 100.0
-                rent_status = "overdue" if rent_record.status == "overdue" else "up_to_date"
-
-    open_tickets = (
-        session.scalar(
-            select(func.count(Case.id)).where(
-                Case.company_id == unit.company_id,
-                Case.unit_id == unit.id,
-                Case.state != CaseState.resolved,
+    person_ids = [p.id for p in tenants_by_lease.values()]
+    ident_map: dict[UUID, dict[str, str]] = defaultdict(dict)
+    if person_ids:
+        for pid, ch, ident in session.execute(
+            select(ChannelIdentity.person_id, ChannelIdentity.channel, ChannelIdentity.identity).where(
+                ChannelIdentity.company_id == company_id,
+                ChannelIdentity.person_id.in_(person_ids),
+                ChannelIdentity.valid_to.is_(None),
             )
-        )
-        or 0
+        ).all():
+            entry = ident_map[pid]
+            if ch == Channel.whatsapp and "phone" not in entry:
+                entry["phone"] = ident
+            elif ch == Channel.gmail and "email" not in entry:
+                entry["email"] = ident
+    identities_by_person = {pid: (d.get("phone"), d.get("email")) for pid, d in ident_map.items()}
+
+    rent_by_unit: dict[UUID, TenantRentPayment] = {}
+    for rent in session.scalars(
+        select(TenantRentPayment)
+        .where(TenantRentPayment.company_id == company_id, TenantRentPayment.unit_id.in_(unit_ids))
+        .order_by(TenantRentPayment.billing_month.desc())
+    ).all():
+        if rent.unit_id not in rent_by_unit:
+            rent_by_unit[rent.unit_id] = rent
+
+    open_tickets_by_unit: dict[UUID, int] = {
+        uid: int(cnt)
+        for uid, cnt in session.execute(
+            select(Case.unit_id, func.count(Case.id))
+            .where(Case.company_id == company_id, Case.unit_id.in_(unit_ids), Case.state != CaseState.resolved)
+            .group_by(Case.unit_id)
+        ).all()
+        if uid is not None
+    }
+    return _UnitBatch(
+        leases_by_unit=leases_by_unit,
+        tenants_by_lease=tenants_by_lease,
+        identities_by_person=identities_by_person,
+        rent_by_unit=rent_by_unit,
+        open_tickets_by_unit=open_tickets_by_unit,
     )
 
+
+def _item_from_batch(unit: Unit, today: date, facts: UnitFacts, batch: _UnitBatch) -> UnitItem:
+    lease = batch.leases_by_unit.get(unit.id)
+    tenant = batch.tenants_by_lease.get(lease.id) if lease is not None else None
+    tenant_phone, tenant_email = (
+        batch.identities_by_person.get(tenant.id, (None, None)) if tenant is not None else (None, None)
+    )
+    monthly_rent = 0.0
+    rent_status = None
+    if lease is not None and tenant is not None:
+        rent_record = batch.rent_by_unit.get(unit.id)
+        if rent_record:
+            monthly_rent = float(rent_record.contract_rent_cents) / 100.0
+            rent_status = "overdue" if rent_record.status == "overdue" else "up_to_date"
+
+    open_tickets = batch.open_tickets_by_unit.get(unit.id, 0)
     brixx_rent, deposit = facts.for_lease(lease.brixx_ref if lease is not None else None)
     if lease is not None and not monthly_rent and brixx_rent:
         monthly_rent = brixx_rent  # the contract's current rent lines in BRIXX when no rent roll is recorded here
@@ -164,6 +204,12 @@ def _item(session: Session, unit: Unit, today: date, facts: UnitFacts) -> UnitIt
     )
 
 
+def _item(session: Session, unit: Unit, today: date, facts: UnitFacts) -> UnitItem:
+    """The unit with its current lease: one that has not ended (open-ended, or ending today or later)."""
+    batch = _load_units_batch(session, unit.company_id, [unit.id], today)
+    return _item_from_batch(unit, today, facts, batch)
+
+
 @router.get(
     "",
     response_model=PropertiesResponse,
@@ -177,13 +223,16 @@ def get_properties(
 ) -> PropertiesResponse:
     today = datetime.now(UTC).date()
     with Session(engine) as session:
-        units = session.scalars(
-            select(Unit)
-            .where(Unit.company_id == principal.company_id, Unit.valid_to.is_(None))
-            .order_by(Unit.label.asc())
-        ).all()
+        units = list(
+            session.scalars(
+                select(Unit)
+                .where(Unit.company_id == principal.company_id, Unit.valid_to.is_(None))
+                .order_by(Unit.label.asc())
+            ).all()
+        )
         facts = unit_facts(session, principal.company_id, today)
-        items = [_for_viewer(_item(session, unit, today, facts), principal) for unit in units]
+        batch = _load_units_batch(session, principal.company_id, [u.id for u in units], today)
+        items = [_for_viewer(_item_from_batch(unit, today, facts, batch), principal) for unit in units]
     occupied = sum(i.status in ("occupied", "notice_given") for i in items)
     shown = items if status == "all" else [i for i in items if i.status == status]
     return PropertiesResponse(

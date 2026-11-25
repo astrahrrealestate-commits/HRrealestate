@@ -50,11 +50,73 @@ type ApiHealthListener = (healthy: boolean) => void;
 
 const healthListeners = new Set<ApiHealthListener>();
 let apiHealthy = true;
+let consecutiveFailures = 0;
+let verifyTimer: ReturnType<typeof setTimeout> | null = null;
+let probeInFlight: Promise<boolean> | null = null;
+const FAILURE_THRESHOLD = 2;
+const WAKE_VERIFY_DELAY_MS = 1500;
+const GATEWAY_UNAVAILABLE_STATUSES = new Set([502, 503, 504]);
 
 function setApiHealthy(next: boolean) {
+  if (next) {
+    consecutiveFailures = 0;
+    if (verifyTimer !== null) {
+      clearTimeout(verifyTimer);
+      verifyTimer = null;
+    }
+  }
   if (next === apiHealthy) return;
   apiHealthy = next;
   healthListeners.forEach((listener) => listener(next));
+}
+
+function isAbortOrTimeout(error: unknown): "abort" | "timeout" | null {
+  if (error instanceof DOMException) {
+    if (error.name === "AbortError") return "abort";
+    if (error.name === "TimeoutError") return "timeout";
+  }
+  return null;
+}
+
+function scheduleHealthVerification() {
+  if (verifyTimer !== null || !apiHealthy) return;
+  // Wait briefly so wake-up sockets and Wi-Fi reconnects settle before flipping the global banner.
+  verifyTimer = setTimeout(() => {
+    verifyTimer = null;
+    void probeApiHealth();
+  }, WAKE_VERIFY_DELAY_MS);
+}
+
+/** Check `/health/live` so wake-up and reconnect events restore reachability without waiting for a poll. */
+export function probeApiHealth(): Promise<boolean> {
+  if (probeInFlight) return probeInFlight;
+  probeInFlight = fetch(backendUrl("/health/live"), {
+    method: "GET",
+    credentials: "include",
+    cache: "no-store",
+    signal: AbortSignal.timeout(5000),
+  })
+    .then(
+      (res) => {
+        if (res.ok) {
+          setApiHealthy(true);
+          return true;
+        }
+        if (GATEWAY_UNAVAILABLE_STATUSES.has(res.status)) {
+          setApiHealthy(false);
+          return false;
+        }
+        return apiHealthy;
+      },
+      () => {
+        setApiHealthy(false);
+        return false;
+      }
+    )
+    .finally(() => {
+      probeInFlight = null;
+    });
+  return probeInFlight;
 }
 
 /** Subscribe to API reachability (fed by every `apiFetch`). Calls back immediately with the current state. */
@@ -72,12 +134,24 @@ export function apiFetch(pathOrUrl: string, init: RequestInit = {}): Promise<Res
   if (!SAFE_METHODS.has(method)) headers.set("X-EstateOS-Client", "dashboard");
   return fetch(backendUrl(pathOrUrl), { ...init, headers, credentials: "include" }).then(
     (response) => {
-      setApiHealthy(response.status < 500);
+      if (response.status < 500) {
+        setApiHealthy(true);
+      } else if (GATEWAY_UNAVAILABLE_STATUSES.has(response.status)) {
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= FAILURE_THRESHOLD) scheduleHealthVerification();
+      }
       return response;
     },
     (error: unknown) => {
-      // A component aborting its own request on unmount says nothing about the server.
-      if (!(error instanceof DOMException && error.name === "AbortError")) setApiHealthy(false);
+      const kind = isAbortOrTimeout(error);
+      if (kind === "abort") throw error;
+      consecutiveFailures += 1;
+      // Single timeouts reflect a slow query rather than an outage; confirm with `/health/live` after repeated hits.
+      if (kind === "timeout") {
+        if (consecutiveFailures >= FAILURE_THRESHOLD + 1) scheduleHealthVerification();
+      } else if (consecutiveFailures >= FAILURE_THRESHOLD) {
+        scheduleHealthVerification();
+      }
       throw error;
     }
   );

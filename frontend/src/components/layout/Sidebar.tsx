@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
 import { ConnectionsModal } from "@/components/connections/ConnectionsModal";
 import Link from "next/link";
@@ -25,12 +25,14 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { needsYouCount, ThreadCountTarget } from "@/lib/selectors";
-import { getInboxThreads } from "@/lib/api";
+import { getInboxNeedsYouCount } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useSidebar } from "@/context/SidebarContext";
+import { ResizeHandle } from "@/components/ui/ResizableSplit";
 import { useChatUnread } from "@/hooks/useChatUnread";
+import { usePolling } from "@/hooks/usePolling";
 
 interface NavItem {
   label: string;
@@ -65,7 +67,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
   const { user, logout, canAccess } = useAuth();
   const { t } = useLanguage();
   const { isOpen: isSuperAgentOpen } = useSuperAgent();
-  const { isCollapsed, toggleSidebar } = useSidebar();
+  const { isCollapsed, toggleSidebar, expandSidebar, collapseSidebar, sidebarWidth, setSidebarWidth, resetSidebarWidth } = useSidebar();
   const compact = isCollapsed;
 
   const displayName = user?.name || "Harjot Singh";
@@ -79,31 +81,35 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
   const [liveCount, setLiveCount] = useState<number | null>(null);
   const chatUnread = useChatUnread();
 
-  // When not provided by parent page, query live inbox threads once
+  const mountedRef = useRef(true);
   useEffect(() => {
-    if (pendingCount !== undefined || threads !== undefined) return;
-    let isMounted = true;
-    getInboxThreads()
-      .then(({ threads: liveThreads }) => {
-        if (isMounted && Array.isArray(liveThreads)) {
-          setLiveCount(needsYouCount(liveThreads));
-        }
-      })
-      .catch(() => {});
+    mountedRef.current = true;
     return () => {
-      isMounted = false;
+      mountedRef.current = false;
     };
-  }, [pendingCount, threads]);
+  }, []);
+
+  const refreshInboxCount = useCallback(async () => {
+    const count = await getInboxNeedsYouCount();
+    if (mountedRef.current && count !== null) {
+      setLiveCount(count);
+    }
+  }, []);
+
+  // Poll lightweight SQL counts instead of 20 full inbox threads when not provided by parent page
+  usePolling(refreshInboxCount, 30000, {
+    enabled: pendingCount === undefined && threads === undefined,
+  });
 
   // Single source of truth for nav count
   const effectiveCount =
     pendingCount !== undefined
       ? pendingCount
       : threads !== undefined
-      ? needsYouCount(threads)
-      : liveCount !== null
-      ? liveCount
-      : 0;
+        ? needsYouCount(threads)
+        : liveCount !== null
+          ? liveCount
+          : 0;
 
   const allNavigationItems: (NavItem & { section: string })[] = [
     {
@@ -138,11 +144,35 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
 
   return (
     <aside
+      style={{ width: compact ? 68 : sidebarWidth }}
       className={cn(
-        "hidden md:flex flex-col justify-between select-none h-dvh sticky top-0 flex-shrink-0 border-r border-[#162B45] bg-[#0A1B2F] transition-all duration-200 z-20",
-        compact ? "w-[68px]" : "w-[240px]"
+        "hidden md:flex flex-col justify-between select-none h-dvh sticky top-0 flex-shrink-0 border-r border-[#162B45] bg-[#0A1B2F] transition-[width] duration-150 z-20 relative"
       )}
     >
+      <ResizeHandle
+        orientation="horizontal"
+        ariaLabel="Resize navigation sidebar"
+        className="absolute right-0 top-0 bottom-0"
+        onDragDelta={(delta) => {
+          if (compact && delta > 8) {
+            expandSidebar();
+            setSidebarWidth(180);
+            return;
+          }
+          if (!compact) {
+            const next = sidebarWidth + delta;
+            if (next < 135) {
+              collapseSidebar();
+            } else {
+              setSidebarWidth(next);
+            }
+          }
+        }}
+        onDoubleClick={() => {
+          expandSidebar();
+          resetSidebarWidth();
+        }}
+      />
       {/* Top Header & Navigation */}
       <div className="flex flex-col">
         {/* Brand Logo Header (h-[52px] aligned with TopCommandBar) - Logo clicks to minimize/expand */}

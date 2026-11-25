@@ -1,9 +1,7 @@
 """ASGI app factory. Run: `uvicorn app.main:create_app --factory`."""
 
-import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
 
 from dbos import DBOSClient
 from fastapi import FastAPI
@@ -12,8 +10,7 @@ from sqlalchemy import Engine
 
 import app
 from app.api import agent, calendar, chats, contacts, dashboard, health, inbox, maintenance, properties, tenants
-from app.api.deps import WorkflowClient, ingest_deps_for
-from app.api.inbox.routes import sync_gmail_accounts
+from app.api.deps import WorkflowClient
 from app.api.v1 import auth as dashboard_auth
 from app.api.v1.ratelimit import RateLimiter
 from app.api.v1.router import api_v1_router
@@ -46,21 +43,6 @@ def _cors_origins(settings: Settings) -> list[str]:
         return list(settings.dashboard_cors_origins)
 
     return LOCAL_SPA_ORIGINS if settings.env == "dev" else []
-
-
-async def _auto_sync_loop(state: Any) -> None:
-    """Deps are built inside the loop: building storage at startup would block an app that never syncs."""
-
-    await asyncio.sleep(5)
-
-    while True:
-        try:
-            await asyncio.to_thread(sync_gmail_accounts, ingest_deps_for(state))
-
-        except Exception as exc:
-            log.warning("inbox.auto_sync_failed", error=type(exc).__name__)
-
-        await asyncio.sleep(30)
 
 
 def create_app(
@@ -111,14 +93,7 @@ def create_app(
 
         api.state.id_token_verifier = id_token_verifier or dashboard_auth.dashboard_verifier(settings)
 
-        # Automatic background polling for Gmail (every 30s)
-
-        sync_task = asyncio.create_task(_auto_sync_loop(api.state)) if settings.gmail_credentials_file else None
-
         yield
-
-        if sync_task:
-            sync_task.cancel()
 
         if workflow_client is None:
             api.state.workflow_client.destroy()

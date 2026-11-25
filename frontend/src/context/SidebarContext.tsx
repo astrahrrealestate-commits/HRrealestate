@@ -9,17 +9,25 @@ interface SidebarContextType {
   toggleSidebar: () => void;
   expandSidebar: () => void;
   collapseSidebar: () => void;
+  sidebarWidth: number;
+  setSidebarWidth: (width: number) => void;
+  resetSidebarWidth: () => void;
 }
 
 const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
 
 const STORAGE_KEY = "estateos_sidebar_collapsed";
+const WIDTH_STORAGE_KEY = "estateos_sidebar_width";
+const DEFAULT_SIDEBAR_WIDTH = 240;
+const MIN_SIDEBAR_WIDTH = 180;
+const MAX_SIDEBAR_WIDTH = 320;
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const { isOpen: isSuperAgentOpen } = useSuperAgent();
 
   // Start with expanded (false) by default
   const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
+  const [sidebarWidth, setSidebarWidthState] = useState<number>(DEFAULT_SIDEBAR_WIDTH);
   const isSuperAgentOpenRef = useRef(isSuperAgentOpen);
 
   // Initialize preference from localStorage on client mount
@@ -29,10 +37,32 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
       if (stored !== null) {
         setIsCollapsed(stored === "true");
       }
+      const storedW = localStorage.getItem(WIDTH_STORAGE_KEY);
+      if (storedW !== null) {
+        const parsed = Number(storedW);
+        if (!Number.isNaN(parsed) && parsed >= MIN_SIDEBAR_WIDTH && parsed <= MAX_SIDEBAR_WIDTH) {
+          setSidebarWidthState(parsed);
+        }
+      }
     } catch {
       // LocalStorage might be unavailable in private browsing
     }
   }, []);
+
+  const setSidebarWidth = (width: number) => {
+    const clamped = Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, Math.round(width)));
+    setSidebarWidthState(clamped);
+    try {
+      localStorage.setItem(WIDTH_STORAGE_KEY, String(clamped));
+    } catch {}
+  };
+
+  const resetSidebarWidth = () => {
+    setSidebarWidthState(DEFAULT_SIDEBAR_WIDTH);
+    try {
+      localStorage.setItem(WIDTH_STORAGE_KEY, String(DEFAULT_SIDEBAR_WIDTH));
+    } catch {}
+  };
 
   // When SuperAgent opens, auto-minimize to give room, but allow user to expand anytime
   useEffect(() => {
@@ -99,6 +129,9 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
         toggleSidebar,
         expandSidebar,
         collapseSidebar,
+        sidebarWidth,
+        setSidebarWidth,
+        resetSidebarWidth,
       }}
     >
       {children}

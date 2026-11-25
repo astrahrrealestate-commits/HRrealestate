@@ -50,6 +50,8 @@ class Case(Base, CompanyScoped):
     brixx_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     opened_at: Mapped[datetime] = mapped_column(server_default=func.now())
     resolved_at: Mapped[datetime | None]
+    last_read_at: Mapped[datetime | None] = mapped_column(default=None)
+    snoozed_until: Mapped[datetime | None] = mapped_column(default=None)
 
 
 class CaseLink(Base, CompanyScoped):

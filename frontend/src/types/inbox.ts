@@ -84,6 +84,7 @@ export interface InboxThread {
   urgency: UrgencyLevel;
   status: ThreadStatus;
   isRead?: boolean;
+  snoozedUntil?: string | null;
   receivedAt: string; // ISO
   relativeTime: string;
   latestSnippet: string;

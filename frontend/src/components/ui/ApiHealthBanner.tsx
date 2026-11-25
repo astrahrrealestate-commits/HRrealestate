@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { WifiOff } from "lucide-react";
-import { onApiHealthChange } from "@/lib/backend";
+import { onApiHealthChange, probeApiHealth } from "@/lib/backend";
 import { useLanguage } from "@/context/LanguageContext";
 
 /**
@@ -13,7 +13,28 @@ export function ApiHealthBanner() {
   const { language } = useLanguage();
   const [healthy, setHealthy] = useState(true);
 
-  useEffect(() => onApiHealthChange(setHealthy), []);
+  useEffect(() => {
+    const unsub = onApiHealthChange(setHealthy);
+    let wakeTimer: ReturnType<typeof setTimeout> | null = null;
+    const verifySoon = () => {
+      if (wakeTimer !== null) clearTimeout(wakeTimer);
+      wakeTimer = setTimeout(() => {
+        wakeTimer = null;
+        void probeApiHealth();
+      }, 500);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") verifySoon();
+    };
+    window.addEventListener("online", verifySoon);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      unsub();
+      if (wakeTimer !== null) clearTimeout(wakeTimer);
+      window.removeEventListener("online", verifySoon);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
 
   if (healthy) return null;
 

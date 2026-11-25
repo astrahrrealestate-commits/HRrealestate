@@ -57,6 +57,26 @@ function parseTimestampToIso(ts?: string): string {
 }
 
 /**
+ * Fetches lightweight inbox badge counts from SQL (GET /api/inbox/stats).
+ */
+export async function getInboxNeedsYouCount(): Promise<number | null> {
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/stats`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (typeof data.needsYouCount === "number") return data.needsYouCount;
+    }
+  } catch {
+    // Offline fallback
+  }
+  return null;
+}
+
+/**
  * Fetches inbox threads from the backend API.
  * GET /api/inbox/threads
  */
@@ -74,7 +94,7 @@ export async function getInboxThreads(
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/threads?${query.toString()}`, {
       method: "GET",
       headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(20000),
     });
 
     if (res.ok) {
@@ -130,6 +150,8 @@ export async function getInboxThreads(
             category: t.category || "maintenance",
             urgency: t.urgency || "normal",
             status: t.status || "needs_approval",
+            isRead: typeof t.isRead === "boolean" ? t.isRead : undefined,
+            snoozedUntil: t.snoozedUntil ?? null,
             detectedLanguage: t.detectedLanguage || "Dutch (detected)",
             aiUnderstanding: t.aiUnderstanding,
             receivedAt: t.receivedAt || parseTimestampToIso(t.timestamp),
@@ -327,6 +349,66 @@ export async function createGmailDraft(payload: {
   };
 }
 
+export async function markThreadRead(caseId: string, read = true): Promise<boolean> {
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/threads/${encodeURIComponent(caseId)}/read`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ read }),
+      signal: AbortSignal.timeout(8000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function markThreadDone(caseId: string): Promise<boolean> {
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/threads/${encodeURIComponent(caseId)}/done`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(8000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function snoozeThread(caseId: string, until?: string): Promise<{ ok: boolean; snoozedUntil?: string }> {
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/threads/${encodeURIComponent(caseId)}/snooze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ until: until ?? null }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.ok) return await res.json();
+  } catch {
+    // ignore
+  }
+  return { ok: false };
+}
+
+export async function linkThreadTenant(
+  caseId: string,
+  tenantId?: string
+): Promise<{ ok: boolean; tenantId?: string; tenantName?: string }> {
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/threads/${encodeURIComponent(caseId)}/link-tenant`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ tenant_id: tenantId ?? null }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.ok) return await res.json();
+  } catch {
+    // ignore
+  }
+  return { ok: false };
+}
+
 // ---------------------------------------------------------------------------
 // Dashboard Pulse, Radar, Inquiries & Autonomous Logs
 // ---------------------------------------------------------------------------
@@ -377,7 +459,7 @@ export async function getDashboardBriefing(kind: "daily" | "weekly" = "daily") {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/dashboard/briefing?kind=${kind}`, {
       method: "GET",
       headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (res.ok) {
@@ -398,7 +480,7 @@ export async function getDashboardPulse(): Promise<{ metrics: PulseMetrics; isLi
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/dashboard/pulse`, {
       method: "GET",
       headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(2500),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (res.ok) {
@@ -449,7 +531,7 @@ export async function getDashboardAttention(): Promise<{ items: AttentionItem[];
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/dashboard/attention?limit=20`, {
       method: "GET",
       headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(4000),
+      signal: AbortSignal.timeout(10000),
     });
     if (res.ok) {
       const data = await res.json();
@@ -472,7 +554,7 @@ export async function getDashboardRadar(): Promise<{ items: StalledItem[]; total
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/dashboard/radar`, {
       method: "GET",
       headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(2500),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (res.ok) {
@@ -514,7 +596,7 @@ export async function getDashboardInquiries(): Promise<{ inquiries: ProspectiveI
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/dashboard/inquiries`, {
       method: "GET",
       headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(2500),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (res.ok) {
@@ -539,7 +621,7 @@ export async function getAutonomousLogs(): Promise<{ logs: AutonomousActionLog[]
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/dashboard/logs`, {
       method: "GET",
       headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(2500),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (res.ok) {
@@ -613,7 +695,7 @@ export async function getMaintenanceTickets(params: {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/maintenance/tickets?${query.toString()}`, {
       method: "GET",
       headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(2500),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (res.ok) {
@@ -646,7 +728,7 @@ export async function updateMaintenanceTicket(
         Accept: "application/json",
       },
       body: JSON.stringify(updates),
-      signal: AbortSignal.timeout(3500),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (res.ok) {
@@ -673,7 +755,7 @@ export async function getTicketHistory(ticketId: string): Promise<{
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/maintenance/tickets/${cleanId}/history`, {
       method: "GET",
       headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(2500),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (res.ok) {
@@ -727,7 +809,7 @@ export async function approveMaintenanceTicket(
         tenantMessage: opts.tenantMessage || null,
         poBudgetCap: opts.poBudgetCap || null,
       }),
-      signal: AbortSignal.timeout(4000),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (res.ok) {
@@ -766,7 +848,7 @@ export async function getProperties(status: string = "all") {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/properties?status=${status}`, {
       method: "GET",
       headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(2500),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (res.ok) {
@@ -787,7 +869,7 @@ export async function getTenants(rentStatus: string = "all") {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/tenants?rent_status=${rentStatus}`, {
       method: "GET",
       headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(2500),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (res.ok) {
@@ -1303,7 +1385,7 @@ export async function prewarmAgentPage(params: PrewarmPageParams): Promise<boole
         task_ref: params.taskRef || (params.ticketNumber ? `#${params.ticketNumber}` : null),
         visible_ids: [],
       }),
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(10000),
     });
     return res.ok;
   } catch {
@@ -1472,7 +1554,7 @@ export async function getContactCommunications(
       {
         method: "GET",
         headers: { Accept: "application/json" },
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(10000),
       }
     );
     if (res.ok) {
@@ -1498,7 +1580,7 @@ export async function sendContactWhatsAppMessage(
           Accept: "application/json",
         },
         body: JSON.stringify({ text }),
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(10000),
       }
     );
     if (res.ok) {

@@ -26,6 +26,8 @@ export interface ThreadRowItem {
 export interface ThreadRowProps {
   t: ThreadRowItem;
   selected?: boolean;
+  checked?: boolean;
+  onToggleCheck?: (e: React.MouseEvent) => void;
   onSelect?: () => void;
   onDone?: (e: React.MouseEvent) => void;
   onSnooze?: (e: React.MouseEvent) => void;
@@ -44,6 +46,8 @@ export interface ThreadRowProps {
 export function ThreadRow({
   t,
   selected = false,
+  checked = false,
+  onToggleCheck,
   onSelect,
   onDone,
   onSnooze,
@@ -56,18 +60,46 @@ export function ThreadRow({
   const isoTime = isNaN(dateObj.getTime()) ? "" : dateObj.toISOString();
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect?.();
+        }
+      }}
       aria-current={selected}
       className={cn(
-        "group grid w-full grid-cols-[8px_40px_1fr_auto] items-start gap-3 border-b border-[var(--line)] px-4 py-3 text-left transition-colors cursor-pointer relative focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+        "group grid w-full items-start gap-2.5 border-b border-[var(--line)] px-3.5 py-2.5 text-left transition-colors cursor-pointer relative focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+        onToggleCheck
+          ? "grid-cols-[18px_8px_36px_1fr_auto]"
+          : "grid-cols-[8px_40px_1fr_auto]",
         // Gmail-style contrast: unread rows are elevated crisp pane with rich text, read rows are calm muted bg
         isUnread ? "bg-[var(--pane)]" : "bg-[var(--bg)]/60 text-[var(--ink-3)]",
+        checked && "bg-blue-50/70",
         selected && "bg-[var(--selected)] shadow-[inset_2px_0_0_var(--ink)]",
         className
       )}
     >
+      {onToggleCheck && (
+        <span
+          className="mt-2.5 flex items-center justify-center"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleCheck(e);
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={() => {}}
+            aria-label={`Select ${t.contactName}`}
+            className="w-3.5 h-3.5 rounded border-[var(--line-2)] text-[var(--accent)] focus:ring-[var(--accent)] cursor-pointer"
+          />
+        </span>
+      )}
       {/* 8px orange dot or unread dot */}
       <span
         className={cn(
@@ -178,6 +210,6 @@ export function ThreadRow({
           )}
         </div>
       </span>
-    </button>
+    </div>
   );
 }

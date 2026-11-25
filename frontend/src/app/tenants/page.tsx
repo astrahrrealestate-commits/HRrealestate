@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, useRef, Suspense } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
+import { ResizeHandle, usePersistedPaneSize } from "@/components/ui/ResizableSplit";
 import {
   Search,
   Paperclip,
@@ -35,6 +36,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { usePolling } from "@/hooks/usePolling";
 import {
   ContactItem,
   ContactEmailItem,
@@ -114,6 +116,7 @@ function TenantsContent() {
   const tenantParam = searchParams.get("tenant") || searchParams.get("contact");
   const superAgent = useSuperAgent();
   const { t } = useLanguage();
+  const { size: listWidth, applyDelta: resizeList, commitSize: commitList, resetSize: resetList } = usePersistedPaneSize("estateos_tenants_list_w", 240, 180, 420);
 
   const [contactForm, setContactForm] = useState<{ open: boolean; contact: ContactItem | null }>({
     open: false,
@@ -377,36 +380,34 @@ function TenantsContent() {
     el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
   }, [whatsappInput, activeTab]);
 
-  // Fetch Live Communications when active tenant changes
+  const activeContactIdRef = useRef<string | null>(null);
+  const contactId = activeContact?.id ?? "";
+  const contactEmail = activeContact?.email || undefined;
+  const contactPhone = activeContact?.phone || undefined;
   useEffect(() => {
-    if (!activeContact) return;
-    let isMounted = true;
+    activeContactIdRef.current = contactId || null;
+  }, [contactId]);
 
-    async function fetchLiveComms() {
-      if (!activeContact) return;
-      try {
-        const comms = await getContactCommunications(
-          activeContact.id,
-          activeContact.email || undefined,
-          activeContact.phone || undefined
-        );
-        if (isMounted && comms) {
-          setLiveEmails(comms.emails || []);
-          setLiveWhatsApp(comms.whatsapp_messages || []);
-          setWhatsAppDrafts(comms.suggested_whatsapp_drafts || []);
-        }
-      } catch (err) {
-        // Silently preserve current state when backend is offline
+  // Live background polling for tenant communications (pauses when tab is hidden)
+  const fetchLiveComms = useCallback(async () => {
+    if (!contactId) return;
+    const requestedId = contactId;
+    try {
+      const comms = await getContactCommunications(requestedId, contactEmail, contactPhone);
+      if (comms && activeContactIdRef.current === requestedId) {
+        setLiveEmails(comms.emails || []);
+        setLiveWhatsApp(comms.whatsapp_messages || []);
+        setWhatsAppDrafts(comms.suggested_whatsapp_drafts || []);
       }
+    } catch {
+      // Silently preserve current state when backend is offline
     }
+  }, [contactId, contactEmail, contactPhone]);
 
-    fetchLiveComms();
-    const interval = setInterval(fetchLiveComms, 8000);
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, [activeContact?.id, activeContact?.email, activeContact?.phone]);
+  usePolling(fetchLiveComms, 10000, {
+    enabled: Boolean(contactId),
+    restartKey: contactId,
+  });
 
   const handleSelectEmailDraft = (emailId: string, variant: AIDraftVariant) => {
     setEmailDraftChoices((prev) => ({ ...prev, [emailId]: variant.id }));
@@ -624,18 +625,19 @@ function TenantsContent() {
   }, [openEmailId, liveEmails]);
 
   return (
-    <div className="flex h-dvh bg-[var(--bg)] overflow-hidden font-sans">
+    <div className="flex h-dvh bg-[#0A1B2F] overflow-hidden font-sans antialiased">
       <Sidebar />
 
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <TopCommandBar />
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#0A1B2F]">
+        <TopCommandBar pageTitle="Tenants" hideSearch />
 
         <div className="flex-1 flex min-h-0 relative">
-          <main className="flex-1 flex min-h-0 overflow-hidden bg-white">
-            {/* PANEL 1: TENANT LIST (220px) */}
+          <main className="flex-1 m-0 md:mr-[10px] md:mb-[10px] bg-white md:rounded-[14px] md:border md:border-[#27272a] md:shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex min-h-0 overflow-hidden min-w-0">
+            {/* PANEL 1: TENANT LIST (Resizable on md+) */}
             <div
+              style={{ ["--list-w" as string]: `${listWidth}px` }}
               className={cn(
-                "w-full md:w-[220px] shrink-0 border-r border-[#e8e9eb] bg-[#fafafa] flex flex-col overflow-hidden",
+                "w-full md:w-[var(--list-w)] shrink-0 border-r border-[#e8e9eb] bg-[#fafafa] flex flex-col overflow-hidden",
                 tenantParam && "hidden md:flex"
               )}
             >
@@ -804,6 +806,15 @@ function TenantsContent() {
                 )}
               </div>
             </div>
+
+            <ResizeHandle
+              orientation="horizontal"
+              ariaLabel="Resize tenants list"
+              className="hidden md:block"
+              onDragDelta={resizeList}
+              onDragEnd={commitList}
+              onDoubleClick={resetList}
+            />
 
             {/* PANEL 2: TENANT DETAIL */}
             <div

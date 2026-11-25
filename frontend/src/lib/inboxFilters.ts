@@ -34,9 +34,19 @@ export function matchesFilters(thread: InboxThread, selectedIds: string[], excep
   return [...byGroup.values()].every((ids) => ids.some((id) => OPTION_PREDICATES[id]?.(thread) ?? false));
 }
 
+export function isActivelySnoozed(thread: InboxThread): boolean {
+  if (!thread.snoozedUntil) return false;
+  const until = new Date(thread.snoozedUntil).getTime();
+  return !Number.isNaN(until) && until > Date.now();
+}
+
 export function matchesTab(thread: InboxThread, tab: string): boolean {
-  if (tab === "needs_you") return isNeedsYou(thread);
-  if (tab === "done") return !isNeedsYou(thread);
+  if (tab === "snoozed") return isActivelySnoozed(thread);
+  if (tab === "unread") {
+    return thread.isRead === false || (thread.isRead === undefined && isNeedsYou(thread));
+  }
+  if (tab === "needs_you") return isNeedsYou(thread) && !isActivelySnoozed(thread);
+  if (tab === "done") return !isNeedsYou(thread) && !isActivelySnoozed(thread);
   return true;
 }
 
