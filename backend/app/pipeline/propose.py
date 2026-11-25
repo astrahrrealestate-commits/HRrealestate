@@ -16,6 +16,7 @@ from uuid import UUID
 from sqlalchemy import Engine, select, text
 from sqlalchemy.orm import Session
 
+from app.context.message_origin import is_owner_authored
 from app.context.person_profile import person_profile_line
 from app.context.persona import get_persona_row, stamp_persona
 from app.context.sender_label import SenderKind, sender_label_for
@@ -367,8 +368,8 @@ def _prepare(
             if msg
             else None
         )
-        if msg is None or und is None:
-            return ProposeResult()
+        if msg is None or und is None or is_owner_authored(msg):
+            return ProposeResult()  # nothing understood, or Harjot's own mail: there is nobody to write to
         done = _existing(session, msg.company_id, message_id) if replay else None
         if done is not None:
             return done
