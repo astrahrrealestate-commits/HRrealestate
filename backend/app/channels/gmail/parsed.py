@@ -33,5 +33,6 @@ class ParsedEmail:
     attachments: list[ParsedAttachment] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     parse_error: bool = False
+    reply_to: list[tuple[str, str | None]] = field(default_factory=list)  # (address, display name)
     forwarded_from: str | None = None  # original sender when this mail is a forward
     forwarded_from_name: str | None = None

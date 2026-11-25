@@ -59,14 +59,12 @@ export function urgentCount(threads: ThreadCountTarget[]): number {
 }
 
 import {
-  UNIT_CONTACT_MAP,
   getContactDisplayName,
   getSnippet,
   getUnifiedThreadId,
 } from "./threadSanitizer";
 
 export {
-  UNIT_CONTACT_MAP,
   getContactDisplayName,
   getSnippet,
   getUnifiedThreadId,

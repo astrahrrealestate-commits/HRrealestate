@@ -461,3 +461,15 @@ bidirectional translation controls onto the new unified Composer, and fixed what
 - [x] Review fixes (reviewer + security passes, 2026-11-24): `settle_sender_role` drops a role no prompt asked for or the scanner flagged; `role_hint_of` ignores a role on flagged/spam rows; `sender` and `person_profile` are block tags; `company_id` on the new queries
 - [ ] Sender-roles follow-ups (not blocking while `UNDERSTANDING` is v2 and `PROPOSER_PERSONA` is v4): the proposer lacks the inbox's address-based contractor hint; owner-requested redrafts (`guided_reply`) skip the legal review note; `propose.py` is over the 300-line module and 40-line function limits; the sender's email in `model_calls.input` survives `erase_person` (add to the known gaps in `security.md`); summary-only profiles see a sender's email domain in `unit`; look the proposer's sender up by `msg.person_id`, not the case's primary person
 - [ ] Step 3 gate: `make eval agent=proposer version=v5` on a real model, then point `PROPOSER_PERSONA` at v5 and repin the tests that name v4
+
+## Reply-To names the email sender (2026-11-25; [ADR 0016](adr/0016-reply-to-names-the-email-sender.md))
+- [x] Inbound Gmail takes sender, name and contact from a usable non-team `Reply-To`, then the forwarded block, then `From`; `meta.header_from` keeps the replaced address; sent mail ignores `Reply-To` (a sent forward now keeps the From address in `meta` too)
+- [x] Evidence (on `m-chats`): `make check` exit 0 (unit `3609 passed`, integration `1266 passed`, frontend `34 passed`); `tsc --noEmit` clean
+- [x] Second review fixes (2026-11-25): Today card names the latest sender and greets them, its hardcoded fallback recipient removed; unlinked WhatsApp messages show the saved contact; Dutch drafts never greet an address; header names lose invisible characters, are capped, and cannot forge a search chunk line
+- [ ] Open: header-name impersonation (`security.md`, not accepted); `test_remember_rule_text_is_sanitised_like_the_pipelines` is flaky (a random id can contain `500`)
+- [ ] Not exercised with a real mail from the live mailbox; not deployed
+- [x] Review fixes (reviewer + security passes, 2026-11-25): the unparseable-body fallback reads `Reply-To`; the company's other mailboxes, `+tag` aliases and `users/` values are never the sender; the search bounce filter also checks `header_from`
+- [x] The spoofing effects in `security.md` (case changes before approval; send mode) accepted 2026-11-25; advice: keep send mode off
+- [x] Screen names: each mail shows its own sender name and address (inbox thread, each bubble, contact mails, message search); the frontend no longer guesses names from signatures or a hardcoded unit list
+- [ ] Open: in an older thread, draft mode and send mode can pick different recipients
+- [ ] Open: stored mail is not re-attributed; `backend/scripts/` imports still read `From`; `header_from` is not shown to the owner; role label, unit and send recipient follow the case, so they can differ from the shown sender; not looked at in a browser

@@ -13,6 +13,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.context.shown_sender import saved_names, shown_sender_name
 from app.contracts import ActionType, ButtonChoice, CaseState, Channel
 from app.core.logging import get_logger
 from app.db.enums import ActionStatus, ApprovalStatus, CaseEventKind
@@ -154,7 +155,8 @@ def remember_quote(session: Session, action: ActionRow, message_ref: str | None)
         return
     clean_text = (quoted.text or "").strip().strip('"').strip("'")
     payload = dict(action.payload or {})
-    payload["reply_to"] = {"id": str(quoted.id), "sender": "Tenant", "text": clean_text[:120]}
+    name = shown_sender_name(quoted, saved_names(session, action.company_id, [quoted]).get(quoted.id))
+    payload["reply_to"] = {"id": str(quoted.id), "sender": name, "text": clean_text[:120]}
     action.payload = payload
 
 

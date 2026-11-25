@@ -1,5 +1,6 @@
 "use client";
 
+import { greetingName } from "@/lib/replyTicket";
 import React, { useState, useEffect } from "react";
 import { MaintenanceTicket } from "@/lib/api";
 import { X, Check, Wrench, Shield, MessageSquare, AlertCircle } from "lucide-react";
@@ -51,7 +52,7 @@ export function EditTicketModal({
       );
       setTenantDraft(
         ticket.tenantDraft ||
-          `Beste ${ticket.tenantName?.split(" ")[0] || "huurder"}, we hebben je melding over ${ticket.issueTitle.toLowerCase()} ontvangen. Onze ${ticket.contractorTrade.toLowerCase()} ${ticket.contractorName} is geautoriseerd en neemt z.s.m. contact op. Met vriendelijke groet, Harjot`
+          `Beste ${greetingName(ticket.tenantName)}, we hebben je melding over ${ticket.issueTitle.toLowerCase()} ontvangen. Onze ${ticket.contractorTrade.toLowerCase()} ${ticket.contractorName} is geautoriseerd en neemt z.s.m. contact op. Met vriendelijke groet, Harjot`
       );
     }
   }, [isOpen, ticket]);

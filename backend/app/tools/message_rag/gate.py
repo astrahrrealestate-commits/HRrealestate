@@ -63,8 +63,9 @@ def should_index_message(
         if any(label in IGNORED_GMAIL_LABELS for label in labels):
             return False, "promotional_or_spam_label"
 
-        from_addr = (meta.get("from") or msg.sender_identity or "").lower()
-        if any(marker in from_addr for marker in BOUNCE_SENDER_MARKERS):
+        # `header_from` is the From header when Reply-To was taken as the sender.
+        senders = f"{meta.get('from') or msg.sender_identity or ''} {meta.get('header_from') or ''}".lower()
+        if any(marker in senders for marker in BOUNCE_SENDER_MARKERS):
             return False, "mailer_daemon_bounce"
 
         subject = (meta.get("subject") or "").lower()

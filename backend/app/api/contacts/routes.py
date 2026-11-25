@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_engine, get_settings_dep
 from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
+from app.context.shown_sender import saved_names, shown_sender_name
 from app.contracts import ActionType, Channel, Direction
 from app.core.logging import get_logger
 from app.core.settings import Settings
@@ -242,6 +243,7 @@ def get_contact_communications(
             mapped_whatsapp: list[ContactWhatsAppMessageResponse] = []
 
             msg_ids = [m.id for m in live_messages]
+            names = saved_names(session, company_id, live_messages)
             case_links = (
                 session.query(CaseLink)
                 .filter(CaseLink.company_id == company_id, CaseLink.message_id.in_(msg_ids))
@@ -313,7 +315,9 @@ def get_contact_communications(
                     mapped_emails.append(
                         ContactEmailItemResponse(
                             id=str(msg.id),
-                            sender=msg.sender_identity or "Contact",
+                            sender=shown_sender_name(msg, names.get(msg.id))
+                            if msg.direction == Direction.inbound
+                            else msg.sender_identity,
                             senderEmail=msg.sender_identity or "",
                             subject=msg_subj,
                             snippet=msg_body[:120],

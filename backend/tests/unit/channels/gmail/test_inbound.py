@@ -363,13 +363,24 @@ INLINE_FWD = (
 DUTCH_FWD = INLINE_FWD.replace(b"Forwarded message", b"Doorgestuurd bericht").replace(b"From: Tenant", b"Van: Tenant")
 
 
-def forwarded(raw: bytes, forwarders: frozenset[str] = frozenset({OWNER})):  # type: ignore[no-untyped-def]
-    api = {"id": "f1", "threadId": "t1", "internalDate": str(int(WHEN.timestamp() * 1000)), "labelIds": ["INBOX"]}
+def forwarded(  # type: ignore[no-untyped-def]
+    raw: bytes,
+    forwarders: frozenset[str] = frozenset({OWNER}),
+    labels: tuple[str, ...] = ("INBOX",),
+    own_addresses: frozenset[str] = frozenset(),
+):
+    api = {"id": "f1", "threadId": "t1", "internalDate": str(int(WHEN.timestamp() * 1000)), "labelIds": list(labels)}
     import base64
 
     api["raw"] = base64.urlsafe_b64encode(raw).decode()
+    extra = {"own_addresses": own_addresses} if own_addresses else {}
     return to_message(
-        parse_api_message(api), company_id=uuid4(), raw_event_id=uuid4(), mailbox=MAILBOX, forwarders=forwarders
+        parse_api_message(api),
+        company_id=uuid4(),
+        raw_event_id=uuid4(),
+        mailbox=MAILBOX,
+        forwarders=forwarders,
+        **extra,
     )
 
 
@@ -398,3 +409,101 @@ def test_forward_of_another_owner_address_is_not_remapped() -> None:
     raw = INLINE_FWD.replace(b"tenant-001@example.test", OWNER.encode())
     msg, _, _ = forwarded(raw)
     assert msg.sender_identity == OWNER
+
+
+# ---- Reply-To names the real sender -------------------------------------------------------------------------------
+
+JAN = "jan@example.test"
+
+
+def replied(  # type: ignore[no-untyped-def]
+    reply_to: str,
+    *,
+    sender: str = f"Harjot <{OWNER}>",
+    labels: tuple[str, ...] = ("INBOX",),
+    body: str = "Hoi",
+    own_addresses: frozenset[str] = frozenset(),
+):
+    raw = f"From: {sender}\r\nReply-To: {reply_to}\r\nTo: {MAILBOX}\r\nSubject: Lekkage\r\n\r\n{body}\r\n".encode()
+    return forwarded(raw, labels=labels, own_addresses=own_addresses)
+
+
+@pytest.mark.parametrize("sender", [f"Harjot <{OWNER}>", "Contact Form <noreply@forms.example.test>"])
+def test_reply_to_is_the_sender_whoever_the_from_is(sender: str) -> None:
+    msg, meta, _ = replied(f"Jan de Vries <{JAN.title()}>", sender=sender)
+    assert msg.sender_identity == JAN
+    assert (meta["from"], meta["from_name"]) == (JAN, "Jan de Vries")
+    assert meta["header_from"] == sender.split("<")[1].rstrip(">")
+
+
+def test_reply_to_without_a_name_never_borrows_the_from_name() -> None:
+    _, meta, _ = replied(JAN)
+    assert meta["from"] == JAN
+    assert "from_name" not in meta
+
+
+def test_reply_to_equal_to_from_keeps_the_from_name() -> None:
+    msg, meta, _ = replied(JAN, sender=f"Jan de Vries <{JAN}>")
+    assert (msg.sender_identity, meta["from_name"]) == (JAN, "Jan de Vries")
+    assert "header_from" not in meta
+
+
+@pytest.mark.parametrize("reply_to", [OWNER, MAILBOX, "not-an-address", "broken@nodot", "undisclosed-recipients:;"])
+def test_unusable_reply_to_falls_back_to_from(reply_to: str) -> None:
+    msg, meta, _ = replied(reply_to, sender=f"Piet <{JAN}>")
+    assert (msg.sender_identity, meta["from_name"]) == (JAN, "Piet")
+    assert "header_from" not in meta
+
+
+def test_first_reply_to_outside_the_team_wins() -> None:
+    msg, _, _ = replied(f"{OWNER}, {MAILBOX}, Jan <{JAN}>, other@example.test")
+    assert msg.sender_identity == JAN
+
+
+def test_reply_to_beats_the_forwarded_block() -> None:
+    quoted = "---------- Forwarded message ---------\r\nFrom: Other <other@example.test>\r\n\r\nx"
+    msg, meta, _ = replied(JAN, body=quoted)
+    assert msg.sender_identity == JAN
+    assert "forwarded_by" not in meta
+
+
+def test_sent_mail_ignores_reply_to() -> None:
+    msg, meta, _ = replied(JAN, sender=MAILBOX, labels=("SENT",))
+    assert (msg.direction, msg.sender_identity) == (Direction.outbound, MAILBOX)
+    assert meta["from"] == MAILBOX
+    assert "header_from" not in meta
+
+
+def test_forged_from_self_stays_flagged_with_a_reply_to() -> None:
+    _, meta, _ = replied(JAN, sender=MAILBOX)
+    assert meta["from_self_unsent"] is True
+
+
+def test_unparseable_body_still_honours_reply_to(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(raw: bytes) -> None:
+        raise RecursionError
+
+    monkeypatch.setattr(mime, "_parse", boom)
+    msg, meta, _ = replied(f"Jan <{JAN}>", sender="Form <noreply@forms.example.test>")
+    assert (msg.sender_identity, meta["from_name"], meta["parse_error"]) == (JAN, "Jan", True)
+
+
+@pytest.mark.parametrize(
+    "reply_to",
+    ["onderhoud@company.example.test", "hausverwaltung+web@example.test", "harjot.owner+x@example.test"],
+)
+def test_other_company_addresses_and_plus_aliases_are_not_the_sender(reply_to: str) -> None:
+    msg, _, _ = replied(reply_to, sender=f"Piet <{JAN}>", own_addresses=frozenset({"onderhoud@company.example.test"}))
+    assert msg.sender_identity == JAN
+
+
+def test_a_chat_style_reply_to_is_not_an_email_sender() -> None:
+    msg, _, _ = replied("users/abc@nodot", sender=f"Piet <{JAN}>")
+    assert msg.sender_identity == JAN
+
+
+def test_sent_forward_stays_attributed_to_from() -> None:
+    quoted = "---------- Forwarded message ---------\r\nFrom: Other <other@example.test>\r\n\r\nx"
+    _, meta, _ = replied(JAN, labels=("SENT",), body=quoted)
+    assert meta["from"] == OWNER
+    assert "forwarded_by" not in meta

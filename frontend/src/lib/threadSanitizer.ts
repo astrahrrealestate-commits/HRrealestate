@@ -1,82 +1,18 @@
 /**
  * Thread & Snippet Sanitization (Sections 2.5 D2, D3, D4)
  * Provides:
- * - D2: Contact display name matching (unit / signature / email fallback)
+ * - D2: Contact display name (the server's name, else the address)
  * - D3: getSnippet() cleaner (strips system text & raw ISO strings, collapses whitespace, 90 chars)
  * - D4: threadId generation & message grouping
  */
 
-// Known unit tenant mappings for reliable display name resolution
-export const UNIT_CONTACT_MAP: Record<string, string> = {
-  "pieter floriszstraat 1 c": "Pieter Bakker",
-  "dorpsstraat 54 e": "Rick de Boer",
-  "singel 412": "Marloes Jansen",
-  "prinses marijkestraat 2 a": "Daan Vermeulen",
-  "keizersgracht 142 b": "Sanne Meijer",
-  "weteringschans 88": "Bas van Leeuwen",
-  "herengracht 210": "Sophie de Vries",
-};
-
 /**
  * Section 2.5 D2:
- * Resolves proper contact display name by:
- * 1. Unit label match from known directory
- * 2. Signature match at end of message (e.g. "Groet, Pieter", "Met vriendelijke groet, Rick")
- * 3. Falling back to senderName (ignoring generic test mailbox names if signature found)
- * 4. Falling back to senderContact / email
+ * The sender name on screen is the one the server gave for that sender (Reply-To first for email). With no name,
+ * the address. Never a name guessed from the message text or the unit, and never a replacement for a "generic" one.
  */
-export function getContactDisplayName(params: {
-  senderName?: string;
-  senderContact?: string;
-  unitLabel?: string;
-  messageBody?: string;
-}): string {
-  const { senderName = "", senderContact = "", unitLabel = "", messageBody = "" } = params;
-
-  // 1. If a valid external senderName is provided (e.g. contractor, tenant, company), preserve it!
-  const isGenericOrOwner =
-    !senderName.trim() ||
-    /^(?:suryansh|harjot(?:\s+singh)?|me|estateos|unknown|system|user|tenant|owner|admin)$/i.test(
-      senderName.trim()
-    );
-
-  if (!isGenericOrOwner) {
-    return senderName.trim();
-  }
-
-  // 2. Check for signature in message body (e.g. "Groet, Pieter", "Met vriendelijke groet, Rick")
-  if (messageBody) {
-    const signatureMatch = messageBody.match(
-      /(?:Groet(?:en)?|Met vriendelijke groet(?:en)?|Gr\.?|Regards|Best(?: regards)?|Thanks)[,\s\r\n]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i
-    );
-    if (signatureMatch && signatureMatch[1]) {
-      const parsedName = signatureMatch[1].trim();
-      if (parsedName.length > 1 && !/^(?:en|de|het|van|in)$/i.test(parsedName)) {
-        return parsedName;
-      }
-    }
-  }
-
-  // 3. Fallback: check known unit directory
-  const normalizedUnit = unitLabel.toLowerCase().trim();
-  if (normalizedUnit) {
-    for (const [unitKey, contactName] of Object.entries(UNIT_CONTACT_MAP)) {
-      if (normalizedUnit.includes(unitKey) || unitKey.includes(normalizedUnit)) {
-        return contactName;
-      }
-    }
-  }
-
-  // 4. Fallback to senderContact or cleaned email
-  if (senderContact) {
-    const emailPrefix = senderContact.split("@")[0].replace(/[._-]/g, " ");
-    return emailPrefix
-      .split(" ")
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-      .join(" ");
-  }
-
-  return senderName || "Tenant";
+export function getContactDisplayName(params: { senderName?: string; senderContact?: string }): string {
+  return params.senderName?.trim() || params.senderContact?.trim() || "Unknown sender";
 }
 
 /**

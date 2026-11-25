@@ -9,6 +9,7 @@ from app.channels.gmail.mime import parse_email
 from app.channels.gmail.models import GmailMessage
 from app.channels.gmail.parsed import ParsedAttachment, ParsedEmail
 from app.contracts import Channel, Direction, Message
+from app.contracts.message import normalise_identity
 from app.core.errors import IgnoredMessageError, UnroutableMessageError
 
 # Our own unapproved AI drafts live in this mailbox (Phase 1 output); spam/trash/chat are never conversations.
@@ -23,9 +24,36 @@ def _placeholder(parsed: ParsedEmail) -> str:
     return f"[no text — {len(names)} {noun}: {', '.join(names)}]"
 
 
-def _real_sender(parsed: ParsedEmail, from_addr: str, forwarders: frozenset[str]) -> tuple[str, str | None, str | None]:
-    """(sender address, display name, forwarder). A mail forwarded by the owner (From is one of `forwarders`) is
-    attributed to the original sender quoted in the forward, so the tenant maps instead of the owner's own address."""
+def _untagged(address: str) -> str:
+    """`name+tag@domain` delivers to `name@domain`."""
+    local, _, domain = address.rpartition("@")
+    return f"{local.split('+', 1)[0]}@{domain}"
+
+
+def _is_address(value: str) -> bool:
+    if value.startswith("users/"):  # a Google Chat identity, which `normalise_identity` passes unchecked
+        return False
+    try:
+        normalise_identity(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _real_sender(
+    parsed: ParsedEmail, from_addr: str, forwarders: frozenset[str], own: frozenset[str]
+) -> tuple[str, str | None, str | None]:
+    """(sender address, display name, forwarder) of an inbound mail. In order of preference:
+
+    1. the first usable Reply-To address that is not ours (`own`: team addresses and company mailboxes);
+    2. for a mail forwarded by the team (From is one of `forwarders`), the original sender quoted in the forward;
+    3. From.
+    """
+    ours = {_untagged(a) for a in own}
+    for address, name in parsed.reply_to:
+        if _untagged(address) not in ours and _is_address(address):
+            # The From name belongs to another address, so it is only kept when both headers name the same one.
+            return address, name or (parsed.from_name if address == from_addr else None), None
     if from_addr in forwarders and parsed.forwarded_from and parsed.forwarded_from not in forwarders:
         return parsed.forwarded_from, parsed.forwarded_from_name, from_addr
     return from_addr, parsed.from_name, None
@@ -38,6 +66,7 @@ def to_message(
     raw_event_id: UUID,
     mailbox: str,
     forwarders: frozenset[str] = frozenset(),
+    own_addresses: frozenset[str] = frozenset(),
 ) -> tuple[Message, dict[str, Any], list[ParsedAttachment]]:
     """`Message`, row metadata and attachments (stored by ingestion).
 
@@ -50,9 +79,13 @@ def to_message(
     if parsed.from_addr is None:
         raise UnroutableMessageError(f"gmail message {gm.id} has no usable From address")
     mailbox = mailbox.lower()
-    sender, sender_name, forwarded_by = _real_sender(parsed, parsed.from_addr, forwarders)
     # Only Gmail's SENT label proves the owner sent it: a From header equal to the mailbox is trivially forgeable.
     outbound = "SENT" in gm.label_ids
+    sender, sender_name, forwarded_by = (
+        (parsed.from_addr, parsed.from_name, None)
+        if outbound
+        else _real_sender(parsed, parsed.from_addr, forwarders, forwarders | own_addresses | {mailbox})
+    )
     try:
         message = Message(
             channel=Channel.gmail,
@@ -77,7 +110,9 @@ def to_message(
         "from": sender,
         "from_name": sender_name,
         "forwarded_by": forwarded_by,
-        "from_self_unsent": (not outbound and sender == mailbox) or None,
+        # The From header whenever someone else was taken as the sender: Reply-To is not authenticated.
+        "header_from": parsed.from_addr if sender != parsed.from_addr and not forwarded_by else None,
+        "from_self_unsent": (not outbound and parsed.from_addr == mailbox) or None,
         "full_text": parsed.full_text if parsed.quote_stripped else None,
         "skipped_parts": parsed.skipped,
         "parse_error": parsed.parse_error or None,

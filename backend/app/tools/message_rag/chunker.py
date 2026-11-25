@@ -1,17 +1,28 @@
 """Chunking and conversation formatting logic for Message RAG."""
 
 import hashlib
+import re
 from datetime import datetime, timedelta
-from typing import Any
 from zoneinfo import ZoneInfo
 
-from app.contracts import Direction
+from app.context.shown_sender import shown_sender_name
+from app.contracts import Channel, Direction
 from app.db.models import MessageRow
 
 AMSTERDAM_TZ = ZoneInfo("Europe/Amsterdam")
+_LINE_SYNTAX = re.compile(r"[\[\]|()<>]")
 MAX_CHUNK_CHARS = 2400  # ~600 tokens
 TARGET_CHUNK_CHARS = 1600  # ~400 tokens
 MAX_GAP = timedelta(hours=6)
+
+
+def _inbound_label(msg: MessageRow, person_name: str | None) -> str:
+    """The sender slot of a chunk line. An email's header name is chosen by its sender, so it cannot carry the line's
+    own delimiters or the owner label, and the address always stands beside it."""
+    name = " ".join(_LINE_SYNTAX.sub(" ", shown_sender_name(msg, person_name)).split())
+    if msg.channel is Channel.gmail and msg.sender_identity and name != msg.sender_identity:
+        return f"{name} <{msg.sender_identity}>"
+    return name
 
 
 def format_message_line(msg: MessageRow, person_name: str | None = None) -> str:
@@ -22,11 +33,7 @@ def format_message_line(msg: MessageRow, person_name: str | None = None) -> str:
     dir_str = msg.direction.value if hasattr(msg.direction, "value") else str(msg.direction)
     is_outbound = dir_str == Direction.outbound.value
 
-    if is_outbound:
-        sender = "Harjot (Owner)"
-    else:
-        meta: dict[str, Any] = msg.meta or {}
-        sender = person_name or meta.get("from_name") or meta.get("contact_name") or msg.sender_identity or "Tenant"
+    sender = "Harjot (Owner)" if is_outbound else _inbound_label(msg, person_name)
 
     # Clean multi-line whitespace
     clean_text = " ".join(msg.text.split()) if msg.text else "[no text]"

@@ -94,6 +94,28 @@ Closed on 2026-11-12:
   because their Dutch output may be a message sent to the erased person
 
 Still open (fix in this order):
+- **A sender chooses the name shown for their mail** (not yet accepted). The screen names each mail from its headers, so
+  any outsider, with or without `Reply-To`, can appear as "Harjot Singh", a saved tenant or a contractor. The thread
+  list, mobile header and quoted-reply line show only the name; each incoming bubble shows the address beside it.
+  Invisible and direction characters are removed, names are cut at 80 characters, and search chunk lines strip their own
+  delimiters and always carry the address. Fix: warn when a header name matches the team or a saved contact who does not
+  hold that address. Related: `actions.payload.reply_to.sender` now stores a name or address, which `erase_person` does
+  not scrub; message search results still label a hit with the saved name while its lines carry header names, and chunks
+  indexed before this change keep their old names until rebuilt.
+- **The email sender is taken from `Reply-To`** (ADR 0016), which SPF, DKIM and DMARC alignment do not authenticate.
+  **Accepted on 2026-11-25** by the user who requested the change, who chose to keep it for all inbound mail after the
+  effects below were put to them, with the advice to keep send mode off. An outside sender can name a tenant, a contractor or any third party in `Reply-To`:
+  - before any approval, the mail joins that person's only open case, can close their awaited answer (cancelling the
+    chasers), reopen the case and raise its urgency; its text enters the case summary and message search under their
+    name, its attachments are queued for filing, and as a "contractor" it can be stored as that contractor's quote
+  - an approved reply goes to the named address; in `outbound_mode=send` it passes the case-contact check and uses the
+    outsider's subject and thread (fix this before relying on send mode). Rejecting a draft undoes none of the above
+  - the dashboard shows the `Reply-To` name or address and never `meta.header_from`, so nothing marks the mismatch
+  - the inbox's substring filter for automated mail (`noreply`, `alert`, `update` and others) tests only the new sender
+  Fix: a server-side "unverified sender" flag when `Reply-To` replaced a `From` that is not a team address or a known
+  identity of the same person, honoured by case waits and state, filing, quotes and the sender, and shown to the
+  owner. Narrower alternative: honour `Reply-To` only from team addresses and known relays. Related: `erase_person`
+  does not scrub `meta.from`, `from_name` or `header_from`.
 - **Profiles limit sections, not actions** (ADR 0012). A member sees only the sections a superadmin switched on; every
   router is guarded per request and a test walks the OpenAPI document to keep it so. Anyone who holds a section that
   offers approve/send can approve and send; a profile with the `inbox` section (which the Chats page uses) can also type

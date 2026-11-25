@@ -253,6 +253,7 @@ def _parse(raw: bytes) -> ParsedEmail:
     return ParsedEmail(
         from_addr=sender[0][0] if sender else None,
         from_name=(sender[0][1] or None) if sender else None,
+        reply_to=[(a, name or None) for a, name in _addresses(msg, "Reply-To")],
         forwarded_from=origin[0] if origin else None,
         forwarded_from_name=origin[1] if origin else None,
         to=[a for a, _ in _addresses(msg, "To")],
@@ -274,12 +275,14 @@ def _headers_only(raw: bytes) -> ParsedEmail:
     try:
         headers = BytesHeaderParser(policy=policy.default).parsebytes(raw)
         sender = _addresses(headers, "From")
+        reply_to = _addresses(headers, "Reply-To")
         subject = _header(headers, "Subject") or ""
     except Exception:  # headers themselves unreadable
-        sender, subject = [], ""
+        sender, reply_to, subject = [], [], ""
     return ParsedEmail(
         from_addr=sender[0][0] if sender else None,
         from_name=(sender[0][1] or None) if sender else None,
+        reply_to=[(a, name or None) for a, name in reply_to],
         subject=subject,
         text="[unparseable email]",
         parse_error=True,

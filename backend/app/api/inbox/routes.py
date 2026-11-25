@@ -29,6 +29,7 @@ from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import decide_limit, sync_limit
 from app.context.sender_label import UNASSIGNED_UNIT, role_hint_of, sender_label_for, unit_display
+from app.context.shown_sender import greeting_name, saved_names, shown_sender_name
 from app.contracts import ActionType, ButtonChoice, Category, Channel, Direction
 from app.core.errors import NotFoundError
 from app.core.ids import case_ref
@@ -206,11 +207,11 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
                 session.commit()
                 messages.sort(key=lambda m: m.sent_at if m.sent_at else datetime.min.replace(tzinfo=UTC))
 
-        sender_name = (
-            person.display_name
-            if person
-            else (sender_email.split("@")[0].replace(".", " ").title() if "@" in sender_email else sender_email)
-        )
+        names = saved_names(session, company_id, messages)
+        if tenant_msg.direction != Direction.outbound:
+            sender_name = shown_sender_name(tenant_msg, names.get(tenant_msg.id))
+        else:  # nobody has written in yet: the thread is named after the case's contact
+            sender_name = person.display_name if person else sender_email
 
         unit = session.get(Unit, case.unit_id) if case.unit_id else None
         unit_label = (unit.address or unit.label) if unit else None
@@ -398,16 +399,18 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
 
         if not gmail_drafts:
             # No agent draft yet: neutral acknowledgements only. They state no fact, date, amount or commitment.
+            greet = greeting_name(sender_name)
+            hello = f" {greet}" if greet else ""
             d1_en = (
-                f"Dear {sender_name},\n\nThank you for your message. We have received it and will get back to you "
-                "shortly.\n\nBest regards,\nHarjot"
+                f"Dear {greet or 'sir/madam'},\n\nThank you for your message. "
+                "We have received it and will get back to you shortly.\n\nBest regards,\nHarjot"
             )
             d2_en = (
-                f"Hello {sender_name},\n\nThanks for reaching out. I am looking into this and will follow up as soon "
+                f"Hello{hello},\n\nThanks for reaching out. I am looking into this and will follow up as soon "
                 "as I can.\n\nKind regards,\nHarjot"
             )
-            d1_wa = f"Hi {sender_name}, thank you for your message. We have received it and will reply shortly."
-            d2_wa = f"Hello {sender_name}, thanks for reaching out. I am looking into this and will get back to you."
+            d1_wa = f"Hi{hello}, thank you for your message. We have received it and will reply shortly."
+            d2_wa = f"Hello{hello}, thanks for reaching out. I am looking into this and will get back to you."
 
             gmail_drafts = [
                 {"id": "gd1", "label": "Draft 1 (Recommended)", "channel": "gmail", "text": d1_en, "confidence": 98},
@@ -474,8 +477,8 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
                 m_sender_contact = m.sender_identity or (get_settings().owner_email or "owner@estateos.com")
             else:
                 m_sender_type = sender_label.kind.value
-                m_sender_name = sender_name
-                m_sender_contact = sender_email
+                m_sender_name = shown_sender_name(m, names.get(m.id))
+                m_sender_contact = m.sender_identity
 
             msgs_data.append(
                 {

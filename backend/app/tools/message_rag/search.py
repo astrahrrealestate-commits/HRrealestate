@@ -9,6 +9,7 @@ from uuid import UUID
 from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.context.shown_sender import shown_sender_name
 from app.core.logging import get_logger
 from app.db.models import MessageChunk, MessageRow, Person, Unit
 from app.db.models.ingestion import not_chat_only
@@ -249,7 +250,7 @@ def get_message_window(
                 "sent_at": m.sent_at.isoformat(),
                 "direction": m.direction.value if hasattr(m.direction, "value") else str(m.direction),
                 "channel": m.channel.value if hasattr(m.channel, "value") else str(m.channel),
-                "sender": person_name or meta.get("from_name") or m.sender_identity,
+                "sender": shown_sender_name(m, person_name),
                 "text": m.text,
                 "subject": meta.get("subject"),
             }

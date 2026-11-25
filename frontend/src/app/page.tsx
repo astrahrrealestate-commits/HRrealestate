@@ -1,5 +1,6 @@
 "use client";
 
+import { replyTicket } from "@/lib/replyTicket";
 import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -255,7 +256,7 @@ export default function TodayPage() {
     };
 
     // Open channel-specific reply window (Gmail reply chain / compose, or WhatsApp)
-    const tenantContact = matchedThread?.senderContact || ticket.tenantPhone || "vipint9902@gmail.com";
+    const tenantContact = matchedThread?.senderContact || ticket.tenantPhone || "";
     const isEmail = channel === "gmail" || tenantContact.includes("@");
 
     if (isEmail) {
@@ -1032,6 +1033,8 @@ export default function TodayPage() {
               originalMessage: topUrgentThread.latestSnippet || DEFAULT_TICKET_TEMPLATE.originalMessage,
             };
 
+            // The reply side names the latest mail's sender, who can differ from the ticket's tenant.
+            const replyTo = replyTicket(ticket, topUrgentThread);
             const tenantChannel: "whatsapp" | "gmail" = topUrgentThread.channel === "gmail" ? "gmail" : "whatsapp";
             const emergencyKey = topUrgentThread.id || ticket.ticketNumber;
             const isTenantReplied = Boolean(tenantReplySentMap[emergencyKey]);
@@ -1081,7 +1084,7 @@ export default function TodayPage() {
                       {topUrgentThread.unitLabel}: {topUrgentThread.subject || topUrgentThread.latestSnippet}
                     </div>
                     <div className="flex items-center gap-1.5 text-[11.5px] text-[var(--ink-3)] flex-wrap">
-                      <span className="font-semibold text-[var(--ink-2)]">{ticket.tenantName}</span>
+                      <span className="font-semibold text-[var(--ink-2)]">{replyTo.tenantName}</span>
                       <span>·</span>
                       <span className="inline-flex items-center gap-1">
                         {tenantChannel === "whatsapp" ? (
@@ -1121,7 +1124,7 @@ export default function TodayPage() {
                       onClick={() => {
                         setMobileEmergencyOpen(true);
                         setMobileEmergencyTab("tenant");
-                        handleSendTenantReply(ticket, tenantChannel, emergencyKey);
+                        handleSendTenantReply(replyTo, tenantChannel, emergencyKey);
                       }}
                       className={cn(
                         "inline-flex items-center justify-center gap-1 px-2 py-1.5 text-[11.5px] font-semibold rounded-lg border cursor-pointer truncate",
@@ -1163,7 +1166,7 @@ export default function TodayPage() {
                     <div className="pt-2.5 border-t border-[var(--line)] space-y-3 animate-in fade-in duration-150">
                       <div className="rounded-lg bg-[var(--bg)]/60 border border-[var(--line)] p-3 space-y-1">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--ink-3)] block">
-                          Tenant Message ({topUrgentThread.senderContact || ticket.tenantPhone})
+                          Tenant Message ({replyTo.tenantPhone})
                         </span>
                         <p className="text-[13px] text-[var(--ink)] italic leading-relaxed pl-2.5 border-l-2 border-[var(--accent)]">
                           &ldquo;{topUrgentThread.latestSnippet || ticket.originalMessage}&rdquo;
@@ -1212,7 +1215,7 @@ export default function TodayPage() {
                             rows={4}
                             value={
                               customTenantReplyText[ticket.ticketNumber] ??
-                              ticket.tenantDraft ??
+                              replyTo.tenantDraft ??
                               (tenantChannel === "whatsapp"
                                 ? topUrgentThread.draftProposal?.whatsappDrafts?.[0]?.text
                                 : topUrgentThread.draftProposal?.gmailDrafts?.[0]?.text) ??
@@ -1231,11 +1234,11 @@ export default function TodayPage() {
                           />
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-[11px] text-[var(--ink-3)] truncate">
-                              To: {ticket.tenantName}
+                              To: {replyTo.tenantName}
                             </span>
                             <button
                               type="button"
-                              onClick={() => handleSendTenantReply(ticket, tenantChannel, emergencyKey)}
+                              onClick={() => handleSendTenantReply(replyTo, tenantChannel, emergencyKey)}
                               disabled={isTenantReplied}
                               className={cn(
                                 "px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shrink-0 cursor-pointer",
@@ -1384,7 +1387,7 @@ export default function TodayPage() {
                       type="button"
                       onClick={() => {
                         setIsEmergencyExpanded(true);
-                        handleSendTenantReply(ticket, tenantChannel, emergencyKey);
+                        handleSendTenantReply(replyTo, tenantChannel, emergencyKey);
                       }}
                       className={cn(
                         "inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg border transition-all cursor-pointer shadow-2xs",
@@ -1442,7 +1445,7 @@ export default function TodayPage() {
                           {tenantChannel === "whatsapp" ? (
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[var(--bg)] text-[var(--ink)] font-semibold text-xs border border-[var(--line)]">
                               <MessageSquare className="w-3.5 h-3.5 text-[#25D366]" />
-                              <span>Inbound via WhatsApp · {topUrgentThread.senderContact || ticket.tenantPhone}</span>
+                              <span>Inbound via WhatsApp · {replyTo.tenantPhone}</span>
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[var(--bg)] text-[var(--ink)] font-semibold text-xs border border-[var(--line)]">
@@ -1451,7 +1454,7 @@ export default function TodayPage() {
                             </span>
                           )}
                           <span className="text-[var(--ink-3)] hidden sm:inline">·</span>
-                          <span className="text-[13px] font-bold text-[var(--ink)]">{ticket.tenantName}</span>
+                          <span className="text-[13px] font-bold text-[var(--ink)]">{replyTo.tenantName}</span>
                           <span className="text-xs text-[var(--ink-3)] font-mono">({ticket.unitLabel})</span>
                         </div>
                         <span className="font-mono text-xs font-semibold text-[var(--ink-3)] bg-[var(--selected)] px-2.5 py-0.5 rounded border border-[var(--line)]">
@@ -1499,7 +1502,7 @@ export default function TodayPage() {
                             rows={6}
                             value={
                               customTenantReplyText[ticket.ticketNumber] ??
-                              ticket.tenantDraft ??
+                              replyTo.tenantDraft ??
                               (tenantChannel === "whatsapp"
                                 ? topUrgentThread.draftProposal?.whatsappDrafts?.[0]?.text
                                 : topUrgentThread.draftProposal?.gmailDrafts?.[0]?.text) ??
@@ -1520,11 +1523,11 @@ export default function TodayPage() {
 
                         <div className="flex items-center justify-between pt-1">
                           <span className="text-xs text-[var(--ink-3)] font-medium">
-                            To: {ticket.tenantName} ({topUrgentThread.senderContact || ticket.tenantPhone})
+                            To: {replyTo.tenantName} ({replyTo.tenantPhone})
                           </span>
                           <button
                             type="button"
-                            onClick={() => handleSendTenantReply(ticket, tenantChannel, emergencyKey)}
+                            onClick={() => handleSendTenantReply(replyTo, tenantChannel, emergencyKey)}
                             disabled={isTenantReplied}
                             className={cn(
                               "min-w-[175px] justify-center px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs",
@@ -1762,7 +1765,7 @@ export default function TodayPage() {
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleSendTenantReply(mTicket, tChannel, thread.id);
+                                  handleSendTenantReply(replyTicket(mTicket, thread), tChannel, thread.id);
                                 }}
                                 className={cn(
                                   "inline-flex items-center justify-center gap-1 px-2 md:px-2.5 py-1.5 md:py-1 rounded-lg md:rounded border text-[11.5px] md:text-xs font-semibold transition-colors cursor-pointer truncate",

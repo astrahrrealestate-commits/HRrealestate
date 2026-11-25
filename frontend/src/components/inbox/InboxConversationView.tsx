@@ -1,5 +1,6 @@
 "use client";
 
+import { greetingName } from "@/lib/replyTicket";
 import React, { useState, useEffect, useRef } from "react";
 import {
   ArrowLeft,
@@ -93,7 +94,6 @@ export function InboxConversationView({
       const data = await res.json();
       setLinkSuccessName(data.tenantName);
       thread.isUnregisteredSender = false;
-      thread.senderName = data.tenantName;
     } catch (err) {
       console.error("Link tenant failed", err);
     } finally {
@@ -656,6 +656,13 @@ export function InboxConversationView({
               ) : (
                 // Incoming bubble (left, --selected fill, no border)
                 <div className="flex flex-col items-start space-y-1 group">
+                  {/* The name is sender-chosen: it truncates on its own line box and never pushes the address away. */}
+                  <div className="flex flex-wrap items-baseline gap-x-1.5 px-1 max-w-[85%] sm:max-w-[75%] text-[11px] text-[var(--ink-3)]">
+                    <bdi className="min-w-0 max-w-full truncate font-semibold text-[var(--ink-2)]">{msg.senderName}</bdi>
+                    {msg.senderContact && msg.senderContact !== msg.senderName && (
+                      <bdi className="max-w-full break-all">&lt;{msg.senderContact}&gt;</bdi>
+                    )}
+                  </div>
                   <div className="relative bg-[var(--selected)] text-[var(--ink)] rounded-2xl rounded-tl-xs px-4 py-2.5 max-w-[85%] sm:max-w-[75%]">
                     <p className="text-[13.5px] leading-relaxed whitespace-pre-line select-text">
                       {msg.body?.replace(/^["']|["']$/g, "")}
@@ -861,7 +868,7 @@ export function InboxConversationView({
             notes: thread.caseSummary || "",
             originalMessage: thread.latestSnippet || "",
             contractorDraft: "",
-            tenantDraft: `Beste ${thread.senderName?.split(" ")[0] || "huurder"}, we hebben je melding over ${thread.subject?.toLowerCase() || "het onderhoud"} ontvangen. Onze monteur is geautoriseerd en neemt contact op. Met vriendelijke groet, Harjot`,
+            tenantDraft: `Beste ${greetingName(thread.senderName)}, we hebben je melding over ${thread.subject?.toLowerCase() || "het onderhoud"} ontvangen. Onze monteur is geautoriseerd en neemt contact op. Met vriendelijke groet, Harjot`,
           }}
           isOpen={isTicketModalOpen}
           onClose={() => setIsTicketModalOpen(false)}

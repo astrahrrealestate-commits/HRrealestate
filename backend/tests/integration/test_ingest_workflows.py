@@ -609,3 +609,19 @@ def test_a_mailbox_with_no_connected_google_account_is_skipped_quietly(env: Env)
     events = {entry["event"]: entry["log_level"] for entry in logs}
     assert events.get("gmail.poll_skipped_not_connected") == "info"
     assert "gmail.poll_failed" not in events
+
+
+def test_reply_to_names_the_sender_unless_it_is_one_of_our_mailboxes(env: Env) -> None:
+    with Session(env.engine) as s:
+        s.add(ChannelAccount(company_id=env.company.id, channel=Channel.gmail, address="Onderhoud@example.test"))
+        s.commit()
+    for subject, reply_to in (("jan", "jan@example.test"), ("eigen", "onderhoud@example.test")):
+        mail = _mail(subject).replace(b"To: ", f"Reply-To: {reply_to}\nTo: ".encode(), 1)
+        env.mailbox.add_message(mail, labels=["INBOX"])
+    assert _sync(env, env.mailbox.current_history_id()) == 2
+    rows = {}
+    for raw in _gmail_raws(env):
+        assert wait(event_workflow_id(raw.id)) == "processed"
+        row = message_for(env, raw.id)
+        rows[row.meta["subject"]] = row.sender_identity
+    assert rows == {"jan": "jan@example.test", "eigen": "tenant-001@example.test"}

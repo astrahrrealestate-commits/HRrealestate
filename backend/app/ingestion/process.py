@@ -32,7 +32,7 @@ from app.core.settings import get_settings
 from app.core.workflow_names import requeue_workflow_id, stale_event_workflow_id
 from app.db.enums import PipelineStatus, RawEventStatus
 from app.db.known_contacts import feeds_pipeline, is_known_contact
-from app.db.models import AllowedUser, MessageRow, OwnerAccount, RawEvent
+from app.db.models import AllowedUser, ChannelAccount, MessageRow, OwnerAccount, RawEvent
 from app.ingestion.media import AttachmentInput, store_attachment
 from app.ingestion.repository import Enqueuer, mark_raw_event, save_message
 from app.storage.ports import ObjectStorage
@@ -174,6 +174,7 @@ def _normalise(
         raw_event_id=raw_event_id,
         mailbox=str(payload["mailbox"]),
         forwarders=_owner_addresses(deps.engine, company_id),
+        own_addresses=_company_mailboxes(deps.engine, company_id),
     )
     stored = [store_attachment(deps.storage, company_id, p.data, p.mime_type, p.filename) for p in parts]
     return message, meta, stored
@@ -189,6 +190,17 @@ def _owner_addresses(engine: Engine, company_id: UUID) -> frozenset[str]:
             get_settings().owner_email,
         ]
     return frozenset(e.strip().lower() for e in emails if e and e.strip())
+
+
+def _company_mailboxes(engine: Engine, company_id: UUID) -> frozenset[str]:
+    """Every mailbox the company has connected: a Reply-To naming one of them is not the person who wrote."""
+    with Session(engine) as session:
+        addresses = session.scalars(
+            select(ChannelAccount.address).where(
+                ChannelAccount.company_id == company_id, ChannelAccount.channel == Channel.gmail
+            )
+        )
+        return frozenset(a.strip().lower() for a in addresses)
 
 
 def _normalise_google_chat(

@@ -89,8 +89,6 @@ export async function getInboxThreads(
           const resolvedSenderName = getContactDisplayName({
             senderName: t.sender?.name || t.senderName,
             senderContact,
-            unitLabel,
-            messageBody: rawSnippet,
           });
           const unifiedThreadId = getUnifiedThreadId({
             unitLabel,
