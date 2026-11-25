@@ -92,6 +92,15 @@ def _actions(engine: Engine, cid: UUID) -> list[ActionRow]:
         return list(s.scalars(select(ActionRow).where(ActionRow.company_id == cid).order_by(ActionRow.created_at)))
 
 
+def proposer_spec_version(engine: Engine, message_id: UUID) -> str:
+    from app.llm.agents.proposer import proposer_spec
+    from app.pipeline.propose import load_message
+
+    loaded = load_message(engine, message_id)
+    assert loaded is not None
+    return proposer_spec(loaded.ctx).prompt.version
+
+
 def test_reply_and_escalation_await_approval_with_tasks(
     migrated_engine: Engine, committed_company: Company, test_settings: Settings
 ) -> None:
@@ -102,6 +111,7 @@ def test_reply_and_escalation_await_approval_with_tasks(
     # One transaction writes both, so created_at ties: the order between them is not part of the behaviour.
     assert sorted(a.type for a in actions) == sorted([ActionType.reply_draft, ActionType.escalate])
     assert all(a.status is ActionStatus.pending_approval and a.context_ref == [mid] for a in actions)
+    assert {a.prompt_version for a in actions} == {proposer_spec_version(migrated_engine, mid)}  # the draft report
     assert len(result.approval_ids) == 2
     with Session(migrated_engine) as s:
         assert (

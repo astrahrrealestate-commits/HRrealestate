@@ -14,6 +14,7 @@ from app.contracts import Action, ActionType
 from app.core.logging import get_logger
 from app.db.enums import ActionStatus, ApprovalStatus
 from app.db.models import ActionRevision, ActionRow, Approval
+from app.llm.agents.proposer import proposer_spec
 from app.pipeline import approvals
 from app.pipeline.concierge_sanitize import sanitize
 from app.pipeline.propose_load import Loaded
@@ -91,7 +92,7 @@ def persist(
         row = ActionRow(
             company_id=loaded.company_id, case_id=loaded.ctx.case_id, type=a.type,
             payload=a.payload.model_dump(mode="json"), rationale=rationale(a, loaded), context_ref=[message_id],
-            draft_version=1, status=_STATUS[decision.verdict],
+            draft_version=1, status=_STATUS[decision.verdict], prompt_version=proposer_spec(loaded.ctx).prompt.version,
         )  # fmt: skip
         stamp_persona(row, a.payload, loaded.ctx.persona)
         session.add(row)

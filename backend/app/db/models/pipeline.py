@@ -101,6 +101,7 @@ class ActionRow(Base, CompanyScoped):
     draft_version: Mapped[int] = mapped_column(default=1, server_default="1")
     persona_name: Mapped[str | None] = mapped_column(String(120))  # the owner persona a draft was written in
     persona_version: Mapped[int | None]
+    prompt_version: Mapped[str | None] = mapped_column(String(16))  # the proposer prompt that wrote it (0058)
     status: Mapped[ActionStatus] = mapped_column(
         str_enum(ActionStatus), default=ActionStatus.proposed, server_default=ActionStatus.proposed.value, index=True
     )
