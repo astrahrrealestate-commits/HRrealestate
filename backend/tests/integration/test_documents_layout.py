@@ -50,7 +50,7 @@ def _world(
         s.flush()
         if case_unit:
             case = Case(company_id=cid, unit_id=unit.id, primary_person_id=anna.id, state=CaseState.open,
-                        category=Category.other, urgency=Urgency.normal)  # fmt: skip
+                        category=Category.administration, urgency=Urgency.normal)  # fmt: skip
             s.add(case)
             s.flush()
             s.add(CaseLink(company_id=cid, case_id=case.id, message_id=msg.id, method=LinkMethod.thread))

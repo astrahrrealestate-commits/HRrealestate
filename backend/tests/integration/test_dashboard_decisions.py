@@ -72,7 +72,7 @@ class World:
 
 
 def _side(s: Session, company: Company, tag: str, *, suspicious: bool) -> Side:
-    case = Case(company_id=company.id, category=Category.other, urgency=Urgency.high, summary=tag)
+    case = Case(company_id=company.id, category=Category.administration, urgency=Urgency.high, summary=tag)
     s.add(case)
     s.flush()
     action = ActionRow(
@@ -94,7 +94,8 @@ def _side(s: Session, company: Company, tag: str, *, suspicious: bool) -> Side:
     s.add_all(
         [approval, att, CaseLink(company_id=company.id, case_id=case.id, message_id=msg.id, method=LinkMethod.thread)]
     )
-    s.add(UnderstandingRow(company_id=company.id, message_id=msg.id, category=Category.other, urgency=Urgency.high,
+    s.add(UnderstandingRow(company_id=company.id, message_id=msg.id, category=Category.administration,
+                           urgency=Urgency.high,
                            body={"suspicious": {"flag": suspicious}}, prompt_version="understanding/v2"))  # fmt: skip
     bare = AttachmentRow(company_id=company.id, message_id=msg.id, s3_key="k2", mime_type="application/pdf",
                          filename="b.pdf", size_bytes=1, sha256="1" * 64)  # fmt: skip
@@ -284,7 +285,8 @@ def _newer_harmless_message(w: World) -> None:
         s.flush()
         s.add_all([
             CaseLink(company_id=w.a.company, case_id=w.a.case, message_id=msg.id, method=LinkMethod.thread),
-            UnderstandingRow(company_id=w.a.company, message_id=msg.id, category=Category.other, urgency=Urgency.high,
+            UnderstandingRow(company_id=w.a.company, message_id=msg.id, category=Category.administration,
+                             urgency=Urgency.high,
                              body={"suspicious": {"flag": False}}, prompt_version="understanding/v2"),
         ])  # fmt: skip
         s.commit()

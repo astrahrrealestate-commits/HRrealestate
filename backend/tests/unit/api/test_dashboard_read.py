@@ -69,7 +69,7 @@ def test_cases_passes_company_state_limit(client: TestClient) -> None:
         seen.update(company_id=company_id, state=state, limit=limit)
         return [
             SimpleNamespace(
-                id=uuid4(), state=CaseState.open, category=Category.other, urgency=Urgency.high, summary="s",
+                id=uuid4(), state=CaseState.open, category=Category.administration, urgency=Urgency.high, summary="s",
                 opened_at=T0, resolved_at=None,
             )
         ]  # fmt: skip

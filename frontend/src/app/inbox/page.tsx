@@ -28,6 +28,7 @@ import { fetchInboxThreadById } from "@/lib/inboxSingleThread";
 import { cn } from "@/lib/utils";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { SHOWN_CATEGORIES, categoryLabel } from "@/lib/categoryLabels";
 import { usePolling } from "@/hooks/usePolling";
 
 type InboxLayoutMode = "vertical" | "horizontal" | "list";
@@ -522,14 +523,11 @@ function InboxContent() {
       {
         id: "type",
         title: t("inbox.filter_type", "Type"),
-        options: [
-          { id: "type_repairs", label: t("inbox.repairs", "Repairs"), count: countOf("type_repairs") },
-          { id: "type_rent", label: t("inbox.rent_money", "Rent & Money"), count: countOf("type_rent") },
-          { id: "type_lease", label: t("inbox.lease", "Lease"), count: countOf("type_lease") },
-          { id: "type_complaint", label: t("inbox.complaint", "Complaint"), count: countOf("type_complaint") },
-          { id: "type_contractor", label: t("inbox.contractor_updates", "Contractor"), count: countOf("type_contractor") },
-          { id: "type_admin", label: t("inbox.admin", "Admin"), count: countOf("type_admin") },
-        ],
+        options: SHOWN_CATEGORIES.map((c) => ({
+          id: `type_${c}`,
+          label: t(`category.${c}`, categoryLabel(c) ?? c),
+          count: countOf(`type_${c}`),
+        })),
       },
     ];
   }, [threads, activeTab, selectedFilterIds, t]);

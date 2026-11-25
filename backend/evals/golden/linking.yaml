@@ -30,26 +30,26 @@ cases:
 - name: link-04
   inputs:
     text: "Hierbij het betaalbewijs van de huur van oktober."
-    category: payment
+    category: finance
     candidates:
-      - {key: arrears, category: payment, summary: "October rent of EUR 950 not received; reminder sent on 5 October."}
-      - {key: deposit, category: payment, summary: "Tenant asks when the deposit from the previous flat will be returned."}
+      - {key: arrears, category: finance, summary: "October rent of EUR 950 not received; reminder sent on 5 October."}
+      - {key: deposit, category: finance, summary: "Tenant asks when the deposit from the previous flat will be returned."}
   metadata: {expected: arrears}
 - name: link-05
   inputs:
     text: "Wanneer krijg ik mijn borg terug? Het is nu al zes weken."
-    category: payment
+    category: finance
     candidates:
-      - {key: arrears, category: payment, summary: "October rent paid late; settled on 12 October."}
-      - {key: deposit, category: payment, summary: "Tenant moved out of unit 3B on 31 August and asks about the deposit refund."}
+      - {key: arrears, category: finance, summary: "October rent paid late; settled on 12 October."}
+      - {key: deposit, category: finance, summary: "Tenant moved out of unit 3B on 31 August and asks about the deposit refund."}
   metadata: {expected: deposit}
 - name: link-06
   inputs:
     text: "Kan ik de servicekosten van dit jaar inzien?"
-    category: payment
+    category: finance
     candidates:
-      - {key: arrears, category: payment, summary: "October rent of EUR 950 not received; reminder sent."}
-      - {key: deposit, category: payment, summary: "Deposit refund for the previous flat requested."}
+      - {key: arrears, category: finance, summary: "October rent of EUR 950 not received; reminder sent."}
+      - {key: deposit, category: finance, summary: "Deposit refund for the previous flat requested."}
   metadata: {expected: null}
 - name: link-07
   inputs:
@@ -80,18 +80,18 @@ cases:
 - name: link-10
   inputs:
     text: "Mijn opzegging gaat dus in per 1 januari, klopt dat?"
-    category: lease
+    category: legal
     candidates:
-      - {key: notice, category: lease, summary: "Tenant gave notice on 28 September; end date to be confirmed."}
-      - {key: sublet, category: lease, summary: "Tenant asked whether subletting for two months in summer is allowed."}
+      - {key: notice, category: legal, summary: "Tenant gave notice on 28 September; end date to be confirmed."}
+      - {key: sublet, category: legal, summary: "Tenant asked whether subletting for two months in summer is allowed."}
   metadata: {expected: notice}
 - name: link-11
   inputs:
     text: "Mag mijn broer in juli twee maanden in mijn appartement wonen terwijl ik weg ben?"
-    category: lease
+    category: legal
     candidates:
-      - {key: notice, category: lease, summary: "Tenant gave notice on 28 September; end date 1 January."}
-      - {key: sublet, category: lease, summary: "Tenant asked about subletting during a summer stay abroad; owner has not answered."}
+      - {key: notice, category: legal, summary: "Tenant gave notice on 28 September; end date 1 January."}
+      - {key: sublet, category: legal, summary: "Tenant asked about subletting during a summer stay abroad; owner has not answered."}
   metadata: {expected: sublet}
 - name: link-12
   inputs:

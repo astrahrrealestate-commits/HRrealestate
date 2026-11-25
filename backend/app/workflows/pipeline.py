@@ -89,7 +89,7 @@ def mark_failed_step(message_id: str, error: str) -> int:
 @DBOS.step(name="pipeline.alert_unreadable", **_RETRY)
 def alert_unreadable_step(company_id: str, message_id: str) -> bool:
     text = (
-        "EstateOS could not read a new message after 3 attempts. It is on its own case (category 'other'); "
+        "EstateOS could not read a new message after 3 attempts. It is on its own case under Administration; "
         "please look at it yourself."
     )
     return send_owner_message(company_id, f"unreadable:{message_id}", partial(_text, text))

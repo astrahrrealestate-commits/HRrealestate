@@ -56,19 +56,22 @@ def _fake_sender_role(low: str) -> str | None:
 def _fake_understanding(prompt: str) -> dict[str, object]:
     low = prompt.lower()
     if re.search(r"(contract|kündigung|opzeg|verhuis)", low):
-        category = Category.lease
+        category = Category.legal
         intent = "Lease inquiry"
     elif re.search(r"(lek|leak|overstrom|flood|heizung|verwarming|kapot|broken|gaslucht|\bgas\b|brand|fire)", low):
         category = Category.maintenance
         intent = "Maintenance request"
     elif re.search(r"(huur|miete|\brent\b|betal)", low):
-        category = Category.payment
+        category = Category.finance
         intent = "Payment inquiry"
-    elif re.search(r"(offerte|quote|factuur|invoice)", low):
-        category = Category.contractor_update
-        intent = "Contractor update"
+    elif re.search(r"(factuur|invoice)", low):
+        category = Category.finance
+        intent = "Invoice"
+    elif re.search(r"(offerte|quote)", low):
+        category = Category.maintenance
+        intent = "Contractor quote"
     else:
-        category = Category.other
+        category = Category.administration
         intent = "General inquiry"
 
     if re.search(r"(overstrom|flood|gaslucht|\bgas\b|\bbrand\b|fire|rook|smoke|water staat)", low):

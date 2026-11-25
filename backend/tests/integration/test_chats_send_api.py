@@ -95,7 +95,7 @@ def _draft(s: Session, cid: UUID, case_id: UUID, inbound: UUID, status: ActionSt
 
 
 def _case(s: Session, cid: UUID) -> UUID:
-    case = Case(company_id=cid, category=Category.other, urgency=Urgency.normal, state=CaseState.open)
+    case = Case(company_id=cid, category=Category.administration, urgency=Urgency.normal, state=CaseState.open)
     s.add(case)
     s.flush()
     return case.id

@@ -82,7 +82,7 @@ def test_outbound_reply_joins_its_threads_open_case_once(db: Session, company: C
 def test_whatsapp_thread_window_is_72_hours(db: Session, company: Company) -> None:
     person = _person(db, company)
     first = _msg(db, company, person, thread="+31612345678", channel=Channel.whatsapp)
-    case_id = case_repo.create_case(db, company.id, person.id, Category.payment, Urgency.normal)
+    case_id = case_repo.create_case(db, company.id, person.id, Category.finance, Urgency.normal)
     case_repo.link_message(db, company.id, case_id, first.id, LinkMethod.new_case, None)
     soon = _msg(db, company, person, thread="+31612345678", at=NOW + timedelta(hours=71), channel=Channel.whatsapp)
     late = _msg(db, company, person, thread="+31612345678", at=NOW + timedelta(hours=80), channel=Channel.whatsapp)
@@ -95,7 +95,7 @@ def test_open_candidates_for_person(db: Session, company: Company) -> None:
     msg = _msg(db, company, person, thread=None)
     open_id = case_repo.create_case(db, company.id, person.id, Category.maintenance, Urgency.normal)
     case_repo.link_message(db, company.id, open_id, msg.id, LinkMethod.new_case, None)
-    resolved = case_repo.create_case(db, company.id, person.id, Category.payment, Urgency.low)
+    resolved = case_repo.create_case(db, company.id, person.id, Category.finance, Urgency.low)
     case_repo.transition(db, company.id, resolved, CaseState.resolved, actor="owner")
     cands = case_repo.open_candidates(db, company.id, person.id)
     assert [(c.case_id, c.category, c.last_message_at) for c in cands] == [(open_id, Category.maintenance, NOW)]
@@ -103,7 +103,7 @@ def test_open_candidates_for_person(db: Session, company: Company) -> None:
 
 def test_summary_compare_and_swap(db: Session, company: Company) -> None:
     person = _person(db, company)
-    case_id = case_repo.create_case(db, company.id, person.id, Category.other, Urgency.normal)
+    case_id = case_repo.create_case(db, company.id, person.id, Category.administration, Urgency.normal)
     assert case_repo.update_summary(db, company.id, case_id, "first", expected_version=0) is True
     assert case_repo.update_summary(db, company.id, case_id, "stale", expected_version=0) is False
     case = case_repo.get_case(db, company.id, case_id)
@@ -112,7 +112,7 @@ def test_summary_compare_and_swap(db: Session, company: Company) -> None:
 
 def test_transition_rules_and_tenant_scope(db: Session, company: Company) -> None:
     person = _person(db, company)
-    case_id = case_repo.create_case(db, company.id, person.id, Category.other, Urgency.normal)
+    case_id = case_repo.create_case(db, company.id, person.id, Category.administration, Urgency.normal)
     case_repo.transition(db, company.id, case_id, CaseState.closed, actor="owner")
     with pytest.raises(IllegalTransitionError):
         case_repo.transition(db, company.id, case_id, CaseState.open, actor="owner")

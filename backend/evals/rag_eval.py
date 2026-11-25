@@ -97,7 +97,7 @@ def _people(s: Session, cid: UUID) -> tuple[dict[str, UUID], dict[str, UUID]]:
         s.add(lease)
         s.flush()
         case = Case(company_id=cid, unit_id=unit.id, lease_id=lease.id, primary_person_id=person.id,
-                    state=CaseState.open, category=Category.other, urgency=Urgency.normal)  # fmt: skip
+                    state=CaseState.open, category=Category.administration, urgency=Urgency.normal)  # fmt: skip
         s.add(case)
         s.flush()
         people[key], cases[key] = person.id, case.id

@@ -69,9 +69,9 @@ def _load(session: Session, message_id: UUID) -> _Facts | LinkResult | None:
             UnderstandingRow.company_id == msg.company_id, UnderstandingRow.message_id == msg.id
         )
     )
-    category, urgency = (und.category, und.urgency) if und else (Category.other, Urgency.normal)
+    category, urgency = (und.category, und.urgency) if und else (Category.administration, Urgency.normal)
     if category is Category.spam and (not msg.text.strip() or _has_attachments(session, msg)):
-        category = Category.other  # a photo or file with no words is never dropped as spam: Harjot sees it
+        category = Category.administration  # a photo or file with no words is never dropped as spam: Harjot sees it
     body = und.body if und else {}
 
     # Non-Actionable Fallback on Crash:

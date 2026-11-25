@@ -116,7 +116,7 @@ def test_a_saved_contact_is_named_before_the_pipeline_has_linked_the_message(wor
 def test_two_cases_sharing_a_thread_do_not_break_the_inbox(world: World) -> None:  # noqa: F811
     """A message is linked to one case only, so the thread auto-link must skip what another case already holds."""
     with Session(world.engine) as s:
-        other = Case(company_id=world.company, category=Category.other, urgency=Urgency.low, summary="o")
+        other = Case(company_id=world.company, category=Category.administration, urgency=Urgency.low, summary="o")
         s.add(other)
         s.flush()
         _add_mail(s, world, "jan@example.test", 1, from_name="Jan")

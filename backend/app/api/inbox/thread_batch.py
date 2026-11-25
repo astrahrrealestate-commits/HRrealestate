@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.context.sender_label import UNASSIGNED_UNIT
 from app.context.shown_sender import saved_names, sender_person_ids
-from app.contracts import ActionType, CaseState, Category, Channel, Direction, Urgency
+from app.contracts import ActionType, CaseState, Channel, Direction, SenderRole, Urgency
 from app.db.enums import ApprovalStatus, PersonKind
 from app.db.models import (
     ActionRow,
@@ -386,6 +386,16 @@ def inbox_stats_counts(session: Session, company_id: UUID) -> dict[str, int]:
             Person.kind == PersonKind.contractor,
         )
     )
+    contractor_role = exists(
+        select(1)
+        .select_from(CaseLink)
+        .join(UnderstandingRow, UnderstandingRow.message_id == CaseLink.message_id)
+        .where(
+            CaseLink.case_id == Case.id,
+            UnderstandingRow.company_id == company_id,
+            UnderstandingRow.body["sender_role"].astext == SenderRole.contractor.value,
+        )
+    )
     is_tenant = exists(
         select(1)
         .select_from(Person)
@@ -411,7 +421,7 @@ def inbox_stats_counts(session: Session, company_id: UUID) -> dict[str, int]:
             func.sum(
                 sql_case(
                     (
-                        is_contractor | Case.category.in_((Category.contractor_update,)),
+                        is_contractor | contractor_role,
                         1,
                     ),
                     else_=0,

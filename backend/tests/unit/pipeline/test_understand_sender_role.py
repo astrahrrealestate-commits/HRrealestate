@@ -8,7 +8,7 @@ from app.pipeline.understand import settle_sender_role
 
 def _und(role: SenderRole | None = SenderRole.legal, **kw: Any) -> Understanding:
     base: dict[str, Any] = {
-        "category": Category.admin,
+        "category": Category.administration,
         "intent": "Letter from a lawyer",
         "urgency": Urgency.normal,
         "requires_reply": True,

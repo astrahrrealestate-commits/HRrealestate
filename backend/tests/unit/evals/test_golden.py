@@ -25,8 +25,8 @@ def test_golden_set_is_valid_and_covers_the_categories() -> None:
     assert len({c.name for c in cases}) == len(cases)
     count = {c: sum(1 for g in labels if g.category is c) for c in Category}
     assert count[Category.maintenance] >= 6
-    assert count[Category.payment] >= 5
-    assert count[Category.lease] >= 4
+    assert count[Category.finance] >= 5
+    assert count[Category.legal] >= 4
     assert min(count.values()) >= 2
     assert sum(g.urgency is Urgency.emergency for g in labels) >= 2
     assert sum(g.suspicious for g in labels) >= 2
@@ -54,7 +54,13 @@ def _u(
 def test_scores() -> None:
     labels = _labels()
     perfect = score_understanding(
-        labels, [_u(g.category, g.urgency, g.suspicious, g.requires_reply, g.sender_role) for g in labels]
+        labels,
+        [
+            _u(g.category, g.urgency, g.suspicious, g.requires_reply, g.sender_role).model_copy(
+                update={"needs_research": bool(g.needs_research)}
+            )
+            for g in labels
+        ],
     )
     assert perfect == {
         "category_accuracy": 1.0,
@@ -65,9 +71,10 @@ def test_scores() -> None:
         "needless_draft_rate": 0.0,
         "missed_reply_rate": 0.0,
         "sender_role_accuracy": 1.0,
+        "needs_research_accuracy": 1.0,
         "role_on_noise_rate": 0.0,
     }
-    wrong = score_understanding(labels, [_u(Category.other, Urgency.low, False) for _ in labels])
+    wrong = score_understanding(labels, [_u(Category.administration, Urgency.low, False) for _ in labels])
     assert wrong["emergency_recall"] == 0.0
     assert wrong["suspicious_recall"] == 0.0
     assert wrong["needless_draft_rate"] == 1.0  # everything flagged "needs reply": every FYI would get a draft
@@ -88,26 +95,26 @@ def test_golden_set_covers_every_sender_role_and_the_noise_that_must_stay_unlabe
 
 def test_role_scores_count_only_labelled_cases_and_flag_roles_put_on_noise() -> None:
     legal = GoldenLabels(
-        category=Category.admin, urgency=Urgency.normal, suspicious=False, sender_role=SenderRole.legal
+        category=Category.administration, urgency=Urgency.normal, suspicious=False, sender_role=SenderRole.legal
     )
-    noise = GoldenLabels(category=Category.other, urgency=Urgency.low, suspicious=False, requires_reply=False)
+    noise = GoldenLabels(category=Category.administration, urgency=Urgency.low, suspicious=False, requires_reply=False)
     right = score_understanding(
         [legal, noise],
         [
-            _u(Category.admin, Urgency.normal, False, True, SenderRole.legal),
-            _u(Category.other, Urgency.low, False, False),
+            _u(Category.administration, Urgency.normal, False, True, SenderRole.legal),
+            _u(Category.administration, Urgency.low, False, False),
         ],
     )
     assert (right["sender_role_accuracy"], right["role_on_noise_rate"]) == (1.0, 0.0)
     wrong = score_understanding(
         [legal, noise],
         [
-            _u(Category.admin, Urgency.normal, False, True, SenderRole.vve),
-            _u(Category.other, Urgency.low, False, False, SenderRole.business),
+            _u(Category.administration, Urgency.normal, False, True, SenderRole.vve),
+            _u(Category.administration, Urgency.low, False, False, SenderRole.business),
         ],
     )
     assert (wrong["sender_role_accuracy"], wrong["role_on_noise_rate"]) == (0.0, 1.0)
-    unlabelled = score_understanding([noise], [_u(Category.other, Urgency.low, False, False)])
+    unlabelled = score_understanding([noise], [_u(Category.administration, Urgency.low, False, False)])
     assert unlabelled["sender_role_accuracy"] == 1.0  # nothing to be wrong about
 
 
@@ -147,3 +154,19 @@ def test_runner_on_fake_model_writes_report(
     assert "fake" in out
     (report,) = tmp_path.glob(f"{agent}-{version}-*.md")
     assert "| metric | score |" in report.read_text(encoding="utf-8")
+
+
+def test_research_score_judges_labelled_cases_only() -> None:
+    quote = GoldenLabels(category=Category.maintenance, urgency=Urgency.normal, suspicious=False, needs_research=True)
+    silent = GoldenLabels(category=Category.maintenance, urgency=Urgency.normal, suspicious=False)
+    plain = _u(Category.maintenance, Urgency.normal, False)
+    researched = plain.model_copy(update={"needs_research": True, "research_questions": ["Prijs cv-ketel?"]})
+    assert score_understanding([quote, silent], [researched, plain])["needs_research_accuracy"] == 1.0
+    assert score_understanding([quote, silent], [plain, researched])["needs_research_accuracy"] == 0.0
+    assert score_understanding([silent], [researched])["needs_research_accuracy"] == 1.0
+
+
+def test_golden_set_labels_research_both_ways() -> None:
+    wanted = [g.needs_research for g in _labels() if g.needs_research is not None]
+    assert wanted.count(True) >= 3
+    assert wanted.count(False) >= 3

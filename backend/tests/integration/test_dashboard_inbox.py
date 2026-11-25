@@ -67,8 +67,8 @@ def world(migrated_engine: Engine, pg_url: str) -> Iterator[World]:
              delivery_status=DeliveryStatus.sent, pipeline_status=PipelineStatus.done)  # fmt: skip
         wa = _msg(s, a.id, Channel.whatsapp, "w1", None, 3)
         body = {"suspicious": {"flag": True, "reason": "r" * 300}}
-        s.add(UnderstandingRow(company_id=a.id, message_id=wa.id, category=Category.other, urgency=Urgency.normal,
-                               body=body, prompt_version="v1"))  # fmt: skip
+        s.add(UnderstandingRow(company_id=a.id, message_id=wa.id, category=Category.administration,
+                               urgency=Urgency.normal, body=body, prompt_version="v1"))  # fmt: skip
         s.add(AttachmentRow(company_id=a.id, message_id=wa.id, s3_key="media/a/ab/abc", mime_type="image/jpeg",
                             filename="p.jpg", size_bytes=3, sha256="ab" * 32))  # fmt: skip
         person = Person(
@@ -78,7 +78,7 @@ def world(migrated_engine: Engine, pg_url: str) -> Iterator[World]:
         s.flush()
         g1 = s.query(MessageRow).filter_by(company_id=a.id, provider_msg_id="g1").one()
         g1.person_id = person.id  # the last message (g2) is outbound with no person: name comes from g1
-        case = Case(company_id=a.id, category=Category.other, urgency=Urgency.normal, state=CaseState.open)
+        case = Case(company_id=a.id, category=Category.administration, urgency=Urgency.normal, state=CaseState.open)
         s.add(case)
         s.flush()
         s.add(CaseLink(company_id=a.id, case_id=case.id, message_id=g1.id, method=LinkMethod.thread))

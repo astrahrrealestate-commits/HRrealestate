@@ -1,5 +1,6 @@
 import { InboxThread } from "@/types/inbox";
 import { isNeedsYou } from "@/lib/selectors";
+import { SHOWN_CATEGORIES } from "@/lib/categoryLabels";
 
 /** What each option of the inbox filter popover keeps. Ids are `<group>_<name>`; a group is the part before `_`. */
 const OPTION_PREDICATES: Record<string, (t: InboxThread) => boolean> = {
@@ -15,15 +16,9 @@ const OPTION_PREDICATES: Record<string, (t: InboxThread) => boolean> = {
   ch_whatsapp: (t) => t.channel === "whatsapp",
   ch_gmail: (t) => t.channel === "gmail",
   ch_portal: (t) => t.channel === "portal",
-  type_repairs: (t) => t.category === "maintenance" || t.category === "contractor_repairs",
-  type_rent: (t) => t.category === "rent" || t.category === "payment",
-  type_lease: (t) => t.category === "lease" || t.category === "sublet",
-  type_complaint: (t) => t.category === "complaint",
-  type_contractor: (t) =>
-    t.category === "contractor_update" ||
-    t.category === "contractor_repairs" ||
-    t.category === "contractor_invoices",
-  type_admin: (t) => t.category === "admin",
+  ...Object.fromEntries(
+    SHOWN_CATEGORIES.map((c) => [`type_${c}`, (t: InboxThread) => t.category === c] as const)
+  ),
 };
 
 const groupOf = (optionId: string) => optionId.split("_")[0];

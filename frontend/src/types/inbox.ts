@@ -1,18 +1,8 @@
+import type { BusinessCategory } from "@/lib/categoryLabels";
 import { ChannelType, UrgencyLevel, DraftOption, RecipientRole, AiUnderstandingCard } from "./dashboard";
 
-export type MessageCategory =
-  | "maintenance"
-  | "payment"
-  | "rent"
-  | "lease"
-  | "sublet"
-  | "complaint"
-  | "contractor_update"
-  | "contractor_repairs"
-  | "contractor_invoices"
-  | "admin"
-  | "general"
-  | "other";
+/** The six business categories plus internal `spam` (backend `Category`). */
+export type MessageCategory = BusinessCategory | "spam";
 
 export type ThreadStatus = "needs_approval" | "approved" | "rejected" | "replied" | "closed" | "fyi";
 export type SortOption = "urgency" | "latest" | "oldest";

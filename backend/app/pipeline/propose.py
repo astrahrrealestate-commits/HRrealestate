@@ -29,6 +29,7 @@ from app.contracts import (
     Understanding,
     Urgency,
 )
+from app.contracts.categories import current_category
 from app.core.errors import AgentFailedError
 from app.core.logging import get_logger
 from app.core.settings import Settings
@@ -334,6 +335,8 @@ def _with_defaults(body: dict[str, Any]) -> dict[str, Any]:
     """Understandings stored before a field existed: no `requires_reply` (spam never needed an answer, anything else
     did) and no `sender_role` (unknown)."""
     out = {"sender_role": None, **body}
+    if isinstance(out.get("category"), str):
+        out["category"] = current_category(out["category"]).value  # written by a pre-M13 worker during a deploy
     if "requires_reply" not in out:
         out["requires_reply"] = out.get("category") != Category.spam.value
     return out

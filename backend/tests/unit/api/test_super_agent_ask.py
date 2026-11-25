@@ -1059,7 +1059,7 @@ def test_multi_draft_request_expands_to_three_urgency_ordered_cards():
         Case(
             id=c_norm,
             company_id=comp_id,
-            category=Category.other,
+            category=Category.administration,
             urgency=Urgency.normal,
             state=CaseState.open,
             summary="Lease renewal C",

@@ -88,7 +88,7 @@ def test_send_to_owner_dashboard_writes_feed_only(
 
 def _pending(engine: Engine, company_id: UUID) -> UUID:
     with Session(engine) as s:
-        case = Case(company_id=company_id, category=Category.other, urgency=Urgency.normal, summary="s")
+        case = Case(company_id=company_id, category=Category.administration, urgency=Urgency.normal, summary="s")
         s.add(case)
         s.flush()
         action = ActionRow(

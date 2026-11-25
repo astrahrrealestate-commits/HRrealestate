@@ -28,6 +28,7 @@ class GoldenLabels(BaseModel):
     suspicious: bool
     requires_reply: bool = True  # a human would owe this sender an answer
     sender_role: SenderRole | None = None  # who a careful human says wrote it; None for noise and unclear senders
+    needs_research: bool | None = None  # None: not judged
 
 
 def load_understanding(
@@ -54,6 +55,11 @@ def _role_accuracy(pairs: Sequence[tuple[GoldenLabels, Understanding]]) -> float
     return sum(g.sender_role is o.sender_role for g, o in labelled) / len(labelled) if labelled else 1.0
 
 
+def _research_accuracy(pairs: Sequence[tuple[GoldenLabels, Understanding]]) -> float:
+    labelled = [(g, o) for g, o in pairs if g.needs_research is not None]
+    return sum(g.needs_research is o.needs_research for g, o in labelled) / len(labelled) if labelled else 1.0
+
+
 def score_understanding(labels: Sequence[GoldenLabels], outputs: Sequence[Understanding]) -> dict[str, float]:
     pairs = list(zip(labels, outputs, strict=True))
     n = len(pairs) or 1
@@ -70,6 +76,7 @@ def score_understanding(labels: Sequence[GoldenLabels], outputs: Sequence[Unders
         "missed_reply_rate": 1 - _recall(pairs, lambda g: g.requires_reply, lambda o: o.requires_reply),
         # labels come after intent: a role is judged only where one is expected, and noise must never get one
         "sender_role_accuracy": _role_accuracy(pairs),
+        "needs_research_accuracy": _research_accuracy(pairs),
         "role_on_noise_rate": 1 - _recall(pairs, _is_unlabelled_noise, lambda o: o.sender_role is None),
     }
 

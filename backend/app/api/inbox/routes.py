@@ -106,10 +106,6 @@ DEFAULT_SEEDED_THREADS: list[dict[str, Any]] = []
 def _is_contractor_case(case: Case, person: Any, sender_email: str, messages: list[MessageRow]) -> bool:
     return (
         (person is not None and person.kind == PersonKind.contractor)
-        or (
-            case.category is not None
-            and case.category.value in ("contractor_update", "contractor_invoices", "contractor_repairs")
-        )
         or any(c_kw in sender_email.lower() for c_kw in ("chahalbouw.nl", "contractor", "loodgieter"))
         or any("chahalbouw.nl" in (m.sender_identity or "").lower() for m in messages)
     )
