@@ -1,8 +1,10 @@
 # M13: AI staff for Harjot: six categories, drafts he would send, a 90-day reload, and an Astra that can do anything
 
-Date: 2026-11-25 · Status: approved by the user in conversation (reload option A; six categories; category dashboard);
+Date: 2026-11-25 · Status: approved by the user in conversation (reload option A; six categories; category dashboard;
+"Added: RAG and Astra" awaits approval);
 revised the same day after a codebase audit (see "Changed after the codebase audit").
-Team: two developers, 2–3 days. (M12 is "Due diligence lite" in `docs/PROGRESS.md`, so this is M13.)
+Team: planned for two developers; RAG and Astra need a third lane to keep 3 days (third lane not yet confirmed by the
+user; see "Added: RAG and Astra"). (M12 is "Due diligence lite" in `docs/PROGRESS.md`, so this is M13.)
 
 ## Why
 The client saw the product. Drafts were too basic and the dashboard is a generic overview. Harjot wants AI staff that
@@ -47,6 +49,13 @@ speed matters too.
    drafts or notices), then draft only conversations still waiting for Harjot (option A).
 9. **Harjot's own words count:** his mail in the mailbox and his replies quoted in later mail are context and mark a
    conversation answered; nothing is ever drafted to him.
+10. **Search finds the right mail:** message search embeds the question as a query, matches any of its words in Dutch
+    or English, indexes each mail's new part once, reranks, and is measured by its own eval next to the document one.
+11. **Astra understands what he means:** names, addresses, vendors and "he / that quote" resolve to the right rows;
+    it keeps 12 turns and the conversation summary; any question about content, amounts, dates or rules is researched,
+    never answered from summaries; every research answer lists sources that open.
+12. **Better is measured:** the share of drafts approved unchanged or lightly edited, drafts dropped as generic,
+    latency and cost per draft, per category and prompt version, before and after.
 
 ## Drafting standard (Harjot's words, 2026-11-25; binding for every draft, including Astra's)
 > The Super Agent should never draft generic acknowledgements or basic responses. Every draft must be commercially
@@ -160,6 +169,30 @@ The first version planned parts the code already has and missed problems the cod
   function; invented "confidence" numbers on drafts.
 - **Changed:** milestone M13; `lease` maps to `legal`; document reader on the fast tier; two model tiers set in code
   instead of per-agent JSON settings; the category API under `/api/dashboard`; research findings in their own column.
+
+## Added: RAG and Astra (2026-11-25)
+The user asked for RAG and Astra to be covered on the same schedule. The details below are my call and not yet approved.
+
+Found in the code (full list: plan, "Wrong today" 20-29):
+- Queries are embedded as documents; message search needs every word; quoted history is indexed again in every reply;
+  Astra uses neither the document planner nor the reranker; message search has no eval.
+- Astra's planner sees five 400-character summaries and 12 short lines, and on the dashboard chat not the conversation
+  summary. It reaches only the 20 newest open cases, the page's and the focus case. Keyword shortcuts bypass the planner
+  or replace its answer. Planned research runs without the conversation, and answers have no sources. The chat stops
+  waiting after 55 s.
+- Draft quality is measured per company-day, not per category or prompt version.
+
+Decided:
+- Message eval and baselines come first, so every search change has a before and after. Query task type, OR words with the
+  glossary, rerank for Astra only, and Gmail chunks with each mail's new part. No separate reindex.
+- Entities resolve with `rapidfuzz` and the existing glossary, inside the company: no new extension or migration.
+- The keyword shortcuts go; the planner's existing intents cover them.
+- Research answers carry sources, checked against what the tools returned in that run.
+- Research has a deadline: 35 s, or 90 s once the load balancer and the client allow 120 s. Depth and speed trade off here.
+- The draft report extends the existing outcome capture. Its baseline is taken before the purge, which deletes its rows.
+- The purge keeps `sends` with a null action and deletes the outcomes of purged actions.
+- Gates: message `context_hit` ≥ 0.85 and `mrr` above baseline, isolation 0, documents not lower; `v10` intent accuracy ≥
+  `v9`; research correctness ≥ 0.85. The numbers are starting points, to be set against the baselines.
 
 ## Left to the builders
 Dossier budgets, reload queue concurrency, purge order, prompt wording within the rules, dashboard visual detail
