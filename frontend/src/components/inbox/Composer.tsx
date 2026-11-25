@@ -196,15 +196,21 @@ export function Composer({
 
     setIsDraftingGmail(true);
     try {
+      if (externalThreadId && textToSend.trim() && typeof navigator !== "undefined" && navigator.clipboard) {
+        navigator.clipboard.writeText(textToSend).catch(() => {});
+      }
       const res = await createGmailDraft({
         to_email: effectiveEmail,
         subject: subjectToSend,
         body: textToSend,
         thread_id: externalThreadId,
+        case_id: threadKey,
       });
       window.open(res.web_url, "_blank", "noopener,noreferrer");
     } catch {
-      const fallbackUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(effectiveEmail)}&su=${encodeURIComponent(subjectToSend)}&body=${encodeURIComponent(textToSend)}`;
+      const fallbackUrl = externalThreadId
+        ? `https://mail.google.com/mail/#all/${encodeURIComponent(externalThreadId)}`
+        : `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(effectiveEmail)}&su=${encodeURIComponent(subjectToSend)}&body=${encodeURIComponent(textToSend)}`;
       window.open(fallbackUrl, "_blank", "noopener,noreferrer");
     } finally {
       setIsDraftingGmail(false);

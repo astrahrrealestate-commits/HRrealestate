@@ -8,7 +8,26 @@ export interface ThreadCountTarget {
   status?: string;
   urgent?: boolean;
   urgency?: "emergency" | "high" | "normal" | "low" | string;
+  snoozedUntil?: string | null;
   [key: string]: any;
+}
+
+const URGENCY_RANK: Record<string, number> = {
+  emergency: 0,
+  high: 1,
+  normal: 2,
+  low: 3,
+};
+
+function urgencyRank(t: ThreadCountTarget): number {
+  if (t?.urgency && t.urgency in URGENCY_RANK) return URGENCY_RANK[t.urgency];
+  return t?.urgent ? 1 : 2;
+}
+
+function isActivelySnoozedTarget(t: ThreadCountTarget): boolean {
+  if (!t?.snoozedUntil) return false;
+  const until = new Date(t.snoozedUntil).getTime();
+  return !Number.isNaN(until) && until > Date.now();
 }
 
 /**
@@ -31,7 +50,9 @@ export function isUrgent(t: ThreadCountTarget): boolean {
  */
 export function needsYou<T extends ThreadCountTarget>(threads: T[]): T[] {
   if (!Array.isArray(threads)) return [];
-  return threads.filter(isNeedsYou);
+  return threads
+    .filter((t) => isNeedsYou(t) && !isActivelySnoozedTarget(t))
+    .sort((a, b) => urgencyRank(a) - urgencyRank(b));
 }
 
 /**

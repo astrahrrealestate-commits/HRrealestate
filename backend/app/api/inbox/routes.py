@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine, func, select
+from sqlalchemy import case as sql_case
 from sqlalchemy.orm import Session
 
 from app.api.deps import WorkflowClient, get_engine, get_ingest_deps, get_storage, get_workflow_client
@@ -41,20 +42,23 @@ from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import decide_limit, sync_limit
 from app.channels.gmail.html_sanitize import html_to_clean_text, looks_like_html, sanitize_email_html
 from app.context.sender_label import UNASSIGNED_UNIT, resolve_sender_label, role_hint_of, unit_display
-from app.contracts import ActionType, ButtonChoice, CaseState, Category, Channel, Direction
+from app.contracts import ActionType, ButtonChoice, CaseState, Category, Channel, Direction, Urgency
 from app.core.errors import NotFoundError
 from app.core.ids import case_ref
 from app.core.language import detect_language
 from app.core.logging import get_logger
 from app.core.settings import get_settings
-from app.db.enums import ApprovalStatus, CaseEventKind, PersonKind, PipelineStatus, RawEventStatus
+from app.db.enums import ActionStatus, ApprovalStatus, CaseEventKind, PersonKind, PipelineStatus, RawEventStatus
 from app.db.models import (
+    ActionRevision,
     ActionRow,
+    Approval,
     AttachmentRow,
     Case,
     CaseEvent,
     CaseLink,
     ChannelAccount,
+    Company,
     GmailSyncState,
     Lease,
     LeaseParty,
@@ -590,10 +594,22 @@ def _build_live_threads(
     channel: str = "all",
     audience: str = "all",
     category: str = "all",
+    sort: str = "recent",
 ) -> list[dict[str, Any]]:
     """Builds frontend-compatible thread structures from PostgreSQL via batched read-only queries."""
     has_filters = channel != "all" or audience != "all" or category != "all"
-    base_q = session.query(Case).filter(Case.company_id == company_id).order_by(Case.opened_at.desc())
+    base_q = session.query(Case).filter(Case.company_id == company_id)
+    if sort == "priority":
+        closed_rank = sql_case((Case.state.in_((CaseState.closed, CaseState.resolved)), 1), else_=0)
+        urgency_rank = sql_case(
+            (Case.urgency == Urgency.emergency, 0),
+            (Case.urgency == Urgency.high, 1),
+            (Case.urgency == Urgency.normal, 2),
+            else_=3,
+        )
+        base_q = base_q.order_by(closed_rank.asc(), urgency_rank.asc(), Case.opened_at.desc())
+    else:
+        base_q = base_q.order_by(Case.opened_at.desc())
     if category not in ("all", "contractor_repairs", "contractor_money"):
         with contextlib.suppress(ValueError):
             base_q = base_q.filter(Case.category == Category(category))
@@ -639,6 +655,7 @@ def get_inbox_threads(
     channel: str = Query(default="all", description="all, gmail, whatsapp"),
     audience: str = Query(default="all", description="all, tenants, contractors"),
     category: str = Query(default="all", description="all, contractor_repairs, contractor_money"),
+    sort: str = Query(default="recent", description="recent or priority"),
     limit: int = Query(default=20, ge=1, le=100, description="Max threads to return"),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     *,
@@ -649,10 +666,20 @@ def get_inbox_threads(
     chan = channel if isinstance(channel, str) else getattr(channel, "default", "all")
     aud = audience if isinstance(audience, str) else getattr(audience, "default", "all")
     cat = category if isinstance(category, str) else getattr(category, "default", "all")
+    sort_mode = sort if isinstance(sort, str) else getattr(sort, "default", "recent")
+    lim = limit if isinstance(limit, int) else getattr(limit, "default", 20)
+    off = offset if isinstance(offset, int) else getattr(offset, "default", 0)
 
     with Session(engine) as session:
         live_threads = _build_live_threads(
-            session, principal.company_id, limit=limit, offset=offset, channel=chan, audience=aud, category=cat
+            session,
+            principal.company_id,
+            limit=lim,
+            offset=off,
+            channel=chan,
+            audience=aud,
+            category=cat,
+            sort=sort_mode,
         )
         total_cases = session.query(func.count(Case.id)).filter(Case.company_id == principal.company_id).scalar() or 0
     if not principal.access.can("inbox"):
@@ -661,13 +688,13 @@ def get_inbox_threads(
     threads = list(live_threads)
 
     unfiltered = chan == "all" and aud == "all" and cat == "all"
-    has_more = (offset + len(live_threads)) < total_cases if unfiltered else len(live_threads) == limit
+    has_more = (off + len(live_threads)) < total_cases if unfiltered else len(live_threads) == lim
     return {
         "threads": threads,
         "total": total_cases,
         "has_more": has_more,
-        "offset": offset,
-        "limit": limit,
+        "offset": off,
+        "limit": lim,
         "syncedAt": datetime.now(UTC).isoformat(),
     }
 
@@ -805,10 +832,10 @@ def _quoted_message(session: Session, req: CreateGmailDraftRequest, company_id: 
 
 @router.post(
     "/create-draft",
-    summary="Open a Gmail Compose Window for a Reply",
+    summary="Open a Gmail Thread or Compose Window for a Reply",
     description=(
-        "Returns a prefilled Gmail compose URL. Native Gmail drafts are written only by the sender "
-        "(app/sender, send isolation), never by the API."
+        "Returns a Gmail URL for the existing mail chain (#all/<thread_id>) when replying to an email thread, "
+        "or a fresh compose URL (?view=cm) when composing a brand-new email."
     ),
 )
 def create_gmail_draft(
@@ -816,18 +843,148 @@ def create_gmail_draft(
     engine: Annotated[Engine, Depends(get_engine)],
     principal: Annotated[Principal, Depends(require_session)],
 ) -> dict[str, Any]:
-    """Prefills a compose window ("Re: " when the quoted message has a Message-ID); no Gmail API call."""
+    """Opens the existing Gmail thread when thread_id/msg.thread_ref exists; fresh compose only for new emails."""
     with Session(engine) as session:
         msg = _quoted_message(session, req, principal.company_id)
         in_reply_to = msg.meta.get("message_id") if msg is not None and isinstance(msg.meta, dict) else None
+        resolved_thread = (req.thread_id or "").strip() or (
+            msg.thread_ref if msg is not None and msg.channel == Channel.gmail else None
+        )
+    if resolved_thread:
+        return {
+            "ok": True,
+            "threaded": True,
+            "thread_id": resolved_thread,
+            "web_url": f"https://mail.google.com/mail/#all/{urllib.parse.quote(resolved_thread)}",
+        }
     sub = req.subject
     if in_reply_to and not sub.lower().startswith("re:"):
         sub = f"Re: {sub}"
     query = urllib.parse.urlencode({"view": "cm", "fs": "1", "to": req.to_email, "su": sub, "body": req.body})
     return {
-        "ok": False,
-        "error": "native Gmail drafts are created only by the sender; opened a compose window instead",
+        "ok": True,
+        "threaded": False,
         "web_url": f"https://mail.google.com/mail/?{query}",
+    }
+
+
+class ThreadReplyRequest(BaseModel):
+    body: str = Field(min_length=1, max_length=20000)
+    channel: str | None = None
+    reply_to_message_id: str | None = None
+
+
+@router.post(
+    "/threads/{case_id}/reply",
+    dependencies=[Depends(decide_limit)],
+    summary="Send a Threaded Owner Reply on an Inbox Case",
+    description=(
+        "Records an owner-authored reply on a case and enqueues it for `app/sender` (`exec:{action_id}:1`), "
+        "which replies inside the existing Gmail thread (with In-Reply-To/References) or WhatsApp window."
+    ),
+)
+def send_thread_reply(
+    case_id: str,
+    req: ThreadReplyRequest,
+    engine: Annotated[Engine, Depends(get_engine)],
+    client: Annotated[WorkflowClient, Depends(get_workflow_client)],
+    principal: Annotated[Principal, Depends(require_session)],
+) -> dict[str, Any]:
+    body_text = req.body.strip()
+    if not body_text:
+        raise HTTPException(status_code=422, detail="reply body cannot be blank")
+    try:
+        c_uuid = UUID(case_id.replace("case-", ""))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid case ID") from None
+
+    now = datetime.now(UTC)
+    company_id = principal.company_id
+    with Session(engine) as session, session.begin():
+        case = session.scalar(select(Case).where(Case.id == c_uuid, Case.company_id == company_id))
+        if case is None:
+            raise HTTPException(status_code=404, detail="Case not found")
+        company = session.get(Company, company_id)
+        if company is not None and company.paused:
+            raise HTTPException(status_code=409, detail="Company communications are paused.")
+
+        chosen_channel = Channel.whatsapp if req.channel == Channel.whatsapp.value else Channel.gmail
+        if req.channel is None:
+            latest_in = session.scalar(
+                select(MessageRow)
+                .join(CaseLink, CaseLink.message_id == MessageRow.id)
+                .where(
+                    CaseLink.company_id == company_id,
+                    CaseLink.case_id == c_uuid,
+                    MessageRow.direction == Direction.inbound,
+                )
+                .order_by(MessageRow.sent_at.desc())
+                .limit(1)
+            )
+            if latest_in is not None and latest_in.channel in (Channel.gmail, Channel.whatsapp):
+                chosen_channel = latest_in.channel
+
+        context_msg = session.scalar(
+            select(MessageRow)
+            .join(CaseLink, CaseLink.message_id == MessageRow.id)
+            .where(
+                CaseLink.company_id == company_id,
+                CaseLink.case_id == c_uuid,
+                MessageRow.channel == chosen_channel,
+                MessageRow.direction == Direction.inbound,
+            )
+            .order_by(MessageRow.sent_at.desc())
+            .limit(1)
+        )
+        payload: dict[str, Any] = {
+            "kind": "reply_draft",
+            "channel": chosen_channel.value,
+            "body_variants": [body_text],
+        }
+        action = ActionRow(
+            company_id=company_id,
+            case_id=c_uuid,
+            type=ActionType.reply_draft,
+            payload=payload,
+            rationale="Owner reply from Inbox",
+            context_ref=[context_msg.id] if context_msg is not None else [],
+            draft_version=1,
+            status=ActionStatus.approved,
+        )
+        session.add(action)
+        session.flush()
+        if req.reply_to_message_id:
+            inbox_decide.remember_quote(session, action, req.reply_to_message_id)
+        session.add(
+            ActionRevision(
+                company_id=company_id,
+                action_id=action.id,
+                draft_version=1,
+                payload=dict(action.payload),
+                edited_by="owner",
+            )
+        )
+        session.add(
+            Approval(
+                company_id=company_id,
+                action_id=action.id,
+                draft_version=1,
+                status=ApprovalStatus.approved,
+                choice=ButtonChoice.d1,
+                decided_at=now,
+            )
+        )
+        inbox_decide.record_dispatch(session, case, action, now)
+        action_id = action.id
+
+    enqueue.enqueue_execute(client, action_id, 1, False)
+    log.info("inbox.manual_reply_queued", case_id=str(c_uuid), action_id=str(action_id), channel=chosen_channel.value)
+    return {
+        "status": "approved",
+        "actionId": str(action_id),
+        "decision": "execute",
+        "message": f"Reply queued for sending via {chosen_channel.value}.",
+        "executedAt": now.isoformat(),
     }
 
 

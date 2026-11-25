@@ -15,6 +15,7 @@ import { InboxThread } from "@/types/inbox";
 import { Check, Clock, Columns2, Rows2, List, PenSquare, MailOpen } from "lucide-react";
 import {
   approveInboxDraft,
+  sendThreadReply,
   getInboxThreads,
   syncGmailInbox,
   markThreadRead,
@@ -324,13 +325,40 @@ function InboxContent() {
     threadId: string,
     draftText: string,
     outboundChannel: "whatsapp" | "gmail",
-    replyToMessageId?: string
-  ) => {
+    replyToMessageId?: string,
+    forceManualReply = false
+  ): Promise<boolean> => {
     const targetThread = threads.find((t) => t.id === threadId);
-    const approvalId = targetThread?.approvalId || targetThread?.id || threadId;
+    const caseId = targetThread?.caseId || targetThread?.id || threadId;
+    const approvalId = targetThread?.approvalId;
+    const hasPendingApproval = Boolean(
+      !forceManualReply &&
+        approvalId &&
+        approvalId !== targetThread?.id &&
+        approvalId !== `case-${caseId}` &&
+        targetThread?.status === "needs_approval" &&
+        targetThread?.draftProposal
+    );
     const effectiveMsg = replyToMessageId
       ? targetThread?.messages?.find((m) => m.id === replyToMessageId)
       : undefined;
+
+    let result: { ok?: boolean; status: string; message: string };
+    if (hasPendingApproval && approvalId) {
+      const decideRes = await approveInboxDraft(approvalId, "d1", draftText, effectiveMsg?.id);
+      if ((decideRes.status as string) === "already_decided") {
+        result = await sendThreadReply(caseId, draftText, outboundChannel, effectiveMsg?.id);
+      } else {
+        result = decideRes;
+      }
+    } else {
+      result = await sendThreadReply(caseId, draftText, outboundChannel, effectiveMsg?.id);
+    }
+
+    if (!result.ok || result.status === "rejected" || result.status === "held") {
+      showToast(result.message || "Could not send reply.");
+      return false;
+    }
 
     const replyToObj = effectiveMsg
       ? {
@@ -367,13 +395,8 @@ function InboxContent() {
           : t
       )
     );
-
-    try {
-      await approveInboxDraft(approvalId, "d1", draftText, effectiveMsg?.id);
-      showToast("Draft approved and sent via " + outboundChannel);
-    } catch {
-      showToast("Dispatched and logged to autonomous ledger.");
-    }
+    showToast(result.message || `Reply queued via ${outboundChannel}`);
+    return true;
   };
 
   const handleRejectDraft = async (threadId: string) => {
@@ -788,7 +811,7 @@ function InboxContent() {
             onRejectDraft={handleRejectDraft}
             onSendManualReply={(threadId, text, replyToId) => {
               const chan = activeThread?.channel === "gmail" ? "gmail" : "whatsapp";
-              void handleApproveDraft(threadId, text, chan, replyToId);
+              return handleApproveDraft(threadId, text, chan, replyToId, true);
             }}
             onMarkDone={handleMarkDone}
             onSnooze={handleSnooze}

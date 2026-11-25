@@ -19,6 +19,8 @@ import { formatCurrency, cn } from "@/lib/utils";
 import { useLanguage } from "@/context/LanguageContext";
 import {
   getInboxThreads,
+  markThreadDone,
+  snoozeThread,
   getDashboardPulse,
   getDashboardRadar,
   getDashboardAttention,
@@ -82,6 +84,7 @@ export default function TodayPage() {
   const [mobileEmergencyTab, setMobileEmergencyTab] = useState<"tenant" | "contractor">("tenant");
   const [mobileBriefingTextExpanded, setMobileBriefingTextExpanded] = useState<boolean>(false);
   const [nudgedItemIds, setNudgedItemIds] = useState<Record<string, boolean>>({});
+  const [showAllNeedsYou, setShowAllNeedsYou] = useState<boolean>(false);
   const [activeSection, setActiveSection] = useState<"all" | "urgent" | "needs_you" | "waiting" | "leads" | "overview">("all");
 
   // Maintenance in-place state
@@ -120,8 +123,8 @@ export default function TodayPage() {
   useEffect(() => {
     let isMounted = true;
 
-    // 1. Inbox threads (Single source of truth for Needs You and Urgent counts)
-    getInboxThreads()
+    // 1. Inbox threads (Single source of truth for Needs You and Urgent counts, priority-sorted with higher limit)
+    getInboxThreads({ limit: 100, sort: "priority" })
       .then(({ threads: live }) => {
         if (isMounted) {
           setThreads(live || []);
@@ -201,9 +204,24 @@ export default function TodayPage() {
     if (actionLockRef.current[`reply-${targetKey}`]) return;
 
     // Row 36: Check that outgoing reply is not empty
+    const matchedThread =
+      threads.find(
+        (t) =>
+          t.id === targetKey ||
+          t.caseId === ticket.id ||
+          t.ticketNumber === ticket.ticketNumber ||
+          t.id === ticket.id
+      ) || topUrgentThread;
+    const channelDraftFallback =
+      (channel === "whatsapp"
+        ? matchedThread?.draftProposal?.whatsappDrafts?.[0]?.text
+        : matchedThread?.draftProposal?.gmailDrafts?.[0]?.text) ||
+      matchedThread?.draftProposal?.drafts?.[0]?.text ||
+      "";
     const explicitDraft =
       customTenantReplyText[targetKey] ?? customTenantReplyText[ticket.ticketNumber];
-    const currentText = explicitDraft ?? ticket.tenantDraft ?? "";
+    const currentText =
+      explicitDraft ?? ((ticket.tenantDraft?.trim() ? ticket.tenantDraft : "") || channelDraftFallback);
     if (explicitDraft !== undefined && !explicitDraft.trim()) {
       showToast("Cannot send an empty reply. Please enter a message.");
       return;
@@ -215,12 +233,6 @@ export default function TodayPage() {
 
     actionLockRef.current[`reply-${targetKey}`] = true;
     setTenantReplySentMap((prev) => ({ ...prev, [targetKey]: true }));
-
-    // Find the thread context in live threads list
-    const matchedThread =
-      threads.find(
-        (t) => t.id === targetKey || t.ticketNumber === ticket.ticketNumber || t.id === ticket.id
-      ) || topUrgentThread;
 
     // Copy draft message to clipboard so user can paste immediately in Gmail or WhatsApp
     if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
@@ -438,8 +450,65 @@ export default function TodayPage() {
   const urgentThreads = urgent(threads);
   const needsYouThreads = needsYou(threads);
 
-  // Top urgent thread for slim emergency bar
+  // Top urgent thread for emergency alert card; remaining urgent threads render as compact rows
   const topUrgentThread = urgentThreads[0] || null;
+  const otherUrgentThreads = urgentThreads.slice(1);
+
+  const handleDoneThread = async (thread: InboxThread) => {
+    const caseId = thread.caseId || thread.id;
+    const prevStatus = thread.status;
+    setThreads((prev) =>
+      prev.map((t) => (t.id === thread.id ? { ...t, status: "closed" as const, isRead: true, snoozedUntil: null } : t))
+    );
+    const ok = await markThreadDone(caseId);
+    if (ok) {
+      showToast(`Thread ${thread.senderName} marked as done.`);
+    } else {
+      setThreads((prev) => prev.map((t) => (t.id === thread.id ? { ...t, status: prevStatus } : t)));
+      showToast(`Could not mark ${thread.senderName} as done.`);
+    }
+  };
+
+  const handleSnoozeThread = async (thread: InboxThread) => {
+    const caseId = thread.caseId || thread.id;
+    const prevSnooze = thread.snoozedUntil ?? null;
+    const tomorrowIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    setThreads((prev) =>
+      prev.map((t) => (t.id === thread.id ? { ...t, snoozedUntil: tomorrowIso, isRead: true } : t))
+    );
+    const res = await snoozeThread(caseId);
+    if (res.ok) {
+      if (res.snoozedUntil) {
+        setThreads((prev) =>
+          prev.map((t) => (t.id === thread.id ? { ...t, snoozedUntil: res.snoozedUntil, isRead: true } : t))
+        );
+      }
+      showToast(`Thread ${thread.senderName} snoozed until tomorrow.`);
+    } else {
+      setThreads((prev) => prev.map((t) => (t.id === thread.id ? { ...t, snoozedUntil: prevSnooze } : t)));
+      showToast(`Could not snooze ${thread.senderName}.`);
+    }
+  };
+
+  const toThreadRowItem = (thread: InboxThread): ThreadRowItem => ({
+    id: thread.id,
+    contactName: thread.senderName,
+    channel: thread.channel,
+    unit: thread.unitLabel,
+    subject: thread.subject || thread.issueTitle || thread.caseRef,
+    snippet: thread.latestSnippet,
+    hasDraft: Boolean(
+      thread.draftProposal?.drafts?.length ||
+      thread.draftProposal?.whatsappDrafts?.length ||
+      thread.draftProposal?.gmailDrafts?.length
+    ),
+    lastAt: thread.receivedAt,
+    urgent: isUrgent(thread),
+    isRead: thread.isRead,
+    roleLabel: thread.recipientRoleDetail,
+    status: "needs_you",
+    count: thread.messages?.length || 1,
+  });
 
   useEffect(() => {
     superAgent.setCurrentPageName("Today");
@@ -1020,6 +1089,8 @@ export default function TodayPage() {
             const ticketNum = topUrgentThread.ticketNumber || ticketRef(topUrgentThread.caseId || topUrgentThread.id);
             const ticket: MaintenanceTicket = maintenanceTickets.find(
               (t) =>
+                t.id === topUrgentThread.caseId ||
+                t.id === topUrgentThread.id ||
                 t.ticketNumber === ticketNum ||
                 t.ticketNumber === `#${ticketNum.replace("#", "")}`
             ) || {
@@ -1212,7 +1283,7 @@ export default function TodayPage() {
                             rows={4}
                             value={
                               customTenantReplyText[ticket.ticketNumber] ??
-                              ticket.tenantDraft ??
+                              (ticket.tenantDraft?.trim() ? ticket.tenantDraft : undefined) ??
                               (tenantChannel === "whatsapp"
                                 ? topUrgentThread.draftProposal?.whatsappDrafts?.[0]?.text
                                 : topUrgentThread.draftProposal?.gmailDrafts?.[0]?.text) ??
@@ -1499,7 +1570,7 @@ export default function TodayPage() {
                             rows={6}
                             value={
                               customTenantReplyText[ticket.ticketNumber] ??
-                              ticket.tenantDraft ??
+                              (ticket.tenantDraft?.trim() ? ticket.tenantDraft : undefined) ??
                               (tenantChannel === "whatsapp"
                                 ? topUrgentThread.draftProposal?.whatsappDrafts?.[0]?.text
                                 : topUrgentThread.draftProposal?.gmailDrafts?.[0]?.text) ??
@@ -1672,12 +1743,42 @@ export default function TodayPage() {
             )
           )}
 
-          {/* Section 1: Needs You (Top 5 threads using exact ThreadRow component, Section 5.3) */}
-          {(activeSection === "all" || activeSection === "needs_you") && (
+          {/* Additional urgent messages rendered as compact rows (like Needs You) */}
+          {(activeSection === "all" || activeSection === "urgent") && otherUrgentThreads.length > 0 && (
+            <section id="section-urgent-list" className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] overflow-hidden">
+              <div className="px-4 sm:px-5 py-3 border-b border-[var(--line)] bg-[var(--pane)]">
+                <SectionHeader
+                  title={t("Other urgent messages")}
+                  count={otherUrgentThreads.length}
+                  actionText={t("Open Inbox →")}
+                  actionHref="/inbox?tab=needs_you"
+                />
+              </div>
+              <div className="divide-y divide-[var(--line)]">
+                {otherUrgentThreads.slice(0, activeSection === "urgent" ? 50 : 10).map((thread) => (
+                  <ThreadRow
+                    key={thread.id}
+                    t={toThreadRowItem(thread)}
+                    onSelect={() => router.push(`/inbox?thread=${thread.id}`)}
+                    onDone={() => handleDoneThread(thread)}
+                    onSnooze={() => handleSnoozeThread(thread)}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Section 1: Needs You (Priority-sorted threads using ThreadRow, with Show more + real Done/Snooze) */}
+          {(activeSection === "all" || activeSection === "needs_you") && (() => {
+            const visibleLimit = activeSection === "needs_you" || showAllNeedsYou ? 50 : 5;
+            const visibleNeedsYou = needsYouThreads.slice(0, visibleLimit);
+            const hiddenCount = Math.max(0, needsYouThreads.length - visibleNeedsYou.length);
+            return (
           <section id="section-needs-you" className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] overflow-hidden">
             <div className="px-4 sm:px-5 py-3 border-b border-[var(--line)] bg-[var(--pane)]">
               <SectionHeader
                 title={t("Needs you")}
+                count={needsYouThreads.length}
                 actionText={t("Open Inbox →")}
                 actionHref="/inbox"
               />
@@ -1685,39 +1786,25 @@ export default function TodayPage() {
 
             <div className="divide-y divide-[var(--line)]">
               {needsYouThreads.length > 0 ? (
-                needsYouThreads.slice(0, activeSection === "all" ? 5 : 50).map((thread) => {
-                  const rowItem: ThreadRowItem = {
-                    id: thread.id,
-                    contactName: thread.senderName,
-                    channel: thread.channel,
-                    unit: thread.unitLabel,
-                    subject: thread.subject || thread.issueTitle || thread.caseRef,
-                    snippet: thread.latestSnippet,
-                    hasDraft: Boolean(
-                      thread.draftProposal?.drafts?.length ||
-                      thread.draftProposal?.whatsappDrafts?.length ||
-                      thread.draftProposal?.gmailDrafts?.length
-                    ),
-                    lastAt: thread.receivedAt,
-                    urgent: isUrgent(thread),
-                    status: "needs_you",
-                    count: thread.messages?.length || 1,
-                  };
-
+                visibleNeedsYou.map((thread) => {
                   const isMaintenance = thread.category === "maintenance" && thread.recipientRole !== "contractor";
 
                   return (
                     <div key={thread.id} className="group">
                       <ThreadRow
-                        t={rowItem}
+                        t={toThreadRowItem(thread)}
                         onSelect={() => router.push(`/inbox?thread=${thread.id}`)}
-                        onDone={() => showToast(`Thread ${thread.senderName} marked as done.`)}
-                        onSnooze={() => showToast(`Thread ${thread.senderName} snoozed until tomorrow 09:00.`)}
+                        onDone={() => handleDoneThread(thread)}
+                        onSnooze={() => handleSnoozeThread(thread)}
                       />
                       {/* For maintenance messages: strictly isolated by thread ID (thread.id) */}
                       {isMaintenance && (() => {
                         const mTicket = maintenanceTickets.find(
-                          (mt) => mt.ticketNumber === thread.ticketNumber || mt.ticketNumber === `#${thread.ticketNumber?.replace('#', '')}`
+                          (mt) =>
+                            mt.id === thread.caseId ||
+                            mt.id === thread.id ||
+                            mt.ticketNumber === thread.ticketNumber ||
+                            mt.ticketNumber === `#${thread.ticketNumber?.replace('#', '')}`
                         ) || {
                           ...DEFAULT_TICKET_TEMPLATE,
                           id: `m-${thread.id}`,
@@ -1810,8 +1897,25 @@ export default function TodayPage() {
                 </div>
               )}
             </div>
+            {(hiddenCount > 0 || (showAllNeedsYou && needsYouThreads.length > 5 && activeSection === "all")) && (
+              <div className="px-4 sm:px-5 py-2.5 border-t border-[var(--line)] bg-[var(--bg)]/50 flex items-center justify-between text-xs">
+                <button
+                  type="button"
+                  onClick={() => setShowAllNeedsYou((prev) => !prev)}
+                  className="font-semibold text-[var(--ink)] hover:underline cursor-pointer"
+                >
+                  {showAllNeedsYou
+                    ? t("Show fewer")
+                    : `${t("Show more")} (+${hiddenCount})`}
+                </button>
+                <Link href="/inbox" className="font-medium text-[var(--accent-ink)] hover:underline">
+                  {t("Review all in Inbox →")}
+                </Link>
+              </div>
+            )}
           </section>
-          )}
+            );
+          })()}
 
           {/* Section 1.5: Calendar & Visit Approvals (Top N proposed appointments awaiting Harjot's confirmation) */}
           {(activeSection === "all" || activeSection === "needs_you" || activeSection === "urgent") && (

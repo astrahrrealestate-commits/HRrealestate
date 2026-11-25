@@ -23,9 +23,11 @@ from app.contracts import (
     Action,
     ActionType,
     Category,
+    Channel,
     NotifyOwnerPayload,
     ReplyDraftPayload,
     Understanding,
+    Urgency,
 )
 from app.core.errors import AgentFailedError
 from app.core.logging import get_logger
@@ -205,9 +207,45 @@ def _run_proposer(engine: Engine, settings: Settings, loaded: Loaded) -> list[Ac
     return [_trusted(a, loaded) for a in result.output.actions]
 
 
+def _ensure_emergency_reply(actions: list[Action], loaded: Loaded) -> list[Action]:
+    """Guarantee an acknowledgement reply draft when an emergency case needs a reply but the model only escalated."""
+    und = loaded.ctx.understanding
+    if (
+        loaded.ctx.mode != "reply"
+        or und.urgency is not Urgency.emergency
+        or not und.requires_reply
+        or und.suspicious.flag
+        or any(a.type is ActionType.reply_draft for a in actions)
+        or any(a.rationale == FALLBACK_RATIONALE for a in actions)
+    ):
+        return actions
+    text_1 = (
+        "Beste,\n\nWe hebben uw urgente melding in goede orde ontvangen en pakken dit met de hoogste "
+        "prioriteit op. Wij nemen zo spoedig mogelijk contact met u op.\n\nMet vriendelijke groet,\nHarjot"
+    )
+    text_2 = (
+        "Beste,\n\nBedankt voor uw snelle bericht. Gezien de urgentie beoordelen wij dit direct en "
+        "koppelen wij zo snel mogelijk de vervolgstappen aan u terug.\n\nMet vriendelijke groet,\nHarjot"
+    )
+    reply = Action(
+        type=ActionType.reply_draft,
+        case_id=loaded.ctx.case_id,
+        payload=ReplyDraftPayload(
+            kind="reply_draft",
+            channel=loaded.ctx.channel,
+            subject=f"Re: {loaded.ctx.subject}" if loaded.ctx.channel is Channel.gmail and loaded.ctx.subject else None,
+            body_variants=[text_1, text_2],
+        ),
+        rationale="Emergency acknowledgement draft generated because the model returned escalation without a reply.",
+        context_ref=[],
+        draft_version=1,
+    )
+    return [reply, *actions][:4]
+
+
 def _propose(engine: Engine, settings: Settings, loaded: Loaded) -> list[Action]:
     try:
-        return _run_proposer(engine, settings, loaded)
+        return _ensure_emergency_reply(_run_proposer(engine, settings, loaded), loaded)
     except AgentFailedError:
         log.warning("pipeline.proposer_failed", case_id=str(loaded.ctx.case_id))
         return _fallback(loaded.ctx.case_id)

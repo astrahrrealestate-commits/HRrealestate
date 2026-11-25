@@ -50,7 +50,15 @@ function Row({ doc }: { doc: TenantDocument }) {
 }
 
 /** The tenant's BRIXX documents, grouped by what they are attached to. */
-export function TenantDocumentsPanel({ tenantId, name }: { tenantId: string; name: string }) {
+export function TenantDocumentsPanel({
+  tenantId,
+  name,
+  embedded = false,
+}: {
+  tenantId: string;
+  name: string;
+  embedded?: boolean;
+}) {
   // The answer is kept with the tenant it belongs to, so switching tenant shows "loading" without a reset in the effect.
   const [loaded, setLoaded] = useState<{ tenantId: string; result: TenantDocumentsResult } | null>(null);
 
@@ -85,9 +93,16 @@ export function TenantDocumentsPanel({ tenantId, name }: { tenantId: string; nam
   }, [tenantId, waiting]);
 
   return (
-    <div className="flex-1 flex flex-col p-3.5 sm:p-6 space-y-4 bg-white" data-testid="tenant-documents">
+    <div
+      className={
+        embedded
+          ? "flex flex-col pt-5 border-t border-[#e2e8f0] space-y-4 bg-white"
+          : "flex-1 flex flex-col p-3.5 sm:p-6 space-y-4 bg-white"
+      }
+      data-testid="tenant-documents"
+    >
       <div>
-        <h3 className="text-sm font-semibold text-[#111215]">Documents</h3>
+        <h3 className="text-sm font-semibold text-[#111215]">BRIXX Documents</h3>
         <p className="text-xs text-[#64748b] mt-0.5">
           {result?.ok
             ? `${result.total} in BRIXX for ${name}, ${result.available} ready to open${
