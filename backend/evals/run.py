@@ -21,6 +21,7 @@ from evals import (
     linking_eval,
     owner_qa_eval,
     proposer_eval,
+    proposer_v6_eval,
     understanding_eval,
 )
 from evals.common import EvalResult, eval_settings
@@ -37,6 +38,15 @@ RUNNERS: dict[str, Callable[[str, Settings], EvalResult]] = {
     "quote_reader": finance_eval.run_quote_reader,
     "job_items": finance_eval.run_job_items,
 }
+
+
+DOSSIER_VERSIONS = frozenset({"v6"})  # proposer prompts fed the M13 dossier: scored by proposer_v6_eval
+
+
+def runner_for(agent: str, version: str) -> Callable[[str, Settings], EvalResult]:
+    if agent == "proposer" and version in DOSSIER_VERSIONS:
+        return proposer_v6_eval.run
+    return RUNNERS[agent]
 
 
 def _report(agent: str, version: str, model: str, result: EvalResult) -> Path:
@@ -60,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--version", required=True)
     args = parser.parse_args(argv)
     settings = eval_settings()
-    result = RUNNERS[args.agent](args.version, settings)
+    result = runner_for(args.agent, args.version)(args.version, settings)
     path = _report(args.agent, args.version, settings.llm_model, result)
     for name, value in result.scores.items():
         sys.stdout.write(f"{name}: {value:.2f}\n")

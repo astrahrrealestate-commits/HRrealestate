@@ -11,7 +11,7 @@ from sqlalchemy import Engine, create_engine, make_url, text
 import app.db.models  # noqa: F401  (registers tables)
 from app.contracts.understanding import Understanding
 from app.core.ids import new_id
-from app.pipeline.propose import _with_defaults
+from app.pipeline.propose import with_defaults as _with_defaults
 from tests.integration.conftest import alembic_config
 
 pytestmark = pytest.mark.integration

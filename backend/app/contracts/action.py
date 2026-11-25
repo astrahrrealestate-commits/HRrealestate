@@ -13,7 +13,7 @@ from uuid import UUID
 from pydantic import AwareDatetime, Field, model_validator
 
 from app.contracts.case_state import CaseState
-from app.contracts.common import Channel, Contract, NonBlankStr
+from app.contracts.common import Channel, Contract, NonBlankStr, max_len
 
 DraftVariants = Annotated[list[NonBlankStr], Field(min_length=2, max_length=3)]
 
@@ -33,6 +33,14 @@ class ReplyDraftPayload(Contract):
     channel: Channel
     subject: str | None
     body_variants: DraftVariants
+    # Every financial, legal or other commitment the variants make (M13): shown next to Approve. Required in the
+    # model's schema (strict mode lists every property); payloads stored before M13 have none.
+    commitments: Annotated[list[Annotated[NonBlankStr, max_len(300)]], Field(max_length=10)]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_commitments_before_m13(cls, data: Any) -> Any:
+        return {"commitments": [], **data} if isinstance(data, dict) else data
 
 
 class NotifyOwnerPayload(Contract):
