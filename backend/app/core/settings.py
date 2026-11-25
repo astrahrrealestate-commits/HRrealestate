@@ -99,8 +99,8 @@ class Settings(BaseSettings):
     # offline prices (tests, simulator); prod refuses it.
     price_source: Literal["fake", "competitors", "web"] = "fake"
     # Web prices (ADR 0009): which search API feeds `price_source=web`. `none` = not connected yet; `fake` = recorded
-    # pages (tests, simulator). A real provider adds one SearchClient implementation and one literal here.
-    price_search_provider: Literal["none", "fake"] = "none"
+    # pages (tests, simulator); `gemini` = Google Search grounding on the Gemini key (also draft research).
+    price_search_provider: Literal["none", "fake", "gemini"] = "none"
     price_allowed_domains: Annotated[list[str], NoDecode] = []  # hosts web prices may come from; empty = any
     finance_ok_pct: Decimal = Decimal(5)  # up to this much over the reference is still ok
     finance_above_market_pct: Decimal = Decimal(15)  # over this: above market

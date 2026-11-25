@@ -1,0 +1,66 @@
+{
+  "grounding_metadata": {
+    "candidates": [
+      {
+        "content": {
+          "role": "model",
+          "parts": [{"text": "Een loodgieter kost in Nederland gemiddeld 55 tot 85 euro per uur."}]
+        },
+        "finishReason": "STOP",
+        "index": 0,
+        "groundingMetadata": {
+          "webSearchQueries": ["loodgieter uurtarief prijs Nederland"],
+          "searchEntryPoint": {"renderedContent": "<div></div>"},
+          "groundingChunks": [
+            {"web": {"uri": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/one", "title": "klusprijzen.example"}},
+            {"web": {"uri": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/two", "title": "loodgieter.example"}},
+            {"web": {"uri": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/one-again", "title": "klusprijzen.example"}}
+          ],
+          "groundingSupports": [
+            {"segment": {"endIndex": 64, "text": "55 tot 85 euro per uur"}, "groundingChunkIndices": [0, 1]}
+          ]
+        }
+      }
+    ],
+    "usageMetadata": {"promptTokenCount": 60, "candidatesTokenCount": 30, "totalTokenCount": 90},
+    "modelVersion": "gemini-3.8-flash",
+    "responseId": "recorded-1"
+  },
+  "server_side_tool_parts": {
+    "candidates": [
+      {
+        "content": {
+          "role": "model",
+          "parts": [
+            {"toolCall": {"id": "s1", "toolType": "GOOGLE_SEARCH_WEB", "args": {"queries": ["loodgieter uurtarief"]}}},
+            {"toolResponse": {"id": "s1", "toolType": "GOOGLE_SEARCH_WEB", "response": {"search_suggestions": "<div></div>"}}},
+            {"text": "Een loodgieter kost in Nederland gemiddeld 55 tot 85 euro per uur."}
+          ]
+        },
+        "finishReason": "STOP",
+        "index": 0,
+        "groundingMetadata": {
+          "webSearchQueries": ["loodgieter uurtarief"],
+          "groundingChunks": [
+            {"web": {"uri": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/one", "title": "klusprijzen.example"}}
+          ]
+        }
+      }
+    ],
+    "usageMetadata": {"promptTokenCount": 60, "candidatesTokenCount": 30, "totalTokenCount": 90},
+    "modelVersion": "gemini-3.8-flash",
+    "responseId": "recorded-2"
+  },
+  "no_search": {
+    "candidates": [
+      {
+        "content": {"role": "model", "parts": [{"text": "Ik heb niets gevonden."}]},
+        "finishReason": "STOP",
+        "index": 0
+      }
+    ],
+    "usageMetadata": {"promptTokenCount": 60, "candidatesTokenCount": 8, "totalTokenCount": 68},
+    "modelVersion": "gemini-3.8-flash",
+    "responseId": "recorded-3"
+  }
+}
