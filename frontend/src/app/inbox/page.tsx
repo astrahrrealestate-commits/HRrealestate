@@ -703,6 +703,7 @@ function InboxContent() {
           { id: "who_contractors", label: t("inbox.contractors", "Contractors"), count: countOf("who_contractors") },
 
           { id: "who_leads", label: t("inbox.leads", "Leads"), count: countOf("who_leads") },
+          { id: "who_others", label: t("inbox.others", "Others"), count: countOf("who_others") },
 
         ],
 

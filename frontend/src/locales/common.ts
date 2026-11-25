@@ -4,6 +4,7 @@ export const commonTranslations = {
   "nav.dashboard": { en: "Dashboard", nl: "Overzicht" },
   "nav.today_badge": { en: "Today", nl: "Vandaag" },
   "nav.messages": { en: "Messages", nl: "Berichten" },
+  "nav.chats": { en: "Chats", nl: "Chats" },
   "nav.properties": { en: "Properties", nl: "Panden" },
   "nav.tenants": { en: "Tenants", nl: "Huurders" },
   "nav.contacts": { en: "Contacts", nl: "Contacten" },

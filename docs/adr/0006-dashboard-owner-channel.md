@@ -91,3 +91,7 @@ Agent in front of the other agents. Tenant messages are mirrored in the dashboar
   only for the same owner and page key within 120 s and only while the company has no newer message, approval or case
   event (server-side check, migration 0016), else resolves as before. It never creates a turn, calls a model or
   changes what the agent may do.
+
+## Note 2026-11-24
+"Tenant sends are allowed only ... after the owner's approve click" holds for AI-drafted actions. Owner-typed WhatsApp
+messages from the Chats page are a second, separately gated send class: see [ADR 0013](0013-owner-typed-whatsapp-sends.md).

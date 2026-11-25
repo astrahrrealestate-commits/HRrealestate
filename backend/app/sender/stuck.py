@@ -9,9 +9,13 @@ transaction. Fresh rows are never touched (their holder may still report); `resu
 Selection: exec rows (approved actions) on Gmail or WhatsApp whose target is not one of the company's owner numbers or
 addresses; company-scoped, paused companies included (settling sends nothing), oldest attempt first, at most `BATCH`
 per round across companies.
+
+Owner-typed chat sends (`chat:{company_id}:{client_msg_id}`, ADR 0013) follow the same rule but have no action and
+no alert: `settle_chat` marks the send and its message row failed in one transaction, so the Chats bubble stops
+saying "sending" and shows that delivery is unknown.
 """
 
-from collections.abc import Collection, Iterable
+from collections.abc import Callable, Collection, Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
@@ -23,7 +27,8 @@ from app.contracts import Channel
 from app.db.enums import SendStatus
 from app.db.models import Company, Send
 from app.sender.delivery import STUCK, STUCK_AFTER, give_up_stuck
-from app.sender.tenant_gate import owner_targets
+from app.sender.owner_chat_settle import settle_stuck_chat
+from app.sender.tenant_gate import CHAT_KEY_PREFIX, owner_targets
 
 BATCH = 200
 
@@ -84,16 +89,53 @@ def stuck_for(session: Session, company_id: UUID, now: datetime, limit: int) -> 
     return candidates((row[0], row[1], row[2]) for row in rows)
 
 
-def stuck_sends(engine: Engine, now: datetime, limit: int = BATCH) -> list[StuckSend]:
+def _per_company[T](engine: Engine, limit: int, find: Callable[[Session, UUID, int], list[T]]) -> list[T]:
     """Per company (every query company-scoped), until `limit` rows in total."""
-    found: list[StuckSend] = []
+    found: list[T] = []
     with Session(engine) as session:
         for company_id in session.scalars(select(Company.id).order_by(Company.id)):
             left = limit - len(found)
             if left <= 0:
                 break
-            found += stuck_for(session, company_id, now, left)
+            found += find(session, company_id, left)
     return found
+
+
+def stuck_sends(engine: Engine, now: datetime, limit: int = BATCH) -> list[StuckSend]:
+    return _per_company(engine, limit, lambda session, company_id, left: stuck_for(session, company_id, now, left))
+
+
+@dataclass(frozen=True)
+class StuckChat:
+    company_id: UUID
+    key: str  # the `sends.idempotency_key`, `chat:{company_id}:{client_msg_id}`
+
+
+def stuck_chats_for(session: Session, company_id: UUID, now: datetime, limit: int) -> list[StuckChat]:
+    rows = session.execute(
+        select(Send.company_id, Send.idempotency_key)
+        .where(
+            Send.company_id == company_id,
+            Send.status == SendStatus.sending,
+            Send.channel == Channel.whatsapp,
+            Send.idempotency_key.like(f"{CHAT_KEY_PREFIX}%"),
+            or_(Send.attempted_at.is_(None), Send.attempted_at <= now - STUCK_AFTER),
+        )
+        .order_by(Send.attempted_at.asc().nulls_first(), Send.id)
+        .limit(limit)
+    )
+    return [StuckChat(row[0], row[1]) for row in rows]
+
+
+def stuck_chats(engine: Engine, now: datetime, limit: int = BATCH) -> list[StuckChat]:
+    return _per_company(
+        engine, limit, lambda session, company_id, left: stuck_chats_for(session, company_id, now, left)
+    )
+
+
+def settle_chat(engine: Engine, item: StuckChat, now: datetime) -> bool:
+    """True when this call marked the send and its message row failed (one winner); False when already settled."""
+    return settle_stuck_chat(engine, item.company_id, item.key, now)
 
 
 def settle(engine: Engine, item: StuckSend, now: datetime) -> bool:

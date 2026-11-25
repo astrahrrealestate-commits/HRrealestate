@@ -300,6 +300,7 @@ def test_photo_only_message_always_needs_a_reply_whatever_the_model_says(
             "entities": {"people": [], "unit_refs": [], "dates": [], "amounts": []},
             "suspicious": {"flag": False, "reason": None},
             "confidence": 0.5,
+            "sender_role": None,
             "prompt_version": "x/v1",
         }
         return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, args)])  # type: ignore[attr-defined]

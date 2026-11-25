@@ -43,11 +43,21 @@ class S3Storage:
             raise
         return True
 
-    def presigned_url(self, key: str, ttl_seconds: int) -> str:
-        """Local signing (no network call): the URL carries `X-Amz-Expires`."""
+    def presigned_url(
+        self, key: str, ttl_seconds: int, *, content_type: str | None = None, disposition: str | None = None
+    ) -> str:
+        """Local signing (no network call): the URL carries `X-Amz-Expires`; the response overrides are signed in."""
+        overrides = {
+            "ResponseContentType": content_type,
+            "ResponseContentDisposition": disposition,
+        }
         url: str = self._client.generate_presigned_url(
             "get_object",
-            Params={"Bucket": self._bucket, "Key": validate_key(key)},
+            Params={
+                "Bucket": self._bucket,
+                "Key": validate_key(key),
+                **{name: value for name, value in overrides.items() if value},
+            },
             ExpiresIn=clamp_ttl(ttl_seconds),
         )
         return url

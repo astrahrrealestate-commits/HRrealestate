@@ -3,9 +3,10 @@
 import os
 import tempfile
 from pathlib import Path
+from urllib.parse import urlencode
 
 from app.core.errors import NotFoundError
-from app.storage.ports import StoredObject, clamp_ttl, describe, validate_key
+from app.storage.ports import StoredObject, clamp_ttl, describe, response_overrides, validate_key
 
 
 class LocalStorage:
@@ -39,6 +40,9 @@ class LocalStorage:
     def exists(self, key: str) -> bool:
         return self._path(key).is_file()
 
-    def presigned_url(self, key: str, ttl_seconds: int) -> str:
+    def presigned_url(
+        self, key: str, ttl_seconds: int, *, content_type: str | None = None, disposition: str | None = None
+    ) -> str:
         """Dev only: an opaque relative URL with an advisory `expires_in`; nothing serves it, so no real expiry."""
-        return f"/dev-storage/{validate_key(key)}?expires_in={clamp_ttl(ttl_seconds)}"
+        query = {"expires_in": str(clamp_ttl(ttl_seconds)), **response_overrides(content_type, disposition)}
+        return f"/dev-storage/{validate_key(key)}?{urlencode(query)}"

@@ -6,6 +6,7 @@ const OPTION_PREDICATES: Record<string, (t: InboxThread) => boolean> = {
   who_tenants: (t) => t.recipientRole === "tenant",
   who_contractors: (t) => t.recipientRole === "contractor",
   who_leads: (t) => t.recipientRole === "inquiry",
+  who_others: (t) => t.recipientRole === "contact",
   ch_whatsapp: (t) => t.channel === "whatsapp",
   ch_gmail: (t) => t.channel === "gmail",
   ch_portal: (t) => t.channel === "portal",

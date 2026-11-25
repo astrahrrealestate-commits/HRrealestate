@@ -12,9 +12,10 @@ from sqlalchemy.orm import Session
 
 from app.contracts import Channel, Direction
 from app.contracts.message import normalise_identity
-from app.db.models import Case, CaseLink, ChannelAccount, ChannelIdentity, MessageRow, OwnerAccount
+from app.core.wa_window import window_open
+from app.db.models import Case, CaseLink, ChannelIdentity, MessageRow
+from app.db.own_addresses import own_addresses
 from app.sender.errors import SendBlockedError
-from app.sender.owner_window import WINDOW
 
 CANDIDATES = 50
 TENANT_CHANNELS = (Channel.whatsapp, Channel.gmail)
@@ -42,18 +43,6 @@ def canonical(identity: str) -> str | None:
         return normalise_identity(identity)
     except ValueError:
         return None
-
-
-def _own_addresses(session: Session, company_id: UUID) -> set[str]:
-    """Every address that belongs to the company itself: owner numbers/emails and its channel accounts."""
-    raw = [
-        *session.scalars(select(OwnerAccount.whatsapp_e164).where(OwnerAccount.company_id == company_id)),
-        *session.scalars(
-            select(OwnerAccount.email).where(OwnerAccount.company_id == company_id, OwnerAccount.email.is_not(None))
-        ),
-        *session.scalars(select(ChannelAccount.address).where(ChannelAccount.company_id == company_id)),
-    ]
-    return {c for value in raw if value and (c := canonical(value))}
 
 
 def _current_identities(session: Session, company_id: UUID, person_id: UUID, channel: Channel) -> set[str]:
@@ -100,7 +89,7 @@ def tenant_recipient(session: Session, company_id: UUID, case_id: UUID, channel:
     if case.primary_person_id is None:
         raise SendBlockedError("case has no contact person")
     allowed = _current_identities(session, company_id, case.primary_person_id, channel)
-    allowed -= _own_addresses(session, company_id)
+    allowed -= own_addresses(session, company_id)
     for msg in _candidates(session, company_id, case_id, channel):
         identity = canonical(msg.sender_identity)
         if identity is not None and identity in allowed:
@@ -111,4 +100,4 @@ def tenant_recipient(session: Session, company_id: UUID, case_id: UUID, channel:
 def whatsapp_window_open(msg: MessageRow, now: datetime) -> bool:
     """Free-form WhatsApp is allowed within WINDOW of the inbound's receipt time; exactly at the boundary is closed."""
     received = min(msg.sent_at, msg.created_at)  # the older of the two clocks: the conservative anchor
-    return received > now - WINDOW
+    return window_open(received, now)

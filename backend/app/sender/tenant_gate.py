@@ -24,6 +24,7 @@ log = get_logger(__name__)
 CAP_REACHED = "hourly tenant send cap reached"
 GMAIL_SEND_MISSING = "Gmail sending is not configured: GMAIL_REPLY_SEND_CREDENTIALS_FILE (gmail.send) is missing"
 CAP_WINDOW = timedelta(hours=1)
+CHAT_KEY_PREFIX = "chat:"
 _COUNTED = (SendStatus.pending, SendStatus.sending, SendStatus.sent)
 
 
@@ -54,6 +55,7 @@ def tenant_sends_last_hour(session: Session, company_id: UUID, key: str, now: da
             Send.status.in_(_COUNTED),
             Send.target.not_in(owners),
             Send.idempotency_key != key,
+            Send.idempotency_key.not_like(f"{CHAT_KEY_PREFIX}%"),  # owner-typed chat sends have their own cap
         )
     )
     return int(count or 0)

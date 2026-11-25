@@ -425,3 +425,27 @@ bidirectional translation controls onto the new unified Composer, and fixed what
 - [x] No invented meetings: a request with no stated day and time raises `TimeNotStatedError` and the owner is asked (no "next business morning" slot, no default contractor, no guessed property or case); the fake Google Calendar is gone from production (`get_calendar_client` raises `CalendarUnavailableError`, free/busy failure is an error, never "free"); approve returns 503 instead of marking an event confirmed; frontend sample events, optimistic approve and made-up "Today HH:mm" fallbacks removed
 - [x] Evidence: `make quick` -> `3447 passed`; frontend `tsc --noEmit` clean
 - [ ] Not exercised against a live Google account or in a browser; `page_text.stamp()` (model-facing prompt text) still prints UTC, a prompt-version change
+
+## WhatsApp Chats (2026-11-24, branch m-chats)
+- [x] Slice 2, owner-typed sends, sender side: ADR 0013, `app/sender/owner_chat.py` (`send_chat_message`, `assert_chat`,
+  pure `chat_refusal`), `owner_chat_sends_per_hour` (200), `chat:{company_id}:{client_msg_id}` key, CLAUDE.md invariant 5,
+  dashboard spec section 5 and security.md updated; the contacts `whatsapp/send` route keeps its 501 and now points to
+  Chats. Tests: `tests/unit/test_owner_chat_gates.py`, `tests/integration/test_owner_chat_send.py`, `tests/integration/test_owner_chat_guards.py`
+- [x] Review fixes: migration 0050 (unique outbound `client_msg_id` per company), validated `client_msg_id`, per-contact cap (20/h), the stuck sweep settles dead chat sends and their rows, `assert_chat` / dispatch tests
+- [x] Chats API for typing: `POST /api/chats/{chat_key}/messages` (store the pending row, then enqueue `chat:{company}:{client_msg_id}`;
+  replay-safe on `meta.client_msg_id`, 404 for own numbers, 409 when the composer is closed or the id was reused, 30/min
+  own limiter group), `GET /api/chats/{chat_key}/suggestions`, `composer` state on the thread (`app/api/chats/send.py`,
+  `composer.py`, `app/db/own_addresses.py` shared with the sender). Chat keys are masked in the uvicorn access log and in
+  Sentry. Tests: `tests/integration/test_chats_send_api.py`, `tests/unit/core/test_redaction.py`, `tests/unit/core/test_telemetry.py`
+- [ ] Frontend composer (Task 8) not built yet
+- [ ] Needs a plain Meta Cloud API number (no coexistence, no templates): see ADR 0013
+
+## Sender roles after intent (2026-11-24; spec [2026-11-24-sender-roles-design.md](superpowers/specs/2026-11-24-sender-roles-design.md) · [ADR 0014](adr/0014-sender-roles-after-intent.md) · branch `m-sender-roles`)
+- [x] Spec and ADR 0014: intent first, label second, no new `Category`, no migration
+- [x] Step 1: directory-based sender label (`app/context/sender_label.py`); inbox shows Tenant only for tenants and lease parties, everyone else is a Contact shown by property or organisation, never "Unassigned Unit"; frontend maps the `contact` role and adds an "Others" filter. Known gap: a contact whose text names a leased unit still gets the "Link to Tenant" banner until step 2 (legal, VvE, business hints)
+- [x] Step 2 (code, fake model): `Understanding.sender_role` (required-nullable, dropped for spam/suspicious), v3 prompt with scope rule and `From:` line, `_with_defaults` shim for stored rows, resolver role hint, banner suppressed for legal/VvE/business/prospect/contractor, 14 golden cases + `sender_role_accuracy`/`role_on_noise_rate`
+- [ ] Step 2 gate: `make eval agent=understanding version=v3` on a real model (none configured here: `LLM_MODEL=fake`), then switch `UNDERSTANDING` to v3 and repin the tests that name v2
+- [x] Step 3 (code, fake model): resolver moved to `app/context/sender_label.py` and shared by inbox and proposer (`sender_label_for`); `ProposerContext.sender_kind`; `proposer/v5` prompt (register per role, no tenant details to strangers); `<sender>` block only for role-aware prompts; code-added "Legal sender" review note on reply drafts; 5 real-model golden cases
+- [x] Review fixes (reviewer + security passes, 2026-11-24): `settle_sender_role` drops a role no prompt asked for or the scanner flagged; `role_hint_of` ignores a role on flagged/spam rows; `sender` and `person_profile` are block tags; `company_id` on the new queries
+- [ ] Sender-roles follow-ups (not blocking while `UNDERSTANDING` is v2 and `PROPOSER_PERSONA` is v4): the proposer lacks the inbox's address-based contractor hint; owner-requested redrafts (`guided_reply`) skip the legal review note; `propose.py` is over the 300-line module and 40-line function limits; the sender's email in `model_calls.input` survives `erase_person` (add to the known gaps in `security.md`); summary-only profiles see a sender's email domain in `unit`; look the proposer's sender up by `msg.person_id`, not the case's primary person
+- [ ] Step 3 gate: `make eval agent=proposer version=v5` on a real model, then point `PROPOSER_PERSONA` at v5 and repin the tests that name v4

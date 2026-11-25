@@ -138,7 +138,7 @@ def save_message(
             )
         )
     if message.channel is Channel.whatsapp:
-        _replay_statuses(session, message.company_id, message.provider_msg_id)
+        replay_statuses(session, message.company_id, message.provider_msg_id)
     session.flush()
     return message_id, True
 
@@ -185,7 +185,7 @@ def apply_status(session: Session, company_id: UUID, wamid: str, status: Deliver
     return True
 
 
-def _replay_statuses(session: Session, company_id: UUID, wamid: str) -> None:
+def replay_statuses(session: Session, company_id: UUID, wamid: str) -> None:
     """Statuses can arrive before their message: apply the best one already stored (exact ids, index lookup)."""
     candidates = {status_event_id(wamid, s): s for s in DeliveryStatus}
     seen = session.scalars(

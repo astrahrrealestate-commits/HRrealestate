@@ -37,6 +37,8 @@ SPEC_TABLES = {
     "translations",
     # owner edits to maintenance tickets (migration 0043)
     "ticket_edits",
+    # WhatsApp-style chats read state (migration 0049)
+    "chat_reads",
 }  # fmt: skip
 
 

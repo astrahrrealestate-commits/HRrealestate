@@ -10,6 +10,7 @@ GMAIL_SYNC_QUEUE = "gmail_sync"  # concurrency 1: syncs never overlap, no DB loc
 TIMERS_QUEUE = "timers"  # due timers never wait behind LLM pipeline work (their lease starts at claim)
 DOCUMENTS_QUEUE = "documents"  # partitioned per company, concurrency 1: Drive folder creation never races
 CONCIERGE_QUEUE = "concierge"  # Super Agent turns: never wait behind pipeline work; short poll interval
+CHAT_QUEUE = "chat"  # owner-typed WhatsApp sends (ADR 0013): a person waits on the click; short poll interval
 BRIXX_QUEUE = "brixx"  # BRIXX mirror table syncs: slow upstream, never competes with pipeline work
 BRIXX_DOCUMENTS_QUEUE = "brixx_documents"  # BRIXX file downloads, one at a time: never delays the table syncs
 FINANCE_QUEUE = "finance"  # price snapshots and quote reviews (M11): never wait behind pipeline work
@@ -32,12 +33,18 @@ BRIXX_MAP_DIRECTORY = "brixx.map_directory"
 FINANCE_SNAPSHOT = "finance.snapshot"
 FINANCE_QUOTE = "finance.quote"
 FINANCE_RECHECK = "finance.recheck"
+CHAT_SEND = "chat.send_message"
 _FINANCE_REVIEW_NAMESPACE = UUID("6f1c2a52-3d4e-5b7a-9c1d-2e8f4a6b0c13")  # fixed forever: review ids derive from it
 
 
 def exec_workflow_id(action_id: object, draft_version: object) -> str:
     """`exec:<action_id>:<draft_version>`: the one execution of an approved action version (same as its send key)."""
     return f"exec:{action_id}:{draft_version}"
+
+
+def chat_workflow_id(company_id: object, client_msg_id: object) -> str:
+    """`chat:<company_id>:<client_msg_id>`: the one send of an owner-typed WhatsApp message (also its `sends` key)."""
+    return f"chat:{company_id}:{client_msg_id}"
 
 
 def reorg_workflow_id(plan_id: object) -> str:

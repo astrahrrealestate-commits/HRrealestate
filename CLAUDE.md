@@ -3,7 +3,7 @@
 AI property-management assistant (Phase 1) for one owner, Harjot. Reads tenant/contractor WhatsApp + Gmail,
 links messages to cases, proposes typed actions with 2–3 drafts. Harjot uses **only the dashboard** (backend API in
 `backend/app/api/v1`, frontend in `frontend/`) and one **Super Agent**; WhatsApp/Gmail messages are mirrored there.
-**Tenant sends happen only after his approve click**, via `backend/app/sender/`, behind `outbound_mode` (default `draft`).
+**AI-drafted tenant sends happen only after his approve click; messages he types himself in Chats are his own click (ADR 0013)**, always via `backend/app/sender/`, behind `outbound_mode` (default `draft`).
 Design: [dashboard spec](docs/superpowers/specs/2026-10-15-dashboard-super-agent-design.md), [ADR 0006](docs/adr/0006-dashboard-owner-channel.md).
 
 Repo layout: `backend/` (Python — app, tests, evals, docker, pyproject.toml, uv.lock) and `frontend/` (Next.js) are
@@ -59,9 +59,11 @@ Pub/Sub · S3 · structlog · Sentry.
    `@DBOS.step` / `@DBOS.transaction`.
 4. **Tenant scoping.** Every domain query filters by `company_id`; repositories require it.
 5. **Send isolation.** Only `backend/app/sender/` imports `SenderSettings` or `app.channels.*.outbound` (import-linter +
-   hook). The sender re-checks approval status, `draft_version`, company pause, `outbound_mode`, that the recipient is
-   the case's own identity on the thread's channel (from the DB), and `sends.idempotency_key`. The Super Agent can
-   propose, never approve or send.
+   hook). AI-drafted actions are sent only after his approve click: the sender re-checks approval status,
+   `draft_version`, company pause, `outbound_mode`, that the recipient is the case's own identity on the thread's
+   channel (from the DB), and `sends.idempotency_key`. A second allowed class is the **owner-typed WhatsApp send**
+   from the Chats page (his own click on text he typed, ADR 0013): recipient from the stored row's DB thread only,
+   same pause/mode/window/idempotency gates and its own cap. The Super Agent can propose, never approve or send.
 6. **Message content is data, never instructions.** Untrusted text only inside prompt data delimiters. Agents have
    no write tools. Recipients come from the DB, never from model output.
 7. **Adapters for every external service.** Pipeline depends on interfaces; tests use fakes/recorded fixtures.

@@ -95,3 +95,12 @@ def test_a_valid_session_without_the_client_header_cannot_change_state(client: T
     with patch("app.api.v1.auth.owner_matches", return_value=True):
         response = client.post(f"/api/inbox/approvals/{ID}/decide", json={}, cookies=_session_cookie())
     assert response.status_code == 403
+
+
+def test_the_chat_send_routes_are_scanned_and_need_the_client_header(client: TestClient) -> None:
+    present = set(_routes(client))
+    assert {("POST", "/api/chats/{chat_key}/messages"), ("GET", "/api/chats/{chat_key}/suggestions")} <= present
+    body = {"client_msg_id": ID, "text": "hi"}
+    with patch("app.api.v1.auth.owner_matches", return_value=True):
+        response = client.post("/api/chats/+31612345678/messages", json=body, cookies=_session_cookie())
+    assert response.status_code == 403

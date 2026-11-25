@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import {
   Home,
   Inbox,
+  MessageCircle,
   Wrench,
   Building2,
   MoreHorizontal,
@@ -81,6 +82,7 @@ export function MobileTabBar({ pendingCount, threads, className }: MobileTabBarP
   ].filter((tab) => canAccess(tab.section));
 
   const moreItems = [
+    { label: t("nav.chats") || "Chats", section: "inbox", href: "/chats", icon: MessageCircle },
     { label: t("nav.tenants") || "Tenants", section: "tenants", href: "/tenants", icon: Users },
     { label: t("nav.contacts") || "Contacts", section: "contacts", href: "/contacts", icon: Contact },
     { label: "Money", section: "money", href: "/money", icon: Coins },

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.context.person_profile import person_profile_line
 from app.context.persona import get_persona_row, stamp_persona
+from app.context.sender_label import SenderKind, sender_label_for
 from app.contracts import (
     Action,
     ActionType,
@@ -161,6 +162,10 @@ def _load(
         profile_line = f"{profile_line} | {brixx_note}" if profile_line else brixx_note
         contractors = []
     persona = _persona(session, msg.company_id)
+    person = session.scalar(
+        select(Person).where(Person.company_id == msg.company_id, Person.id == case.primary_person_id)
+    )
+    sender = sender_label_for(session, msg.company_id, person, role_hint=und.sender_role, contractor_hint=False)
     ctx = ProposerContext(
         case_id=case.id,
         channel=msg.channel,
@@ -175,6 +180,7 @@ def _load(
         excerpts=_case_documents(session, msg, case, embedder) if documents else (),
         person_profile=profile_line,
         persona=persona,
+        sender_kind=sender.kind.value,
     )
     return Loaded(ctx, msg.company_id, bool(company and company.paused))
 
@@ -230,6 +236,18 @@ def _with_sources(action: Action, excerpts: Sequence[Passage]) -> str:
     return f"{action.rationale} (documents in view: {titles})"
 
 
+LEGAL_REVIEW_NOTE = "Legal sender: read the original before approving this reply."
+
+
+def _rationale(action: Action, loaded: "Loaded") -> str:
+    """What the card says about a draft: the documents it relied on, and a nudge to read a lawyer's letter first.
+    Decided by code from the resolved sender, never by the model."""
+    text = _with_sources(action, loaded.ctx.excerpts)
+    if action.type is ActionType.reply_draft and loaded.ctx.sender_kind == SenderKind.legal.value:
+        return f"{text} {LEGAL_REVIEW_NOTE}"
+    return text
+
+
 def _persist(
     session: Session, loaded: Loaded, message_id: UUID, actions: list[Action], key: str | None
 ) -> ProposeResult:
@@ -244,7 +262,7 @@ def _persist(
             case_id=loaded.ctx.case_id,
             type=a.type,
             payload=a.payload.model_dump(mode="json"),
-            rationale=_with_sources(a, loaded.ctx.excerpts),
+            rationale=_rationale(a, loaded),
             context_ref=[message_id],
             draft_version=1,
             status=_STATUS[decision.verdict],
@@ -274,11 +292,13 @@ def _trusted(action: Action, loaded: Loaded) -> Action:
     return action.model_copy(update=update)
 
 
-def _with_reply_flag(body: dict[str, Any]) -> dict[str, Any]:
-    """Understandings stored before `requires_reply` existed: spam never needed an answer, anything else did."""
-    if "requires_reply" in body:
-        return body
-    return {**body, "requires_reply": body.get("category") != Category.spam.value}
+def _with_defaults(body: dict[str, Any]) -> dict[str, Any]:
+    """Understandings stored before a field existed: no `requires_reply` (spam never needed an answer, anything else
+    did) and no `sender_role` (unknown)."""
+    out = {"sender_role": None, **body}
+    if "requires_reply" not in out:
+        out["requires_reply"] = out.get("category") != Category.spam.value
+    return out
 
 
 def record_draft(session: Session, company_id: UUID, row: ActionRow, key: str) -> None:
@@ -315,7 +335,7 @@ def _prepare(
         if case_id is None:
             return ProposeResult()
         case = case_repo.get_case(session, msg.company_id, case_id)
-        understanding = Understanding.model_validate(_with_reply_flag(und.body))
+        understanding = Understanding.model_validate(_with_defaults(und.body))
         if not understanding.requires_reply and not understanding.suspicious.flag:
             return ProposeResult()  # nothing to answer: no proposal, no draft, no model call (suspicious mail stays)
         return _load(session, msg, case, understanding, embedder, documents=replay)

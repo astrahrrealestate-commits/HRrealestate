@@ -74,6 +74,7 @@ def understanding(requires_reply: bool = True, suspicious: bool = False) -> Unde
         if suspicious
         else Suspicious(flag=False, reason=None),
         confidence=0.9,
+        sender_role=None,
         prompt_version="understanding/v2",
     )
 

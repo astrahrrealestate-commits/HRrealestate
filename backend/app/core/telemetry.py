@@ -3,7 +3,7 @@
 import sentry_sdk
 from sentry_sdk.scrubber import EventScrubber
 
-from app.core.redaction import sentry_denylist
+from app.core.redaction import sentry_before_breadcrumb, sentry_before_send, sentry_denylist
 from app.core.settings import Settings
 
 
@@ -16,5 +16,7 @@ def init_telemetry(settings: Settings) -> None:
             send_default_pii=False,
             traces_sample_rate=0.0,
             include_local_variables=False,  # frame locals can hold BRIXX rows or message bodies
+            before_send=sentry_before_send,  # chat numbers sit in /api/chats/<key>/ URLs
+            before_breadcrumb=sentry_before_breadcrumb,
             event_scrubber=EventScrubber(denylist=sentry_denylist(), recursive=True),
         )

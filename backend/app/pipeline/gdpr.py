@@ -9,7 +9,8 @@ Cascades tenant erasure across:
 6. `translations` (the English copies of the person's message texts, found by text hash, plus every
    English-to-Dutch row of the company, deleted before the redaction).
 7. `ticket_edits` of the person's cases (deleted: the owner's edits can quote the person's messages or drafts to them).
-8. BRIXX mirror: a person with a numeric `brixx_ref` gets a `brixx_erased_refs` tombstone and their mirror rows
+8. `chat_reads` of the person's WhatsApp chats (deleted, found by their WhatsApp identities).
+9. BRIXX mirror: a person with a numeric `brixx_ref` gets a `brixx_erased_refs` tombstone and their mirror rows
    (`brixx.prg_relatie`, `brixx.zprg_relatie`) are deleted, so a re-sync never resurrects them.
 Strictly company-scoped (invariant 4).
 """
@@ -21,6 +22,7 @@ from uuid import UUID
 from sqlalchemy import delete, or_, select, update
 from sqlalchemy.orm import Session
 
+from app.contracts import Channel
 from app.core.logging import get_logger
 from app.core.texthash import source_hash
 from app.db.brixx_erasure import purge_brixx_relatie, relatie_id
@@ -28,6 +30,7 @@ from app.db.enums import MemoryScope, MemoryStatus
 from app.db.models import (
     Case,
     ChannelIdentity,
+    ChatRead,
     MemoryItem,
     MessageChunk,
     MessageIndexState,
@@ -159,10 +162,13 @@ def erase_person(
         ).all()
     )
     today = datetime.now(tz=UTC).date()
+    chat_keys = [ci.identity for ci in cis if ci.channel == Channel.whatsapp]
     for ci in cis:
         ci.identity = f"erased-{ci.id}@gdpr.local"
         ci.valid_to = today
     identities_cleared = len(cis)
+    if chat_keys:  # the read markers are keyed by the number: with the number gone they would only keep a trace
+        session.execute(delete(ChatRead).where(ChatRead.company_id == company_id, ChatRead.chat_key.in_(chat_keys)))
 
     # 5b. Remove message_chunks and indexing state for this person
     session.execute(

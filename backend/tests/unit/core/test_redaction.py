@@ -1,11 +1,12 @@
 """Log and error-report redaction: secrets, BRIXX personal columns and row payloads never leave the process."""
 
 import json
+import logging
 
 import pytest
 
 from app.core.logging import configure_logging, get_logger
-from app.core.redaction import REDACTED, redact_event, sentry_denylist
+from app.core.redaction import REDACTED, ChatPathFilter, mask_chat_paths, redact_event, sentry_denylist
 
 TOKEN = "tok-not-a-real-secret-123"
 
@@ -54,3 +55,38 @@ def test_sentry_denylist_covers_the_same_keys() -> None:
     keys = {k.lower() for k in sentry_denylist()}
     assert {"authorization", "zoekid", "rows", "row"} <= keys
     assert "password" in keys  # Sentry's own defaults are kept
+
+
+NUMBER = "+31612345678"
+PATH = f"/api/chats/{NUMBER}/messages"
+
+
+def test_chat_numbers_in_paths_are_masked_in_log_values() -> None:
+    out = redact_event(None, "info", {"event": "x", "path": f"POST {PATH}?a=1", "other": "/api/chats?limit=5"})
+    assert NUMBER not in str(out)
+    assert out["path"] == "POST /api/chats/{chat_key}/messages?a=1"
+    assert out["other"] == "/api/chats?limit=5"
+
+
+def test_encoded_chat_numbers_and_every_chat_route_are_masked() -> None:
+    for tail in ("messages", "read", "suggestions"):
+        assert mask_chat_paths(f"/api/chats/%2B31612345678/{tail}") == f"/api/chats/{{chat_key}}/{tail}"
+    assert mask_chat_paths("/api/chats/+31612345678") == "/api/chats/{chat_key}"
+
+
+def test_the_uvicorn_access_record_loses_the_number() -> None:
+    record = logging.LogRecord(
+        "uvicorn.access", logging.INFO, "f", 1, '%s - "%s %s HTTP/%s" %d',
+        ("127.0.0.1:1", "POST", PATH, "1.1", 202), None,
+    )  # fmt: skip
+    assert ChatPathFilter().filter(record) is True
+    assert NUMBER not in record.getMessage()
+    assert "/api/chats/{chat_key}/messages" in record.getMessage()
+
+
+def test_configure_logging_installs_the_access_log_filter() -> None:
+    configure_logging("prod")
+    access = logging.getLogger("uvicorn.access")
+    assert any(isinstance(f, ChatPathFilter) for f in access.filters)
+    configure_logging("prod")  # idempotent
+    assert sum(isinstance(f, ChatPathFilter) for f in access.filters) == 1

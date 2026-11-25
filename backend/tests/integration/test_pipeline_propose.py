@@ -9,13 +9,23 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
-from app.contracts import ActionType, Category, Channel, Direction, Entities, Suspicious, Understanding, Urgency
+from app.contracts import (
+    ActionType,
+    Category,
+    Channel,
+    Direction,
+    Entities,
+    SenderRole,
+    Suspicious,
+    Understanding,
+    Urgency,
+)
 from app.core.ids import new_id
 from app.core.settings import Settings
 from app.db.enums import ActionStatus, ApprovalStatus, LinkMethod, PersonKind
 from app.db.models import ActionRow, Approval, Company, MessageRow, Person, RawEvent, TaskRow, UnderstandingRow
 from app.pipeline import case_repo
-from app.pipeline.propose import propose_for_message
+from app.pipeline.propose import load_message, propose_for_message
 
 pytestmark = pytest.mark.integration
 NOW = datetime(2026, 10, 7, 9, 0, tzinfo=UTC)
@@ -28,6 +38,8 @@ def _setup(
     urgency: Urgency = Urgency.normal,
     suspicious: bool = False,
     requires_reply: bool = True,
+    person_kind: PersonKind = PersonKind.tenant,
+    sender_role: SenderRole | None = None,
 ) -> UUID:
     und = Understanding(
         category=Category.maintenance,
@@ -37,10 +49,11 @@ def _setup(
         entities=Entities.none(),
         suspicious=Suspicious(flag=suspicious, reason="IBAN change" if suspicious else None),
         confidence=0.9,
+        sender_role=sender_role,
         prompt_version="understanding/v2",
     )
     with Session(engine) as s, s.begin():
-        p = Person(company_id=cid, kind=PersonKind.tenant, display_name="Sanne", valid_from=date(2026, 1, 1))
+        p = Person(company_id=cid, kind=person_kind, display_name="Sanne", valid_from=date(2026, 1, 1))
         raw = RawEvent(company_id=cid, provider=Channel.gmail, provider_msg_id=str(new_id()), payload={})
         s.add_all([p, raw])
         s.flush()
@@ -186,3 +199,48 @@ def test_suspicious_mail_is_still_flagged_even_if_it_needs_no_reply(
     result = propose_for_message(migrated_engine, test_settings, mid)
     assert result.exceptions == 1
     assert {a.status for a in _actions(migrated_engine, cid)} == {ActionStatus.exception}
+
+
+def test_the_proposer_is_told_who_wrote_from_the_directory_then_the_models_role(
+    migrated_engine: Engine, committed_company: Company
+) -> None:
+    cid = committed_company.id
+    stranger = load_message(migrated_engine, _setup(migrated_engine, cid, person_kind=PersonKind.other))
+    lawyer = load_message(
+        migrated_engine, _setup(migrated_engine, cid, person_kind=PersonKind.other, sender_role=SenderRole.legal)
+    )
+    tenant = load_message(
+        migrated_engine, _setup(migrated_engine, cid, person_kind=PersonKind.tenant, sender_role=SenderRole.legal)
+    )
+    assert stranger is not None
+    assert lawyer is not None
+    assert tenant is not None
+    assert (stranger.ctx.sender_kind, lawyer.ctx.sender_kind) == ("contact", "legal")
+    assert tenant.ctx.sender_kind == "tenant"  # the directory beats the model's role
+
+
+def test_a_draft_to_a_lawyer_carries_a_review_note_and_a_tenant_draft_does_not(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    cid = committed_company.id
+    propose_for_message(
+        migrated_engine,
+        test_settings,
+        _setup(migrated_engine, cid, person_kind=PersonKind.other, sender_role=SenderRole.legal),
+    )
+    legal = [a for a in _actions(migrated_engine, cid) if a.type is ActionType.reply_draft]
+    assert legal
+    assert all("legal sender" in a.rationale.lower() for a in legal)
+    assert all(a.status is ActionStatus.pending_approval for a in legal)  # flagged, still his to approve
+
+
+def test_a_tenant_draft_carries_no_review_note(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    cid = committed_company.id
+    propose_for_message(
+        migrated_engine, test_settings, _setup(migrated_engine, cid, sender_role=SenderRole.legal)
+    )  # a tenant in the directory is a tenant, whatever the model called the sender
+    replies = [a for a in _actions(migrated_engine, cid) if a.type is ActionType.reply_draft]
+    assert replies
+    assert all("legal sender" not in a.rationale.lower() for a in replies)

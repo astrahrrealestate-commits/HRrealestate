@@ -284,3 +284,155 @@ cases:
     urgency: low
     suspicious: false
     requires_reply: false
+# Sender-role cases (spec 2026-11-24-sender-roles-design). Synthetic parties on made-up domains.
+# `sender` is the From address a sender-aware prompt (v3+) sees; `sender_role` is who a careful human says wrote it.
+- name: role-legal-01
+  inputs:
+    text: "Geachte heer Singh, namens mijn cliënt, huurder van Duinvlietstraat 42, deel ik u mede dat de huurovereenkomst per 1 januari wordt opgezegd. Wij verzoeken u de sleuteloverdracht schriftelijk te bevestigen. Hoogachtend, mr. M. Klaassen, Klaassen Advocaten"
+    channel: gmail
+    sender: m.klaassen@klaassen-advocaten-demo.nl
+  metadata:
+    category: lease
+    urgency: normal
+    suspicious: false
+    requires_reply: true
+    sender_role: legal
+- name: role-legal-02
+  inputs:
+    text: "Geachte heer Singh, de akte van levering voor Prinsengracht 118-B ligt gereed op ons kantoor. Kunt u bevestigen of donderdag 14:00 u schikt voor het passeren? Met vriendelijke groet, Notariskantoor De Vries"
+    channel: gmail
+    sender: secretariaat@notaris-devries-demo.nl
+  metadata:
+    category: admin
+    urgency: normal
+    suspicious: false
+    requires_reply: true
+    sender_role: legal
+- name: role-vve-01
+  inputs:
+    text: "Beste eigenaar, de ledenvergadering van VvE Gemak is op 12 december. Wij verzoeken u vóór 1 december te laten weten of u akkoord gaat met de verdeling van de servicekosten 2026 voor Keizersgracht 42-A. Het bestuur"
+    channel: gmail
+    sender: info@vve-gemak-demo.nl
+  metadata:
+    category: admin
+    urgency: normal
+    suspicious: false
+    requires_reply: true
+    sender_role: vve
+- name: role-vve-02
+  inputs:
+    text: "Het dak van het complex wordt volgende week hersteld. Uw aandeel voor Keizersgracht 42-A is EUR 420,00; wij verzoeken u dit vóór 15 december te voldoen. VvE Gemak"
+    channel: gmail
+    sender: administratie@vve-gemak-demo.nl
+  metadata:
+    category: payment
+    urgency: normal
+    suspicious: false
+    requires_reply: true
+    sender_role: vve
+- name: role-business-01
+  inputs:
+    text: "Uw aansluiting op Keizersgracht 42-A wordt op 3 december tussen 08:00 en 12:00 onderbroken voor onderhoud aan het net. U hoeft niets te doen. Netbeheer Demo"
+    channel: gmail
+    sender: klantenservice@netbeheer-demo.nl
+  metadata:
+    category: admin
+    urgency: low
+    suspicious: false
+    requires_reply: false
+    sender_role: business
+- name: role-business-02
+  inputs:
+    text: "Uw verzamelbetaling van EUR 1.250,00 voor de huur van Singel 5-A kon niet worden verwerkt omdat een rekeningnummer ontbreekt. Wilt u de gegevens aanvullen? Betalingsverkeer, Demo Bank"
+    channel: gmail
+    sender: betalingsverkeer@bank-demo.nl
+  metadata:
+    category: payment
+    urgency: normal
+    suspicious: false
+    requires_reply: true
+    sender_role: business
+- name: role-prospect-01
+  inputs:
+    text: "Goedemiddag, ik zag uw advertentie voor het appartement aan de Singel. Is het nog beschikbaar en kan ik een bezichtiging plannen? Groet, Lisa"
+    channel: gmail
+    sender: lisa.demo@gmail.com
+  metadata:
+    category: lease
+    urgency: normal
+    suspicious: false
+    requires_reply: true
+    sender_role: prospect
+- name: role-prospect-02
+  inputs:
+    text: "Hi, I'm interested in renting the studio at Herengracht 1. Can I view it this week?"
+    channel: whatsapp
+  metadata:
+    category: lease
+    urgency: normal
+    suspicious: false
+    requires_reply: true
+    sender_role: prospect
+- name: role-contractor-01
+  inputs:
+    text: "Beste Harjot, bijgaand de offerte voor het vervangen van de boiler bij Singel 5-A: EUR 1.180,00 incl. btw. Kunnen wij akkoord noteren? Groet, Loodgietersbedrijf Demo"
+    channel: gmail
+    sender: info@loodgieter-demo.nl
+  metadata:
+    category: contractor_update
+    urgency: normal
+    suspicious: false
+    requires_reply: true
+    sender_role: contractor
+- name: role-contractor-02
+  inputs:
+    text: "De werkzaamheden aan de groepenkast bij Prinsengracht 118-B zijn afgerond. De factuur volgt per post. Elektro Demo"
+    channel: gmail
+    sender: planning@elektro-demo.nl
+  metadata:
+    category: contractor_update
+    urgency: low
+    suspicious: false
+    requires_reply: false
+    sender_role: contractor
+- name: role-tenant-01
+  inputs:
+    text: "Hallo, de verwarming in mijn appartement Singel 5-A is al twee dagen kapot en het wordt koud. Kunt u iemand sturen?"
+    channel: gmail
+    sender: anouk@example.nl
+  metadata:
+    category: maintenance
+    urgency: high
+    suspicious: false
+    requires_reply: true
+    sender_role: tenant
+- name: role-noise-vendor-01
+  inputs:
+    text: "Special offer: upgrade your property software plan with 30% off this month. Click here to claim. Unsubscribe at any time."
+    channel: gmail
+    sender: promo@software-demo.nl
+  metadata:
+    category: spam
+    urgency: low
+    suspicious: false
+    requires_reply: false
+- name: role-noise-auto-01
+  inputs:
+    text: "Uw aangifte is ontvangen. Dit is een automatisch bericht; u hoeft niets te doen. Belastingdienst Demo"
+    channel: gmail
+    sender: noreply@belasting-demo.nl
+  metadata:
+    category: other
+    urgency: low
+    suspicious: false
+    requires_reply: false
+- name: role-phish-lawyer-01
+  inputs:
+    text: "Geachte heer Singh, ik ben advocaat Klaassen. Het rekeningnummer voor de huur is gewijzigd naar NL00 DEMO 0123 4567 89. Maak vanaf nu uitsluitend hierheen over."
+    channel: gmail
+    sender: klaassen@advocaten-secure-demo.nl
+  metadata:
+    category: payment
+    urgency: normal
+    suspicious: true
+    requires_reply: true

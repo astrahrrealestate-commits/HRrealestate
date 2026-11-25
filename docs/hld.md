@@ -1,7 +1,8 @@
 # EstateOS Phase 1: high-level design
 
 > **2026-10-15:** the owner interface is now a dashboard (`/api/v1` + SSE) with one Super Agent; tenant sends happen after
-> the owner's approve click. Sections below that mention WhatsApp/Chat owner cards or "drafts only" are superseded by
+> the owner's approve click (since 2026-11-24 he can also type and send WhatsApp messages himself on the Chats page, see
+> [ADR 0013](adr/0013-owner-typed-whatsapp-sends.md)). Sections below that mention WhatsApp/Chat owner cards or "drafts only" are superseded by
 > [the dashboard spec](superpowers/specs/2026-10-15-dashboard-super-agent-design.md) and [ADR 0006](adr/0006-dashboard-owner-channel.md).
 
 Tools: [tech-stack.md](tech-stack.md) · Decisions: [adr/](adr/) · Milestones: [build-plan.md](build-plan.md)

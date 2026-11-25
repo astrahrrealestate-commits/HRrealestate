@@ -10,6 +10,9 @@ back), so 0.25 s is the short end that stays cheap; a turn waits at most about a
 slot is free.
 At most `Settings.concierge_worker_concurrency` turns run at once per worker (each is mostly a model call).
 
+The `chat` queue (owner-typed WhatsApp sends from the Chats page, ADR 0013) is polled as fast as the concierge queue
+for the same reason: a person waits on the click. At most `CHAT_WORKER_CONCURRENCY` sends run at once per worker.
+
 The `brixx_documents` queue downloads BRIXX document files with `concurrency=3` across all workers: next to the
 `brixx` table syncs (16 per worker) BRIXX sees at most three extra requests, and a large first backlog of files never
 queues in front of the 15-minute table syncs (which it would on the shared `brixx` queue). One at a time was too slow
@@ -25,6 +28,7 @@ from app.core.settings import Settings
 from app.core.workflow_names import (
     BRIXX_DOCUMENTS_QUEUE,
     BRIXX_QUEUE,
+    CHAT_QUEUE,
     CONCIERGE_QUEUE,
     DOCUMENTS_QUEUE,
     FINANCE_QUEUE,
@@ -36,6 +40,9 @@ from app.core.workflow_names import (
 __all__ = [
     "BRIXX_DOCUMENTS_QUEUE",
     "BRIXX_QUEUE",
+    "CHAT_POLL_SECONDS",
+    "CHAT_QUEUE",
+    "CHAT_WORKER_CONCURRENCY",
     "CONCIERGE_POLL_SECONDS",
     "CONCIERGE_QUEUE",
     "DOCUMENTS_QUEUE",
@@ -46,6 +53,7 @@ __all__ = [
     "PIPELINE_WORKER_CONCURRENCY",
     "brixx_documents_queue",
     "brixx_queue",
+    "chat_queue",
     "concierge_queue",
     "documents_queue",
     "finance_queue",
@@ -61,6 +69,8 @@ __all__ = [
 PIPELINE_WORKER_CONCURRENCY = 4
 FINANCE_WORKER_CONCURRENCY = 2
 CONCIERGE_POLL_SECONDS = 0.25  # chat queue poll interval (DBOS default: 1.0)
+CHAT_POLL_SECONDS = CONCIERGE_POLL_SECONDS  # a person waits on the send click, same short interval
+CHAT_WORKER_CONCURRENCY = 4  # per worker; each run is one short WhatsApp call, and `sends` rows serialise a message
 _handles: dict[str, Queue] = {}
 
 
@@ -79,6 +89,9 @@ def register_queues(settings: Settings) -> None:
         CONCIERGE_QUEUE,
         worker_concurrency=settings.concierge_worker_concurrency,
         polling_interval_sec=CONCIERGE_POLL_SECONDS,
+    )
+    _handles[CHAT_QUEUE] = DBOS.register_queue(
+        CHAT_QUEUE, worker_concurrency=CHAT_WORKER_CONCURRENCY, polling_interval_sec=CHAT_POLL_SECONDS
     )
     _handles[FINANCE_QUEUE] = DBOS.register_queue(FINANCE_QUEUE, worker_concurrency=FINANCE_WORKER_CONCURRENCY)
 
@@ -108,6 +121,10 @@ def timers_queue() -> Queue:
 
 def concierge_queue() -> Queue:
     return _handle(CONCIERGE_QUEUE)
+
+
+def chat_queue() -> Queue:
+    return _handle(CHAT_QUEUE)
 
 
 def brixx_queue() -> Queue:

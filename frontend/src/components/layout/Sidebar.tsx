@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 import {
   Home,
   Inbox,
+  MessageCircle,
   Building2,
   Users,
   Contact,
@@ -29,6 +30,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useSidebar } from "@/context/SidebarContext";
+import { useChatUnread } from "@/hooks/useChatUnread";
 
 interface NavItem {
   label: string;
@@ -75,6 +77,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
     .slice(0, 2)
     .toUpperCase();
   const [liveCount, setLiveCount] = useState<number | null>(null);
+  const chatUnread = useChatUnread();
 
   // When not provided by parent page, query live inbox threads once
   useEffect(() => {
@@ -116,6 +119,13 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
       href: "/inbox",
       icon: Inbox,
       badge: effectiveCount > 0 ? `(${effectiveCount})` : undefined,
+    },
+    {
+      label: t("nav.chats") || "Chats",
+      section: "inbox",
+      href: "/chats",
+      icon: MessageCircle,
+      badge: chatUnread > 0 ? `(${chatUnread})` : undefined,
     },
     { label: t("nav.properties") || "Properties", section: "properties", href: "/properties", icon: Building2 },
     { label: t("nav.tenants") || "Tenants", section: "tenants", href: "/tenants", icon: Users },

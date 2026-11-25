@@ -4,7 +4,7 @@ Free-form messages reach Harjot only within 24 h of his last message to us (23 h
 messages wait in `owner_outbox` and one approved template per closed window tells him that items are waiting.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -13,10 +13,9 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.contracts import Channel, Direction
+from app.core.wa_window import WINDOW as WINDOW
 from app.db.enums import OutboxStatus
 from app.db.models import MessageRow, OwnerOutbox
-
-WINDOW = timedelta(hours=23)
 
 
 def last_owner_message(session: Session, company_id: UUID, owner: str) -> datetime | None:

@@ -4,7 +4,8 @@ dedupes anything that did start; ids DBOS already knows are skipped before enque
 
 Third kind: tenant sends stuck `sending` past `STUCK_AFTER` (a worker died mid provider call; `app.sender.stuck`) are
 settled once each (send and action failed, one alert), then Harjot's owner channel is told under the same stable key
-`blocked:exec:{a}:{v}` as `execute_action_wf`. Queries and settling run inside steps; logs carry counts only.
+`blocked:exec:{a}:{v}` as `execute_action_wf`. Owner-typed chat sends stuck the same way are settled too (send and
+message row failed, no alert: the bubble shows it). Queries and settling run inside steps; logs carry counts only.
 """
 
 from dataclasses import asdict
@@ -62,6 +63,19 @@ def settle_stuck_step(item: dict[str, Any], now_iso: str) -> bool:
     return stuck.settle(get_engine(), send, datetime.fromisoformat(now_iso))
 
 
+@DBOS.step(name="sweep.stuck_chats", **STEP_RETRY)
+def stuck_chats_step(now_iso: str) -> list[dict[str, str]]:
+    found = stuck.stuck_chats(get_engine(), datetime.fromisoformat(now_iso))
+    log.info("sweep.stuck_chats", found=len(found))
+    return [{"company_id": str(item.company_id), "key": item.key} for item in found]
+
+
+@DBOS.step(name="sweep.settle_stuck_chat", **STEP_RETRY)
+def settle_stuck_chat_step(item: dict[str, str], now_iso: str) -> bool:
+    chat = stuck.StuckChat(UUID(item["company_id"]), item["key"])
+    return stuck.settle_chat(get_engine(), chat, datetime.fromisoformat(now_iso))
+
+
 @DBOS.workflow(name="sweep.stranded")
 def sweep_stranded(scheduled_time: datetime, context: Any) -> None:
     """The window comes from the scheduled time (an input), so the workflow stays deterministic."""
@@ -75,3 +89,5 @@ def sweep_stranded(scheduled_time: datetime, context: Any) -> None:
     for send in stuck_sends_step(now_iso):
         if settle_stuck_step(send, now_iso):  # the alert row is already written with the settle
             tell_blocked_step(send["action_id"], send["draft_version"], STUCK)
+    for chat in stuck_chats_step(now_iso):
+        settle_stuck_chat_step(chat, now_iso)

@@ -31,7 +31,7 @@ from app.core.logging import get_logger
 from app.core.settings import get_settings
 from app.core.workflow_names import requeue_workflow_id, stale_event_workflow_id
 from app.db.enums import RawEventStatus
-from app.db.models import MessageRow, OwnerAccount, RawEvent
+from app.db.models import AllowedUser, MessageRow, OwnerAccount, RawEvent
 from app.ingestion.media import AttachmentInput, store_attachment
 from app.ingestion.repository import Enqueuer, mark_raw_event, save_message
 from app.storage.ports import ObjectStorage
@@ -168,10 +168,26 @@ def _normalise(
     mailbox = deps.gmail_mailbox(str(payload["mailbox"]))
     gm = mailbox.get_message(str(payload["message_id"]))  # NotFoundError: deleted since the push
     message, meta, parts = gmail_to_message(
-        gm, company_id=company_id, raw_event_id=raw_event_id, mailbox=str(payload["mailbox"])
+        gm,
+        company_id=company_id,
+        raw_event_id=raw_event_id,
+        mailbox=str(payload["mailbox"]),
+        forwarders=_owner_addresses(deps.engine, company_id),
     )
     stored = [store_attachment(deps.storage, company_id, p.data, p.mime_type, p.filename) for p in parts]
     return message, meta, stored
+
+
+def _owner_addresses(engine: Engine, company_id: UUID) -> frozenset[str]:
+    """Addresses Harjot's team mails from (owner account, whitelisted users, configured owner email): a mail sent
+    from one of these that forwards a tenant's mail is attributed to the tenant, not to them."""
+    with Session(engine) as session:
+        emails = [
+            *session.scalars(select(OwnerAccount.email).where(OwnerAccount.company_id == company_id)),
+            *session.scalars(select(AllowedUser.email).where(AllowedUser.company_id == company_id)),
+            get_settings().owner_email,
+        ]
+    return frozenset(e.strip().lower() for e in emails if e and e.strip())
 
 
 def _normalise_google_chat(

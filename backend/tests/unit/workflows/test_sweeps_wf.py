@@ -61,6 +61,7 @@ def test_each_item_is_enqueued_under_its_own_deterministic_id() -> None:
     with (
         patch.object(wf, "candidates_step", return_value=items) as step,
         patch.object(wf, "stuck_sends_step", return_value=[]),
+        patch.object(wf, "stuck_chats_step", return_value=[]),
         patch.object(wf.queues, "pipeline_queue", return_value=pipeline),
         patch.object(wf.queues, "concierge_queue", return_value=chat),
         patch.object(wf, "SetWorkflowID", side_effect=lambda wid: ids.append(wid) or MagicMock()),
@@ -98,6 +99,7 @@ def _sweep(settled: list[bool]) -> tuple[MagicMock, MagicMock, MagicMock]:
     with (
         patch.object(wf, "candidates_step", return_value=[]),
         patch.object(wf, "stuck_sends_step", found),
+        patch.object(wf, "stuck_chats_step", return_value=[]),
         patch.object(wf, "settle_stuck_step", settle),
         patch.object(wf, "tell_blocked_step", tell),
     ):
@@ -128,3 +130,20 @@ def test_settle_step_rebuilds_the_item() -> None:
     with patch.object(wf, "get_engine"), patch.object(stuck, "settle", return_value=True) as settle:
         assert inspect.unwrap(wf.settle_stuck_step)(STUCK_ITEM, NOW.isoformat())
     assert settle.call_args.args[1:] == (StuckSend(T, f"exec:{A}:2", A, 2), NOW)
+
+
+CHAT_ITEM = {"company_id": str(T), "key": f"chat:{T}:abc"}
+
+
+def test_stuck_chat_sends_are_settled_without_any_owner_alert() -> None:
+    settle, tell = MagicMock(return_value=True), MagicMock()
+    with (
+        patch.object(wf, "candidates_step", return_value=[]),
+        patch.object(wf, "stuck_sends_step", return_value=[]),
+        patch.object(wf, "stuck_chats_step", return_value=[CHAT_ITEM]),
+        patch.object(wf, "settle_stuck_chat_step", settle),
+        patch.object(wf, "tell_blocked_step", tell),
+    ):
+        BODY(NOW, None)
+    settle.assert_called_once_with(CHAT_ITEM, NOW.isoformat())
+    tell.assert_not_called()

@@ -1,7 +1,9 @@
 """In-process storage for tests."""
 
+from urllib.parse import urlencode
+
 from app.core.errors import NotFoundError
-from app.storage.ports import StoredObject, clamp_ttl, describe, validate_key
+from app.storage.ports import StoredObject, clamp_ttl, describe, response_overrides, validate_key
 
 
 class MemoryStorage:
@@ -21,5 +23,8 @@ class MemoryStorage:
     def exists(self, key: str) -> bool:
         return validate_key(key) in self._objects
 
-    def presigned_url(self, key: str, ttl_seconds: int) -> str:
-        return f"memory://{validate_key(key)}?expires_in={clamp_ttl(ttl_seconds)}"
+    def presigned_url(
+        self, key: str, ttl_seconds: int, *, content_type: str | None = None, disposition: str | None = None
+    ) -> str:
+        query = {"expires_in": str(clamp_ttl(ttl_seconds)), **response_overrides(content_type, disposition)}
+        return f"memory://{validate_key(key)}?{urlencode(query)}"
