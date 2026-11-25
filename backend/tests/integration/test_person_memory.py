@@ -193,3 +193,16 @@ def test_mail_the_person_received_with_another_tenant_stays_whatever_address_it_
     _touch(migrated_engine, cid, anouk)
     refresh_person_memory(migrated_engine, settings, cid, anouk)
     assert "AAN-BEIDEN" in prompts[0]
+
+
+def test_the_memory_call_records_the_messages_it_read(
+    migrated_engine: Engine, committed_company: Company, settings: Settings
+) -> None:
+    cid = committed_company.id
+    anouk = add_person(migrated_engine, cid, "Anouk", ANOUK)
+    mid = add_mail(migrated_engine, cid, "Er lekt water", sender=ANOUK, person_id=anouk)
+    _touch(migrated_engine, cid, anouk)
+    refresh_person_memory(migrated_engine, settings, cid, anouk)
+    with Session(migrated_engine) as s:
+        calls = select(ModelCall.message_ids).where(ModelCall.company_id == cid, ModelCall.purpose == "person_memory")
+        assert s.scalars(calls).one() == [mid]

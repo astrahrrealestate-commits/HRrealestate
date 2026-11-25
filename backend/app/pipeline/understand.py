@@ -79,7 +79,7 @@ def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> 
         wordless_with_files = not msg.text.strip() and bool(attachments)
 
     try:
-        ctx = CallContext(company_id=company_id, purpose="triage")
+        ctx = CallContext(company_id=company_id, purpose="triage", message_ids=(message_id,))
         res = run_agent(engine, settings, UNDERSTANDING, prompt_text, ctx)
         understanding_data = res.output
         if wordless_with_files and not understanding_data.requires_reply:

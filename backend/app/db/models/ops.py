@@ -5,7 +5,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import ForeignKey, Index, Numeric, String, Text, UniqueConstraint, false
+from sqlalchemy import ForeignKey, Index, Numeric, String, Text, UniqueConstraint, Uuid, false, text
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, CompanyScoped, str_enum
@@ -45,9 +46,14 @@ class Outcome(Base, CompanyScoped):
 class ModelCall(Base, CompanyScoped):
     __tablename__ = "model_calls"
     __company_id_leading_index__ = True
-    __table_args__ = (Index(None, "company_id", "created_at"),)
+    __table_args__ = (
+        Index(None, "company_id", "created_at"),
+        Index("ix_model_calls_message_ids", "message_ids", postgresql_using="gin"),
+    )
 
     purpose: Mapped[str] = mapped_column(String(64))
+    # Messages whose text went into the prompt: erasure blanks the call when one of them is the erased person's (M13).
+    message_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(Uuid), default=list, server_default=text("'{}'::uuid[]"))
     prompt_name: Mapped[str] = mapped_column(String(64))
     prompt_version: Mapped[str] = mapped_column(String(16))
     prompt_sha256: Mapped[str] = mapped_column(String(64))

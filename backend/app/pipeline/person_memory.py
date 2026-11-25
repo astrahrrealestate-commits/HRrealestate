@@ -67,7 +67,7 @@ def _rows(session: Session, company_id: UUID, person_id: UUID, since: datetime) 
     return sorted([*own, *sent], key=lambda r: r.sent_at, reverse=True)[:MAX_MESSAGES]
 
 
-def _prompt(session: Session, company_id: UUID, person_id: UUID, now: datetime) -> str | None:
+def _prompt(session: Session, company_id: UUID, person_id: UUID, now: datetime) -> tuple[str, tuple[UUID, ...]] | None:
     rows = _rows(session, company_id, person_id, now - WINDOW)
     if not rows:
         return None
@@ -92,9 +92,10 @@ def _prompt(session: Session, company_id: UUID, person_id: UUID, now: datetime) 
         .order_by(Case.opened_at.desc())
         .limit(MAX_CASES)
     ).all()
-    return person_memory_prompt(
+    prompt = person_memory_prompt(
         [line.render() for line in lines], [f"{c.category.value}, {c.state.value}: {c.summary}" for c in cases]
     )
+    return prompt, tuple(r.id for r in kept)
 
 
 def refresh_person_memory(
@@ -108,10 +109,11 @@ def refresh_person_memory(
             return None
         if profile.memory_at is not None and profile.memory_at >= source:
             return stored_memory(session, company_id, person_id)
-        prompt = _prompt(session, company_id, person_id, now or datetime.now(UTC))
-    if prompt is None:
+        built = _prompt(session, company_id, person_id, now or datetime.now(UTC))
+    if built is None:
         return None
-    memory = run_agent(engine, settings, PERSON_MEMORY, prompt, CallContext(company_id, "person_memory")).output
+    ctx = CallContext(company_id, "person_memory", message_ids=built[1])
+    memory = run_agent(engine, settings, PERSON_MEMORY, built[0], ctx).output
     with Session(engine) as session, session.begin():
         fresh = get_or_create_profile(session, company_id, person_id)
         fresh.memory, fresh.memory_at = memory.model_dump(mode="json"), source

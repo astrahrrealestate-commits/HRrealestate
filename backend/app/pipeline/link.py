@@ -115,7 +115,9 @@ def _ask_model(
 ) -> UUID | None:
     prompt = link_check_prompt(f.text, f.category, cands, profile_line)
     try:
-        result = run_agent(engine, settings, LINK_CHECK, prompt, CallContext(f.company_id, "link_check"))
+        result = run_agent(
+            engine, settings, LINK_CHECK, prompt, CallContext(f.company_id, "link_check", message_ids=(f.message_id,))
+        )
     except AgentFailedError:
         log.warning("pipeline.link_check_failed", message_id=str(f.message_id))
         return None
@@ -197,7 +199,13 @@ def _refresh_summary(engine: Engine, settings: Settings, f: _Facts, result: Link
         )
     prompt = case_summary_prompt(previous, [(f.sent_at, label, f.text)])
     try:
-        out = run_agent(engine, settings, CASE_SUMMARY, prompt, CallContext(f.company_id, "case_summary")).output
+        out = run_agent(
+            engine,
+            settings,
+            CASE_SUMMARY,
+            prompt,
+            CallContext(f.company_id, "case_summary", message_ids=(f.message_id,)),
+        ).output
     except AgentFailedError:
         log.warning("pipeline.case_summary_failed", case_id=str(result.case_id))
         return

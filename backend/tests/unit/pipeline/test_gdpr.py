@@ -8,9 +8,17 @@ import pytest
 
 from app.db.enums import MemoryKind, MemoryOrigin, MemoryScope, MemoryStatus
 from app.db.models import ChannelIdentity, MemoryItem, Person, PersonProfile
+from app.pipeline import gdpr
 from app.pipeline.gdpr import erase_person
 
 NOW = datetime(2026, 10, 23, 14, 0, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _no_call_log_step(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests script each query of the cascade; the model-call step runs its own queries and is covered against
+    Postgres in tests/integration/test_erasure_model_calls.py."""
+    monkeypatch.setattr(gdpr, "erase_model_calls", lambda *_a, **_k: 0)
 
 
 def test_erase_person_cascades_profile_memories_and_redacts_messages() -> None:

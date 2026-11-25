@@ -39,6 +39,7 @@ class CallContext:
     company_id: UUID
     purpose: str
     prefix_hash: str | None = None
+    message_ids: tuple[UUID, ...] = ()  # messages whose text is in the prompt, so erasure can find the call
 
 
 @dataclass(frozen=True)
@@ -105,7 +106,7 @@ def _row(
     return ModelCall(
         id=new_id(), company_id=ctx.company_id, purpose=ctx.purpose, prompt_name=spec.prompt.name,
         prompt_version=spec.prompt.version, prompt_sha256=loaded.sha256, model=model_name_for(settings, spec.name),
-        input={"prompt": describe_prompt(prompt)}, prefix_hash=ctx.prefix_hash,
+        input={"prompt": describe_prompt(prompt)}, prefix_hash=ctx.prefix_hash, message_ids=list(ctx.message_ids),
     )  # fmt: skip
 
 
