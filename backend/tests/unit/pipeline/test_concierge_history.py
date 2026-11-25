@@ -24,12 +24,12 @@ def test_lines_carry_owner_then_assistant_oldest_first() -> None:
     assert history_lines([_done(1), _done(2)]) == ["owner: q1", "assistant: a1", "owner: q2", "assistant: a2"]
 
 
-def test_only_the_last_six_turns_are_kept() -> None:
-    lines = history_lines([_done(n) for n in range(10)])
-    assert MAX_HISTORY_TURNS == 6
-    assert len(lines) == 12
-    assert lines[0] == "owner: q4"
-    assert lines[-1] == "assistant: a9"
+def test_only_the_last_twelve_turns_are_kept() -> None:
+    lines = history_lines([_done(n) for n in range(15)])
+    assert MAX_HISTORY_TURNS == 12
+    assert len(lines) == 24
+    assert lines[0] == "owner: q3"
+    assert lines[-1] == "assistant: a14"
 
 
 def test_unanswered_and_failed_turns_are_skipped() -> None:
@@ -50,24 +50,24 @@ def test_fixed_texts_without_information_are_skipped() -> None:
 
 
 def test_whitespace_collapses_and_lengths_are_capped() -> None:
-    rows: list[Row] = [("a\n\n  b" + "x" * 500, "line1\n\n  line2 " + "y" * 500, TurnStatus.done)]
+    rows: list[Row] = [("a\n\n  b" + "x" * 1500, "line1\n\n  line2 " + "y" * 1500, TurnStatus.done)]
     owner, answer = history_lines(rows)
     assert owner.startswith("owner: a b")
-    assert len(owner) == len("owner: ") + 400
+    assert len(owner) == len("owner: ") + 1200
     assert answer.startswith("assistant: line1 line2 ")
-    assert len(answer) == len("assistant: ") + 300
+    assert len(answer) == len("assistant: ") + 1200
 
 
 def test_astral_characters_are_never_cut_in_half() -> None:
-    rows: list[Row] = [("q", "\U0001f600" * 400, TurnStatus.done)]
+    rows: list[Row] = [("q", "\U0001f600" * 1400, TurnStatus.done)]
     answer = history_lines(rows)[1]
-    assert answer == "assistant: " + "\U0001f600" * 300
+    assert answer == "assistant: " + "\U0001f600" * 1200
     answer.encode("utf-8")
 
 
 def test_total_history_is_bounded() -> None:
-    rows: list[Row] = [("o" * 900, "a" * 900, TurnStatus.done)] * 20
-    assert sum(len(line) for line in history_lines(rows)) <= MAX_HISTORY_TURNS * 720
+    rows: list[Row] = [("o" * 2000, "a" * 2000, TurnStatus.done)] * 20
+    assert sum(len(line) for line in history_lines(rows)) <= MAX_HISTORY_TURNS * 2420
 
 
 def test_hostile_answer_cannot_close_the_history_block() -> None:

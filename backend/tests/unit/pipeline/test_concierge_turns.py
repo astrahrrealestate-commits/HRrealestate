@@ -18,6 +18,7 @@ from app.llm.calls import CallResult
 from app.llm.page_blocks import NO_PAGE
 from app.pipeline import concierge_turns as ct
 from app.pipeline.concierge_base import StepResult
+from app.pipeline.concierge_entities import NO_ENTITIES, Entities, Entity
 from app.pipeline.concierge_outcome import APOLOGY, PROMPT_REF, Outcome
 from app.pipeline.owner_commands import LIMIT_ANSWER, NOT_A_QUESTION, CommandKind
 
@@ -48,8 +49,9 @@ def io() -> Iterator[dict[str, MagicMock]]:
         ) as rp,
         patch(f"{M}.owner_commands.run_command", return_value="cmd reply") as cmd,
         patch(f"{M}._update") as upd,
+        patch(f"{M}._entities", return_value=NO_ENTITIES) as ents,
     ):
-        yield {"brief": brief, "agent": agent, "plan": rp, "cmd": cmd, "update": upd}
+        yield {"brief": brief, "agent": agent, "plan": rp, "cmd": cmd, "update": upd, "entities": ents}
 
 
 @pytest.mark.parametrize("text", ["tasks", "pause", "done #abc123", "done with the roof leak, what is the status?"])
@@ -315,3 +317,22 @@ def test_the_reply_is_screened_before_the_plan_is_stored_and_run(io: dict[str, M
     assert [s["intent"] for s in stored["steps"]] == ["answer"]  # so the reply is shown
     ran = io["plan"].call_args.args[3]
     assert ran.model_dump(mode="json") == stored
+
+
+def test_the_planner_gets_the_names_the_question_matched(io: dict[str, MagicMock]) -> None:
+    case_id = uuid4()
+    anna, leak = Entity(uuid4(), "Anna de Vries"), Entity(case_id, "resolved | Lekkage")
+    io["entities"].return_value = Entities((anna,), (), (leak,))
+    ct._outcome(MagicMock(), MagicMock(), _start("draft a reply on Anna's leak"))
+    prompt = io["agent"].call_args.args[3]
+    assert "<entities>" in prompt
+    assert "Anna de Vries" in prompt
+    assert case_id in io["plan"].call_args.kwargs["brief_cases"]  # a closed case found by name may be acted on
+
+
+def test_a_retried_plan_may_still_act_on_the_cases_found_by_name(io: dict[str, MagicMock]) -> None:
+    case_id = uuid4()
+    io["entities"].return_value = Entities((), (), (Entity(case_id, "open | Lekkage"),))
+    with patch(f"{M}._brief_case_ids", return_value=[]), patch(f"{M}.load_history", return_value=[]):
+        ct._outcome(MagicMock(), MagicMock(), _start("reply to Anna", plan=PLAN.model_dump(mode="json")))
+    assert case_id in io["plan"].call_args.kwargs["brief_cases"]

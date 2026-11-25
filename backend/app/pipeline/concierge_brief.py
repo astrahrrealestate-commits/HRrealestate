@@ -15,6 +15,7 @@ from app.pipeline.concierge_outcome import (
     MAX_BRIEF_CASES,
     MAX_BRIEF_TASKS,
     MAX_HISTORY_TURNS,
+    SUMMARY_PREFIX,
     history_lines,
     task_brief,
 )
@@ -67,5 +68,5 @@ def _history(session: Session, company_id: UUID, conversation_id: UUID, at: date
     exchanges = read_turns.earlier_exchanges(session, company_id, conversation_id, (at, turn_id), MAX_HISTORY_TURNS)
     h_lines = history_lines(exchanges)
     if conv and conv.summary:
-        h_lines.insert(0, f"Summary of earlier conversation: {conv.summary}")
+        h_lines.insert(0, f"{SUMMARY_PREFIX}{conv.summary}")
     return h_lines

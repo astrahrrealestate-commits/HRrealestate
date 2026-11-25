@@ -57,8 +57,8 @@ def test_only_the_top_cases_carry_a_summary_and_every_case_stays_listed() -> Non
 
 
 def test_summaries_are_clipped_and_whitespace_collapsed() -> None:
-    lines = render_case_lines([_case("Leak", summary="word   " * 300)])
-    assert len(lines[0]) < 600
+    lines = render_case_lines([_case("Leak", summary="word   " * 600)])
+    assert len(lines[0]) < 1400
     assert "   " not in lines[0]
 
 

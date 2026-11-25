@@ -24,8 +24,22 @@ from app.llm.agents.owner_qa import CaseBrief
 from app.llm.page_blocks import page_blocks
 from app.llm.render import data_block, escape
 
-MAX_HISTORY = 12
-MAX_HISTORY_LINE = 420
+MAX_HISTORY = 24  # lines: `owner:` and `assistant:` for each of 12 turns
+MAX_HISTORY_LINE = 1220  # an `owner: ` prefix plus 1,200 characters
+SUMMARY_PREFIX = "Summary of earlier conversation: "
+HISTORY_CHARS = 12000  # the history slice of CONCIERGE_SPEC
+
+
+def _newest_first_fit(lines: list[str]) -> list[str]:
+    """The newest lines that fit the history budget, oldest first: a follow-up needs the last turns most."""
+    kept: list[str] = []
+    used = 0
+    for line in reversed(lines):
+        if used + len(line) + 1 > HISTORY_CHARS:
+            break
+        kept.append(line)
+        used += len(line) + 1
+    return kept[::-1]
 
 
 def compile_concierge_context(
@@ -38,6 +52,7 @@ def compile_concierge_context(
     filters: str = "",
     owner_preferences: Sequence[str] = (),
     spec: ContextSpec = CONCIERGE_SPEC,
+    entities: str = "",
 ) -> CompiledContext:
     """Compile concierge context blocks, each slice fitted to the spec's budgets.
 
@@ -46,11 +61,15 @@ def compile_concierge_context(
     owner_preferences is empty, prompt_text is byte-identical to concierge_prompt.
     """
     tasks = [f"task: {t}" for t in open_tasks]
-    history_lines = (" ".join(r.split())[:MAX_HISTORY_LINE] for r in recent[-MAX_HISTORY:])
+    summaries = [r.removeprefix(SUMMARY_PREFIX) for r in recent if r.startswith(SUMMARY_PREFIX)]
+    turns = [r for r in recent if not r.startswith(SUMMARY_PREFIX)]
+    history_lines = _newest_first_fit([" ".join(r.split())[:MAX_HISTORY_LINE] for r in turns[-MAX_HISTORY:]])
     fitted, dropped = fit_to_budget(
         spec,
         {
             "data": "\n".join([*render_case_lines(cases), *tasks]) or "no open cases or tasks",
+            "entities": entities,
+            "conversation": " ".join(" ".join(summaries).split()),
             "history": "\n".join(history_lines) or "no earlier messages",
             "page_facts": page_facts_text,
             "page_snapshot": snapshot,
@@ -63,11 +82,12 @@ def compile_concierge_context(
     pref_b = (
         [data_block("owner_preferences", "\n".join(f"- {p}" for p in owner_preferences))] if owner_preferences else []
     )
-    history_b = data_block("history", fitted["history"])
+    named = [data_block(tag, fitted[tag]) for tag in ("entities", "conversation") if fitted[tag].strip()]
+    history_b = data_block("history", fitted["history"], HISTORY_CHARS)
     page_bs = page_blocks(fitted["page_facts"], fitted["page_snapshot"], fitted["page_filters"])
     message_b = data_block("message", fitted["message"])
 
-    blocks = (data_b, *pref_b, history_b, *page_bs, message_b)
+    blocks = (data_b, *pref_b, *named, history_b, *page_bs, message_b)
     # Prefix hash covers stable parts (stability <= 2: data_block and owner preferences)
     prefix_seed = f"{data_b}\n{pref_b[0]}" if pref_b else data_b
     prefix_hash = hashlib.sha256(prefix_seed.encode("utf-8")).hexdigest()

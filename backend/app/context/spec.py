@@ -42,13 +42,15 @@ CONCIERGE_SPEC = ContextSpec(
     agent="concierge",
     slices=(
         Slice(name="data", stability=2, budget_chars=12000, trusted=True, drop_order=3),
-        Slice(name="history", stability=3, budget_chars=5000, trusted=False, drop_order=2),
+        Slice(name="entities", stability=3, budget_chars=2500, trusted=False, drop_order=4),
+        Slice(name="conversation", stability=3, budget_chars=2500, trusted=False, drop_order=2),
+        Slice(name="history", stability=3, budget_chars=12000, trusted=False, drop_order=2),
         Slice(name="page_facts", stability=4, budget_chars=12000, trusted=True, drop_order=4),
         Slice(name="page_snapshot", stability=5, budget_chars=6000, trusted=False, drop_order=1),
         Slice(name="page_filters", stability=5, budget_chars=500, trusted=True, drop_order=5),
         Slice(name="message", stability=6, budget_chars=2000, trusted=False, drop_order=6),
     ),
-    total_chars=25000,
+    total_chars=38000,
 )
 
 PROPOSER_SPEC = ContextSpec(

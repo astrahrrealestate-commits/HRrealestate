@@ -44,6 +44,7 @@ from app.pipeline.concierge import run_plan
 from app.pipeline.concierge_base import Researcher
 from app.pipeline.concierge_brief import Brief, load_brief, load_history
 from app.pipeline.concierge_brief import brief_case_ids as _brief_case_ids
+from app.pipeline.concierge_entities import NO_ENTITIES, Entities, resolve_entities
 from app.pipeline.concierge_outcome import (
     APOLOGY,
     PROMPT_REF,
@@ -219,11 +220,24 @@ def _page(engine: Engine, start: TurnStart) -> TurnStart:
     return start if fresh is None else replace(start, page=fresh)
 
 
+def _entities(engine: Engine, company_id: UUID, text: str) -> Entities:
+    """Who and what the question names, resolved inside the company. A failure costs the hint, never the turn."""
+    try:
+        with Session(engine) as session:
+            return resolve_entities(session, company_id, text)
+    except Exception as exc:
+        if fallback_for(exc) is Fallback.retry:
+            raise
+        log.warning("concierge.entities_failed", company_id=str(company_id), error=type(exc).__name__)
+        return NO_ENTITIES
+
+
 def _plan(
-    engine: Engine, settings: Settings, start: TurnStart, brief: Brief, timer: TurnTimer
+    engine: Engine, settings: Settings, start: TurnStart, brief: Brief, timer: TurnTimer, entities: Entities
 ) -> ConciergePlan | Outcome:
     briefs, tasks, history = brief
-    compiled = compile_prompt(start.text, history, briefs, tasks, concierge_page.stored_prompt(start.page))
+    page = concierge_page.stored_prompt(start.page)
+    compiled = compile_prompt(start.text, history, briefs, tasks, page, entities=entities.render())
     context = CallContext(start.company_id, CONCIERGE_PURPOSE, prefix_hash=compiled.prefix_hash)
     try:
         with timer.measure(PLANNER):
@@ -250,17 +264,19 @@ def _planned(
     """The stored plan of an earlier attempt, else a fresh one (stored before anything executes, so a retry runs
     the same plan and never asks the model twice), with the brief's case ids: with the page's, the only case ids
     the plan may name. A retry re-reads only those ids, so a case closed in between is no longer actionable."""
+    entities = _entities(engine, start.company_id, start.text)  # a case found by name may be acted on, closed too
     if start.plan is not None:
         history = load_history(engine, start.company_id, start.conversation_id, start.at, start.turn_id)
-        return stored_plan(start.plan), _brief_case_ids(engine, start.company_id), history
+        known = [*_brief_case_ids(engine, start.company_id), *entities.case_ids]
+        return stored_plan(start.plan), known, history
     brief = _brief(engine, start)
-    plan = _plan(engine, settings, start, brief, timer)
+    plan = _plan(engine, settings, start, brief, timer, entities)
     if isinstance(plan, ConciergePlan):
         plan = prepare_plan(plan)  # the reply screened before it is stored (GET /agent/conversations shows plans)
         _update(
             engine, start.company_id, start.turn_id, {"plan": plan.model_dump(mode="json")}, timings=timer.snapshot()
         )
-    return plan, [b.case_id for b in brief[0]], brief[2]
+    return plan, [*(b.case_id for b in brief[0]), *entities.case_ids], brief[2]
 
 
 def _outcome(
