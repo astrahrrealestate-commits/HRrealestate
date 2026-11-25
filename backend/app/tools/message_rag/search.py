@@ -3,26 +3,45 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any
 from uuid import UUID
 
 from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.context.shown_sender import shown_sender_name
 from app.core.logging import get_logger
-from app.db.models import MessageChunk, MessageRow, Person, Unit
-from app.db.models.ingestion import not_chat_only
+from app.db.models import MessageChunk, Person, Unit
 from app.llm.embeddings import TextEmbedder
 from app.pipeline.document_search import to_tsquery
-from app.pipeline.rag_retrieval import rrf
+from app.pipeline.rag_retrieval import rrf, words_query
+from app.tools.message_rag.threads import get_message_window, get_thread_timeline
+
+__all__ = ["MessageChunkHit", "get_message_window", "get_thread_timeline", "search_messages"]
 
 log = get_logger(__name__)
 
 RRF_K = 60
+WEIGHT_ALL_WORDS = 1.0
 WEIGHT_WORDS = 1.0
 WEIGHT_VECTOR = 1.0
 TOP_CANDIDATES = 40
+# Words of every chunk's own header and line heads: as search terms they match everything and mean nothing.
+_BOILERPLATE = frozenset(
+    [
+        "channel",
+        "thread",
+        "tenant",
+        "property",
+        "case",
+        "context",
+        "subject",
+        "gmail",
+        "whatsapp",
+        "inbound",
+        "outbound",
+        "owner",
+        "harjot",
+    ]
+)
 
 
 @dataclass(frozen=True)
@@ -83,6 +102,24 @@ def _filter_conditions(
     return conds
 
 
+def _any_words(query: str) -> str:
+    words = words_query(query).split(" or ")
+    return " or ".join(w for w in words if w not in _BOILERPLATE)
+
+
+def _word_ids(session: Session, conds: Sequence[ColumnElement[bool]], query: str) -> list[UUID]:
+    if not query.strip():
+        return []
+    tsq = to_tsquery(query)
+    stmt = (
+        select(MessageChunk.id)
+        .where(*conds, MessageChunk.tsv.op("@@")(tsq))
+        .order_by(func.ts_rank_cd(MessageChunk.tsv, tsq).desc(), MessageChunk.last_sent_at.desc())
+        .limit(TOP_CANDIDATES)
+    )
+    return list(session.scalars(stmt))
+
+
 def search_messages(
     session: Session,
     company_id: UUID,
@@ -108,35 +145,32 @@ def search_messages(
         ).all()
         return [_load_hit(session, c, 1.0) for c in chunks]
 
-    # 1. Full-text search (BM25 / ts_rank_cd)
-    tsq = to_tsquery(clean_q)
-    word_rows = session.execute(
-        select(MessageChunk.id)
-        .where(*conds, MessageChunk.tsv.op("@@")(tsq))
-        .order_by(func.ts_rank_cd(MessageChunk.tsv, tsq).desc(), MessageChunk.last_sent_at.desc())
-        .limit(TOP_CANDIDATES)
-    ).all()
-    word_ids = [r[0] for r in word_rows]
+    # 1. Full-text search: chunks with every word as typed, then chunks with any of its words
+    all_ids = _word_ids(session, conds, clean_q)
+    any_ids = _word_ids(session, conds, _any_words(clean_q))
 
     # 2. Vector search (pgvector HNSW)
     vector_ids: list[UUID] = []
     if embedder is not None:
         try:
             vec = embedder.embed_query(clean_q)
-            vec_rows = session.execute(
+            stmt = (
                 select(MessageChunk.id)
                 .where(*conds, MessageChunk.embedding.is_not(None))
                 .order_by(MessageChunk.embedding.cosine_distance(vec))
                 .limit(TOP_CANDIDATES)
-            ).all()
-            vector_ids = [r[0] for r in vec_rows]
+            )
+            with session.begin_nested():  # a failing query must not take the words side with it
+                vector_ids = list(session.scalars(stmt))
         except Exception as exc:  # fall back to words-only on embedding failure
-            log.warning("message_rag.vector_search_failed", error=str(exc))
+            log.warning("message_rag.vector_search_failed", error=type(exc).__name__)
 
     # 3. RRF Fusion
     lists: list[tuple[float, Sequence[UUID]]] = []
-    if word_ids:
-        lists.append((WEIGHT_WORDS, word_ids))
+    if all_ids:
+        lists.append((WEIGHT_ALL_WORDS, all_ids))
+    if any_ids:
+        lists.append((WEIGHT_WORDS, any_ids))
     if vector_ids:
         lists.append((WEIGHT_VECTOR, vector_ids))
 
@@ -168,8 +202,9 @@ def search_messages(
 
 
 def _load_hit(session: Session, c: MessageChunk, score: float) -> MessageChunkHit:
-    person_name = session.scalar(select(Person.display_name).where(Person.id == c.person_id)) if c.person_id else None
-    unit_address = session.scalar(select(Unit.address).where(Unit.id == c.unit_id)) if c.unit_id else None
+    cid = c.company_id
+    person_name = session.scalar(select(Person.display_name).where(Person.company_id == cid, Person.id == c.person_id))
+    unit_address = session.scalar(select(Unit.address).where(Unit.company_id == cid, Unit.id == c.unit_id))
     return MessageChunkHit(
         chunk_id=c.id,
         first_message_id=c.first_message_id,
@@ -188,103 +223,3 @@ def _load_hit(session: Session, c: MessageChunk, score: float) -> MessageChunkHi
         case_ids=list(c.case_ids),
         score=score,
     )
-
-
-def get_message_window(
-    session: Session,
-    company_id: UUID,
-    message_id: UUID,
-    before: int = 4,
-    after: int = 4,
-) -> list[dict[str, Any]]:
-    """Retrieves chronological raw messages before and after a specific message in the same thread."""
-    target = session.get(MessageRow, message_id)
-    if target is None or target.company_id != company_id:
-        return []
-
-    thread_ref = target.thread_ref or target.provider_msg_id
-
-    # Messages before (ordered desc then reversed)
-    before_rows = list(
-        session.scalars(
-            select(MessageRow)
-            .where(
-                MessageRow.company_id == company_id,
-                MessageRow.channel == target.channel,
-                MessageRow.thread_ref == thread_ref,
-                not_chat_only(),
-                MessageRow.sent_at < target.sent_at,
-            )
-            .order_by(MessageRow.sent_at.desc())
-            .limit(before)
-        ).all()
-    )
-    before_rows.reverse()
-
-    # Messages after
-    after_rows = list(
-        session.scalars(
-            select(MessageRow)
-            .where(
-                MessageRow.company_id == company_id,
-                MessageRow.channel == target.channel,
-                MessageRow.thread_ref == thread_ref,
-                not_chat_only(),
-                MessageRow.sent_at > target.sent_at,
-            )
-            .order_by(MessageRow.sent_at.asc())
-            .limit(after)
-        ).all()
-    )
-
-    combined = [*before_rows, target, *after_rows]
-    out: list[dict[str, Any]] = []
-    for m in combined:
-        person_name = (
-            session.scalar(select(Person.display_name).where(Person.id == m.person_id)) if m.person_id else None
-        )
-        meta = m.meta or {}
-        out.append(
-            {
-                "message_id": str(m.id),
-                "sent_at": m.sent_at.isoformat(),
-                "direction": m.direction.value if hasattr(m.direction, "value") else str(m.direction),
-                "channel": m.channel.value if hasattr(m.channel, "value") else str(m.channel),
-                "sender": shown_sender_name(m, person_name),
-                "text": m.text,
-                "subject": meta.get("subject"),
-            }
-        )
-    return out
-
-
-def get_thread_timeline(
-    session: Session,
-    company_id: UUID,
-    person_id: UUID | None = None,
-    unit_id: UUID | None = None,
-    case_id: UUID | None = None,
-    limit: int = 25,
-) -> list[dict[str, Any]]:
-    """Fast SQL chronological timeline of messages matching person, unit, or case."""
-    stmt = (
-        select(MessageRow)
-        .where(MessageRow.company_id == company_id, not_chat_only())
-        .order_by(MessageRow.sent_at.desc())
-        .limit(limit)
-    )
-    if person_id is not None:
-        stmt = stmt.where(MessageRow.person_id == person_id)
-
-    rows = session.scalars(stmt).all()
-    return [
-        {
-            "message_id": str(m.id),
-            "sent_at": m.sent_at.isoformat(),
-            "channel": m.channel.value if hasattr(m.channel, "value") else str(m.channel),
-            "direction": m.direction.value if hasattr(m.direction, "value") else str(m.direction),
-            "sender": m.sender_identity,
-            "snippet": " ".join(m.text.split())[:200] if m.text else "",
-        }
-        for m in rows
-    ]

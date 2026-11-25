@@ -53,6 +53,7 @@ class AgentSpec[T]:
     output_type: type[T]
     finalize: Callable[[T, LoadedPrompt], T]
     redact_output: bool = False  # the output is document text stored elsewhere: `model_calls` keeps only its size
+    redact_input: bool = False  # the prompt is other people's mail: `model_calls` keeps only its size (erasure)
     gemini_prompted: bool = (
         False  # schema too nested for Gemini's tool mode: prompt for JSON instead (runtime.output_for)
     )
@@ -101,10 +102,12 @@ def _row(
     ctx: CallContext,
     prompt: str | Sequence[UserContent],
 ) -> ModelCall:
+    text = describe_prompt(prompt)
+    stored: dict[str, Any] = {"redacted": True, "chars": len(text)} if spec.redact_input else {"prompt": text}
     return ModelCall(
         id=new_id(), company_id=ctx.company_id, purpose=ctx.purpose, prompt_name=spec.prompt.name,
         prompt_version=spec.prompt.version, prompt_sha256=loaded.sha256, model=model_name_for(settings, spec.name),
-        input={"prompt": describe_prompt(prompt)}, prefix_hash=ctx.prefix_hash,
+        input=stored, prefix_hash=ctx.prefix_hash,
     )  # fmt: skip
 
 

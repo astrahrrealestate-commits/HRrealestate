@@ -85,8 +85,8 @@ def data_block(tag: str, content: str, limit: int = MAX_BODY_CHARS) -> str:
     return f"<{tag}>\n{escape(text[:limit], tag)}{marker}\n</{tag}>"
 
 
-def one_line(value: str) -> str:
-    return " ".join(value.split())[:200]
+def one_line(value: str, limit: int = 200) -> str:
+    return " ".join(value.split())[:limit]
 
 
 def attachments_block(items: Sequence[AttachmentMeta]) -> str:

@@ -31,8 +31,8 @@ log = get_logger(__name__)
 AGENT_NAME = "super_agent_chat"
 PROMPT_VERSION = "code"
 CHAT_MAX_TOKENS = 1500  # Gemini thinking tokens count against the cap; the prompt, not the cap, keeps answers short
-MAX_HISTORY_TURNS = 4
-TURN_CHARS = 600
+MAX_HISTORY_LINES = 24  # 12 exchanges
+TURN_CHARS = 1200
 
 
 def record_call(engine: Engine, row: ModelCall) -> None:
@@ -50,13 +50,18 @@ def new_call(settings: Settings, company_id: UUID, agent: str, system_prompt: st
 
 
 def history_messages(lines: Sequence[str]) -> list[ModelMessage]:
-    """`User: ...` lines are owner turns; every other line is an assistant turn. Each is clipped to `TURN_CHARS`."""
+    """`User:` (dashboard chat) and `owner:` (stored turns) lines are owner turns; every other line is an assistant
+    turn. Each is clipped to `TURN_CHARS`."""
     out: list[ModelMessage] = []
-    for line in lines[-MAX_HISTORY_TURNS:]:
-        if line.startswith("User:"):
-            out.append(ModelRequest(parts=[UserPromptPart(line.removeprefix("User:").strip()[:TURN_CHARS])]))
+    for line in lines[-MAX_HISTORY_LINES:]:
+        speaker, found, text = line.partition(":")
+        text = text.strip()[:TURN_CHARS]
+        if found and speaker.strip().lower() in ("user", "owner"):
+            out.append(ModelRequest(parts=[UserPromptPart(text)]))
+        elif found and speaker.strip().lower() == "assistant":
+            out.append(ModelResponse(parts=[TextPart(text)]))
         else:
-            out.append(ModelResponse(parts=[TextPart(line.removeprefix("Assistant:").strip()[:TURN_CHARS])]))
+            out.append(ModelResponse(parts=[TextPart(line.strip()[:TURN_CHARS])]))
     return out
 
 

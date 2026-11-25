@@ -26,8 +26,8 @@ def seeded(migrated_engine: Engine, settings: Settings, committed_company: Compa
 
 
 @pytest.fixture
-def outcomes(migrated_engine: Engine, seeded: SeededThreads) -> list[MessageOutcome]:
-    return message_rag_eval.run(migrated_engine, HashingEmbedder(), seeded)
+def outcomes(migrated_engine: Engine, settings: Settings, seeded: SeededThreads) -> list[MessageOutcome]:
+    return message_rag_eval.run(migrated_engine, settings, HashingEmbedder(), seeded)
 
 
 def test_the_corpus_covers_what_the_plan_names() -> None:

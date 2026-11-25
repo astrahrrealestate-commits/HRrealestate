@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     # Model for the Super Agent's concierge planner when it should differ from `llm_model` (e.g. a cheap Gemini Flash
     # for intent routing); empty = use `llm_model`.
     concierge_model: str = ""
+    # Astra's research must answer within this. The browser gives up at 55 s (`askAgent`), the load balancer at its idle
+    # timeout: raise all three together (90 s here needs 120 s there).
+    super_agent_deadline_sec: float = 35.0
     llm_timeout_sec: float = 60.0
     # Tried in order when `llm_model` answers an error (Pydantic AI FallbackModel), e.g. "openai:gpt-4.1-mini". A
     # fallback whose provider key is not set is left out, so naming one is harmless until its key exists.

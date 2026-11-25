@@ -42,7 +42,7 @@ from app.llm.calls import CallContext, run_agent
 from app.pipeline import concierge_page, owner_commands, page_state, read_turns, turn_timings
 from app.pipeline.concierge import run_plan
 from app.pipeline.concierge_base import Researcher
-from app.pipeline.concierge_brief import Brief, load_brief
+from app.pipeline.concierge_brief import Brief, load_brief, load_history
 from app.pipeline.concierge_brief import brief_case_ids as _brief_case_ids
 from app.pipeline.concierge_outcome import (
     APOLOGY,
@@ -246,12 +246,13 @@ def _plan(
 
 def _planned(
     engine: Engine, settings: Settings, start: TurnStart, timer: TurnTimer
-) -> tuple[ConciergePlan | Outcome, list[UUID]]:
+) -> tuple[ConciergePlan | Outcome, list[UUID], list[str]]:
     """The stored plan of an earlier attempt, else a fresh one (stored before anything executes, so a retry runs
     the same plan and never asks the model twice), with the brief's case ids: with the page's, the only case ids
     the plan may name. A retry re-reads only those ids, so a case closed in between is no longer actionable."""
     if start.plan is not None:
-        return stored_plan(start.plan), _brief_case_ids(engine, start.company_id)
+        history = load_history(engine, start.company_id, start.conversation_id, start.at, start.turn_id)
+        return stored_plan(start.plan), _brief_case_ids(engine, start.company_id), history
     brief = _brief(engine, start)
     plan = _plan(engine, settings, start, brief, timer)
     if isinstance(plan, ConciergePlan):
@@ -259,7 +260,7 @@ def _planned(
         _update(
             engine, start.company_id, start.turn_id, {"plan": plan.model_dump(mode="json")}, timings=timer.snapshot()
         )
-    return plan, [b.case_id for b in brief[0]]
+    return plan, [b.case_id for b in brief[0]], brief[2]
 
 
 def _outcome(
@@ -277,14 +278,14 @@ def _outcome(
             return Outcome(refused)
         with timer.measure(PAGE_RESOLVE):
             start = _page(engine, start)
-    plan, brief_cases = _planned(engine, settings, start, timer)
+    plan, brief_cases, history = _planned(engine, settings, start, timer)
     if isinstance(plan, Outcome):
         return plan
     page = concierge_page.stored_prompt(start.page)
     with timer.measure(EXECUTOR):
         results = run_plan(
             engine, settings, start.company_id, plan, question=start.text, now=start.at, page=page,
-            brief_cases=brief_cases, turn_id=start.turn_id, timer=timer, research=research,
+            brief_cases=brief_cases, turn_id=start.turn_id, timer=timer, research=research, history=history,
         )  # fmt: skip
     stored = [result_json(r) for r in results]
     _update(engine, start.company_id, start.turn_id, {"results": stored}, timings=timer.snapshot())

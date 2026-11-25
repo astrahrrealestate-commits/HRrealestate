@@ -127,16 +127,24 @@ def _load(
     return sorted(out, key=lambda c: (-c.score, c.document_id, c.ord))
 
 
-def _embed(embedder: TextEmbedder | None, texts: list[str], company_id: UUID) -> list[list[float]] | None:
-    """Query vectors, or None when there is no embedder or the provider fails for any reason (a bad key, a quota, a
-    timeout): the words list then answers alone. Logged at error level with the class only."""
+def _embed(
+    embedder: TextEmbedder | None, question: str, passages: list[str], company_id: UUID
+) -> list[list[float]] | None:
+    """The question's vector, then one per hypothetical passage (those are documents, not questions). None when there is
+    no embedder or the provider fails for any reason (a bad key, a quota, a timeout): the words list then answers alone.
+    Logged at error level with the class only."""
     if embedder is None:
         return None
     try:
-        return embedder.embed_documents(texts)
+        vectors = [embedder.embed_query(question)]
     except Exception as exc:
         log.error("rag.embedder_failed", company_id=str(company_id), reason=type(exc).__name__)
         return None
+    try:
+        return vectors + (embedder.embed_documents(passages) if passages else [])
+    except Exception as exc:  # the question's own vector still works
+        log.error("rag.embedder_failed", company_id=str(company_id), reason=type(exc).__name__)
+        return vectors
 
 
 def hybrid_candidates(
@@ -145,7 +153,7 @@ def hybrid_candidates(
 ) -> list[Candidate]:  # fmt: skip
     """The fused candidate chunks for a question, best first. `variants` extend the words side, `dense_texts` (the
     question itself is always one) the vector side: a hypothetical answer passage (HyDE) goes there."""
-    vectors = _embed(embedder, [question, *[t for t in dense_texts if t.strip()]], company_id)  # before any query
+    vectors = _embed(embedder, question, [t for t in dense_texts if t.strip()], company_id)  # before any query
     words = words_ranking(session, company_id, words_query(question, variants), flt, k)
     lists: list[tuple[float, Sequence[UUID]]] = [(WEIGHT_WORDS, words)]
     ranks: dict[str, dict[UUID, int]] = {"words": {c: i for i, c in enumerate(words, 1)}, "vector": {}}

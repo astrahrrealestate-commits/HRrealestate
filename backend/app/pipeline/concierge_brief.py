@@ -47,14 +47,25 @@ def load_brief(engine: Engine, company_id: UUID, conversation_id: UUID, at: date
         ]
         open_tasks = work_repo.open_tasks(session, company_id, now=at)[:MAX_BRIEF_TASKS]
         tasks = [task_brief(t.id, t.title) for t in open_tasks]
-        conv = session.scalar(
-            select(AgentConversation).where(
-                AgentConversation.company_id == company_id,
-                AgentConversation.id == conversation_id,
-            )
-        )
-        exchanges = read_turns.earlier_exchanges(session, company_id, conversation_id, (at, turn_id), MAX_HISTORY_TURNS)
-        h_lines = history_lines(exchanges)
-        if conv and conv.summary:
-            h_lines.insert(0, f"Summary of earlier conversation: {conv.summary}")
+        h_lines = _history(session, company_id, conversation_id, at, turn_id)
     return briefs, tasks, h_lines
+
+
+def load_history(engine: Engine, company_id: UUID, conversation_id: UUID, at: datetime, turn_id: UUID) -> list[str]:
+    """The conversation before this turn alone (a retried turn's research needs it, not the brief)."""
+    with Session(engine) as session:
+        return _history(session, company_id, conversation_id, at, turn_id)
+
+
+def _history(session: Session, company_id: UUID, conversation_id: UUID, at: datetime, turn_id: UUID) -> list[str]:
+    conv = session.scalar(
+        select(AgentConversation).where(
+            AgentConversation.company_id == company_id,
+            AgentConversation.id == conversation_id,
+        )
+    )
+    exchanges = read_turns.earlier_exchanges(session, company_id, conversation_id, (at, turn_id), MAX_HISTORY_TURNS)
+    h_lines = history_lines(exchanges)
+    if conv and conv.summary:
+        h_lines.insert(0, f"Summary of earlier conversation: {conv.summary}")
+    return h_lines

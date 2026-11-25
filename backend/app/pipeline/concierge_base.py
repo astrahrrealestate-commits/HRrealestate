@@ -1,7 +1,7 @@
 """Shared pieces of the concierge executor: the step result, the per-run context and the fixed owner texts."""
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -10,6 +10,7 @@ from uuid import UUID
 from sqlalchemy import Engine
 
 from app.contracts import Intent, PlanStep
+from app.contracts.sourced_answer import Source
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.llm.page_blocks import NO_PAGE, PagePrompt
@@ -39,11 +40,13 @@ class Researched:
 
     answer: str
     steps: tuple[str, ...] = ()
+    sources: tuple[Source, ...] = ()  # rows and pages the loop's tools returned, never named by the model
 
 
-# (company_id, the owner's question, the turn's page) -> the loop's answer, or None when it has none (fake model,
-# spent budget, failure). Injected by the workflow so the pipeline never imports the loop (layering, invariant 7).
-Researcher = Callable[[UUID, str, PagePrompt], Researched | None]
+# (company_id, the owner's question, the turn's page, the conversation before it) -> the loop's answer, or None when it
+# has none (fake model, spent budget, failure). Injected by the workflow so the pipeline never imports the loop
+# (layering, invariant 7).
+Researcher = Callable[[UUID, str, PagePrompt, Sequence[str]], Researched | None]
 
 
 @dataclass(frozen=True)
@@ -62,6 +65,7 @@ class Ctx:
     timer: TurnTimer = field(default_factory=TurnTimer)  # the turn's stage clock (answer_ms of an owner_qa call)
     needs_research: bool = False  # concierge/v7: the `answer` step asks the research loop (read-only plans only)
     research: Researcher | None = None
+    history: tuple[str, ...] = ()  # the conversation before this question, for the research loop
 
 
 Handler = Callable[[Ctx, PlanStep], StepResult]

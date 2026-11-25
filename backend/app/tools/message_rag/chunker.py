@@ -11,6 +11,8 @@ from app.db.models import MessageRow
 
 AMSTERDAM_TZ = ZoneInfo("Europe/Amsterdam")
 _LINE_SYNTAX = re.compile(r"[\[\]|()<>]")
+_BODY_SYNTAX = str.maketrans("[]|", "()/")  # a body cannot write a line head of its own
+LINE_HEAD = re.compile(r"^\[[^\]\n]*\] ")
 MAX_CHUNK_CHARS = 2400  # ~600 tokens
 TARGET_CHUNK_CHARS = 1600  # ~400 tokens
 MAX_GAP = timedelta(hours=6)
@@ -36,8 +38,12 @@ def format_message_line(msg: MessageRow, person_name: str | None = None) -> str:
     sender = "Harjot (Owner)" if is_outbound else _inbound_label(msg, person_name)
 
     # Clean multi-line whitespace
-    clean_text = " ".join(msg.text.split()) if msg.text else "[no text]"
-    return f"[{stamp} | {sender} | {dir_str}] {clean_text}"
+    clean_text = " ".join(msg.text.split()) if msg.text else "(no text)"
+    return f"[{stamp} | {sender} | {dir_str}] {plain_body(clean_text)}"
+
+
+def plain_body(text: str) -> str:
+    return text.translate(_BODY_SYNTAX)
 
 
 def format_context_header(

@@ -133,6 +133,7 @@ def test_question_plans_once_runs_the_plan_and_stores_it(io: dict[str, MagicMock
         "turn_id": start.turn_id,  # keys an owner-requested redraft
         "timer": ANY,  # the turn's stage clock (answer_ms of an owner_qa call)
         "research": None,  # no researcher injected: a needs_research plan falls back to owner_qa
+        "history": ["earlier"],  # the conversation so far, for the research loop's follow-ups
     }
 
 
@@ -240,13 +241,17 @@ def test_plan_is_stored_before_it_runs_and_results_right_after(io: dict[str, Mag
 
 def test_stored_plan_is_reused_without_a_model_call(io: dict[str, MagicMock]) -> None:
     case_id = uuid4()
-    with patch(f"{M}._brief_case_ids", return_value=[case_id]) as ids:
+    with (
+        patch(f"{M}._brief_case_ids", return_value=[case_id]) as ids,
+        patch(f"{M}.load_history", return_value=["owner: earlier"]),
+    ):
         out = ct._outcome(MagicMock(), MagicMock(), _start("what is open?", plan=PLAN.model_dump(mode="json")))
     io["agent"].assert_not_called()
     io["brief"].assert_not_called()  # no full brief: only its case ids are re-read to check the stored plan
     ids.assert_called_once()
     assert io["plan"].call_args.args[3] == PLAN
     assert io["plan"].call_args.kwargs["brief_cases"] == [case_id]
+    assert io["plan"].call_args.kwargs["history"] == ["owner: earlier"]  # a retried follow-up keeps its subject
     assert io["update"].call_count == 1  # only the results: the plan is already stored
     assert io["update"].call_args.args[3] == {"results": LISTED}
     assert out.results == LISTED
@@ -295,7 +300,7 @@ def test_failed_turns_are_terminal_like_done() -> None:
 
 def test_a_plan_stored_before_v3_has_no_reply_key_and_is_still_reused(io: dict[str, MagicMock]) -> None:
     old = {"in_scope": True, "steps": [PLAN.steps[0].model_dump(mode="json")]}
-    with patch(f"{M}._brief_case_ids", return_value=[]):
+    with patch(f"{M}._brief_case_ids", return_value=[]), patch(f"{M}.load_history", return_value=[]):
         ct._outcome(MagicMock(), MagicMock(), _start("what is open?", plan=old))
     io["agent"].assert_not_called()
     assert io["plan"].call_args.args[3] == PLAN

@@ -23,7 +23,9 @@ from app.core.settings import Settings
 from app.db.enums import PersonKind
 from app.db.models import Company, Lease, LeaseParty, MessageRow, Person, RawEvent, Unit
 from app.llm.embeddings import TextEmbedder
+from app.pipeline.rag import RERANK_TOP
 from app.tools.message_rag.indexer import index_message
+from app.tools.message_rag.rerank import rerank_hits
 from app.tools.message_rag.search import MessageChunkHit, search_messages
 from evals.message_rag_corpus import PEOPLE, QUESTIONS, THREADS, Mail, MessageQuestion, Thread
 
@@ -104,11 +106,12 @@ def seed(engine: Engine, settings: Settings, company_id: UUID) -> SeededThreads:
     return seeded
 
 
-def astra_search(engine: Engine, embedder: TextEmbedder | None, seeded: SeededThreads) -> Search:
+def astra_search(engine: Engine, settings: Settings, embedder: TextEmbedder | None, seeded: SeededThreads) -> Search:
     def search(q: MessageQuestion) -> list[MessageChunkHit]:
         person_id = seeded.people[q.person] if q.person else None
         with Session(engine) as s:
-            return search_messages(s, seeded.company_id, q.text, embedder, person_id=person_id, limit=LIMIT)
+            hits = search_messages(s, seeded.company_id, q.text, embedder, person_id=person_id, limit=RERANK_TOP)
+        return rerank_hits(engine, settings, seeded.company_id, q.text, hits)[:LIMIT]
 
     return search
 
@@ -123,8 +126,10 @@ def grade(q: MessageQuestion, hits: list[MessageChunkHit]) -> MessageOutcome:
     )  # fmt: skip
 
 
-def run(engine: Engine, embedder: TextEmbedder | None, seeded: SeededThreads) -> list[MessageOutcome]:
-    search = astra_search(engine, embedder, seeded)
+def run(
+    engine: Engine, settings: Settings, embedder: TextEmbedder | None, seeded: SeededThreads
+) -> list[MessageOutcome]:
+    search = astra_search(engine, settings, embedder, seeded)
     return [grade(q, search(q)) for q in QUESTIONS]
 
 
@@ -154,7 +159,7 @@ def main() -> int:  # pragma: no cover  (needs a scratch database and, for real 
         company_id = company.id
     try:
         seeded = seed(engine, settings, company_id)
-        outcomes = run(engine, build_embedder(settings), seeded)
+        outcomes = run(engine, settings, build_embedder(settings), seeded)
         scores = score(outcomes)
         misses = [
             f"[{o.question.group}] {o.question.text}"
