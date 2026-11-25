@@ -94,18 +94,24 @@ Automatic sending (send mode stays off); running the forwarded-mail repair or la
 - Drafts only for the newest unanswered incoming mail of each open case after the reload (user, option A).
 - Six categories as above; old values map: `maintenance`, `contractor_update`, `complaint` → `maintenance`; `payment`
   → `finance`; `lease`, `admin`, `other` → `administration`; `spam` stays. (my call on the mapping)
+- **Gemini only** (user, 2026-11-25): every model call and web search uses the Gemini API key. No other LLM, search
+  or embedding provider; the non-Gemini fallback in prod (`openai:gpt-4.1-mini`) is removed and prod refuses any
+  non-`google-gla:` model.
 - Models (my call, the user asked for the best quality with thinking on and reasonable speed):
-  - quality tier, reasoning `high`: proposer, research, Astra, document reader, person memory, category brief.
-    Default `anthropic:claude-opus-5-5` (needs an Anthropic key and a data-processing check for EU tenant data);
-    otherwise the strongest Gemini Pro model on the existing key.
+  - quality tier, reasoning `high`: proposer, research, Astra, document reader, person memory, category brief. The
+    strongest Gemini Pro model the key lists (`GET /v1beta/models`), fallback `google-gla:gemini-3.8-flash` at high
+    reasoning.
   - fast tier, reasoning `low`: understanding, link check, case summary, price extraction: `google-gla:gemini-3.8-flash`.
+  - embeddings stay `google-gla:gemini-embedding-001`.
 - Related context: same person, same unit or lease, company vendor data only.
-- Web search: Firecrawl search behind the existing `SearchClient` port, shared by prices, research and Astra.
+- Web search: Gemini's Google Search grounding on the same key, behind the existing `SearchClient` port and shared by
+  prices, research and Astra. Grounding returns source URLs; each page is then fetched (size and time capped) so
+  findings and prices are checked against the page text. Pages are untrusted data.
 - Prompts change by new versions: `understanding/v4`, `proposer/v6`, each pinned after a real-model eval.
 
 ## Needs from the user (does not block building)
-1. A Firecrawl API key.
-2. The quality-tier model and key (Anthropic key, or confirm Gemini Pro).
+1. Confirmation that the Gemini key's project has Google Search grounding enabled and enough quota for the reload
+   (90 days of mail at the fast tier, plus quality-tier drafts and research).
 3. Harjot's own replies forwarded by the Apps Script, so drafts see what he already said.
 4. Reload scope: all of `info@hrrealestate.nl` for 90 days except spam, trash and drafts (default).
 5. Merging to `main` (prod deploy) at the two deploy points in the plan.

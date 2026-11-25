@@ -11,7 +11,8 @@ documents. Astra can open and search everything. 90 days of mail are reloaded cl
 the category briefs. Attachments are read, quotes compared and web research done before drafting. The reload uses a
 `history` flag on the normal pipeline, then drafts only open, unanswered conversations.
 
-**Tech Stack:** Python 3.12, FastAPI, DBOS, SQLAlchemy 2, Pydantic AI, Postgres + pgvector, Next.js, Firecrawl search.
+**Tech Stack:** Python 3.12, FastAPI, DBOS, SQLAlchemy 2, Pydantic AI, Postgres + pgvector, Next.js. **Gemini API only** (models,
+embeddings, Google Search grounding).
 
 **Spec:** `docs/superpowers/specs/2026-11-25-m12-drafting-context-astra-design.md`
 
@@ -30,8 +31,10 @@ the category briefs. Attachments are read, quotes compared and web research done
   proposer, owner redraft, Astra, `draft-open`. No generic acknowledgement is ever offered as a draft.
 - History-mode mail never creates an action, approval, owner card, alert, wait, chaser or document review card.
 - Purge needs a preview, a DB snapshot, the worker stopped and a typed confirmation.
-- Quality tier (reasoning `high`): proposer, research, Astra, doc reader, person memory, category brief. Fast tier
-  (reasoning `low`, `google-gla:gemini-3.8-flash`): understanding, link check, case summary, price extraction.
+- Gemini API key only: every model, embedding and web search goes through it; no other provider, key or fallback.
+- Quality tier (reasoning `high`): proposer, research, Astra, doc reader, person memory, category brief, on the
+  strongest Gemini Pro model the key lists. Fast tier (reasoning `low`, `google-gla:gemini-3.8-flash`): understanding,
+  link check, case summary, price extraction.
 - Failing test first; `make check` green before each commit; `estateos-security` pass on tasks touching `app/api`,
   `app/sender`, `app/channels`, `app/llm`, prompts or external input.
 
@@ -58,7 +61,7 @@ the category briefs. Attachments are read, quotes compared and web research done
 | Day 1 AM | T4 categories (contract, `understanding/v4`, migration) | T1 history mode |
 | Day 1 PM | T5 per-agent models · T6 dossier (start) | T2 purge / reingest / draft-open · T3 script |
 | Day 1 end | **Sync 1:** merge; `make check` | |
-| Day 2 AM | T6 dossier (finish) · T7 person memory | T8 Firecrawl, quote comparison, research, read-before-draft |
+| Day 2 AM | T6 dossier (finish) · T7 person memory | T8 Gemini web search, quote comparison, research, read-before-draft |
 | Day 2 midday | **Deploy 1 (needs merge to `main`):** T1–T5, T8. Stage: reload 7 days, check. Prod: `preview`, `purge`, `reingest 90` starts and runs overnight. | |
 | Day 2 PM | T9 proposer `v6` + real-model eval | T10 category next-actions API |
 | Day 3 AM | T11 Astra tools · category brief agent | T12 category dashboard UI |
@@ -143,20 +146,25 @@ our data cannot answer.
 - [ ] `make eval agent=understanding version=v4` on the fast-tier model → category accuracy ≥ 0.9 on the relabelled set.
 - [ ] `make check`; frontend `npx tsc --noEmit`, `npx vitest run`. Commit `feat(categories): six business categories`.
 
-### T5 (Dev A): Per-agent model and reasoning
+### T5 (Dev A): Per-agent model and reasoning, Gemini only
 
 **Files:** `backend/app/core/settings.py` (`agent_models: dict[str, str]`, `agent_thinking: dict[str, str]`, env
-`AGENT_MODELS`, `AGENT_THINKING` as JSON) · `backend/app/llm/runtime.py` (`model_name_for`, `anthropic:` provider) ·
-`backend/app/llm/calls.py` (`thinking_for`) · `.env.example`, `docs/tech-stack.md` · test
+`AGENT_MODELS`, `AGENT_THINKING` as JSON; prod validator refuses any model or fallback not starting `google-gla:`) ·
+`backend/app/llm/runtime.py` (`model_name_for`) · `backend/app/llm/calls.py` (`thinking_for`) · create
+`backend/app/dev/gemini_models.py` (lists models on the key) · `.env.example`, `docs/tech-stack.md` · test
 `backend/tests/unit/llm/test_agent_models.py`
 
 **Produces:** `model_name_for(settings, agent_name) -> str` (agent override, then `concierge_model`, then `llm_model`);
 `thinking_for(settings, spec) -> ThinkingLevel | None`.
 
 - [ ] Failing tests: `test_an_agent_override_wins`; `test_unset_agents_keep_llm_model`;
-      `test_thinking_override_beats_the_spec`; `test_anthropic_model_builds_when_the_key_is_set`;
+      `test_thinking_override_beats_the_spec`; `test_prod_refuses_a_non_gemini_model_or_fallback`;
       `test_prod_refuses_an_override_to_fake`.
-- [ ] Run → FAIL; implement; run → PASS. Commit `feat(llm): per-agent model and reasoning`.
+- [ ] Run → FAIL; implement; run → PASS.
+- [ ] `uv run python -m app.dev.gemini_models` with the prod key → pick the strongest Pro model listed; record it and the
+      `AGENT_MODELS` / `AGENT_THINKING` values in `docs/go-live-channels.md`; remove `openai:gpt-4.1-mini` from the prod
+      `LLM_FALLBACK_MODELS` task definition (replace with `google-gla:gemini-3.8-flash`).
+- [ ] Commit `feat(llm): per-agent Gemini model and reasoning`.
 
 ### T6 (Dev A): The dossier
 
@@ -215,13 +223,14 @@ refresh after link when stale (live mail) · `backend/app/pipeline/gdpr.py` clea
 ### T8 (Dev B): Read, compare and research before drafting
 
 **Files:** `backend/app/workflows/pipeline.py:154-174` (`read_attachments_step`, quote comparison and
-`research_step` before `propose_step`; filing stays after) · create `backend/app/channels/prices/firecrawl.py`
-(`FirecrawlSearchClient`), registry case `firecrawl`, secret `FIRECRAWL_API_KEY` · create
+`research_step` before `propose_step`; filing stays after) · create `backend/app/channels/prices/gemini_search.py`
+(`GeminiSearchClient(SearchClient)`: Gemini with Google Search grounding on the existing key, the grounding source URLs
+followed and each page fetched with `httpx`, 2 MB and 10 s caps), registry case `price_search_provider="gemini"` · create
 `backend/app/finance/comparison.py` · create `backend/app/llm/agents/research.py`, prompt
 `backend/app/llm/prompts/v1/draft_research.md`, `backend/app/pipeline/draft_research.py` (findings stored on the
 message's understanding row under `research`) · `backend/app/finance/triggers.py:quote_candidate` (also sender role
 contractor or business) · `backend/app/pipeline/rules.py` (thread and attachment text count as seen) · ADR 0009 →
-accepted · tests `backend/tests/integration/test_read_before_draft.py`, `backend/tests/unit/channels/test_firecrawl.py`,
+accepted · tests `backend/tests/integration/test_read_before_draft.py`, `backend/tests/unit/channels/test_gemini_search.py`,
 `backend/tests/unit/pipeline/test_draft_research.py`
 
 **Produces:** `QuoteComparison(lines, market_low, market_median, quoted_total, over_by_pct, sources)`;
@@ -237,7 +246,8 @@ scope, quantities, unit costs, risks and omissions against the request, and `Quo
       `test_research_runs_only_when_needed_and_every_finding_has_a_url`; `test_research_page_text_is_data`;
       `test_legal_research_uses_the_reference_library_and_official_sources_only`;
       `test_quote_review_lists_missing_scope_items`;
-      `test_firecrawl_hits_are_pages_with_urls` (recorded fixture);
+      `test_gemini_search_returns_fetched_pages_with_their_urls` (recorded grounding response and pages);
+      `test_gemini_search_drops_a_source_it_cannot_fetch`;
       `test_rules_hold_an_iban_only_found_in_an_attachment`.
 - [ ] Run → FAIL; implement; run → PASS; `make live-check k=prices` once the key is set.
 - [ ] `draft_open` (T2) runs the same comparison and `research_for` before each proposal (history mail skips research
@@ -362,7 +372,7 @@ you to: …"). Documents page: an "Add to reference library" toggle (`is_referen
 `docs/go-live-channels.md` (run book)
 
 - [ ] ADR 0017 (categories, dossier scope, history mode, per-agent models, research); security.md (web pages untrusted,
-      reload report PII in CloudWatch, Drive dedupe, Anthropic data processing); PROGRESS ticked with `/check` evidence.
+      reload report PII in CloudWatch, Drive dedupe, Gemini-only providers); PROGRESS ticked with `/check` evidence.
 - [ ] Stage (Deploy 1): `scripts/mail_reload.sh stage preview|purge|reingest 7|draft-open`; check counts and cost in
       `model_calls`.
 - [ ] Prod (Deploy 1, on the user's go): `preview`, `purge`, `reingest 90`. Prod (Deploy 2): `draft-open`.
