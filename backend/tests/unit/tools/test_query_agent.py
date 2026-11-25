@@ -404,8 +404,8 @@ def test_query_agent_prompts_are_in_sync():
     from app.llm.prompts import load_prompt
     from app.tools.query_agent.prompt import QUERY_AGENT_SYSTEM_PROMPT
 
-    v3_text = load_prompt(PromptRef(name="query_agent", version="v3")).text
-    assert QUERY_AGENT_SYSTEM_PROMPT.strip() == v3_text.strip()
+    published = load_prompt(PromptRef(name="query_agent", version="v4")).text
+    assert QUERY_AGENT_SYSTEM_PROMPT.strip() == published.strip()
 
 
 def test_sanitize_rows_labels_brixx_tickets_and_lease_facts():

@@ -28,8 +28,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="h-full antialiased">
-      <body className="min-h-dvh flex flex-col font-sans bg-[var(--bg)] text-[var(--ink)]">
+    <html lang="en" className="h-full overflow-hidden antialiased">
+      <body className="h-dvh overflow-hidden flex flex-col font-sans bg-[var(--bg)] text-[var(--ink)]">
         <LanguageProvider>
           <AuthProvider>
             <SuperAgentProvider>

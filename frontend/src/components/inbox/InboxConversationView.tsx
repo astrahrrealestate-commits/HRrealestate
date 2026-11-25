@@ -1,6 +1,5 @@
 "use client";
 
-import { greetingName } from "@/lib/replyTicket";
 import React, { useState, useEffect, useRef } from "react";
 import {
   ArrowLeft,
@@ -23,6 +22,7 @@ import { InboxThread, ThreadMessage } from "@/types/inbox";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { UrgentLabel } from "@/components/ui/UrgentLabel";
+import { formatCategoryLabel } from "@/components/ui/ThreadRow";
 import { AiInsight } from "@/components/inbox/AiInsight";
 import { Composer } from "@/components/inbox/Composer";
 import { isUrgent } from "@/lib/selectors";
@@ -174,9 +174,12 @@ export function InboxConversationView({
     }
   }, [thread?.id, thread?.status, thread?.messages?.length, thread?.draftProposal, initialDraft]);
 
-  // Scroll to bottom when messages update
+  // Scroll only the message pane container (never outer window/body)
   useEffect(() => {
-    timelineEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = timelineEndRef.current?.parentElement;
+    if (container) {
+      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    }
   }, [localMessages.length, isSent]);
 
   // Keyboard shortcut listener (Section 5.2): 'a' accept, 'r' reject, 'Esc' back
@@ -343,7 +346,7 @@ export function InboxConversationView({
           <Avatar name={thread.senderName} channel={thread.channel} size="default" />
 
           <div className="flex items-center justify-end">
-            {thread.ticketNumber ? (
+            {thread.category === "maintenance" && thread.ticketNumber ? (
               <button
                 type="button"
                 onClick={() => setIsTicketModalOpen(true)}
@@ -359,17 +362,17 @@ export function InboxConversationView({
           </div>
         </div>
 
-        {/* Bottom Row: Bold Contact Name + Unit/Ticket | [Done] [More] square pills */}
-        <div className="flex items-center justify-between gap-2 min-w-0">
+        {/* Bottom Row: Contact Name + Full Subject + Unit/Ticket | [Done] [More] square pills */}
+        <div className="flex items-start justify-between gap-2 min-w-0">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <h2 className="font-heading font-bold text-[18px] text-[var(--ink)] truncate leading-tight">
-                {thread.senderName || thread.subject || thread.unitLabel}
+            <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+              <h2 className="font-heading font-bold text-[16px] text-[var(--ink)] break-words leading-snug">
+                {thread.subject || thread.issueTitle || thread.senderName || thread.unitLabel}
               </h2>
               {urgentThread && <UrgentLabel />}
             </div>
-            <p className="text-[12px] text-[var(--ink-3)] truncate leading-tight mt-0.5">
-              {[thread.unitLabel, thread.ticketNumber].filter(Boolean).join(" · ")}
+            <p className="text-[12px] text-[var(--ink-3)] leading-tight mt-0.5 break-words">
+              {[thread.senderName, thread.unitLabel, thread.ticketNumber].filter(Boolean).join(" · ")}
             </p>
           </div>
 
@@ -467,8 +470,8 @@ export function InboxConversationView({
           <Avatar name={thread.senderName} channel={thread.channel} size="sm" className="shrink-0" />
 
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 min-w-0">
-              <h2 className="font-heading font-bold text-[16px] lg:text-[18px] text-[var(--ink)] truncate leading-tight">
+            <div className="flex items-start gap-2 flex-wrap min-w-0">
+              <h2 className="font-heading font-bold text-[16px] lg:text-[18px] text-[var(--ink)] break-words leading-snug">
                 {thread.subject || thread.issueTitle || thread.unitLabel}
               </h2>
               {urgentThread && <UrgentLabel />}
@@ -487,6 +490,15 @@ export function InboxConversationView({
                   {thread.recipientRoleDetail}
                 </span>
               )}
+              {(() => {
+                const catLabel = formatCategoryLabel(thread.category);
+                if (!catLabel || catLabel.toLowerCase() === thread.recipientRoleDetail?.toLowerCase()) return null;
+                return (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded border border-[var(--line)] bg-[var(--selected)]/60 text-[10.5px] font-medium text-[var(--ink-2)] shrink-0">
+                    {catLabel}
+                  </span>
+                );
+              })()}
               {thread.senderContact && (
                 <>
                   <span>·</span>
@@ -503,7 +515,7 @@ export function InboxConversationView({
 
         {/* Desktop Header Actions */}
         <div className="flex items-center gap-1 shrink-0">
-          {thread.ticketNumber && (
+          {thread.category === "maintenance" && thread.ticketNumber && (
             <Button
               variant="ghost"
               size="sm"
@@ -957,7 +969,7 @@ export function InboxConversationView({
       />
 
       {/* In-Place Maintenance Ticket Modal */}
-      {thread.ticketNumber && (
+      {thread.category === "maintenance" && thread.ticketNumber && (
         <EditTicketModal
           ticket={{
             id: thread.caseId || thread.id,
@@ -966,7 +978,7 @@ export function InboxConversationView({
             unitLabel: thread.unitLabel || "Unassigned Unit",
             tenantName: thread.senderName || "Tenant",
             tenantPhone: thread.senderContact || "",
-            category: "electrical",
+            category: "appliance",
             contractorName: thread.aiUnderstanding?.suggestedContractor || "",
             contractorTrade: "",
             urgency: thread.urgency === "emergency" ? "emergency" : "normal",
@@ -978,7 +990,7 @@ export function InboxConversationView({
             notes: thread.caseSummary || "",
             originalMessage: thread.latestSnippet || "",
             contractorDraft: "",
-            tenantDraft: `Beste ${greetingName(thread.senderName)}, we hebben je melding over ${thread.subject?.toLowerCase() || "het onderhoud"} ontvangen. Onze monteur is geautoriseerd en neemt contact op. Met vriendelijke groet, Harjot`,
+            tenantDraft: thread.draftProposal?.drafts?.[0]?.text || "",
           }}
           isOpen={isTicketModalOpen}
           onClose={() => setIsTicketModalOpen(false)}

@@ -25,6 +25,7 @@ export interface FetchThreadsParams {
   sort?: "recent" | "priority";
   limit?: number;
   offset?: number;
+  includeHtml?: boolean;
 }
 
 export interface ApprovalDecideResponse {
@@ -91,6 +92,7 @@ export async function getInboxThreads(
   if (params.sort && params.sort !== "recent") query.set("sort", params.sort);
   if (params.limit !== undefined) query.set("limit", String(params.limit));
   if (params.offset !== undefined) query.set("offset", String(params.offset));
+  if (params.includeHtml === false) query.set("include_html", "false");
 
   try {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/threads?${query.toString()}`, {
@@ -149,7 +151,7 @@ export async function getInboxThreads(
             senderContact,
             unitLabel,
             buildingName: t.buildingName || "Centrum Portfolio",
-            category: t.category || "maintenance",
+            category: t.category || "other",
             urgency: t.urgency || "normal",
             status: t.status || "needs_approval",
             isRead: typeof t.isRead === "boolean" ? t.isRead : undefined,
@@ -474,31 +476,6 @@ export interface ProspectiveInquiry {
   status: string;
 }
 
-const DEFAULT_INQUIRIES: ProspectiveInquiry[] = [
-  {
-    id: "lead-1",
-    name: "Sanne Meijer",
-    contact: "sanne.meijer@uva.nl",
-    channel: "gmail",
-    unit: "Pieter Floriszstraat 1 C",
-    moveIn: "1 Nov 2026",
-    request: "Viewing request · Thursday 15:00 slot",
-    qualification: "3.2x income verified (UvA lecturer)",
-    status: "AI draft ready",
-  },
-  {
-    id: "lead-2",
-    name: "Lucas van Dijk",
-    contact: "+31 6 81 29 44 10",
-    channel: "whatsapp",
-    unit: "Singel 412 Studio",
-    moveIn: "1 Nov 2026",
-    request: "Studio availability & viewing inquiry",
-    qualification: "Preliminary criteria met",
-    status: "AI draft ready",
-  },
-];
-
 /**
  * Fetches executive briefing from the BRIEFING agent.
  * GET /api/dashboard/briefing?kind=daily|weekly
@@ -658,7 +635,7 @@ export async function getDashboardInquiries(): Promise<{ inquiries: ProspectiveI
     // Offline fallback
   }
 
-  return { inquiries: DEFAULT_INQUIRIES, total: DEFAULT_INQUIRIES.length, isLive: false };
+  return { inquiries: [], total: 0, isLive: false };
 }
 
 /**
@@ -1077,8 +1054,12 @@ export async function askAgent(
   history?: string[],
   conversationId?: string | null
 ): Promise<AskAgentResponse> {
-  const fallbackAns: AskAgentResponse = {
-    answer: "Unable to reach the EstateOS backend right now. Please verify the API connection and try again.",
+  const buildErrorResponse = (
+    answer: string,
+    stage: string,
+    reason: string
+  ): AskAgentResponse => ({
+    answer,
     caseRefs: [],
     suggestedAction: "View Maintenance Hub",
     actions: [
@@ -1091,10 +1072,10 @@ export async function askAgent(
     ],
     executedAt: new Date().toISOString(),
     debugInfo: {
-      pipeline_stage: "network_error",
-      fallback_reason: "Backend request failed",
+      pipeline_stage: stage,
+      fallback_reason: reason,
     },
-  };
+  });
 
   try {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/agent/ask`, {
@@ -1104,17 +1085,57 @@ export async function askAgent(
         Accept: "application/json",
       },
       body: JSON.stringify({ query, context, history, conversation_id: conversationId || null }),
-      signal: AbortSignal.timeout(35000),
+      signal: AbortSignal.timeout(55000),
     });
 
     if (res.ok) {
       return await res.json();
     }
+
+    let detail = "";
+    try {
+      const errBody = await res.json();
+      detail = typeof errBody?.detail === "string" ? errBody.detail : "";
+    } catch {
+      // non-JSON error body
+    }
+    if (res.status === 401) {
+      return buildErrorResponse(
+        "Your session has expired. Please refresh or sign in again to continue.",
+        "auth_error",
+        "HTTP 401"
+      );
+    }
+    if (res.status === 429) {
+      return buildErrorResponse(
+        detail || "Rate limit reached — please wait a few seconds before asking again.",
+        "rate_limited",
+        "HTTP 429"
+      );
+    }
+    return buildErrorResponse(
+      detail
+        ? `Astra encountered a server error (${res.status}): ${detail}`
+        : `Astra encountered a server error (HTTP ${res.status}). Please try again.`,
+      "server_error",
+      `HTTP ${res.status}`
+    );
   } catch (err) {
     console.warn("Failed to reach /api/agent/ask, using contextual fallback:", err);
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      return buildErrorResponse(
+        "The request took too long to answer (>55s). Try a shorter or more specific question.",
+        "timeout",
+        "Client timeout (55s)"
+      );
+    }
   }
 
-  return fallbackAns;
+  return buildErrorResponse(
+    "Unable to reach the EstateOS backend right now. Please verify the API connection and try again.",
+    "network_error",
+    "Backend request failed"
+  );
 }
 
 export async function getAgentConversations(): Promise<ConversationSummaryItem[]> {

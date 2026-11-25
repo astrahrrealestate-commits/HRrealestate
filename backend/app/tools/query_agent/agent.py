@@ -207,7 +207,7 @@ def _call_gemini(
 
 QUERY_AGENT = AgentSpec(
     name="query_agent",
-    prompt=PromptRef(name="query_agent", version="v3"),
+    prompt=PromptRef(name="query_agent", version="v4"),
     output_type=SQLQueryProposal,
     finalize=lambda output, _loaded: output,
     gemini_prompted=True,

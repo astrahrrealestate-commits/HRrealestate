@@ -36,7 +36,7 @@ export function ExecutiveBriefingSection({
             {activeData.dayLabel} · Delivered {activeData.timeDelivered}
           </span>
           <h1 className="font-heading font-bold text-[28px] sm:text-[32px] tracking-[-0.02em] text-[#0A0A0A] leading-tight">
-            {activeKind === "daily" ? "Good morning, Harjot" : "Weekly executive review, Harjot"}
+            {activeKind === "daily" ? "Hey, Harjot" : "Weekly executive review, Harjot"}
           </h1>
         </div>
 

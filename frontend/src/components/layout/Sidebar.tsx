@@ -146,7 +146,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
     <aside
       style={{ width: compact ? 68 : sidebarWidth }}
       className={cn(
-        "hidden md:flex flex-col justify-between select-none h-dvh sticky top-0 flex-shrink-0 border-r border-[#162B45] bg-[#0A1B2F] transition-[width] duration-150 z-20 relative"
+        "hidden md:flex flex-col justify-between select-none h-dvh overflow-hidden flex-shrink-0 border-r border-[#162B45] bg-[#0A1B2F] transition-[width] duration-150 z-20 relative"
       )}
     >
       <ResizeHandle
@@ -174,11 +174,11 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
         }}
       />
       {/* Top Header & Navigation */}
-      <div className="flex flex-col">
+      <div className="flex flex-col min-h-0 flex-1 overflow-hidden">
         {/* Brand Logo Header (h-[52px] aligned with TopCommandBar) - Logo clicks to minimize/expand */}
         <div
           className={cn(
-            "h-[52px] flex items-center border-b border-[#162B45] transition-all",
+            "h-[52px] shrink-0 flex items-center border-b border-[#162B45] transition-all",
             compact ? "px-0 justify-center" : "px-3 justify-start"
           )}
         >
@@ -233,7 +233,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
         </div>
 
         {/* Main Navigation Items */}
-        <nav className={cn("space-y-1", compact ? "p-2" : "p-2.5")}>
+        <nav className={cn("space-y-1 flex-1 min-h-0 overflow-y-auto no-scrollbar", compact ? "p-2" : "p-2.5")}>
           {navigationItems.map((item) => {
             const isActive =
               item.href === "/"
@@ -296,7 +296,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
       </div>
 
       {/* Bottom Section: Knowledge Base, Connections & User Profile */}
-      <div className="border-t border-[#162B45]">
+      <div className="border-t border-[#162B45] shrink-0">
         <div className={cn("space-y-1", compact ? "p-2" : "p-2.5")}>
           {/* Knowledge Base */}
           {canAccess("reports") && (

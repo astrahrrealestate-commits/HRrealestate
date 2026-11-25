@@ -10,6 +10,7 @@ import urllib.parse
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from typing import Annotated, Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -40,7 +41,12 @@ from app.api.v1 import enqueue
 from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import decide_limit, sync_limit
-from app.channels.gmail.html_sanitize import html_to_clean_text, looks_like_html, sanitize_email_html
+from app.channels.gmail.html_sanitize import (
+    html_to_clean_text,
+    looks_like_html,
+    normalize_message_whitespace,
+    sanitize_email_html,
+)
 from app.context.sender_label import UNASSIGNED_UNIT, resolve_sender_label, role_hint_of, unit_display
 from app.context.shown_sender import greeting_name, sender_person_ids, shown_sender_name
 from app.contracts import ActionType, ButtonChoice, CaseState, Category, Channel, Direction, Urgency
@@ -362,6 +368,22 @@ def _prepare_cases(
     return kept[offset : offset + limit] if has_filters else kept
 
 
+@lru_cache(maxsize=512)
+def _cached_resanitized(stored_html: str) -> str | None:
+    """Stored HTML cleaned by the current sanitizer, cached across inbox polls."""
+    return sanitize_email_html(stored_html)
+
+
+@lru_cache(maxsize=512)
+def _cached_clean_and_html(raw_text: str, need_html: bool) -> tuple[str | None, str]:
+    """Cache HTML sanitization and whitespace-normalized text across 8s inbox polls."""
+    if not looks_like_html(raw_text):
+        return None, normalize_message_whitespace(raw_text)
+    clean_body = html_to_clean_text(raw_text)
+    html_body = sanitize_email_html(raw_text) if need_html else None
+    return html_body, clean_body
+
+
 def _assemble_thread(
     prep: _PreparedCase,
     msg_batch: ThreadMessagesBatch,
@@ -369,6 +391,7 @@ def _assemble_thread(
     *,
     company_tz: ZoneInfo,
     now_dt: datetime,
+    include_html: bool = True,
 ) -> dict[str, Any]:
     case = prep.case
     messages = prep.messages
@@ -479,11 +502,17 @@ def _assemble_thread(
         m_meta = m.meta if isinstance(m.meta, dict) else {}
         stored_html = m_meta.get("body_html")
         # Cleaned again on read: HTML stored by an earlier sanitizer version is not trusted.
-        raw_html = sanitize_email_html(stored_html) if isinstance(stored_html, str) else None
+        meta_html = _cached_resanitized(stored_html) if isinstance(stored_html, str) else None
         raw_text = m.text or ""
-        if not raw_html and looks_like_html(raw_text):
-            raw_html = sanitize_email_html(raw_text)
-        clean_body = html_to_clean_text(raw_text) if looks_like_html(raw_text) else raw_text
+        raw_html: str | None = None
+        if include_html:
+            if meta_html:
+                raw_html = meta_html
+                _, clean_body = _cached_clean_and_html(raw_text, False)
+            else:
+                raw_html, clean_body = _cached_clean_and_html(raw_text, True)
+        else:
+            _, clean_body = _cached_clean_and_html(raw_text, False)
         msgs_data.append(
             {
                 "id": str(m.id),
@@ -545,6 +574,8 @@ def _assemble_thread(
 
     msgs_data.sort(key=lambda x: x.get("sentAt", ""))
     has_owner_reply = any(m.get("sender") == "owner" for m in msgs_data)
+    has_pending_action = any(a.status in (ActionStatus.pending_approval, ActionStatus.exception) for a in actions)
+    requires_reply = und_body.get("requires_reply") if isinstance(und_body, dict) else None
     status_str = "needs_approval"
     if case.state in (CaseState.closed, CaseState.resolved):
         status_str = "closed"
@@ -552,6 +583,8 @@ def _assemble_thread(
         status_str = "approved"
     elif approval and approval.status == ApprovalStatus.rejected:
         status_str = "rejected"
+    elif approval is None and not has_pending_action and requires_reply is False:
+        status_str = "fyi"
 
     last_read = getattr(case, "last_read_at", None)
     if last_read is not None and last_read.tzinfo is None:
@@ -565,7 +598,7 @@ def _assemble_thread(
     ticket_code = f"BRIXX-{case.brixx_ref}" if case.brixx_ref else f"#{case_ref(case.id)}"
 
     latest_raw_text = prep.latest_msg.text or ""
-    latest_clean_snippet = html_to_clean_text(latest_raw_text) if looks_like_html(latest_raw_text) else latest_raw_text
+    _, latest_clean_snippet = _cached_clean_and_html(latest_raw_text, False)
 
     return {
         "id": f"case-{case.id}",
@@ -622,38 +655,22 @@ def _assemble_thread(
     }
 
 
-def _build_live_threads(
+def _assemble_cases(
     session: Session,
     company_id: UUID,
-    limit: int = 20,
-    offset: int = 0,
+    cases: list[Case],
     *,
+    has_filters: bool = False,
     channel: str = "all",
     audience: str = "all",
     category: str = "all",
-    sort: str = "recent",
+    limit: int = 20,
+    offset: int = 0,
+    include_html: bool = True,
 ) -> list[dict[str, Any]]:
-    """Builds frontend-compatible thread structures from PostgreSQL via batched read-only queries."""
-    has_filters = channel != "all" or audience != "all" or category != "all"
-    base_q = session.query(Case).filter(Case.company_id == company_id)
-    if sort == "priority":
-        closed_rank = sql_case((Case.state.in_((CaseState.closed, CaseState.resolved)), 1), else_=0)
-        urgency_rank = sql_case(
-            (Case.urgency == Urgency.emergency, 0),
-            (Case.urgency == Urgency.high, 1),
-            (Case.urgency == Urgency.normal, 2),
-            else_=3,
-        )
-        base_q = base_q.order_by(closed_rank.asc(), urgency_rank.asc(), Case.opened_at.desc())
-    else:
-        base_q = base_q.order_by(Case.opened_at.desc())
-    if category not in ("all", "contractor_repairs", "contractor_money"):
-        with contextlib.suppress(ValueError):
-            base_q = base_q.filter(Case.category == Category(category))
-    cases = base_q.all() if has_filters else base_q.offset(offset).limit(limit).all()
+    """Hydrates a list of Case rows into frontend thread dicts."""
     if not cases:
         return []
-
     now_dt = datetime.now(UTC)
     msg_batch = load_messages_batch(session, company_id, cases)
     company_tz = ZoneInfo(msg_batch.company.timezone if msg_batch.company else "Europe/Amsterdam")
@@ -675,11 +692,58 @@ def _build_live_threads(
     unit_labels = {p.raw_unit_label for p in prepared if p.raw_unit_label != UNASSIGNED_UNIT}
     details = load_details_batch(session, company_id, kept_case_ids, kept_msg_ids, unit_labels, now_dt.date())
 
-    live_threads = [_assemble_thread(p, msg_batch, details, company_tz=company_tz, now_dt=now_dt) for p in prepared]
+    live_threads = [
+        _assemble_thread(p, msg_batch, details, company_tz=company_tz, now_dt=now_dt, include_html=include_html)
+        for p in prepared
+    ]
     all_msgs = [m for t in live_threads for m in t["messages"]]
     all_drafts = [d for t in live_threads for d in (*t["gmailDrafts"], *t["whatsappDrafts"])]
     annotate_translations(session, company_id, all_msgs, all_drafts)
     return live_threads
+
+
+def _build_live_threads(
+    session: Session,
+    company_id: UUID,
+    limit: int = 20,
+    offset: int = 0,
+    *,
+    channel: str = "all",
+    audience: str = "all",
+    category: str = "all",
+    sort: str = "recent",
+    include_html: bool = True,
+) -> list[dict[str, Any]]:
+    """Builds frontend-compatible thread structures from PostgreSQL via batched read-only queries."""
+    has_filters = channel != "all" or audience != "all" or category != "all"
+    base_q = session.query(Case).filter(Case.company_id == company_id)
+    if sort == "priority":
+        closed_rank = sql_case((Case.state.in_((CaseState.closed, CaseState.resolved)), 1), else_=0)
+        urgency_rank = sql_case(
+            (Case.urgency == Urgency.emergency, 0),
+            (Case.urgency == Urgency.high, 1),
+            (Case.urgency == Urgency.normal, 2),
+            else_=3,
+        )
+        base_q = base_q.order_by(closed_rank.asc(), urgency_rank.asc(), Case.opened_at.desc())
+    else:
+        base_q = base_q.order_by(Case.opened_at.desc())
+    if category not in ("all", "contractor_repairs", "contractor_money"):
+        with contextlib.suppress(ValueError):
+            base_q = base_q.filter(Case.category == Category(category))
+    cases = base_q.all() if has_filters else base_q.offset(offset).limit(limit).all()
+    return _assemble_cases(
+        session,
+        company_id,
+        cases,
+        has_filters=has_filters,
+        channel=channel,
+        audience=audience,
+        category=category,
+        limit=limit,
+        offset=offset,
+        include_html=include_html,
+    )
 
 
 @router.get(
@@ -695,6 +759,7 @@ def get_inbox_threads(
     sort: str = Query(default="recent", description="recent or priority"),
     limit: int = Query(default=20, ge=1, le=100, description="Max threads to return"),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
+    include_html: bool = Query(default=True, description="Include sanitized HTML email bodies"),
     *,
     principal: Annotated[Principal, Depends(require_session)],
 ) -> dict[str, Any]:
@@ -706,6 +771,7 @@ def get_inbox_threads(
     sort_mode = sort if isinstance(sort, str) else getattr(sort, "default", "recent")
     lim = limit if isinstance(limit, int) else getattr(limit, "default", 20)
     off = offset if isinstance(offset, int) else getattr(offset, "default", 0)
+    inc_html = include_html if isinstance(include_html, bool) else getattr(include_html, "default", True)
 
     with Session(engine) as session:
         live_threads = _build_live_threads(
@@ -717,6 +783,7 @@ def get_inbox_threads(
             audience=aud,
             category=cat,
             sort=sort_mode,
+            include_html=inc_html,
         )
         total_cases = session.query(func.count(Case.id)).filter(Case.company_id == principal.company_id).scalar() or 0
     if not principal.access.can("inbox"):
@@ -748,6 +815,36 @@ def get_inbox_stats(
     """Returns metric counters for inbox triage badges computed via lightweight SQL counts."""
     with Session(engine) as session:
         return inbox_stats_counts(session, principal.company_id)
+
+
+@router.get(
+    "/threads/{case_id}",
+    summary="Get Single Inbox Thread",
+    description="Fetches one communications thread by case ID (used for direct deep-links from Today/Dashboard).",
+)
+def get_inbox_thread(
+    case_id: str,
+    engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
+) -> dict[str, Any]:
+    """Fetches a single thread by case ID regardless of pagination offset."""
+    clean_id = case_id.replace("case-", "")
+    try:
+        c_uuid = UUID(clean_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid case ID") from None
+
+    with Session(engine) as session:
+        case = session.scalar(select(Case).where(Case.company_id == principal.company_id, Case.id == c_uuid))
+        if not case:
+            raise HTTPException(status_code=404, detail="Case not found")
+        built = _assemble_cases(session, principal.company_id, [case], limit=1)
+    if not built:
+        raise HTTPException(status_code=404, detail="Thread not available")
+    thread = built[0]
+    if not principal.access.can("inbox"):
+        thread = headline_only(thread)
+    return {"thread": thread}
 
 
 _SYNC_LOCK = threading.Lock()

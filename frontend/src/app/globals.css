@@ -52,7 +52,13 @@
     }
   }
 
+  html {
+    height: 100%;
+    overflow: hidden;
+  }
+
   body {
+    height: 100%;
     background-color: var(--bg);
     color: var(--ink);
     font-family: var(--app-font-sans);
@@ -60,7 +66,7 @@
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    overflow-x: hidden;
+    overflow: hidden;
     user-select: text;
   }
 

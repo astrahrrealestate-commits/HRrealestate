@@ -109,6 +109,15 @@ _DANGEROUS_CSS = re.compile(
     r"(?:expression\s*\(|javascript\s*:|vbscript\s*:|@import\b|behavior\s*:|-moz-binding)", re.I
 )
 _CSS_COMMENT = re.compile(r"<!--|-->")
+_INVISIBLE_SPACERS = re.compile(r"[\u00a0\u200b\u200c\u200d\ufeff]")
+_MANY_NEWLINES = re.compile(r"\n{3,}")
+
+
+def normalize_message_whitespace(value: str) -> str:
+    """Collapse table-to-text spacer lines and 3+ consecutive newlines while keeping paragraph breaks."""
+    cleaned = _INVISIBLE_SPACERS.sub(" ", clean_text(value))
+    lines = [line.rstrip() for line in cleaned.split("\n")]
+    return _MANY_NEWLINES.sub("\n\n", "\n".join(lines)).strip()
 
 
 def looks_like_html(text: str) -> bool:
@@ -121,9 +130,8 @@ def looks_like_html(text: str) -> bool:
 
 
 def html_to_clean_text(raw_html: str) -> str:
-    """Extract clean Postgres-safe plain text from HTML."""
-    plain = get_text(raw_html)
-    return "\n".join(line.rstrip() for line in clean_text(plain).split("\n")).strip()
+    """Extract clean Postgres-safe plain text from HTML without excessive blank lines."""
+    return normalize_message_whitespace(get_text(raw_html))
 
 
 def _clean_css(css: str) -> str:

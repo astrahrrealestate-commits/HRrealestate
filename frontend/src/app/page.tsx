@@ -85,8 +85,9 @@ export default function TodayPage() {
   const [mobileEmergencyTab, setMobileEmergencyTab] = useState<"tenant" | "contractor">("tenant");
   const [mobileBriefingTextExpanded, setMobileBriefingTextExpanded] = useState<boolean>(false);
   const [nudgedItemIds, setNudgedItemIds] = useState<Record<string, boolean>>({});
+  const [showAllUrgent, setShowAllUrgent] = useState<boolean>(false);
   const [showAllNeedsYou, setShowAllNeedsYou] = useState<boolean>(false);
-  const [activeSection, setActiveSection] = useState<"all" | "urgent" | "needs_you" | "waiting" | "leads" | "overview">("all");
+  const [activeSection, setActiveSection] = useState<"all" | "urgent" | "needs_you" | "waiting" | "leads" | "calendar" | "overview">("all");
 
   // Maintenance in-place state
   const DEFAULT_TICKET_TEMPLATE: MaintenanceTicket = useMemo(() => ({
@@ -97,8 +98,8 @@ export default function TodayPage() {
     tenantName: "Tenant",
     tenantPhone: "",
     category: "appliance",
-    contractorName: "Assigned Contractor",
-    contractorTrade: "Maintenance",
+    contractorName: "",
+    contractorTrade: "",
     contractorPhone: "",
     urgency: "normal",
     status: "pending_approval",
@@ -120,12 +121,12 @@ export default function TodayPage() {
   const [customTenantReplyText, setCustomTenantReplyText] = useState<Record<string, string>>({});
   const [customContractorText, setCustomContractorText] = useState<Record<string, string>>({});
 
-  // Fetch live threads and dashboard data
+  // Fetch live threads and dashboard data (critical above-the-fold first; secondary widgets staggered)
   useEffect(() => {
     let isMounted = true;
 
-    // 1. Inbox threads (Single source of truth for Needs You and Urgent counts, priority-sorted with higher limit)
-    getInboxThreads({ limit: 100, sort: "priority" })
+    // 1. Inbox threads (summary mode without unused HTML email bodies cuts Dashboard payload by ~90%)
+    getInboxThreads({ limit: 100, sort: "priority", includeHtml: false })
       .then(({ threads: live }) => {
         if (isMounted) {
           setThreads(live || []);
@@ -133,34 +134,18 @@ export default function TodayPage() {
       })
       .catch((err) => console.warn("Failed to load threads on Today:", err));
 
-    getPortfolio().then((result) => {
-      if (isMounted && result.ok) setPortfolio(result.data);
-    });
-    getTenantProfiles().then((result) => {
-      if (isMounted && result.ok) setTenants(result.data);
-    });
-    // 2. Metrics & radar & inquiries & logs
-    Promise.all([
-      getDashboardPulse(),
-      getDashboardRadar(),
-      getDashboardInquiries(),
-      getAutonomousLogs(),
-    ])
-      .then(([pRes, rRes, iRes, lRes]) => {
-        if (!isMounted) return;
-        if (pRes.isLive) setMetrics(pRes.metrics);
-        if (rRes.isLive) setRadarItems(rRes.items || []);
-        if (iRes.isLive) setInquiries(iRes.inquiries || []);
-        if (lRes.isLive) setLogs(lRes.logs || []);
+    getDashboardPulse()
+      .then((pRes) => {
+        if (isMounted && pRes.isLive) setMetrics(pRes.metrics);
       })
-      .catch((err) => console.warn("Failed to load auxiliary dashboard data:", err));
+      .catch((err) => console.warn("Failed to load pulse:", err));
 
     // BRIXX: open tickets, overdue rent and ending leases, so Today has content without Gmail or WhatsApp
     getDashboardAttention().then((result) => {
       if (isMounted) setAttention(result);
     });
 
-    // 3. Maintenance tickets for in-place detail view and editing
+    // Maintenance tickets for in-place detail view and editing
     getMaintenanceTickets()
       .then((mRes) => {
         if (!isMounted) return;
@@ -170,8 +155,28 @@ export default function TodayPage() {
       })
       .catch((err) => console.warn("Failed to load maintenance tickets:", err));
 
+    // Stagger secondary portfolio/directory/auxiliary fetches slightly so critical calls get priority
+    const secondaryTimer = setTimeout(() => {
+      if (!isMounted) return;
+      getPortfolio().then((result) => {
+        if (isMounted && result.ok) setPortfolio(result.data);
+      });
+      getTenantProfiles().then((result) => {
+        if (isMounted && result.ok) setTenants(result.data);
+      });
+      Promise.all([getDashboardRadar(), getDashboardInquiries(), getAutonomousLogs()])
+        .then(([rRes, iRes, lRes]) => {
+          if (!isMounted) return;
+          if (rRes.isLive) setRadarItems(rRes.items || []);
+          if (iRes.isLive) setInquiries(iRes.inquiries || []);
+          if (lRes.isLive) setLogs(lRes.logs || []);
+        })
+        .catch((err) => console.warn("Failed to load auxiliary dashboard data:", err));
+    }, 180);
+
     return () => {
       isMounted = false;
+      clearTimeout(secondaryTimer);
     };
   }, []);
 
@@ -323,6 +328,15 @@ export default function TodayPage() {
     const targetKey = key || ticket.id || ticket.ticketNumber;
     if (actionLockRef.current[`dispatch-${targetKey}`]) return;
 
+    const contractorPhone = ticket.contractorPhone?.trim() || "";
+    const contractorEmail = ticket.contractorEmail?.trim() || "";
+    if (!contractorPhone && !contractorEmail) {
+      showToast("No contractor contact assigned. Add contractor details first.");
+      setActiveEditTicket(ticket);
+      setIsEditModalOpen(true);
+      return;
+    }
+
     // Row 37: Check that work order details are not empty
     const currentOrder = customContractorText[ticket.ticketNumber] ?? ticket.contractorDraft ?? "";
     if (customContractorText[ticket.ticketNumber] !== undefined && !customContractorText[ticket.ticketNumber].trim()) {
@@ -360,21 +374,18 @@ export default function TodayPage() {
     }
 
     // Open Contractor Channel (WhatsApp or Email) for human review and dispatch
-    const contractorPhone = ticket.contractorPhone || "+31 6 88 12 34 56";
-    const contractorEmail = ticket.contractorEmail || "dispatch@chahalbouw.nl";
-
     if (contractorPhone) {
       const cleanPhone = contractorPhone.replace(/[^0-9]/g, "");
       const waUrl = cleanPhone
         ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(currentOrder.trim())}`
         : `https://web.whatsapp.com/send?text=${encodeURIComponent(currentOrder.trim())}`;
       window.open(waUrl, "_blank");
-      showToast(`Work order copied to clipboard & opened in WhatsApp for ${ticket.contractorName}.`);
+      showToast(`Work order copied to clipboard & opened in WhatsApp for ${ticket.contractorName || "Contractor"}.`);
     } else if (contractorEmail) {
       const subject = `Work Order ${ticket.ticketNumber} - ${ticket.unitLabel} [Cap: ${ticket.poBudgetCap}]`;
       const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(contractorEmail)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(currentOrder.trim())}`;
       window.open(gmailUrl, "_blank");
-      showToast(`Work order copied to clipboard & opened in Gmail for ${ticket.contractorName}.`);
+      showToast(`Work order copied to clipboard & opened in Gmail for ${ticket.contractorName || "Contractor"}.`);
     }
 
     setTimeout(() => {
@@ -507,6 +518,7 @@ export default function TodayPage() {
     urgent: isUrgent(thread),
     isRead: thread.isRead,
     roleLabel: thread.recipientRoleDetail,
+    category: thread.category,
     status: "needs_you",
     count: thread.messages?.length || 1,
   });
@@ -544,45 +556,10 @@ export default function TodayPage() {
     setTodayFormatted(formatLongDay(new Date()));
   }, []);
 
-  // Lead rows fallback with dynamic slicing (20-50 limit when leads tab is active, Row 56)
+  // Lead rows with dynamic slicing (no fabricated default leads)
   const leadItems: ProspectiveInquiry[] = useMemo(() => {
     const limit = activeSection === "all" ? 3 : 50;
-    if (inquiries.length > 0) return inquiries.slice(0, limit);
-    return [
-      {
-        id: "lead-1",
-        name: "Sanne Meijer",
-        contact: "sanne.meijer@uva.nl",
-        channel: "gmail",
-        unit: "Pieter Floriszstraat 1 C",
-        moveIn: "1 Nov 2026",
-        request: "Viewing Thursday 15:00 slot",
-        qualification: "3.2x income verified (UvA lecturer)",
-        status: "AI draft ready",
-      },
-      {
-        id: "lead-2",
-        name: "Lucas van Dijk",
-        contact: "+31 6 81 29 44 10",
-        channel: "whatsapp",
-        unit: "Singel 412 Studio",
-        moveIn: "1 Nov 2026",
-        request: "Studio availability & viewing inquiry",
-        qualification: "Preliminary criteria met",
-        status: "AI draft ready",
-      },
-      {
-        id: "lead-3",
-        name: "Elena Rostova",
-        contact: "elena.rostova@booking.com",
-        channel: "gmail",
-        unit: "Keizersgracht 42-B",
-        moveIn: "15 Nov 2026",
-        request: "Viewing & expat registration query",
-        qualification: "Booking.com Senior Software Engineer",
-        status: "AI draft ready",
-      },
-    ];
+    return inquiries.slice(0, limit);
   }, [inquiries, activeSection]);
 
   // Open rent by days overdue, from the tenants' own overdue rent. Empty until rent payments are mirrored.
@@ -670,7 +647,7 @@ export default function TodayPage() {
                   {briefingKind === "daily" ? `${todayFormatted} · Amsterdam (CET)` : "9 Oct – 15 Oct (Weekly Review) · Amsterdam (CET)"}
                 </span>
                 <h1 className="font-heading font-bold text-[24px] sm:text-[32px] text-[var(--ink)] tracking-tight leading-none mt-1">
-                  {briefingKind === "daily" ? "Good morning" : "Weekly executive review"}{firstName ? `, ${firstName}` : ""}
+                  {briefingKind === "daily" ? "Hey" : "Weekly executive review"}{firstName ? `, ${firstName}` : ""}
                 </h1>
               </div>
 
@@ -796,9 +773,9 @@ export default function TodayPage() {
                 {briefingData?.summarySentence ? (
                   <span>{briefingData.summarySentence} </span>
                 ) : briefingKind === "daily" ? (
-                  <>Since yesterday evening I read 22 messages and answered 17. </>
+                  <>Live triage queue: </>
                 ) : (
-                  <>Portfolio operating at peak efficiency across all 110 units. </>
+                  <>Weekly portfolio summary: </>
                 )}
                 <Link
                   href="/inbox"
@@ -854,9 +831,9 @@ export default function TodayPage() {
                 {briefingData?.summarySentence ? (
                   <span>{briefingData.summarySentence} </span>
                 ) : briefingKind === "daily" ? (
-                  <>Since yesterday evening I read 22 messages and answered 17. </>
+                  <>Live triage queue: </>
                 ) : (
-                  <>Portfolio operating at peak efficiency across all 110 units. </>
+                  <>Weekly portfolio summary: </>
                 )}
                 <Link
                   href="/inbox"
@@ -1058,6 +1035,19 @@ export default function TodayPage() {
                 >
                   {leadItems.length}
                 </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveSection(activeSection === "calendar" ? "all" : "calendar")}
+                className={cn(
+                  "px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5",
+                  activeSection === "calendar"
+                    ? "bg-[var(--ink)] text-white font-semibold shadow-2xs"
+                    : "text-[var(--ink-2)] hover:text-[var(--ink)] hover:bg-[var(--pane)] border border-transparent hover:border-[var(--line)]"
+                )}
+              >
+                <span>{t("Calendar")}</span>
               </button>
 
               <button
@@ -1748,8 +1738,12 @@ export default function TodayPage() {
             )
           )}
 
-          {/* Additional urgent messages rendered as compact rows (like Needs You) */}
-          {(activeSection === "all" || activeSection === "urgent") && otherUrgentThreads.length > 0 && (
+          {/* Additional urgent messages rendered as compact rows (Top 3 + View more, like Needs You) */}
+          {(activeSection === "all" || activeSection === "urgent") && otherUrgentThreads.length > 0 && (() => {
+            const urgentLimit = activeSection === "urgent" || showAllUrgent ? 50 : 3;
+            const visibleUrgent = otherUrgentThreads.slice(0, urgentLimit);
+            const hiddenUrgentCount = Math.max(0, otherUrgentThreads.length - visibleUrgent.length);
+            return (
             <section id="section-urgent-list" className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] overflow-hidden">
               <div className="px-4 sm:px-5 py-3 border-b border-[var(--line)] bg-[var(--pane)]">
                 <SectionHeader
@@ -1760,7 +1754,7 @@ export default function TodayPage() {
                 />
               </div>
               <div className="divide-y divide-[var(--line)]">
-                {otherUrgentThreads.slice(0, activeSection === "urgent" ? 50 : 10).map((thread) => (
+                {visibleUrgent.map((thread) => (
                   <ThreadRow
                     key={thread.id}
                     t={toThreadRowItem(thread)}
@@ -1770,12 +1764,29 @@ export default function TodayPage() {
                   />
                 ))}
               </div>
+              {(hiddenUrgentCount > 0 || (showAllUrgent && otherUrgentThreads.length > 3 && activeSection === "all")) && (
+                <div className="px-4 sm:px-5 py-2.5 border-t border-[var(--line)] bg-[var(--bg)]/50 flex items-center justify-between text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setShowAllUrgent((prev) => !prev)}
+                    className="font-semibold text-[var(--ink)] hover:underline cursor-pointer"
+                  >
+                    {showAllUrgent
+                      ? t("Show fewer")
+                      : `${t("View more")} (+${hiddenUrgentCount})`}
+                  </button>
+                  <Link href="/inbox?tab=needs_you" className="font-medium text-[var(--accent-ink)] hover:underline">
+                    {t("Open Inbox →")}
+                  </Link>
+                </div>
+              )}
             </section>
-          )}
+            );
+          })()}
 
-          {/* Section 1: Needs You (Priority-sorted threads using ThreadRow, with Show more + real Done/Snooze) */}
+          {/* Section 1: Needs You (Top 3 priority-sorted threads + View more + real Done/Snooze) */}
           {(activeSection === "all" || activeSection === "needs_you") && (() => {
-            const visibleLimit = activeSection === "needs_you" || showAllNeedsYou ? 50 : 5;
+            const visibleLimit = activeSection === "needs_you" || showAllNeedsYou ? 50 : 3;
             const visibleNeedsYou = needsYouThreads.slice(0, visibleLimit);
             const hiddenCount = Math.max(0, needsYouThreads.length - visibleNeedsYou.length);
             return (
@@ -1823,6 +1834,9 @@ export default function TodayPage() {
                         const tChannel = thread.channel === "gmail" ? "gmail" : "whatsapp";
                         const isReplied = Boolean(tenantReplySentMap[thread.id]);
                         const isDispatched = Boolean(contractorDispatchedMap[thread.id]);
+                        const hasContractorContact = Boolean(
+                          mTicket.contractorPhone?.trim() || mTicket.contractorEmail?.trim()
+                        );
 
                         return (
                           <div className="bg-[var(--bg)]/50 border-b border-[var(--line)] px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -1831,7 +1845,8 @@ export default function TodayPage() {
                                 {mTicket.ticketNumber} Maintenance
                               </span>
                               <span className="text-[var(--ink-3)] hidden sm:inline truncate max-w-xs">
-                                Cap: {mTicket.poBudgetCap} · {mTicket.contractorName}
+                                {mTicket.poBudgetCap ? `Cap: ${mTicket.poBudgetCap} · ` : ""}
+                                {mTicket.contractorName || t("No contractor assigned")}
                               </span>
                             </div>
 
@@ -1876,6 +1891,11 @@ export default function TodayPage() {
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  if (!hasContractorContact) {
+                                    setActiveEditTicket(mTicket);
+                                    setIsEditModalOpen(true);
+                                    return;
+                                  }
                                   handleDispatchContractor(mTicket, thread.id);
                                 }}
                                 disabled={isDispatched}
@@ -1883,11 +1903,19 @@ export default function TodayPage() {
                                   "inline-flex items-center justify-center gap-1 px-2 md:px-2.5 py-1.5 md:py-1 rounded-lg md:rounded text-[11.5px] md:text-xs font-semibold transition-colors cursor-pointer truncate",
                                   isDispatched
                                     ? "bg-[var(--bg)] text-[var(--ink-2)] border border-[var(--line)]"
-                                    : "bg-[var(--ink)] hover:bg-[var(--ink)]/90 text-white"
+                                    : hasContractorContact
+                                      ? "bg-[var(--ink)] hover:bg-[var(--ink)]/90 text-white"
+                                      : "bg-[var(--pane)] hover:bg-[var(--selected)] text-[var(--ink)] border border-[var(--line)]"
                                 )}
                               >
                                 <Wrench className="w-3 h-3 text-[var(--accent)] shrink-0" />
-                                <span className="truncate">{isDispatched ? t("Dispatched") : t("Dispatch")}</span>
+                                <span className="truncate">
+                                  {isDispatched
+                                    ? t("Dispatched")
+                                    : hasContractorContact
+                                      ? t("Dispatch")
+                                      : t("Assign Contractor")}
+                                </span>
                               </button>
                             </div>
                           </div>
@@ -1902,7 +1930,7 @@ export default function TodayPage() {
                 </div>
               )}
             </div>
-            {(hiddenCount > 0 || (showAllNeedsYou && needsYouThreads.length > 5 && activeSection === "all")) && (
+            {(hiddenCount > 0 || (showAllNeedsYou && needsYouThreads.length > 3 && activeSection === "all")) && (
               <div className="px-4 sm:px-5 py-2.5 border-t border-[var(--line)] bg-[var(--bg)]/50 flex items-center justify-between text-xs">
                 <button
                   type="button"
@@ -1911,7 +1939,7 @@ export default function TodayPage() {
                 >
                   {showAllNeedsYou
                     ? t("Show fewer")
-                    : `${t("Show more")} (+${hiddenCount})`}
+                    : `${t("View more")} (+${hiddenCount})`}
                 </button>
                 <Link href="/inbox" className="font-medium text-[var(--accent-ink)] hover:underline">
                   {t("Review all in Inbox →")}
@@ -1923,7 +1951,7 @@ export default function TodayPage() {
           })()}
 
           {/* Section 1.5: Calendar & Visit Approvals (Top N proposed appointments awaiting Harjot's confirmation) */}
-          {(activeSection === "all" || activeSection === "needs_you" || activeSection === "urgent") && (
+          {(activeSection === "all" || activeSection === "calendar" || activeSection === "needs_you" || activeSection === "urgent") && (
             <CalendarApprovalsCard
               onApproveSuccess={(_eventId, title) => {
                 showToast(`Visit approved & synced to Google Calendar: ${title}`);
@@ -2006,46 +2034,52 @@ export default function TodayPage() {
             </div>
 
             <div className="divide-y divide-[var(--line)]">
-              {leadItems.map((lead) => (
-                <div
-                  key={lead.id}
-                  onClick={() => router.push("/inbox?audience=inquiries")}
-                  className="p-4 sm:px-5 sm:py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm hover:bg-[var(--selected)]/40 transition-colors cursor-pointer"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-[var(--ink)]">
-                        {lead.name}
-                      </span>
-                      <span className="text-[var(--ink-3)]">·</span>
-                      <span className="text-[var(--ink-2)] font-medium">
-                        {lead.unit}
-                      </span>
-                      <span className="text-[var(--ink-3)]">·</span>
-                      <span className="text-xs text-[var(--ink-3)] truncate max-w-sm">
-                        {lead.request}
-                      </span>
+              {leadItems.length > 0 ? (
+                leadItems.map((lead) => (
+                  <div
+                    key={lead.id}
+                    onClick={() => router.push("/inbox?audience=inquiries")}
+                    className="p-4 sm:px-5 sm:py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm hover:bg-[var(--selected)]/40 transition-colors cursor-pointer"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-[var(--ink)]">
+                          {lead.name}
+                        </span>
+                        <span className="text-[var(--ink-3)]">·</span>
+                        <span className="text-[var(--ink-2)] font-medium">
+                          {lead.unit}
+                        </span>
+                        <span className="text-[var(--ink-3)]">·</span>
+                        <span className="text-xs text-[var(--ink-3)] truncate max-w-sm">
+                          {lead.request}
+                        </span>
+                      </div>
+                      <div className="text-xs text-[var(--ink-3)] mt-0.5 flex items-center gap-2">
+                        <span>{lead.qualification}</span>
+                      </div>
                     </div>
-                    <div className="text-xs text-[var(--ink-3)] mt-0.5 flex items-center gap-2">
-                      <span>{lead.qualification}</span>
-                    </div>
-                  </div>
 
-                  <div className="shrink-0 self-end sm:self-center">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        router.push("/inbox?audience=inquiries");
-                      }}
-                      className="text-xs border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] shadow-2xs"
-                    >
-                      {t("Review")}
-                    </Button>
+                    <div className="shrink-0 self-end sm:self-center">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          router.push("/inbox?audience=inquiries");
+                        }}
+                        className="text-xs border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] shadow-2xs"
+                      >
+                        {t("Review")}
+                      </Button>
+                    </div>
                   </div>
+                ))
+              ) : (
+                <div className="p-6 text-center text-sm text-[var(--ink-3)]">
+                  {t("No new leads yet.")}
                 </div>
-              ))}
+              )}
             </div>
           </section>
           )}

@@ -301,3 +301,64 @@ def test_get_inbox_threads_passes_sort_priority_param() -> None:
     mock_build.assert_called_once()
     assert mock_build.call_args.kwargs["sort"] == "priority"
     assert mock_build.call_args.kwargs["limit"] == 100
+
+
+def test_get_inbox_thread_single_case_validation_and_lookup() -> None:
+    from app.api.inbox.routes import get_inbox_thread
+
+    session = _mock_session_with_case(None)
+    with patch("app.api.inbox.routes.Session", return_value=session):
+        with pytest.raises(HTTPException) as bad_id:
+            get_inbox_thread("bad-uuid", engine=MagicMock(), principal=PRINCIPAL)
+        assert bad_id.value.status_code == 400
+
+        with pytest.raises(HTTPException) as not_found:
+            get_inbox_thread(str(uuid4()), engine=MagicMock(), principal=PRINCIPAL)
+        assert not_found.value.status_code == 404
+
+    cid = uuid4()
+    fake_case = SimpleNamespace(id=cid, company_id=PRINCIPAL.company_id)
+    session_hit = _mock_session_with_case(fake_case)
+    fake_thread = {"id": f"case-{cid}", "caseId": str(cid), "status": "needs_approval"}
+    with (
+        patch("app.api.inbox.routes.Session", return_value=session_hit),
+        patch("app.api.inbox.routes._assemble_cases", return_value=[fake_thread]),
+    ):
+        res = get_inbox_thread(f"case-{cid}", engine=MagicMock(), principal=PRINCIPAL)
+    assert res == {"thread": fake_thread}
+
+
+def test_agent_coverage_fact_and_research_date_filters() -> None:
+    from app.api.agent.routes import _message_coverage_fact
+    from app.contracts import Intent, PlanStep
+    from app.pipeline.concierge_reads import _extract_inbox_search_filters
+    from app.superagent import research
+
+    now = datetime(2026, 11, 25, 12, 0, tzinfo=UTC)
+    session = MagicMock()
+    session.execute.return_value.all.return_value = [
+        ("gmail", False, 140, datetime(2026, 9, 1, 8, 0, tzinfo=UTC), datetime(2026, 11, 24, 15, 0, tzinfo=UTC)),
+        ("whatsapp", True, 22, datetime(2026, 10, 5, 9, 30, tzinfo=UTC), datetime(2026, 11, 25, 9, 0, tzinfo=UTC)),
+    ]
+    fact = _message_coverage_fact(session, PRINCIPAL.company_id, now)
+    assert "Gmail (Inbox): 140 messages" in fact
+    assert "from 2026-09-01" in fact
+    assert "WhatsApp (Chats): 22 messages" in fact
+    assert "0 days ago" in fact
+
+    q, df, dt, ch = _extract_inbox_search_filters("boiler leak from:2026-10-01 to:2026-10-31 channel:whatsapp")
+    assert q == "boiler leak"
+    assert str(df) == "2026-10-01"
+    assert str(dt) == "2026-10-31"
+    assert ch == "whatsapp"
+
+    with patch("app.superagent.research.search_messages", return_value=[]) as mock_search:
+        deps = research.SuperAgentDeps(MagicMock(), MagicMock(), PRINCIPAL.company_id, None)
+        text, hits = research._messages_filtered(
+            deps, "", date_from="2026-10-01", date_to="2026-10-31", channel="gmail"
+        )
+    assert (text, hits) == ("", 0)
+    assert str(mock_search.call_args.kwargs["date_from"]) == "2026-10-01"
+    assert str(mock_search.call_args.kwargs["date_to"]) == "2026-10-31"
+    assert mock_search.call_args.kwargs["channel"] == "gmail"
+    _ = PlanStep(intent=Intent.search_inbox, case_id=None, task_ref=None, text="x", view=None)

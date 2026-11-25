@@ -1,6 +1,8 @@
 """Read intents of the concierge plan: answers and listings from existing company-scoped reads. No state changes."""
 
+import re
 from dataclasses import asdict
+from datetime import date, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -131,16 +133,48 @@ def case_status(ctx: Ctx, step: PlanStep) -> StepResult:
     return StepResult(step.intent, True, summary, data, "cases")
 
 
+_DATE_TOKEN_RE = re.compile(r"\b(from|to):(\d{4}-\d{2}-\d{2})\b", re.IGNORECASE)
+_CHAN_TOKEN_RE = re.compile(r"\bchannel:(gmail|whatsapp)\b", re.IGNORECASE)
+
+
+def _extract_inbox_search_filters(raw_query: str) -> tuple[str, date | None, date | None, str | None]:
+    date_from: date | None = None
+    date_to: date | None = None
+    channel: str | None = None
+
+    def _collect_date(m: re.Match[str]) -> str:
+        nonlocal date_from, date_to
+        try:
+            parsed = date.fromisoformat(m.group(2))
+        except ValueError:
+            return m.group(0)
+        if m.group(1).lower() == "from":
+            date_from = parsed
+        else:
+            date_to = parsed
+        return ""
+
+    cleaned = _DATE_TOKEN_RE.sub(_collect_date, raw_query)
+
+    def _collect_chan(m: re.Match[str]) -> str:
+        nonlocal channel
+        channel = m.group(1).lower()
+        return ""
+
+    cleaned = _CHAN_TOKEN_RE.sub(_collect_chan, cleaned)
+    return normalise_query(cleaned), date_from, date_to, channel
+
+
 def search_inbox(ctx: Ctx, step: PlanStep) -> StepResult:
-    """Hybrid RAG and substring match over message text and conversation chunks."""
-    query = normalise_query(step.text or "")
-    if not query:
+    """Hybrid RAG and substring match over message text and conversation chunks, with optional date/channel filters."""
+    query, date_from, date_to, channel = _extract_inbox_search_filters(step.text or "")
+    if not query and date_from is None and date_to is None and channel is None:
         return failed(step, NEED_DETAIL)
 
     from app.llm.embeddings import build_embedder
     from app.tools.message_rag import search_messages
 
-    embedder = build_embedder(ctx.settings)
+    embedder = build_embedder(ctx.settings) if query else None
     with Session(ctx.engine) as session:
         chunk_hits = search_messages(
             session,
@@ -148,6 +182,9 @@ def search_inbox(ctx: Ctx, step: PlanStep) -> StepResult:
             query=query,
             embedder=embedder,
             case_id=step.case_id,
+            channel=channel,
+            date_from=date_from,
+            date_to=date_to,
             limit=MAX_HITS,
         )
         if chunk_hits:
@@ -167,23 +204,23 @@ def search_inbox(ctx: Ctx, step: PlanStep) -> StepResult:
             summary = f"Found {len(rows)} matching conversation(s)."
             return StepResult(step.intent, True, summary, {"messages": rows, "chunks": rows}, "inbox")
 
-        hits = session.execute(
-            select(
-                MessageRow.id,
-                MessageRow.channel,
-                MessageRow.thread_ref,
-                MessageRow.provider_msg_id,
-                MessageRow.sent_at,
-                MessageRow.text,
-            )
-            .where(
-                MessageRow.company_id == ctx.company_id,
-                MessageRow.text.icontains(query, autoescape=True),
-                not_chat_only(),
-            )
-            .order_by(MessageRow.sent_at.desc(), MessageRow.id.desc())
-            .limit(MAX_HITS)
-        ).all()
+        msg_stmt = select(
+            MessageRow.id,
+            MessageRow.channel,
+            MessageRow.thread_ref,
+            MessageRow.provider_msg_id,
+            MessageRow.sent_at,
+            MessageRow.text,
+        ).where(MessageRow.company_id == ctx.company_id, not_chat_only())
+        if query:
+            msg_stmt = msg_stmt.where(MessageRow.text.icontains(query, autoescape=True))
+        if channel is not None:
+            msg_stmt = msg_stmt.where(MessageRow.channel == Channel(channel))
+        if date_from is not None:
+            msg_stmt = msg_stmt.where(MessageRow.sent_at >= date_from)
+        if date_to is not None:
+            msg_stmt = msg_stmt.where(MessageRow.sent_at < date_to + timedelta(days=1))
+        hits = session.execute(msg_stmt.order_by(MessageRow.sent_at.desc(), MessageRow.id.desc()).limit(MAX_HITS)).all()
         rows = [
             {
                 "message_id": str(mid),
