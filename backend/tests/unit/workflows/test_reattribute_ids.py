@@ -26,12 +26,12 @@ def test_the_report_lists_what_a_person_must_check(applied: bool, last: str) -> 
     report = Report(
         changes=[Change(uuid4(), "us@example.test", "jan@example.test", was_marked_sent=True)],
         cancelled=[CancelledReply(case, action, "approved")],
-        cases=[CaseToCheck(case, ("jan@example.test", "piet@example.test"))],
+        cases=[CaseToCheck(case, ("jan@example.test", "piet@example.test"), contact="Harjot", state="open")],
     )
     text = render(report, applied=applied)
     assert "us@example.test -> jan@example.test (was marked sent)" in text
     assert f"{action}  case {case}  was approved" in text
-    assert f"{case}  2 senders: jan@example.test, piet@example.test" in text
+    assert f"{case}  open, contact Harjot  2 senders: jan@example.test, piet@example.test  << SORT FIRST" in text
     assert text.rstrip().endswith(last)
 
 

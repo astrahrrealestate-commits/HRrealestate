@@ -15,7 +15,7 @@ from app.channels.whatsapp import payloads
 from app.contracts import Channel, OutboundMode
 from app.db.models import ActionRow, Company
 from app.sender.errors import SendBlockedError
-from app.sender.gmail_reply import reply_plan, thread_subject
+from app.sender.gmail_reply import assert_addressee, reply_plan, thread_subject
 from app.sender.plan import Plan
 from app.sender.recipient import tenant_recipient, whatsapp_window_open
 
@@ -54,6 +54,7 @@ def tenant_gmail(session: Session, action: ActionRow, body: str, key: str) -> Pl
     """A reply in the thread of the contact's own latest message, to the contact's identity. The subject comes from
     the stored thread only, never from the proposal (model text Harjot did not see as the subject)."""
     msg, to = tenant_recipient(session, action.company_id, action.case_id, Channel.gmail)
+    assert_addressee(session, action, msg)
     subject = thread_subject(msg.meta.get("subject"))
     plan = reply_plan(session, msg, to, subject, _checked_body(body, Channel.gmail), key)
     return replace(plan, tenant_send=True, case_id=action.case_id)

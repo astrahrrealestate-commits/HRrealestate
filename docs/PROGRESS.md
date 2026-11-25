@@ -467,7 +467,10 @@ bidirectional translation controls onto the new unified Composer, and fixed what
 - [x] Evidence (on `m-chats`): `make check` exit 0 (unit `3609 passed`, integration `1266 passed`, frontend `34 passed`); `tsc --noEmit` clean
 - [x] Second review fixes (2026-11-25): Today card names the latest sender and greets them, its hardcoded fallback recipient removed; unlinked WhatsApp messages show the saved contact; Dutch drafts never greet an address; header names lose invisible characters, are capped, and cannot forge a search chunk line
 - [x] Repair tool for stored forwards (`app/workflows/reattribute_cli.py`, preview by default; ADR 0016), tested against a fake mailbox: messages only, cases and flats untouched, unsent replies cancelled
-- [x] Inbox: the thread and contractor auto-links skip a message another case already holds (it failed the whole request on the unique link)
+- [x] Draft mode: on a case holding repaired mail, a draft goes only to the person the reply answers (`sender/gmail_reply.py`)
+- [x] Merged `hrrealestate/dev` (2026-11-25): its read-only inbox replaced the auto-links, so the link-collision fix is no longer needed
+- [x] Security and review fixes (2026-11-25): HTML sanitizer `<style>` bypass closed (plus re-clean on read and a stricter frame policy); erasure removes body copies in `meta` and overlapping search chunks; the draft guard counts thread siblings and also runs in send mode; the inbox never prefills a cancelled or wrongly addressed reply
+- [ ] Open: dev's contractor-case heuristic hardcodes a domain; repaired IMAP rows keep a non-API `thread_ref`, so drafting on them is likely to fail
 - [ ] Repair not yet previewed or applied on any live mailbox; needs the new code deployed
 - [ ] Open: header-name impersonation (`security.md`, not accepted); `test_remember_rule_text_is_sanitised_like_the_pipelines` is flaky (a random id can contain `500`)
 - [ ] Not exercised with a real mail from the live mailbox; not deployed

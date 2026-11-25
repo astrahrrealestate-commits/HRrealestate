@@ -1,4 +1,4 @@
-"""One-off repair of mail stored under the team's own address: sender, person and case follow the original sender."""
+"""One-off repair of mail stored under the team's own address: each message gets its original sender; cases stay."""
 
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -34,6 +34,9 @@ from app.db.models import (
     Unit,
 )
 from app.pipeline.approvals import approved_unexecuted
+from app.sender.gmail_reply import gmail_draft
+from app.sender.targets import SendBlockedError
+from app.sender.tenant_plans import tenant_gmail
 from app.workflows.reattribute import RepairRefusedError, reattribute
 from tests.integration.conftest import purge_company
 
@@ -189,7 +192,8 @@ def test_apply_gives_each_forward_its_own_sender_and_contact_and_leaves_cases_al
             world.case
         }
     [flagged] = report.cases
-    assert (flagged.case_id, flagged.senders) == (world.case, (JAN, PIET))
+    assert (flagged.case_id, flagged.senders) == (world.case, (HARJOT, JAN, PIET))  # everyone who wrote on it
+    assert (flagged.contact, flagged.state) == ("Harjot Singh", "open")
     again = _run(world, apply=True)
     assert (again.changes, again.cancelled, again.cases) == ([], [], [])
 
@@ -229,6 +233,11 @@ def test_every_unsent_reply_on_a_repaired_case_is_cancelled_and_cannot_resume(
         s.commit()
     report = _run(world, apply=True)
     assert [(c.action_id, c.was) for c in report.cancelled] == [(world.action, action.value)]
+    if send is SendStatus.pending:  # claimed, not yet attempted: it must never be able to start
+        with Session(world.engine) as s:
+            held = s.scalars(select(Send).where(Send.company_id == world.company)).one()
+            assert held.status is SendStatus.failed
+            assert held.error
     assert _reply(world) == (ApprovalStatus.expired, ActionStatus.superseded)
     with Session(world.engine) as s:
         assert approved_unexecuted(s, world.company) == []
@@ -329,3 +338,93 @@ def test_an_unknown_mailbox_is_refused(world: World) -> None:
 
     with pytest.raises(NotFoundError):
         reattribute(world.engine, lambda address: world.mailbox, "nobody@example.test", apply=False)
+
+
+def test_a_case_that_only_shares_the_thread_loses_its_unsent_reply_too(world: World) -> None:
+    """The inbox shows a thread's messages on every case holding that thread, linked or not."""
+    mail = _mail(JAN, "later")
+    provider_id = world.mailbox.add_message(mail, labels=["INBOX"], thread_id="t-shared")
+    with Session(world.engine) as s:
+        other = Case(company_id=world.company, category=Category.other, urgency=Urgency.low, summary="o")
+        s.add(other)
+        s.flush()
+        _stored(s, world.company, other.id, "hist_aaaaaaaaaaaaaaaa", "t-shared", 8, sender="anouk@example.test")
+        loose = _stored(s, world.company, other.id, provider_id, "t-shared", 9)
+        s.query(CaseLink).filter(CaseLink.message_id == loose).delete()
+        action = ActionRow(company_id=world.company, case_id=other.id, type=ActionType.reply_draft, rationale="r",
+                           context_ref=[], payload={}, status=ActionStatus.pending_approval)  # fmt: skip
+        s.add(action)
+        s.flush()
+        s.add(Approval(company_id=world.company, action_id=action.id, draft_version=1, status=ApprovalStatus.pending))
+        s.commit()
+        other_id, other_action = other.id, action.id
+    report = _run(world, apply=True)
+    assert other_action in [c.action_id for c in report.cancelled]
+    assert other_id in [c.case_id for c in report.cases]
+
+
+def _draft_to(w: World, answers: int | None) -> str:
+    """The recipient a draft-mode reply gets when it answers the mail sent at minute `answers` (None: a chaser)."""
+    with Session(w.engine) as s:
+        refs = [r.id for r in _rows(s, w) if r.sent_at.minute == answers]
+        action = ActionRow(company_id=w.company, case_id=w.case, type=ActionType.reply_draft, rationale="r",
+                           context_ref=refs, payload={}, status=ActionStatus.approved)  # fmt: skip
+        s.add(action)
+        s.flush()
+        try:
+            return gmail_draft(s, action, "tekst", "k").target
+        finally:
+            s.rollback()
+
+
+def test_on_a_repaired_case_a_draft_only_goes_to_the_person_it_answers(world: World) -> None:
+    _run(world, apply=True)
+    with Session(world.engine) as s:  # Harjot's own note is not the newest mail here, so Piet's is
+        s.query(CaseLink).filter(
+            CaseLink.message_id.in_([r.id for r in _rows(s, world) if r.sent_at.minute == 4])
+        ).delete()
+        s.commit()
+    assert _draft_to(world, answers=2) == PIET
+    for answers in (1, None):  # written for Jan; or a chaser on a case several people share
+        with pytest.raises(SendBlockedError, match="several senders"):
+            _draft_to(world, answers=answers)
+
+
+def test_a_case_without_repaired_mail_drafts_as_before(world: World) -> None:
+    assert _draft_to(world, answers=1) == HARJOT  # the latest inbound sender, as before the repair
+
+
+def test_the_draft_guard_also_sees_repaired_mail_that_only_shares_the_thread(world: World) -> None:
+    _run(world, apply=True)
+    with Session(world.engine) as s:
+        other = Case(company_id=world.company, category=Category.other, urgency=Urgency.low, summary="o")
+        s.add(other)
+        s.flush()
+        own = _stored(s, world.company, other.id, "hist_bbbbbbbbbbbbbbbb", "t-jan", 8, sender="anouk@example.test")
+        row = s.get(MessageRow, own)
+        assert row is not None
+        row.meta = {**row.meta, "message_id": "<a@x>"}
+        action = ActionRow(company_id=world.company, case_id=other.id, type=ActionType.reply_draft, rationale="r",
+                           context_ref=[], payload={}, status=ActionStatus.approved)  # fmt: skip
+        s.add(action)
+        s.flush()
+        with pytest.raises(SendBlockedError, match="several senders"):
+            gmail_draft(s, action, "tekst", "k")
+        s.rollback()
+
+
+def test_send_mode_refuses_a_reply_written_to_someone_else_on_a_repaired_case(world: World) -> None:
+    _run(world, apply=True)
+    with Session(world.engine) as s:
+        jan = s.scalar(select(Person.id).where(Person.company_id == world.company, Person.display_name == "Jan"))
+        s.get(Case, world.case).primary_person_id = jan  # type: ignore[union-attr]
+        piet_mail = [r.id for r in _rows(s, world) if r.sent_at.minute == 2]
+        action = ActionRow(
+            company_id=world.company, case_id=world.case, type=ActionType.reply_draft, rationale="r",
+            context_ref=piet_mail, payload={"channel": "gmail"}, status=ActionStatus.approved,
+        )  # fmt: skip
+        s.add(action)
+        s.flush()
+        with pytest.raises(SendBlockedError, match="several senders"):
+            tenant_gmail(s, action, "Beste Piet", "k")
+        s.rollback()

@@ -48,7 +48,7 @@ from app.core.ids import case_ref
 from app.core.language import detect_language
 from app.core.logging import get_logger
 from app.core.settings import get_settings
-from app.db.enums import ApprovalStatus, CaseEventKind, PersonKind, PipelineStatus, RawEventStatus
+from app.db.enums import ActionStatus, ApprovalStatus, CaseEventKind, PersonKind, PipelineStatus, RawEventStatus
 from app.db.models import (
     ActionRow,
     AttachmentRow,
@@ -174,6 +174,19 @@ def _build_custom_facts(
             }
         )
     return custom_facts
+
+
+def _offered_reply(actions: list[ActionRow], messages: list[MessageRow], shown: MessageRow) -> ActionRow | None:
+    """The newest reply draft the composer may prefill, addressed there to `shown`'s sender. None when it was cancelled
+    (never an older one instead) or, on a case holding repaired mail (ADR 0016), answers someone else."""
+    action = next((a for a in actions if a.type == ActionType.reply_draft), None)
+    if action is None or action.status is ActionStatus.superseded:
+        return None
+    if any("reattributed_from" in (m.meta or {}) for m in messages):
+        senders = {m.id: m.sender_identity.lower() for m in messages}
+        if {senders[ref] for ref in action.context_ref or () if ref in senders} != {shown.sender_identity.lower()}:
+            return None
+    return action
 
 
 def _build_drafts(
@@ -362,7 +375,7 @@ def _assemble_thread(
         unit_label = unit_display(prep.sender_label.kind, None, prep.sender_email)
 
     actions = details.actions_by_case.get(case.id, [])
-    reply_action = next((a for a in actions if a.type == ActionType.reply_draft), None)
+    reply_action = _offered_reply(actions, messages, prep.tenant_msg)
     approval = None
     if reply_action:
         approvals = details.approvals_by_action.get(reply_action.id, [])
@@ -442,7 +455,9 @@ def _assemble_thread(
                 m.sender_identity,
             )
         m_meta = m.meta if isinstance(m.meta, dict) else {}
-        raw_html = m_meta.get("body_html") if isinstance(m_meta.get("body_html"), str) else None
+        stored_html = m_meta.get("body_html")
+        # Cleaned again on read: HTML stored by an earlier sanitizer version is not trusted.
+        raw_html = sanitize_email_html(stored_html) if isinstance(stored_html, str) else None
         raw_text = m.text or ""
         if not raw_html and looks_like_html(raw_text):
             raw_html = sanitize_email_html(raw_text)

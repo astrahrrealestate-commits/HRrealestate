@@ -7,8 +7,8 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.contracts import Category, Channel, Direction, Urgency
-from app.db.enums import LinkMethod, PersonKind
-from app.db.models import Case, CaseLink, ChannelIdentity, MessageRow, Person, RawEvent
+from app.db.enums import ActionStatus, ApprovalStatus, LinkMethod, PersonKind
+from app.db.models import ActionRow, Approval, Case, CaseLink, ChannelIdentity, MessageRow, Person, RawEvent
 from tests.integration.test_inbox_maintenance_approve import T0, World, world  # noqa: F401
 
 pytestmark = pytest.mark.integration
@@ -110,3 +110,32 @@ def test_two_cases_sharing_a_thread_do_not_break_the_inbox(world: World) -> None
         s.query(CaseLink).filter(CaseLink.message_id == moved.id).update({"case_id": other.id})
         s.commit()
     assert world.client.get("/api/inbox/threads").status_code == 200
+
+
+def _drafts(w: World) -> str:
+    [thread] = w.client.get("/api/inbox/threads").json()["threads"]
+    return str(thread["gmailDrafts"]) + str(thread["whatsappDrafts"])
+
+
+def test_a_cancelled_reply_is_never_offered_again(world: World) -> None:  # noqa: F811
+    with Session(world.engine) as s:
+        action = s.get(ActionRow, world.action)
+        assert action is not None
+        action.payload = {**action.payload, "body_variants": ["Beste Harjot, geheim", "B"]}
+        s.commit()
+    assert "geheim" in _drafts(world)
+    with Session(world.engine) as s:
+        s.get(ActionRow, world.action).status = ActionStatus.superseded  # type: ignore[union-attr]
+        s.query(Approval).filter(Approval.id == world.approval).update({"status": ApprovalStatus.expired})
+        s.commit()
+    assert "geheim" not in _drafts(world)
+
+
+def test_on_a_repaired_case_a_draft_written_to_an_earlier_sender_is_not_shown(world: World) -> None:  # noqa: F811
+    with Session(world.engine) as s:
+        action = s.get(ActionRow, world.action)
+        assert action is not None
+        action.payload = {**action.payload, "body_variants": ["Beste X, geheim", "B"]}
+        _add_mail(s, world, "jan@example.test", 1, reattributed_from="us@example.test")  # the draft answers x@y.test
+        s.commit()
+    assert "geheim" not in _drafts(world)

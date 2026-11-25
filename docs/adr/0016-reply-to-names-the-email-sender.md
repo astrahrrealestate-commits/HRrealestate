@@ -39,7 +39,9 @@ login stops the run before any write; applying is refused when no original at al
 review showed it could hand one tenant's cases or messages to another and could not be undone. The report lists every
 case holding repaired mail, so a thread may show several senders until a person sorts it. Unsent reply drafts on those
 cases are cancelled, approved ones included, because a send takes its recipient from the case at send time; each
-cancellation and the previous statuses are written to the case history. A send being delivered stops the run. Search
+cancellation and the previous statuses are written to the case history. A send being delivered stops the run. Cases sharing a repaired message's thread count too. On a case holding repaired mail, a Gmail draft is
+created only for the person the reply answers (a chaser needs a case with one sender); otherwise it is blocked until
+the case is sorted. Do not draft from the dashboard during a run. Search
 chunks, understandings, summaries, tasks of other kinds, documents and memories are not rebuilt.
 
 Undo restores from the snapshot. `meta.reattributed_from` and the case notes record what changed.

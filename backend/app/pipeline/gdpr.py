@@ -19,7 +19,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, and_, delete, or_, select, update
+from sqlalchemy import ColumnElement, Text, and_, cast, delete, or_, select, update
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Session
 
 from app.contracts import Channel
@@ -91,6 +92,10 @@ def _messages_of(company_id: UUID, person_id: UUID) -> ColumnElement[bool]:
     return and_(MessageRow.company_id == company_id, or_(MessageRow.person_id == person_id, chat_only))
 
 
+# Message metadata that copies the body or names its sender.
+_COPIED_META = ("body_html", "full_text", "from", "from_name", "header_from", "forwarded_by", "reattributed_from")
+
+
 def erase_person(
     session: Session,
     company_id: UUID,
@@ -113,6 +118,7 @@ def erase_person(
             .values(
                 text="[Content erased per GDPR request]",
                 sender_identity=f"erased-{person_id}@gdpr.estateos",
+                meta=MessageRow.meta.op("-")(cast(list(_COPIED_META), ARRAY(Text))),
             )
         )
         messages_redacted = int(res.rowcount)  # type: ignore[attr-defined]
@@ -183,6 +189,7 @@ def erase_person(
             or_(
                 MessageChunk.person_id == person_id,
                 MessageChunk.participant_ids.contains([person_id]),
+                MessageChunk.message_ids.overlap(msg_ids),  # a chunk filed under someone else can hold their words
             ),
         )
     )

@@ -23,7 +23,7 @@ from app.channels.gmail.inbound import to_message
 from app.channels.gmail.ports import GmailMailbox
 from app.contracts import Channel, Direction, Message
 from app.core.errors import IgnoredMessageError, NotFoundError, UnroutableMessageError
-from app.db.models import CaseLink, Company, MessageRow
+from app.db.models import Case, CaseLink, Company, MessageRow, Person
 from app.directory.identity import resolve_person
 from app.ingestion.process import company_mailboxes, owner_addresses
 from app.ingestion.repository import resolve_channel_account
@@ -178,17 +178,44 @@ def _rewrite(session: Session, company_id: UUID, found: _Found) -> MessageRow | 
     return row
 
 
-def _cases_to_check(session: Session, company_id: UUID, rows: list[MessageRow]) -> list[CaseToCheck]:
-    senders = {row.id: row.sender_identity for row in rows}
-    links = session.execute(
-        select(CaseLink.case_id, CaseLink.message_id).where(
-            CaseLink.company_id == company_id, CaseLink.message_id.in_(list(senders))
+def _affected_case_ids(session: Session, company_id: UUID, rows: list[MessageRow]) -> list[UUID]:
+    """Cases linked to a repaired message, or to any message of its thread: the inbox shows a thread on each of them."""
+    ids = [row.id for row in rows]
+    threads = [row.thread_ref for row in rows if row.thread_ref]
+    return list(
+        session.scalars(
+            select(CaseLink.case_id)
+            .join(MessageRow, MessageRow.id == CaseLink.message_id)
+            .where(
+                CaseLink.company_id == company_id,
+                MessageRow.company_id == company_id,
+                MessageRow.channel == Channel.gmail,
+                MessageRow.id.in_(ids) | MessageRow.thread_ref.in_(threads),
+            )
+            .distinct()
+            .order_by(CaseLink.case_id)
         )
     )
-    by_case: dict[UUID, set[str]] = {}
-    for case_id, message_id in links:
-        by_case.setdefault(case_id, set()).add(senders[message_id])
-    return [CaseToCheck(case_id, tuple(sorted(found))) for case_id, found in sorted(by_case.items())]
+
+
+def _case_to_check(session: Session, company_id: UUID, case_id: UUID) -> CaseToCheck:
+    senders = session.scalars(
+        select(MessageRow.sender_identity)
+        .join(CaseLink, CaseLink.message_id == MessageRow.id)
+        .where(
+            CaseLink.company_id == company_id,
+            CaseLink.case_id == case_id,
+            MessageRow.company_id == company_id,
+            MessageRow.direction == Direction.inbound,
+        )
+        .distinct()
+    )
+    state, contact = session.execute(
+        select(Case.state, Person.display_name)
+        .outerjoin(Person, (Person.id == Case.primary_person_id) & (Person.company_id == company_id))
+        .where(Case.company_id == company_id, Case.id == case_id)
+    ).one()
+    return CaseToCheck(case_id, tuple(sorted(senders)), contact=contact, state=state.value)
 
 
 def _write(session: Session, company_id: UUID, found: list[_Found], report: Report) -> None:
@@ -202,8 +229,8 @@ def _write(session: Session, company_id: UUID, found: list[_Found], report: Repo
         sent = item.candidate.stored_as_sent
         report.changes.append(Change(row.id, item.candidate.sender, row.sender_identity, was_marked_sent=sent))
     session.flush()
-    report.cases = _cases_to_check(session, company_id, rows)
-    case_ids = [case.case_id for case in report.cases]
+    case_ids = _affected_case_ids(session, company_id, rows)
+    report.cases = [_case_to_check(session, company_id, case_id) for case_id in case_ids]
     report.cancelled = cancel_unsent_replies(session, company_id, case_ids, at=datetime.now(UTC))
 
 

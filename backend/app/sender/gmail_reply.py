@@ -5,8 +5,8 @@ import re
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.contracts import Channel, DraftRequest
-from app.db.models import ActionRow, ChannelAccount, MessageRow, RawEvent
+from app.contracts import Channel, Direction, DraftRequest
+from app.db.models import ActionRow, CaseLink, ChannelAccount, MessageRow, RawEvent
 from app.sender.errors import SendBlockedError
 from app.sender.plan import Plan
 from app.sender.recipient import latest_inbound
@@ -66,9 +66,40 @@ def reply_plan(session: Session, msg: MessageRow, to: str, subject: str, body: s
     return Plan(Channel.gmail, to, draft=draft, mailbox=mailbox)
 
 
+def assert_addressee(session: Session, action: ActionRow, latest: MessageRow) -> None:
+    """A case holding repaired forwards (ADR 0016) can be shared by several people. There, a draft goes to the latest
+    sender only when the reply answers that person's mail; a reply that answers none (a chaser) needs one sender."""
+    linked = (
+        select(MessageRow.id, MessageRow.thread_ref)
+        .join(CaseLink, CaseLink.message_id == MessageRow.id)
+        .where(
+            CaseLink.company_id == action.company_id,
+            CaseLink.case_id == action.case_id,
+            MessageRow.company_id == action.company_id,
+        )
+        .subquery()
+    )
+    incoming = session.execute(
+        select(MessageRow.id, MessageRow.sender_identity, MessageRow.meta.has_key("reattributed_from")).where(
+            MessageRow.company_id == action.company_id,
+            # The inbox shows a thread's other messages on the case too, so they count as sharing it.
+            MessageRow.id.in_(select(linked.c.id)) | MessageRow.thread_ref.in_(select(linked.c.thread_ref)),
+            MessageRow.channel == Channel.gmail,
+            MessageRow.direction == Direction.inbound,
+        )
+    ).all()
+    if not any(repaired for _, _, repaired in incoming):
+        return
+    senders = {message_id: sender.lower() for message_id, sender, _ in incoming}
+    answered = {senders[ref] for ref in action.context_ref or () if ref in senders} or set(senders.values())
+    if answered != {latest.sender_identity.lower()}:
+        raise SendBlockedError("this case holds mail from several senders: sort it before drafting this reply")
+
+
 def gmail_draft(session: Session, action: ActionRow, body: str, key: str) -> Plan:
     """Draft mode: a draft in the thread of the case's latest Gmail inbound. Harjot reviews and sends it himself."""
     msg = latest_inbound(session, action.company_id, action.case_id, Channel.gmail)
     if msg is None or not msg.thread_ref:
         raise SendBlockedError("no Gmail thread on this case to draft a reply in")
+    assert_addressee(session, action, msg)
     return reply_plan(session, msg, msg.sender_identity, _draft_subject(action, msg), body, key)

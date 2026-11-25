@@ -38,10 +38,12 @@ class CancelledReply:
 
 @dataclass(frozen=True)
 class CaseToCheck:
-    """A case holding repaired mail. Its contact and flat were not changed."""
+    """A case that shows repaired mail. Its contact and flat were not changed."""
 
     case_id: UUID
-    senders: tuple[str, ...]
+    senders: tuple[str, ...]  # everyone who wrote on it
+    contact: str | None
+    state: str
 
 
 def _unclaim(session: Session, company_id: UUID, action_id: UUID) -> bool:

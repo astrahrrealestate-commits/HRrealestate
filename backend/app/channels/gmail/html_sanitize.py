@@ -136,7 +136,7 @@ class _EmailHtmlSanitizer(HTMLParser):
         super().__init__(convert_charrefs=False)
         self.parts: list[str] = []
         self._drop_depth = 0
-        self._in_style = False
+        self._css: list[str] | None = None  # the open <style> block, emitted only when it closes and holds no "<"
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         tag = tag.lower()
@@ -151,8 +151,7 @@ class _EmailHtmlSanitizer(HTMLParser):
         if tag in _SKIP_TAGS_ONLY or tag not in _ALLOWED_TAGS:
             return
         if tag == "style":
-            self._in_style = True
-            self.parts.append("<style>")
+            self._css = []
             return
 
         rendered_attrs: list[str] = []
@@ -182,7 +181,8 @@ class _EmailHtmlSanitizer(HTMLParser):
         self.parts.append(f"<{tag}{attr_str}>")
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        self.handle_starttag(tag, attrs)
+        if tag.lower() != "style":  # a self-closed style block has no content
+            self.handle_starttag(tag, attrs)
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
@@ -191,9 +191,10 @@ class _EmailHtmlSanitizer(HTMLParser):
                 self._drop_depth -= 1
             return
         if tag == "style":
-            if self._in_style:
-                self._in_style = False
-                self.parts.append("</style>")
+            if self._css is not None:
+                css, self._css = _clean_css("".join(self._css)), None
+                if "<" not in css:  # cleaning can join characters into "</style>", which would open live markup
+                    self.parts.append(f"<style>{css}</style>")
             return
         if tag in _SKIP_TAGS_ONLY or tag in _VOID_TAGS or tag not in _ALLOWED_TAGS:
             return
@@ -202,17 +203,17 @@ class _EmailHtmlSanitizer(HTMLParser):
     def handle_data(self, data: str) -> None:
         if self._drop_depth > 0:
             return
-        if self._in_style:
-            self.parts.append(_clean_css(data))
+        if self._css is not None:
+            self._css.append(data)
         else:
             self.parts.append(html.escape(clean_text(data), quote=False))
 
     def handle_entityref(self, name: str) -> None:
-        if self._drop_depth == 0 and not self._in_style:
+        if self._drop_depth == 0 and self._css is None:
             self.parts.append(f"&{name};")
 
     def handle_charref(self, name: str) -> None:
-        if self._drop_depth == 0 and not self._in_style:
+        if self._drop_depth == 0 and self._css is None:
             self.parts.append(f"&#{name};")
 
 

@@ -69,7 +69,7 @@ function wrapEmailSrcDoc(htmlContent: string): string {
 <html>
 <head>
 <meta charset="utf-8" />
-<meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none';" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: https:;" />
 <base target="_blank" />
 <style>
   html, body {

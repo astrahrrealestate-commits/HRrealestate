@@ -1,8 +1,11 @@
 """Preview, or apply, the repair of mail stored under our own address.
 
 `python -m app.workflows.reattribute_cli --mailbox <address>` previews and writes nothing. To write, stop the worker
-(mail arriving mid-run could be drafted from the old sender), take a database snapshot, then add
-`--apply --worker-stopped`. The report lists email addresses, never subjects or text: do not paste it anywhere public.
+and do not draft replies from the dashboard until the run ends (either could draft from the old sender), take a
+database snapshot, then add
+`--apply --worker-stopped`. The report lists contact
+names, email addresses and numbers, never subjects or text: run it where output is not kept, and do not paste it
+anywhere public.
 """
 
 import argparse
@@ -14,6 +17,16 @@ from app.channels.gmail.ports import GmailMailbox
 from app.core.settings import get_settings
 from app.db.session import make_engine
 from app.workflows.reattribute import RepairRefusedError, Report, reattribute
+from app.workflows.reattribute_replies import CaseToCheck
+
+
+def _case_line(case: CaseToCheck) -> str:
+    several = len(case.senders) > 1
+    sort_first = "  << SORT FIRST" if several and case.state not in ("resolved", "closed") else ""
+    return (
+        f"  {case.case_id}  {case.state}, contact {case.contact or 'none'}  "
+        f"{len(case.senders)} sender{'s' if several else ''}: {', '.join(case.senders)}{sort_first}"
+    )
 
 
 def render(report: Report, *, applied: bool) -> str:
@@ -25,10 +38,7 @@ def render(report: Report, *, applied: bool) -> str:
     lines.append("Unsent replies cancelled:")
     lines += [f"  {r.action_id}  case {r.case_id}  was {r.was}" for r in report.cancelled]
     lines.append("Cases to check (contact and flat NOT changed):")
-    lines += [
-        f"  {c.case_id}  {len(c.senders)} sender{'s' if len(c.senders) > 1 else ''}: {', '.join(c.senders)}"
-        for c in report.cases
-    ]
+    lines += [_case_line(c) for c in report.cases]
     counts = (
         ("messages repaired", len(report.changes)),
         ("replies cancelled", len(report.cancelled)),

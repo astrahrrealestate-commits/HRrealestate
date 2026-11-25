@@ -94,6 +94,13 @@ Closed on 2026-11-12:
   because their Dutch output may be a message sent to the erased person
 
 Still open (fix in this order):
+- **Email HTML view** (merged 2026-11-25). A sanitizer bypass through `<style>` content was fixed and stored HTML is
+  cleaned again on read; the frame also allows no script. Still open: remote `https` images load on open (tracking);
+  the owner sees the HTML part while the model reads `text/plain`, and a mismatch is not flagged; the hand-written
+  sanitizer should be replaced by a maintained one (some `HTMLParser` versions are quadratic on hostile input). The
+  frame keeps `allow-same-origin`: never add `allow-scripts` to it.
+- **Shared cases after the forwarded-mail repair** (ADR 0016): drafts and sends are blocked when they answer someone
+  other than the addressee, but a permitted draft can still draw on a case summary and waits built from every sender.
 - **A sender chooses the name shown for their mail** (not yet accepted). The screen names each mail from its headers, so
   any outsider, with or without `Reply-To`, can appear as "Harjot Singh", a saved tenant or a contractor. The thread
   list, mobile header and quoted-reply line show only the name; each incoming bubble shows the address beside it.
