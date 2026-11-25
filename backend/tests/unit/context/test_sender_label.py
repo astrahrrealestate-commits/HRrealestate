@@ -150,3 +150,20 @@ def test_a_stored_role_on_flagged_or_spam_mail_is_not_shown() -> None:
     assert (
         role_hint_of({"sender_role": "legal", "category": "admin", "suspicious": {"flag": False}}) is SenderRole.legal
     )
+
+
+def test_directory_fixed_trades_set_sender_label_and_block_unregistered_tenant_banner() -> None:
+    for trade, expected_kind, expected_detail in (
+        ("legal", SenderKind.legal, "Legal"),
+        ("vve", SenderKind.vve, "VvE"),
+        ("business", SenderKind.business, "Business"),
+        ("utility", SenderKind.business, "Utility"),
+        ("municipal", SenderKind.business, "Municipality"),
+    ):
+        label = _label(PersonKind.other, trade=trade)
+        assert (label.kind, label.role_detail, label.audience, label.may_be_tenant) == (
+            expected_kind,
+            expected_detail,
+            "others",
+            False,
+        )

@@ -61,6 +61,13 @@ class SenderLabel:
 
 _TENANT = SenderLabel(SenderKind.tenant, "Tenant", "tenants", "tenant")
 _CONTACT = SenderLabel(SenderKind.contact, "Contact", "others", "contact")
+_TRADE_LABELS = {
+    "legal": SenderLabel(SenderKind.legal, "Legal", "others", "contact"),
+    "vve": SenderLabel(SenderKind.vve, "VvE", "others", "contact"),
+    "business": SenderLabel(SenderKind.business, "Business", "others", "contact"),
+    "utility": SenderLabel(SenderKind.business, "Utility", "others", "contact"),
+    "municipal": SenderLabel(SenderKind.business, "Municipality", "others", "contact"),
+}
 _FROM_MODEL = {
     SenderRole.legal: SenderLabel(SenderKind.legal, "Legal", "others", "contact"),
     SenderRole.vve: SenderLabel(SenderKind.vve, "VvE", "others", "contact"),
@@ -86,6 +93,10 @@ def resolve_sender_label(
         return _contractor(trade)
     if person_kind is PersonKind.tenant or is_lease_party:
         return _TENANT
+    if person_kind is PersonKind.other and trade:
+        fixed = _TRADE_LABELS.get(trade.strip().lower())
+        if fixed is not None:
+            return fixed
     if contractor_hint or role_hint is SenderRole.contractor:
         return _contractor(trade)
     return _FROM_MODEL.get(role_hint, _CONTACT) if role_hint else _CONTACT

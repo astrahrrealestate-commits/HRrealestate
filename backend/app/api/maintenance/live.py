@@ -5,6 +5,8 @@ case, the stage the approvals say. What the database does not know (budget cap, 
 guess.
 """
 
+from collections import defaultdict
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
@@ -126,16 +128,123 @@ def _drafts(
     return to_contractor, to_tenant
 
 
+@dataclass(frozen=True)
+class _TicketBatch:
+    units_by_id: dict[UUID, Unit]
+    people_by_id: dict[UUID, Person]
+    identities_by_person: dict[UUID, tuple[str, str]]
+    actions_by_case: dict[UUID, list[ActionRow]]
+    approved_action_ids: set[UUID]
+    inbound_text_by_case: dict[UUID, str]
+
+
+def _load_ticket_batch(session: Session, company_id: UUID, cases: list[Case]) -> _TicketBatch:
+    if not cases:
+        return _TicketBatch({}, {}, {}, {}, set(), {})
+
+    case_ids = [c.id for c in cases]
+    actions_by_case: dict[UUID, list[ActionRow]] = defaultdict(list)
+    contractor_ids: set[UUID] = set()
+    all_action_ids: list[UUID] = []
+    for act in session.scalars(
+        select(ActionRow).where(ActionRow.company_id == company_id, ActionRow.case_id.in_(case_ids))
+    ).all():
+        actions_by_case[act.case_id].append(act)
+        all_action_ids.append(act.id)
+        if act.type == ActionType.request_contractor:
+            raw = (act.payload or {}).get("contractor_person_id")
+            if raw:
+                contractor_ids.add(UUID(str(raw)))
+
+    person_ids = {c.primary_person_id for c in cases if c.primary_person_id} | contractor_ids
+    unit_ids = {c.unit_id for c in cases if c.unit_id}
+
+    units_by_id = (
+        {
+            u.id: u
+            for u in session.scalars(select(Unit).where(Unit.company_id == company_id, Unit.id.in_(unit_ids))).all()
+        }
+        if unit_ids
+        else {}
+    )
+    people_by_id = (
+        {
+            p.id: p
+            for p in session.scalars(
+                select(Person).where(Person.company_id == company_id, Person.id.in_(person_ids))
+            ).all()
+        }
+        if person_ids
+        else {}
+    )
+
+    identities_by_person: dict[UUID, tuple[str, str]] = {}
+    if person_ids:
+        rows_by_person: dict[UUID, list[ChannelIdentity]] = defaultdict(list)
+        for ci in session.scalars(
+            select(ChannelIdentity).where(
+                ChannelIdentity.company_id == company_id,
+                ChannelIdentity.person_id.in_(person_ids),
+                ChannelIdentity.valid_to.is_(None),
+            )
+        ).all():
+            rows_by_person[ci.person_id].append(ci)
+        for pid, rows in rows_by_person.items():
+            phone = next((r.identity for r in rows if r.channel == Channel.whatsapp or r.identity.startswith("+")), "")
+            email = next((r.identity for r in rows if r.channel == Channel.gmail or "@" in r.identity), "")
+            identities_by_person[pid] = (phone, email)
+
+    approved_action_ids: set[UUID] = set()
+    if all_action_ids:
+        approved_action_ids = set(
+            session.scalars(
+                select(Approval.action_id).where(
+                    Approval.company_id == company_id,
+                    Approval.action_id.in_(all_action_ids),
+                    Approval.status == ApprovalStatus.approved,
+                )
+            ).all()
+        )
+
+    inbound_text_by_case: dict[UUID, str] = {}
+    for cid, text in session.execute(
+        select(CaseLink.case_id, MessageRow.text)
+        .select_from(CaseLink)
+        .join(MessageRow, MessageRow.id == CaseLink.message_id)
+        .where(
+            CaseLink.company_id == company_id,
+            CaseLink.case_id.in_(case_ids),
+            MessageRow.company_id == company_id,
+            MessageRow.direction == Direction.inbound,
+        )
+        .order_by(MessageRow.sent_at.asc())
+    ).all():
+        if cid not in inbound_text_by_case and text:
+            inbound_text_by_case[cid] = text
+
+    return _TicketBatch(
+        units_by_id=units_by_id,
+        people_by_id=people_by_id,
+        identities_by_person=identities_by_person,
+        actions_by_case=actions_by_case,
+        approved_action_ids=approved_action_ids,
+        inbound_text_by_case=inbound_text_by_case,
+    )
+
+
 def live_tickets(session: Session, company_id: UUID) -> list[dict[str, Any]]:
-    cases = session.scalars(
-        select(Case)
-        .where(Case.company_id == company_id, Case.category == Category.maintenance)
-        .order_by(Case.opened_at.desc())
-    ).all()
+    cases = list(
+        session.scalars(
+            select(Case)
+            .where(Case.company_id == company_id, Case.category == Category.maintenance)
+            .order_by(Case.opened_at.desc())
+        ).all()
+    )
     edits = {
         e.case_id: e.fields for e in session.scalars(select(TicketEdit).where(TicketEdit.company_id == company_id))
     }
-    return [_ticket(session, case, edits.get(case.id)) for case in cases]
+    batch = _load_ticket_batch(session, company_id, cases)
+    return [_ticket_from_batch(case, edits.get(case.id), batch) for case in cases]
 
 
 def ticket_with_edits(session: Session, case: Case) -> dict[str, Any]:
@@ -143,27 +252,41 @@ def ticket_with_edits(session: Session, case: Case) -> dict[str, Any]:
     edit = session.scalars(
         select(TicketEdit).where(TicketEdit.company_id == case.company_id, TicketEdit.case_id == case.id)
     ).one_or_none()
-    return _ticket(session, case, edit.fields if edit else None)
+    batch = _load_ticket_batch(session, case.company_id, [case])
+    return _ticket_from_batch(case, edit.fields if edit else None, batch)
 
 
 LOCKED_FIELDS = frozenset({"tenantId"})  # identity of the ticket and its tenant: an owner edit never re-points them
 
 
-def _ticket(session: Session, case: Case, edits: dict[str, Any] | None = None) -> dict[str, Any]:
-    unit = session.get(Unit, case.unit_id) if case.unit_id else None
+def _ticket_from_batch(case: Case, edits: dict[str, Any] | None, batch: _TicketBatch) -> dict[str, Any]:
+    unit = batch.units_by_id.get(case.unit_id) if case.unit_id else None
     unit_label = (unit.address or unit.label) if unit else "Unknown unit"
-    person = session.get(Person, case.primary_person_id) if case.primary_person_id else None
+    person = batch.people_by_id.get(case.primary_person_id) if case.primary_person_id else None
     tenant_name = person.display_name if person else "Unknown tenant"
-    tenant_phone = identity_of(session, person.id, phone=True) if person else ""
-    actions = list(session.scalars(select(ActionRow).where(ActionRow.case_id == case.id)).all())
-    contractor = contractor_of(session, case, actions)
+    tenant_phone = batch.identities_by_person.get(person.id, ("", ""))[0] if person else ""
+    actions = batch.actions_by_case.get(case.id, [])
+
+    request = next((a for a in actions if a.type == ActionType.request_contractor), None)
+    raw_cid = (request.payload or {}).get("contractor_person_id") if request else None
+    contractor = batch.people_by_id.get(UUID(str(raw_cid))) if raw_cid else None
+    if contractor is not None and contractor.company_id != case.company_id:
+        contractor = None
+
     trade = (contractor.trade or "") if contractor else ""
     issue = _title_of(case.summary or "")
     to_contractor, to_tenant = _drafts(
         actions, tenant=tenant_name, unit=unit_label, phone=tenant_phone, issue=issue,
         contractor=contractor.display_name if contractor else "",
     )  # fmt: skip
-    dispatched = _is_dispatched(session, case, actions)
+    dispatched = (
+        case.state in (CaseState.waiting_on_third_party, CaseState.closed, CaseState.resolved)
+        or any(a.status == ActionStatus.approved for a in actions)
+        or any(a.id in batch.approved_action_ids for a in actions)
+    )
+    contractor_phone, contractor_email = (
+        batch.identities_by_person.get(contractor.id, ("", "")) if contractor else ("", "")
+    )
     ticket: dict[str, Any] = {
         "id": str(case.id),
         "ticketNumber": f"#{case_ref(case.id)}",
@@ -175,8 +298,8 @@ def _ticket(session: Session, case: Case, edits: dict[str, Any] | None = None) -
         "category": category_of(trade),
         "contractorName": contractor.display_name if contractor else "",
         "contractorTrade": trade.title(),
-        "contractorPhone": identity_of(session, contractor.id, phone=True) if contractor else "",
-        "contractorEmail": identity_of(session, contractor.id, phone=False) if contractor else "",
+        "contractorPhone": contractor_phone,
+        "contractorEmail": contractor_email,
         "urgency": case.urgency.value,
         "status": "dispatched" if dispatched else "pending_approval",
         "slaRemaining": "Dispatched" if dispatched else "",
@@ -184,7 +307,7 @@ def _ticket(session: Session, case: Case, edits: dict[str, Any] | None = None) -
         "poBudgetCap": "",
         "reportedAt": case.opened_at.strftime("%Y-%m-%d %H:%M") if case.opened_at else "",
         "notes": case.summary,
-        "originalMessage": _first_inbound_text(session, case),
+        "originalMessage": batch.inbound_text_by_case.get(case.id) or case.summary,
         "contractorDraft": to_contractor,
         "tenantDraft": to_tenant,
         "source": "linked" if case.brixx_ref else "estateos",

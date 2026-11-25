@@ -13,15 +13,18 @@ import threading
 import time
 from types import FrameType
 
-from dbos import DBOS, DBOSClient
+from dbos import DBOS, DBOSClient, SetWorkflowID
 
 from app.channels.registry import assert_channels_ready
+from app.core.errors import GmailNotConnectedError
 from app.core.ids import new_id
 from app.core.logging import configure_logging, get_logger
 from app.core.settings import Settings, get_settings
 from app.core.startup import assert_production_safe
 from app.core.telemetry import init_telemetry
+from app.ingestion.gmail_sync import gmail_accounts
 from app.llm.runtime import instrument_agents
+from app.workflows import ingest, queues
 from app.workflows.deps import get_deps
 from app.workflows.queues import PIPELINE_QUEUE
 from app.workflows.runtime import launch
@@ -55,6 +58,43 @@ def selfcheck(settings: Settings, timeout_sec: float = SELFCHECK_TIMEOUT_SEC, po
         client.destroy()
 
 
+GMAIL_POLL_INTERVAL_SEC = 20.0
+
+
+def _poll_gmail_once() -> None:
+    """Enqueue incremental Gmail syncs via DBOS when history advances; deduplicated by poll_workflow_id."""
+    deps = get_deps()
+    accounts = gmail_accounts(deps)
+    if not accounts:
+        return
+    queue = queues.gmail_sync_queue()
+    for account_id, address, _company_id in accounts:
+        try:
+            history = int(deps.gmail_mailbox(address).current_history_id())
+            with SetWorkflowID(ingest.poll_workflow_id(str(account_id), history)):
+                queue.enqueue(ingest.gmail_sync, str(account_id), history)
+        except GmailNotConnectedError:
+            log.debug("worker.gmail_poll.not_connected", account=address)
+        except Exception as exc:
+            log.warning("worker.gmail_poll.error", account=address, error=type(exc).__name__)
+
+
+def _start_gmail_poll_thread(settings: Settings, stop: threading.Event) -> threading.Thread | None:
+    if settings.gmail_provider != "google":
+        return None
+
+    def _loop() -> None:
+        while not stop.wait(GMAIL_POLL_INTERVAL_SEC):
+            try:
+                _poll_gmail_once()
+            except Exception as exc:
+                log.warning("worker.gmail_poll.loop_error", error=type(exc).__name__)
+
+    thread = threading.Thread(target=_loop, name="gmail-subminute-poll", daemon=True)
+    thread.start()
+    return thread
+
+
 def run_forever(settings: Settings) -> None:
     stop = threading.Event()
 
@@ -67,8 +107,11 @@ def run_forever(settings: Settings) -> None:
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
     launch(settings)
+    poll_thread = _start_gmail_poll_thread(settings, stop)
     log.info("worker.started", version=settings.app_version)
     stop.wait()
+    if poll_thread is not None:
+        poll_thread.join(timeout=5.0)
     DBOS.destroy(workflow_completion_timeout_sec=20)  # compose stop_grace_period must exceed this (40s)
     log.info("worker.stopped")
 

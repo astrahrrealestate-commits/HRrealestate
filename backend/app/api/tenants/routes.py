@@ -5,6 +5,8 @@ directory tables. Rent amounts and payment status are not stored there yet, so t
 `unknown` rather than a guess; arrears arrive with the BRIXX rent mirror.
 """
 
+from collections import defaultdict
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Annotated
 from uuid import UUID
@@ -63,37 +65,65 @@ def _without_contact(tenant: TenantItem) -> TenantItem:
     return tenant.model_copy(update={"phone": "", "email": ""})
 
 
-def _item(session: Session, person: Person, today: date, facts: UnitFacts) -> TenantItem:
-    company_id = person.company_id
-    row = session.execute(
-        select(Unit.label, Lease.valid_from, Lease.valid_to, Lease.brixx_ref)
+@dataclass(frozen=True)
+class _TenantsBatch:
+    lease_by_person: dict[UUID, tuple[str, date, date | None, str | None]]
+    identities_by_person: dict[UUID, list[tuple[Channel, str]]]
+    rent_by_person: dict[UUID, TenantRentPayment]
+
+
+def _load_tenants_batch(session: Session, company_id: UUID, person_ids: list[UUID]) -> _TenantsBatch:
+    if not person_ids:
+        return _TenantsBatch({}, {}, {})
+
+    lease_by_person: dict[UUID, tuple[str, date, date | None, str | None]] = {}
+    for pid, label, start, end, ref in session.execute(
+        select(LeaseParty.person_id, Unit.label, Lease.valid_from, Lease.valid_to, Lease.brixx_ref)
         .select_from(LeaseParty)
         .join(Lease, Lease.id == LeaseParty.lease_id)
         .join(Unit, Unit.id == Lease.unit_id)
         .where(
             LeaseParty.company_id == company_id,
-            LeaseParty.person_id == person.id,
+            LeaseParty.person_id.in_(person_ids),
         )
         .order_by(Lease.valid_to.is_(None).desc(), Lease.valid_to.desc(), Lease.valid_from.desc())
-    ).first()
-    identities = session.scalars(
-        select(ChannelIdentity)
+    ).all():
+        if pid not in lease_by_person:
+            lease_by_person[pid] = (label, start, end, ref)
+
+    identities_by_person: dict[UUID, list[tuple[Channel, str]]] = defaultdict(list)
+    for pid, ch, ident in session.execute(
+        select(ChannelIdentity.person_id, ChannelIdentity.channel, ChannelIdentity.identity)
         .where(
             ChannelIdentity.company_id == company_id,
-            ChannelIdentity.person_id == person.id,
+            ChannelIdentity.person_id.in_(person_ids),
             ChannelIdentity.valid_to.is_(None),
         )
         .order_by(ChannelIdentity.valid_from.asc().nulls_last(), ChannelIdentity.id.asc())
-    ).all()
-    label, start, end, lease_ref = row if row is not None else ("", None, None, None)
-    rent_record = session.scalars(
+    ).all():
+        identities_by_person[pid].append((ch, ident))
+
+    rent_by_person: dict[UUID, TenantRentPayment] = {}
+    for rent in session.scalars(
         select(TenantRentPayment)
-        .where(
-            TenantRentPayment.company_id == company_id,
-            TenantRentPayment.tenant_id == person.id,
-        )
+        .where(TenantRentPayment.company_id == company_id, TenantRentPayment.tenant_id.in_(person_ids))
         .order_by(TenantRentPayment.billing_month.desc())
-    ).first()
+    ).all():
+        if rent.tenant_id not in rent_by_person:
+            rent_by_person[rent.tenant_id] = rent
+
+    return _TenantsBatch(
+        lease_by_person=lease_by_person,
+        identities_by_person=identities_by_person,
+        rent_by_person=rent_by_person,
+    )
+
+
+def _item_from_batch(person: Person, today: date, facts: UnitFacts, batch: _TenantsBatch) -> TenantItem:
+    row = batch.lease_by_person.get(person.id)
+    identities = batch.identities_by_person.get(person.id, ())
+    label, start, end, lease_ref = row if row is not None else ("", None, None, None)
+    rent_record = batch.rent_by_person.get(person.id)
     monthly_rent = float(rent_record.contract_rent_cents) / 100.0 if rent_record else 0.0
     if not monthly_rent:
         monthly_rent = facts.for_lease(lease_ref)[0] or 0.0  # the contract's current rent lines in BRIXX
@@ -102,8 +132,8 @@ def _item(session: Session, person: Person, today: date, facts: UnitFacts) -> Te
     )
     overdue_days_val = rent_record.overdue_days if rent_record else 0
 
-    emails = [i.identity for i in identities if i.channel == Channel.gmail]
-    phones = [i.identity for i in identities if i.channel == Channel.whatsapp]
+    emails = [ident for ch, ident in identities if ch == Channel.gmail]
+    phones = [ident for ch, ident in identities if ch == Channel.whatsapp]
     primary_email = emails[0] if emails else ""
     secondary_emails = [e for e in emails[1:] if e != primary_email]
     primary_phone = phones[0] if phones else ""
@@ -133,6 +163,11 @@ def _item(session: Session, person: Person, today: date, facts: UnitFacts) -> Te
     )
 
 
+def _item(session: Session, person: Person, today: date, facts: UnitFacts) -> TenantItem:
+    batch = _load_tenants_batch(session, person.company_id, [person.id])
+    return _item_from_batch(person, today, facts, batch)
+
+
 @router.get(
     "",
     response_model=TenantsResponse,
@@ -147,13 +182,18 @@ def get_tenants(
 ) -> TenantsResponse:
     today = datetime.now(UTC).date()
     with Session(engine) as session:
-        people = session.scalars(
-            select(Person)
-            .where(Person.company_id == principal.company_id, Person.kind == PersonKind.tenant)
-            .order_by(Person.display_name.asc())
-        ).all()
+        people = [
+            p
+            for p in session.scalars(
+                select(Person)
+                .where(Person.company_id == principal.company_id, Person.kind == PersonKind.tenant)
+                .order_by(Person.display_name.asc())
+            ).all()
+            if p.display_name and "@" not in p.display_name
+        ]
         facts = unit_facts(session, principal.company_id, today)
-        items = [_item(session, p, today, facts) for p in people if p.display_name and "@" not in p.display_name]
+        batch = _load_tenants_batch(session, principal.company_id, [p.id for p in people])
+        items = [_item_from_batch(p, today, facts, batch) for p in people]
     if not principal.access.can("tenants"):
         items = [_without_contact(t) for t in items]
     shown = items

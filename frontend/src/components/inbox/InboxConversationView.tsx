@@ -17,6 +17,7 @@ import {
   FileText,
   AlertTriangle,
   Link2,
+  Mail,
 } from "lucide-react";
 import { InboxThread, ThreadMessage } from "@/types/inbox";
 import { Avatar } from "@/components/ui/Avatar";
@@ -31,8 +32,9 @@ import { cn } from "@/lib/utils";
 import { formatClock, localDayNumber, localParts } from "@/lib/clock";
 import { EditTicketModal } from "@/components/maintenance/EditTicketModal";
 import { TranslationToggle } from "@/components/inbox/TranslationToggle";
-import { MaintenanceTicket, updateMaintenanceTicket } from "@/lib/api";
+import { MaintenanceTicket, updateMaintenanceTicket, linkThreadTenant } from "@/lib/api";
 import { BACKEND_BASE_URL } from "@/lib/backend";
+import { ExpandableMessageBody } from "@/components/inbox/ExpandableMessageBody";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -44,6 +46,9 @@ interface InboxConversationViewProps {
   onRejectDraft?: (threadId: string) => void;
   onSendManualReply?: (threadId: string, replyText: string, replyToMessageId?: string) => void;
   onMarkDone?: (threadId: string) => void;
+  onSnooze?: (threadId: string) => void;
+  onMarkUnread?: (threadId: string) => void;
+  onTenantLinked?: (threadId: string, tenantName: string) => void;
   showThreadsButton?: boolean;
   showBackOnDesktop?: boolean;
   threadCount?: number;
@@ -60,6 +65,9 @@ export function InboxConversationView({
   onRejectDraft,
   onSendManualReply,
   onMarkDone,
+  onSnooze,
+  onMarkUnread,
+  onTenantLinked,
   showThreadsButton = false,
   showBackOnDesktop = false,
   threadCount = 0,
@@ -68,7 +76,7 @@ export function InboxConversationView({
   className,
 }: InboxConversationViewProps) {
   const { t } = useLanguage();
-  const [showEarlier, setShowEarlier] = useState(false);
+  const [expandedMsgIds, setExpandedMsgIds] = useState<Set<string>>(new Set());
   const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
   const [isSent, setIsSent] = useState(false);
   const [localMessages, setLocalMessages] = useState<ThreadMessage[]>([]);
@@ -85,15 +93,11 @@ export function InboxConversationView({
     if (!cId) return;
     setIsLinkingTenant(true);
     try {
-      const res = await fetch(`/api/inbox/threads/${cId}/link-tenant`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tenant_id: thread.matchedTenant?.id }),
-      });
-      if (!res.ok) throw new Error("Failed to link tenant");
-      const data = await res.json();
-      setLinkSuccessName(data.tenantName);
-      thread.isUnregisteredSender = false;
+      const data = await linkThreadTenant(cId, thread.matchedTenant?.id);
+      if (data.ok && data.tenantName) {
+        setLinkSuccessName(data.tenantName);
+        onTenantLinked?.(thread.id, data.tenantName);
+      }
     } catch (err) {
       console.error("Link tenant failed", err);
     } finally {
@@ -164,7 +168,9 @@ export function InboxConversationView({
 
       const draft = !isAlreadyReplied && channelDrafts.length > 0 ? channelDrafts[0]?.text || "" : "";
       setStagedDraftText(initialDraft || draft);
-      setShowEarlier(false);
+      const lastMsgId = msgs[msgs.length - 1]?.id;
+      setExpandedMsgIds(lastMsgId ? new Set([lastMsgId]) : new Set());
+      setLinkSuccessName(null);
     }
   }, [thread?.id, thread?.status, thread?.messages?.length, thread?.draftProposal, initialDraft]);
 
@@ -207,11 +213,23 @@ export function InboxConversationView({
     return (
       <div
         className={cn(
-          "h-full flex items-center justify-center p-8 bg-[var(--pane)] text-center text-[var(--ink-3)] select-none",
+          "h-full flex flex-col items-center justify-center p-8 bg-[var(--bg)]/40 text-center text-[var(--ink-3)] select-none gap-3",
           className
         )}
       >
-        <p className="text-[14px]">Select a conversation from the list.</p>
+        <div className="w-11 h-11 rounded-full bg-[var(--pane)] border border-[var(--line)] flex items-center justify-center shadow-2xs">
+          <Mail className="w-5 h-5 text-[var(--ink-3)]" strokeWidth={1.5} />
+        </div>
+        <div className="space-y-1">
+          <p className="text-[14px] font-semibold text-[var(--ink-2)]">No conversation selected</p>
+          <p className="text-[12px] text-[var(--ink-3)]">
+            Click a message on the left to open it, or press{" "}
+            <kbd className="px-1.5 py-0.5 text-[10.5px] font-mono bg-[var(--pane)] border border-[var(--line)] rounded">j</kbd>{" "}
+            /{" "}
+            <kbd className="px-1.5 py-0.5 text-[10.5px] font-mono bg-[var(--pane)] border border-[var(--line)] rounded">k</kbd>{" "}
+            to browse
+          </p>
+        </div>
       </div>
     );
   }
@@ -266,14 +284,23 @@ export function InboxConversationView({
   };
 
   const urgentThread = isUrgent(thread);
-  // Show all messages if user clicked showEarlier, or show latest incoming message PLUS any outgoing replies
-  const earlierMessages = localMessages.slice(0, -1);
-  const latestMessage = localMessages[localMessages.length - 1];
-  const visibleMessages = showEarlier || isSent || localMessages.length <= 2
-    ? localMessages
-    : latestMessage
-    ? [latestMessage]
-    : [];
+  const toggleMsgExpanded = (msgId: string) => {
+    setExpandedMsgIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(msgId)) next.delete(msgId);
+      else next.add(msgId);
+      return next;
+    });
+  };
+  const allExpanded = localMessages.length > 0 && localMessages.every((m) => expandedMsgIds.has(m.id));
+  const toggleExpandAll = () => {
+    if (allExpanded) {
+      const lastId = localMessages[localMessages.length - 1]?.id;
+      setExpandedMsgIds(lastId ? new Set([lastId]) : new Set());
+    } else {
+      setExpandedMsgIds(new Set(localMessages.map((m) => m.id)));
+    }
+  };
 
   return (
     <section
@@ -405,7 +432,7 @@ export function InboxConversationView({
               <span className="hidden lg:inline-block h-5 w-px bg-[var(--line)] shrink-0" />
             </>
           )}
-          {showThreadsButton && onToggleThreadsDrawer && !showBackOnDesktop && (
+          {showThreadsButton && onToggleThreadsDrawer && (
             <>
               <button
                 type="button"
@@ -438,6 +465,11 @@ export function InboxConversationView({
               <span className="font-semibold text-[var(--ink)] truncate max-w-[160px]">{thread.unitLabel}</span>
               <span>·</span>
               <span className="text-[var(--ink-2)] truncate max-w-[120px]">{thread.senderName}</span>
+              {thread.recipientRoleDetail && thread.recipientRoleDetail !== "Contact" && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[10.5px] font-semibold text-[var(--ink-2)] shrink-0">
+                  {thread.recipientRoleDetail}
+                </span>
+              )}
               {thread.senderContact && (
                 <>
                   <span>·</span>
@@ -464,6 +496,19 @@ export function InboxConversationView({
               title="View and Edit Maintenance Ticket details"
             >
               Ticket {thread.ticketNumber}
+            </Button>
+          )}
+
+          {onSnooze && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<Clock className="w-3.5 h-3.5" />}
+              onClick={() => onSnooze(thread.id)}
+              className="text-xs px-2 h-8"
+              title="Snooze until tomorrow"
+            >
+              <span className="hidden xl:inline">Snooze</span>
             </Button>
           )}
 
@@ -499,6 +544,19 @@ export function InboxConversationView({
                     <span className={cn("inline-block w-1.5 h-1.5 rounded-full shrink-0", thread.channel === "gmail" ? "bg-[#EA4335]" : "bg-[#25D366]")} />
                     <span className="truncate">{thread.senderContact}</span>
                   </div>
+                )}
+                {onMarkUnread && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      onMarkUnread(thread.id);
+                      setIsMoreOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-[var(--ink)] hover:bg-[var(--selected)] cursor-pointer"
+                  >
+                    Mark as unread
+                  </button>
                 )}
                 {[
                   { label: "Copy ticket number", value: thread.ticketNumber },
@@ -555,35 +613,26 @@ export function InboxConversationView({
             <span>Successfully linked <span className="font-mono">{thread.senderContact}</span> as a secondary contact to <strong>{linkSuccessName}</strong>.</span>
           </div>
         )}
-        {/* Simple line for conversation history: only visible if user clicks (user request) */}
-        {earlierMessages.length > 0 && (
-          <div className="flex items-center gap-3 my-2">
-            <div className="flex-1 h-px bg-[var(--line)]" />
+        {/* Gmail-style Expand/Collapse All strip for multi-message threads */}
+        {localMessages.length > 1 && (
+          <div className="flex items-center justify-between gap-2 pb-1">
+            <span className="text-[11.5px] font-medium text-[var(--ink-3)]">
+              {localMessages.length} messages in thread
+            </span>
             <button
-              id="conversation-history-toggle"
               type="button"
-              onClick={() => setShowEarlier((prev) => !prev)}
-              className="text-xs font-medium text-[var(--ink-2)] hover:text-[var(--ink)] inline-flex items-center gap-1.5 py-1 px-3.5 rounded-full border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] transition-colors cursor-pointer select-none shadow-2xs"
+              onClick={toggleExpandAll}
+              className="text-[11.5px] font-semibold text-[var(--accent-ink)] hover:underline cursor-pointer"
             >
-              <Clock className="w-3.5 h-3.5 text-[var(--ink-3)]" />
-              <span>
-                {showEarlier
-                  ? "Hide conversation history"
-                  : `Conversation history (${earlierMessages.length} past message${earlierMessages.length > 1 ? "s" : ""})`}
-              </span>
-              {showEarlier ? (
-                <ChevronDown className="w-3 h-3 text-[var(--ink-3)]" />
-              ) : (
-                <ChevronRight className="w-3 h-3 text-[var(--ink-3)]" />
-              )}
+              {allExpanded ? "Collapse older" : "Expand all"}
             </button>
-            <div className="flex-1 h-px bg-[var(--line)]" />
           </div>
         )}
 
-        {/* Message Bubbles with Dynamic Date Group Dividers */}
-        {visibleMessages.map((msg, index) => {
+        {/* Message Cards: Older messages collapse to 1-line Gmail headers; click to open one by one */}
+        {localMessages.map((msg, index) => {
           const isOwner = msg.sender === "owner";
+          const isExpanded = expandedMsgIds.has(msg.id) || localMessages.length === 1;
 
           // Determine date label from timeFormatted or sentAt
           const getDayLabel = (m: ThreadMessage) => {
@@ -602,7 +651,7 @@ export function InboxConversationView({
           };
 
           const currentDayLabel = getDayLabel(msg);
-          const prevMsg = index > 0 ? visibleMessages[index - 1] : null;
+          const prevMsg = index > 0 ? localMessages[index - 1] : null;
           const prevDayLabel = prevMsg ? getDayLabel(prevMsg) : null;
           const showDateDivider = index === 0 || currentDayLabel !== prevDayLabel;
 
@@ -618,6 +667,40 @@ export function InboxConversationView({
           };
           const displayTime = getDisplayTime(msg);
 
+          if (!isExpanded) {
+            const oneLineSnippet = (msg.body || "").replace(/\s+/g, " ").trim();
+            return (
+              <React.Fragment key={msg.id}>
+                {showDateDivider && (
+                  <div className="flex items-center gap-3 my-1.5 text-xs text-[var(--ink-3)]">
+                    <div className="flex-1 h-px bg-[var(--line)]" />
+                    <span>{currentDayLabel}</span>
+                    <div className="flex-1 h-px bg-[var(--line)]" />
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => toggleMsgExpanded(msg.id)}
+                  className="w-full px-3.5 py-2.5 rounded-[10px] border border-[var(--line)] bg-[var(--bg)]/50 hover:bg-[var(--selected)]/70 flex items-center justify-between gap-3 text-left transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <Avatar name={msg.senderName || thread.senderName} channel={msg.channel} size="sm" className="shrink-0" />
+                    <span className="text-[12.5px] font-semibold text-[var(--ink)] shrink-0 max-w-[140px] truncate">
+                      {isOwner ? "You" : (msg.senderName || thread.senderName)}
+                    </span>
+                    <span className="text-[12.5px] text-[var(--ink-3)] truncate min-w-0">
+                      {oneLineSnippet}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 text-[11px] font-mono text-[var(--ink-3)]">
+                    <span>{displayTime}</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </div>
+                </button>
+              </React.Fragment>
+            );
+          }
+
           return (
             <React.Fragment key={msg.id}>
               {showDateDivider && (
@@ -628,10 +711,21 @@ export function InboxConversationView({
                 </div>
               )}
 
+              {localMessages.length > 1 && index < localMessages.length - 1 && (
+                <button
+                  type="button"
+                  onClick={() => toggleMsgExpanded(msg.id)}
+                  className="text-[11px] text-[var(--ink-3)] hover:text-[var(--ink)] inline-flex items-center gap-1 cursor-pointer mb-0.5"
+                >
+                  <ChevronDown className="w-3 h-3" />
+                  <span>Collapse {isOwner ? "your reply" : (msg.senderName || "message")} · {displayTime}</span>
+                </button>
+              )}
+
               {isOwner ? (
                 // Outgoing bubble (right, vibrant blue on mobile per mockup, crisp white with border on desktop)
-                <div className="flex flex-col items-end space-y-1">
-                  <div className="bg-[#1a73e8] sm:bg-[var(--pane)] sm:border sm:border-[var(--line)] text-white sm:text-[var(--ink)] rounded-2xl rounded-tr-xs px-3.5 sm:px-4 py-2.5 max-w-[85%] sm:max-w-[75%] shadow-2xs">
+                <div className="flex flex-col items-end space-y-1 min-w-0">
+                  <div className="bg-[#1a73e8] sm:bg-[var(--pane)] sm:border sm:border-[var(--line)] text-white sm:text-[var(--ink)] rounded-2xl rounded-tr-xs px-3.5 sm:px-4 py-2.5 max-w-[85%] sm:max-w-[75%] min-w-0 overflow-hidden shadow-2xs">
                     {msg.replyTo && (
                       <div className="mb-2 pl-2.5 py-1 border-l-2 border-white/60 sm:border-[var(--accent)] bg-white/15 sm:bg-[var(--selected)]/70 rounded-r text-xs text-left">
                         <span className="font-semibold text-[11px] text-white sm:text-[var(--accent-ink)] block truncate">
@@ -642,9 +736,7 @@ export function InboxConversationView({
                         </p>
                       </div>
                     )}
-                    <p className="text-[13.5px] leading-relaxed whitespace-pre-line select-text">
-                      {msg.body}
-                    </p>
+                    <ExpandableMessageBody body={msg.body} bodyHtml={msg.bodyHtml} isOwner={true} />
                     <div className="flex items-center justify-end gap-1 mt-1 text-[11px] font-mono text-white/80 sm:text-[var(--ink-3)]">
                       <span>{displayTime}</span>
                       <CheckCheck className="w-3.5 h-3.5 text-sky-200 sm:text-[var(--ink-3)]" />
@@ -655,7 +747,7 @@ export function InboxConversationView({
                 </div>
               ) : (
                 // Incoming bubble (left, --selected fill, no border)
-                <div className="flex flex-col items-start space-y-1 group">
+                <div className="flex flex-col items-start space-y-1 group min-w-0">
                   {/* The name is sender-chosen: it truncates on its own line box and never pushes the address away. */}
                   <div className="flex flex-wrap items-baseline gap-x-1.5 px-1 max-w-[85%] sm:max-w-[75%] text-[11px] text-[var(--ink-3)]">
                     <bdi className="min-w-0 max-w-full truncate font-semibold text-[var(--ink-2)]">{msg.senderName}</bdi>
@@ -663,10 +755,13 @@ export function InboxConversationView({
                       <bdi className="max-w-full break-all">&lt;{msg.senderContact}&gt;</bdi>
                     )}
                   </div>
-                  <div className="relative bg-[var(--selected)] text-[var(--ink)] rounded-2xl rounded-tl-xs px-4 py-2.5 max-w-[85%] sm:max-w-[75%]">
-                    <p className="text-[13.5px] leading-relaxed whitespace-pre-line select-text">
-                      {msg.body?.replace(/^["']|["']$/g, "")}
-                    </p>
+                  <div
+                    className={cn(
+                      "relative bg-[var(--selected)] text-[var(--ink)] rounded-2xl rounded-tl-xs px-4 py-2.5 min-w-0 overflow-hidden",
+                      msg.bodyHtml ? "w-full max-w-[92%] sm:max-w-[85%]" : "max-w-[85%] sm:max-w-[75%]"
+                    )}
+                  >
+                    <ExpandableMessageBody body={msg.body} bodyHtml={msg.bodyHtml} isOwner={false} />
 
                     {/* Attachments (Photos & Documents) */}
                     {msg.attachments && msg.attachments.length > 0 && (

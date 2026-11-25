@@ -15,6 +15,9 @@ from app.directory.contacts import InvalidContactError, _clean_name, _identity, 
         (PersonKind.owner, None, "owner"),
         (PersonKind.other, None, "other"),
         (PersonKind.other, "notary", "other"),
+        (PersonKind.other, "legal", "legal"),
+        (PersonKind.other, "vve", "vve"),
+        (PersonKind.other, "business", "business"),
         (PersonKind.other, "Utility", "utility"),
         (PersonKind.other, "municipal", "municipal"),
         (PersonKind.contractor, "utility", "contractor"),
@@ -27,6 +30,9 @@ def test_category_of(kind: PersonKind, trade: str | None, expected: str) -> None
 def test_utility_and_municipal_ignore_a_typed_trade() -> None:
     assert _trade("utility", "plumber") == "utility"
     assert _trade("municipal", None) == "municipal"
+    assert _trade("legal", "anything") == "legal"
+    assert _trade("vve", None) == "vve"
+    assert _trade("business", "bank") == "business"
 
 
 def test_trade_is_trimmed_and_blank_means_none() -> None:

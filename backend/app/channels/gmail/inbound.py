@@ -114,6 +114,7 @@ def to_message(
         "header_from": parsed.from_addr if sender != parsed.from_addr and not forwarded_by else None,
         "from_self_unsent": (not outbound and parsed.from_addr == mailbox) or None,
         "full_text": parsed.full_text if parsed.quote_stripped else None,
+        "body_html": parsed.html,
         "skipped_parts": parsed.skipped,
         "parse_error": parsed.parse_error or None,
         "to": parsed.to,

@@ -79,6 +79,7 @@ export function Composer({
   );
   const [activeChannel, setActiveChannel] = useState<string>(channel);
   const [isEditingFull, setIsEditingFull] = useState(false);
+  const [isDesktopExpanded, setIsDesktopExpanded] = useState(false);
   const [fullEditText, setFullEditText] = useState("");
   const [undoSeconds, setUndoSeconds] = useState(30);
   const [isDraftingGmail, setIsDraftingGmail] = useState(false);
@@ -230,9 +231,13 @@ export function Composer({
     setContent(draftText || (!initialSent && hasDrafts ? firstDraftText || "" : ""));
   }, [key, draftText, channel, hasDrafts, firstDraftKey, firstDraftText, initialSent]);
 
-  // Focus textarea when user quotes a message
+  useEffect(() => {
+    setIsDesktopExpanded(false);
+  }, [key]);
+
   useEffect(() => {
     if (replyingTo) {
+      setIsDesktopExpanded(true);
       textareaRef.current?.focus();
     }
   }, [replyingTo]);
@@ -756,321 +761,378 @@ export function Composer({
       </div>
 
       {/* =================================================================== */}
-      {/* DESKTOP COMPOSER (Unified clean card on sm:+)                       */}
+      {/* DESKTOP COMPOSER (Compact 1-row dock, expands on click/reply)       */}
       {/* =================================================================== */}
-      <div
-        className={cn(
-          "hidden sm:flex shrink-0 border-t border-[var(--line)] bg-[var(--pane)] px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex-col select-none",
-          className
-        )}
-      >
-        <div className="rounded-[12px] border border-[var(--line)] bg-[var(--pane)] shadow-2xs focus-within:border-[var(--ink)] transition-colors overflow-hidden flex flex-col">
-          {/* Top Integrated Composer Bar: Channel + Draft Switcher + Compact Persona */}
-          <div className="px-3 py-2 border-b border-[var(--line)] bg-[var(--bg)]/60 flex items-center justify-between gap-2 flex-wrap text-xs text-[var(--ink-3)]">
-            <div className="flex items-center gap-2 flex-wrap min-w-0">
-              {/* Locked Channel Badge */}
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[var(--ink)] bg-[var(--pane)] border border-[var(--line)] px-2 py-0.5 rounded-[6px] shrink-0">
-                {activeChannel === "gmail" ? (
-                  <>
-                    <Mail className="w-3.5 h-3.5 text-[var(--ink-3)]" />
-                    <span>Gmail</span>
-                  </>
-                ) : (
-                  <>
-                    <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>WhatsApp</span>
-                  </>
-                )}
-              </span>
-
-              {/* AI Draft Switcher Tabs */}
-              {drafts && drafts.length > 0 && (
-                <div className="flex items-center gap-0.5 bg-[var(--pane)] p-0.5 rounded-[7px] border border-[var(--line)]">
-                  {drafts.map((d, idx) => {
-                    const draftKey = getDraftKey(d, idx);
-                    const isSelected = selectedDraftId === draftKey;
-                    const label = `Draft ${idx + 1}`;
-                    return (
-                      <button
-                        key={`draft-${draftKey}`}
-                        type="button"
-                        onClick={() => selectDraft(d, idx)}
-                        className={cn(
-                          "px-2.5 py-0.5 rounded-[5px] text-[11.5px] font-medium transition-colors cursor-pointer whitespace-nowrap",
-                          isSelected
-                            ? "bg-[var(--selected)] text-[var(--ink)] font-bold"
-                            : "text-[var(--ink-3)] hover:text-[var(--ink)] hover:bg-[var(--bg)]"
-                        )}
-                        title={d.text}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-              {drafts && drafts.length > 0 && draftPersona && (
-                <Link
-                  href="/settings?group=persona"
-                  title={`Drafted using "${draftPersona.name}" (v${draftPersona.version}). Click to edit persona.`}
-                  className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--ink-2)] hover:text-[var(--ink)] bg-[var(--pane)] border border-[var(--line)] px-2 py-0.5 rounded-[6px] transition-colors whitespace-nowrap"
-                >
-                  <UserCheck className="w-3 h-3 text-[#1a73e8] shrink-0" />
-                  <span>Acting as <strong className="font-semibold text-[var(--ink)]">{draftPersona.actingAs}</strong></span>
-                </Link>
-              )}
-              {detectedLanguage && (
-                <span
-                  className="text-[10.5px] font-semibold text-[var(--ink-3)] bg-[var(--pane)] border border-[var(--line)] px-1.5 py-0.5 rounded-[6px] whitespace-nowrap"
-                  title={detectedLanguage}
-                >
-                  {detectedLanguage.toLowerCase().includes("nl") || detectedLanguage.toLowerCase().includes("dutch")
-                    ? "NL"
-                    : detectedLanguage.toLowerCase().includes("en")
-                      ? "EN"
-                      : detectedLanguage}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Quoted Message Preview if user selected a message to reply to */}
-          {replyingTo && (
-            <div className="mx-3 mt-2.5 flex items-start justify-between gap-2 p-2 px-3 rounded-[var(--radius-ctl)] bg-[var(--selected)] border-l-2 border-l-[var(--accent)] border border-[var(--line)] text-xs">
-              <div className="min-w-0">
-                <span className="font-semibold text-[var(--ink)] block truncate">
-                  Replying to {replyingTo.sender}:
-                </span>
-                <p className="text-[var(--ink-2)] truncate line-clamp-1 italic text-[11.5px]">
-                  &ldquo;{replyingTo.text}&rdquo;
-                </p>
-              </div>
-              {onClearReplyingTo && (
-                <button
-                  type="button"
-                  onClick={onClearReplyingTo}
-                  className="p-1 rounded text-[var(--ink-3)] hover:text-[var(--ink)] hover:bg-[var(--pane)] shrink-0 cursor-pointer"
-                  title="Cancel quote"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
+      {!isDesktopExpanded ? (
+        <div
+          className={cn(
+            "hidden sm:flex shrink-0 border-t border-[var(--line)] bg-[var(--pane)] px-4 py-2.5 items-center justify-between gap-2 select-none",
+            className
           )}
-
-          {/* Clean Open Writing Canvas */}
-          <div className="relative bg-[var(--pane)]">
-            <textarea
-              ref={textareaRef}
-              rows={hasDraft ? 4 : 3}
-              value={content}
-              onChange={(e) => editContent(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  if (hasDraft) {
-                    handleAccept();
-                  } else {
-                    handleSendNormal();
-                  }
-                }
+        >
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <button
+              type="button"
+              onClick={() => {
+                setIsDesktopExpanded(true);
+                setTimeout(() => textareaRef.current?.focus(), 40);
               }}
-              placeholder={t("inbox.reply_placeholder", "Type a reply... (Press Enter to send)")}
-              className="w-full min-h-[104px] text-[14px] px-3.5 py-2.5 bg-transparent border-0 text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none resize-y leading-relaxed"
-            />
+              className="flex-1 text-left px-3 py-1.5 rounded-[var(--radius-ctl)] border border-[var(--line)] bg-[var(--bg)] hover:bg-[var(--selected)]/60 text-[13px] text-[var(--ink-2)] truncate transition-colors cursor-pointer"
+            >
+              {hasDraft
+                ? `AI Draft ready (${drafts.length}): "${(content || drafts[0]?.text || "").replace(/\s+/g, " ").slice(0, 70)}..."`
+                : t("inbox.reply_placeholder", "Click to reply...")}
+            </button>
           </div>
-
-          {/* Integrated Bottom Toolbar */}
-          <div className="px-3 py-2 border-t border-[var(--line)] bg-[var(--bg)]/40 flex flex-wrap items-center justify-between gap-2">
-            {/* Left utilities: Dictate + Lang + English toggle */}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <button
-                type="button"
-                onClick={() => toggleVoiceInput(content)}
-                className={cn(
-                  "px-2.5 py-1 rounded-[7px] text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 shrink-0 border select-none",
-                  isListening
-                    ? "bg-cyan-500 text-black border-cyan-400 shadow-[0_0_15px_rgba(0,229,255,0.7)] animate-pulse font-semibold ring-2 ring-cyan-300"
-                    : "bg-[var(--pane)] hover:bg-[var(--selected)] text-[var(--ink-2)] hover:text-[var(--ink)] border-[var(--line)]"
-                )}
-                title={isListening ? "Listening... click to stop" : `Voice dictation (${speechLang === "nl" ? "Dutch" : "English"})`}
-                aria-label="Voice input"
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setIsDesktopExpanded(true);
+                setTimeout(() => textareaRef.current?.focus(), 40);
+              }}
+              className="h-8 px-2.5 text-xs border border-[var(--line)]"
+            >
+              {hasDraft ? t("Edit") : "Reply"}
+            </Button>
+            {hasDraft && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleAccept}
+                className="h-8 px-3 text-xs font-bold"
+                icon={<AstraIcon className="w-3.5 h-3.5" />}
               >
-                {isListening ? (
-                  <MicOff className="w-3.5 h-3.5 text-black stroke-[2.5]" />
-                ) : (
-                  <Mic className="w-3.5 h-3.5 text-[var(--accent-ink)] stroke-[2]" />
-                )}
-                <span>{isListening ? "Listening..." : "Dictate"}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setSpeechLang((prev) => (prev === "nl" ? "en" : "nl"))}
-                className={cn(
-                  "text-[10.5px] font-bold px-2 py-1 rounded-[7px] border transition-all cursor-pointer flex items-center gap-1 select-none bg-[var(--pane)] hover:bg-[var(--selected)] border-[var(--line)] text-[var(--ink-2)]"
-                )}
-                title={speechLang === "nl" ? "Voice language: Nederlands (click to switch to English)" : "Voice language: English (click to switch to Nederlands)"}
-              >
-                <span className="inline-flex items-center gap-1">
-                  {speechLang === "nl" ? <FlagNL className="w-3.5 h-2.5" /> : <FlagUK className="w-3.5 h-2.5" />}
-                  <span>{speechLang === "nl" ? "NL" : "EN"}</span>
-                </span>
-              </button>
-
-              {isListening && (
-                <span className="text-[11.5px] text-cyan-600 dark:text-cyan-400 font-medium animate-pulse flex items-center gap-1.5 pl-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-ping inline-block" />
-                  <span>
-                    {speechLang === "nl"
-                      ? "Luisteren (NL)..."
-                      : "Listening (EN)..."}
-                  </span>
-                </span>
-              )}
-
-              {voiceError && !isListening && (
-                <span className="text-[11.5px] text-amber-600 dark:text-amber-400 font-medium pl-1">{voiceError}</span>
-              )}
-
-              {/* Translate the box to Dutch: owner types English, the tenant reads Dutch. Local model, cached. */}
-              {content.trim() && (
-                <button
-                  type="button"
-                  onClick={() => void translateContentToDutch()}
-                  disabled={isTranslating}
-                  className="text-[10.5px] font-bold px-2 py-0.5 rounded-full border transition-all cursor-pointer flex items-center gap-1 select-none bg-[var(--pane)] hover:bg-[var(--selected)] text-[var(--ink-2)] hover:text-[var(--ink)] border-[var(--line)] disabled:opacity-60"
-                  title="Translate the text in the box to Dutch before sending"
-                >
-                  {isTranslating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Languages className="w-3 h-3" />}
-                  <span>{isTranslating ? "Vertalen…" : "Translate to Dutch"}</span>
-                </button>
-              )}
-              {translateNotice && !isTranslating && (
-                <span className="text-[11.5px] text-amber-600 dark:text-amber-400 font-medium pl-1">{translateNotice}</span>
-              )}
-              {lastTranslation && content === lastTranslation.to && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    editContent(lastTranslation.from);
-                    setLastTranslation(null);
-                  }}
-                  className="text-xs text-[var(--ink-3)] underline hover:text-[var(--ink)] cursor-pointer"
-                >
-                  Undo translation
-                </button>
-              )}
-
-              <TranslationToggle
-                text={content}
-                language={drafts.find((d) => d.text.trim() === content.trim())?.language
-                  ?? (drafts.some((d) => d.language === "nl") ? "nl" : undefined)}
-                cachedEnglish={drafts.find((d) => d.text.trim() === content.trim())?.englishMeaning}
-                cachedDutch={drafts.find((d) => d.text.trim() === content.trim())?.dutchMeaning}
-              />
-            </div>
-
-            {/* Right actions */}
-            {hasDraft ? (
-              <div className="flex flex-wrap items-center gap-1.5 justify-end ml-auto">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleRejectClick}
-                  className="text-[var(--ink-3)] hover:text-[var(--ink)] whitespace-nowrap shrink-0 h-8"
-                >
-                  {t("Reject")}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => textareaRef.current?.focus()}
-                  className="whitespace-nowrap shrink-0 h-8"
-                >
-                  {t("Edit")}
-                </Button>
-                {activeChannel === "whatsapp" && cleanPhone && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => handleOpenWhatsApp()}
-                    className="whitespace-nowrap shrink-0 h-8 text-emerald-700 hover:text-emerald-800 bg-[var(--pane)] hover:bg-[var(--selected)] border border-[var(--line)] font-semibold cursor-pointer"
-                    icon={<ExternalLink className="w-3.5 h-3.5 text-emerald-600" />}
-                    title="Open this drafted reply directly in WhatsApp Web or App"
-                  >
-                    Open in WhatsApp
-                  </Button>
-                )}
-                {activeChannel === "gmail" && effectiveEmail && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => handleOpenGmail()}
-                    disabled={isDraftingGmail}
-                    className="whitespace-nowrap shrink-0 h-8 text-[var(--ink)] bg-[var(--pane)] hover:bg-[var(--selected)] border border-[var(--line)] font-semibold cursor-pointer"
-                    icon={isDraftingGmail ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" /> : <ExternalLink className="w-3.5 h-3.5 text-blue-600" />}
-                    title={isReply ? "Reply to this thread in Gmail" : "Compose a new email in Gmail"}
-                  >
-                    {isDraftingGmail ? "Preparing Draft..." : (isReply ? "Reply in Gmail" : "Open in Gmail")}
-                  </Button>
-                )}
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={handleAccept}
-                  className="whitespace-nowrap shrink-0 px-3.5 h-8 font-bold"
-                  icon={<AstraIcon className="w-3.5 h-3.5" />}
-                >
-                  {t("inbox.approve_draft", "Accept & send")}
-                </Button>
-              </div>
-            ) : (
-              <div className="flex flex-wrap items-center gap-1.5 justify-end ml-auto">
-                {activeChannel === "whatsapp" && cleanPhone && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => handleOpenWhatsApp()}
-                    disabled={!content.trim()}
-                    className="whitespace-nowrap shrink-0 h-8 text-emerald-700 bg-[var(--pane)] hover:bg-[var(--selected)] border border-[var(--line)] font-semibold cursor-pointer"
-                    icon={<ExternalLink className="w-3.5 h-3.5 text-emerald-600" />}
-                    title="Open this message directly in WhatsApp Web or App"
-                  >
-                    Open in WhatsApp
-                  </Button>
-                )}
-                {activeChannel === "gmail" && effectiveEmail && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => handleOpenGmail()}
-                    disabled={!content.trim() || isDraftingGmail}
-                    className="whitespace-nowrap shrink-0 h-8 text-[var(--ink)] bg-[var(--pane)] hover:bg-[var(--selected)] border border-[var(--line)] font-semibold cursor-pointer"
-                    icon={isDraftingGmail ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" /> : <ExternalLink className="w-3.5 h-3.5 text-blue-600" />}
-                    title={isReply ? "Reply to this thread in Gmail" : "Compose a new email in Gmail"}
-                  >
-                    {isDraftingGmail ? "Preparing Draft..." : (isReply ? "Reply in Gmail" : "Open in Gmail")}
-                  </Button>
-                )}
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={handleSendNormal}
-                  disabled={!content.trim()}
-                  icon={<Send className="w-3.5 h-3.5 fill-current" />}
-                  className="px-4 h-8 font-bold"
-                >
-                  {t("Send")}
-                </Button>
-              </div>
+                {t("inbox.approve_draft", "Accept & send")}
+              </Button>
             )}
           </div>
         </div>
-      </div>
+      ) : (
+        <div
+          className={cn(
+            "hidden sm:flex shrink-0 border-t border-[var(--line)] bg-[var(--pane)] px-4 pt-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex-col select-none",
+            className
+          )}
+        >
+          <div className="rounded-[12px] border border-[var(--line)] bg-[var(--pane)] shadow-2xs focus-within:border-[var(--ink)] transition-colors overflow-hidden flex flex-col">
+            {/* Top Integrated Composer Bar: Channel + Draft Switcher + Compact Persona + Collapse */}
+            <div className="px-3 py-1.5 border-b border-[var(--line)] bg-[var(--bg)]/60 flex items-center justify-between gap-2 flex-wrap text-xs text-[var(--ink-3)]">
+              <div className="flex items-center gap-2 flex-wrap min-w-0">
+                {/* Locked Channel Badge */}
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[var(--ink)] bg-[var(--pane)] border border-[var(--line)] px-2 py-0.5 rounded-[6px] shrink-0">
+                  {activeChannel === "gmail" ? (
+                    <>
+                      <Mail className="w-3.5 h-3.5 text-[var(--ink-3)]" />
+                      <span>Gmail</span>
+                    </>
+                  ) : (
+                    <>
+                      <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>WhatsApp</span>
+                    </>
+                  )}
+                </span>
+
+                {/* AI Draft Switcher Tabs */}
+                {drafts && drafts.length > 0 && (
+                  <div className="flex items-center gap-0.5 bg-[var(--pane)] p-0.5 rounded-[7px] border border-[var(--line)]">
+                    {drafts.map((d, idx) => {
+                      const draftKey = getDraftKey(d, idx);
+                      const isSelected = selectedDraftId === draftKey;
+                      const label = `Draft ${idx + 1}`;
+                      return (
+                        <button
+                          key={`draft-${draftKey}`}
+                          type="button"
+                          onClick={() => selectDraft(d, idx)}
+                          className={cn(
+                            "px-2.5 py-0.5 rounded-[5px] text-[11.5px] font-medium transition-colors cursor-pointer whitespace-nowrap",
+                            isSelected
+                              ? "bg-[var(--selected)] text-[var(--ink)] font-bold"
+                              : "text-[var(--ink-3)] hover:text-[var(--ink)] hover:bg-[var(--bg)]"
+                          )}
+                          title={d.text}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {drafts && drafts.length > 0 && draftPersona && (
+                  <Link
+                    href="/settings?group=persona"
+                    title={`Drafted using "${draftPersona.name}" (v${draftPersona.version}). Click to edit persona.`}
+                    className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--ink-2)] hover:text-[var(--ink)] bg-[var(--pane)] border border-[var(--line)] px-2 py-0.5 rounded-[6px] transition-colors whitespace-nowrap"
+                  >
+                    <UserCheck className="w-3 h-3 text-[#1a73e8] shrink-0" />
+                    <span>Acting as <strong className="font-semibold text-[var(--ink)]">{draftPersona.actingAs}</strong></span>
+                  </Link>
+                )}
+                {detectedLanguage && (
+                  <span
+                    className="text-[10.5px] font-semibold text-[var(--ink-3)] bg-[var(--pane)] border border-[var(--line)] px-1.5 py-0.5 rounded-[6px] whitespace-nowrap"
+                    title={detectedLanguage}
+                  >
+                    {detectedLanguage.toLowerCase().includes("nl") || detectedLanguage.toLowerCase().includes("dutch")
+                      ? "NL"
+                      : detectedLanguage.toLowerCase().includes("en")
+                        ? "EN"
+                        : detectedLanguage}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsDesktopExpanded(false)}
+                  className="p-1 rounded hover:bg-[var(--selected)] text-[var(--ink-3)] hover:text-[var(--ink)] cursor-pointer"
+                  title="Collapse reply box"
+                  aria-label="Collapse reply box"
+                >
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Quoted Message Preview if user selected a message to reply to */}
+            {replyingTo && (
+              <div className="mx-3 mt-2.5 flex items-start justify-between gap-2 p-2 px-3 rounded-[var(--radius-ctl)] bg-[var(--selected)] border-l-2 border-l-[var(--accent)] border border-[var(--line)] text-xs">
+                <div className="min-w-0">
+                  <span className="font-semibold text-[var(--ink)] block truncate">
+                    Replying to {replyingTo.sender}:
+                  </span>
+                  <p className="text-[var(--ink-2)] truncate line-clamp-1 italic text-[11.5px]">
+                    &ldquo;{replyingTo.text}&rdquo;
+                  </p>
+                </div>
+                {onClearReplyingTo && (
+                  <button
+                    type="button"
+                    onClick={onClearReplyingTo}
+                    className="p-1 rounded text-[var(--ink-3)] hover:text-[var(--ink)] hover:bg-[var(--pane)] shrink-0 cursor-pointer"
+                    title="Cancel quote"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Clean Open Writing Canvas */}
+            <div className="relative bg-[var(--pane)]">
+              <textarea
+                ref={textareaRef}
+                rows={hasDraft ? 4 : 3}
+                value={content}
+                onChange={(e) => editContent(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (hasDraft) {
+                      handleAccept();
+                    } else {
+                      handleSendNormal();
+                    }
+                  }
+                }}
+                placeholder={t("inbox.reply_placeholder", "Type a reply... (Press Enter to send)")}
+                className="w-full min-h-[104px] text-[14px] px-3.5 py-2.5 bg-transparent border-0 text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none resize-y leading-relaxed"
+              />
+            </div>
+
+            {/* Integrated Bottom Toolbar */}
+            <div className="px-3 py-2 border-t border-[var(--line)] bg-[var(--bg)]/40 flex flex-wrap items-center justify-between gap-2">
+              {/* Left utilities: Dictate + Lang + English toggle */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => toggleVoiceInput(content)}
+                  className={cn(
+                    "px-2.5 py-1 rounded-[7px] text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 shrink-0 border select-none",
+                    isListening
+                      ? "bg-cyan-500 text-black border-cyan-400 shadow-[0_0_15px_rgba(0,229,255,0.7)] animate-pulse font-semibold ring-2 ring-cyan-300"
+                      : "bg-[var(--pane)] hover:bg-[var(--selected)] text-[var(--ink-2)] hover:text-[var(--ink)] border-[var(--line)]"
+                  )}
+                  title={isListening ? "Listening... click to stop" : `Voice dictation (${speechLang === "nl" ? "Dutch" : "English"})`}
+                  aria-label="Voice input"
+                >
+                  {isListening ? (
+                    <MicOff className="w-3.5 h-3.5 text-black stroke-[2.5]" />
+                  ) : (
+                    <Mic className="w-3.5 h-3.5 text-[var(--accent-ink)] stroke-[2]" />
+                  )}
+                  <span>{isListening ? "Listening..." : "Dictate"}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSpeechLang((prev) => (prev === "nl" ? "en" : "nl"))}
+                  className={cn(
+                    "text-[10.5px] font-bold px-2 py-1 rounded-[7px] border transition-all cursor-pointer flex items-center gap-1 select-none bg-[var(--pane)] hover:bg-[var(--selected)] border-[var(--line)] text-[var(--ink-2)]"
+                  )}
+                  title={speechLang === "nl" ? "Voice language: Nederlands (click to switch to English)" : "Voice language: English (click to switch to Nederlands)"}
+                >
+                  <span className="inline-flex items-center gap-1">
+                    {speechLang === "nl" ? <FlagNL className="w-3.5 h-2.5" /> : <FlagUK className="w-3.5 h-2.5" />}
+                    <span>{speechLang === "nl" ? "NL" : "EN"}</span>
+                  </span>
+                </button>
+
+                {isListening && (
+                  <span className="text-[11.5px] text-cyan-600 dark:text-cyan-400 font-medium animate-pulse flex items-center gap-1.5 pl-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-ping inline-block" />
+                    <span>
+                      {speechLang === "nl"
+                        ? "Luisteren (NL)..."
+                        : "Listening (EN)..."}
+                    </span>
+                  </span>
+                )}
+
+                {voiceError && !isListening && (
+                  <span className="text-[11.5px] text-amber-600 dark:text-amber-400 font-medium pl-1">{voiceError}</span>
+                )}
+
+                {/* Translate the box to Dutch: owner types English, the tenant reads Dutch. Local model, cached. */}
+                {content.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => void translateContentToDutch()}
+                    disabled={isTranslating}
+                    className="text-[10.5px] font-bold px-2 py-0.5 rounded-full border transition-all cursor-pointer flex items-center gap-1 select-none bg-[var(--pane)] hover:bg-[var(--selected)] text-[var(--ink-2)] hover:text-[var(--ink)] border-[var(--line)] disabled:opacity-60"
+                    title="Translate the text in the box to Dutch before sending"
+                  >
+                    {isTranslating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Languages className="w-3 h-3" />}
+                    <span>{isTranslating ? "Vertalen…" : "Translate to Dutch"}</span>
+                  </button>
+                )}
+                {translateNotice && !isTranslating && (
+                  <span className="text-[11.5px] text-amber-600 dark:text-amber-400 font-medium pl-1">{translateNotice}</span>
+                )}
+                {lastTranslation && content === lastTranslation.to && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      editContent(lastTranslation.from);
+                      setLastTranslation(null);
+                    }}
+                    className="text-xs text-[var(--ink-3)] underline hover:text-[var(--ink)] cursor-pointer"
+                  >
+                    Undo translation
+                  </button>
+                )}
+
+                <TranslationToggle
+                  text={content}
+                  language={drafts.find((d) => d.text.trim() === content.trim())?.language
+                    ?? (drafts.some((d) => d.language === "nl") ? "nl" : undefined)}
+                  cachedEnglish={drafts.find((d) => d.text.trim() === content.trim())?.englishMeaning}
+                  cachedDutch={drafts.find((d) => d.text.trim() === content.trim())?.dutchMeaning}
+                />
+              </div>
+
+              {/* Right actions */}
+              {hasDraft ? (
+                <div className="flex flex-wrap items-center gap-1.5 justify-end ml-auto">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleRejectClick}
+                    className="text-[var(--ink-3)] hover:text-[var(--ink)] whitespace-nowrap shrink-0 h-8"
+                  >
+                    {t("Reject")}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => textareaRef.current?.focus()}
+                    className="whitespace-nowrap shrink-0 h-8"
+                  >
+                    {t("Edit")}
+                  </Button>
+                  {activeChannel === "whatsapp" && cleanPhone && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleOpenWhatsApp()}
+                      className="whitespace-nowrap shrink-0 h-8 text-emerald-700 hover:text-emerald-800 bg-[var(--pane)] hover:bg-[var(--selected)] border border-[var(--line)] font-semibold cursor-pointer"
+                      icon={<ExternalLink className="w-3.5 h-3.5 text-emerald-600" />}
+                      title="Open this drafted reply directly in WhatsApp Web or App"
+                    >
+                      Open in WhatsApp
+                    </Button>
+                  )}
+                  {activeChannel === "gmail" && effectiveEmail && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleOpenGmail()}
+                      disabled={isDraftingGmail}
+                      className="whitespace-nowrap shrink-0 h-8 text-[var(--ink)] bg-[var(--pane)] hover:bg-[var(--selected)] border border-[var(--line)] font-semibold cursor-pointer"
+                      icon={isDraftingGmail ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" /> : <ExternalLink className="w-3.5 h-3.5 text-blue-600" />}
+                      title={isReply ? "Reply to this thread in Gmail" : "Compose a new email in Gmail"}
+                    >
+                      {isDraftingGmail ? "Preparing Draft..." : (isReply ? "Reply in Gmail" : "Open in Gmail")}
+                    </Button>
+                  )}
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleAccept}
+                    className="whitespace-nowrap shrink-0 px-3.5 h-8 font-bold"
+                    icon={<AstraIcon className="w-3.5 h-3.5" />}
+                  >
+                    {t("inbox.approve_draft", "Accept & send")}
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-1.5 justify-end ml-auto">
+                  {activeChannel === "whatsapp" && cleanPhone && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleOpenWhatsApp()}
+                      disabled={!content.trim()}
+                      className="whitespace-nowrap shrink-0 h-8 text-emerald-700 bg-[var(--pane)] hover:bg-[var(--selected)] border border-[var(--line)] font-semibold cursor-pointer"
+                      icon={<ExternalLink className="w-3.5 h-3.5 text-emerald-600" />}
+                      title="Open this message directly in WhatsApp Web or App"
+                    >
+                      Open in WhatsApp
+                    </Button>
+                  )}
+                  {activeChannel === "gmail" && effectiveEmail && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleOpenGmail()}
+                      disabled={!content.trim() || isDraftingGmail}
+                      className="whitespace-nowrap shrink-0 h-8 text-[var(--ink)] bg-[var(--pane)] hover:bg-[var(--selected)] border border-[var(--line)] font-semibold cursor-pointer"
+                      icon={isDraftingGmail ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" /> : <ExternalLink className="w-3.5 h-3.5 text-blue-600" />}
+                      title={isReply ? "Reply to this thread in Gmail" : "Compose a new email in Gmail"}
+                    >
+                      {isDraftingGmail ? "Preparing Draft..." : (isReply ? "Reply in Gmail" : "Open in Gmail")}
+                    </Button>
+                  )}
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleSendNormal}
+                    disabled={!content.trim()}
+                    icon={<Send className="w-3.5 h-3.5 fill-current" />}
+                    className="px-4 h-8 font-bold"
+                  >
+                    {t("Send")}
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mobile Full-Height Editor Sheet (Section 5.6.1) */}
       {isEditingFull && (

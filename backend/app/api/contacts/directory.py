@@ -34,7 +34,15 @@ from app.directory.contacts import (
 )
 
 router = APIRouter(prefix="/api/contacts", tags=["contacts"], dependencies=[Depends(require_section("contacts"))])
-_ROLE_LABEL = {"tenant": "Tenant", "owner": "Owner", "utility": "Utility", "municipal": "Municipality"}
+_ROLE_LABEL = {
+    "tenant": "Tenant",
+    "owner": "Owner",
+    "legal": "Legal",
+    "vve": "VvE",
+    "business": "Business",
+    "utility": "Utility",
+    "municipal": "Municipality",
+}
 
 
 class ContactOut(BaseModel):
@@ -71,7 +79,9 @@ class ContactOut(BaseModel):
 
 class ContactIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
-    category: str = Field(description="tenant | contractor | owner | utility | municipal | other")
+    category: str = Field(
+        description="tenant | contractor | owner | legal | vve | business | utility | municipal | other"
+    )
     trade: str | None = Field(default=None, max_length=100, description="Trade or role, e.g. Plumber or Caretaker")
     email: str | None = Field(default=None, max_length=320)
     phone: str | None = Field(default=None, max_length=40)
@@ -81,6 +91,8 @@ class ContactPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     category: str | None = None
     trade: str | None = Field(default=None, max_length=100)
+    email: str | None = Field(default=None, max_length=320)
+    phone: str | None = Field(default=None, max_length=40)
 
 
 @dataclass(frozen=True)
@@ -93,22 +105,29 @@ class _Tenancy:
     end: date | None = None
 
 
-def _tenancy(session: Session, company_id: UUID, person_id: UUID) -> _Tenancy:
-    """The person's most recent lease (as tenant or co-tenant), from the directory. Blank when the person has no
-    lease on file: nothing is invented."""
-    row = session.execute(
-        select(Unit.label, Unit.address, Lease.valid_from, Lease.valid_to, Lease.brixx_ref)
+def _tenancies(session: Session, company_id: UUID, person_ids: list[UUID]) -> dict[UUID, _Tenancy]:
+    """Each person's most recent lease (as tenant or co-tenant), from the directory."""
+    if not person_ids:
+        return {}
+    rows = session.execute(
+        select(LeaseParty.person_id, Unit.label, Unit.address, Lease.valid_from, Lease.valid_to, Lease.brixx_ref)
         .select_from(LeaseParty)
         .join(Lease, Lease.id == LeaseParty.lease_id)
         .join(Unit, Unit.id == Lease.unit_id)
-        .where(LeaseParty.company_id == company_id, LeaseParty.person_id == person_id)
+        .where(LeaseParty.company_id == company_id, LeaseParty.person_id.in_(person_ids))
         .order_by(Lease.valid_to.is_(None).desc(), Lease.valid_to.desc(), Lease.valid_from.desc())
-    ).first()
-    if row is None:
-        return _Tenancy()
-    label, address, start, end, ref = row
-    period = f"{start:%d %b %Y} — {end:%d %b %Y}" if end else f"Since {start:%d %b %Y} (open-ended)"
-    return _Tenancy(label, address or label, period, ref, start, end)
+    ).all()
+    found: dict[UUID, _Tenancy] = {}
+    for person_id, label, address, start, end, ref in rows:
+        if person_id in found:
+            continue
+        period = f"{start:%d %b %Y} — {end:%d %b %Y}" if end else f"Since {start:%d %b %Y} (open-ended)"
+        found[person_id] = _Tenancy(label, address or label, period, ref, start, end)
+    return found
+
+
+def _tenancy(session: Session, company_id: UUID, person_id: UUID) -> _Tenancy:
+    return _tenancies(session, company_id, [person_id]).get(person_id, _Tenancy())
 
 
 def _role_label(category: str, trade: str | None) -> str:
@@ -184,16 +203,15 @@ def _overdue_tenants(session: Session, company_id: UUID, person_ids: list[UUID])
 
 
 def _contact(
-    session: Session,
     person: Person,
     idents: _Identities,
+    tenancy: _Tenancy,
     open_cases: int,
     facts: UnitFacts,
     is_overdue: bool = False,
     rent_known: bool = False,
 ) -> ContactOut:
     category = category_of(person.kind, person.trade)
-    tenancy = _tenancy(session, person.company_id, person.id) if category == "tenant" else _Tenancy()
     rent, deposit = facts.for_lease(tenancy.lease_ref)
     role = _role_label(category, person.trade)
     today = datetime.now(UTC).date()
@@ -234,10 +252,12 @@ def _one(session: Session, person: Person) -> ContactOut:
     ids = [person.id]
     overdue_set = _overdue_tenants(session, person.company_id, ids)
     idents = _identities(session, person.company_id, ids).get(person.id, _Identities())
+    is_tenant = category_of(person.kind, person.trade) == "tenant"
+    tenancy = _tenancy(session, person.company_id, person.id) if is_tenant else _Tenancy()
     return _contact(
-        session,
         person,
         idents,
+        tenancy,
         _open_cases(session, person.company_id, ids).get(person.id, 0),
         unit_facts(session, person.company_id, datetime.now(UTC).date()),
         is_overdue=person.id in overdue_set,
@@ -265,7 +285,9 @@ def list_contacts(
     with Session(engine) as session:
         people = [p for p in session.scalars(stmt) if p.display_name.strip()]
         ids = [p.id for p in people]
+        tenant_ids = [p.id for p in people if category_of(p.kind, p.trade) == "tenant"]
         identities = _identities(session, company_id, ids)
+        tenancies = _tenancies(session, company_id, tenant_ids)
         cases = _open_cases(session, company_id, ids)
         overdue_set = _overdue_tenants(session, company_id, ids)
         known = _rent_known(session, company_id, ids)
@@ -280,9 +302,9 @@ def list_contacts(
                 seen.add(key)
             results.append(
                 _contact(
-                    session,
                     person,
                     identities.get(person.id, _Identities()),
+                    tenancies.get(person.id, _Tenancy()),
                     cases.get(person.id, 0),
                     facts,
                     is_overdue=person.id in overdue_set,
@@ -342,7 +364,15 @@ def edit_contact(
     try:
         with Session(engine) as session, session.begin():
             person = update_contact(
-                session, principal.company_id, contact_id, name=body.name, category=body.category, trade=body.trade
+                session,
+                principal.company_id,
+                contact_id,
+                name=body.name,
+                category=body.category,
+                trade=body.trade,
+                email=body.email,
+                phone=body.phone,
+                today=datetime.now(UTC).date(),
             )
             return _one(session, person)
     except (ContactConflictError, InvalidContactError, NotFoundError) as exc:

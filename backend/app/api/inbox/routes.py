@@ -4,9 +4,12 @@ Feeds communications triage threads (Gmail & WhatsApp), AI multi-draft proposals
 audience filtering, and 1-click owner approval execution to the Next.js frontend.
 """
 
+import contextlib
+import threading
 import urllib.parse
 from collections import defaultdict
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -14,12 +17,20 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import ColumnElement, Engine, func, select
+from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import WorkflowClient, get_engine, get_ingest_deps, get_storage, get_workflow_client
 from app.api.inbox import decide as inbox_decide
 from app.api.inbox.summary import headline_only
+from app.api.inbox.thread_batch import (
+    ThreadDetailsBatch,
+    ThreadMessagesBatch,
+    inbox_stats_counts,
+    is_automated_sender,
+    load_details_batch,
+    load_messages_batch,
+)
 from app.api.inbox.time_labels import when_label
 from app.api.inbox.translate import annotate_translations
 from app.api.inbox.translate import router as translate_router
@@ -28,36 +39,30 @@ from app.api.v1 import enqueue
 from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import decide_limit, sync_limit
-from app.context.sender_label import UNASSIGNED_UNIT, role_hint_of, sender_label_for, unit_display
-from app.context.shown_sender import greeting_name, saved_names, shown_sender_name
-from app.contracts import ActionType, ButtonChoice, Category, Channel, Direction
+from app.channels.gmail.html_sanitize import html_to_clean_text, looks_like_html, sanitize_email_html
+from app.context.sender_label import UNASSIGNED_UNIT, resolve_sender_label, role_hint_of, unit_display
+from app.context.shown_sender import greeting_name, shown_sender_name
+from app.contracts import ActionType, ButtonChoice, CaseState, Category, Channel, Direction
 from app.core.errors import NotFoundError
 from app.core.ids import case_ref
 from app.core.language import detect_language
 from app.core.logging import get_logger
 from app.core.settings import get_settings
-from app.db.enums import ApprovalStatus, LinkMethod, PersonKind, PipelineStatus, RawEventStatus
+from app.db.enums import ApprovalStatus, CaseEventKind, PersonKind, PipelineStatus, RawEventStatus
 from app.db.models import (
     ActionRow,
-    Approval,
     AttachmentRow,
     Case,
+    CaseEvent,
     CaseLink,
     ChannelAccount,
-    ChannelIdentity,
-    Company,
-    DocumentRow,
     GmailSyncState,
     Lease,
     LeaseParty,
     MessageRow,
-    Person,
     RawEvent,
-    Send,
-    UnderstandingRow,
     Unit,
 )
-from app.db.models.ingestion import not_chat_only
 from app.directory.contacts import link_secondary_identity
 from app.ingestion.gmail_sync import sync_mailbox
 from app.ingestion.process import IngestDeps
@@ -85,551 +90,545 @@ class ApprovalDecideRequest(BaseModel):
 DEFAULT_SEEDED_THREADS: list[dict[str, Any]] = []
 
 
-def _unlinked(company_id: UUID) -> ColumnElement[bool]:
-    """Messages no case holds yet. A message links to one case only, so linking a held one would fail the request."""
-    return ~MessageRow.id.in_(select(CaseLink.message_id).where(CaseLink.company_id == company_id))
-
-
-def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, Any]]:
-    """Builds rich frontend-compatible thread structures from the PostgreSQL records of `company_id` only."""
-    live_threads: list[dict[str, Any]] = []
-    cases = session.query(Case).filter(Case.company_id == company_id).order_by(Case.opened_at.desc()).limit(20).all()
-    company = session.get(Company, company_id)
-    company_tz = ZoneInfo(company.timezone if company else "Europe/Amsterdam")
-    company_units = [(u.label, u.address) for u in session.query(Unit).filter(Unit.company_id == company_id)]
-    now_dt = datetime.now(UTC)
-    today = now_dt.date()
-    for case in cases:
-        links = session.query(CaseLink).filter(CaseLink.case_id == case.id).all()
-        msg_ids = [link.message_id for link in links]
-        if not msg_ids:
-            continue
-        messages = session.query(MessageRow).filter(MessageRow.id.in_(msg_ids)).order_by(MessageRow.sent_at.asc()).all()
-        if not messages:
-            continue
-
-        # Collect thread refs from linked messages and include all messages sharing the thread
-        thread_refs = [m.thread_ref for m in messages if m.thread_ref]
-        if thread_refs:
-            unlinked_thread_msgs = (
-                session.query(MessageRow)
-                .filter(
-                    MessageRow.company_id == company_id,
-                    MessageRow.thread_ref.in_(thread_refs),
-                    ~MessageRow.id.in_(msg_ids),
-                    _unlinked(company_id),
-                    not_chat_only(),
-                )
-                .all()
-            )
-            for um in unlinked_thread_msgs:
-                messages.append(um)
-                session.add(
-                    CaseLink(
-                        company_id=case.company_id,
-                        case_id=case.id,
-                        message_id=um.id,
-                        method=LinkMethod.thread,
-                        confidence=1.0,
-                    )
-                )
-            if unlinked_thread_msgs:
-                session.commit()
-                messages.sort(key=lambda m: m.sent_at if m.sent_at else datetime.min.replace(tzinfo=UTC))
-
-        # Identify the tenant's message (inbound), never our own outbound reply
-        inbound_msgs = [m for m in messages if m.direction != Direction.outbound]
-        tenant_msg = inbound_msgs[-1] if inbound_msgs else messages[0]
-        latest_msg = messages[-1]
-
-        person = session.get(Person, case.primary_person_id) if case.primary_person_id else None
-        sender_email = tenant_msg.sender_identity
-        # Exclude automated job alerts, promotions, and system notifications
-        automated_keywords = [
-            "noreply",
-            "newsletter",
-            "linkedin",
-            "glassdoor",
-            "naukri",
-            "typesafe",
-            "googleai",
-            "update",
-            "notification",
-            "alert",
-            "job",
-            "career",
-            "digest",
-        ]
-        if any(kw in sender_email.lower() for kw in automated_keywords):
-            continue
-
-        # Check if this thread involves a contractor
-        is_contractor = False
-        if (
-            (person and getattr(person, "kind", None) == PersonKind.contractor)
-            or (
-                case.category
-                and case.category.value in ("contractor_update", "contractor_invoices", "contractor_repairs")
-            )
-            or any(c_kw in sender_email.lower() for c_kw in ["chahalbouw.nl", "contractor", "loodgieter"])
-            or any("chahalbouw.nl" in (m.sender_identity or "").lower() for m in messages)
-        ):
-            is_contractor = True
-
-        # If this is a contractor thread, ensure all related contractor communications are attached
-        if is_contractor:
-            known_ids = {m.id for m in messages}
-            extra_contractor_msgs = (
-                session.query(MessageRow)
-                .filter(
-                    MessageRow.company_id == company_id,
-                    ~MessageRow.id.in_(list(known_ids)),
-                    _unlinked(company_id),
-                    MessageRow.meta.is_not(None),
-                    not_chat_only(),
-                )
-                .all()
-            )
-            for ecm in extra_contractor_msgs:
-                to_val = ecm.meta.get("to", []) if isinstance(ecm.meta, dict) else []
-                to_str = " ".join(to_val) if isinstance(to_val, list) else str(to_val)
-                subj = str(ecm.meta.get("subject", "")) if isinstance(ecm.meta, dict) else ""
-                if (
-                    "chahalbouw.nl" in to_str.lower()
-                    or "chahalbouw.nl" in (ecm.sender_identity or "").lower()
-                    or "work order" in subj.lower()
-                    or "inv-2026-104" in subj.lower()
-                ):
-                    messages.append(ecm)
-                    session.add(
-                        CaseLink(
-                            company_id=case.company_id,
-                            case_id=case.id,
-                            message_id=ecm.id,
-                            method=LinkMethod.thread,
-                            confidence=1.0,
-                        )
-                    )
-            if len(messages) > len(known_ids):
-                session.commit()
-                messages.sort(key=lambda m: m.sent_at if m.sent_at else datetime.min.replace(tzinfo=UTC))
-
-        names = saved_names(session, company_id, messages)
-        if tenant_msg.direction != Direction.outbound:
-            sender_name = shown_sender_name(tenant_msg, names.get(tenant_msg.id))
-        else:  # nobody has written in yet: the thread is named after the case's contact
-            sender_name = person.display_name if person else sender_email
-
-        unit = session.get(Unit, case.unit_id) if case.unit_id else None
-        unit_label = (unit.address or unit.label) if unit else None
-
-        if not unit_label or unit_label == UNASSIGNED_UNIT:
-            # Check all message texts and subjects in the thread for mentions of known units
-            all_text = " ".join(
-                [
-                    (m.text or "") + " " + (str(m.meta.get("subject", "")) if isinstance(m.meta, dict) else "")
-                    for m in messages
-                ]
-            ).lower()
-            unit_label = unit_named_in(all_text, company_units)
-
-        if not unit_label:
-            unit_label = UNASSIGNED_UNIT
-
-        sender_und = (
-            session.query(UnderstandingRow)
-            .filter(UnderstandingRow.company_id == company_id, UnderstandingRow.message_id == tenant_msg.id)
-            .first()
+def _is_contractor_case(case: Case, person: Any, sender_email: str, messages: list[MessageRow]) -> bool:
+    return (
+        (person is not None and person.kind == PersonKind.contractor)
+        or (
+            case.category is not None
+            and case.category.value in ("contractor_update", "contractor_invoices", "contractor_repairs")
         )
-        sender_label = sender_label_for(
-            session,
-            company_id,
-            person,
-            role_hint=role_hint_of(sender_und.body if sender_und and isinstance(sender_und.body, dict) else {}),
-            contractor_hint=is_contractor,
-        )
+        or any(c_kw in sender_email.lower() for c_kw in ("chahalbouw.nl", "contractor", "loodgieter"))
+        or any("chahalbouw.nl" in (m.sender_identity or "").lower() for m in messages)
+    )
 
-        is_unregistered_sender = False
-        matched_tenant_info = None
-        if unit_label != UNASSIGNED_UNIT:
-            lease_rows = session.execute(
-                select(Person.id, Person.display_name, ChannelIdentity.identity)
-                .select_from(Lease)
-                .join(Unit, Unit.id == Lease.unit_id)
-                .join(LeaseParty, LeaseParty.lease_id == Lease.id)
-                .join(Person, Person.id == LeaseParty.person_id)
-                .outerjoin(
-                    ChannelIdentity,
-                    (ChannelIdentity.person_id == Person.id) & (ChannelIdentity.valid_to.is_(None)),
-                )
-                .where(
-                    Unit.company_id == company_id,
-                    (Unit.label == unit_label) | (Unit.address == unit_label),
-                    (Lease.valid_to.is_(None)) | (Lease.valid_to >= today),
-                )
-            ).all()
-            if lease_rows:
-                tenant_id, tenant_name, _ = lease_rows[0]
-                known_identities = {str(row[2]).lower().strip() for row in lease_rows if row[2]}
-                sender_clean = sender_email.lower().strip()
-                if (
-                    sender_clean not in known_identities
-                    and (not person or person.kind == PersonKind.other)
-                    and sender_label.may_be_tenant
-                ):
-                    is_unregistered_sender = True
-                    matched_tenant_info = {
-                        "id": str(tenant_id),
-                        "name": tenant_name,
-                        "unit": unit_label,
-                    }
 
-        if unit_label == UNASSIGNED_UNIT:  # only a tenant is ever shown without a unit; others show their organisation
-            unit_label = unit_display(sender_label.kind, None, sender_email)
+def _resolve_unit_label(
+    case: Case,
+    messages: list[MessageRow],
+    units_by_id: dict[UUID, Unit],
+    company_units: list[tuple[str, str | None]],
+) -> str:
+    unit = units_by_id.get(case.unit_id) if case.unit_id else None
+    label = (unit.address or unit.label) if unit else None
+    if not label or label == UNASSIGNED_UNIT:
+        all_text = " ".join(
+            (m.text or "") + " " + (str(m.meta.get("subject", "")) if isinstance(m.meta, dict) else "")
+            for m in messages
+        ).lower()
+        label = unit_named_in(all_text, company_units)
+    return label or UNASSIGNED_UNIT
 
-        actions = (
-            session.query(ActionRow).filter(ActionRow.case_id == case.id).order_by(ActionRow.created_at.desc()).all()
-        )
-        reply_action = next((a for a in actions if a.type == ActionType.reply_draft), None)
-        approval = None
-        if reply_action:
-            # Look for pending approval first, or latest approval
-            approvals = (
-                session.query(Approval)
-                .filter(Approval.action_id == reply_action.id)
-                .order_by(Approval.created_at.desc())
-                .all()
-            )
-            approval = next(
-                (ap for ap in approvals if ap.status == ApprovalStatus.pending), approvals[0] if approvals else None
-            )
 
-        # Retrieve AI Understanding for this message/case
-        und_row = session.query(UnderstandingRow).filter(UnderstandingRow.message_id == latest_msg.id).first()
-        und_body = und_row.body if und_row and isinstance(und_row.body, dict) else {}
-        und_entities = und_body.get("entities") or {}
-        raw_intent = und_body.get("intent") or case.summary or "Incoming communication analyzed by Gemini AI agent."
-        und_intent = (
-            raw_intent.replace("_", " ").strip().capitalize()
-            if isinstance(raw_intent, str) and "_" in raw_intent and " " not in raw_intent.strip()
-            else raw_intent
-        )
-
-        detected_lang_label = {"nl": "Dutch (detected)", "en": "English (detected)"}.get(
-            detect_language(latest_msg.text or ""), "Language not detected"
-        )
-
-        # Custom facts for EstateOS understood block
-        custom_facts = [
-            {"label": "Intent", "value": und_intent, "checked": True},
-            {"label": "Category", "value": case.category.value.upper(), "checked": True},
-            {"label": "Priority", "value": (case.urgency.value if case.urgency else "normal").upper(), "checked": True},
-            {"label": "Unit", "value": unit_label, "checked": True},
-            {"label": "Sender", "value": sender_name, "checked": True},
-        ]
-        if case.category == Category.maintenance:
-            if case.brixx_ref:
-                custom_facts.append(
-                    {
-                        "label": "BRIXX Ticket",
-                        "value": f"BRIXX-{case.brixx_ref} (Linked)",
-                        "checked": True,
-                        "isAlert": False,
-                    }
-                )
-            else:
-                custom_facts.append(
-                    {
-                        "label": "BRIXX Ticket",
-                        "value": "Not in BRIXX (Pending Work Order)",
-                        "checked": True,
-                        "isAlert": True,
-                    }
-                )
-        if und_entities.get("amounts"):
-            for amt in und_entities["amounts"]:
-                custom_facts.append(
-                    {"label": "Amount", "value": f"€ {amt.get('amount')} {amt.get('currency', 'EUR')}", "checked": True}
-                )
-        if und_entities.get("dates"):
-            for d in und_entities["dates"]:
-                custom_facts.append({"label": "Date Mentioned", "value": str(d), "checked": True})
-        if und_entities.get("people"):
-            custom_facts.append({"label": "People", "value": ", ".join(und_entities["people"]), "checked": True})
-        if is_unregistered_sender and matched_tenant_info:
+def _build_custom_facts(
+    case: Case,
+    *,
+    und_intent: str,
+    und_entities: dict[str, Any],
+    unit_label: str,
+    sender_name: str,
+    sender_email: str,
+    is_unregistered_sender: bool,
+    matched_tenant_info: dict[str, str] | None,
+) -> list[dict[str, Any]]:
+    custom_facts: list[dict[str, Any]] = [
+        {"label": "Intent", "value": und_intent, "checked": True},
+        {"label": "Category", "value": case.category.value.upper(), "checked": True},
+        {"label": "Priority", "value": (case.urgency.value if case.urgency else "normal").upper(), "checked": True},
+        {"label": "Unit", "value": unit_label, "checked": True},
+        {"label": "Sender", "value": sender_name, "checked": True},
+    ]
+    if case.category == Category.maintenance:
+        if case.brixx_ref:
             custom_facts.append(
                 {
-                    "label": "Sender Status",
-                    "value": f"⚠️ Unregistered ({sender_email}) · Leaseholder: {matched_tenant_info['name']}",
+                    "label": "BRIXX Ticket",
+                    "value": f"BRIXX-{case.brixx_ref} (Linked)",
+                    "checked": True,
+                    "isAlert": False,
+                }
+            )
+        else:
+            custom_facts.append(
+                {
+                    "label": "BRIXX Ticket",
+                    "value": "Not in BRIXX (Pending Work Order)",
                     "checked": True,
                     "isAlert": True,
                 }
             )
-
-        # Draft generation: Generate tailored replies for Gmail and WhatsApp
-        gmail_drafts: list[dict[str, Any]] = []
-        whatsapp_drafts: list[dict[str, Any]] = []
-        draft_persona: dict[str, Any] | None = None  # set only for model drafts written in the owner's persona
-
-        if reply_action and reply_action.payload:  # the agent's own draft, shown on both tabs
-            if reply_action.persona_name:
-                draft_persona = {
-                    "actingAs": "Harjot",
-                    "name": reply_action.persona_name,
-                    "version": reply_action.persona_version,
-                }
-            variants = reply_action.payload.get("body_variants") or []
-            if not variants and reply_action.payload.get("text"):
-                variants = [reply_action.payload["text"]]
-            elif not variants and reply_action.payload.get("body"):
-                variants = [reply_action.payload["body"]]
-
-            for idx, text in enumerate(variants, start=1):
-                gmail_drafts.append(
-                    {
-                        "id": f"gd{idx}",
-                        "label": f"Draft {idx} (Recommended)" if idx == 1 else f"Draft {idx} (Alternative)",
-                        "channel": "gmail",
-                        "text": text,
-                        "confidence": 98 if idx == 1 else 95,
-                    }
-                )
-                whatsapp_drafts.append(
-                    {
-                        "id": f"wd{idx}",
-                        "label": f"WhatsApp {idx} (Quick Confirmation)" if idx == 1 else f"WhatsApp {idx} (Detailed)",
-                        "channel": "whatsapp",
-                        "text": text,
-                        "confidence": 98 if idx == 1 else 95,
-                    }
-                )
-
-        if not gmail_drafts:
-            # No agent draft yet: neutral acknowledgements only. They state no fact, date, amount or commitment.
-            greet = greeting_name(sender_name)
-            hello = f" {greet}" if greet else ""
-            d1_en = (
-                f"Dear {greet or 'sir/madam'},\n\nThank you for your message. "
-                "We have received it and will get back to you shortly.\n\nBest regards,\nHarjot"
-            )
-            d2_en = (
-                f"Hello{hello},\n\nThanks for reaching out. I am looking into this and will follow up as soon "
-                "as I can.\n\nKind regards,\nHarjot"
-            )
-            d1_wa = f"Hi{hello}, thank you for your message. We have received it and will reply shortly."
-            d2_wa = f"Hello{hello}, thanks for reaching out. I am looking into this and will get back to you."
-
-            gmail_drafts = [
-                {"id": "gd1", "label": "Draft 1 (Recommended)", "channel": "gmail", "text": d1_en, "confidence": 98},
-                {"id": "gd2", "label": "Draft 2 (Alternative)", "channel": "gmail", "text": d2_en, "confidence": 95},
-            ]
-            whatsapp_drafts = [
-                {
-                    "id": "wd1",
-                    "label": "WhatsApp 1 (Quick Confirmation)",
-                    "channel": "whatsapp",
-                    "text": d1_wa,
-                    "confidence": 98,
-                },
-                {"id": "wd2", "label": "WhatsApp 2 (Detailed)", "channel": "whatsapp", "text": d2_wa, "confidence": 95},
-            ]
-
-        # Calculate exact timestamp relative label
-        now_dt = datetime.now(UTC)
-        sent_dt = latest_msg.sent_at if latest_msg.sent_at else now_dt
-        # Ensure sent_dt is timezone-aware
-        if sent_dt.tzinfo is None:
-            sent_dt = sent_dt.replace(tzinfo=UTC)
-        rel_label = when_label(sent_dt, now_dt, company_tz, weekdays=True)
-
-        # Collect attachments for all messages in this thread
-        msg_ids_list = [m.id for m in messages]
-        attachments_map: dict[UUID, list[dict[str, Any]]] = defaultdict(list)
-        all_thread_attachments: list[dict[str, Any]] = []
-        if msg_ids_list:
-            att_rows = session.query(AttachmentRow).filter(AttachmentRow.message_id.in_(msg_ids_list)).all()
-            for att in att_rows:
-                size_kb = (att.size_bytes or 0) / 1024
-                size_str = f"{size_kb:.0f} KB" if size_kb < 1024 else f"{size_kb / 1024:.1f} MB"
-                doc_row = session.query(DocumentRow).filter(DocumentRow.attachment_id == att.id).first()
-                drive_url = (
-                    f"https://drive.google.com/file/d/{doc_row.drive_file_id}/view"
-                    if doc_row and doc_row.drive_file_id
-                    else None
-                )
-                att_item = {
-                    "id": str(att.id),
-                    "name": att.filename or "Attachment",
-                    "filename": att.filename or "Attachment",
-                    "type": att.mime_type or "application/octet-stream",
-                    "mimeType": att.mime_type or "application/octet-stream",
-                    "size": size_str,
-                    "sizeBytes": att.size_bytes,
-                    "url": f"/api/inbox/attachments/{att.id}",
-                    "driveUrl": drive_url,
-                }
-                attachments_map[att.message_id].append(att_item)
-                all_thread_attachments.append(att_item)
-
-        msgs_data: list[dict[str, Any]] = []
-        for m in messages:
-            m_dt = m.sent_at if m.sent_at else now_dt
-            if m_dt.tzinfo is None:
-                m_dt = m_dt.replace(tzinfo=UTC)
-            m_time_fmt = when_label(m_dt, now_dt, company_tz)
-            m_is_incoming = m.direction != Direction.outbound
-            if m.direction == Direction.outbound:
-                m_sender_type = "owner"
-                m_sender_name = "Harjot Singh"
-                m_sender_contact = m.sender_identity or (get_settings().owner_email or "owner@estateos.com")
-            else:
-                m_sender_type = sender_label.kind.value
-                m_sender_name = shown_sender_name(m, names.get(m.id))
-                m_sender_contact = m.sender_identity
-
-            msgs_data.append(
-                {
-                    "id": str(m.id),
-                    "sender": m_sender_type,
-                    "senderName": m_sender_name,
-                    "senderContact": m_sender_contact,
-                    "sentAt": m_dt.isoformat(),
-                    "timeFormatted": m_time_fmt,
-                    "content": m.text,
-                    "body": m.text,
-                    "isIncoming": m_is_incoming,
-                    "channel": m.channel.value if m.channel else "gmail",
-                    "attachments": attachments_map.get(m.id, []),
-                    "subject": (
-                        m.meta.get("subject", "Communication") if isinstance(m.meta, dict) else "Communication"
-                    ),
-                }
-            )
-
-        # Also fetch any outgoing messages recorded in sends table for this case's actions
-        action_ids = [a.id for a in actions]
-        if action_ids:
-            sends = session.query(Send).filter(Send.action_id.in_(action_ids)).order_by(Send.attempted_at.asc()).all()
-            for s in sends:
-                s_dt = s.attempted_at if s.attempted_at else now_dt
-                if s_dt.tzinfo is None:
-                    s_dt = s_dt.replace(tzinfo=UTC)
-                s_time_fmt = when_label(s_dt, now_dt, company_tz)
-                # Retrieve draft text from action payload
-                act_row = next((a for a in actions if a.id == s.action_id), None)
-                act_payload = act_row.payload if act_row and isinstance(act_row.payload, dict) else {}
-                variants = act_payload.get("body_variants") or []
-                body_txt = variants[0] if variants else "Replied to tenant."
-
-                # Determine accurate preceding incoming message for this send
-                s_iso = s_dt.isoformat()
-                preceding_incoming = [m for m in msgs_data if m.get("isIncoming") and (m.get("sentAt") or "") <= s_iso]
-                reply_to_info = None
-                if preceding_incoming:
-                    target_in = preceding_incoming[-1]
-                    clean_in_text = (target_in.get("body") or "").strip().strip('"').strip("'")
-                    reply_to_info = {
-                        "id": str(target_in.get("id")),
-                        "sender": target_in.get("senderName") or "Tenant",
-                        "text": clean_in_text[:120],
-                    }
-                elif act_payload.get("reply_to"):
-                    reply_to_info = act_payload.get("reply_to")
-
-                msgs_data.append(
-                    {
-                        "id": str(s.id),
-                        "sender": "owner",
-                        "senderName": "Harjot Singh",
-                        "senderContact": "+31 20 000 0001",
-                        "sentAt": s_dt.isoformat(),
-                        "timeFormatted": s_time_fmt,
-                        "content": body_txt,
-                        "body": body_txt,
-                        "isIncoming": False,
-                        "channel": s.channel.value if s.channel else "whatsapp",
-                        "subject": "Reply",
-                        "replyTo": reply_to_info,
-                    }
-                )
-        # Sort all messages chronologically
-        msgs_data.sort(key=lambda x: x.get("sentAt", ""))
-        has_owner_reply = any(m.get("sender") == "owner" for m in msgs_data)
-        status_str = "needs_approval"
-        if (approval and approval.status == ApprovalStatus.approved) or has_owner_reply:
-            status_str = "approved"
-            if approval and approval.status != ApprovalStatus.approved:
-                approval.status = ApprovalStatus.approved
-                session.commit()
-
-        channel_str = latest_msg.channel.value if latest_msg.channel else "gmail"
-        subject_str = (
-            latest_msg.meta.get("subject") if isinstance(latest_msg.meta, dict) else None
-        ) or f"{case.category.value.title()} - {unit_label}"
-
-        role_label = sender_label.role_detail
-        audience_label = sender_label.audience
-        recipient_role = sender_label.recipient_role
-
-        annotate_translations(session, company_id, msgs_data, [*gmail_drafts, *whatsapp_drafts])
-        ticket_code = f"BRIXX-{case.brixx_ref}" if case.brixx_ref else f"#{case_ref(case.id)}"
-        live_threads.append(
+    for amt in und_entities.get("amounts") or ():
+        custom_facts.append(
+            {"label": "Amount", "value": f"€ {amt.get('amount')} {amt.get('currency', 'EUR')}", "checked": True}
+        )
+    for d in und_entities.get("dates") or ():
+        custom_facts.append({"label": "Date Mentioned", "value": str(d), "checked": True})
+    if und_entities.get("people"):
+        custom_facts.append({"label": "People", "value": ", ".join(und_entities["people"]), "checked": True})
+    if is_unregistered_sender and matched_tenant_info:
+        custom_facts.append(
             {
-                "id": f"case-{case.id}",
-                "caseId": str(case.id),
-                "ticketNumber": ticket_code,
-                "caseRef": ticket_code,
-                "approvalId": str(approval.id) if approval else f"case-{case.id}",
-                "audience": audience_label,
-                "recipientRole": recipient_role,
-                "recipientRoleDetail": role_label,
-                "isUnregisteredSender": is_unregistered_sender,
-                "matchedTenant": matched_tenant_info,
-                "category": case.category.value if case.category else "maintenance",
-                "urgency": case.urgency.value if case.urgency else "normal",
-                "unit": unit_label,
-                "title": subject_str,
-                "lastMessageSnippet": latest_msg.text[:140] if latest_msg.text else "",
-                "timestamp": rel_label,
-                "receivedAt": sent_dt.isoformat(),
-                "channel": channel_str,
-                "channelBadge": f"{channel_str.title()} · {rel_label}",
-                "sourceIdentifier": f"{channel_str.title()} · {sender_email}",
-                "subject": subject_str,
-                "externalMessageId": latest_msg.provider_msg_id or str(latest_msg.id),
-                "externalThreadId": latest_msg.thread_ref,
-                "sender": {
-                    "name": sender_name,
-                    "contact": sender_email,
-                    "role": role_label,
-                    "unit": unit_label,
-                },
-                "aiSummary": und_intent,
-                "aiConfidence": int((und_body.get("confidence") or 0.95) * 100),
-                "detectedLanguage": detected_lang_label,
-                "aiUnderstanding": {
-                    "ticket": ticket_code,
-                    "problem": und_intent,
-                    "unit": unit_label,
-                    "priority": (case.urgency.value if case.urgency else "normal").upper(),
-                    "suggestedContractor": None,
-                    "customFacts": custom_facts,
-                },
-                "activeChannel": channel_str,
-                "status": status_str,
-                "gmailDrafts": []
-                if (status_str == "approved" or (msgs_data and msgs_data[-1].get("sender") == "owner"))
-                else gmail_drafts,
-                "whatsappDrafts": []
-                if (status_str == "approved" or (msgs_data and msgs_data[-1].get("sender") == "owner"))
-                else whatsapp_drafts,
-                "draftPersona": draft_persona,
-                "attachments": all_thread_attachments,
-                "messages": msgs_data,
+                "label": "Sender Status",
+                "value": f"⚠️ Unregistered ({sender_email}) · Leaseholder: {matched_tenant_info['name']}",
+                "checked": True,
+                "isAlert": True,
             }
         )
-        if len(live_threads) >= 50:
+    return custom_facts
+
+
+def _build_drafts(
+    reply_action: ActionRow | None, sender_name: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any] | None]:
+    gmail_drafts: list[dict[str, Any]] = []
+    whatsapp_drafts: list[dict[str, Any]] = []
+    draft_persona: dict[str, Any] | None = None
+
+    if reply_action and reply_action.payload:
+        if reply_action.persona_name:
+            draft_persona = {
+                "actingAs": "Harjot",
+                "name": reply_action.persona_name,
+                "version": reply_action.persona_version,
+            }
+        variants = reply_action.payload.get("body_variants") or []
+        if not variants and reply_action.payload.get("text"):
+            variants = [reply_action.payload["text"]]
+        elif not variants and reply_action.payload.get("body"):
+            variants = [reply_action.payload["body"]]
+
+        for idx, text in enumerate(variants, start=1):
+            gmail_drafts.append(
+                {
+                    "id": f"gd{idx}",
+                    "label": f"Draft {idx} (Recommended)" if idx == 1 else f"Draft {idx} (Alternative)",
+                    "channel": "gmail",
+                    "text": text,
+                    "confidence": 98 if idx == 1 else 95,
+                }
+            )
+            whatsapp_drafts.append(
+                {
+                    "id": f"wd{idx}",
+                    "label": f"WhatsApp {idx} (Quick Confirmation)" if idx == 1 else f"WhatsApp {idx} (Detailed)",
+                    "channel": "whatsapp",
+                    "text": text,
+                    "confidence": 98 if idx == 1 else 95,
+                }
+            )
+
+    if not gmail_drafts:
+        # No agent draft yet: neutral acknowledgements only. They state no fact, date, amount or commitment.
+        greet = greeting_name(sender_name)
+        hello = f" {greet}" if greet else ""
+        d1_en = (
+            f"Dear {greet or 'sir/madam'},\n\nThank you for your message. We have received it and will get back to you "
+            "shortly.\n\nBest regards,\nHarjot"
+        )
+        d2_en = (
+            f"Hello{hello},\n\nThanks for reaching out. I am looking into this and will follow up as soon "
+            "as I can.\n\nKind regards,\nHarjot"
+        )
+        d1_wa = f"Hi{hello}, thank you for your message. We have received it and will reply shortly."
+        d2_wa = f"Hello{hello}, thanks for reaching out. I am looking into this and will get back to you."
+
+        gmail_drafts = [
+            {"id": "gd1", "label": "Draft 1 (Recommended)", "channel": "gmail", "text": d1_en, "confidence": 98},
+            {"id": "gd2", "label": "Draft 2 (Alternative)", "channel": "gmail", "text": d2_en, "confidence": 95},
+        ]
+        whatsapp_drafts = [
+            {
+                "id": "wd1",
+                "label": "WhatsApp 1 (Quick Confirmation)",
+                "channel": "whatsapp",
+                "text": d1_wa,
+                "confidence": 98,
+            },
+            {"id": "wd2", "label": "WhatsApp 2 (Detailed)", "channel": "whatsapp", "text": d2_wa, "confidence": 95},
+        ]
+    return gmail_drafts, whatsapp_drafts, draft_persona
+
+
+@dataclass
+class _PreparedCase:
+    case: Case
+    messages: list[MessageRow]
+    tenant_msg: MessageRow
+    latest_msg: MessageRow
+    sender_email: str
+    sender_name: str
+    person: Any
+    sender_label: Any
+    raw_unit_label: str
+    channel_str: str
+
+
+def _prepare_cases(
+    cases: list[Case],
+    msg_batch: ThreadMessagesBatch,
+    *,
+    has_filters: bool,
+    channel: str,
+    audience: str,
+    category: str,
+    limit: int,
+    offset: int,
+) -> list[_PreparedCase]:
+    kept: list[_PreparedCase] = []
+    for case in cases:
+        messages = msg_batch.msgs_by_case.get(case.id)
+        if not messages:
+            continue
+        inbound_msgs = [m for m in messages if m.direction != Direction.outbound]
+        tenant_msg = inbound_msgs[-1] if inbound_msgs else messages[0]
+        latest_msg = messages[-1]
+        sender_email = tenant_msg.sender_identity
+        if is_automated_sender(sender_email):
+            continue
+
+        person = msg_batch.people_by_id.get(case.primary_person_id) if case.primary_person_id else None
+        is_contractor = _is_contractor_case(case, person, sender_email, messages)
+        sender_und = msg_batch.und_by_msg_id.get(tenant_msg.id)
+        und_body_hint = sender_und.body if sender_und and isinstance(sender_und.body, dict) else {}
+        is_lp = person is not None and person.id in msg_batch.lease_party_ids
+        sender_label = resolve_sender_label(
+            person_kind=person.kind if person else None,
+            trade=person.trade if person else None,
+            is_lease_party=is_lp,
+            contractor_hint=is_contractor,
+            role_hint=role_hint_of(und_body_hint),
+        )
+        channel_str = latest_msg.channel.value if latest_msg.channel else "gmail"
+        case_cat = case.category.value if case.category else "maintenance"
+        if has_filters and (
+            (channel != "all" and channel_str != channel)
+            or (audience != "all" and sender_label.audience != audience)
+            or (category != "all" and case_cat != category)
+        ):
+            continue
+
+        if tenant_msg.direction != Direction.outbound:
+            sender_name = shown_sender_name(tenant_msg, msg_batch.saved_names.get(tenant_msg.id))
+        else:  # nobody has written in yet: the thread is named after the case's contact
+            sender_name = person.display_name if person else sender_email
+        raw_unit = _resolve_unit_label(case, messages, msg_batch.units_by_id, msg_batch.company_units)
+        kept.append(
+            _PreparedCase(
+                case=case,
+                messages=messages,
+                tenant_msg=tenant_msg,
+                latest_msg=latest_msg,
+                sender_email=sender_email,
+                sender_name=sender_name,
+                person=person,
+                sender_label=sender_label,
+                raw_unit_label=raw_unit,
+                channel_str=channel_str,
+            )
+        )
+        if not has_filters and len(kept) >= limit:
             break
+    return kept[offset : offset + limit] if has_filters else kept
+
+
+def _assemble_thread(
+    prep: _PreparedCase,
+    msg_batch: ThreadMessagesBatch,
+    details: ThreadDetailsBatch,
+    *,
+    company_tz: ZoneInfo,
+    now_dt: datetime,
+) -> dict[str, Any]:
+    case = prep.case
+    messages = prep.messages
+    unit_label = prep.raw_unit_label
+    is_unregistered_sender = False
+    matched_tenant_info: dict[str, str] | None = None
+
+    if unit_label != UNASSIGNED_UNIT:
+        lease_rows = details.leases_by_unit_key.get(unit_label)
+        if lease_rows:
+            tenant_id, tenant_name, _ = lease_rows[0]
+            known_identities = {str(row[2]).lower().strip() for row in lease_rows if row[2]}
+            sender_clean = prep.sender_email.lower().strip()
+            if (
+                sender_clean not in known_identities
+                and (not prep.person or prep.person.kind == PersonKind.other)
+                and prep.sender_label.may_be_tenant
+            ):
+                is_unregistered_sender = True
+                matched_tenant_info = {"id": str(tenant_id), "name": tenant_name, "unit": unit_label}
+
+    if unit_label == UNASSIGNED_UNIT:
+        unit_label = unit_display(prep.sender_label.kind, None, prep.sender_email)
+
+    actions = details.actions_by_case.get(case.id, [])
+    reply_action = next((a for a in actions if a.type == ActionType.reply_draft), None)
+    approval = None
+    if reply_action:
+        approvals = details.approvals_by_action.get(reply_action.id, [])
+        approval = next(
+            (ap for ap in approvals if ap.status == ApprovalStatus.pending), approvals[0] if approvals else None
+        )
+
+    und_row = msg_batch.und_by_msg_id.get(prep.latest_msg.id)
+    und_body = und_row.body if und_row and isinstance(und_row.body, dict) else {}
+    und_entities = und_body.get("entities") or {}
+    raw_intent = und_body.get("intent") or case.summary or "Incoming communication analyzed by Gemini AI agent."
+    und_intent = (
+        raw_intent.replace("_", " ").strip().capitalize()
+        if isinstance(raw_intent, str) and "_" in raw_intent and " " not in raw_intent.strip()
+        else raw_intent
+    )
+    detected_lang_label = {"nl": "Dutch (detected)", "en": "English (detected)"}.get(
+        detect_language(prep.latest_msg.text or ""), "Language not detected"
+    )
+    custom_facts = _build_custom_facts(
+        case,
+        und_intent=und_intent,
+        und_entities=und_entities,
+        unit_label=unit_label,
+        sender_name=prep.sender_name,
+        sender_email=prep.sender_email,
+        is_unregistered_sender=is_unregistered_sender,
+        matched_tenant_info=matched_tenant_info,
+    )
+    gmail_drafts, whatsapp_drafts, draft_persona = _build_drafts(reply_action, prep.sender_name)
+
+    sent_dt = prep.latest_msg.sent_at or now_dt
+    if sent_dt.tzinfo is None:
+        sent_dt = sent_dt.replace(tzinfo=UTC)
+    rel_label = when_label(sent_dt, now_dt, company_tz, weekdays=True)
+
+    attachments_map: dict[UUID, list[dict[str, Any]]] = defaultdict(list)
+    all_thread_attachments: list[dict[str, Any]] = []
+    for m in messages:
+        for att in details.attachments_by_msg.get(m.id, ()):
+            size_kb = (att.size_bytes or 0) / 1024
+            size_str = f"{size_kb:.0f} KB" if size_kb < 1024 else f"{size_kb / 1024:.1f} MB"
+            doc_row = details.docs_by_att.get(att.id)
+            drive_url = (
+                f"https://drive.google.com/file/d/{doc_row.drive_file_id}/view"
+                if doc_row and doc_row.drive_file_id
+                else None
+            )
+            att_item = {
+                "id": str(att.id),
+                "name": att.filename or "Attachment",
+                "filename": att.filename or "Attachment",
+                "type": att.mime_type or "application/octet-stream",
+                "mimeType": att.mime_type or "application/octet-stream",
+                "size": size_str,
+                "sizeBytes": att.size_bytes,
+                "url": f"/api/inbox/attachments/{att.id}",
+                "driveUrl": drive_url,
+            }
+            attachments_map[att.message_id].append(att_item)
+            all_thread_attachments.append(att_item)
+
+    owner_email = get_settings().owner_email or "owner@estateos.com"
+    msgs_data: list[dict[str, Any]] = []
+    for m in messages:
+        m_dt = m.sent_at or now_dt
+        if m_dt.tzinfo is None:
+            m_dt = m_dt.replace(tzinfo=UTC)
+        m_time_fmt = when_label(m_dt, now_dt, company_tz)
+        m_is_incoming = m.direction != Direction.outbound
+        if m.direction == Direction.outbound:
+            m_sender_type, m_sender_name, m_sender_contact = "owner", "Harjot Singh", m.sender_identity or owner_email
+        else:
+            m_sender_type, m_sender_name, m_sender_contact = (
+                prep.sender_label.kind.value,
+                shown_sender_name(m, msg_batch.saved_names.get(m.id)),
+                m.sender_identity,
+            )
+        m_meta = m.meta if isinstance(m.meta, dict) else {}
+        raw_html = m_meta.get("body_html") if isinstance(m_meta.get("body_html"), str) else None
+        raw_text = m.text or ""
+        if not raw_html and looks_like_html(raw_text):
+            raw_html = sanitize_email_html(raw_text)
+        clean_body = html_to_clean_text(raw_text) if looks_like_html(raw_text) else raw_text
+        msgs_data.append(
+            {
+                "id": str(m.id),
+                "sender": m_sender_type,
+                "senderName": m_sender_name,
+                "senderContact": m_sender_contact,
+                "sentAt": m_dt.isoformat(),
+                "timeFormatted": m_time_fmt,
+                "content": clean_body,
+                "body": clean_body,
+                "bodyHtml": raw_html,
+                "isIncoming": m_is_incoming,
+                "channel": m.channel.value if m.channel else "gmail",
+                "attachments": attachments_map.get(m.id, []),
+                "subject": m_meta.get("subject", "Communication"),
+            }
+        )
+
+    actions_by_id = {a.id: a for a in actions}
+    for act in actions:
+        for s in details.sends_by_action.get(act.id, ()):
+            s_dt = s.attempted_at or now_dt
+            if s_dt.tzinfo is None:
+                s_dt = s_dt.replace(tzinfo=UTC)
+            s_time_fmt = when_label(s_dt, now_dt, company_tz)
+            act_row = actions_by_id.get(s.action_id) if s.action_id is not None else act
+            act_payload = act_row.payload if act_row and isinstance(act_row.payload, dict) else {}
+            variants = act_payload.get("body_variants") or []
+            body_txt = variants[0] if variants else "Replied to tenant."
+            s_iso = s_dt.isoformat()
+            preceding_incoming = [m for m in msgs_data if m.get("isIncoming") and (m.get("sentAt") or "") <= s_iso]
+            reply_to_info = None
+            if preceding_incoming:
+                target_in = preceding_incoming[-1]
+                clean_in_text = (target_in.get("body") or "").strip().strip('"').strip("'")
+                reply_to_info = {
+                    "id": str(target_in.get("id")),
+                    "sender": target_in.get("senderName") or "Tenant",
+                    "text": clean_in_text[:120],
+                }
+            elif act_payload.get("reply_to"):
+                reply_to_info = act_payload.get("reply_to")
+            msgs_data.append(
+                {
+                    "id": str(s.id),
+                    "sender": "owner",
+                    "senderName": "Harjot Singh",
+                    "senderContact": "+31 20 000 0001",
+                    "sentAt": s_iso,
+                    "timeFormatted": s_time_fmt,
+                    "content": body_txt,
+                    "body": body_txt,
+                    "isIncoming": False,
+                    "channel": s.channel.value if s.channel else "whatsapp",
+                    "subject": "Reply",
+                    "replyTo": reply_to_info,
+                }
+            )
+
+    msgs_data.sort(key=lambda x: x.get("sentAt", ""))
+    has_owner_reply = any(m.get("sender") == "owner" for m in msgs_data)
+    status_str = "needs_approval"
+    if case.state in (CaseState.closed, CaseState.resolved):
+        status_str = "closed"
+    elif (approval and approval.status == ApprovalStatus.approved) or has_owner_reply:
+        status_str = "approved"
+    elif approval and approval.status == ApprovalStatus.rejected:
+        status_str = "rejected"
+
+    last_read = getattr(case, "last_read_at", None)
+    if last_read is not None and last_read.tzinfo is None:
+        last_read = last_read.replace(tzinfo=UTC)
+    is_read = bool(has_owner_reply or (last_read is not None and last_read >= sent_dt) or status_str == "closed")
+    snoozed_until = getattr(case, "snoozed_until", None)
+    subject_str = (
+        prep.latest_msg.meta.get("subject") if isinstance(prep.latest_msg.meta, dict) else None
+    ) or f"{case.category.value.title()} - {unit_label}"
+    hide_drafts = status_str == "approved" or (bool(msgs_data) and msgs_data[-1].get("sender") == "owner")
+    ticket_code = f"BRIXX-{case.brixx_ref}" if case.brixx_ref else f"#{case_ref(case.id)}"
+
+    latest_raw_text = prep.latest_msg.text or ""
+    latest_clean_snippet = html_to_clean_text(latest_raw_text) if looks_like_html(latest_raw_text) else latest_raw_text
+
+    return {
+        "id": f"case-{case.id}",
+        "caseId": str(case.id),
+        "ticketNumber": ticket_code,
+        "caseRef": ticket_code,
+        "approvalId": str(approval.id) if approval else f"case-{case.id}",
+        "audience": prep.sender_label.audience,
+        "senderKind": prep.sender_label.kind.value,
+        "recipientRole": prep.sender_label.recipient_role,
+        "recipientRoleDetail": prep.sender_label.role_detail,
+        "isUnregisteredSender": is_unregistered_sender,
+        "matchedTenant": matched_tenant_info,
+        "category": case.category.value if case.category else "maintenance",
+        "urgency": case.urgency.value if case.urgency else "normal",
+        "unit": unit_label,
+        "title": subject_str,
+        "lastMessageSnippet": latest_clean_snippet[:140],
+        "timestamp": rel_label,
+        "receivedAt": sent_dt.isoformat(),
+        "channel": prep.channel_str,
+        "channelBadge": f"{prep.channel_str.title()} · {rel_label}",
+        "sourceIdentifier": f"{prep.channel_str.title()} · {prep.sender_email}",
+        "subject": subject_str,
+        "externalMessageId": prep.latest_msg.provider_msg_id or str(prep.latest_msg.id),
+        "externalThreadId": prep.latest_msg.thread_ref,
+        "sender": {
+            "name": prep.sender_name,
+            "contact": prep.sender_email,
+            "role": prep.sender_label.role_detail,
+            "unit": unit_label,
+        },
+        "aiSummary": und_intent,
+        "aiConfidence": int((und_body.get("confidence") or 0.95) * 100),
+        "detectedLanguage": detected_lang_label,
+        "aiUnderstanding": {
+            "ticket": ticket_code,
+            "problem": und_intent,
+            "unit": unit_label,
+            "priority": (case.urgency.value if case.urgency else "normal").upper(),
+            "suggestedContractor": None,
+            "customFacts": custom_facts,
+        },
+        "activeChannel": prep.channel_str,
+        "status": status_str,
+        "isRead": is_read,
+        "snoozedUntil": snoozed_until.isoformat() if snoozed_until else None,
+        "gmailDrafts": [] if hide_drafts else gmail_drafts,
+        "whatsappDrafts": [] if hide_drafts else whatsapp_drafts,
+        "draftPersona": draft_persona,
+        "attachments": all_thread_attachments,
+        "messages": msgs_data,
+    }
+
+
+def _build_live_threads(
+    session: Session,
+    company_id: UUID,
+    limit: int = 20,
+    offset: int = 0,
+    *,
+    channel: str = "all",
+    audience: str = "all",
+    category: str = "all",
+) -> list[dict[str, Any]]:
+    """Builds frontend-compatible thread structures from PostgreSQL via batched read-only queries."""
+    has_filters = channel != "all" or audience != "all" or category != "all"
+    base_q = session.query(Case).filter(Case.company_id == company_id).order_by(Case.opened_at.desc())
+    if category not in ("all", "contractor_repairs", "contractor_money"):
+        with contextlib.suppress(ValueError):
+            base_q = base_q.filter(Case.category == Category(category))
+    cases = base_q.all() if has_filters else base_q.offset(offset).limit(limit).all()
+    if not cases:
+        return []
+
+    now_dt = datetime.now(UTC)
+    msg_batch = load_messages_batch(session, company_id, cases)
+    company_tz = ZoneInfo(msg_batch.company.timezone if msg_batch.company else "Europe/Amsterdam")
+    prepared = _prepare_cases(
+        cases,
+        msg_batch,
+        has_filters=has_filters,
+        channel=channel,
+        audience=audience,
+        category=category,
+        limit=limit,
+        offset=offset,
+    )
+    if not prepared:
+        return []
+
+    kept_case_ids = [p.case.id for p in prepared]
+    kept_msg_ids = [m.id for p in prepared for m in p.messages]
+    unit_labels = {p.raw_unit_label for p in prepared if p.raw_unit_label != UNASSIGNED_UNIT}
+    details = load_details_batch(session, company_id, kept_case_ids, kept_msg_ids, unit_labels, now_dt.date())
+
+    live_threads = [_assemble_thread(p, msg_batch, details, company_tz=company_tz, now_dt=now_dt) for p in prepared]
+    all_msgs = [m for t in live_threads for m in t["messages"]]
+    all_drafts = [d for t in live_threads for d in (*t["gmailDrafts"], *t["whatsappDrafts"])]
+    annotate_translations(session, company_id, all_msgs, all_drafts)
     return live_threads
 
 
@@ -643,38 +642,35 @@ def get_inbox_threads(
     channel: str = Query(default="all", description="all, gmail, whatsapp"),
     audience: str = Query(default="all", description="all, tenants, contractors"),
     category: str = Query(default="all", description="all, contractor_repairs, contractor_money"),
+    limit: int = Query(default=20, ge=1, le=100, description="Max threads to return"),
+    offset: int = Query(default=0, ge=0, description="Pagination offset"),
     *,
     principal: Annotated[Principal, Depends(require_session)],
 ) -> dict[str, Any]:
     """Retrieves inbox threads enriched with agent-drafted proposals."""
-    with Session(engine) as session:
-        live_threads = _build_live_threads(session, principal.company_id)
-    if not principal.access.can("inbox"):
-        live_threads = [headline_only(t) for t in live_threads]
-
-    # Merge live threads with default seeded threads (live threads first)
-    threads = list(live_threads)
-
     # Safe parameter normalization (handles both FastAPI dependency injection and direct calls)
     chan = channel if isinstance(channel, str) else getattr(channel, "default", "all")
     aud = audience if isinstance(audience, str) else getattr(audience, "default", "all")
     cat = category if isinstance(category, str) else getattr(category, "default", "all")
 
-    # Filter by Channel
-    if chan != "all":
-        threads = [t for t in threads if t.get("channel") == chan]
+    with Session(engine) as session:
+        live_threads = _build_live_threads(
+            session, principal.company_id, limit=limit, offset=offset, channel=chan, audience=aud, category=cat
+        )
+        total_cases = session.query(func.count(Case.id)).filter(Case.company_id == principal.company_id).scalar() or 0
+    if not principal.access.can("inbox"):
+        live_threads = [headline_only(t) for t in live_threads]
 
-    # Filter by Audience
-    if aud != "all":
-        threads = [t for t in threads if t.get("audience") == aud]
+    threads = list(live_threads)
 
-    # Filter by Contractor Category
-    if cat != "all":
-        threads = [t for t in threads if t.get("contractorCategory") == cat]
-
+    unfiltered = chan == "all" and aud == "all" and cat == "all"
+    has_more = (offset + len(live_threads)) < total_cases if unfiltered else len(live_threads) == limit
     return {
         "threads": threads,
-        "total": len(threads),
+        "total": total_cases,
+        "has_more": has_more,
+        "offset": offset,
+        "limit": limit,
         "syncedAt": datetime.now(UTC).isoformat(),
     }
 
@@ -688,18 +684,12 @@ def get_inbox_stats(
     engine: Annotated[Engine, Depends(get_engine)],
     principal: Annotated[Principal, Depends(require_session)],
 ) -> dict[str, int]:
-    """Returns metric counters for inbox triage badges, counted from the same live threads the inbox lists."""
+    """Returns metric counters for inbox triage badges computed via lightweight SQL counts."""
     with Session(engine) as session:
-        threads = _build_live_threads(session, principal.company_id)
-    return {
-        "needsYouCount": sum(t["status"] == "needs_approval" for t in threads),
-        "allCount": len(threads),
-        "tenantsCount": sum(t["audience"] == "tenants" for t in threads),
-        "contractorsCount": sum(t["audience"] == "contractors" for t in threads),
-        "urgentCount": sum(t["urgency"] in ("high", "emergency") for t in threads),
-        "whatsappCount": sum(t["channel"] == "whatsapp" for t in threads),
-        "gmailCount": sum(t["channel"] == "gmail" for t in threads),
-    }
+        return inbox_stats_counts(session, principal.company_id)
+
+
+_SYNC_LOCK = threading.Lock()
 
 
 def _reset_dummy_cursor(session: Session, account_id: UUID) -> None:
@@ -711,22 +701,30 @@ def _reset_dummy_cursor(session: Session, account_id: UUID) -> None:
 
 
 def sync_gmail_accounts(deps: IngestDeps, company_id: UUID | None = None) -> int:
-    """Pull the connected Gmail mailboxes once (one company's when `company_id` is given, else all, for the background
-    loop); a failing mailbox is logged and skipped."""
-    synced_count = 0
-    with Session(deps.engine) as session:
-        query = select(ChannelAccount).where(ChannelAccount.channel == Channel.gmail)
-        if company_id is not None:
-            query = query.where(ChannelAccount.company_id == company_id)
-        accounts = session.scalars(query).all()
-        for acct in accounts:
+    """Pull connected Gmail mailboxes once without holding DB connections open during Gmail RPCs."""
+    if not _SYNC_LOCK.acquire(blocking=False):
+        return 0
+    try:
+        synced_count = 0
+        with Session(deps.engine) as session:
+            query = select(ChannelAccount).where(ChannelAccount.channel == Channel.gmail)
+            if company_id is not None:
+                query = query.where(ChannelAccount.company_id == company_id)
+            acct_rows = [(acct.id, acct.address) for acct in session.scalars(query).all()]
+            for acct_id, _ in acct_rows:
+                try:
+                    _reset_dummy_cursor(session, acct_id)
+                except Exception as e:
+                    log.warning("sync_inbox.cursor_reset_error", error=str(e))
+        for acct_id, address in acct_rows:
             try:
-                _reset_dummy_cursor(session, acct.id)
-                current = deps.gmail_mailbox(acct.address).current_history_id()
-                synced_count += sync_mailbox(deps, acct.id, current)
+                current = deps.gmail_mailbox(address).current_history_id()
+                synced_count += sync_mailbox(deps, acct_id, current)
             except Exception as e:
-                log.warning("sync_inbox.mailbox_error", account=acct.address, error=str(e))
-    return synced_count
+                log.warning("sync_inbox.mailbox_error", account=address, error=str(e))
+        return synced_count
+    finally:
+        _SYNC_LOCK.release()
 
 
 @router.post(
@@ -1004,3 +1002,117 @@ def link_thread_tenant(
             "tenantId": str(linked_tenant.id),
             "tenantName": linked_tenant.display_name,
         }
+
+
+class ThreadReadRequest(BaseModel):
+    read: bool = True
+
+
+class ThreadSnoozeRequest(BaseModel):
+    until: str | None = None
+
+
+def _parse_case_uuid(case_id: str) -> UUID:
+    try:
+        return UUID(case_id.replace("case-", ""))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid case ID") from None
+
+
+@router.post(
+    "/threads/{case_id}/read",
+    summary="Mark Inbox Thread Read or Unread",
+    dependencies=[Depends(require_section("inbox"))],
+)
+def mark_thread_read(
+    case_id: str,
+    engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
+    req: ThreadReadRequest | None = None,
+) -> dict[str, Any]:
+    c_uuid = _parse_case_uuid(case_id)
+    mark_read = req.read if req else True
+    now = datetime.now(UTC)
+    with Session(engine) as session, session.begin():
+        case = session.scalar(select(Case).where(Case.id == c_uuid, Case.company_id == principal.company_id))
+        if case is None:
+            raise HTTPException(status_code=404, detail="Case not found")
+        case.last_read_at = now if mark_read else None
+    return {"ok": True, "caseId": str(c_uuid), "isRead": mark_read}
+
+
+@router.post(
+    "/threads/{case_id}/done",
+    summary="Mark Inbox Thread Done",
+    dependencies=[Depends(require_section("inbox"))],
+)
+def mark_thread_done(
+    case_id: str,
+    engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
+) -> dict[str, Any]:
+    c_uuid = _parse_case_uuid(case_id)
+    now = datetime.now(UTC)
+    with Session(engine) as session, session.begin():
+        case = session.scalar(select(Case).where(Case.id == c_uuid, Case.company_id == principal.company_id))
+        if case is None:
+            raise HTTPException(status_code=404, detail="Case not found")
+        prev_state = case.state
+        case.state = CaseState.closed
+        case.resolved_at = now
+        case.last_read_at = now
+        case.snoozed_until = None
+        if prev_state is not CaseState.closed:
+            session.add(
+                CaseEvent(
+                    company_id=principal.company_id,
+                    case_id=case.id,
+                    kind=CaseEventKind.state_change,
+                    from_state=prev_state,
+                    to_state=CaseState.closed,
+                    note="Owner marked inbox thread as done.",
+                    actor="owner",
+                )
+            )
+    return {"ok": True, "caseId": str(c_uuid), "status": "closed"}
+
+
+@router.post(
+    "/threads/{case_id}/snooze",
+    summary="Snooze Inbox Thread",
+    dependencies=[Depends(require_section("inbox"))],
+)
+def snooze_thread(
+    case_id: str,
+    engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
+    req: ThreadSnoozeRequest | None = None,
+) -> dict[str, Any]:
+    c_uuid = _parse_case_uuid(case_id)
+    now = datetime.now(UTC)
+    if req and req.until:
+        try:
+            snooze_dt = datetime.fromisoformat(req.until)
+            if snooze_dt.tzinfo is None:
+                snooze_dt = snooze_dt.replace(tzinfo=UTC)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid snooze timestamp") from None
+    else:
+        tomorrow = (now + timedelta(days=1)).date()
+        snooze_dt = datetime(tomorrow.year, tomorrow.month, tomorrow.day, 8, 0, tzinfo=UTC)
+    with Session(engine) as session, session.begin():
+        case = session.scalar(select(Case).where(Case.id == c_uuid, Case.company_id == principal.company_id))
+        if case is None:
+            raise HTTPException(status_code=404, detail="Case not found")
+        case.snoozed_until = snooze_dt
+        case.last_read_at = now
+        session.add(
+            CaseEvent(
+                company_id=principal.company_id,
+                case_id=case.id,
+                kind=CaseEventKind.note,
+                note=f"Owner snoozed thread until {snooze_dt.isoformat()}.",
+                actor="owner",
+            )
+        )
+    return {"ok": True, "caseId": str(c_uuid), "snoozedUntil": snooze_dt.isoformat()}

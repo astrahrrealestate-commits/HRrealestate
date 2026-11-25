@@ -20,12 +20,15 @@ export interface ThreadRowItem {
   waitingDays?: number;
   count?: number;
   isRead?: boolean;
+  roleLabel?: string;
   status: "needs_you" | "handled" | "waiting" | string;
 }
 
 export interface ThreadRowProps {
   t: ThreadRowItem;
   selected?: boolean;
+  checked?: boolean;
+  onToggleCheck?: (e: React.MouseEvent) => void;
   onSelect?: () => void;
   onDone?: (e: React.MouseEvent) => void;
   onSnooze?: (e: React.MouseEvent) => void;
@@ -44,6 +47,8 @@ export interface ThreadRowProps {
 export function ThreadRow({
   t,
   selected = false,
+  checked = false,
+  onToggleCheck,
   onSelect,
   onDone,
   onSnooze,
@@ -56,18 +61,46 @@ export function ThreadRow({
   const isoTime = isNaN(dateObj.getTime()) ? "" : dateObj.toISOString();
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect?.();
+        }
+      }}
       aria-current={selected}
       className={cn(
-        "group grid w-full grid-cols-[8px_40px_1fr_auto] items-start gap-3 border-b border-[var(--line)] px-4 py-3 text-left transition-colors cursor-pointer relative focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+        "group grid w-full items-start gap-2.5 border-b border-[var(--line)] px-3.5 py-2.5 text-left transition-colors cursor-pointer relative focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+        onToggleCheck
+          ? "grid-cols-[18px_8px_36px_1fr_auto]"
+          : "grid-cols-[8px_40px_1fr_auto]",
         // Gmail-style contrast: unread rows are elevated crisp pane with rich text, read rows are calm muted bg
         isUnread ? "bg-[var(--pane)]" : "bg-[var(--bg)]/60 text-[var(--ink-3)]",
+        checked && "bg-blue-50/70",
         selected && "bg-[var(--selected)] shadow-[inset_2px_0_0_var(--ink)]",
         className
       )}
     >
+      {onToggleCheck && (
+        <span
+          className="mt-2.5 flex items-center justify-center"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleCheck(e);
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={() => { }}
+            aria-label={`Select ${t.contactName}`}
+            className="w-3.5 h-3.5 rounded border-[var(--line-2)] text-[var(--accent)] focus:ring-[var(--accent)] cursor-pointer"
+          />
+        </span>
+      )}
       {/* 8px orange dot or unread dot */}
       <span
         className={cn(
@@ -81,13 +114,20 @@ export function ThreadRow({
 
       {/* Text column: Sender name, Flat/Address, Subject, Snippet */}
       <span className="min-w-0">
-        <span
-          className={cn(
-            "block truncate text-[14.5px] leading-snug",
-            isUnread ? "font-bold text-[var(--ink)]" : "font-normal text-[var(--ink-2)]"
+        <span className="flex items-center gap-1.5 min-w-0">
+          <span
+            className={cn(
+              "truncate text-[14.5px] leading-snug",
+              isUnread ? "font-bold text-[var(--ink)]" : "font-normal text-[var(--ink-2)]"
+            )}
+          >
+            {t.contactName}
+          </span>
+          {t.roleLabel && t.roleLabel !== "Contact" && t.roleLabel !== "Tenant" && (
+            <span className="shrink-0 inline-flex items-center px-1.5 py-0.2 rounded border border-[var(--line)] bg-[var(--bg)] text-[10px] font-semibold text-[var(--ink-2)] leading-tight">
+              {t.roleLabel}
+            </span>
           )}
-        >
-          {t.contactName}
         </span>
 
         <span className="block truncate text-sm leading-normal mt-0.5">
@@ -178,6 +218,6 @@ export function ThreadRow({
           )}
         </div>
       </span>
-    </button>
+    </div>
   );
 }

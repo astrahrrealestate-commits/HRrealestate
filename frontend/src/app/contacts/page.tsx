@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, useRef, Suspense } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
+import { ResizeHandle, usePersistedPaneSize } from "@/components/ui/ResizableSplit";
 import {
   Search,
   Paperclip,
@@ -33,6 +34,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { usePolling } from "@/hooks/usePolling";
 import {
   ContactItem,
   ContactEmailItem,
@@ -108,9 +110,10 @@ function ContactsContent() {
   const contactParam = searchParams.get("contact");
   const superAgent = useSuperAgent();
   const { t } = useLanguage();
+  const { size: listWidth, applyDelta: resizeList, commitSize: commitList, resetSize: resetList } = usePersistedPaneSize("estateos_contacts_list_w", 240, 180, 420);
 
   // Left Sidebar Filter state
-  const [filterAudience, setFilterAudience] = useState<"all" | "tenant" | "contractor">("all");
+  const [filterAudience, setFilterAudience] = useState<"all" | "tenant" | "contractor" | "external" | "unclassified">("all");
   const [contactForm, setContactForm] = useState<{ open: boolean; contact: ContactItem | null }>({
     open: false,
     contact: null,
@@ -144,7 +147,8 @@ function ContactsContent() {
     async function loadContacts() {
       setIsLoadingContacts(true);
       try {
-        const list = await getContactsList(filterAudience);
+        const apiAudience = filterAudience === "tenant" || filterAudience === "contractor" ? filterAudience : "all";
+        const list = await getContactsList(apiAudience);
         if (isMounted && list) {
           setDbContacts(list);
         }
@@ -333,34 +337,34 @@ function ContactsContent() {
     el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
   }, [whatsappInput, activeTab]);
 
-  // Live background polling for live communications (updates every 8s)
+  const activeContactIdRef = useRef<string | null>(null);
+  const contactId = activeContact?.id ?? "";
+  const contactEmail = activeContact?.email;
+  const contactPhone = activeContact?.phone;
   useEffect(() => {
-    let isMounted = true;
-    async function fetchLiveComms() {
-      if (!activeContact) return;
-      try {
-        const comms = await getContactCommunications(
-          activeContact.id,
-          activeContact.email,
-          activeContact.phone
-        );
-        if (comms && isMounted) {
-          setLiveEmails(comms.emails || []);
-          setLiveWhatsApp(comms.whatsapp_messages || []);
-          setWhatsAppDrafts(comms.suggested_whatsapp_drafts || []);
-        }
-      } catch (err) {
-        // Silently preserve current state when backend is offline
-      }
-    }
+    activeContactIdRef.current = contactId || null;
+  }, [contactId]);
 
-    fetchLiveComms();
-    const interval = setInterval(fetchLiveComms, 8000);
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, [activeContact?.id, activeContact?.email, activeContact?.phone]);
+  // Live background polling for live communications (pauses when tab is hidden)
+  const fetchLiveComms = useCallback(async () => {
+    if (!contactId) return;
+    const requestedId = contactId;
+    try {
+      const comms = await getContactCommunications(requestedId, contactEmail, contactPhone);
+      if (comms && activeContactIdRef.current === requestedId) {
+        setLiveEmails(comms.emails || []);
+        setLiveWhatsApp(comms.whatsapp_messages || []);
+        setWhatsAppDrafts(comms.suggested_whatsapp_drafts || []);
+      }
+    } catch {
+      // Silently preserve current state when backend is offline
+    }
+  }, [contactId, contactEmail, contactPhone]);
+
+  usePolling(fetchLiveComms, 10000, {
+    enabled: Boolean(contactId),
+    restartKey: contactId,
+  });
 
   const handleSelectEmailDraft = (emailId: string, variant: AIDraftVariant) => {
     setEmailDraftChoices((prev) => ({ ...prev, [emailId]: variant.id }));
@@ -488,20 +492,26 @@ function ContactsContent() {
     }
   };
 
-  // Filtered contacts in the left 220px list (strictly portfolio contacts: Tenants & Contractors)
+  // Filtered contacts in the left list across all directory categories
   const filteredContacts = useMemo(() => {
     return allAvailableContacts.filter((contact) => {
-      // Must be a tenant or contractor
-      if (contact.category !== "tenant" && contact.category !== "contractor") return false;
       if (filterAudience === "tenant" && contact.category !== "tenant") return false;
       if (filterAudience === "contractor" && contact.category !== "contractor") return false;
+      if (
+        filterAudience === "external" &&
+        !["legal", "vve", "business", "utility", "municipal", "owner", "other"].includes(contact.category)
+      ) {
+        return false;
+      }
+      if (filterAudience === "unclassified" && !contact.unclassified) return false;
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchesName = contact.name.toLowerCase().includes(q);
         const matchesEmail = contact.email.toLowerCase().includes(q);
         const matchesUnit = (contact.unitRole || "").toLowerCase().includes(q);
-        if (!matchesName && !matchesEmail && !matchesUnit) return false;
+        const matchesRole = (contact.tradeOrRole || "").toLowerCase().includes(q);
+        if (!matchesName && !matchesEmail && !matchesUnit && !matchesRole) return false;
       }
       return true;
     });
@@ -556,11 +566,12 @@ function ContactsContent() {
             id="mainContainer"
             className="flex-1 m-0 md:mr-[10px] md:mb-[10px] bg-white md:rounded-[14px] md:border md:border-[#27272a] md:shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-row overflow-hidden relative transition-all duration-300"
           >
-            {/* PANEL 1: CONTACTS LIST SIDEBAR (220px, subtle neutral #fafafa) */}
+            {/* PANEL 1: CONTACTS LIST SIDEBAR (Resizable on md+) */}
             <div
+              style={{ ["--list-w" as string]: `${listWidth}px` }}
               className={cn(
-                "w-[220px] min-w-[220px] shrink-0 flex flex-col border-r border-[#e8e9eb] bg-[#fafafa] overflow-hidden",
-                contactParam ? "hidden md:flex" : "flex w-full md:w-[220px]"
+                "shrink-0 flex flex-col border-r border-[#e8e9eb] bg-[#fafafa] overflow-hidden",
+                contactParam ? "hidden md:flex md:w-[var(--list-w)]" : "flex w-full md:w-[var(--list-w)]"
               )}
             >
               {/* Header */}
@@ -573,7 +584,9 @@ function ContactsContent() {
                       ? t("Tenants")
                       : filterAudience === "contractor"
                       ? t("Contractors")
-                      : t("Other")}
+                      : filterAudience === "external"
+                      ? t("Legal, VvE & Partners")
+                      : t("Unclassified")}
                   </div>
                   <button
                     type="button"
@@ -612,51 +625,30 @@ function ContactsContent() {
                   {/* Filter Dropdown */}
                   {isFilterDropdownOpen && (
                     <div className="absolute top-[calc(100%+4px)] left-0 right-0 bg-white border border-[#e5e7eb] rounded-[7px] shadow-[0_8px_24px_rgba(0,0,0,0.1)] z-50 flex flex-col overflow-hidden py-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFilterAudience("all");
-                          setIsFilterDropdownOpen(false);
-                        }}
-                        className={cn(
-                          "px-3 py-2 text-[12px] text-left transition-colors cursor-pointer",
-                          filterAudience === "all"
-                            ? "bg-[#f3f4f6] text-[#111827] font-semibold"
-                            : "text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]"
-                        )}
-                      >
-                        {t("All Contacts")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFilterAudience("tenant");
-                          setIsFilterDropdownOpen(false);
-                        }}
-                        className={cn(
-                          "px-3 py-2 text-[12px] text-left transition-colors cursor-pointer",
-                          filterAudience === "tenant"
-                            ? "bg-[#f3f4f6] text-[#111827] font-semibold"
-                            : "text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]"
-                        )}
-                      >
-                        {t("Tenants")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFilterAudience("contractor");
-                          setIsFilterDropdownOpen(false);
-                        }}
-                        className={cn(
-                          "px-3 py-2 text-[12px] text-left transition-colors cursor-pointer",
-                          filterAudience === "contractor"
-                            ? "bg-[#f3f4f6] text-[#111827] font-semibold"
-                            : "text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]"
-                        )}
-                      >
-                        {t("Contractors")}
-                      </button>
+                      {[
+                        { id: "all", label: t("All Contacts") },
+                        { id: "tenant", label: t("Tenants") },
+                        { id: "contractor", label: t("Contractors") },
+                        { id: "external", label: t("Legal, VvE & Business") },
+                        { id: "unclassified", label: t("Unclassified") },
+                      ].map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => {
+                            setFilterAudience(opt.id as typeof filterAudience);
+                            setIsFilterDropdownOpen(false);
+                          }}
+                          className={cn(
+                            "px-3 py-2 text-[12px] text-left transition-colors cursor-pointer",
+                            filterAudience === opt.id
+                              ? "bg-[#f3f4f6] text-[#111827] font-semibold"
+                              : "text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]"
+                          )}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -709,9 +701,14 @@ function ContactsContent() {
                         >
                           {contact.name}
                         </span>
-                        {contact.tradeOrRole && (
-                          <span className="text-[10.5px] text-[#94a3b8] truncate font-medium mt-0.5">
-                            {contact.tradeOrRole}
+                        {(contact.unclassified || contact.tradeOrRole) && (
+                          <span
+                            className={cn(
+                              "text-[10.5px] truncate font-medium mt-0.5",
+                              contact.unclassified ? "text-amber-600" : "text-[#94a3b8]"
+                            )}
+                          >
+                            {contact.unclassified ? "Unclassified · Click Edit to label" : contact.tradeOrRole}
                           </span>
                         )}
                       </div>
@@ -726,6 +723,15 @@ function ContactsContent() {
                 )}
               </div>
             </div>
+
+            <ResizeHandle
+              orientation="horizontal"
+              ariaLabel="Resize contacts list"
+              className="hidden md:block"
+              onDragDelta={resizeList}
+              onDragEnd={commitList}
+              onDoubleClick={resetList}
+            />
 
             {/* PANEL 2: CONTACT DETAIL */}
             <div

@@ -42,8 +42,8 @@ resource "aws_lb_target_group" "api" {
     protocol            = "HTTP"
     port                = "traffic-port"
     interval            = 30
-    timeout             = 5
-    healthy_threshold   = 3
+    timeout             = 10
+    healthy_threshold   = 2
     unhealthy_threshold = 3
     matcher             = "200"
   }
@@ -72,8 +72,8 @@ resource "aws_lb_target_group" "frontend" {
     protocol            = "HTTP"
     port                = "traffic-port"
     interval            = 30
-    timeout             = 5
-    healthy_threshold   = 3
+    timeout             = 10
+    healthy_threshold   = 2
     unhealthy_threshold = 3
     matcher             = "200,307,308"
   }

@@ -14,7 +14,7 @@ def _stamp_prompt_version(output: Understanding, loaded: LoadedPrompt) -> Unders
 
 UNDERSTANDING = AgentSpec(
     name="understanding",
-    prompt=PromptRef(name="understanding", version="v2"),
+    prompt=PromptRef(name="understanding", version="v3"),
     output_type=Understanding,
     finalize=_stamp_prompt_version,
     thinking="minimal",

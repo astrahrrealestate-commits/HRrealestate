@@ -14,10 +14,15 @@ interface InboxThreadListProps {
   /** The list is empty because of a search, a filter or a tab, not because the inbox is. */
   isFiltered?: boolean;
   selectedThreadId: string;
+  checkedIds?: Set<string>;
+  onToggleCheck?: (threadId: string) => void;
   onSelectThread: (threadId: string) => void;
   onDone?: (threadId: string) => void;
   onSnooze?: (threadId: string) => void;
   className?: string;
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
+  onLoadMore?: () => void;
 }
 
 interface ThreadGroup {
@@ -37,10 +42,15 @@ export function InboxThreadList({
   loadState = "ready",
   isFiltered = false,
   selectedThreadId,
+  checkedIds,
+  onToggleCheck,
   onSelectThread,
   onDone,
   onSnooze,
   className,
+  hasMore = false,
+  isLoadingMore = false,
+  onLoadMore,
 }: InboxThreadListProps) {
   // Group threads into Urgent, Today, Yesterday, Earlier
   const groupedThreads = useMemo(() => {
@@ -140,6 +150,7 @@ export function InboxThreadList({
                 urgent: isUrgent(t),
                 count: t.messages?.length || 1,
                 isRead: t.isRead,
+                roleLabel: t.recipientRoleDetail,
                 status: needsAttention ? "needs_you" : "handled",
               };
 
@@ -148,6 +159,8 @@ export function InboxThreadList({
                   key={t.id}
                   t={rowItem}
                   selected={t.id === selectedThreadId}
+                  checked={checkedIds?.has(t.id)}
+                  onToggleCheck={onToggleCheck ? () => onToggleCheck(t.id) : undefined}
                   onSelect={() => onSelectThread(t.id)}
                   onDone={onDone ? () => onDone(t.id) : undefined}
                   onSnooze={onSnooze ? () => onSnooze(t.id) : undefined}
@@ -157,6 +170,19 @@ export function InboxThreadList({
           </div>
         </div>
       ))}
+
+      {hasMore && (
+        <div className="p-3 border-t border-[var(--line)] bg-[var(--pane)] flex justify-center sticky bottom-0 z-10 shadow-xs">
+          <button
+            type="button"
+            onClick={onLoadMore}
+            disabled={isLoadingMore}
+            className="w-full py-2 px-4 rounded-xl text-xs font-semibold bg-[var(--bg)] hover:bg-[var(--selected)] border border-[var(--line)] text-[var(--ink)] transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+          >
+            {isLoadingMore ? "Loading more..." : "Load 20 More Threads"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

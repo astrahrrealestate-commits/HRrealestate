@@ -29,6 +29,7 @@ class ParsedEmail:
     references: str | None = None
     text: str = ""
     full_text: str = ""
+    html: str | None = None
     quote_stripped: bool = False
     attachments: list[ParsedAttachment] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)

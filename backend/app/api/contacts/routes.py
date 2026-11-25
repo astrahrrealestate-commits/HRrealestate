@@ -284,17 +284,22 @@ def get_contact_communications(
                 "Option 3: Time Slot Proposal",
             ]
 
+            und_by_msg: dict[UUID, UnderstandingRow] = {
+                u.message_id: u
+                for u in session.scalars(
+                    select(UnderstandingRow).where(
+                        UnderstandingRow.company_id == company_id,
+                        UnderstandingRow.message_id.in_(msg_ids),
+                    )
+                ).all()
+            }
+
             for msg in live_messages:
                 sent_time_str = msg.sent_at.strftime("%H:%M") if msg.sent_at else "12:00"
                 sent_date_str = msg.sent_at.strftime("%d %b %Y") if msg.sent_at else "Today"
 
-                # Look for UnderstandingRow
                 category: str | None = None
-                und = (
-                    session.query(UnderstandingRow)
-                    .filter(UnderstandingRow.company_id == company_id, UnderstandingRow.message_id == msg.id)
-                    .first()
-                )
+                und = und_by_msg.get(msg.id)
                 if und and und.category:
                     category = und.category.value if hasattr(und.category, "value") else str(und.category)
 

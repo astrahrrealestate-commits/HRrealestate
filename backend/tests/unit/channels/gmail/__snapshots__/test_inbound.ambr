@@ -264,6 +264,7 @@
     ]),
     'direction': 'inbound',
     'meta': dict({
+      'body_html': '<p>Hallo,</p><p>Wasser tropft von der <b>Decke</b>.</p>',
       'from': 'tenant-001@example.test',
       'from_name': 'Tenant 001',
       'labels': list([
@@ -300,6 +301,7 @@
     ]),
     'direction': 'inbound',
     'meta': dict({
+      'body_html': '<p>Siehe Foto unten.</p>',
       'from': 'tenant-001@example.test',
       'from_name': 'Tenant 001',
       'labels': list([
@@ -357,6 +359,7 @@
     ]),
     'direction': 'inbound',
     'meta': dict({
+      'body_html': '<p>Bitte prüfen Sie die <i>Abrechnung</i> im Anhang.</p>',
       'from': 'tenant-001@example.test',
       'from_name': 'Tenant 001',
       'labels': list([

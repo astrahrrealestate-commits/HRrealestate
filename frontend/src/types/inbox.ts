@@ -27,6 +27,7 @@ export interface ThreadMessage {
   sentAt: string;
   timeFormatted: string;
   body: string;
+  bodyHtml?: string | null;
   bodyEnglish?: string; // cached English for a Dutch message; filled on demand by POST /api/inbox/translate
   bodyDutch?: string; // cached Dutch for an English message
   language?: "nl" | "en" | "unknown"; // from the server's language check
@@ -62,6 +63,7 @@ export interface InboxThread {
   ticketNumber?: string; // e.g. "#3f9a1c"
   caseId?: string; // the full case id behind ticketNumber
   channel: ChannelType;
+  senderKind?: string;
   recipientRole: RecipientRole;
   recipientRoleDetail: string; // e.g. "Tenant" or "Contractor · Electrician"
   contractorTrade?: string; // e.g. "Electrician", "Plumber", "HVAC"
@@ -84,6 +86,7 @@ export interface InboxThread {
   urgency: UrgencyLevel;
   status: ThreadStatus;
   isRead?: boolean;
+  snoozedUntil?: string | null;
   receivedAt: string; // ISO
   relativeTime: string;
   latestSnippet: string;
@@ -94,6 +97,7 @@ export interface InboxThread {
   aiUnderstanding?: AiUnderstandingCard;
   whenYouApprove?: string[];
   caseSummary?: string; // Rolling summary from backend Case.summary
+  attachments?: ThreadMessage["attachments"];
   messages: ThreadMessage[];
   inResponseToSnippet?: string; // What message the draft is answering
   draftProposal?: {

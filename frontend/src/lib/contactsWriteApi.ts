@@ -4,12 +4,25 @@ import { apiFetch, BACKEND_BASE_URL } from "@/lib/backend";
 import type { ContactItem } from "@/data/contactsMockData";
 
 /** What the owner picks when adding someone. "maintenance" is a contractor whose trade starts as Maintenance. */
-export type ContactType = "tenant" | "contractor" | "maintenance" | "utility" | "municipal" | "owner" | "other";
+export type ContactType =
+  | "tenant"
+  | "contractor"
+  | "maintenance"
+  | "legal"
+  | "vve"
+  | "business"
+  | "utility"
+  | "municipal"
+  | "owner"
+  | "other";
 
 export const CONTACT_TYPES: ReadonlyArray<{ value: ContactType; label: string; hint: string; needsTrade: boolean }> = [
   { value: "tenant", label: "Tenant", hint: "Rents one of your units", needsTrade: false },
   { value: "contractor", label: "Contractor", hint: "Plumber, electrician, painter…", needsTrade: true },
   { value: "maintenance", label: "Maintenance", hint: "Caretaker, cleaner, handyman…", needsTrade: true },
+  { value: "legal", label: "Legal", hint: "Advocate, notary, bailiff, law firm", needsTrade: false },
+  { value: "vve", label: "VvE", hint: "Homeowners' association or building admin", needsTrade: false },
+  { value: "business", label: "Business", hint: "Bank, insurer, vendor, service partner", needsTrade: false },
   { value: "utility", label: "Utility", hint: "Energy, water, internet", needsTrade: false },
   { value: "municipal", label: "Municipality", hint: "Gemeente, housing authority", needsTrade: false },
   { value: "owner", label: "Owner", hint: "A property owner", needsTrade: false },
@@ -84,7 +97,13 @@ export function addContact(draft: ContactDraft): Promise<ContactResult> {
   });
 }
 
-export function classifyContact(id: string, draft: Pick<ContactDraft, "name" | "type" | "trade">): Promise<ContactResult> {
+export function classifyContact(
+  id: string,
+  draft: Pick<ContactDraft, "name" | "type" | "trade"> & Partial<Pick<ContactDraft, "email" | "phone">>
+): Promise<ContactResult> {
   const { category, trade } = toApi({ ...draft, email: "", phone: "" });
-  return send(`/${encodeURIComponent(id)}`, "PATCH", { name: draft.name.trim(), category, trade });
+  const payload: Record<string, string | null> = { name: draft.name.trim(), category, trade };
+  if (draft.email?.trim()) payload.email = draft.email.trim();
+  if (draft.phone?.trim()) payload.phone = draft.phone.trim();
+  return send(`/${encodeURIComponent(id)}`, "PATCH", payload);
 }

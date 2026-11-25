@@ -100,7 +100,7 @@ module "alb" {
   public_subnet_ids     = module.vpc.public_subnet_ids
   alb_security_group_id = module.security_groups.alb_security_group_id
   app_port              = var.app_port
-  health_check_path     = "/health/ready"
+  health_check_path     = "/health/live"
   certificate_arn       = var.certificate_arn
 
   enable_frontend      = var.enable_frontend

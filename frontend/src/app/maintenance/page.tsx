@@ -38,6 +38,7 @@ import {
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { ResizeHandle, usePersistedPaneSize } from "@/components/ui/ResizableSplit";
 
 export interface MaintenanceTicket {
   id: string;
@@ -110,6 +111,12 @@ function MaintenanceContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { t } = useLanguage();
+  const {
+    size: detailWidth,
+    applyDelta: applyDetailDelta,
+    commitSize: commitDetailWidth,
+    resetSize: resetDetailWidth,
+  } = usePersistedPaneSize("estateos_maint_detail_w", 600, 380, 860);
 
   const [tickets, setTickets] = useState<MaintenanceTicket[]>(MOCK_MAINTENANCE_TICKETS);
   const [activeTab, setActiveTab] = useState<"open" | "needs_approval" | "done">("open");
@@ -468,7 +475,7 @@ function MaintenanceContent() {
 
         {/* WORKSPACE ROW with 40% Super Agent */}
         <div className="flex-1 flex flex-row overflow-hidden min-h-0 w-full relative">
-          <div className="flex-1 m-0 mr-[10px] mb-[10px] bg-white rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden relative">
+          <div className="flex-1 m-0 md:mr-[10px] md:mb-[10px] bg-white md:rounded-[14px] border border-[#27272a] shadow-[0_2px_8px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden relative">
 
           {/* Header + Controls + Table / Ticket Rows List */}
           <div className="h-full flex flex-col overflow-hidden bg-[var(--pane)]">
@@ -503,7 +510,7 @@ function MaintenanceContent() {
             </div>
 
             {/* Controls Bar: 3 Tabs (Open, Needs approval, Done) + Search + Status Dropdown (Section 5.4 & 2.4 M4) */}
-            <div className="px-4 sm:px-6 py-2.5 border-b border-[var(--line)] bg-[var(--pane)] flex flex-wrap items-center justify-between gap-3 shrink-0 select-none">
+            <div className="@container/maint px-4 sm:px-6 py-2.5 border-b border-[var(--line)] bg-[var(--pane)] flex flex-wrap items-center justify-between gap-3 shrink-0 select-none">
 
               {/* 3 Tabs */}
               <div className="flex items-center gap-1">
@@ -844,11 +851,20 @@ function MaintenanceContent() {
 
               {/* Right Drawer Panel */}
               <aside
-                className="fixed inset-y-0 right-0 z-50 w-full sm:w-[560px] md:w-[620px] lg:w-[680px] bg-[var(--pane)] border-l border-[var(--line)] shadow-2xl flex flex-col animate-in slide-in-from-right duration-250 ease-out"
+                style={{ "--detail-w": `${detailWidth}px` } as React.CSSProperties}
+                className="fixed inset-y-0 right-0 z-50 w-full sm:w-[var(--detail-w)] max-w-[92vw] bg-[var(--pane)] border-l border-[var(--line)] shadow-2xl flex flex-col animate-in slide-in-from-right duration-250 ease-out"
                 role="dialog"
                 aria-modal="true"
                 aria-label={`Ticket ${selectedTicket.ticketNumber} Details`}
               >
+                <ResizeHandle
+                  orientation="horizontal"
+                  onDragDelta={(delta) => applyDetailDelta(-delta)}
+                  onDragEnd={commitDetailWidth}
+                  onDoubleClick={resetDetailWidth}
+                  className="hidden sm:block absolute left-0 top-0 bottom-0"
+                  ariaLabel="Resize ticket detail drawer"
+                />
                 {/* 1. Detail Header (Sticky h-14) */}
                 <div className="h-14 px-4 sm:px-6 border-b border-[var(--line)] bg-[var(--pane)] flex items-center justify-between shrink-0 z-10">
                   <div className="flex items-center gap-2.5 min-w-0">

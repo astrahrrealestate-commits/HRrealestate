@@ -1,6 +1,15 @@
 import { DocumentItem } from "@/components/ui/DocumentViewerModal";
 
-export type ContactCategory = "contractor" | "tenant" | "owner" | "utility" | "municipal" | "other";
+export type ContactCategory =
+  | "contractor"
+  | "tenant"
+  | "owner"
+  | "legal"
+  | "vve"
+  | "business"
+  | "utility"
+  | "municipal"
+  | "other";
 
 export type AgentUnderstandingCategory =
   | "maintenance"
@@ -74,6 +83,7 @@ export interface ContactItem {
   agreementPeriod: string;
   preferredChannel?: "gmail" | "whatsapp";
   status: "active" | "inactive" | "pending" | "ended" | "ending_soon" | string;
+  unclassified?: boolean;
   rentStatus?: "up_to_date" | "overdue" | "unknown" | string;
   monthlyRentEur?: number | null; // from the lease's BRIXX contract; null when unknown
   depositEur?: number | null;

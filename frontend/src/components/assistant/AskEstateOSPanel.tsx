@@ -80,6 +80,7 @@ import { TranslationToggle } from "@/components/inbox/TranslationToggle";
 import { useLanguage } from "@/context/LanguageContext";
 import { FlagUK, FlagNL } from "@/components/ui/FlagIcons";
 import { BACKEND_BASE_URL, apiFetch } from "@/lib/backend";
+import { ResizeHandle, usePersistedPaneSize } from "@/components/ui/ResizableSplit";
 
 interface AskEstateOSPanelProps {
   isOpen?: boolean;
@@ -111,6 +112,12 @@ export function AskEstateOSPanel({
   const [inputQuery, setInputQuery] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const {
+    size: agentWidth,
+    applyDelta: resizeAgentBy,
+    commitSize: commitAgentSize,
+    resetSize: resetAgentSize,
+  } = usePersistedPaneSize("estateos_agent_width", 400, 300, 720);
   const [showFewerSuggestions, setShowFewerSuggestions] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -2060,13 +2067,24 @@ export function AskEstateOSPanel({
       {/* ============================================================== */}
       <aside
         id="aiSidePanel"
+        style={!isFullScreen ? { width: agentWidth } : undefined}
         className={cn(
-          "hidden md:flex bg-white flex-col justify-between font-sans shrink-0 overflow-hidden relative transition-all duration-300",
+          "hidden md:flex bg-white flex-col justify-between font-sans shrink-0 overflow-hidden relative",
           isFullScreen
             ? "absolute inset-0 z-30 m-0 mr-[10px] mb-[10px] h-[calc(100%-10px)] rounded-[14px] border border-[#162B45] shadow-[0_2px_8px_rgba(0,0,0,0.2)] animate-in fade-in duration-200"
-            : "fixed inset-0 z-50 md:relative md:inset-auto md:z-10 w-full md:w-[390px] xl:w-[420px] shrink-0 m-0 md:mr-[10px] md:mb-[10px] h-full md:h-[calc(100%-10px)] rounded-[14px] border border-[#162B45] shadow-[0_2px_8px_rgba(0,0,0,0.2)]"
+            : "fixed inset-0 z-50 md:relative md:inset-auto md:z-10 shrink-0 m-0 md:mr-[10px] md:mb-[10px] h-full md:h-[calc(100%-10px)] rounded-[14px] border border-[#162B45] shadow-[0_2px_8px_rgba(0,0,0,0.2)]"
         )}
       >
+        {!isFullScreen && (
+          <ResizeHandle
+            orientation="horizontal"
+            ariaLabel="Resize Astra panel"
+            className="absolute left-0 top-0 bottom-0 z-30"
+            onDragDelta={(delta) => resizeAgentBy(-delta)}
+            onDragEnd={commitAgentSize}
+            onDoubleClick={resetAgentSize}
+          />
+        )}
         {/* 1. Header Bar with Clean Icon Controls (No Text Clutter, No Overlap) */}
         <div
           className={cn(

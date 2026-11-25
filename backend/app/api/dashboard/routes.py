@@ -276,20 +276,39 @@ def get_unresponsive_radar(
     now = datetime.now(UTC)
     items: list[StalledWaitItem] = []
     with Session(engine) as session:
-        rows = session.scalars(
-            select(WaitRow)
-            .where(WaitRow.company_id == cid, WaitRow.status == "waiting", WaitRow.expected_by <= now)
-            .order_by(WaitRow.expected_by.asc())
-            .limit(limit)
-        ).all()
+        rows = list(
+            session.scalars(
+                select(WaitRow)
+                .where(WaitRow.company_id == cid, WaitRow.status == "waiting", WaitRow.expected_by <= now)
+                .order_by(WaitRow.expected_by.asc())
+                .limit(limit)
+            ).all()
+        )
+        case_ids = {r.case_id for r in rows}
+        party_ids = {r.party_person_id for r in rows if r.party_person_id}
+        cases_by_id = (
+            {c.id: c for c in session.scalars(select(Case).where(Case.company_id == cid, Case.id.in_(case_ids))).all()}
+            if case_ids
+            else {}
+        )
+        unit_ids = {c.unit_id for c in cases_by_id.values() if c.unit_id}
+        units_by_id = (
+            {u.id: u for u in session.scalars(select(Unit).where(Unit.company_id == cid, Unit.id.in_(unit_ids))).all()}
+            if unit_ids
+            else {}
+        )
+        parties_by_id = (
+            {
+                p.id: p
+                for p in session.scalars(select(Person).where(Person.company_id == cid, Person.id.in_(party_ids))).all()
+            }
+            if party_ids
+            else {}
+        )
         for r in rows:
-            case = session.scalars(select(Case).where(Case.id == r.case_id, Case.company_id == cid)).first()
-            unit = session.get(Unit, case.unit_id) if case is not None and case.unit_id else None
-            party = (
-                session.scalars(select(Person).where(Person.id == r.party_person_id, Person.company_id == cid)).first()
-                if r.party_person_id
-                else None
-            )
+            case = cases_by_id.get(r.case_id)
+            unit = units_by_id.get(case.unit_id) if case is not None and case.unit_id else None
+            party = parties_by_id.get(r.party_person_id) if r.party_person_id else None
             items.append(
                 StalledWaitItem(
                     id=str(r.id),
