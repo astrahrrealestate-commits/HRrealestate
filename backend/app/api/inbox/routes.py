@@ -424,7 +424,10 @@ def _assemble_thread(
         is_unregistered_sender=is_unregistered_sender,
         matched_tenant_info=matched_tenant_info,
     )
-    gmail_drafts, whatsapp_drafts, draft_persona = _build_drafts(reply_action, prep.sender_name)
+    # A draft's text is offered only while an approval waits for it. One without (paused before the rules checked its
+    # links and account numbers, or already decided) would be sent as a typed reply by one click.
+    waiting = reply_action if approval is not None and approval.status is ApprovalStatus.pending else None
+    gmail_drafts, whatsapp_drafts, draft_persona = _build_drafts(waiting, prep.sender_name)
 
     sent_dt = prep.latest_msg.sent_at or now_dt
     if sent_dt.tzinfo is None:

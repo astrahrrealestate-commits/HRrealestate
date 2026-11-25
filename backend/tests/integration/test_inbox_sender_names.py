@@ -424,3 +424,34 @@ def test_a_held_or_refused_draft_is_never_offered_for_approval(world: World, sta
         s.query(Approval).filter(Approval.id == world.approval).delete()
         s.commit()
     assert "geheim" not in _drafts(world)
+
+
+@pytest.mark.parametrize(
+    ("action_status", "approval"),
+    [
+        (ActionStatus.paused, None),  # proposed during a company pause: the rules never checked its links or IBAN
+        (ActionStatus.pending_approval, None),
+        (ActionStatus.pending_approval, ApprovalStatus.expired),
+        (ActionStatus.pending_approval, ApprovalStatus.rejected),
+    ],
+)
+def test_a_draft_is_offered_only_while_an_approval_is_waiting_for_it(
+    world: World,  # noqa: F811
+    action_status: ActionStatus,
+    approval: ApprovalStatus | None,
+) -> None:
+    with Session(world.engine) as s:
+        action = s.get(ActionRow, world.action)
+        assert action is not None
+        action.payload = {**action.payload, "body_variants": ["geheim", "B"]}
+        s.commit()
+    assert "geheim" in _drafts(world)  # offered while the approval is pending
+    with Session(world.engine) as s:
+        s.get(ActionRow, world.action).status = action_status  # type: ignore[union-attr]
+        waiting = s.query(Approval).filter(Approval.id == world.approval)
+        if approval is None:
+            waiting.delete()
+        else:
+            waiting.update({"status": approval})
+        s.commit()
+    assert "geheim" not in _drafts(world)

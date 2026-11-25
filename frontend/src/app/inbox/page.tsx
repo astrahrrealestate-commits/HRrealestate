@@ -400,7 +400,8 @@ function InboxContent() {
     const target = threads.find((t) => t.id === threadId);
     const approvalId = target?.approvalId || target?.id || threadId;
     setThreads((prev) =>
-      prev.map((t) => (t.id === threadId ? { ...t, status: "rejected" as const } : t))
+      // The rejected text leaves the composer at once, so it cannot be sent again as a typed reply.
+      prev.map((t) => (t.id === threadId ? { ...t, status: "rejected" as const, draftProposal: undefined } : t))
     );
     await approveInboxDraft(approvalId, "rej");
     showToast("Draft dismissed. Thread remains in queue.");
@@ -409,7 +410,11 @@ function InboxContent() {
   const handleMarkDone = async (threadId: string) => {
     const target = threads.find((t) => t.id === threadId);
     setThreads((prev) =>
-      prev.map((t) => (t.id === threadId ? { ...t, status: "closed" as const, isRead: true, snoozedUntil: null } : t))
+      prev.map((t) =>
+        t.id === threadId
+          ? { ...t, status: "closed" as const, isRead: true, snoozedUntil: null, draftProposal: undefined }
+          : t
+      )
     );
     const ok = await markThreadDone(target?.caseId || threadId);
     showToast(ok ? "Thread marked as done." : "Thread marked done locally.");
