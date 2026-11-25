@@ -168,9 +168,10 @@ audit: ## dependency vulnerability audit
 	cd backend && uv export --frozen --no-hashes --format requirements-txt > ../.claude/.cache/req.txt
 	$(UV_HERE) pip-audit -r .claude/.cache/req.txt --strict
 
-rag-eval: up-db ## ADR 0008: document RAG quality on the synthetic corpus, M10 baseline vs hybrid (scratch company in the dev DB; real models via EMBEDDING_MODEL/LLM_MODEL)
+rag-eval: up-db ## ADR 0008: document and message RAG quality on the synthetic corpora; reports in backend/evals/reports (scratch company in the dev DB; real models via EMBEDDING_MODEL/LLM_MODEL)
 	$(UV) alembic upgrade head
 	$(UV) python -m evals.rag_eval
+	$(UV) python -m evals.message_rag_eval
 
 eval: ## (M4) golden-set eval: make eval agent=understanding|linking|owner_qa|concierge|proposer|doc_reader|quote_reader|job_items|dd_reader version=v2
 	$(UV) python -m evals.run --agent $(agent) --version $(version)

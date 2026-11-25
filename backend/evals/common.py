@@ -1,8 +1,12 @@
 """Shared eval plumbing: settings without a database, an agent built exactly like `run_agent` builds it, results."""
 
 import os
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from itertools import count
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, PostgresDsn
@@ -16,6 +20,8 @@ from app.core.settings import Settings
 from app.llm.calls import AGENT_RETRIES
 from app.llm.prompts import LoadedPrompt
 from app.llm.runtime import build_model, output_for
+
+REPORTS = Path(__file__).parent / "reports"
 
 
 @dataclass(frozen=True)
@@ -39,6 +45,25 @@ def spec_agent[T: BaseModel](
     model = build_model(settings, agent_name)
     out = output_for(settings, output_type, gemini_prompted=gemini_prompted)
     return Agent(model, output_type=out, instructions=loaded.text, retries=AGENT_RETRIES)
+
+
+def write_rag_report(
+    name: str, embedding_model: str, llm_model: str, scores: dict[str, float], misses: Sequence[str], *,
+    folder: Path = REPORTS,
+) -> Path:  # fmt: skip
+    """One new file per run (never overwritten): the report before a change is the baseline of the one after it."""
+    stamp = datetime.now(UTC)
+    lines = [
+        f"# Eval: {name}", "", f"- date: {stamp.isoformat(timespec='seconds')}",
+        f"- embedding model: {embedding_model}", f"- llm: {llm_model}", "", "| metric | score |", "|---|---|",
+        *(f"| {k} | {v:.2f} |" for k, v in scores.items()), "", f"## Misses ({len(misses)})", "",
+        *(f"- {m}" for m in misses), "",
+    ]  # fmt: skip
+    folder.mkdir(exist_ok=True)
+    stem = f"{name}-{re.sub(r'[^a-z0-9]+', '-', embedding_model.lower()).strip('-')}-{stamp:%Y%m%d}"
+    path = next(p for n in count(1) if not (p := folder / f"{stem}-{n}.md").exists())
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
 
 
 def cell(text: str, limit: int = 60) -> str:
