@@ -45,7 +45,7 @@ from app.context.sender_label import UNASSIGNED_UNIT, resolve_sender_label, role
 from app.context.shown_sender import greeting_name, sender_person_ids, shown_sender_name
 from app.contracts import ActionType, ButtonChoice, CaseState, Category, Channel, Direction, Urgency
 from app.core.errors import NotFoundError
-from app.core.ids import case_ref
+from app.core.ids import case_ref, new_id
 from app.core.language import detect_language
 from app.core.logging import get_logger
 from app.core.settings import get_settings
@@ -73,6 +73,7 @@ from app.directory.contacts import link_secondary_identity
 from app.ingestion.gmail_sync import sync_mailbox
 from app.ingestion.process import IngestDeps, company_mailboxes, owner_addresses
 from app.pipeline import dashboard_decisions
+from app.pipeline.dashboard_decisions import is_suspicious
 from app.storage.ports import ObjectStorage
 
 router = APIRouter(
@@ -182,11 +183,16 @@ def _build_custom_facts(
     return custom_facts
 
 
+# Cancelled, held by the rules for review, refused or failed: none of these may come back as an approvable draft.
+_NEVER_OFFERED = (ActionStatus.superseded, ActionStatus.exception, ActionStatus.rejected, ActionStatus.failed)
+
+
 def _offered_reply(actions: list[ActionRow], messages: list[MessageRow], shown: MessageRow) -> ActionRow | None:
-    """The newest reply draft the composer may prefill, addressed there to `shown`'s sender. None when it was cancelled
-    (never an older one instead) or, on a case holding repaired mail (ADR 0016), answers someone else."""
+    """The newest reply draft the composer may prefill, addressed there to `shown`'s sender. None when it was
+    cancelled, held or refused (never an older one instead) or, on a case holding repaired mail (ADR 0016), answers
+    someone else."""
     action = next((a for a in actions if a.type == ActionType.reply_draft), None)
-    if action is None or action.status is ActionStatus.superseded:
+    if action is None or action.status in _NEVER_OFFERED:
         return None
     if any("reattributed_from" in (m.meta or {}) for m in messages):
         senders = {m.id: m.sender_identity.lower() for m in messages}
@@ -896,10 +902,38 @@ def create_gmail_draft(
     }
 
 
+def _quoted_inbound(
+    session: Session, company_id: UUID, case_id: UUID, channel: Channel, ref: str | None
+) -> UUID | None:
+    """`ref` when it is an incoming message on `channel` that the case shows (linked, or in a linked thread)."""
+    try:
+        message_id = UUID(ref) if ref else None
+    except ValueError:
+        return None
+    if message_id is None:
+        return None
+    linked = (
+        select(MessageRow.id, MessageRow.thread_ref)
+        .join(CaseLink, CaseLink.message_id == MessageRow.id)
+        .where(CaseLink.company_id == company_id, CaseLink.case_id == case_id, MessageRow.company_id == company_id)
+        .subquery()
+    )
+    return session.scalar(
+        select(MessageRow.id).where(
+            MessageRow.company_id == company_id,
+            MessageRow.id == message_id,
+            MessageRow.channel == channel,
+            MessageRow.direction == Direction.inbound,
+            MessageRow.id.in_(select(linked.c.id)) | MessageRow.thread_ref.in_(select(linked.c.thread_ref)),
+        )
+    )
+
+
 class ThreadReplyRequest(BaseModel):
     body: str = Field(min_length=1, max_length=20000)
     channel: str | None = None
     reply_to_message_id: str | None = None
+    confirm_suspicious: bool = False
 
 
 @router.post(
@@ -944,6 +978,7 @@ def send_thread_reply(
                 .where(
                     CaseLink.company_id == company_id,
                     CaseLink.case_id == c_uuid,
+                    MessageRow.company_id == company_id,
                     MessageRow.direction == Direction.inbound,
                 )
                 .order_by(MessageRow.sent_at.desc())
@@ -952,18 +987,12 @@ def send_thread_reply(
             if latest_in is not None and latest_in.channel in (Channel.gmail, Channel.whatsapp):
                 chosen_channel = latest_in.channel
 
-        context_msg = session.scalar(
-            select(MessageRow)
-            .join(CaseLink, CaseLink.message_id == MessageRow.id)
-            .where(
-                CaseLink.company_id == company_id,
-                CaseLink.case_id == c_uuid,
-                MessageRow.channel == chosen_channel,
-                MessageRow.direction == Direction.inbound,
-            )
-            .order_by(MessageRow.sent_at.desc())
-            .limit(1)
-        )
+        # Same confirmation as approving a draft: with no quoted mail, any flagged mail on the case counts.
+        if not req.confirm_suspicious and is_suspicious(
+            session, company_id, ActionRow(id=new_id(), company_id=company_id, case_id=c_uuid, context_ref=[])
+        ):
+            raise HTTPException(status_code=409, detail="confirm_suspicious_required")
+        quoted_id = _quoted_inbound(session, company_id, c_uuid, chosen_channel, req.reply_to_message_id)
         payload: dict[str, Any] = {
             "kind": "reply_draft",
             "channel": chosen_channel.value,
@@ -975,7 +1004,9 @@ def send_thread_reply(
             type=ActionType.reply_draft,
             payload=payload,
             rationale="Owner reply from Inbox",
-            context_ref=[context_msg.id] if context_msg is not None else [],
+            # Only what the owner quoted. The draft guard compares it with the recipient (ADR 0016), so filling in
+            # the latest sender here would make that comparison pass by itself.
+            context_ref=[quoted_id] if quoted_id else [],
             draft_version=1,
             status=ActionStatus.approved,
         )

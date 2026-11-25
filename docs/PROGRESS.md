@@ -475,6 +475,8 @@ bidirectional translation controls onto the new unified Composer, and fixed what
 - [x] Review fixes (2026-11-25): Link to Tenant names the mail on screen and moves only an unclassified writer; a writer's flat never replaces a case's; a later flag overrides the pass label; labelling is a separate capped step after the worker is back; the script stops its own task before restoring the worker, snapshots after the worker exits, and refuses a stopped worker
 - [ ] Label pass and script never run against a real model or a real apply; inbox count badges still count by case contact
 - [ ] Open: `frontend/src/lib/api.ts` does not map `isUnregisteredSender`/`matchedTenant`, so the "Link to Tenant" banner appears never to show
+- [x] Merged `hrrealestate/dev` 6ac612c (2026-11-25) and closed four security blockers around its typed-reply route (see `security.md`)
+- [ ] Open: the typed-reply route's remaining items in `security.md`; send mode stays off
 - [ ] Open: dev's contractor-case heuristic hardcodes a domain; repaired IMAP rows keep a non-API `thread_ref`, so drafting on them is likely to fail
 - [ ] Repair not yet previewed or applied on any live mailbox; needs the new code deployed
 - [ ] Open: header-name impersonation (`security.md`, not accepted); `test_remember_rule_text_is_sanitised_like_the_pipelines` is flaky (a random id can contain `500`)

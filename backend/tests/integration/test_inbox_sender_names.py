@@ -25,7 +25,7 @@ from app.db.models import (
     RawEvent,
     Unit,
 )
-from tests.integration.test_inbox_maintenance_approve import T0, World, world  # noqa: F401
+from tests.integration.test_inbox_maintenance_approve import T0, World, suspicious_world, world  # noqa: F401
 
 pytestmark = pytest.mark.integration
 
@@ -377,3 +377,50 @@ def test_link_to_tenant_never_moves_a_contact_saved_with_a_category(world: World
         assert _holder(world, "notaris@example.test") == made.sender_person
     finally:
         _drop(world)
+
+
+def _reply(w: World, **extra: Any) -> Any:
+    url = f"/api/inbox/threads/case-{w.case}/reply"
+    return w.client.post(url, json={"body": "Hallo", "channel": "gmail", **extra}, headers={"X-EstateOS-Client": "web"})
+
+
+def _typed_reply_refs(w: World) -> list[list[UUID]]:
+    with Session(w.engine) as s:
+        rows = s.scalars(select(ActionRow).where(ActionRow.company_id == w.company, ActionRow.id != w.action))
+        return [list(a.context_ref or []) for a in rows]
+
+
+def test_a_typed_reply_records_only_the_mail_the_owner_quoted(world: World) -> None:  # noqa: F811
+    """The draft guard compares this with the recipient, so it must never be filled in with the latest sender."""
+    with Session(world.engine) as s:
+        _add_mail(s, world, "jan@example.test", 1)
+        _add_mail(s, world, "piet@example.test", 2)
+        s.commit()
+        jan = s.scalars(
+            select(MessageRow.id).where(
+                MessageRow.company_id == world.company, MessageRow.sender_identity == "jan@example.test"
+            )
+        ).one()
+    assert _reply(world, reply_to_message_id=str(jan)).status_code == 200
+    assert _reply(world).status_code == 200
+    assert _reply(world, reply_to_message_id=str(uuid4())).status_code == 200
+    assert sorted(_typed_reply_refs(world), key=len) == [[], [], [jan]]
+
+
+def test_a_typed_reply_on_a_suspicious_thread_needs_confirmation(suspicious_world: World) -> None:  # noqa: F811
+    refused = _reply(suspicious_world)
+    assert (refused.status_code, refused.json()["detail"]) == (409, "confirm_suspicious_required")
+    assert _typed_reply_refs(suspicious_world) == []
+    assert _reply(suspicious_world, confirm_suspicious=True).status_code == 200
+
+
+@pytest.mark.parametrize("status", [ActionStatus.exception, ActionStatus.rejected, ActionStatus.failed])
+def test_a_held_or_refused_draft_is_never_offered_for_approval(world: World, status: ActionStatus) -> None:  # noqa: F811
+    with Session(world.engine) as s:
+        action = s.get(ActionRow, world.action)
+        assert action is not None
+        action.payload = {**action.payload, "body_variants": ["geheim", "B"]}
+        action.status = status
+        s.query(Approval).filter(Approval.id == world.approval).delete()
+        s.commit()
+    assert "geheim" not in _drafts(world)

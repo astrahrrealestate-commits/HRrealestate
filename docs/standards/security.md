@@ -94,6 +94,15 @@ Closed on 2026-11-12:
   because their Dutch output may be a message sent to the erased person
 
 Still open (fix in this order):
+- **Owner-typed inbox replies** (`POST /api/inbox/threads/{case_id}/reply`, from dev 6ac612c; no ADR yet; not accepted).
+  Fixed on merge: Approve never falls back to it, held or refused drafts are not offered, it needs the suspicious
+  confirmation, and it records only a quoted mail. **Keep send mode off until these are fixed:** no client idempotency
+  key (a retry sends again) and an older pending draft stays approvable after a typed reply; the request names no
+  recipient, so in send mode it goes to the case contact even when the card shows someone else. Also open: it calls
+  `record_dispatch`, which writes "Contractor dispatch approved & dispatched" into the case summary for any reply and
+  moves the case to waiting; its message says "queued for sending" in draft mode; a draft blocked by the shared-case
+  guard is not reported to the owner in draft mode; the emergency fallback can drop a model's fourth action; dev edited
+  the published `proposer/v4` (active) and `v5` prompts in place, which invariant 9 forbids.
 - **The mail repair report holds personal data** (not yet accepted): names, addresses and possibly numbers go to the
   worker's CloudWatch log group, which `erase_person` cannot reach. Limit who reads it; its snapshot is a full copy of
   tenant data, to be deleted once the repair is accepted.

@@ -1,5 +1,6 @@
 "use client";
 
+import { approveOrReply } from "@/lib/approveDraft";
 import React, { useState, useMemo, useEffect, useCallback, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
@@ -343,17 +344,13 @@ function InboxContent() {
       ? targetThread?.messages?.find((m) => m.id === replyToMessageId)
       : undefined;
 
-    let result: { ok?: boolean; status: string; message: string };
-    if (hasPendingApproval && approvalId) {
-      const decideRes = await approveInboxDraft(approvalId, "d1", draftText, effectiveMsg?.id);
-      if ((decideRes.status as string) === "already_decided") {
-        result = await sendThreadReply(caseId, draftText, outboundChannel, effectiveMsg?.id);
-      } else {
-        result = decideRes;
-      }
-    } else {
-      result = await sendThreadReply(caseId, draftText, outboundChannel, effectiveMsg?.id);
-    }
+    const result = await approveOrReply({
+      approve:
+        hasPendingApproval && approvalId
+          ? () => approveInboxDraft(approvalId, "d1", draftText, effectiveMsg?.id)
+          : undefined,
+      reply: () => sendThreadReply(caseId, draftText, outboundChannel, effectiveMsg?.id),
+    });
 
     if (!result.ok || result.status === "rejected" || result.status === "held") {
       showToast(result.message || "Could not send reply.");
