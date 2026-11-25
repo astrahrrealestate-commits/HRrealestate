@@ -334,6 +334,19 @@ def _fake_rag_rerank(prompt: str) -> dict[str, object]:
     return {"scores": _fake_rerank_scores(_block(prompt, "message"), passages)}
 
 
+def fake_person_memory(prompt: str) -> dict[str, object]:
+    """What Harjot wrote becomes a commitment, what the person wrote an open issue: enough to test the plumbing."""
+    lines = [" ".join(p.split()) for p in _block(prompt, "thread").split("\n\n")]
+    ours = [ln for ln in lines if "Harjot" in ln.split(": ", 1)[0]]
+    theirs = [ln for ln in lines if ln and ln != "none" and ln not in ours]
+    return {
+        "summary": f"{len(lines)} message(s) read.",
+        "commitments": [ln.split(": ", 1)[-1][:200] for ln in ours][:10],
+        "preferences": [],
+        "open_issues": [ln.split(": ", 1)[-1][:200] for ln in theirs][:10],
+    }
+
+
 def model_for(agent_name: str) -> FunctionModel:
     def fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         user_text = _extract_user_text(messages)
@@ -345,6 +358,8 @@ def model_for(agent_name: str) -> FunctionModel:
             args = _fake_link_check(user_text)
         elif agent_name == "case_summary":
             args = _fake_case_summary(user_text)
+        elif agent_name == "person_memory":
+            args = fake_person_memory(user_text)
         elif agent_name == "proposer":
             args = fake_proposer(user_text)
         elif agent_name == "owner_qa":
