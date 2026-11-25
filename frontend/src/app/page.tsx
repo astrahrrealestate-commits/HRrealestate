@@ -86,7 +86,7 @@ export default function TodayPage() {
   const [nudgedItemIds, setNudgedItemIds] = useState<Record<string, boolean>>({});
   const [showAllUrgent, setShowAllUrgent] = useState<boolean>(false);
   const [showAllNeedsYou, setShowAllNeedsYou] = useState<boolean>(false);
-  const [activeSection, setActiveSection] = useState<"all" | "urgent" | "needs_you" | "waiting" | "leads" | "overview">("all");
+  const [activeSection, setActiveSection] = useState<"all" | "urgent" | "needs_you" | "waiting" | "leads" | "calendar" | "overview">("all");
 
   // Maintenance in-place state
   const DEFAULT_TICKET_TEMPLATE: MaintenanceTicket = useMemo(() => ({
@@ -120,12 +120,12 @@ export default function TodayPage() {
   const [customTenantReplyText, setCustomTenantReplyText] = useState<Record<string, string>>({});
   const [customContractorText, setCustomContractorText] = useState<Record<string, string>>({});
 
-  // Fetch live threads and dashboard data
+  // Fetch live threads and dashboard data (critical above-the-fold first; secondary widgets staggered)
   useEffect(() => {
     let isMounted = true;
 
-    // 1. Inbox threads (Single source of truth for Needs You and Urgent counts, priority-sorted with higher limit)
-    getInboxThreads({ limit: 100, sort: "priority" })
+    // 1. Inbox threads (summary mode without unused HTML email bodies cuts Dashboard payload by ~90%)
+    getInboxThreads({ limit: 100, sort: "priority", includeHtml: false })
       .then(({ threads: live }) => {
         if (isMounted) {
           setThreads(live || []);
@@ -133,34 +133,18 @@ export default function TodayPage() {
       })
       .catch((err) => console.warn("Failed to load threads on Today:", err));
 
-    getPortfolio().then((result) => {
-      if (isMounted && result.ok) setPortfolio(result.data);
-    });
-    getTenantProfiles().then((result) => {
-      if (isMounted && result.ok) setTenants(result.data);
-    });
-    // 2. Metrics & radar & inquiries & logs
-    Promise.all([
-      getDashboardPulse(),
-      getDashboardRadar(),
-      getDashboardInquiries(),
-      getAutonomousLogs(),
-    ])
-      .then(([pRes, rRes, iRes, lRes]) => {
-        if (!isMounted) return;
-        if (pRes.isLive) setMetrics(pRes.metrics);
-        if (rRes.isLive) setRadarItems(rRes.items || []);
-        if (iRes.isLive) setInquiries(iRes.inquiries || []);
-        if (lRes.isLive) setLogs(lRes.logs || []);
+    getDashboardPulse()
+      .then((pRes) => {
+        if (isMounted && pRes.isLive) setMetrics(pRes.metrics);
       })
-      .catch((err) => console.warn("Failed to load auxiliary dashboard data:", err));
+      .catch((err) => console.warn("Failed to load pulse:", err));
 
     // BRIXX: open tickets, overdue rent and ending leases, so Today has content without Gmail or WhatsApp
     getDashboardAttention().then((result) => {
       if (isMounted) setAttention(result);
     });
 
-    // 3. Maintenance tickets for in-place detail view and editing
+    // Maintenance tickets for in-place detail view and editing
     getMaintenanceTickets()
       .then((mRes) => {
         if (!isMounted) return;
@@ -170,8 +154,28 @@ export default function TodayPage() {
       })
       .catch((err) => console.warn("Failed to load maintenance tickets:", err));
 
+    // Stagger secondary portfolio/directory/auxiliary fetches slightly so critical calls get priority
+    const secondaryTimer = setTimeout(() => {
+      if (!isMounted) return;
+      getPortfolio().then((result) => {
+        if (isMounted && result.ok) setPortfolio(result.data);
+      });
+      getTenantProfiles().then((result) => {
+        if (isMounted && result.ok) setTenants(result.data);
+      });
+      Promise.all([getDashboardRadar(), getDashboardInquiries(), getAutonomousLogs()])
+        .then(([rRes, iRes, lRes]) => {
+          if (!isMounted) return;
+          if (rRes.isLive) setRadarItems(rRes.items || []);
+          if (iRes.isLive) setInquiries(iRes.inquiries || []);
+          if (lRes.isLive) setLogs(lRes.logs || []);
+        })
+        .catch((err) => console.warn("Failed to load auxiliary dashboard data:", err));
+    }, 180);
+
     return () => {
       isMounted = false;
+      clearTimeout(secondaryTimer);
     };
   }, []);
 
@@ -513,6 +517,7 @@ export default function TodayPage() {
     urgent: isUrgent(thread),
     isRead: thread.isRead,
     roleLabel: thread.recipientRoleDetail,
+    category: thread.category,
     status: "needs_you",
     count: thread.messages?.length || 1,
   });
@@ -550,45 +555,10 @@ export default function TodayPage() {
     setTodayFormatted(formatLongDay(new Date()));
   }, []);
 
-  // Lead rows fallback with dynamic slicing (20-50 limit when leads tab is active, Row 56)
+  // Lead rows with dynamic slicing (no fabricated default leads)
   const leadItems: ProspectiveInquiry[] = useMemo(() => {
     const limit = activeSection === "all" ? 3 : 50;
-    if (inquiries.length > 0) return inquiries.slice(0, limit);
-    return [
-      {
-        id: "lead-1",
-        name: "Sanne Meijer",
-        contact: "sanne.meijer@uva.nl",
-        channel: "gmail",
-        unit: "Pieter Floriszstraat 1 C",
-        moveIn: "1 Nov 2026",
-        request: "Viewing Thursday 15:00 slot",
-        qualification: "3.2x income verified (UvA lecturer)",
-        status: "AI draft ready",
-      },
-      {
-        id: "lead-2",
-        name: "Lucas van Dijk",
-        contact: "+31 6 81 29 44 10",
-        channel: "whatsapp",
-        unit: "Singel 412 Studio",
-        moveIn: "1 Nov 2026",
-        request: "Studio availability & viewing inquiry",
-        qualification: "Preliminary criteria met",
-        status: "AI draft ready",
-      },
-      {
-        id: "lead-3",
-        name: "Elena Rostova",
-        contact: "elena.rostova@booking.com",
-        channel: "gmail",
-        unit: "Keizersgracht 42-B",
-        moveIn: "15 Nov 2026",
-        request: "Viewing & expat registration query",
-        qualification: "Booking.com Senior Software Engineer",
-        status: "AI draft ready",
-      },
-    ];
+    return inquiries.slice(0, limit);
   }, [inquiries, activeSection]);
 
   // Open rent by days overdue, from the tenants' own overdue rent. Empty until rent payments are mirrored.
@@ -676,7 +646,7 @@ export default function TodayPage() {
                   {briefingKind === "daily" ? `${todayFormatted} · Amsterdam (CET)` : "9 Oct – 15 Oct (Weekly Review) · Amsterdam (CET)"}
                 </span>
                 <h1 className="font-heading font-bold text-[24px] sm:text-[32px] text-[var(--ink)] tracking-tight leading-none mt-1">
-                  {briefingKind === "daily" ? "Good morning" : "Weekly executive review"}{firstName ? `, ${firstName}` : ""}
+                  {briefingKind === "daily" ? "Hey" : "Weekly executive review"}{firstName ? `, ${firstName}` : ""}
                 </h1>
               </div>
 
@@ -1064,6 +1034,19 @@ export default function TodayPage() {
                 >
                   {leadItems.length}
                 </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveSection(activeSection === "calendar" ? "all" : "calendar")}
+                className={cn(
+                  "px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5",
+                  activeSection === "calendar"
+                    ? "bg-[var(--ink)] text-white font-semibold shadow-2xs"
+                    : "text-[var(--ink-2)] hover:text-[var(--ink)] hover:bg-[var(--pane)] border border-transparent hover:border-[var(--line)]"
+                )}
+              >
+                <span>{t("Calendar")}</span>
               </button>
 
               <button
@@ -1963,7 +1946,7 @@ export default function TodayPage() {
           })()}
 
           {/* Section 1.5: Calendar & Visit Approvals (Top N proposed appointments awaiting Harjot's confirmation) */}
-          {(activeSection === "all" || activeSection === "needs_you" || activeSection === "urgent") && (
+          {(activeSection === "all" || activeSection === "calendar" || activeSection === "needs_you" || activeSection === "urgent") && (
             <CalendarApprovalsCard
               onApproveSuccess={(_eventId, title) => {
                 showToast(`Visit approved & synced to Google Calendar: ${title}`);
@@ -2046,46 +2029,52 @@ export default function TodayPage() {
             </div>
 
             <div className="divide-y divide-[var(--line)]">
-              {leadItems.map((lead) => (
-                <div
-                  key={lead.id}
-                  onClick={() => router.push("/inbox?audience=inquiries")}
-                  className="p-4 sm:px-5 sm:py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm hover:bg-[var(--selected)]/40 transition-colors cursor-pointer"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-[var(--ink)]">
-                        {lead.name}
-                      </span>
-                      <span className="text-[var(--ink-3)]">·</span>
-                      <span className="text-[var(--ink-2)] font-medium">
-                        {lead.unit}
-                      </span>
-                      <span className="text-[var(--ink-3)]">·</span>
-                      <span className="text-xs text-[var(--ink-3)] truncate max-w-sm">
-                        {lead.request}
-                      </span>
+              {leadItems.length > 0 ? (
+                leadItems.map((lead) => (
+                  <div
+                    key={lead.id}
+                    onClick={() => router.push("/inbox?audience=inquiries")}
+                    className="p-4 sm:px-5 sm:py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm hover:bg-[var(--selected)]/40 transition-colors cursor-pointer"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-[var(--ink)]">
+                          {lead.name}
+                        </span>
+                        <span className="text-[var(--ink-3)]">·</span>
+                        <span className="text-[var(--ink-2)] font-medium">
+                          {lead.unit}
+                        </span>
+                        <span className="text-[var(--ink-3)]">·</span>
+                        <span className="text-xs text-[var(--ink-3)] truncate max-w-sm">
+                          {lead.request}
+                        </span>
+                      </div>
+                      <div className="text-xs text-[var(--ink-3)] mt-0.5 flex items-center gap-2">
+                        <span>{lead.qualification}</span>
+                      </div>
                     </div>
-                    <div className="text-xs text-[var(--ink-3)] mt-0.5 flex items-center gap-2">
-                      <span>{lead.qualification}</span>
-                    </div>
-                  </div>
 
-                  <div className="shrink-0 self-end sm:self-center">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        router.push("/inbox?audience=inquiries");
-                      }}
-                      className="text-xs border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] shadow-2xs"
-                    >
-                      {t("Review")}
-                    </Button>
+                    <div className="shrink-0 self-end sm:self-center">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          router.push("/inbox?audience=inquiries");
+                        }}
+                        className="text-xs border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] shadow-2xs"
+                      >
+                        {t("Review")}
+                      </Button>
+                    </div>
                   </div>
+                ))
+              ) : (
+                <div className="p-6 text-center text-sm text-[var(--ink-3)]">
+                  {t("No new leads yet.")}
                 </div>
-              ))}
+              )}
             </div>
           </section>
           )}

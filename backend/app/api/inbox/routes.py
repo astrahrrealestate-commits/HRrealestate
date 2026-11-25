@@ -10,6 +10,7 @@ import urllib.parse
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from typing import Annotated, Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -40,7 +41,12 @@ from app.api.v1 import enqueue
 from app.api.v1.access import require_section
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import decide_limit, sync_limit
-from app.channels.gmail.html_sanitize import html_to_clean_text, looks_like_html, sanitize_email_html
+from app.channels.gmail.html_sanitize import (
+    html_to_clean_text,
+    looks_like_html,
+    normalize_message_whitespace,
+    sanitize_email_html,
+)
 from app.context.sender_label import UNASSIGNED_UNIT, resolve_sender_label, role_hint_of, unit_display
 from app.contracts import ActionType, ButtonChoice, CaseState, Category, Channel, Direction, Urgency
 from app.core.errors import NotFoundError
@@ -331,6 +337,16 @@ def _prepare_cases(
     return kept[offset : offset + limit] if has_filters else kept
 
 
+@lru_cache(maxsize=512)
+def _cached_clean_and_html(raw_text: str, need_html: bool) -> tuple[str | None, str]:
+    """Cache HTML sanitization and whitespace-normalized text across 8s inbox polls."""
+    if not looks_like_html(raw_text):
+        return None, normalize_message_whitespace(raw_text)
+    clean_body = html_to_clean_text(raw_text)
+    html_body = sanitize_email_html(raw_text) if need_html else None
+    return html_body, clean_body
+
+
 def _assemble_thread(
     prep: _PreparedCase,
     msg_batch: ThreadMessagesBatch,
@@ -338,6 +354,7 @@ def _assemble_thread(
     *,
     company_tz: ZoneInfo,
     now_dt: datetime,
+    include_html: bool = True,
 ) -> dict[str, Any]:
     case = prep.case
     messages = prep.messages
@@ -443,11 +460,17 @@ def _assemble_thread(
                 prep.sender_email,
             )
         m_meta = m.meta if isinstance(m.meta, dict) else {}
-        raw_html = m_meta.get("body_html") if isinstance(m_meta.get("body_html"), str) else None
+        meta_html = m_meta.get("body_html") if isinstance(m_meta.get("body_html"), str) else None
         raw_text = m.text or ""
-        if not raw_html and looks_like_html(raw_text):
-            raw_html = sanitize_email_html(raw_text)
-        clean_body = html_to_clean_text(raw_text) if looks_like_html(raw_text) else raw_text
+        if include_html:
+            if meta_html:
+                raw_html = meta_html
+                _, clean_body = _cached_clean_and_html(raw_text, False)
+            else:
+                raw_html, clean_body = _cached_clean_and_html(raw_text, True)
+        else:
+            raw_html = None
+            _, clean_body = _cached_clean_and_html(raw_text, False)
         msgs_data.append(
             {
                 "id": str(m.id),
@@ -533,7 +556,7 @@ def _assemble_thread(
     ticket_code = f"BRIXX-{case.brixx_ref}" if case.brixx_ref else f"#{case_ref(case.id)}"
 
     latest_raw_text = prep.latest_msg.text or ""
-    latest_clean_snippet = html_to_clean_text(latest_raw_text) if looks_like_html(latest_raw_text) else latest_raw_text
+    _, latest_clean_snippet = _cached_clean_and_html(latest_raw_text, False)
 
     return {
         "id": f"case-{case.id}",
@@ -600,6 +623,7 @@ def _assemble_cases(
     category: str = "all",
     limit: int = 20,
     offset: int = 0,
+    include_html: bool = True,
 ) -> list[dict[str, Any]]:
     """Hydrates a list of Case rows into frontend thread dicts."""
     if not cases:
@@ -625,7 +649,10 @@ def _assemble_cases(
     unit_labels = {p.raw_unit_label for p in prepared if p.raw_unit_label != UNASSIGNED_UNIT}
     details = load_details_batch(session, company_id, kept_case_ids, kept_msg_ids, unit_labels, now_dt.date())
 
-    live_threads = [_assemble_thread(p, msg_batch, details, company_tz=company_tz, now_dt=now_dt) for p in prepared]
+    live_threads = [
+        _assemble_thread(p, msg_batch, details, company_tz=company_tz, now_dt=now_dt, include_html=include_html)
+        for p in prepared
+    ]
     all_msgs = [m for t in live_threads for m in t["messages"]]
     all_drafts = [d for t in live_threads for d in (*t["gmailDrafts"], *t["whatsappDrafts"])]
     annotate_translations(session, company_id, all_msgs, all_drafts)
@@ -642,6 +669,7 @@ def _build_live_threads(
     audience: str = "all",
     category: str = "all",
     sort: str = "recent",
+    include_html: bool = True,
 ) -> list[dict[str, Any]]:
     """Builds frontend-compatible thread structures from PostgreSQL via batched read-only queries."""
     has_filters = channel != "all" or audience != "all" or category != "all"
@@ -671,6 +699,7 @@ def _build_live_threads(
         category=category,
         limit=limit,
         offset=offset,
+        include_html=include_html,
     )
 
 
@@ -687,6 +716,7 @@ def get_inbox_threads(
     sort: str = Query(default="recent", description="recent or priority"),
     limit: int = Query(default=20, ge=1, le=100, description="Max threads to return"),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
+    include_html: bool = Query(default=True, description="Include sanitized HTML email bodies"),
     *,
     principal: Annotated[Principal, Depends(require_session)],
 ) -> dict[str, Any]:
@@ -698,6 +728,7 @@ def get_inbox_threads(
     sort_mode = sort if isinstance(sort, str) else getattr(sort, "default", "recent")
     lim = limit if isinstance(limit, int) else getattr(limit, "default", 20)
     off = offset if isinstance(offset, int) else getattr(offset, "default", 0)
+    inc_html = include_html if isinstance(include_html, bool) else getattr(include_html, "default", True)
 
     with Session(engine) as session:
         live_threads = _build_live_threads(
@@ -709,6 +740,7 @@ def get_inbox_threads(
             audience=aud,
             category=cat,
             sort=sort_mode,
+            include_html=inc_html,
         )
         total_cases = session.query(func.count(Case.id)).filter(Case.company_id == principal.company_id).scalar() or 0
     if not principal.access.can("inbox"):

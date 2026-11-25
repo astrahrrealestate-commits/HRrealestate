@@ -25,6 +25,7 @@ export interface FetchThreadsParams {
   sort?: "recent" | "priority";
   limit?: number;
   offset?: number;
+  includeHtml?: boolean;
 }
 
 export interface ApprovalDecideResponse {
@@ -91,6 +92,7 @@ export async function getInboxThreads(
   if (params.sort && params.sort !== "recent") query.set("sort", params.sort);
   if (params.limit !== undefined) query.set("limit", String(params.limit));
   if (params.offset !== undefined) query.set("offset", String(params.offset));
+  if (params.includeHtml === false) query.set("include_html", "false");
 
   try {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/threads?${query.toString()}`, {
@@ -474,31 +476,6 @@ export interface ProspectiveInquiry {
   status: string;
 }
 
-const DEFAULT_INQUIRIES: ProspectiveInquiry[] = [
-  {
-    id: "lead-1",
-    name: "Sanne Meijer",
-    contact: "sanne.meijer@uva.nl",
-    channel: "gmail",
-    unit: "Pieter Floriszstraat 1 C",
-    moveIn: "1 Nov 2026",
-    request: "Viewing request · Thursday 15:00 slot",
-    qualification: "3.2x income verified (UvA lecturer)",
-    status: "AI draft ready",
-  },
-  {
-    id: "lead-2",
-    name: "Lucas van Dijk",
-    contact: "+31 6 81 29 44 10",
-    channel: "whatsapp",
-    unit: "Singel 412 Studio",
-    moveIn: "1 Nov 2026",
-    request: "Studio availability & viewing inquiry",
-    qualification: "Preliminary criteria met",
-    status: "AI draft ready",
-  },
-];
-
 /**
  * Fetches executive briefing from the BRIEFING agent.
  * GET /api/dashboard/briefing?kind=daily|weekly
@@ -658,7 +635,7 @@ export async function getDashboardInquiries(): Promise<{ inquiries: ProspectiveI
     // Offline fallback
   }
 
-  return { inquiries: DEFAULT_INQUIRIES, total: DEFAULT_INQUIRIES.length, isLive: false };
+  return { inquiries: [], total: 0, isLive: false };
 }
 
 /**

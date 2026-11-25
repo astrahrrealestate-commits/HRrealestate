@@ -21,7 +21,31 @@ export interface ThreadRowItem {
   count?: number;
   isRead?: boolean;
   roleLabel?: string;
+  category?: string;
   status: "needs_you" | "handled" | "waiting" | string;
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  maintenance: "Maintenance",
+  payment: "Payment",
+  rent: "Rent",
+  lease: "Lease",
+  complaint: "Complaint",
+  sublet: "Sublet",
+  contractor_update: "Contractor",
+  contractor_repairs: "Repairs",
+  contractor_invoices: "Invoices",
+  admin: "Admin",
+  legal: "Legal",
+  spam: "Spam",
+};
+
+/** Display-friendly label for non-generic thread categories. */
+export function formatCategoryLabel(category?: string): string | null {
+  if (!category) return null;
+  const key = category.toLowerCase();
+  if (key === "other" || key === "general") return null;
+  return CATEGORY_LABELS[key] ?? key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, " ");
 }
 
 export interface ThreadRowProps {
@@ -56,6 +80,8 @@ export function ThreadRow({
 }: ThreadRowProps) {
   const isUnread = t.isRead === false || (t.isRead === undefined && t.status === "needs_you");
   const needsYou = t.status === "needs_you";
+  const categoryLabel = formatCategoryLabel(t.category);
+  const showCategory = Boolean(categoryLabel && categoryLabel.toLowerCase() !== t.roleLabel?.toLowerCase());
   const dateObj = t.lastAt instanceof Date ? t.lastAt : new Date(t.lastAt);
   const formattedTime = formatListTime(t.lastAt || dateObj);
   const isoTime = isNaN(dateObj.getTime()) ? "" : dateObj.toISOString();
@@ -128,9 +154,14 @@ export function ThreadRow({
               {t.roleLabel}
             </span>
           )}
+          {showCategory && (
+            <span className="shrink-0 inline-flex items-center px-1.5 py-0.2 rounded border border-[var(--line)] bg-[var(--selected)]/60 text-[10px] font-medium text-[var(--ink-2)] leading-tight">
+              {categoryLabel}
+            </span>
+          )}
         </span>
 
-        <span className="block truncate text-sm leading-normal mt-0.5">
+        <span className="block truncate text-sm leading-normal mt-0.5" title={t.subject || undefined}>
           {t.unit ? (
             <span className={cn("text-[var(--ink)]", isUnread ? "font-bold" : "font-semibold")}>{t.unit}</span>
           ) : null}

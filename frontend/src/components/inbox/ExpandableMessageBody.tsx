@@ -12,9 +12,19 @@ export interface ParsedMessageText {
  * Splits raw message text into primary reply vs. collapsed quote chain.
  * Matches standard Gmail/Outlook quote headers in English, Dutch, Polish, etc.
  */
+export function normalizeMessageWhitespace(raw: string): string {
+  return raw
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u00a0\u200b\u200c\u200d\ufeff]/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+\n/g, "\n\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function parseQuotedText(raw: string | null | undefined): ParsedMessageText {
   if (!raw) return { cleanBody: "", quotedText: null };
-  const text = String(raw).replace(/^["']|["']$/g, "").trim();
+  const text = normalizeMessageWhitespace(String(raw).replace(/^["']|["']$/g, ""));
 
   // Common email quote header patterns:
   // - "On ... wrote:"

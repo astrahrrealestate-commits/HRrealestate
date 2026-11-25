@@ -49,7 +49,7 @@ describe("apiFetch health resilience", () => {
     unsub();
   });
 
-  it("marks unhealthy when repeated failures persist and /health/live confirms down, then recovers", async () => {
+  it("marks unhealthy only after consecutive probe failures confirm down, then recovers", async () => {
     const states: boolean[] = [];
     const unsub = onApiHealthChange((healthy) => states.push(healthy));
 
@@ -57,7 +57,12 @@ describe("apiFetch health resilience", () => {
     await expect(apiFetch("/api/inbox/threads")).rejects.toThrow();
     await expect(apiFetch("/api/inbox/threads")).rejects.toThrow();
 
+    // First scheduled probe failure alone does not flip the banner yet.
     await vi.advanceTimersByTimeAsync(1600);
+    expect(states[states.length - 1]).toBe(true);
+
+    // Second failed /health/live confirmation flips unhealthy; one OK response restores healthy.
+    await expect(probeApiHealth()).resolves.toBe(false);
     expect(states[states.length - 1]).toBe(false);
 
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));

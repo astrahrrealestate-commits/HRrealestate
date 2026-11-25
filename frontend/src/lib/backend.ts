@@ -51,15 +51,18 @@ type ApiHealthListener = (healthy: boolean) => void;
 const healthListeners = new Set<ApiHealthListener>();
 let apiHealthy = true;
 let consecutiveFailures = 0;
+let consecutiveProbeFailures = 0;
 let verifyTimer: ReturnType<typeof setTimeout> | null = null;
 let probeInFlight: Promise<boolean> | null = null;
 const FAILURE_THRESHOLD = 2;
+const PROBE_FAILURE_THRESHOLD = 2;
 const WAKE_VERIFY_DELAY_MS = 1500;
 const GATEWAY_UNAVAILABLE_STATUSES = new Set([502, 503, 504]);
 
 function setApiHealthy(next: boolean) {
   if (next) {
     consecutiveFailures = 0;
+    consecutiveProbeFailures = 0;
     if (verifyTimer !== null) {
       clearTimeout(verifyTimer);
       verifyTimer = null;
@@ -94,7 +97,7 @@ export function probeApiHealth(): Promise<boolean> {
     method: "GET",
     credentials: "include",
     cache: "no-store",
-    signal: AbortSignal.timeout(5000),
+    signal: AbortSignal.timeout(8000),
   })
     .then(
       (res) => {
@@ -103,13 +106,19 @@ export function probeApiHealth(): Promise<boolean> {
           return true;
         }
         if (GATEWAY_UNAVAILABLE_STATUSES.has(res.status)) {
-          setApiHealthy(false);
+          consecutiveProbeFailures += 1;
+          if (consecutiveProbeFailures >= PROBE_FAILURE_THRESHOLD) {
+            setApiHealthy(false);
+          }
           return false;
         }
         return apiHealthy;
       },
       () => {
-        setApiHealthy(false);
+        consecutiveProbeFailures += 1;
+        if (consecutiveProbeFailures >= PROBE_FAILURE_THRESHOLD) {
+          setApiHealthy(false);
+        }
         return false;
       }
     )
@@ -148,7 +157,7 @@ export function apiFetch(pathOrUrl: string, init: RequestInit = {}): Promise<Res
       consecutiveFailures += 1;
       // Single timeouts reflect a slow query rather than an outage; confirm with `/health/live` after repeated hits.
       if (kind === "timeout") {
-        if (consecutiveFailures >= FAILURE_THRESHOLD + 1) scheduleHealthVerification();
+        if (consecutiveFailures >= FAILURE_THRESHOLD + 2) scheduleHealthVerification();
       } else if (consecutiveFailures >= FAILURE_THRESHOLD) {
         scheduleHealthVerification();
       }

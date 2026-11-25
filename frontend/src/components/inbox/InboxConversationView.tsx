@@ -22,6 +22,7 @@ import { InboxThread, ThreadMessage } from "@/types/inbox";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { UrgentLabel } from "@/components/ui/UrgentLabel";
+import { formatCategoryLabel } from "@/components/ui/ThreadRow";
 import { AiInsight } from "@/components/inbox/AiInsight";
 import { Composer } from "@/components/inbox/Composer";
 import { isUrgent } from "@/lib/selectors";
@@ -361,16 +362,17 @@ export function InboxConversationView({
           </div>
         </div>
 
-        {/* Bottom Row: Bold Contact Name + Unit/Ticket | [Done] [More] square pills */}
-        <div className="flex items-center justify-between gap-2 min-w-0">
+        {/* Bottom Row: Contact Name + Full Subject + Unit/Ticket | [Done] [More] square pills */}
+        <div className="flex items-start justify-between gap-2 min-w-0">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <h2 className="font-heading font-bold text-[18px] text-[var(--ink)] truncate leading-tight">
-                {thread.senderName || thread.subject || thread.unitLabel}
+            <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+              <h2 className="font-heading font-bold text-[16px] text-[var(--ink)] break-words leading-snug">
+                {thread.subject || thread.issueTitle || thread.senderName || thread.unitLabel}
               </h2>
               {urgentThread && <UrgentLabel />}
             </div>
-            <p className="text-[12px] text-[var(--ink-3)] truncate leading-tight mt-0.5">
+            <p className="text-[12px] text-[var(--ink-3)] leading-tight mt-0.5 break-words">
+              {thread.senderName ? `${thread.senderName} · ` : ""}
               {thread.unitLabel}
               {thread.ticketNumber ? ` · ${thread.ticketNumber}` : ""}
             </p>
@@ -470,8 +472,8 @@ export function InboxConversationView({
           <Avatar name={thread.senderName} channel={thread.channel} size="sm" className="shrink-0" />
 
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 min-w-0">
-              <h2 className="font-heading font-bold text-[16px] lg:text-[18px] text-[var(--ink)] truncate leading-tight">
+            <div className="flex items-start gap-2 flex-wrap min-w-0">
+              <h2 className="font-heading font-bold text-[16px] lg:text-[18px] text-[var(--ink)] break-words leading-snug">
                 {thread.subject || thread.issueTitle || thread.unitLabel}
               </h2>
               {urgentThread && <UrgentLabel />}
@@ -486,6 +488,15 @@ export function InboxConversationView({
                   {thread.recipientRoleDetail}
                 </span>
               )}
+              {(() => {
+                const catLabel = formatCategoryLabel(thread.category);
+                if (!catLabel || catLabel.toLowerCase() === thread.recipientRoleDetail?.toLowerCase()) return null;
+                return (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded border border-[var(--line)] bg-[var(--selected)]/60 text-[10.5px] font-medium text-[var(--ink-2)] shrink-0">
+                    {catLabel}
+                  </span>
+                );
+              })()}
               {thread.senderContact && (
                 <>
                   <span>·</span>
