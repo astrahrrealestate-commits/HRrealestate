@@ -24,7 +24,25 @@ This applies to every inbound mail, not only mail from the team. The display nam
 name is used only when both headers carry the same address. Mail with Gmail's `SENT` label stays outbound, attributed
 to the mailbox. `From` is still required. When `Reply-To` replaces it, the `From` address is kept as `meta.header_from`.
 
-Messages already stored are not re-attributed, and `backend/scripts/` history imports still read `From`.
+Messages already stored change only when the repair below is run, and `backend/scripts/` history imports still read
+`From`.
+
+**Repair of stored mail** (`python -m app.workflows.reattribute_cli --mailbox <address>`, preview by default; apply
+with `--apply --worker-stopped` after a database snapshot). Candidates are Gmail rows filed under a team address or
+company mailbox. Each original is read again from Gmail (an IMAP import's `X-GM-MSGID` is the API id in decimal) and
+passed through the ingestion rule. Only the message changes: sender, name, direction and contact, with the old values
+kept in `meta.reattributed_from`. Mail Gmail marks as sent, and mail naming nobody else, is left alone, as is a row
+stored as sent where only quoted text names someone else. Hashed history rows cannot be read again. An outage or lost
+login stops the run before any write; applying is refused when no original at all can be read.
+
+**Cases and flats are not changed** (decided 2026-11-25). Moving and splitting cases was built and dropped before use:
+review showed it could hand one tenant's cases or messages to another and could not be undone. The report lists every
+case holding repaired mail, so a thread may show several senders until a person sorts it. Unsent reply drafts on those
+cases are cancelled, approved ones included, because a send takes its recipient from the case at send time; each
+cancellation and the previous statuses are written to the case history. A send being delivered stops the run. Search
+chunks, understandings, summaries, tasks of other kinds, documents and memories are not rebuilt.
+
+Undo restores from the snapshot. `meta.reattributed_from` and the case notes record what changed.
 
 **On screen** (`app/context/shown_sender.py`), each mail is named from its own row: the name in its headers, or its
 address when `Reply-To` gave no name. The saved contact name is used only for a mail with neither. This holds for the

@@ -466,6 +466,9 @@ bidirectional translation controls onto the new unified Composer, and fixed what
 - [x] Inbound Gmail takes sender, name and contact from a usable non-team `Reply-To`, then the forwarded block, then `From`; `meta.header_from` keeps the replaced address; sent mail ignores `Reply-To` (a sent forward now keeps the From address in `meta` too)
 - [x] Evidence (on `m-chats`): `make check` exit 0 (unit `3609 passed`, integration `1266 passed`, frontend `34 passed`); `tsc --noEmit` clean
 - [x] Second review fixes (2026-11-25): Today card names the latest sender and greets them, its hardcoded fallback recipient removed; unlinked WhatsApp messages show the saved contact; Dutch drafts never greet an address; header names lose invisible characters, are capped, and cannot forge a search chunk line
+- [x] Repair tool for stored forwards (`app/workflows/reattribute_cli.py`, preview by default; ADR 0016), tested against a fake mailbox: messages only, cases and flats untouched, unsent replies cancelled
+- [x] Inbox: the thread and contractor auto-links skip a message another case already holds (it failed the whole request on the unique link)
+- [ ] Repair not yet previewed or applied on any live mailbox; needs the new code deployed
 - [ ] Open: header-name impersonation (`security.md`, not accepted); `test_remember_rule_text_is_sanitised_like_the_pipelines` is flaky (a random id can contain `500`)
 - [ ] Not exercised with a real mail from the live mailbox; not deployed
 - [x] Review fixes (reviewer + security passes, 2026-11-25): the unparseable-body fallback reads `Reply-To`; the company's other mailboxes, `+tag` aliases and `users/` values are never the sender; the search bounce filter also checks `header_from`

@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import Engine, func, select
+from sqlalchemy import ColumnElement, Engine, func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import WorkflowClient, get_engine, get_ingest_deps, get_storage, get_workflow_client
@@ -85,6 +85,11 @@ class ApprovalDecideRequest(BaseModel):
 DEFAULT_SEEDED_THREADS: list[dict[str, Any]] = []
 
 
+def _unlinked(company_id: UUID) -> ColumnElement[bool]:
+    """Messages no case holds yet. A message links to one case only, so linking a held one would fail the request."""
+    return ~MessageRow.id.in_(select(CaseLink.message_id).where(CaseLink.company_id == company_id))
+
+
 def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, Any]]:
     """Builds rich frontend-compatible thread structures from the PostgreSQL records of `company_id` only."""
     live_threads: list[dict[str, Any]] = []
@@ -112,6 +117,7 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
                     MessageRow.company_id == company_id,
                     MessageRow.thread_ref.in_(thread_refs),
                     ~MessageRow.id.in_(msg_ids),
+                    _unlinked(company_id),
                     not_chat_only(),
                 )
                 .all()
@@ -178,6 +184,7 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
                 .filter(
                     MessageRow.company_id == company_id,
                     ~MessageRow.id.in_(list(known_ids)),
+                    _unlinked(company_id),
                     MessageRow.meta.is_not(None),
                     not_chat_only(),
                 )

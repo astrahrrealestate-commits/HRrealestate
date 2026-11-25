@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.orm import Session
 
-from app.contracts import Channel, Direction
+from app.contracts import Category, Channel, Direction, Urgency
 from app.db.enums import LinkMethod, PersonKind
 from app.db.models import Case, CaseLink, ChannelIdentity, MessageRow, Person, RawEvent
 from tests.integration.test_inbox_maintenance_approve import T0, World, world  # noqa: F401
@@ -95,3 +95,18 @@ def test_a_saved_contact_is_named_before_the_pipeline_has_linked_the_message(wor
             s.query(ChannelIdentity).filter(ChannelIdentity.person_id == person_id).delete()
             s.query(Person).filter(Person.id == person_id).delete()
             s.commit()
+
+
+def test_two_cases_sharing_a_thread_do_not_break_the_inbox(world: World) -> None:  # noqa: F811
+    """A message is linked to one case only, so the thread auto-link must skip what another case already holds."""
+    with Session(world.engine) as s:
+        other = Case(company_id=world.company, category=Category.other, urgency=Urgency.low, summary="o")
+        s.add(other)
+        s.flush()
+        _add_mail(s, world, "jan@example.test", 1, from_name="Jan")
+        moved = (
+            s.query(MessageRow).filter(MessageRow.company_id == world.company, MessageRow.text.contains("jan@")).one()
+        )
+        s.query(CaseLink).filter(CaseLink.message_id == moved.id).update({"case_id": other.id})
+        s.commit()
+    assert world.client.get("/api/inbox/threads").status_code == 200

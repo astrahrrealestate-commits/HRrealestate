@@ -173,14 +173,14 @@ def _normalise(
         company_id=company_id,
         raw_event_id=raw_event_id,
         mailbox=str(payload["mailbox"]),
-        forwarders=_owner_addresses(deps.engine, company_id),
-        own_addresses=_company_mailboxes(deps.engine, company_id),
+        forwarders=owner_addresses(deps.engine, company_id),
+        own_addresses=company_mailboxes(deps.engine, company_id),
     )
     stored = [store_attachment(deps.storage, company_id, p.data, p.mime_type, p.filename) for p in parts]
     return message, meta, stored
 
 
-def _owner_addresses(engine: Engine, company_id: UUID) -> frozenset[str]:
+def owner_addresses(engine: Engine, company_id: UUID) -> frozenset[str]:
     """Addresses Harjot's team mails from (owner account, whitelisted users, configured owner email): a mail sent
     from one of these that forwards a tenant's mail is attributed to the tenant, not to them."""
     with Session(engine) as session:
@@ -192,7 +192,7 @@ def _owner_addresses(engine: Engine, company_id: UUID) -> frozenset[str]:
     return frozenset(e.strip().lower() for e in emails if e and e.strip())
 
 
-def _company_mailboxes(engine: Engine, company_id: UUID) -> frozenset[str]:
+def company_mailboxes(engine: Engine, company_id: UUID) -> frozenset[str]:
     """Every mailbox the company has connected: a Reply-To naming one of them is not the person who wrote."""
     with Session(engine) as session:
         addresses = session.scalars(
