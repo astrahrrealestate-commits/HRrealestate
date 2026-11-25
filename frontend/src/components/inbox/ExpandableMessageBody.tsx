@@ -63,20 +63,58 @@ interface ExpandableMessageBodyProps {
   isOwner?: boolean;
 }
 
+const URL_REGEX = /(https?:\/\/[^\s<>()]+)/g;
+
+function renderLinkifiedText(text: string, isOwner: boolean): React.ReactNode {
+  if (!text) return null;
+  const parts = text.split(URL_REGEX);
+  return parts.map((part, idx) => {
+    if (!part.startsWith("http://") && !part.startsWith("https://")) {
+      return <React.Fragment key={idx}>{part}</React.Fragment>;
+    }
+    let cleanUrl = part;
+    let trailing = "";
+    while (cleanUrl.length > 0 && /[.,;:!?\])>'"]$/.test(cleanUrl)) {
+      trailing = cleanUrl.slice(-1) + trailing;
+      cleanUrl = cleanUrl.slice(0, -1);
+    }
+    if (!cleanUrl) return <React.Fragment key={idx}>{part}</React.Fragment>;
+    return (
+      <React.Fragment key={idx}>
+        <a
+          href={cleanUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className={cn(
+            "underline break-all transition-opacity hover:opacity-80",
+            isOwner ? "text-white sm:text-[#1a73e8]" : "text-[#1a73e8]"
+          )}
+        >
+          {cleanUrl}
+        </a>
+        {trailing}
+      </React.Fragment>
+    );
+  });
+}
+
 export function ExpandableMessageBody({
   body,
-  className = "text-[13.5px] leading-relaxed whitespace-pre-line select-text",
+  className = "text-[13.5px] leading-relaxed whitespace-pre-line select-text [overflow-wrap:anywhere]",
   isOwner = false,
 }: ExpandableMessageBodyProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const { cleanBody, quotedText } = useMemo(() => parseQuotedText(body), [body]);
 
   return (
-    <div className="space-y-1.5">
-      <p className={className}>{cleanBody}</p>
+    <div className="space-y-1.5 min-w-0">
+      <p className={cn(className, "[overflow-wrap:anywhere]")}>
+        {renderLinkifiedText(cleanBody, isOwner)}
+      </p>
 
       {quotedText && (
-        <div className="pt-0.5">
+        <div className="pt-0.5 min-w-0">
           <button
             type="button"
             onClick={(e) => {
@@ -86,7 +124,7 @@ export function ExpandableMessageBody({
             className={cn(
               "inline-flex items-center justify-center h-4 px-1.5 rounded text-[11px] font-bold leading-none tracking-wider transition-all cursor-pointer",
               isOwner
-                ? "bg-white/20 hover:bg-white/30 text-white"
+                ? "bg-white/20 hover:bg-white/30 text-white sm:bg-[var(--line)] sm:text-[var(--ink-2)]"
                 : "bg-[var(--line)] hover:bg-[var(--line)]/80 text-[var(--ink-2)]"
             )}
             title={isExpanded ? "Hide trimmed text" : "Show trimmed text"}
@@ -99,13 +137,13 @@ export function ExpandableMessageBody({
           {isExpanded && (
             <div
               className={cn(
-                "mt-2 pl-3 py-0.5 border-l-2 text-[12px] font-normal whitespace-pre-line select-text opacity-85 leading-normal",
+                "mt-2 pl-3 py-0.5 border-l-2 text-[12px] font-normal whitespace-pre-line select-text opacity-85 leading-normal [overflow-wrap:anywhere]",
                 isOwner
-                  ? "border-white/40 text-white/90"
+                  ? "border-white/40 text-white/90 sm:border-[var(--line)] sm:text-[var(--ink-2)]"
                   : "border-[var(--line)] text-[var(--ink-2)]"
               )}
             >
-              {quotedText}
+              {renderLinkifiedText(quotedText, isOwner)}
             </div>
           )}
         </div>

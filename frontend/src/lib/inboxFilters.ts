@@ -3,10 +3,15 @@ import { isNeedsYou } from "@/lib/selectors";
 
 /** What each option of the inbox filter popover keeps. Ids are `<group>_<name>`; a group is the part before `_`. */
 const OPTION_PREDICATES: Record<string, (t: InboxThread) => boolean> = {
-  who_tenants: (t) => t.recipientRole === "tenant",
-  who_contractors: (t) => t.recipientRole === "contractor",
-  who_leads: (t) => t.recipientRole === "inquiry",
-  who_others: (t) => t.recipientRole === "contact",
+  who_tenants: (t) => t.senderKind === "tenant" || t.recipientRole === "tenant",
+  who_contractors: (t) => t.senderKind === "contractor" || t.recipientRole === "contractor",
+  who_legal: (t) => t.senderKind === "legal" || t.recipientRoleDetail?.toLowerCase() === "legal",
+  who_vve: (t) => t.senderKind === "vve" || t.recipientRoleDetail?.toLowerCase() === "vve",
+  who_business: (t) =>
+    t.senderKind === "business" ||
+    ["business", "utility", "municipality"].includes((t.recipientRoleDetail || "").toLowerCase()),
+  who_leads: (t) => t.senderKind === "prospect" || t.recipientRole === "inquiry",
+  who_others: (t) => (!t.senderKind || t.senderKind === "contact") && t.recipientRole === "contact",
   ch_whatsapp: (t) => t.channel === "whatsapp",
   ch_gmail: (t) => t.channel === "gmail",
   ch_portal: (t) => t.channel === "portal",

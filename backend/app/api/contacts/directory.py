@@ -34,7 +34,15 @@ from app.directory.contacts import (
 )
 
 router = APIRouter(prefix="/api/contacts", tags=["contacts"], dependencies=[Depends(require_section("contacts"))])
-_ROLE_LABEL = {"tenant": "Tenant", "owner": "Owner", "utility": "Utility", "municipal": "Municipality"}
+_ROLE_LABEL = {
+    "tenant": "Tenant",
+    "owner": "Owner",
+    "legal": "Legal",
+    "vve": "VvE",
+    "business": "Business",
+    "utility": "Utility",
+    "municipal": "Municipality",
+}
 
 
 class ContactOut(BaseModel):
@@ -71,7 +79,9 @@ class ContactOut(BaseModel):
 
 class ContactIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
-    category: str = Field(description="tenant | contractor | owner | utility | municipal | other")
+    category: str = Field(
+        description="tenant | contractor | owner | legal | vve | business | utility | municipal | other"
+    )
     trade: str | None = Field(default=None, max_length=100, description="Trade or role, e.g. Plumber or Caretaker")
     email: str | None = Field(default=None, max_length=320)
     phone: str | None = Field(default=None, max_length=40)
@@ -81,6 +91,8 @@ class ContactPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     category: str | None = None
     trade: str | None = Field(default=None, max_length=100)
+    email: str | None = Field(default=None, max_length=320)
+    phone: str | None = Field(default=None, max_length=40)
 
 
 @dataclass(frozen=True)
@@ -352,7 +364,15 @@ def edit_contact(
     try:
         with Session(engine) as session, session.begin():
             person = update_contact(
-                session, principal.company_id, contact_id, name=body.name, category=body.category, trade=body.trade
+                session,
+                principal.company_id,
+                contact_id,
+                name=body.name,
+                category=body.category,
+                trade=body.trade,
+                email=body.email,
+                phone=body.phone,
+                today=datetime.now(UTC).date(),
             )
             return _one(session, person)
     except (ContactConflictError, InvalidContactError, NotFoundError) as exc:

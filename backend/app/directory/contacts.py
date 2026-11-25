@@ -4,7 +4,7 @@ A person that mail or WhatsApp already created (kind `other`, no BRIXX reference
 duplicated, so a hand-added contractor and the sender of their earlier emails are one contact.
 """
 
-from datetime import date
+from datetime import UTC, date, datetime
 from uuid import UUID
 
 from sqlalchemy import select, text
@@ -17,16 +17,25 @@ from app.core.errors import EstateOSError, NotFoundError
 from app.db.enums import PersonKind
 from app.db.models import Case, ChannelIdentity, LeaseParty, MessageRow, Person
 
-CATEGORIES = ("tenant", "contractor", "owner", "utility", "municipal", "other")
+CATEGORIES = ("tenant", "contractor", "owner", "legal", "vve", "business", "utility", "municipal", "other")
 _KIND = {
     "tenant": PersonKind.tenant,
     "contractor": PersonKind.contractor,
     "owner": PersonKind.owner,
+    "legal": PersonKind.other,
+    "vve": PersonKind.other,
+    "business": PersonKind.other,
     "utility": PersonKind.other,
     "municipal": PersonKind.other,
     "other": PersonKind.other,
 }
-_FIXED_TRADE = {"utility": "utility", "municipal": "municipal"}
+_FIXED_TRADE = {
+    "legal": "legal",
+    "vve": "vve",
+    "business": "business",
+    "utility": "utility",
+    "municipal": "municipal",
+}
 DEFAULT_REGION = "NL"
 MAX_NAME = 200
 MAX_TRADE = 100
@@ -198,9 +207,18 @@ def create_contact(
 
 
 def update_contact(
-    session: Session, company_id: UUID, person_id: UUID, *, name: str | None, category: str | None, trade: str | None
+    session: Session,
+    company_id: UUID,
+    person_id: UUID,
+    *,
+    name: str | None,
+    category: str | None,
+    trade: str | None,
+    email: str | None = None,
+    phone: str | None = None,
+    today: date | None = None,
 ) -> Person:
-    """Rename or reclassify a contact (typically one created from a message). Flushes; the caller commits."""
+    """Rename, reclassify, or attach missing channel identities to a contact. Flushes; the caller commits."""
     person = _person(session, company_id, person_id)
     if person.brixx_ref is not None:
         raise _managed_by_brixx(person)
@@ -212,6 +230,28 @@ def update_contact(
         person.kind, person.trade = _KIND[category], _trade(category, trade)
     elif trade is not None:
         person.trade = _trade(category_of(person.kind, person.trade), trade)
+
+    identities = [
+        (channel, value)
+        for channel, value in (
+            (Channel.gmail, _identity(Channel.gmail, email)),
+            (Channel.whatsapp, _identity(Channel.whatsapp, phone)),
+        )
+        if value is not None
+    ]
+    if identities:
+        for channel, value in identities:
+            owner_row = _current_identity(session, company_id, channel, value)
+            if owner_row is not None and owner_row.person_id != person.id:
+                owner = _person(session, company_id, owner_row.person_id)
+                noun = _CHANNEL_NOUN[channel]
+                raise ContactConflictError(f"that {noun} already belongs to {owner.display_name}", owner.id)
+        try:
+            with session.begin_nested():
+                _attach_identities(session, company_id, person, identities, today or datetime.now(UTC).date())
+        except IntegrityError:
+            raise ContactConflictError("that email or phone was just added to another contact") from None
+
     session.flush()
     return person
 

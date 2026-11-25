@@ -45,6 +45,7 @@ export interface FilterBarProps {
   isRefreshing?: boolean;
   refreshTooltip?: string;
   searchPlaceholder?: string;
+  headerStrip?: React.ReactNode;
   leadingControl?: React.ReactNode;
   trailingControl?: React.ReactNode;
   className?: string;
@@ -71,6 +72,7 @@ export function FilterBar({
   isRefreshing = false,
   refreshTooltip = "Sync mailbox",
   searchPlaceholder = "Search...",
+  headerStrip,
   leadingControl,
   trailingControl,
   className,
@@ -130,8 +132,14 @@ export function FilterBar({
   return (
     <div className={cn("@container/filter flex flex-col gap-1.5 w-full relative z-20", className)}>
       <div className="flex flex-col gap-2 p-2.5 @[420px]/filter:p-3 bg-[var(--pane)] border-b border-[var(--line)] min-w-0">
-        {/* Row 1: View Tabs (wraps/scrolls cleanly on narrow panes; sits beside trailing controls when wide) */}
-        <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
+        {headerStrip && (
+          <div className="flex items-center justify-between gap-2 min-w-0 pb-1 border-b border-[var(--line)]/60">
+            {headerStrip}
+          </div>
+        )}
+
+        {/* Row 1: View Tabs (scroll horizontally on narrow panes instead of crushing labels) */}
+        <div className="flex items-center justify-between gap-2 min-w-0">
           <div className="flex items-center gap-1 flex-1 min-w-0 bg-[var(--bg)] p-0.5 rounded-[var(--radius-ctl)] border border-[var(--line)] overflow-x-auto no-scrollbar">
             {leadingControl && <div className="shrink-0 pl-1">{leadingControl}</div>}
             {tabs.map((tab) => {
@@ -142,13 +150,13 @@ export function FilterBar({
                   type="button"
                   onClick={() => onTabChange(tab.id)}
                   className={cn(
-                    "flex-1 inline-flex items-center justify-center gap-1 px-1.5 @[360px]/filter:px-2.5 py-1 rounded-[6px] text-[11.5px] @[420px]/filter:text-[12.5px] transition-all cursor-pointer select-none min-w-0 whitespace-nowrap",
+                    "shrink-0 inline-flex items-center justify-center gap-1.5 px-2.5 py-1 rounded-[6px] text-[12px] transition-all cursor-pointer select-none whitespace-nowrap",
                     isActive
                       ? "bg-[#0A1B2F] text-white font-semibold shadow-sm"
                       : "text-[var(--ink-2)] font-medium hover:text-[var(--ink)] hover:bg-black/5"
                   )}
                 >
-                  <span className="truncate">{t(tab.label)}</span>
+                  <span>{t(tab.label)}</span>
                   {tab.count !== undefined && (
                     <span
                       className={cn(

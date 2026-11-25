@@ -287,19 +287,13 @@ def get_unresponsive_radar(
         case_ids = {r.case_id for r in rows}
         party_ids = {r.party_person_id for r in rows if r.party_person_id}
         cases_by_id = (
-            {
-                c.id: c
-                for c in session.scalars(select(Case).where(Case.company_id == cid, Case.id.in_(case_ids))).all()
-            }
+            {c.id: c for c in session.scalars(select(Case).where(Case.company_id == cid, Case.id.in_(case_ids))).all()}
             if case_ids
             else {}
         )
         unit_ids = {c.unit_id for c in cases_by_id.values() if c.unit_id}
         units_by_id = (
-            {
-                u.id: u
-                for u in session.scalars(select(Unit).where(Unit.company_id == cid, Unit.id.in_(unit_ids))).all()
-            }
+            {u.id: u for u in session.scalars(select(Unit).where(Unit.company_id == cid, Unit.id.in_(unit_ids))).all()}
             if unit_ids
             else {}
         )

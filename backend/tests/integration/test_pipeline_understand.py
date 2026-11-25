@@ -81,7 +81,7 @@ def test_pipeline_entry_understand(
         assert u_row is not None
         assert u_row.category == Category.maintenance
         assert u_row.urgency == Urgency.emergency
-        assert u_row.prompt_version == "understanding/v2"
+        assert u_row.prompt_version == "understanding/v3"
 
         call_row = session.scalar(select(ModelCall).where(ModelCall.id == u_row.model_call_id))
         assert call_row is not None

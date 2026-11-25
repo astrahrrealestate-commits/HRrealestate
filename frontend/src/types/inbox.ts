@@ -62,6 +62,7 @@ export interface InboxThread {
   ticketNumber?: string; // e.g. "#3f9a1c"
   caseId?: string; // the full case id behind ticketNumber
   channel: ChannelType;
+  senderKind?: string;
   recipientRole: RecipientRole;
   recipientRoleDetail: string; // e.g. "Tenant" or "Contractor · Electrician"
   contractorTrade?: string; // e.g. "Electrician", "Plumber", "HVAC"

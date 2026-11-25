@@ -442,7 +442,11 @@ function InboxContent() {
         options: [
           { id: "who_tenants", label: t("inbox.tenants", "Tenants"), count: countOf("who_tenants") },
           { id: "who_contractors", label: t("inbox.contractors", "Contractors"), count: countOf("who_contractors") },
+          { id: "who_legal", label: t("inbox.legal", "Legal"), count: countOf("who_legal") },
+          { id: "who_vve", label: t("inbox.vve", "VvE"), count: countOf("who_vve") },
+          { id: "who_business", label: t("inbox.business", "Business"), count: countOf("who_business") },
           { id: "who_leads", label: t("inbox.leads", "Leads"), count: countOf("who_leads") },
+          { id: "who_others", label: t("inbox.others", "Others"), count: countOf("who_others") },
         ],
       },
       {
@@ -570,32 +574,50 @@ function InboxContent() {
   const splitLabel =
     layoutMode === "vertical" ? "Vertical split" : layoutMode === "horizontal" ? "Horizontal split" : "List only";
 
-  const toolbarTrailing = (
-    <div className="flex items-center gap-1.5">
-      {totalServerThreads > 0 && (
-        <span className="hidden @[640px]/filter:inline text-[11px] font-mono text-[var(--ink-3)] tabular-nums px-1">
-          1–{filteredAndSortedThreads.length} of {totalServerThreads}
-        </span>
-      )}
-      <button
-        type="button"
-        onClick={() => setIsComposeOpen(true)}
-        className="inline-flex items-center gap-1 h-8 px-2.5 rounded-[var(--radius-ctl)] bg-[#0A1B2F] hover:bg-[#142c47] text-white text-[12px] font-semibold transition-colors cursor-pointer shrink-0"
-        title="Compose new message (c)"
-      >
-        <PenSquare className="w-3.5 h-3.5" />
-        <span className="hidden @[440px]/filter:inline">Compose</span>
-      </button>
-      <button
-        type="button"
-        onClick={cycleLayoutMode}
-        className="hidden lg:inline-flex items-center gap-1 h-8 px-2 rounded-[var(--radius-ctl)] border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] text-[var(--ink-2)] text-[12px] transition-colors cursor-pointer shrink-0"
-        title={`Layout: ${splitLabel} (click to switch)`}
-        aria-label={`Switch layout (${splitLabel})`}
-      >
-        <SplitIcon className="w-3.5 h-3.5" />
-      </button>
-    </div>
+  const inboxHeaderStrip = (
+    <>
+      <div className="flex items-center gap-2 min-w-0">
+        {filteredAndSortedThreads.length > 0 && (
+          <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-[11.5px] text-[var(--ink-2)]">
+            <input
+              type="checkbox"
+              checked={checkedIds.size > 0 && checkedIds.size >= filteredAndSortedThreads.length}
+              onChange={toggleSelectAll}
+              title="Select all visible"
+              aria-label="Select all visible threads"
+              className="w-3.5 h-3.5 rounded border-[var(--line-2)] text-[var(--accent)] focus:ring-[var(--accent)] cursor-pointer"
+            />
+            <span className="hidden @[340px]/filter:inline font-medium">All</span>
+          </label>
+        )}
+        {totalServerThreads > 0 && (
+          <span className="text-[11px] font-mono text-[var(--ink-3)] tabular-nums truncate">
+            1–{filteredAndSortedThreads.length} of {totalServerThreads}
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center gap-1.5 shrink-0">
+        <button
+          type="button"
+          onClick={() => setIsComposeOpen(true)}
+          className="inline-flex items-center gap-1 h-7 px-2.5 rounded-[var(--radius-ctl)] bg-[#0A1B2F] hover:bg-[#142c47] text-white text-[11.5px] font-semibold transition-colors cursor-pointer shrink-0"
+          title="Compose new message (c)"
+        >
+          <PenSquare className="w-3 h-3" />
+          <span>Compose</span>
+        </button>
+        <button
+          type="button"
+          onClick={cycleLayoutMode}
+          className="hidden lg:inline-flex items-center gap-1 h-7 px-2 rounded-[var(--radius-ctl)] border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] text-[var(--ink-2)] text-[11.5px] transition-colors cursor-pointer shrink-0"
+          title={`Layout: ${splitLabel} (click to switch)`}
+          aria-label={`Switch layout (${splitLabel})`}
+        >
+          <SplitIcon className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </>
   );
 
   return (
@@ -670,19 +692,7 @@ function InboxContent() {
             sortBy={sortBy}
             onSortChange={setSortBy}
             searchPlaceholder="Search threads (press /)..."
-            leadingControl={
-              filteredAndSortedThreads.length > 0 ? (
-                <input
-                  type="checkbox"
-                  checked={checkedIds.size > 0 && checkedIds.size >= filteredAndSortedThreads.length}
-                  onChange={toggleSelectAll}
-                  title="Select all visible"
-                  aria-label="Select all visible threads"
-                  className="w-3.5 h-3.5 rounded border-[var(--line-2)] text-[var(--accent)] focus:ring-[var(--accent)] cursor-pointer align-middle"
-                />
-              ) : null
-            }
-            trailingControl={toolbarTrailing}
+            headerStrip={inboxHeaderStrip}
           />
 
           {/* Gmail-style Bulk Action Strip when threads are checked */}

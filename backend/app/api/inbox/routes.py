@@ -523,6 +523,7 @@ def _assemble_thread(
         "caseRef": ticket_code,
         "approvalId": str(approval.id) if approval else f"case-{case.id}",
         "audience": prep.sender_label.audience,
+        "senderKind": prep.sender_label.kind.value,
         "recipientRole": prep.sender_label.recipient_role,
         "recipientRoleDetail": prep.sender_label.role_detail,
         "isUnregisteredSender": is_unregistered_sender,
@@ -610,9 +611,7 @@ def _build_live_threads(
     unit_labels = {p.raw_unit_label for p in prepared if p.raw_unit_label != UNASSIGNED_UNIT}
     details = load_details_batch(session, company_id, kept_case_ids, kept_msg_ids, unit_labels, now_dt.date())
 
-    live_threads = [
-        _assemble_thread(p, msg_batch, details, company_tz=company_tz, now_dt=now_dt) for p in prepared
-    ]
+    live_threads = [_assemble_thread(p, msg_batch, details, company_tz=company_tz, now_dt=now_dt) for p in prepared]
     all_msgs = [m for t in live_threads for m in t["messages"]]
     all_drafts = [d for t in live_threads for d in (*t["gmailDrafts"], *t["whatsappDrafts"])]
     annotate_translations(session, company_id, all_msgs, all_drafts)

@@ -464,6 +464,11 @@ export function InboxConversationView({
               <span className="font-semibold text-[var(--ink)] truncate max-w-[160px]">{thread.unitLabel}</span>
               <span>·</span>
               <span className="text-[var(--ink-2)] truncate max-w-[120px]">{thread.senderName}</span>
+              {thread.recipientRoleDetail && thread.recipientRoleDetail !== "Contact" && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[10.5px] font-semibold text-[var(--ink-2)] shrink-0">
+                  {thread.recipientRoleDetail}
+                </span>
+              )}
               {thread.senderContact && (
                 <>
                   <span>·</span>
@@ -718,8 +723,8 @@ export function InboxConversationView({
 
               {isOwner ? (
                 // Outgoing bubble (right, vibrant blue on mobile per mockup, crisp white with border on desktop)
-                <div className="flex flex-col items-end space-y-1">
-                  <div className="bg-[#1a73e8] sm:bg-[var(--pane)] sm:border sm:border-[var(--line)] text-white sm:text-[var(--ink)] rounded-2xl rounded-tr-xs px-3.5 sm:px-4 py-2.5 max-w-[85%] sm:max-w-[75%] shadow-2xs">
+                <div className="flex flex-col items-end space-y-1 min-w-0">
+                  <div className="bg-[#1a73e8] sm:bg-[var(--pane)] sm:border sm:border-[var(--line)] text-white sm:text-[var(--ink)] rounded-2xl rounded-tr-xs px-3.5 sm:px-4 py-2.5 max-w-[85%] sm:max-w-[75%] min-w-0 overflow-hidden shadow-2xs">
                     {msg.replyTo && (
                       <div className="mb-2 pl-2.5 py-1 border-l-2 border-white/60 sm:border-[var(--accent)] bg-white/15 sm:bg-[var(--selected)]/70 rounded-r text-xs text-left">
                         <span className="font-semibold text-[11px] text-white sm:text-[var(--accent-ink)] block truncate">
@@ -741,8 +746,8 @@ export function InboxConversationView({
                 </div>
               ) : (
                 // Incoming bubble (left, --selected fill, no border)
-                <div className="flex flex-col items-start space-y-1 group">
-                  <div className="relative bg-[var(--selected)] text-[var(--ink)] rounded-2xl rounded-tl-xs px-4 py-2.5 max-w-[85%] sm:max-w-[75%]">
+                <div className="flex flex-col items-start space-y-1 group min-w-0">
+                  <div className="relative bg-[var(--selected)] text-[var(--ink)] rounded-2xl rounded-tl-xs px-4 py-2.5 max-w-[85%] sm:max-w-[75%] min-w-0 overflow-hidden">
                     <ExpandableMessageBody body={msg.body} isOwner={false} />
 
                     {/* Attachments (Photos & Documents) */}

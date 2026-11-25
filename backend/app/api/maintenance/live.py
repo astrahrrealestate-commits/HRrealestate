@@ -259,9 +259,7 @@ def ticket_with_edits(session: Session, case: Case) -> dict[str, Any]:
 LOCKED_FIELDS = frozenset({"tenantId"})  # identity of the ticket and its tenant: an owner edit never re-points them
 
 
-def _ticket_from_batch(
-    case: Case, edits: dict[str, Any] | None, batch: _TicketBatch
-) -> dict[str, Any]:
+def _ticket_from_batch(case: Case, edits: dict[str, Any] | None, batch: _TicketBatch) -> dict[str, Any]:
     unit = batch.units_by_id.get(case.unit_id) if case.unit_id else None
     unit_label = (unit.address or unit.label) if unit else "Unknown unit"
     person = batch.people_by_id.get(case.primary_person_id) if case.primary_person_id else None

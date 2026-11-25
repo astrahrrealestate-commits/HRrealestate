@@ -20,6 +20,7 @@ export interface ThreadRowItem {
   waitingDays?: number;
   count?: number;
   isRead?: boolean;
+  roleLabel?: string;
   status: "needs_you" | "handled" | "waiting" | string;
 }
 
@@ -94,7 +95,7 @@ export function ThreadRow({
           <input
             type="checkbox"
             checked={checked}
-            onChange={() => {}}
+            onChange={() => { }}
             aria-label={`Select ${t.contactName}`}
             className="w-3.5 h-3.5 rounded border-[var(--line-2)] text-[var(--accent)] focus:ring-[var(--accent)] cursor-pointer"
           />
@@ -113,13 +114,20 @@ export function ThreadRow({
 
       {/* Text column: Sender name, Flat/Address, Subject, Snippet */}
       <span className="min-w-0">
-        <span
-          className={cn(
-            "block truncate text-[14.5px] leading-snug",
-            isUnread ? "font-bold text-[var(--ink)]" : "font-normal text-[var(--ink-2)]"
+        <span className="flex items-center gap-1.5 min-w-0">
+          <span
+            className={cn(
+              "truncate text-[14.5px] leading-snug",
+              isUnread ? "font-bold text-[var(--ink)]" : "font-normal text-[var(--ink-2)]"
+            )}
+          >
+            {t.contactName}
+          </span>
+          {t.roleLabel && t.roleLabel !== "Contact" && t.roleLabel !== "Tenant" && (
+            <span className="shrink-0 inline-flex items-center px-1.5 py-0.2 rounded border border-[var(--line)] bg-[var(--bg)] text-[10px] font-semibold text-[var(--ink-2)] leading-tight">
+              {t.roleLabel}
+            </span>
           )}
-        >
-          {t.contactName}
         </span>
 
         <span className="block truncate text-sm leading-normal mt-0.5">

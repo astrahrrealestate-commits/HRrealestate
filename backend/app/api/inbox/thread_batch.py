@@ -171,9 +171,7 @@ def load_messages_batch(session: Session, company_id: UUID, cases: list[Case]) -
     if unit_ids:
         units_by_id = {
             u.id: u
-            for u in session.scalars(
-                select(Unit).where(Unit.company_id == company_id, Unit.id.in_(unit_ids))
-            ).all()
+            for u in session.scalars(select(Unit).where(Unit.company_id == company_id, Unit.id.in_(unit_ids))).all()
         }
 
     und_by_msg_id: dict[UUID, UnderstandingRow] = {}
@@ -244,9 +242,7 @@ def load_details_batch(
     att_ids: list[UUID] = []
     if msg_ids:
         for att in session.scalars(
-            select(AttachmentRow).where(
-                AttachmentRow.company_id == company_id, AttachmentRow.message_id.in_(msg_ids)
-            )
+            select(AttachmentRow).where(AttachmentRow.company_id == company_id, AttachmentRow.message_id.in_(msg_ids))
         ).all():
             attachments_by_msg[att.message_id].append(att)
             att_ids.append(att.id)
@@ -380,8 +376,7 @@ def inbox_stats_counts(session: Session, company_id: UUID) -> dict[str, int]:
             func.sum(
                 sql_case(
                     (
-                        is_contractor
-                        | Case.category.in_((Category.contractor_update,)),
+                        is_contractor | Case.category.in_((Category.contractor_update,)),
                         1,
                     ),
                     else_=0,

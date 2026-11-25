@@ -150,6 +150,7 @@ export function InboxThreadList({
                 urgent: isUrgent(t),
                 count: t.messages?.length || 1,
                 isRead: t.isRead,
+                roleLabel: t.recipientRoleDetail,
                 status: needsAttention ? "needs_you" : "handled",
               };
 

@@ -70,7 +70,15 @@ function ContactForm({ contact, onClose, onSaved }: ContactFormModalProps) {
     if (!canSave) return;
     setSaving(true);
     setError(null);
-    const result = contact ? await classifyContact(contact.id, draft) : await addContact(draft);
+    const result = contact
+      ? await classifyContact(contact.id, {
+          name: draft.name,
+          type: draft.type,
+          trade: draft.trade,
+          email: !contact.email ? draft.email : undefined,
+          phone: !contact.phone ? draft.phone : undefined,
+        })
+      : await addContact(draft);
     setSaving(false);
     if (!result.ok) {
       setError(result.error);
@@ -177,7 +185,7 @@ function ContactForm({ contact, onClose, onSaved }: ContactFormModalProps) {
                 type="email"
                 value={draft.email}
                 onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))}
-                disabled={editing}
+                disabled={editing && Boolean(contact?.email)}
                 maxLength={320}
                 placeholder="name@company.com"
                 className={field}
@@ -192,7 +200,7 @@ function ContactForm({ contact, onClose, onSaved }: ContactFormModalProps) {
                 type="tel"
                 value={draft.phone}
                 onChange={(e) => setDraft((d) => ({ ...d, phone: e.target.value }))}
-                disabled={editing}
+                disabled={editing && Boolean(contact?.phone)}
                 maxLength={40}
                 placeholder="06 12345678"
                 className={field}
@@ -201,7 +209,7 @@ function ContactForm({ contact, onClose, onSaved }: ContactFormModalProps) {
           </div>
           <p className="text-[11.5px] text-[var(--ink-3)] leading-snug">
             {editing
-              ? "Their email and number come from the messages they sent."
+              ? "Add a missing email or WhatsApp number to link messages from both channels under this contact."
               : "Messages from this email or number are shown under this contact, including ones they already sent."}
           </p>
 
