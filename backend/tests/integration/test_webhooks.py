@@ -1,11 +1,13 @@
 import json
 from collections.abc import Callable, Iterator
+from datetime import date
 from pathlib import Path
 
 import pytest
 from dbos import DBOSClient
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, select
+from sqlalchemy.exc import DataError
 from sqlalchemy.orm import Session
 
 from app.api.webhooks.gmail import gmail_sync_workflow_id
@@ -14,10 +16,20 @@ from app.channels.whatsapp.webhook_auth import DEV_APP_SECRET, sign_body
 from app.contracts import Channel
 from app.core.settings import Settings
 from app.core.workflow_names import PROCESS_EVENT, event_workflow_id
-from app.db.enums import RawEventStatus
-from app.db.models import ChannelAccount, Company, RawEvent
+from app.db.enums import PersonKind, PipelineStatus, RawEventStatus
+from app.db.models import (
+    AttachmentRow,
+    ChannelAccount,
+    ChannelIdentity,
+    Company,
+    MessageRow,
+    OwnerAccount,
+    Person,
+    RawEvent,
+)
 from app.dev.keys import ensure_dev_keys, sign_push_token
 from app.main import create_app
+from app.pipeline.chat_repo import chat_list, chat_messages
 from tests.unit.channels.gmail.test_push import envelope
 
 pytestmark = pytest.mark.integration
@@ -299,3 +311,188 @@ def test_unparsed_items_are_never_stored_across_companies(
         from tests.integration.conftest import purge_company
 
         purge_company(migrated_engine, other.id)
+
+
+def _text_body(message: dict[str, object]) -> bytes:
+    value = {"metadata": {"display_phone_number": "1", "phone_number_id": PNID}, "messages": [message]}
+    return json.dumps(
+        {
+            "object": "whatsapp_business_account",
+            "entry": [{"id": "1", "changes": [{"field": "messages", "value": value}]}],
+        }
+    ).encode()
+
+
+def test_whatsapp_message_is_stored_and_in_the_chat_list_before_any_worker_runs(
+    api: tuple[TestClient, str], accounts: Company, migrated_engine: Engine, recorded: Load
+) -> None:
+    """Chats show every message the moment the webhook returns: storage never waits for a queue slot or the pipeline."""
+    client, _ = api
+    body = recorded("whatsapp", "text")
+    assert _post(client, body) == 200
+    assert _post(client, body) == 200  # Meta redelivery
+    with Session(migrated_engine) as s:
+        [row] = s.scalars(select(MessageRow).where(MessageRow.company_id == accounts.id)).all()
+        assert (row.provider_msg_id, row.thread_ref, row.sender_identity) == (
+            "wamid.TEST0001",
+            "+4915550000001",
+            "+4915550000001",
+        )
+        assert row.text.startswith("Hallo, die Heizung")
+        [chat] = chat_list(s, accounts.id, before=None, limit=10)
+        assert (chat.chat_key, chat.unread) == ("+4915550000001", 1)
+        assert [m.id for m in chat_messages(s, accounts.id, "+4915550000001", before=None, limit=10)] == [row.id]
+    [raw] = _raw(migrated_engine, accounts)
+    assert raw.status is RawEventStatus.pending  # the worker still normalises, downloads media and routes it
+
+
+def test_every_message_kind_is_stored_on_arrival(
+    api: tuple[TestClient, str], accounts: Company, migrated_engine: Engine, recorded: Load
+) -> None:
+    client, _ = api
+    kinds = (
+        "image_caption",
+        "document",
+        "reaction",
+        "unsupported",
+        "button_reply",
+        "list_reply",
+        "system_number_change",
+    )
+    for name in kinds:
+        assert _post(client, recorded("whatsapp", name)) == 200
+    with Session(migrated_engine) as s:
+        stored = {r.meta["type"] for r in s.scalars(select(MessageRow).where(MessageRow.company_id == accounts.id))}
+        attachments = s.scalars(select(AttachmentRow).where(AttachmentRow.company_id == accounts.id)).all()
+    assert {"image", "document", "reaction", "unsupported", "interactive", "system"} <= stored
+    assert attachments == []  # media is downloaded later by the worker; the row is already visible
+
+
+def test_sender_without_a_phone_number_keeps_only_the_raw_event(
+    api: tuple[TestClient, str], accounts: Company, migrated_engine: Engine
+) -> None:
+    client, _ = api
+    body = _text_body({"id": "wamid.NOPHONE", "timestamp": "1759737600", "type": "text", "text": {"body": "hi"}})
+    assert _post(client, body) == 200
+    [raw] = _raw(migrated_engine, accounts)
+    assert (raw.provider_msg_id, raw.status) == ("wamid.NOPHONE", RawEventStatus.pending)
+    with Session(migrated_engine) as s:
+        assert s.scalars(select(MessageRow).where(MessageRow.company_id == accounts.id)).all() == []
+
+
+@pytest.mark.parametrize("error", [DataError("INSERT", {}, Exception("value too long")), KeyError("surprise")])
+def test_a_message_the_early_store_cannot_save_does_not_lose_its_raw_event(
+    api: tuple[TestClient, str],
+    accounts: Company,
+    migrated_engine: Engine,
+    recorded: Load,
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+) -> None:
+    import app.api.webhooks.whatsapp as route
+
+    def reject(*args: object, **kwargs: object) -> None:
+        raise error
+
+    monkeypatch.setattr(route, "store_inbound", reject)
+    client, _ = api
+    assert _post(client, recorded("whatsapp", "text")) == 200
+    [raw] = _raw(migrated_engine, accounts)
+    assert (raw.provider_msg_id, raw.status) == ("wamid.TEST0001", RawEventStatus.pending)  # the worker stores it
+
+
+SENDER = "+4915550000001"  # the recorded `text` fixture's sender
+
+
+def _directory(engine: Engine, company: Company, kind: PersonKind, *, brixx_ref: str | None = None) -> None:
+    with Session(engine) as s, s.begin():
+        person = Person(
+            company_id=company.id, kind=kind, display_name="Sender", brixx_ref=brixx_ref, valid_from=date(2026, 1, 1)
+        )
+        s.add(person)
+        s.flush()
+        s.add(
+            ChannelIdentity(
+                company_id=company.id,
+                person_id=person.id,
+                channel=Channel.whatsapp,
+                identity=SENDER,
+                valid_from=date(2026, 1, 1),
+            )
+        )
+
+
+def _stored_status(engine: Engine, company: Company) -> PipelineStatus:
+    with Session(engine) as s:
+        row = s.scalars(select(MessageRow).where(MessageRow.company_id == company.id)).one()
+        return row.pipeline_status
+
+
+def test_a_number_the_directory_does_not_know_is_stored_for_chats_only(
+    api: tuple[TestClient, str], accounts: Company, migrated_engine: Engine, recorded: Load
+) -> None:
+    client, _ = api
+    assert _post(client, recorded("whatsapp", "text")) == 200
+    assert _stored_status(migrated_engine, accounts) is PipelineStatus.skipped
+
+
+@pytest.mark.parametrize(
+    ("kind", "brixx_ref", "expected"),
+    [
+        (PersonKind.tenant, None, PipelineStatus.pending),
+        (PersonKind.contractor, None, PipelineStatus.pending),
+        (PersonKind.other, "BX-1", PipelineStatus.pending),  # a BRIXX relatie is the directory's own record
+        (PersonKind.other, None, PipelineStatus.skipped),  # only auto-created on a past first contact: not known
+    ],
+)
+def test_only_a_contact_the_directory_knows_feeds_the_pipeline(
+    api: tuple[TestClient, str],
+    accounts: Company,
+    migrated_engine: Engine,
+    recorded: Load,
+    kind: PersonKind,
+    brixx_ref: str | None,
+    expected: PipelineStatus,
+) -> None:
+    _directory(migrated_engine, accounts, kind, brixx_ref=brixx_ref)
+    client, _ = api
+    assert _post(client, recorded("whatsapp", "text")) == 200
+    assert _stored_status(migrated_engine, accounts) is expected
+
+
+def test_a_person_with_a_case_the_pipeline_already_opened_keeps_flowing(
+    api: tuple[TestClient, str], accounts: Company, migrated_engine: Engine, recorded: Load
+) -> None:
+    from app.contracts import CaseState, Category, Urgency
+    from app.db.models import Case
+
+    _directory(migrated_engine, accounts, PersonKind.other)
+    with Session(migrated_engine) as s, s.begin():
+        person_id = s.scalars(select(Person.id).where(Person.company_id == accounts.id)).one()
+        s.add(
+            Case(
+                company_id=accounts.id,
+                category=Category.other,
+                urgency=Urgency.normal,
+                state=CaseState.open,
+                primary_person_id=person_id,
+            )
+        )
+    client, _ = api
+    assert _post(client, recorded("whatsapp", "text")) == 200
+    assert _stored_status(migrated_engine, accounts) is PipelineStatus.pending
+    with Session(migrated_engine) as s, s.begin():
+        s.query(Case).filter(Case.company_id == accounts.id).delete()
+
+
+def test_the_owners_own_number_is_not_chat_only(
+    api: tuple[TestClient, str], accounts: Company, migrated_engine: Engine, recorded: Load
+) -> None:
+    """His commands are routed by the owner handler exactly as before."""
+    with Session(migrated_engine) as s, s.begin():
+        s.add(OwnerAccount(company_id=accounts.id, display_name="H", whatsapp_e164=SENDER, email="h@example.test"))
+    client, _ = api
+    assert _post(client, recorded("whatsapp", "text")) == 200
+    assert _stored_status(migrated_engine, accounts) is PipelineStatus.pending
+    with Session(migrated_engine) as s, s.begin():
+        s.query(OwnerAccount).filter(OwnerAccount.company_id == accounts.id).delete()

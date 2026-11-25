@@ -5,7 +5,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from email.message import EmailMessage
 from typing import Any
 from uuid import UUID
@@ -21,8 +21,18 @@ from app.channels.whatsapp.media import FakeWhatsAppMedia, MediaBlob, WhatsAppMe
 from app.contracts import Channel, Direction
 from app.core.settings import Settings
 from app.core.workflow_names import GMAIL_SYNC_QUEUE, event_workflow_id
-from app.db.enums import RawEventStatus
-from app.db.models import AttachmentRow, ChannelAccount, Company, GmailSyncState, MessageRow, OwnerAccount, RawEvent
+from app.db.enums import PersonKind, PipelineStatus, RawEventStatus
+from app.db.models import (
+    AttachmentRow,
+    ChannelAccount,
+    ChannelIdentity,
+    Company,
+    GmailSyncState,
+    MessageRow,
+    OwnerAccount,
+    Person,
+    RawEvent,
+)
 from app.ingestion import gmail_sync, process
 from app.ingestion.process import REQUEUE_PREFIX, IngestDeps
 from app.ingestion.repository import record_event
@@ -141,7 +151,40 @@ def raw_status(env: Env, raw_id: UUID) -> RawEventStatus:
         return raw.status
 
 
+def known_tenant(env: Env, number: str = "+4915550000001") -> None:
+    """A directory contact for `number`: only such a sender's WhatsApp reaches the case pipeline (ADR 0015)."""
+    with Session(env.engine) as s, s.begin():
+        person = Person(
+            company_id=env.company.id, kind=PersonKind.tenant, display_name="Tenant 001", valid_from=date(2026, 1, 1)
+        )
+        s.add(person)
+        s.flush()
+        s.add(
+            ChannelIdentity(
+                company_id=env.company.id,
+                person_id=person.id,
+                channel=Channel.whatsapp,
+                identity=number,
+                valid_from=date(2026, 1, 1),
+            )
+        )
+
+
+def test_a_number_the_directory_does_not_know_stays_in_chats_and_never_reaches_the_pipeline(
+    env: Env, recorded: Load
+) -> None:
+    raw_id = ingest_whatsapp(env, recorded, "text")
+    assert wait(event_workflow_id(raw_id)) == "processed"
+    row = message_for(env, raw_id)
+    assert (row.direction, row.pipeline_status) == (Direction.inbound, PipelineStatus.skipped)
+    assert raw_status(env, raw_id) is RawEventStatus.processed
+    assert DBOS.list_workflows(workflow_ids=[f"pipe:{row.id}", f"owner:{row.id}"]) == []
+    with Session(env.engine) as s:  # no person was invented for a stranger either
+        assert s.scalar(select(Person.id).where(Person.company_id == env.company.id)) is None
+
+
 def test_tenant_text_is_stored_and_routed_to_pipeline(env: Env, recorded: Load) -> None:
+    known_tenant(env)
     raw_id = ingest_whatsapp(env, recorded, "text")
     assert wait(event_workflow_id(raw_id)) == "processed"
     row = message_for(env, raw_id)
@@ -156,6 +199,25 @@ def test_owner_button_reply_is_routed_to_owner_handler(env: Env, recorded: Load)
     row = message_for(env, raw_id)
     assert row.meta["interactive_id"].startswith("apr:")
     assert wait(f"owner:{row.id}") == "unknown"  # the recorded approval id does not exist: answered, not an error
+
+
+def test_an_echo_to_a_number_the_directory_does_not_know_is_chat_only(env: Env, recorded: Load) -> None:
+    """Harjot's reply typed on his phone to a stranger stays out of the inbox, page memory and search with the chat."""
+    raw_id = ingest_whatsapp(env, recorded, "echo")  # to +4915550000001
+    wait(event_workflow_id(raw_id))
+    row = message_for(env, raw_id)
+    assert (row.direction, row.thread_ref, row.pipeline_status) == (
+        Direction.outbound,
+        "+4915550000001",
+        PipelineStatus.skipped,
+    )
+
+
+def test_an_echo_to_a_known_contact_stays_in_the_case_world(env: Env, recorded: Load) -> None:
+    known_tenant(env)
+    raw_id = ingest_whatsapp(env, recorded, "echo")
+    wait(event_workflow_id(raw_id))
+    assert message_for(env, raw_id).pipeline_status is PipelineStatus.pending
 
 
 def test_echo_is_stored_outbound_without_routing(env: Env, recorded: Load) -> None:
@@ -273,6 +335,7 @@ def _children(message_id: object) -> list[str]:
 
 def test_rerun_after_commit_replays_routing_once(env: Env, recorded: Load) -> None:
     """A rerun after the work committed (`_already`) re-enqueues the same child id: one message, one child."""
+    known_tenant(env)
     raw_id = ingest_whatsapp(env, recorded, "text")
     wait(event_workflow_id(raw_id))
     row = message_for(env, raw_id)
@@ -289,6 +352,7 @@ def test_rerun_after_commit_replays_routing_once(env: Env, recorded: Load) -> No
 
 
 def test_unexpected_error_fails_event_then_requeue_recovers(env: Env, recorded: Load) -> None:
+    known_tenant(env)
     env.media.errors = [RuntimeError("bug in media handling")]  # not transient: no step retries
     raw_id = ingest_whatsapp(env, recorded, "image_caption")
     assert finished(event_workflow_id(raw_id)).status == "ERROR"

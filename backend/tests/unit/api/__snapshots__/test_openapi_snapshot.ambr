@@ -5880,7 +5880,8 @@
         "enum": [
           "pending",
           "done",
-          "failed"
+          "failed",
+          "skipped"
         ],
         "title": "PipelineStatus",
         "type": "string"

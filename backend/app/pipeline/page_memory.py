@@ -32,6 +32,7 @@ from app.db.models import (
     Unit,
     WaitRow,
 )
+from app.db.models.ingestion import not_chat_only
 from app.llm.render import RAW_FACTOR
 from app.pipeline.page_text import one_line, stamp
 
@@ -142,7 +143,7 @@ def thread_conversation(
 ) -> tuple[Conversation | None, list[UUID]]:
     """This thread's messages only (and their ids, to find the thread's case)."""
     thread_ref = func.coalesce(MessageRow.thread_ref, MessageRow.provider_msg_id)
-    where = (MessageRow.company_id == company_id, MessageRow.channel == channel, thread_ref == ref)
+    where = (MessageRow.company_id == company_id, MessageRow.channel == channel, thread_ref == ref, not_chat_only())
     return _conversation(session, "thread", _numbered().where(*where))
 
 

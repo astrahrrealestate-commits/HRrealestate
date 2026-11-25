@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
 from app.db.models import MessageChunk, MessageRow, Person, Unit
+from app.db.models.ingestion import not_chat_only
 from app.llm.embeddings import TextEmbedder
 from app.pipeline.document_search import to_tsquery
 from app.pipeline.rag_retrieval import rrf
@@ -210,6 +211,7 @@ def get_message_window(
                 MessageRow.company_id == company_id,
                 MessageRow.channel == target.channel,
                 MessageRow.thread_ref == thread_ref,
+                not_chat_only(),
                 MessageRow.sent_at < target.sent_at,
             )
             .order_by(MessageRow.sent_at.desc())
@@ -226,6 +228,7 @@ def get_message_window(
                 MessageRow.company_id == company_id,
                 MessageRow.channel == target.channel,
                 MessageRow.thread_ref == thread_ref,
+                not_chat_only(),
                 MessageRow.sent_at > target.sent_at,
             )
             .order_by(MessageRow.sent_at.asc())
@@ -264,7 +267,10 @@ def get_thread_timeline(
 ) -> list[dict[str, Any]]:
     """Fast SQL chronological timeline of messages matching person, unit, or case."""
     stmt = (
-        select(MessageRow).where(MessageRow.company_id == company_id).order_by(MessageRow.sent_at.desc()).limit(limit)
+        select(MessageRow)
+        .where(MessageRow.company_id == company_id, not_chat_only())
+        .order_by(MessageRow.sent_at.desc())
+        .limit(limit)
     )
     if person_id is not None:
         stmt = stmt.where(MessageRow.person_id == person_id)

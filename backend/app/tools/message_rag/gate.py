@@ -6,6 +6,7 @@ without making expensive embedding calls.
 
 from typing import Any
 
+from app.db.enums import PipelineStatus
 from app.db.models import MessageRow, UnderstandingRow
 
 IGNORED_GMAIL_LABELS = frozenset(
@@ -50,6 +51,9 @@ def should_index_message(
         cat = understanding.category.value if hasattr(understanding.category, "value") else str(understanding.category)
         if cat == "spam":
             return False, "spam_category"
+
+    if msg.pipeline_status is PipelineStatus.skipped:  # a chat the owner keeps only in Chats (ADR 0015)
+        return False, "chat_only"
 
     meta: dict[str, Any] = msg.meta or {}
 

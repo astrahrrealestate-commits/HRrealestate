@@ -17,7 +17,7 @@ from app.core.errors import EstateOSError
 from app.db.enums import PipelineStatus
 from app.db.models.dashboard import OwnerFeed
 from app.db.models.directory import Person
-from app.db.models.ingestion import AttachmentRow, MessageRow
+from app.db.models.ingestion import AttachmentRow, MessageRow, not_chat_only
 from app.db.models.pipeline import CaseLink, UnderstandingRow
 
 MAX_PAGE = 100
@@ -91,7 +91,7 @@ def _ranked(company_id: UUID) -> Select[tuple[object, ...]]:
         func.count().over(partition_by=part).label("n"),
         _count_inbound(PipelineStatus.pending).label("n_pending"),
         _count_inbound(PipelineStatus.failed).label("n_failed"),
-    ).where(MessageRow.company_id == company_id)
+    ).where(MessageRow.company_id == company_id, not_chat_only())
 
 
 def _worst(pending: int, failed: int) -> PipelineStatus:
@@ -164,6 +164,7 @@ def thread_messages(session: Session, company_id: UUID, thread_key: str) -> list
             MessageRow.company_id == company_id,
             MessageRow.channel == channel,
             func.coalesce(MessageRow.thread_ref, MessageRow.provider_msg_id) == ref,
+            not_chat_only(),
         )
         .order_by(MessageRow.sent_at.desc(), MessageRow.id.desc())
         .limit(MAX_THREAD_MESSAGES)

@@ -1,6 +1,7 @@
 """Idempotent dev tenant: one company with a WhatsApp number, a Gmail mailbox and owner Harjot (simulator + demo)."""
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import Engine, select
@@ -8,7 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.contracts import Channel
 from app.core.errors import UnsafeConfigurationError
-from app.db.models import AllowedUser, ChannelAccount, Company, OwnerAccount
+from app.db.enums import PersonKind
+from app.db.models import AllowedUser, ChannelAccount, ChannelIdentity, Company, OwnerAccount, Person
 from app.dev import fixtures as fx
 
 
@@ -111,7 +113,33 @@ def seed_dev_tenant(
             if to_remove:
                 session.delete(to_remove)
 
+        _ensure_dev_tenant_contact(session, company_id)
         return DevTenant(company_id, wa.id, gm.id)
+
+
+def _ensure_dev_tenant_contact(session: Session, company_id: UUID) -> None:
+    """WhatsApp from an unknown number stays in Chats (ADR 0015), so the simulator's tenant is a directory contact."""
+    known = select(ChannelIdentity.id).where(
+        ChannelIdentity.company_id == company_id,
+        ChannelIdentity.channel == Channel.whatsapp,
+        ChannelIdentity.identity == fx.DEV_TENANT_E164,
+        ChannelIdentity.valid_to.is_(None),
+    )
+    if session.scalar(known) is not None:
+        return
+    today = datetime.now(UTC).date()
+    person = Person(company_id=company_id, kind=PersonKind.tenant, display_name="Mieter 001", valid_from=today)
+    session.add(person)
+    session.flush()
+    session.add(
+        ChannelIdentity(
+            company_id=company_id,
+            person_id=person.id,
+            channel=Channel.whatsapp,
+            identity=fx.DEV_TENANT_E164,
+            valid_from=today,
+        )
+    )
 
 
 def _account(session: Session, channel: Channel, address: str) -> ChannelAccount | None:

@@ -439,6 +439,18 @@ bidirectional translation controls onto the new unified Composer, and fixed what
   Sentry. Tests: `tests/integration/test_chats_send_api.py`, `tests/unit/core/test_redaction.py`, `tests/unit/core/test_telemetry.py`
 - [ ] Frontend composer (Task 8) not built yet
 - [ ] Needs a plain Meta Cloud API number (no coexistence, no templates): see ADR 0013
+- [x] Every inbound WhatsApp message is stored at the webhook and kept apart from the case pipeline
+  ([ADR 0015](adr/0015-whatsapp-stored-at-the-webhook.md)): `app/ingestion/early_store.py` stores the row in the webhook
+  transaction; `save_message` completes it later (media or `media_error`); only the owner's number and directory contacts
+  (`app/db/known_contacts.py`) enter the pipeline, everyone else gets `pipeline_status = skipped` (migration 0051) and
+  lives in Chats only (his own replies and phone echoes in such a chat too); `not_chat_only()` keeps those rows out of the
+  inbox, page memory, text search, contact history and message-search indexing, a row-level policy (migration 0052) hides
+  them from the SQL agent's read-only role, and GDPR erase finds them by the person's number. Tests: `test_webhooks.py` (stored with no worker, every kind, gate per kind of person),
+  `test_ingest_workflows.py`, `test_chat_only_readers.py`, `test_chats_send_api.py`, `test_pipeline_understand.py`
+- [ ] A new tenant who is not in the directory yet does not open a case from WhatsApp until the directory knows the
+  number; a per-chat "hand to the AI" action is not built
+- [ ] Chats still cannot show: a sender with no phone number (username-only users) or an item the webhook parser cannot read
+  (both stay raw events, alerted in the log); media that fails to download shows as a text-only row with `media_error`
 
 ## Sender roles after intent (2026-11-24; spec [2026-11-24-sender-roles-design.md](superpowers/specs/2026-11-24-sender-roles-design.md) · [ADR 0014](adr/0014-sender-roles-after-intent.md) · branch `m-sender-roles`)
 - [x] Spec and ADR 0014: intent first, label second, no new `Category`, no migration

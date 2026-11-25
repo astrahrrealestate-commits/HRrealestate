@@ -19,6 +19,7 @@ from app.contracts import ActionType, Channel, Direction
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.models import ActionRow, Case, CaseLink, ChannelIdentity, MessageRow, Person, UnderstandingRow
+from app.db.models.ingestion import not_chat_only
 from app.pipeline import propose
 
 router = APIRouter(prefix="/api/contacts", tags=["contacts"], dependencies=[Depends(require_section("contacts"))])
@@ -217,6 +218,7 @@ def get_contact_communications(
                     MessageRow.company_id == company_id,
                     or_(*filter_conds),
                     MessageRow.thread_ref.is_not(None),
+                    not_chat_only(),
                 )
                 .distinct()
             ).all()
@@ -228,7 +230,7 @@ def get_contact_communications(
 
             live_messages = (
                 session.query(MessageRow)
-                .filter(MessageRow.company_id == company_id, or_(*final_conds))
+                .filter(MessageRow.company_id == company_id, or_(*final_conds), not_chat_only())
                 .order_by(MessageRow.sent_at.desc())
                 .limit(50)
                 .all()

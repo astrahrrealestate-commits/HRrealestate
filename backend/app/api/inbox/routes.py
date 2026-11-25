@@ -56,6 +56,7 @@ from app.db.models import (
     UnderstandingRow,
     Unit,
 )
+from app.db.models.ingestion import not_chat_only
 from app.directory.contacts import link_secondary_identity
 from app.ingestion.gmail_sync import sync_mailbox
 from app.ingestion.process import IngestDeps
@@ -110,6 +111,7 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
                     MessageRow.company_id == company_id,
                     MessageRow.thread_ref.in_(thread_refs),
                     ~MessageRow.id.in_(msg_ids),
+                    not_chat_only(),
                 )
                 .all()
             )
@@ -176,6 +178,7 @@ def _build_live_threads(session: Session, company_id: UUID) -> list[dict[str, An
                     MessageRow.company_id == company_id,
                     ~MessageRow.id.in_(list(known_ids)),
                     MessageRow.meta.is_not(None),
+                    not_chat_only(),
                 )
                 .all()
             )

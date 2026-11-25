@@ -26,6 +26,7 @@ from app.api.v1.session_limits import chat_send_limit
 from app.contracts import Channel, Direction
 from app.core.logging import get_logger
 from app.db.enums import PipelineStatus, RawEventStatus
+from app.db.known_contacts import feeds_pipeline
 from app.db.models import Company
 from app.db.models.ingestion import MessageRow, RawEvent
 from app.pipeline import chat_repo
@@ -73,6 +74,11 @@ def _meta(client_msg_id: UUID, suggestion_id: UUID | None) -> dict[str, object]:
     return meta
 
 
+def _status_for(session: Session, company_id: UUID, chat_key: str) -> PipelineStatus:
+    known = feeds_pipeline(session, company_id, Channel.whatsapp, chat_key)
+    return PipelineStatus.done if known else PipelineStatus.skipped
+
+
 def insert_pending(
     session: Session,
     company_id: UUID,
@@ -105,7 +111,9 @@ def insert_pending(
         text=text,
         delivery_status=None,
         meta=_meta(client_msg_id, suggestion_id),
-        pipeline_status=PipelineStatus.done,  # the pipeline runs on inbound messages only
+        # The pipeline runs on inbound messages only. His reply to a contact the directory knows is part of that
+        # conversation; his reply in a Chats-only chat stays out of the case world with the chat (ADR 0015).
+        pipeline_status=_status_for(session, company_id, chat_key),
     )
     session.add(row)
     session.flush()

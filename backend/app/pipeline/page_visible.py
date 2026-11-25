@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.contracts.page_context import MAX_VISIBLE, VisibleKind, visible_kind
 from app.db.models import ActionRow, Approval, AttachmentRow, Case, MessageRow, Person, TaskRow
+from app.db.models.ingestion import not_chat_only
 from app.pipeline.read_repo import decode_thread_key, encode_thread_key
 from app.pipeline.work_repo import short_ref
 
@@ -85,7 +86,7 @@ def _threads(session: Session, company_id: UUID, keys: Sequence[str]) -> dict[st
     ref = func.coalesce(MessageRow.thread_ref, MessageRow.provider_msg_id)
     rows = session.execute(
         select(MessageRow.channel, ref, func.count())
-        .where(MessageRow.company_id == company_id, tuple_(MessageRow.channel, ref).in_(pairs))
+        .where(MessageRow.company_id == company_id, tuple_(MessageRow.channel, ref).in_(pairs), not_chat_only())
         .group_by(MessageRow.channel, ref)
         .limit(MAX_VISIBLE)
     ).all()

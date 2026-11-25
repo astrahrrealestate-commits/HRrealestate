@@ -2,12 +2,13 @@
 
 import hashlib
 import json
-from typing import Annotated
+from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import Engine
-from sqlalchemy.exc import DataError, IntegrityError
+from sqlalchemy.exc import DataError, IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -17,6 +18,7 @@ from app.channels.text_clean import clean_json
 from app.channels.whatsapp.body import count_items, phone_number_ids
 from app.channels.whatsapp.inbound import (
     WaEvent,
+    WaInbound,
     WaStatus,
     event_to_payload,
     parse_webhook,
@@ -35,6 +37,7 @@ from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import DeliveryStatus, RawEventStatus
 from app.db.models import ChannelAccount
+from app.ingestion.early_store import store_inbound
 from app.ingestion.repository import record_event, record_status, resolve_channel_account
 
 router = APIRouter(prefix="/webhooks/whatsapp", tags=["webhooks"])
@@ -109,9 +112,24 @@ def _record_one(session: Session, client: WorkflowClient, account: ChannelAccoun
             if isinstance(event, WaStatus):
                 record_status(session, account, event.wamid, DeliveryStatus(event.status), clean_json(event.raw))
             else:
-                record_event(session, client, account, event.wamid, event_to_payload(event))
+                payload = event_to_payload(event)
+                raw_id = record_event(session, client, account, event.wamid, payload)
+                if raw_id is not None and isinstance(event, WaInbound):
+                    _store_now(session, account, raw_id, payload)
     except (DataError, IntegrityError) as exc:
         log.error("whatsapp.webhook.event_rejected_by_db", wamid=event.wamid[:80], error_type=type(exc).__name__)
+
+
+def _store_now(session: Session, account: ChannelAccount, raw_event_id: UUID, payload: dict[str, Any]) -> None:
+    """Chats must show every inbound message at once, so the row is written here, not behind the worker queue. A message
+    that cannot be stored this way keeps its raw event: the worker stores it (or records why it cannot)."""
+    try:
+        with session.begin_nested():  # its own savepoint: a rejected row never takes the raw event down with it
+            store_inbound(session, account, raw_event_id, payload)
+    except OperationalError:
+        raise  # the database is down: a 5xx makes the provider redeliver, exactly as for the raw event itself
+    except Exception as exc:  # nothing about one message may fail the webhook; the worker stores it
+        log.warning("whatsapp.webhook.store_deferred", raw_event_id=str(raw_event_id), error_type=type(exc).__name__)
 
 
 def _keep_unparsed(session: Session, accounts: dict[str, ChannelAccount], body: bytes, dropped: int) -> None:
