@@ -4166,15 +4166,15 @@
         "type": "object"
       },
       "Category": {
+        "description": "The six business areas Harjot works by (M13), plus internal `spam`, which is never shown.",
         "enum": [
           "maintenance",
-          "payment",
-          "lease",
-          "complaint",
-          "contractor_update",
-          "admin",
-          "spam",
-          "other"
+          "finance",
+          "legal",
+          "business",
+          "administration",
+          "new_projects",
+          "spam"
         ],
         "title": "Category",
         "type": "string"

@@ -190,7 +190,9 @@ def test_foreign_links_and_drafts_on_my_messages_are_ignored(db: Session, compan
     db.add(other)
     db.flush()
     inbound = _msg(db, company.id, TINA, 1)
-    foreign_case = Case(company_id=other.id, category=Category.other, urgency=Urgency.normal, state=CaseState.open)
+    foreign_case = Case(
+        company_id=other.id, category=Category.administration, urgency=Urgency.normal, state=CaseState.open
+    )
     db.add(foreign_case)
     db.flush()
     db.add(CaseLink(company_id=other.id, case_id=foreign_case.id, message_id=inbound.id, method=LinkMethod.thread))
@@ -211,7 +213,9 @@ def test_latest_case_id_is_the_newest_linked_case(db: Session, company: Company)
     _msg(db, company.id, TINA, 3)  # newest message has no case: the newest linked one still wins
     cases = []
     for message in (older, newer):
-        case = Case(company_id=company.id, category=Category.other, urgency=Urgency.normal, state=CaseState.open)
+        case = Case(
+            company_id=company.id, category=Category.administration, urgency=Urgency.normal, state=CaseState.open
+        )
         db.add(case)
         db.flush()
         db.add(CaseLink(company_id=company.id, case_id=case.id, message_id=message.id, method=LinkMethod.thread))
@@ -258,7 +262,7 @@ def test_parse_chat_key_rejects_email_and_garbage() -> None:
 
 
 def _case_with_draft(s: Session, cid: UUID, msg: MessageRow, status: ActionStatus, variants: list[object]) -> ActionRow:
-    case = Case(company_id=cid, category=Category.other, urgency=Urgency.normal, state=CaseState.open)
+    case = Case(company_id=cid, category=Category.administration, urgency=Urgency.normal, state=CaseState.open)
     s.add(case)
     s.flush()
     if s.query(CaseLink).filter_by(message_id=msg.id).first() is None:

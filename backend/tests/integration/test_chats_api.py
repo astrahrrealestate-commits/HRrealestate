@@ -99,7 +99,7 @@ def _seed_a(s: Session, a: Company) -> tuple[list[MessageRow], UUID]:
     t6 = _msg(s, a.id, TINA, 6, direction=Direction.outbound, meta={"echo": True})  # Business-app echo, no status
     _msg(s, a.id, BOB, 7, pid="wamid.bob1", text="boiler")
     body = {"suspicious": {"flag": True, "reason": "r" * 300}}
-    s.add(UnderstandingRow(company_id=a.id, message_id=t3.id, category=Category.other, urgency=Urgency.normal,
+    s.add(UnderstandingRow(company_id=a.id, message_id=t3.id, category=Category.administration, urgency=Urgency.normal,
                            body=body, prompt_version="v1"))  # fmt: skip
     _attachment(s, a.id, t3.id, "p.jpg", "media/a/ab/abc")
     person = Person(company_id=a.id, kind=PersonKind.tenant, display_name="Tina Tenant", valid_from=date(2026, 1, 1))
@@ -107,7 +107,7 @@ def _seed_a(s: Session, a: Company) -> tuple[list[MessageRow], UUID]:
     s.flush()
     s.add(ChannelIdentity(company_id=a.id, person_id=person.id, channel=Channel.whatsapp, identity=TINA,
                           valid_from=date(2026, 1, 1)))  # fmt: skip
-    case = Case(company_id=a.id, category=Category.other, urgency=Urgency.normal, state=CaseState.open)
+    case = Case(company_id=a.id, category=Category.administration, urgency=Urgency.normal, state=CaseState.open)
     s.add(case)
     s.flush()
     s.add(CaseLink(company_id=a.id, case_id=case.id, message_id=t3.id, method=LinkMethod.thread))

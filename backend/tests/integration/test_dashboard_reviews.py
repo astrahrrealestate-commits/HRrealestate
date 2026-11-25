@@ -38,7 +38,7 @@ T0 = datetime(2026, 1, 1, tzinfo=UTC)
 
 def _seed(s: Session, company_id: UUID, tag: str, *, suspicious: bool) -> tuple[UUID, UUID, UUID]:
     """One pending approval, one review document and one filed document. Returns (approval, case, review attachment)."""
-    case = Case(company_id=company_id, category=Category.other, urgency=Urgency.normal, summary=tag)
+    case = Case(company_id=company_id, category=Category.administration, urgency=Urgency.normal, summary=tag)
     s.add(case)
     raw = RawEvent(company_id=company_id, provider=Channel.gmail, provider_msg_id=f"m-{tag}-{uuid4()}", payload={})
     s.add(raw)
@@ -55,7 +55,8 @@ def _seed(s: Session, company_id: UUID, tag: str, *, suspicious: bool) -> tuple[
         [
             action,
             CaseLink(company_id=company_id, case_id=case.id, message_id=msg.id, method=LinkMethod.thread),
-            UnderstandingRow(company_id=company_id, message_id=msg.id, category=Category.other, urgency=Urgency.normal,
+            UnderstandingRow(company_id=company_id, message_id=msg.id, category=Category.administration,
+                             urgency=Urgency.normal,
                              body={"suspicious": {"flag": suspicious}}, prompt_version="understanding/v2"),
         ]
     )  # fmt: skip
@@ -106,7 +107,7 @@ def test_approvals_lists_only_my_pending_with_flag(seeded: Seeded) -> None:
     assert [a["id"] for a in body] == [str(mine[0])]
     assert body[0]["drafts"] == ["one", "two"]
     assert (body[0]["suspicious"], body[0]["draft_version"], body[0]["case_id"]) == (True, 1, str(mine[1]))
-    assert body[0]["case_label"] == "Unknown sender · other"
+    assert body[0]["case_label"] == "Unknown sender · administration"
     assert client.get(f"/api/v1/approvals?after={body[0]['cursor']}").json() == []
 
 

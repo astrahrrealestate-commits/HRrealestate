@@ -93,6 +93,14 @@ Closed on 2026-11-12:
   one, the cache is unique per (company, source hash, target), and `erase_person` also drops the company's en→nl rows
   because their Dutch output may be a message sent to the erased person
 
+Closed on 2026-11-26 (M13):
+- `erase_person` blanks the model-call log too (`pipeline/gdpr_calls.py`): input, output and error of every call
+  tagged with one of the person's messages (`model_calls.message_ids`, migration 0057; set by triage, link check,
+  case summary, person memory and the proposer), and of untagged calls whose text holds one of the person's
+  addresses or numbers, their full name, or a line of one of their messages. Before M13 every prompt, now a whole
+  dossier, stayed in `model_calls.input` after erasure. Limits: a one-word name and lines under 24 characters are not
+  searched (they match strangers); outbound mail to the person is not counted as theirs, as in the message redaction.
+
 Still open (fix in this order):
 - **Owner-typed inbox replies** (`POST /api/inbox/threads/{case_id}/reply`, from dev 6ac612c; no ADR yet; not accepted).
   Fixed on merge: Approve never falls back to it, held or refused drafts are not offered, it needs the suspicious

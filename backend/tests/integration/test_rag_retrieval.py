@@ -50,7 +50,7 @@ def corpus(migrated_engine: Engine, committed_company: Company) -> Corpus:
                      chunks=["De waarborgsom bedraagt drie maanden kale huur."])  # fmt: skip
         invoice = _doc(s, cid, title="Factuur loodgieter", doc_type="invoice", day=date(2026, 9, 3),
                        chunks=["Reparatie van de waterleiding. Totaal EUR 245,00."])  # fmt: skip
-        case = Case(company_id=cid, state=CaseState.open, category=Category.other, urgency=Urgency.normal)
+        case = Case(company_id=cid, state=CaseState.open, category=Category.administration, urgency=Urgency.normal)
         s.add(case)
         s.flush()
         s.add(

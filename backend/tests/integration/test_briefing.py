@@ -118,7 +118,7 @@ def test_failed_messages_and_unexecuted_approvals_reach_the_briefing(
                 pipeline_attempts=3,
             )
         )
-        case_id = case_repo.create_case(s, committed_company.id, None, Category.other, Urgency.normal)
+        case_id = case_repo.create_case(s, committed_company.id, None, Category.administration, Urgency.normal)
         s.add(
             ActionRow(
                 company_id=committed_company.id,

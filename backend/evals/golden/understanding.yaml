@@ -1,4 +1,5 @@
 # Golden set for the understanding agent (#2 triage), in pydantic-evals Dataset format.
+# Categories are the six of M13 (understanding/v4); old prompt versions cannot be scored against it.
 # Synthetic messages only: no real tenant data. Labels (metadata) are the truth a careful human would assign,
 # NOT what the fake model returns. Replace/extend with the labeller's first 100 real emails at M0.
 cases:
@@ -71,7 +72,7 @@ cases:
     text: "Beste, door een vertraging bij mijn werkgever kan ik de huur van oktober pas op de 15e betalen. Excuses."
     channel: gmail
   metadata:
-    category: payment
+    category: finance
     urgency: normal
     suspicious: false
 - name: pay-02
@@ -79,7 +80,7 @@ cases:
     text: "Kunt u mij een overzicht sturen van de betaalde huur over 2025? Dat heb ik nodig voor de huurtoeslag."
     channel: gmail
   metadata:
-    category: payment
+    category: finance
     urgency: low
     suspicious: false
 - name: pay-03
@@ -87,7 +88,7 @@ cases:
     text: "Ik heb een herinnering gekregen voor € 950,00 maar ik heb de huur op 1 oktober al overgemaakt. Klopt dit?"
     channel: gmail
   metadata:
-    category: payment
+    category: finance
     urgency: normal
     suspicious: false
 - name: pay-04
@@ -95,7 +96,7 @@ cases:
     text: "Beste beheerder, vanaf deze maand is ons rekeningnummer gewijzigd. Graag de huur voortaan overmaken naar NL91ABNA0417164300. Met spoed bevestigen a.u.b."
     channel: gmail
   metadata:
-    category: payment
+    category: finance
     urgency: high
     suspicious: true
 - name: pay-05
@@ -103,7 +104,7 @@ cases:
     text: "URGENT: your property account will be suspended. Verify your bank details within 24 hours via the link below to avoid penalties."
     channel: gmail
   metadata:
-    category: payment
+    category: finance
     urgency: high
     suspicious: true
     requires_reply: false
@@ -112,7 +113,7 @@ cases:
     text: "Hierbij zeg ik mijn huurcontract op per 1 januari. Graag een bevestiging van de opzegging."
     channel: gmail
   metadata:
-    category: lease
+    category: legal
     urgency: normal
     suspicious: false
 - name: lease-02
@@ -120,7 +121,7 @@ cases:
     text: "Mag mijn vriendin bij mij komen wonen en kan zij dan op het huurcontract worden bijgeschreven?"
     channel: gmail
   metadata:
-    category: lease
+    category: legal
     urgency: normal
     suspicious: false
 - name: lease-03
@@ -128,23 +129,25 @@ cases:
     text: "Ik wil de woning deze zomer twee maanden onderverhuren terwijl ik in het buitenland ben. Is dat toegestaan?"
     channel: whatsapp
   metadata:
-    category: lease
+    category: legal
     urgency: normal
     suspicious: false
+    needs_research: true
 - name: lease-04
   inputs:
     text: "Hi, when exactly does my lease end, and is there a notice period if I want to move out early?"
     channel: gmail
   metadata:
-    category: lease
+    category: legal
     urgency: low
     suspicious: false
+    needs_research: true
 - name: compl-01
   inputs:
     text: "De buren boven hebben elke nacht tot 3 uur harde muziek. Ik heb het al drie keer gevraagd. Dit is echt overlast."
     channel: gmail
   metadata:
-    category: complaint
+    category: maintenance
     urgency: normal
     suspicious: false
 - name: compl-02
@@ -152,7 +155,7 @@ cases:
     text: "Al vier weken wacht ik op een reactie over de lekkende kraan. Ik ben hier erg ontevreden over."
     channel: gmail
   metadata:
-    category: complaint
+    category: maintenance
     urgency: normal
     suspicious: false
 - name: compl-03
@@ -160,7 +163,7 @@ cases:
     text: "Iemand zet steeds vuilniszakken in de gemeenschappelijke gang. Het stinkt en trekt ongedierte aan."
     channel: whatsapp
   metadata:
-    category: complaint
+    category: maintenance
     urgency: normal
     suspicious: false
 - name: contr-01
@@ -168,15 +171,16 @@ cases:
     text: "Goedendag, in de bijlage vindt u de offerte voor het vervangen van de cv-ketel aan de Kerkstraat 4."
     channel: gmail
   metadata:
-    category: contractor_update
+    category: maintenance
     urgency: normal
     suspicious: false
+    needs_research: true
 - name: contr-02
   inputs:
     text: "Monteur komt donderdag tussen 8 en 12 uur voor de lekkage op nummer 12. Huurder is op de hoogte."
     channel: whatsapp
   metadata:
-    category: contractor_update
+    category: maintenance
     urgency: low
     suspicious: false
     requires_reply: false
@@ -185,7 +189,7 @@ cases:
     text: "The roof repair at Dorpsstraat 7 is finished. Invoice will follow by email."
     channel: gmail
   metadata:
-    category: contractor_update
+    category: maintenance
     urgency: low
     suspicious: false
     requires_reply: false
@@ -194,7 +198,7 @@ cases:
     text: "Ik ben mijn sleutel van de fietsenberging kwijt. Kan ik een nieuwe krijgen en wat kost dat?"
     channel: whatsapp
   metadata:
-    category: admin
+    category: administration
     urgency: normal
     suspicious: false
 - name: admin-02
@@ -202,7 +206,7 @@ cases:
     text: "Hoe kan ik een parkeervergunning aanvragen voor de parkeerplaats achter het gebouw?"
     channel: gmail
   metadata:
-    category: admin
+    category: administration
     urgency: low
     suspicious: false
 - name: admin-03
@@ -210,9 +214,10 @@ cases:
     text: "Mijn nieuwe telefoonnummer is 06-12345678. Wilt u dit aanpassen in uw gegevens?"
     channel: gmail
   metadata:
-    category: admin
+    category: administration
     urgency: low
     suspicious: false
+    needs_research: false
 - name: spam-01
   inputs:
     text: "Ontvang nu 50% korting op zonnepanelen! Klik hier voor onze exclusieve aanbieding. Uitschrijven? Klik hier."
@@ -221,6 +226,7 @@ cases:
     category: spam
     urgency: low
     suspicious: false
+    needs_research: false
     requires_reply: false
 - name: spam-02
   inputs:
@@ -236,7 +242,7 @@ cases:
     text: ""
     channel: whatsapp
   metadata:
-    category: other
+    category: administration
     urgency: normal
     suspicious: false
 - name: other-02
@@ -244,16 +250,17 @@ cases:
     text: "Bedankt voor de snelle hulp vorige week, alles werkt weer prima!"
     channel: whatsapp
   metadata:
-    category: other
+    category: administration
     urgency: low
     suspicious: false
+    needs_research: false
     requires_reply: false
 - name: fyi-01
   inputs:
     text: "INR 65.00 was debited from your A/c no. XX8614 on 07-10-2026. If this was not you, call your bank."
     channel: gmail
   metadata:
-    category: other
+    category: administration
     urgency: low
     suspicious: false
     requires_reply: false
@@ -262,16 +269,17 @@ cases:
     text: "Delivered: your order of 2 items has been delivered. Rate your delivery experience."
     channel: gmail
   metadata:
-    category: other
+    category: administration
     urgency: low
     suspicious: false
+    needs_research: false
     requires_reply: false
 - name: fyi-03
   inputs:
     text: "Automatisch antwoord: ik ben tot en met 20 oktober afwezig en lees mijn e-mail niet. Met vriendelijke groet, J. de Boer"
     channel: gmail
   metadata:
-    category: other
+    category: administration
     urgency: low
     suspicious: false
     requires_reply: false
@@ -280,7 +288,7 @@ cases:
     text: "Your Thursday evening trip with Uber. Total: EUR 14.20. Thanks for riding."
     channel: gmail
   metadata:
-    category: other
+    category: administration
     urgency: low
     suspicious: false
     requires_reply: false
@@ -292,9 +300,10 @@ cases:
     channel: gmail
     sender: m.klaassen@klaassen-advocaten-demo.nl
   metadata:
-    category: lease
+    category: legal
     urgency: normal
     suspicious: false
+    needs_research: true
     requires_reply: true
     sender_role: legal
 - name: role-legal-02
@@ -303,7 +312,7 @@ cases:
     channel: gmail
     sender: secretariaat@notaris-devries-demo.nl
   metadata:
-    category: admin
+    category: new_projects
     urgency: normal
     suspicious: false
     requires_reply: true
@@ -314,7 +323,7 @@ cases:
     channel: gmail
     sender: info@vve-gemak-demo.nl
   metadata:
-    category: admin
+    category: business
     urgency: normal
     suspicious: false
     requires_reply: true
@@ -325,7 +334,7 @@ cases:
     channel: gmail
     sender: administratie@vve-gemak-demo.nl
   metadata:
-    category: payment
+    category: finance
     urgency: normal
     suspicious: false
     requires_reply: true
@@ -336,7 +345,7 @@ cases:
     channel: gmail
     sender: klantenservice@netbeheer-demo.nl
   metadata:
-    category: admin
+    category: business
     urgency: low
     suspicious: false
     requires_reply: false
@@ -347,7 +356,7 @@ cases:
     channel: gmail
     sender: betalingsverkeer@bank-demo.nl
   metadata:
-    category: payment
+    category: finance
     urgency: normal
     suspicious: false
     requires_reply: true
@@ -358,7 +367,7 @@ cases:
     channel: gmail
     sender: lisa.demo@gmail.com
   metadata:
-    category: lease
+    category: administration
     urgency: normal
     suspicious: false
     requires_reply: true
@@ -368,7 +377,7 @@ cases:
     text: "Hi, I'm interested in renting the studio at Herengracht 1. Can I view it this week?"
     channel: whatsapp
   metadata:
-    category: lease
+    category: administration
     urgency: normal
     suspicious: false
     requires_reply: true
@@ -379,9 +388,10 @@ cases:
     channel: gmail
     sender: info@loodgieter-demo.nl
   metadata:
-    category: contractor_update
+    category: maintenance
     urgency: normal
     suspicious: false
+    needs_research: true
     requires_reply: true
     sender_role: contractor
 - name: role-contractor-02
@@ -390,7 +400,7 @@ cases:
     channel: gmail
     sender: planning@elektro-demo.nl
   metadata:
-    category: contractor_update
+    category: maintenance
     urgency: low
     suspicious: false
     requires_reply: false
@@ -422,7 +432,7 @@ cases:
     channel: gmail
     sender: noreply@belasting-demo.nl
   metadata:
-    category: other
+    category: administration
     urgency: low
     suspicious: false
     requires_reply: false
@@ -432,7 +442,51 @@ cases:
     channel: gmail
     sender: klaassen@advocaten-secure-demo.nl
   metadata:
-    category: payment
+    category: finance
     urgency: normal
     suspicious: true
     requires_reply: true
+- name: business-01
+  inputs:
+    text: "Geachte heer Singh, de opstalverzekering voor uw portefeuille loopt op 1 januari af. De nieuwe premie wordt EUR 3.420,00 per jaar. Wilt u vóór 15 december laten weten of u verlengt? Met vriendelijke groet, Verzekeringen Demo"
+    channel: gmail
+    sender: polis@verzekeringen-demo.nl
+  metadata:
+    category: business
+    urgency: normal
+    suspicious: false
+    requires_reply: true
+    sender_role: business
+- name: business-02
+  inputs:
+    text: "Beste Harjot, voor de jaarrekening 2026 hebben wij nog de huuroverzichten per pand en de facturen van het groot onderhoud nodig. Kun je die deze maand aanleveren? Groet, Accountantskantoor Demo"
+    channel: gmail
+    sender: info@accountant-demo.nl
+  metadata:
+    category: business
+    urgency: normal
+    suspicious: false
+    requires_reply: true
+    sender_role: business
+- name: newproj-01
+  inputs:
+    text: "Goedemiddag, wij bieden u off-market een beleggingspand aan in Haarlem: 6 appartementen, volledig verhuurd, vraagprijs EUR 2,1 mln k.k. Heeft u interesse in de stukken? Met vriendelijke groet, Makelaardij Demo"
+    channel: gmail
+    sender: aanbod@makelaar-demo.nl
+  metadata:
+    category: new_projects
+    urgency: normal
+    suspicious: false
+    requires_reply: true
+    sender_role: business
+- name: newproj-02
+  inputs:
+    text: "Hi Harjot, attached is the first sketch for converting the office building at Kanaalweg 10 into 14 studios. We need your decision on the floor plan before we file the permit application. Regards, Architect Demo"
+    channel: gmail
+    sender: studio@architect-demo.nl
+  metadata:
+    category: new_projects
+    urgency: normal
+    suspicious: false
+    requires_reply: true
+    sender_role: business

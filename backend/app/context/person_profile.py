@@ -44,7 +44,8 @@ def get_or_create_profile(session: Session, company_id: UUID, person_id: UUID) -
 def mark_stale(session: Session, company_id: UUID, person_id: UUID, message_at: datetime) -> None:
     """Mark source_max_message_at when an inbound message is linked."""
     profile = get_or_create_profile(session, company_id, person_id)
-    profile.source_max_message_at = message_at
+    if profile.source_max_message_at is None or message_at > profile.source_max_message_at:
+        profile.source_max_message_at = message_at  # an old mail (a reload) never moves the marker back
     if profile.last_contact_at is None or message_at > profile.last_contact_at:
         profile.last_contact_at = message_at
 

@@ -62,7 +62,7 @@ def _mail(
 
 
 def _case(s: Session, w: World) -> UUID:
-    case = Case(company_id=w.company, category=Category.other, urgency=Urgency.low, summary="")
+    case = Case(company_id=w.company, category=Category.administration, urgency=Urgency.low, summary="")
     s.add(case)
     s.flush()
     return case.id
@@ -98,7 +98,7 @@ def answers(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
         if isinstance(script[0], Exception):
             raise script[0]
         base = real(engine, settings, spec, prompt, ctx)
-        output = base.output.model_copy(update={"category": Category.other, **script[0]})
+        output = base.output.model_copy(update={"category": Category.administration, **script[0]})
         return CallResult(output=output, model_call_id=base.model_call_id)
 
     monkeypatch.setattr(reattribute_labels, "run_agent", fake)
@@ -153,7 +153,7 @@ def test_mail_already_given_a_role_at_ingestion_is_not_asked_again_unless_it_was
         for repaired in (False, True):
             meta = {"reattributed_from": {"sender": OURS}} if repaired else {}
             message = _mail(s, world, _case(s, world), f"v{int(repaired)}@example.test", 1, **meta)
-            s.add(UnderstandingRow(company_id=world.company, message_id=message, category=Category.other,
+            s.add(UnderstandingRow(company_id=world.company, message_id=message, category=Category.administration,
                                    urgency=Urgency.low, body={"sender_role": "vve"},
                                    prompt_version="understanding/v3"))  # fmt: skip
             if repaired:

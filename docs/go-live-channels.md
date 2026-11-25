@@ -285,9 +285,11 @@ Agents run on deterministic offline models until `LLM_MODEL` is set (default `fa
 
 | Variable | Value |
 |---|---|
-| `LLM_MODEL` | Pydantic AI model string, e.g. `openai:gpt-4.1-mini` (OpenAI project with EU data residency) |
-| `OPENAI_API_KEY` | required for `openai:*` models |
-| `GEMINI_API_KEY` | required for `google-gla:*` models, e.g. `LLM_MODEL=google-gla:gemini-2.5-flash` (Google AI Studio; testing only: no EU data processing agreement, use synthetic or test data) |
+| `LLM_MODEL` | fast tier: `google-gla:gemini-3.8-flash`. Prod runs Gemini only (M13): any other provider or `fake` is refused at startup |
+| `LLM_QUALITY_MODEL` | quality tier (proposer, draft research, Astra's research loop, person memory; reasoning `high`, 180 s, 16k output tokens). Empty = `LLM_MODEL`. Pick it with `uv run python -m app.dev.gemini_models` (lists what the key can call); **not chosen yet** |
+| `LLM_FALLBACK_MODELS` | `google-gla:gemini-3.8-flash`. Replace `openai:gpt-4.1-mini` **before** deploying M13: prod refuses to start with it |
+| `EMBEDDING_MODEL` | `google-gla:gemini-embedding-001` |
+| `GEMINI_API_KEY` | the one key for every model, embedding and web search. Earlier guidance limited it to test data (Google AI Studio, no EU data processing agreement); the owner chose Gemini only on 2026-11-25, so confirm the key's project is on paid terms with a data processing agreement before real tenant mail runs on it |
 | `LANGFUSE_HOST` / `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | optional: every agent run traced to Langfuse (EU) |
 
 After switching:

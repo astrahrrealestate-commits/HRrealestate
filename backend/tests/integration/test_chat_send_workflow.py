@@ -297,7 +297,7 @@ def test_a_suggestion_of_another_company_is_left_alone(env: Env, migrated_engine
         other = Company(name="Other BV")
         s.add(other)
         s.flush()
-        case = Case(company_id=other.id, category=Category.other, urgency=Urgency.normal, state=CaseState.open)
+        case = Case(company_id=other.id, category=Category.administration, urgency=Urgency.normal, state=CaseState.open)
         s.add(case)
         s.commit()
     try:

@@ -150,7 +150,8 @@ def test_a_stored_role_on_flagged_or_spam_mail_is_not_shown() -> None:
     assert role_hint_of(flagged) is None
     assert role_hint_of({"sender_role": "business", "category": "spam"}) is None
     assert (
-        role_hint_of({"sender_role": "legal", "category": "admin", "suspicious": {"flag": False}}) is SenderRole.legal
+        role_hint_of({"sender_role": "legal", "category": "administration", "suspicious": {"flag": False}})
+        is SenderRole.legal
     )
 
 

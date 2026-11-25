@@ -19,6 +19,7 @@ from app.directory.identity import resolve_message_sender
 from app.ingestion.process import is_transient
 from app.llm.calls import is_transient as llm_transient
 from app.pipeline.link import link_message
+from app.pipeline.person_memory import refresh_for_message
 from app.pipeline.propose import propose_for_message
 from app.pipeline.understand import (
     mark_pipeline_done,
@@ -89,7 +90,7 @@ def mark_failed_step(message_id: str, error: str) -> int:
 @DBOS.step(name="pipeline.alert_unreadable", **_RETRY)
 def alert_unreadable_step(company_id: str, message_id: str) -> bool:
     text = (
-        "EstateOS could not read a new message after 3 attempts. It is on its own case (category 'other'); "
+        "EstateOS could not read a new message after 3 attempts. It is on its own case under Administration; "
         "please look at it yourself."
     )
     return send_owner_message(company_id, f"unreadable:{message_id}", partial(_text, text))
@@ -113,6 +114,11 @@ def index_message_step(message_id: str) -> str:
 def link_step(message_id: str) -> str | None:
     result = link_message(get_engine(), get_settings(), _as_uuid(message_id))
     return str(result.case_id) if result else None
+
+
+@DBOS.step(name="pipeline.person_memory")  # no retries: a slow model must not hold up the draft
+def person_memory_step(message_id: str) -> None:
+    refresh_for_message(get_engine(), get_settings(), _as_uuid(message_id))
 
 
 @DBOS.step(name="pipeline.propose", **_RETRY)
@@ -163,6 +169,10 @@ def _after_understanding(message_id: str, final_failure: bool) -> bool:
         index_message_step(message_id)
     except Exception as exc:
         log.warning("pipeline.index_step_failed", error=str(exc), message_id=message_id)
+    try:
+        person_memory_step(message_id)  # before the draft, which reads it; a provider outage never blocks the draft
+    except Exception as exc:
+        log.warning("pipeline.person_memory_failed", error_type=type(exc).__name__, message_id=message_id)
     proposed = propose_step(message_id)
     for approval_id in proposed["approval_ids"]:
         send_card_step(company_id, approval_id)

@@ -11,8 +11,8 @@ from sqlalchemy.orm import Session
 from app.contracts import CaseState, Category, Channel, Direction, Urgency
 from app.core.ids import new_id
 from app.core.settings import Settings
-from app.db.enums import LinkMethod, WaitStatus
-from app.db.models import Case, CaseLink, Company, MessageRow, RawEvent, UnderstandingRow
+from app.db.enums import LinkMethod, PersonKind, WaitStatus
+from app.db.models import Case, CaseLink, Company, MessageRow, Person, RawEvent, UnderstandingRow
 from app.directory.identity import resolve_message_sender
 from app.pipeline import case_repo, work_repo
 from app.pipeline.link import LinkResult
@@ -137,8 +137,8 @@ def test_several_open_cases_go_to_link_check(
     assert a is not None
     with Session(migrated_engine) as s, s.begin():
         person = s.scalar(select(Case.primary_person_id).where(Case.id == a.case_id))
-        case_repo.create_case(s, cid, person, Category.payment, Urgency.normal)
-    later = _message(migrated_engine, cid, "Lekkage weer", at=NOW + timedelta(days=5), category=Category.other)
+        case_repo.create_case(s, cid, person, Category.finance, Urgency.normal)
+    later = _message(migrated_engine, cid, "Lekkage weer", at=NOW + timedelta(days=5), category=Category.administration)
     result = link_message(migrated_engine, test_settings, later)
     assert result is not None
     assert result.method is LinkMethod.model  # the fake picks the candidate whose summary shares a word ("lekkage")
@@ -190,7 +190,7 @@ def test_photo_only_message_marked_spam_still_opens_a_case(
     result = link_message(migrated_engine, test_settings, mid)
     assert result is not None
     with Session(migrated_engine) as s:
-        assert s.scalar(select(Case.category).where(Case.id == result.case_id)) is Category.other
+        assert s.scalar(select(Case.category).where(Case.id == result.case_id)) is Category.administration
 
 
 def test_mail_needing_no_reply_opens_no_case_but_joins_an_existing_thread(
@@ -212,3 +212,20 @@ def test_mail_needing_no_reply_opens_no_case_but_joins_an_existing_thread(
     assert joined.case_id == first.case_id
     with Session(migrated_engine) as s:
         assert s.scalar(select(func.count()).select_from(Case).where(Case.company_id == cid)) == 1
+
+
+def test_unreadable_message_lands_in_administration(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    """A message the understanding agent could not read has no understanding row; it opens an Administration case."""
+    cid = committed_company.id
+    mid = _message(migrated_engine, cid, "????")
+    resolve_message_sender(migrated_engine, mid)
+    with Session(migrated_engine) as s, s.begin():
+        s.query(UnderstandingRow).filter(UnderstandingRow.message_id == mid).delete()
+        person_id = s.scalar(select(MessageRow.person_id).where(MessageRow.id == mid))
+        s.query(Person).filter(Person.id == person_id).update({Person.kind: PersonKind.tenant})  # a known tenant
+    result = _link_only(migrated_engine, test_settings, mid)
+    assert result is not None
+    with Session(migrated_engine) as s:
+        assert s.scalar(select(Case.category).where(Case.id == result.case_id)) is Category.administration

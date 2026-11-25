@@ -67,7 +67,7 @@ def test_entities_required_for_llm() -> None:
 
 
 def test_a_sender_role_is_kept_for_property_mail() -> None:
-    u = _u(category=Category.admin, sender_role=SenderRole.legal)
+    u = _u(category=Category.administration, sender_role=SenderRole.legal)
     assert Understanding.model_validate_json(u.model_dump_json()).sender_role is SenderRole.legal
 
 

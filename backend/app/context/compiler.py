@@ -13,7 +13,6 @@ from app.context.spec import (
     CASE_SUMMARY_SPEC,
     LINK_CHECK_SPEC,
     OWNER_QA_SPEC,
-    PROPOSER_SPEC,
     UNDERSTANDING_SPEC,
     CompiledContext,
     ContextSpec,
@@ -78,49 +77,6 @@ def compile_concierge_context(
         prefix_hash=prefix_hash,
         aliases={},
         dropped=dropped,
-    )
-
-
-def compile_proposer_context(
-    mode: str,
-    case_header: str,
-    data_text: str,
-    waiting_text: str,
-    contractors_block: str,
-    message_text: str,
-    *,
-    owner_preferences: Sequence[str] = (),
-    person_profile: str | None = None,
-    excerpts_block: str = "",
-    guided_blocks: Sequence[str] = (),
-    company_constants: str = "",
-    spec: ContextSpec = PROPOSER_SPEC,
-) -> CompiledContext:
-    """Compile proposer context (spec §7.4, Task C12)."""
-    blocks: list[str] = [f"<mode>{mode}</mode>", case_header]
-    if company_constants.strip():
-        blocks.append(data_block("company_constants", company_constants.strip()))
-    if owner_preferences:
-        blocks.append(data_block("owner_preferences", "\n".join(f"- {p}" for p in owner_preferences)))
-    if person_profile:
-        blocks.append(data_block("person_profile", person_profile))
-    blocks.append(data_block("data", data_text))
-    blocks.append(data_block("waiting", waiting_text or "none"))
-    blocks.append(contractors_block)
-    if excerpts_block:
-        blocks.append(excerpts_block)
-    blocks.append(data_block("message", message_text))
-    blocks.extend(guided_blocks)
-
-    # Stable blocks: mode, case_header, company_constants, owner_preferences
-    prefix_seed = "\n".join(blocks[:4])
-    prefix_hash = hashlib.sha256(prefix_seed.encode("utf-8")).hexdigest()
-
-    return CompiledContext(
-        blocks=tuple(blocks),
-        prefix_hash=prefix_hash,
-        aliases={},
-        dropped=(),
     )
 
 

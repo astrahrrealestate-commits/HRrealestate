@@ -7,15 +7,14 @@ from app.context.compiler import (
     CASE_SUMMARY_SPEC,
     LINK_CHECK_SPEC,
     OWNER_QA_SPEC,
-    PROPOSER_SPEC,
     UNDERSTANDING_SPEC,
     compile_briefing_context,
     compile_case_summary_context,
     compile_link_check_context,
     compile_owner_qa_context,
-    compile_proposer_context,
     compile_understanding_context,
 )
+from app.context.spec import PROPOSER_SPEC
 from app.llm.agents.owner_qa import CaseBrief
 
 
@@ -52,26 +51,6 @@ def test_specs_budgets_and_slice_order() -> None:
     # Briefing spec
     assert BRIEFING_SPEC.agent == "briefing"
     assert BRIEFING_SPEC.total_chars == 12000
-
-
-def test_compile_proposer_context() -> None:
-    compiled = compile_proposer_context(
-        mode="reply",
-        case_header="<case>123</case>",
-        data_text="Subject: Leaking radiator",
-        waiting_text="none",
-        contractors_block="<contractors>none</contractors>",
-        message_text="Please send someone to look at radiator",
-        owner_preferences=["Always use plumber Jansen"],
-        person_profile="English speaker",
-        company_constants="Emergency phone: 020-12345",
-    )
-    assert len(compiled.blocks) >= 8
-    assert "<mode>reply</mode>" in compiled.blocks[0]
-    assert "<owner_preferences>" in compiled.prompt_text
-    assert "Always use plumber Jansen" in compiled.prompt_text
-    assert "<person_profile>" in compiled.prompt_text
-    assert compiled.prefix_hash != ""
 
 
 def test_compile_owner_qa_context() -> None:

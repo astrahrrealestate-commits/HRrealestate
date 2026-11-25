@@ -244,3 +244,16 @@ def test_a_tenant_draft_carries_no_review_note(
     replies = [a for a in _actions(migrated_engine, cid) if a.type is ActionType.reply_draft]
     assert replies
     assert all("legal sender" not in a.rationale.lower() for a in replies)
+
+
+def test_owner_authored_mail_is_never_drafted(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    cid = committed_company.id
+    mid = _setup(migrated_engine, cid, urgency=Urgency.emergency)
+    with Session(migrated_engine) as s, s.begin():
+        msg = s.get_one(MessageRow, mid)
+        msg.meta = {**msg.meta, "owner_authored": True}
+    assert propose_for_message(migrated_engine, test_settings, mid).approval_ids == []
+    assert _actions(migrated_engine, cid) == []
+    assert load_message(migrated_engine, mid) is None  # an owner-requested redraft has nobody to write to either

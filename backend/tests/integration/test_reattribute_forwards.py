@@ -319,7 +319,7 @@ def test_another_companys_mail_from_the_same_address_is_untouched(world: World) 
         rival = Company(name="Rival")
         s.add(rival)
         s.flush()
-        case = Case(company_id=rival.id, category=Category.other, urgency=Urgency.low, summary="r")
+        case = Case(company_id=rival.id, category=Category.administration, urgency=Urgency.low, summary="r")
         s.add(case)
         s.flush()
         message = _stored(s, rival.id, case.id, "18c000000000009a", "t-r", 7)
@@ -347,7 +347,7 @@ def test_a_case_that_only_shares_the_thread_loses_its_unsent_reply_too(world: Wo
     mail = _mail(JAN, "later")
     provider_id = world.mailbox.add_message(mail, labels=["INBOX"], thread_id="t-shared")
     with Session(world.engine) as s:
-        other = Case(company_id=world.company, category=Category.other, urgency=Urgency.low, summary="o")
+        other = Case(company_id=world.company, category=Category.administration, urgency=Urgency.low, summary="o")
         s.add(other)
         s.flush()
         _stored(s, world.company, other.id, "hist_aaaaaaaaaaaaaaaa", "t-shared", 8, sender="anouk@example.test")
@@ -399,7 +399,7 @@ def test_a_case_without_repaired_mail_drafts_as_before(world: World) -> None:
 def test_the_draft_guard_also_sees_repaired_mail_that_only_shares_the_thread(world: World) -> None:
     _run(world, apply=True)
     with Session(world.engine) as s:
-        other = Case(company_id=world.company, category=Category.other, urgency=Urgency.low, summary="o")
+        other = Case(company_id=world.company, category=Category.administration, urgency=Urgency.low, summary="o")
         s.add(other)
         s.flush()
         own = _stored(s, world.company, other.id, "hist_bbbbbbbbbbbbbbbb", "t-jan", 8, sender="anouk@example.test")

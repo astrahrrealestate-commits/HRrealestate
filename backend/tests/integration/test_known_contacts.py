@@ -100,7 +100,7 @@ def test_a_person_with_a_case_is_known(db: Session, company: Company) -> None:
     db.add(
         Case(
             company_id=company.id,
-            category=Category.other,
+            category=Category.administration,
             urgency=Urgency.normal,
             state=CaseState.open,
             primary_person_id=person.id,
@@ -132,7 +132,7 @@ def _linked_message(db: Session, company: Company) -> None:
         text="Wij sturen een monteur.",
         meta={},
     )
-    case = Case(company_id=company.id, category=Category.other, urgency=Urgency.normal, state=CaseState.open)
+    case = Case(company_id=company.id, category=Category.administration, urgency=Urgency.normal, state=CaseState.open)
     db.add_all([msg, case])
     db.flush()
     db.add(

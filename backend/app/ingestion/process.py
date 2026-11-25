@@ -25,6 +25,7 @@ from app.channels.gmail.ports import GmailMailbox
 from app.channels.whatsapp import inbound as wa
 from app.channels.whatsapp import normalise as wa_normalise
 from app.channels.whatsapp.media import WhatsAppMedia, WhatsAppMediaError
+from app.context.message_origin import mailbox_addresses, owner_emails
 from app.contracts import Channel, Direction, Message
 from app.core.errors import IgnoredMessageError, NotFoundError, UnroutableMessageError, UnsafeConfigurationError
 from app.core.logging import get_logger
@@ -32,7 +33,7 @@ from app.core.settings import get_settings
 from app.core.workflow_names import requeue_workflow_id, stale_event_workflow_id
 from app.db.enums import PipelineStatus, RawEventStatus
 from app.db.known_contacts import feeds_pipeline, is_known_contact
-from app.db.models import AllowedUser, ChannelAccount, MessageRow, OwnerAccount, RawEvent
+from app.db.models import MessageRow, OwnerAccount, RawEvent
 from app.ingestion.media import AttachmentInput, store_attachment
 from app.ingestion.repository import Enqueuer, mark_raw_event, save_message
 from app.storage.ports import ObjectStorage
@@ -168,14 +169,17 @@ def _normalise(
         return _normalise_google_chat(company_id, raw_event_id, payload)
     mailbox = deps.gmail_mailbox(str(payload["mailbox"]))
     gm = mailbox.get_message(str(payload["message_id"]))  # NotFoundError: deleted since the push
+    owners = owner_addresses(deps.engine, company_id)
     message, meta, parts = gmail_to_message(
         gm,
         company_id=company_id,
         raw_event_id=raw_event_id,
         mailbox=str(payload["mailbox"]),
-        forwarders=owner_addresses(deps.engine, company_id),
+        forwarders=owners,
         own_addresses=company_mailboxes(deps.engine, company_id),
     )
+    if message.direction is Direction.inbound and message.sender_identity.lower() in owners:
+        meta = {**meta, "owner_authored": True}  # Harjot's own mail, copied in: context, never drafted to
     stored = [store_attachment(deps.storage, company_id, p.data, p.mime_type, p.filename) for p in parts]
     return message, meta, stored
 
@@ -184,23 +188,13 @@ def owner_addresses(engine: Engine, company_id: UUID) -> frozenset[str]:
     """Addresses Harjot's team mails from (owner account, whitelisted users, configured owner email): a mail sent
     from one of these that forwards a tenant's mail is attributed to the tenant, not to them."""
     with Session(engine) as session:
-        emails = [
-            *session.scalars(select(OwnerAccount.email).where(OwnerAccount.company_id == company_id)),
-            *session.scalars(select(AllowedUser.email).where(AllowedUser.company_id == company_id)),
-            get_settings().owner_email,
-        ]
-    return frozenset(e.strip().lower() for e in emails if e and e.strip())
+        return owner_emails(session, company_id)
 
 
 def company_mailboxes(engine: Engine, company_id: UUID) -> frozenset[str]:
     """Every mailbox the company has connected: a Reply-To naming one of them is not the person who wrote."""
     with Session(engine) as session:
-        addresses = session.scalars(
-            select(ChannelAccount.address).where(
-                ChannelAccount.company_id == company_id, ChannelAccount.channel == Channel.gmail
-            )
-        )
-        return frozenset(a.strip().lower() for a in addresses)
+        return mailbox_addresses(session, company_id)
 
 
 def _normalise_google_chat(

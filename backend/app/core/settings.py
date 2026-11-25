@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     # Astra's research must answer within this. The browser gives up at 55 s (`askAgent`), the load balancer at its idle
     # timeout: raise all three together (90 s here needs 120 s there).
     super_agent_deadline_sec: float = 35.0
+    # Quality tier (M13, app.llm.tiers): proposer, draft research, Astra's research loop and person memory run on this
+    # model with reasoning `high`; empty = `llm_model`. Gemini bills thinking as output, hence the larger caps.
+    llm_quality_model: str = ""
+    llm_quality_timeout_sec: float = 180.0
+    llm_quality_max_output_tokens: int = 16000
     llm_timeout_sec: float = 60.0
     # Tried in order when `llm_model` answers an error (Pydantic AI FallbackModel), e.g. "openai:gpt-4.1-mini". A
     # fallback whose provider key is not set is left out, so naming one is harmless until its key exists.
@@ -151,6 +156,12 @@ class Settings(BaseSettings):
     s3_bucket: str | None = None
     s3_access_key_id: str | None = None
     s3_secret_access_key: SecretStr | None = None
+
+    @field_validator("concierge_model", "llm_quality_model", mode="before")
+    @classmethod
+    def _empty_model_is_unset(cls, value: object) -> object:
+        """`NAME=` parses to None (env_parse_none_str); for an optional model override that means empty."""
+        return "" if value is None else value
 
     @field_validator("dashboard_cors_origins", mode="before")
     @classmethod

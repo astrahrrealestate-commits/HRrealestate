@@ -119,7 +119,7 @@ def test_draft_reply_without_inbound_message(
     migrated_engine: Engine, committed_company: Company, test_settings: Settings
 ) -> None:
     with Session(migrated_engine) as s, s.begin():
-        case_id = case_repo.create_case(s, committed_company.id, None, Category.other, Urgency.low)
+        case_id = case_repo.create_case(s, committed_company.id, None, Category.administration, Urgency.low)
     ok, summary, _, _ = _draft(migrated_engine, test_settings, committed_company.id, case_id)
     assert (ok, summary) == (False, NOTHING_TO_REPLY)
 
