@@ -470,6 +470,11 @@ bidirectional translation controls onto the new unified Composer, and fixed what
 - [x] Draft mode: on a case holding repaired mail, a draft goes only to the person the reply answers (`sender/gmail_reply.py`)
 - [x] Merged `hrrealestate/dev` (2026-11-25): its read-only inbox replaced the auto-links, so the link-collision fix is no longer needed
 - [x] Security and review fixes (2026-11-25): HTML sanitizer `<style>` bypass closed (plus re-clean on read and a stricter frame policy); erasure removes body copies in `meta` and overlapping search chunks; the draft guard counts thread siblings and also runs in send mode; the inbox never prefills a cancelled or wrongly addressed reply
+- [x] Labels and flats follow the sender shown; "Unlisted contact" removed (and the frontend's made-up fallback address); "Link to Tenant" moves the shown sender and refuses our own addresses
+- [x] One-time label pass (`app/workflows/reattribute_labels.py`) and run script (`scripts/repair_mail.sh`); tested with a fake model and a stub `aws`
+- [x] Review fixes (2026-11-25): Link to Tenant names the mail on screen and moves only an unclassified writer; a writer's flat never replaces a case's; a later flag overrides the pass label; labelling is a separate capped step after the worker is back; the script stops its own task before restoring the worker, snapshots after the worker exits, and refuses a stopped worker
+- [ ] Label pass and script never run against a real model or a real apply; inbox count badges still count by case contact
+- [ ] Open: `frontend/src/lib/api.ts` does not map `isUnregisteredSender`/`matchedTenant`, so the "Link to Tenant" banner appears never to show
 - [ ] Open: dev's contractor-case heuristic hardcodes a domain; repaired IMAP rows keep a non-API `thread_ref`, so drafting on them is likely to fail
 - [ ] Repair not yet previewed or applied on any live mailbox; needs the new code deployed
 - [ ] Open: header-name impersonation (`security.md`, not accepted); `test_remember_rule_text_is_sanitised_like_the_pipelines` is flaky (a random id can contain `500`)

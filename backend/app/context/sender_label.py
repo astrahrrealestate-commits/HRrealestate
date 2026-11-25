@@ -16,7 +16,6 @@ from app.db.enums import PersonKind
 from app.db.models import LeaseParty, Person
 
 UNASSIGNED_UNIT = "Unassigned Unit"
-UNLISTED_CONTACT = "Unlisted contact"
 _FREE_MAIL = frozenset(
     {
         "gmail.com",
@@ -127,19 +126,25 @@ def _contractor(trade: str | None) -> SenderLabel:
     return SenderLabel(SenderKind.contractor, detail, "contractors", "contractor")
 
 
-def role_hint_of(understanding_body: dict[str, Any]) -> SenderRole | None:
+def _readable(raw: object) -> SenderRole | None:
+    try:
+        return SenderRole(raw) if isinstance(raw, str) else None
+    except ValueError:
+        return None
+
+
+def role_hint_of(understanding_body: dict[str, Any], message_meta: dict[str, Any] | None = None) -> SenderRole | None:
     """The role the model stored for a message. Anything unreadable (an old row, a value since removed) is None, and so
-    is a role on mail flagged suspicious or spam: the scanner can flag a mail after the model answered."""
-    raw = understanding_body.get("sender_role")
+    is a role on mail flagged suspicious or spam: the scanner can flag a mail after the model answered. The one-time
+    label pass (`meta.sender_role_pass`, ADR 0016) saw the repaired sender, so its answer replaces the stored one."""
     suspicious = understanding_body.get("suspicious")
     if isinstance(suspicious, dict) and suspicious.get("flag"):
         return None
     if understanding_body.get("category") == Category.spam.value:
         return None
-    try:
-        return SenderRole(raw) if isinstance(raw, str) else None
-    except ValueError:
-        return None
+    if message_meta is not None and "sender_role_pass" in message_meta:
+        return _readable(message_meta["sender_role_pass"])
+    return _readable(understanding_body.get("sender_role"))
 
 
 def organisation_of(sender: str) -> str | None:
@@ -151,9 +156,10 @@ def organisation_of(sender: str) -> str | None:
 
 
 def unit_display(kind: SenderKind, unit: str | None, sender: str) -> str:
-    """What the thread shows where a tenant's unit would be. Only a tenant can be missing a unit."""
+    """What the thread shows where a tenant's unit would be. Only a tenant can be missing a unit; anyone else shows
+    their organisation, or nothing."""
     if unit:
         return unit
     if kind is SenderKind.tenant:
         return UNASSIGNED_UNIT
-    return organisation_of(sender) or UNLISTED_CONTACT
+    return organisation_of(sender) or ""

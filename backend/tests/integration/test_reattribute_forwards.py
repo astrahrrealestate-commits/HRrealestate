@@ -157,6 +157,8 @@ def test_a_dry_run_reports_the_changes_and_writes_nothing(world: World) -> None:
     report = _run(world, apply=False)
     assert sorted((c.old_sender, c.new_sender) for c in report.changes) == [(HARJOT, JAN), (HARJOT, PIET)]
     assert (len(report.cancelled), report.unrecoverable, report.unchanged) == (1, 1, 2)
+    assert report.company_id == world.company
+    assert report.to_label == 0  # the case's latest incoming mail is Harjot's own note: nothing to ask a model about
     assert _senders(world) == before
     with Session(world.engine) as s:
         assert s.get(Approval, world.approval).status is ApprovalStatus.pending  # type: ignore[union-attr]

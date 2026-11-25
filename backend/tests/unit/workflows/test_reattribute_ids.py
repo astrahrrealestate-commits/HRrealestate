@@ -3,8 +3,10 @@ from uuid import uuid4
 import pytest
 
 from app.channels.gmail.fake import FakeMailbox, MemoryMailboxStore
+from app.core.settings import get_settings
 from app.workflows.reattribute import Change, RepairRefusedError, Report, gmail_api_id
 from app.workflows.reattribute_cli import main, real_mailbox, render
+from app.workflows.reattribute_labels import LabelReport
 from app.workflows.reattribute_replies import CancelledReply, CaseToCheck
 
 
@@ -44,3 +46,74 @@ def test_applying_needs_the_worker_to_be_stopped(capsys: pytest.CaptureFixture[s
 def test_a_fake_mailbox_is_never_repaired_from() -> None:
     with pytest.raises(RepairRefusedError):
         real_mailbox(FakeMailbox("info@example.test", MemoryMailboxStore()))
+
+
+def test_applying_is_refused_without_a_real_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Refused before anything is written: the labels would be the fake model's."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@localhost:1/none")
+    monkeypatch.setenv("LLM_MODEL", "fake")
+    get_settings.cache_clear()
+    monkeypatch.setattr("app.workflows.reattribute_cli.reattribute", lambda *a, **k: pytest.fail("must not run"))
+    try:
+        with pytest.raises(RepairRefusedError, match="model"):
+            main(["--mailbox", "info@example.test", "--apply", "--worker-stopped"])
+    finally:
+        get_settings.cache_clear()
+
+
+def _cli(monkeypatch: pytest.MonkeyPatch, order: list[str], labels: LabelReport | Exception) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@localhost:1/none")
+    monkeypatch.setenv("LLM_MODEL", "google-gla:gemini-3.8-flash")
+    get_settings.cache_clear()
+    company = uuid4()
+    cli = "app.workflows.reattribute_cli"
+
+    def label(engine: object, settings: object, company_id: object, *, max_calls: int) -> LabelReport:
+        order.append(f"label max {max_calls}")
+        if isinstance(labels, Exception):
+            raise labels
+        return labels
+
+    monkeypatch.setattr(f"{cli}.make_engine", lambda url: None)
+    monkeypatch.setattr(f"{cli}.reattribute", lambda *a, **k: (order.append("repair"), Report(company_id=company))[1])
+    monkeypatch.setattr(f"{cli}.company_of", lambda engine, mailbox: company)
+    monkeypatch.setattr(f"{cli}.label_senders", label)
+
+
+def test_applying_repairs_only_so_the_worker_can_come_back_before_labelling(monkeypatch: pytest.MonkeyPatch) -> None:
+    order: list[str] = []
+    _cli(monkeypatch, order, LabelReport())
+    try:
+        assert main(["--mailbox", "info@example.test", "--apply", "--worker-stopped"]) == 0
+    finally:
+        get_settings.cache_clear()
+    assert order == ["repair"]
+
+
+@pytest.mark.parametrize(
+    ("labels", "code", "text"),
+    [
+        (LabelReport(labelled=3), 0, "labels written: 3"),
+        (LabelReport(labelled=1, failed=2, stopped="stopped early"), 2, "run again"),
+        (LabelReport(labelled=200, remaining=40), 2, "still to label: 40"),
+        (RuntimeError("boom"), 2, "labelling failed: RuntimeError"),
+    ],
+)
+def test_the_label_step_says_when_to_run_it_again(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], labels: LabelReport | Exception, code: int,
+    text: str,
+) -> None:  # fmt: skip
+    order: list[str] = []
+    _cli(monkeypatch, order, labels)
+    try:
+        assert main(["--mailbox", "info@example.test", "--label", "--max-calls", "200"]) == code
+    finally:
+        get_settings.cache_clear()
+    assert order == ["label max 200"]
+    assert text in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("args", [["--label", "--apply", "--worker-stopped"], ["--label", "--max-calls", "0"]])
+def test_conflicting_or_empty_label_requests_are_refused(args: list[str]) -> None:
+    with pytest.raises(SystemExit):
+        main(["--mailbox", "info@example.test", *args])

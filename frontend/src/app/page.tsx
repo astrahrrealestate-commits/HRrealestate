@@ -1026,7 +1026,7 @@ export default function TodayPage() {
             ) || {
               ...DEFAULT_TICKET_TEMPLATE,
               ticketNumber: ticketNum,
-              unitLabel: topUrgentThread.unitLabel || DEFAULT_TICKET_TEMPLATE.unitLabel,
+              unitLabel: topUrgentThread.unitLabel || "",
               tenantName: topUrgentThread.senderName || DEFAULT_TICKET_TEMPLATE.tenantName,
               tenantPhone: topUrgentThread.senderContact || DEFAULT_TICKET_TEMPLATE.tenantPhone,
               issueTitle: topUrgentThread.subject || topUrgentThread.latestSnippet || DEFAULT_TICKET_TEMPLATE.issueTitle,
@@ -1081,7 +1081,7 @@ export default function TodayPage() {
                     className="space-y-1 cursor-pointer"
                   >
                     <div className="text-[14px] font-semibold text-[var(--ink)] leading-snug line-clamp-2">
-                      {topUrgentThread.unitLabel}: {topUrgentThread.subject || topUrgentThread.latestSnippet}
+                      {[topUrgentThread.unitLabel, topUrgentThread.subject || topUrgentThread.latestSnippet].filter(Boolean).join(": ")}
                     </div>
                     <div className="flex items-center gap-1.5 text-[11.5px] text-[var(--ink-3)] flex-wrap">
                       <span className="font-semibold text-[var(--ink-2)]">{replyTo.tenantName}</span>
@@ -1332,9 +1332,11 @@ export default function TodayPage() {
                     </span>
                     <span className="text-[var(--line)] hidden sm:inline">·</span>
                     <div className="min-w-0 truncate">
-                      <span className="text-[14.5px] font-semibold text-[var(--ink)]">
-                        {topUrgentThread.unitLabel}:
-                      </span>{" "}
+                      {topUrgentThread.unitLabel && (
+                        <span className="text-[14.5px] font-semibold text-[var(--ink)]">
+                          {topUrgentThread.unitLabel}:{" "}
+                        </span>
+                      )}
                       <span className="text-[13.5px] text-[var(--ink-2)] font-medium">
                         {topUrgentThread.subject || topUrgentThread.latestSnippet}
                       </span>
@@ -1455,7 +1457,7 @@ export default function TodayPage() {
                           )}
                           <span className="text-[var(--ink-3)] hidden sm:inline">·</span>
                           <span className="text-[13px] font-bold text-[var(--ink)]">{replyTo.tenantName}</span>
-                          <span className="text-xs text-[var(--ink-3)] font-mono">({ticket.unitLabel})</span>
+                          {ticket.unitLabel && <span className="text-xs text-[var(--ink-3)] font-mono">({ticket.unitLabel})</span>}
                         </div>
                         <span className="font-mono text-xs font-semibold text-[var(--ink-3)] bg-[var(--selected)] px-2.5 py-0.5 rounded border border-[var(--line)]">
                           {topUrgentThread.relativeTime}

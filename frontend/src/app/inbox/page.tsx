@@ -630,7 +630,7 @@ function InboxContent() {
       isSyncing={isSyncing}
       agentContext={
         activeThread
-          ? `${activeThread.subject || activeThread.latestSnippet} · ${activeThread.unitLabel}`
+          ? [activeThread.subject || activeThread.latestSnippet, activeThread.unitLabel].filter(Boolean).join(" · ")
           : "All Communications"
       }
       onAgentAction={(actionType) => {

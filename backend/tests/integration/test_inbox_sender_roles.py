@@ -97,6 +97,7 @@ def thread_of(migrated_engine: Engine, pg_url: str) -> Iterator[Thread]:
                 s.add(person)
                 s.flush()
                 s.get(Case, case_id).primary_person_id = person.id  # type: ignore[union-attr]
+                s.query(MessageRow).filter(MessageRow.company_id == company.id).update({"person_id": person.id})
             if text is not None:
                 s.query(MessageRow).filter(MessageRow.company_id == company.id).update({"text": text})
             for row in s.query(UnderstandingRow).filter(UnderstandingRow.company_id == company.id):
@@ -149,7 +150,7 @@ def test_an_unknown_sender_is_a_contact_shown_by_organisation(thread_of: Thread)
 
 
 def test_a_free_mail_stranger_is_an_unlisted_contact(thread_of: Thread) -> None:
-    assert thread_of("someone@gmail.com")["unit"] == "Unlisted contact"
+    assert thread_of("someone@gmail.com")["unit"] == ""
 
 
 def test_a_tenant_keeps_the_tenant_label_and_shows_a_missing_unit(thread_of: Thread) -> None:
@@ -183,7 +184,7 @@ def test_a_prospect_is_an_inquiry(thread_of: Thread) -> None:
     assert (thread["audience"], thread["recipientRole"], thread["unit"]) == (
         "inquiries",
         "inquiry",
-        "Unlisted contact",
+        "",
     )
 
 

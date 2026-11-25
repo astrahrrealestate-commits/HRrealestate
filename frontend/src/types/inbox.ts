@@ -75,6 +75,7 @@ export interface InboxThread {
   senderName: string;
   senderContact: string; // Phone "+31 6 12 34 41 87" or Email "p.bakker@..."
   isUnregisteredSender?: boolean;
+  senderMessageId?: string;
   matchedTenant?: {
     id: string;
     name: string;

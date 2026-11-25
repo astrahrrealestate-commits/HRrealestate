@@ -94,6 +94,9 @@ Closed on 2026-11-12:
   because their Dutch output may be a message sent to the erased person
 
 Still open (fix in this order):
+- **The mail repair report holds personal data** (not yet accepted): names, addresses and possibly numbers go to the
+  worker's CloudWatch log group, which `erase_person` cannot reach. Limit who reads it; its snapshot is a full copy of
+  tenant data, to be deleted once the repair is accepted.
 - **Email HTML view** (merged 2026-11-25). A sanitizer bypass through `<style>` content was fixed and stored HTML is
   cleaned again on read; the frame also allows no script. Still open: remote `https` images load on open (tracking);
   the owner sees the HTML part while the model reads `text/plain`, and a mismatch is not flagged; the hand-written
@@ -118,6 +121,7 @@ Still open (fix in this order):
   - an approved reply goes to the named address; in `outbound_mode=send` it passes the case-contact check and uses the
     outsider's subject and thread (fix this before relying on send mode). Rejecting a draft undoes none of the above
   - the dashboard shows the `Reply-To` name or address and never `meta.header_from`, so nothing marks the mismatch
+  - a card that names a tenant this way also shows their directory label and, on a case with no flat, their real flat
   - the inbox's substring filter for automated mail (`noreply`, `alert`, `update` and others) tests only the new sender
   Fix: a server-side "unverified sender" flag when `Reply-To` replaced a `From` that is not a team address or a known
   identity of the same person, honoured by case waits and state, filing, quotes and the sender, and shown to the

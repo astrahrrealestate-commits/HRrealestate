@@ -46,6 +46,30 @@ chunks, understandings, summaries, tasks of other kinds, documents and memories 
 
 Undo restores from the snapshot. `meta.reattributed_from` and the case notes record what changed.
 
+**Label pass** (added 2026-11-25). A separate step (`--label`), run once the worker is back. It asks the pinned
+understanding prompt once for each case's shown mail (latest incoming) whose sender the directory cannot place as
+tenant or contractor, across the company, and stores only `sender_role` in `messages.meta.sender_role_pass`. It skips
+mail flagged suspicious or spam (a later flag also overrides a stored label), and mail given a role at ingestion unless
+its sender was repaired. No full pipeline, and no understanding, case or state is written. It uses the configured
+model under the triage budget limits, which new mail shares, so one run makes at most 200 calls (`--max-calls`); it
+also stops after 5 failures in a row or at a limit, and a repeat run asks only what is left. A preview counts the calls
+and makes none. A model role never makes anyone a tenant.
+
+**Running it** on a deployed environment: `scripts/repair_mail.sh <stage|prod> <preview|apply|label> [mailbox]`.
+`apply` stops the worker, waits for its tasks to exit, snapshots the database, repairs, restores the worker, then
+labels. On any early exit it stops its own repair task before restoring the worker, and leaves the worker stopped if
+it cannot confirm that. It refuses to apply when the worker is already at 0.
+
+**Labels and flats follow the sender shown.** The inbox derives a thread's role label from the writer of its latest
+incoming mail; a writer the directory does not know stays a contact, and only a thread nobody has written in takes the
+case contact's label. A writer's leased flat fills only a case that has no flat of its own; no case is changed. A
+non-tenant with no flat shows their organisation, or nothing (the "Unlisted contact" text is gone). The inbox's count
+badges still count by case contact.
+
+**Link to Tenant** names the mail it acts on (`message_id`) and is refused if that is no longer the latest incoming
+one. It moves only that mail's writer, never a fallback, and only an unclassified contact with no lease or BRIXX record
+who holds none of our addresses, to a tenant or leaseholder.
+
 **On screen** (`app/context/shown_sender.py`), each mail is named from its own row: the name in its headers, or its
 address when `Reply-To` gave no name. The saved contact name is used only for a mail with neither. This holds for the
 inbox thread (its latest inbound mail) and each message in it, a contact's mails, and the lines of newly indexed

@@ -41,7 +41,7 @@ from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import decide_limit, sync_limit
 from app.channels.gmail.html_sanitize import html_to_clean_text, looks_like_html, sanitize_email_html
 from app.context.sender_label import UNASSIGNED_UNIT, resolve_sender_label, role_hint_of, unit_display
-from app.context.shown_sender import greeting_name, shown_sender_name
+from app.context.shown_sender import greeting_name, sender_person_ids, shown_sender_name
 from app.contracts import ActionType, ButtonChoice, CaseState, Category, Channel, Direction
 from app.core.errors import NotFoundError
 from app.core.ids import case_ref
@@ -56,16 +56,18 @@ from app.db.models import (
     CaseEvent,
     CaseLink,
     ChannelAccount,
+    ChannelIdentity,
     GmailSyncState,
     Lease,
     LeaseParty,
     MessageRow,
+    Person,
     RawEvent,
     Unit,
 )
 from app.directory.contacts import link_secondary_identity
 from app.ingestion.gmail_sync import sync_mailbox
-from app.ingestion.process import IngestDeps
+from app.ingestion.process import IngestDeps, company_mailboxes, owner_addresses
 from app.pipeline import dashboard_decisions
 from app.storage.ports import ObjectStorage
 
@@ -134,7 +136,7 @@ def _build_custom_facts(
         {"label": "Intent", "value": und_intent, "checked": True},
         {"label": "Category", "value": case.category.value.upper(), "checked": True},
         {"label": "Priority", "value": (case.urgency.value if case.urgency else "normal").upper(), "checked": True},
-        {"label": "Unit", "value": unit_label, "checked": True},
+        *([{"label": "Unit", "value": unit_label, "checked": True}] if unit_label else []),
         {"label": "Sender", "value": sender_name, "checked": True},
     ]
     if case.category == Category.maintenance:
@@ -298,7 +300,12 @@ def _prepare_cases(
         if is_automated_sender(sender_email):
             continue
 
-        person = msg_batch.people_by_id.get(case.primary_person_id) if case.primary_person_id else None
+        contact = msg_batch.people_by_id.get(case.primary_person_id) if case.primary_person_id else None
+        # Label and flat belong to the sender shown, who on a shared or older case is not the case's contact.
+        writer_id = msg_batch.sender_person_by_msg.get(tenant_msg.id) if tenant_msg in inbound_msgs else None
+        writer = msg_batch.people_by_id.get(writer_id) if writer_id else None
+        # An unknown writer stays unknown: only a thread nobody has written in takes the contact's label.
+        person = writer if tenant_msg in inbound_msgs else contact
         is_contractor = _is_contractor_case(case, person, sender_email, messages)
         sender_und = msg_batch.und_by_msg_id.get(tenant_msg.id)
         und_body_hint = sender_und.body if sender_und and isinstance(sender_und.body, dict) else {}
@@ -308,7 +315,7 @@ def _prepare_cases(
             trade=person.trade if person else None,
             is_lease_party=is_lp,
             contractor_hint=is_contractor,
-            role_hint=role_hint_of(und_body_hint),
+            role_hint=role_hint_of(und_body_hint, tenant_msg.meta),
         )
         channel_str = latest_msg.channel.value if latest_msg.channel else "gmail"
         case_cat = case.category.value if case.category else "maintenance"
@@ -323,7 +330,9 @@ def _prepare_cases(
             sender_name = shown_sender_name(tenant_msg, msg_batch.saved_names.get(tenant_msg.id))
         else:  # nobody has written in yet: the thread is named after the case's contact
             sender_name = person.display_name if person else sender_email
-        raw_unit = _resolve_unit_label(case, messages, msg_batch.units_by_id, msg_batch.company_units)
+        # The flat a case is about stays; the writer's own flat only fills a case that has none.
+        own_flat = msg_batch.unit_by_person.get(person.id) if person is not None and not case.unit_id else None
+        raw_unit = own_flat or _resolve_unit_label(case, messages, msg_batch.units_by_id, msg_batch.company_units)
         kept.append(
             _PreparedCase(
                 case=case,
@@ -538,7 +547,7 @@ def _assemble_thread(
     snoozed_until = getattr(case, "snoozed_until", None)
     subject_str = (
         prep.latest_msg.meta.get("subject") if isinstance(prep.latest_msg.meta, dict) else None
-    ) or f"{case.category.value.title()} - {unit_label}"
+    ) or " - ".join(filter(None, (case.category.value.title(), unit_label)))
     hide_drafts = status_str == "approved" or (bool(msgs_data) and msgs_data[-1].get("sender") == "owner")
     ticket_code = f"BRIXX-{case.brixx_ref}" if case.brixx_ref else f"#{case_ref(case.id)}"
 
@@ -548,6 +557,7 @@ def _assemble_thread(
     return {
         "id": f"case-{case.id}",
         "caseId": str(case.id),
+        "senderMessageId": str(prep.tenant_msg.id),  # the mail whose sender the card names ("Link to Tenant")
         "ticketNumber": ticket_code,
         "caseRef": ticket_code,
         "approvalId": str(approval.id) if approval else f"case-{case.id}",
@@ -954,8 +964,53 @@ def get_attachment_file(
         )
 
 
+def _linkable_sender(session: Session, company_id: UUID, case: Case, message_id: UUID) -> UUID:
+    """The person "Link to Tenant" may move: the writer of the mail the screen named, which must still be the thread's
+    latest incoming one. Linking moves their addresses, mail and cases, so it never guesses: only an unclassified
+    contact with no lease and no BRIXX record, and never one of our own addresses."""
+    messages = load_messages_batch(session, company_id, [case]).msgs_by_case.get(case.id, [])
+    shown = next((m for m in reversed(messages) if m.direction != Direction.outbound), None)
+    if shown is None or shown.id != message_id:
+        raise HTTPException(status_code=409, detail="The thread has changed: reload it and try again")
+    person_id = sender_person_ids(session, company_id, [shown]).get(shown.id)
+    person = session.scalar(select(Person).where(Person.id == person_id, Person.company_id == company_id))
+    if person is None:
+        raise HTTPException(status_code=400, detail="That sender is not in the contact list yet")
+    if _holds_our_address(session, company_id, person.id):
+        raise HTTPException(status_code=409, detail="That sender is one of our own addresses and cannot be moved")
+    leased = session.scalar(
+        select(LeaseParty.id).where(LeaseParty.company_id == company_id, LeaseParty.person_id == person.id).limit(1)
+    )
+    if person.kind != PersonKind.other or person.trade or person.brixx_ref is not None or leased is not None:
+        raise HTTPException(status_code=409, detail="That sender is already a known contact and cannot be moved")
+    return person.id
+
+
+def _is_tenant(session: Session, company_id: UUID, person_id: UUID) -> bool:
+    person = session.scalar(select(Person).where(Person.id == person_id, Person.company_id == company_id))
+    if person is None:
+        return False
+    leased = select(LeaseParty.id).where(LeaseParty.company_id == company_id, LeaseParty.person_id == person_id)
+    return person.kind == PersonKind.tenant or session.scalar(leased.limit(1)) is not None
+
+
+def _holds_our_address(session: Session, company_id: UUID, person_id: UUID) -> bool:
+    """Linking moves a person's addresses, messages and cases, so it must never be one of the team's own."""
+    engine = session.get_bind()
+    ours = owner_addresses(engine, company_id) | company_mailboxes(engine, company_id)  # type: ignore[arg-type]
+    held = session.scalars(
+        select(ChannelIdentity.identity).where(
+            ChannelIdentity.company_id == company_id,
+            ChannelIdentity.person_id == person_id,
+            ChannelIdentity.valid_to.is_(None),
+        )
+    )
+    return any(identity.lower() in ours for identity in held)
+
+
 class LinkTenantRequest(BaseModel):
     tenant_id: UUID | None = None
+    message_id: UUID  # the thread's `senderMessageId`: an action names what it acts on
 
 
 @router.post(
@@ -970,7 +1025,7 @@ def link_thread_tenant(
     case_id: str,
     engine: Annotated[Engine, Depends(get_engine)],
     principal: Annotated[Principal, Depends(require_session)],
-    req: LinkTenantRequest | None = None,
+    req: LinkTenantRequest,
 ) -> dict[str, Any]:
     company_id = principal.company_id
     raw_id = case_id.replace("case-", "")
@@ -985,11 +1040,9 @@ def link_thread_tenant(
         if case is None:
             raise HTTPException(status_code=404, detail="Case not found")
 
-        source_person_id = case.primary_person_id
-        if not source_person_id:
-            raise HTTPException(status_code=400, detail="Case has no sender person to link")
+        source_person_id = _linkable_sender(session, company_id, case, req.message_id)
 
-        target_tenant_id = req.tenant_id if req and req.tenant_id else None
+        target_tenant_id = req.tenant_id
         if not target_tenant_id and case.unit_id:
             target_tenant_id = session.scalar(
                 select(LeaseParty.person_id)
@@ -1003,6 +1056,9 @@ def link_thread_tenant(
 
         if not target_tenant_id:
             raise HTTPException(status_code=400, detail="Target tenant ID required or unit has no active leaseholder")
+
+        if not _is_tenant(session, company_id, target_tenant_id):
+            raise HTTPException(status_code=400, detail="The target contact is not a tenant")
 
         linked_tenant = link_secondary_identity(
             session,

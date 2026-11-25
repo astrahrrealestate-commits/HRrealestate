@@ -93,7 +93,7 @@ export function InboxConversationView({
     if (!cId) return;
     setIsLinkingTenant(true);
     try {
-      const data = await linkThreadTenant(cId, thread.matchedTenant?.id);
+      const data = await linkThreadTenant(cId, thread.matchedTenant?.id, thread.senderMessageId);
       if (data.ok && data.tenantName) {
         setLinkSuccessName(data.tenantName);
         onTenantLinked?.(thread.id, data.tenantName);
@@ -355,8 +355,7 @@ export function InboxConversationView({
               {urgentThread && <UrgentLabel />}
             </div>
             <p className="text-[12px] text-[var(--ink-3)] truncate leading-tight mt-0.5">
-              {thread.unitLabel}
-              {thread.ticketNumber ? ` · ${thread.ticketNumber}` : ""}
+              {[thread.unitLabel, thread.ticketNumber].filter(Boolean).join(" · ")}
             </p>
           </div>
 
@@ -462,8 +461,12 @@ export function InboxConversationView({
             </div>
 
             <div className="flex items-center gap-1.5 flex-wrap text-xs text-[var(--ink-3)] leading-normal mt-0.5 min-w-0">
-              <span className="font-semibold text-[var(--ink)] truncate max-w-[160px]">{thread.unitLabel}</span>
-              <span>·</span>
+              {thread.unitLabel && (
+                <>
+                  <span className="font-semibold text-[var(--ink)] truncate max-w-[160px]">{thread.unitLabel}</span>
+                  <span>·</span>
+                </>
+              )}
               <span className="text-[var(--ink-2)] truncate max-w-[120px]">{thread.senderName}</span>
               {thread.recipientRoleDetail && thread.recipientRoleDetail !== "Contact" && (
                 <span className="inline-flex items-center px-1.5 py-0.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[10.5px] font-semibold text-[var(--ink-2)] shrink-0">
@@ -887,7 +890,7 @@ export function InboxConversationView({
                       { label: "Ticket", value: thread.ticketNumber || "—" },
                       { label: "Category", value: thread.category.toUpperCase() },
                       { label: "Priority", value: (thread.urgency || "normal").toUpperCase(), isAlert: thread.urgency === "emergency" || thread.urgency === "high" },
-                      { label: "Unit", value: thread.unitLabel },
+                      ...(thread.unitLabel ? [{ label: "Unit", value: thread.unitLabel }] : []),
                       { label: "Tenant", value: thread.senderName },
                       { label: "Channel", value: thread.channel.toUpperCase() },
                     ],

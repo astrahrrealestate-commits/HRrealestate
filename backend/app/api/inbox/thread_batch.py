@@ -10,7 +10,7 @@ from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 
 from app.context.sender_label import UNASSIGNED_UNIT
-from app.context.shown_sender import saved_names
+from app.context.shown_sender import saved_names, sender_person_ids
 from app.contracts import ActionType, CaseState, Category, Channel, Direction, Urgency
 from app.db.enums import ApprovalStatus, PersonKind
 from app.db.models import (
@@ -61,6 +61,8 @@ class ThreadMessagesBatch:
     lease_party_ids: set[UUID]
     und_by_msg_id: dict[UUID, UnderstandingRow]
     saved_names: dict[UUID, str]  # message id → the saved contact name of its sender
+    sender_person_by_msg: dict[UUID, UUID]  # each case's shown incoming message → who wrote it
+    unit_by_person: dict[UUID, str]  # those writers → the flat of their current lease
 
 
 @dataclass
@@ -81,6 +83,30 @@ def is_automated_sender(sender_email: str) -> bool:
     return any(kw in low for kw in AUTOMATED_SENDER_KEYWORDS)
 
 
+def _leased_flats(session: Session, company_id: UUID, person_ids: set[UUID]) -> dict[UUID, str]:
+    """The flat of each person's current lease (an open-ended one first, as `case_repo.create_case` picks)."""
+    if not person_ids:
+        return {}
+    today = datetime.now(UTC).date()
+    rows = session.execute(
+        select(LeaseParty.person_id, Unit.address, Unit.label)
+        .join(Lease, Lease.id == LeaseParty.lease_id)
+        .join(Unit, Unit.id == Lease.unit_id)
+        .where(
+            LeaseParty.company_id == company_id,
+            Lease.company_id == company_id,
+            Unit.company_id == company_id,
+            LeaseParty.person_id.in_(person_ids),
+            (Lease.valid_to.is_(None)) | (Lease.valid_to >= today),
+        )
+        .order_by(Lease.valid_to.is_(None).desc(), Lease.valid_to.desc(), Lease.valid_from.desc(), Lease.id.desc())
+    )
+    flats: dict[UUID, str] = {}
+    for person_id, address, label in rows:
+        flats.setdefault(person_id, address or label)
+    return flats
+
+
 def load_messages_batch(session: Session, company_id: UUID, cases: list[Case]) -> ThreadMessagesBatch:
     """Prefetches messages (including shared thread_ref siblings), people, units, and understanding in 7 queries."""
     company = session.get(Company, company_id)
@@ -89,7 +115,7 @@ def load_messages_batch(session: Session, company_id: UUID, cases: list[Case]) -
         for row in session.execute(select(Unit.label, Unit.address).where(Unit.company_id == company_id)).all()
     ]
     if not cases:
-        return ThreadMessagesBatch(company, company_units, {}, {}, {}, set(), {}, {})
+        return ThreadMessagesBatch(company, company_units, {}, {}, {}, set(), {}, {}, {}, {})
 
     case_ids = [c.id for c in cases]
     links = session.scalars(
@@ -123,6 +149,7 @@ def load_messages_batch(session: Session, company_id: UUID, cases: list[Case]) -
 
     msgs_by_case: dict[UUID, list[MessageRow]] = {}
     target_und_msg_ids: set[UUID] = set()
+    shown_incoming: list[MessageRow] = []
     epoch = datetime.min.replace(tzinfo=UTC)
     for c in cases:
         seen_ids: set[UUID] = set()
@@ -146,10 +173,13 @@ def load_messages_batch(session: Session, company_id: UUID, cases: list[Case]) -
         msgs_by_case[c.id] = combined
         inbound_msgs = [m for m in combined if m.direction != Direction.outbound]
         tenant_msg = inbound_msgs[-1] if inbound_msgs else combined[0]
+        shown_incoming.extend(inbound_msgs[-1:])
         target_und_msg_ids.add(tenant_msg.id)
         target_und_msg_ids.add(combined[-1].id)
 
-    person_ids = {c.primary_person_id for c in cases if c.primary_person_id}
+    sender_person_by_msg = sender_person_ids(session, company_id, shown_incoming)
+    writers = set(sender_person_by_msg.values())
+    person_ids = {c.primary_person_id for c in cases if c.primary_person_id} | writers
     unit_ids = {c.unit_id for c in cases if c.unit_id}
 
     people_by_id: dict[UUID, Person] = {}
@@ -194,6 +224,8 @@ def load_messages_batch(session: Session, company_id: UUID, cases: list[Case]) -
         lease_party_ids=lease_party_ids,
         und_by_msg_id=und_by_msg_id,
         saved_names=saved_names(session, company_id, [m for rows in msgs_by_case.values() for m in rows]),
+        sender_person_by_msg=sender_person_by_msg,
+        unit_by_person=_leased_flats(session, company_id, writers),
     )
 
 

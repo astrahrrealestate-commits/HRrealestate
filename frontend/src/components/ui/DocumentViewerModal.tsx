@@ -48,7 +48,7 @@ export function DocumentViewerModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs md:p-4">
       <div className="w-full h-full md:h-auto md:max-h-[90vh] md:max-w-[640px] md:rounded-[var(--radius-pane)] bg-[var(--pane)] border-0 md:border border-[var(--line)] flex flex-col shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-        
+
         {/* Header */}
         <div className="h-14 px-4 sm:px-5 border-b border-[var(--line)] flex items-center justify-between shrink-0 bg-[var(--pane)]">
           <div className="flex items-center gap-3 min-w-0">
@@ -89,12 +89,12 @@ export function DocumentViewerModal({
 
         {/* Document Body / Mock Document Content */}
         <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-5 bg-[var(--bg)] text-[var(--ink)]">
-          
+
           {/* Metadata Card */}
           <div className="bg-[var(--pane)] border border-[var(--line)] rounded-lg p-4 space-y-2 text-xs">
             <div className="flex items-center justify-between">
               <span className="text-[var(--ink-3)]">Associated Unit:</span>
-              <span className="font-medium text-[var(--ink)]">{unitLabel || "Pieter Floriszstraat 1 C"}</span>
+              <span className="font-medium text-[var(--ink)]">{unitLabel || "—"}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-[var(--ink-3)]">Signatory / Party:</span>

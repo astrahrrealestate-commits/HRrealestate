@@ -106,7 +106,7 @@ export async function getInboxThreads(
           const wDrafts = Array.isArray(t.whatsappDrafts) ? t.whatsappDrafts : [];
           const activeDrafts = channel === "whatsapp" ? wDrafts : gDrafts;
 
-          const unitLabel = t.unit || t.unitLabel || "Pieter Floriszstraat 1 C";
+          const unitLabel = t.unit || t.unitLabel || ""; // empty for a sender with no flat or organisation
           const rawSnippet = t.lastMessageSnippet || t.latestSnippet || "";
           const cleanSnippet = getSnippet(rawSnippet);
           const senderContact = t.sender?.contact || t.senderContact || "";
@@ -142,6 +142,7 @@ export async function getInboxThreads(
             externalThreadId: t.externalThreadId || t.caseId || t.id,
             approvalId: t.approvalId || t.caseId || t.id,
             subject: t.subject || t.title,
+            senderMessageId: t.senderMessageId,
             senderName: resolvedSenderName,
             senderContact,
             unitLabel,
@@ -393,13 +394,14 @@ export async function snoozeThread(caseId: string, until?: string): Promise<{ ok
 
 export async function linkThreadTenant(
   caseId: string,
-  tenantId?: string
+  tenantId: string | undefined,
+  messageId: string | undefined // the mail whose sender the banner names; the server refuses if it is no longer the latest
 ): Promise<{ ok: boolean; tenantId?: string; tenantName?: string }> {
   try {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/threads/${encodeURIComponent(caseId)}/link-tenant`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ tenant_id: tenantId ?? null }),
+      body: JSON.stringify({ tenant_id: tenantId ?? null, message_id: messageId }),
       signal: AbortSignal.timeout(8000),
     });
     if (res.ok) return await res.json();

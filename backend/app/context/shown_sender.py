@@ -4,6 +4,7 @@ case's main contact, so the name and the address shown beside it always belong t
 import re
 import unicodedata
 from collections.abc import Iterable
+from typing import Protocol
 from uuid import UUID
 
 from sqlalchemy import select
@@ -46,6 +47,35 @@ def saved_names(session: Session, company_id: UUID, messages: Iterable[MessageRo
         for m in rows
     }
     return {message_id: name for message_id, name in found.items() if name}
+
+
+class Written(Protocol):
+    """What identifying a message's writer needs: a `MessageRow`, or just these columns of one."""
+
+    @property
+    def id(self) -> UUID: ...
+    @property
+    def person_id(self) -> UUID | None: ...
+    @property
+    def sender_identity(self) -> str: ...
+    @property
+    def channel(self) -> Channel: ...
+
+
+def sender_person_ids(session: Session, company_id: UUID, messages: Iterable[Written]) -> dict[UUID, UUID]:
+    """The person who wrote each message, by message id: the linked one, else whoever currently holds the address."""
+    rows = list(messages)
+    unlinked = {m.sender_identity for m in rows if not m.person_id}
+    held: dict[tuple[Channel, str], UUID] = {}
+    if unlinked:
+        query = select(ChannelIdentity.channel, ChannelIdentity.identity, ChannelIdentity.person_id).where(
+            ChannelIdentity.company_id == company_id,
+            ChannelIdentity.identity.in_(unlinked),
+            ChannelIdentity.valid_to.is_(None),
+        )
+        held = {(row.channel, row.identity): row.person_id for row in session.execute(query)}
+    found = {m.id: m.person_id or held.get((m.channel, m.sender_identity)) for m in rows}
+    return {message_id: person_id for message_id, person_id in found.items() if person_id}
 
 
 def _tidy(name: object) -> str:

@@ -1,5 +1,7 @@
 """Who a thread's sender is, for the inbox labels: decided from the directory, never from message text."""
 
+import pytest
+
 from app.context.sender_label import SenderKind, organisation_of, resolve_sender_label, role_hint_of, unit_display
 from app.contracts import SenderRole
 from app.db.enums import PersonKind
@@ -76,13 +78,13 @@ def test_a_contact_without_a_property_shows_the_organisation_never_unassigned_un
 
 def test_a_free_mail_address_is_not_an_organisation() -> None:
     assert organisation_of("someone@gmail.com") is None
-    assert unit_display(SenderKind.contact, None, "someone@gmail.com") == "Unlisted contact"
+    assert unit_display(SenderKind.contact, None, "someone@gmail.com") == ""
 
 
 def test_a_phone_number_or_blank_sender_has_no_organisation() -> None:
     assert organisation_of("+31612345678") is None
     assert organisation_of("") is None
-    assert unit_display(SenderKind.contact, None, "+31612345678") == "Unlisted contact"
+    assert unit_display(SenderKind.contact, None, "+31612345678") == ""
 
 
 def test_the_organisation_ignores_case_and_surrounding_spaces() -> None:
@@ -167,3 +169,23 @@ def test_directory_fixed_trades_set_sender_label_and_block_unregistered_tenant_b
             "others",
             False,
         )
+
+
+@pytest.mark.parametrize(
+    ("understanding", "meta", "expected"),
+    [
+        ({"sender_role": "vve"}, {}, SenderRole.vve),
+        ({"sender_role": "vve"}, {"sender_role_pass": "legal"}, SenderRole.legal),  # the later pass saw the real sender
+        ({"sender_role": "vve"}, {"sender_role_pass": None}, None),  # it found no role: the old guess is dropped
+        ({}, {"sender_role_pass": "not-a-role"}, None),
+    ],
+)
+def test_the_one_time_label_pass_overrides_the_role_stored_at_ingestion(
+    understanding: dict[str, str], meta: dict[str, str | None], expected: SenderRole | None
+) -> None:
+    assert role_hint_of(understanding, meta) is expected
+
+
+@pytest.mark.parametrize("flagged", [{"suspicious": {"flag": True}}, {"category": "spam"}], ids=["suspicious", "spam"])
+def test_a_later_flag_beats_the_label_pass(flagged: dict[str, object]) -> None:
+    assert role_hint_of(flagged, {"sender_role_pass": "legal"}) is None

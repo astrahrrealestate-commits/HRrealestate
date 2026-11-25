@@ -27,6 +27,7 @@ from app.db.models import Case, CaseLink, Company, MessageRow, Person
 from app.directory.identity import resolve_person
 from app.ingestion.process import company_mailboxes, owner_addresses
 from app.ingestion.repository import resolve_channel_account
+from app.workflows.reattribute_labels import label_candidates
 from app.workflows.reattribute_replies import (
     CancelledReply,
     CaseToCheck,
@@ -57,6 +58,8 @@ class Report:
     unchanged: int = 0  # really ours: sent by the mailbox, or no other sender named
     unrecoverable: int = 0  # the original cannot be read again
     uncertain: int = 0  # stored as sent, and only quoted text names someone else: left alone
+    company_id: UUID | None = None
+    to_label: int = 0  # model calls the label pass would make afterwards
 
 
 @dataclass(frozen=True)
@@ -232,13 +235,15 @@ def _write(session: Session, company_id: UUID, found: list[_Found], report: Repo
     case_ids = _affected_case_ids(session, company_id, rows)
     report.cases = [_case_to_check(session, company_id, case_id) for case_id in case_ids]
     report.cancelled = cancel_unsent_replies(session, company_id, case_ids, at=datetime.now(UTC))
+    session.flush()
+    report.to_label = len(label_candidates(session, company_id))  # counted here so a preview sees the repaired rows
 
 
 def reattribute(engine: Engine, mailboxes: Mailboxes, mailbox: str, *, apply: bool) -> Report:
     """Repair the mail of one connected mailbox. `apply=False` changes nothing."""
     scope = _scope(engine, mailbox.strip().lower())
     candidates = _candidates(engine, scope)
-    report = Report()
+    report = Report(company_id=scope.company_id)
     found = _read_all(mailboxes(scope.mailbox), scope, candidates, report)
     if apply and report.unrecoverable and report.unrecoverable == len(candidates):
         raise RepairRefusedError("not one original could be read: check the mailbox and its Google connection")
