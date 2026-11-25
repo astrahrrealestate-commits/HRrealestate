@@ -1,7 +1,8 @@
-# M12: AI staff for Harjot: six categories, drafts he would send, a 90-day reload, and an Astra that can do anything
+# M13: AI staff for Harjot: six categories, drafts he would send, a 90-day reload, and an Astra that can do anything
 
-Date: 2026-11-25 · Status: approved by the user in conversation (reload option A; six categories; category dashboard)
-Team: two developers, 2–3 days.
+Date: 2026-11-25 · Status: approved by the user in conversation (reload option A; six categories; category dashboard);
+revised the same day after a codebase audit (see "Changed after the codebase audit").
+Team: two developers, 2–3 days. (M12 is "Due diligence lite" in `docs/PROGRESS.md`, so this is M13.)
 
 ## Why
 The client saw the product. Drafts were too basic and the dashboard is a generic overview. Harjot wants AI staff that
@@ -20,6 +21,14 @@ speed matters too.
 - Astra: 3 lookups, 5 hits of 300 characters; cannot open a mail, thread or document, or search the web.
 - Categories are `maintenance, payment, lease, complaint, contractor_update, admin, spam, other`; the dashboard is not
   organised by them.
+- The code asks for acknowledgements: `propose.py:157-165` tells the model to acknowledge every maintenance report
+  without a BRIXX ticket, prompt `proposer/v5` asks for one in six rules, and canned acknowledgements are offered by
+  the inbox, contacts, emergency path and six screens. Today shows invented demo rows when the API fails.
+- Harjot's standing rules ("remember …") never reach a draft: the function that would add them is never called.
+- Owner redrafts see no documents; the sender's role comes from the case's main person, not the mail's sender.
+- Quotes from vendors not in the directory are never reviewed, and the review runs before attachment text exists.
+- Harjot's own mail in the mailbox is treated as inbound mail from him, and could be drafted to. His replies mostly live
+  only in the quoted history of later forwarded mail, so most conversations look unanswered.
 
 ## Goals
 1. **Six categories** everywhere (understanding, cases, inbox, dashboard): `maintenance`, `finance`, `legal`,
@@ -36,6 +45,8 @@ speed matters too.
    web, draft and improve replies with the same dossier.
 8. **Reload:** delete the Gmail data of `info@hrrealestate.nl`, reload 90 days in history mode (read, link, remember, no
    drafts or notices), then draft only conversations still waiting for Harjot (option A).
+9. **Harjot's own words count:** his mail in the mailbox and his replies quoted in later mail are context and mark a
+   conversation answered; nothing is ever drafted to him.
 
 ## Drafting standard (Harjot's words, 2026-11-25; binding for every draft, including Astra's)
 > The Super Agent should never draft generic acknowledgements or basic responses. Every draft must be commercially
@@ -84,39 +95,71 @@ Automatic sending (send mode stays off); running the forwarded-mail repair or la
 - A generic acknowledgement or basic response offered as a draft, anywhere.
 
 ## Approaches
-- **A, chosen:** one dossier builder feeding the proposer, Astra and category briefs; history mode on the existing
-  pipeline; next actions computed from the database, a model only writes the brief and the prepared work.
+- **A, chosen:** one dossier builder feeding the proposer, owner redrafts and Astra; history mode on the existing
+  pipeline; next actions and the brief computed from the database; models write only the prepared work.
 - B: a separate drafting service with its own retrieval. Rejected: duplicates RAG and the scoping rules.
 - C: proposer with free tools. Rejected for tenant drafts: unbounded and harder to keep inside one tenant's data. Astra
   and the research step get tools; they answer Harjot, not tenants.
 
 ## Decided
 - Drafts only for the newest unanswered incoming mail of each open case after the reload (user, option A).
+  "Unanswered" (my call): the newest message is inbound and needs a reply, is at most 14 days old, has no outbound
+  message after it, and no later mail quotes a reply from Harjot. Cases quiet for 14 days after the reload are
+  resolved; they reopen on new mail as usual. `draft-open` runs as a dry run first and the user reads the list.
+- History mail runs in sent order per sender (one history queue partitioned by sender), so a reply is never linked
+  before the mail it answers; live mail keeps its own queue.
 - Six categories as above; old values map: `maintenance`, `contractor_update`, `complaint` → `maintenance`; `payment`
-  → `finance`; `lease`, `admin`, `other` → `administration`; `spam` stays. (my call on the mapping)
+  → `finance`; `lease` → `legal`; `admin`, `other` → `administration`; `spam` stays. (my call on the mapping; the
+  reload re-reads all Gmail with the new prompt, so the map matters mainly for WhatsApp cases)
 - **Gemini only** (user, 2026-11-25): every model call and web search uses the Gemini API key. No other LLM, search
   or embedding provider; the non-Gemini fallback in prod (`openai:gpt-4.1-mini`) is removed and prod refuses any
   non-`google-gla:` model.
 - Models (my call, the user asked for the best quality with thinking on and reasonable speed):
-  - quality tier, reasoning `high`: proposer, research, Astra, document reader, person memory, category brief. The
-    strongest Gemini Pro model the key lists (`GET /v1beta/models`), fallback `google-gla:gemini-3.8-flash` at high
-    reasoning.
-  - fast tier, reasoning `low`: understanding, link check, case summary, price extraction: `google-gla:gemini-3.8-flash`.
+  - quality tier, reasoning `high`, 180 s and 16k output tokens per call: proposer, draft research, Astra's research
+    loop, person memory. The strongest Gemini Pro model the key lists (`GET /v1beta/models`), fallback
+    `google-gla:gemini-3.8-flash` at high reasoning.
+  - fast tier, each agent's current reasoning: understanding, link check, case summary, document classifier, document
+    reader and OCR, quote reader, price extraction, web search: `google-gla:gemini-3.8-flash`. The document reader is
+    fast tier because the proposer reads the attachment text itself; this keeps 90 days of attachments affordable.
   - embeddings stay `google-gla:gemini-embedding-001`.
+- The category brief is one sentence built from the action counts by code, not by a model: nothing to invent, nothing
+  to cache. The prepared work under each action is where the AI's effort shows.
+- Quotes: the existing quote review (`app/finance/quotes.py`) runs before the draft and also for vendors not in the
+  directory (market prices only). Scope, quantities, risks and omissions are judged by the proposer from the quote, the
+  request and the review; no separate comparison agent.
+- Mail whose real sender is one of Harjot's addresses is "owner-authored": linked and indexed, shown in drafts' context
+  as his words (marked unverified, since From can be forged), never drafted to.
 - Related context: same person, same unit or lease, company vendor data only.
 - Web search: Gemini's Google Search grounding on the same key, behind the existing `SearchClient` port and shared by
   prices, research and Astra. Grounding returns source URLs; each page is then fetched (size and time capped) so
   findings and prices are checked against the page text. Pages are untrusted data.
-- Prompts change by new versions: `understanding/v4`, `proposer/v6`, each pinned after a real-model eval.
+- Prompts change by new versions: `understanding/v4`, `proposer/v6` (built on the unpinned role-aware `v5`), each
+  pinned after a real-model eval.
 
 ## Needs from the user (does not block building)
 1. Confirmation that the Gemini key's project has Google Search grounding enabled and enough quota for the reload
    (90 days of mail at the fast tier, plus quality-tier drafts and research).
-3. Harjot's own replies forwarded by the Apps Script, so drafts see what he already said.
-4. Reload scope: all of `info@hrrealestate.nl` for 90 days except spam, trash and drafts (default).
-5. Merging to `main` (prod deploy) at the two deploy points in the plan.
-6. The ROZ general provisions (algemene bepalingen) versions the leases refer to, and Harjot's standard terms, as PDFs
+2. Harjot's own replies forwarded by the Apps Script, so drafts see what he already said.
+3. Reload scope: all of `info@hrrealestate.nl` for 90 days except spam, trash and drafts (default).
+4. Merging to `main` (prod deploy) at the two deploy points in the plan.
+5. The ROZ general provisions (algemene bepalingen) versions the leases refer to, and Harjot's standard terms, as PDFs
    for the reference library. Without them, ROZ answers rely on public sources only.
+
+## Changed after the codebase audit (2026-11-25)
+The first version planned parts the code already has and missed problems the code has. Changes:
+- **Reuse instead of rebuild:** per-agent model lookup, the web-search port with evidence checks, the quote review,
+  attachment reading, message and document search, owner rules, person profiles, the dashboard's attention and radar
+  data. No new quote-comparison module and no category-brief agent.
+- **Added:** removing the acknowledgement instructions in code and prompt; wiring Harjot's rules into drafts; owner
+  redrafts with full context; sender role from the mail's sender; owner-authored mail; reading quoted history;
+  ordered history runs; old mail never closing a newer wait; purge removing raw events (otherwise the reload records
+  nothing); quotes from unknown vendors reviewed; reading and reviewing before the draft; a fetch guard against
+  internal addresses for web pages; removing demo data and every canned draft on screens; a fake model that writes
+  real drafts so tests keep working.
+- **Removed:** `backend/scripts/import_historical_emails.py` too (it also bypasses the pipeline); a dead context
+  function; invented "confidence" numbers on drafts.
+- **Changed:** milestone M13; `lease` maps to `legal`; document reader on the fast tier; two model tiers set in code
+  instead of per-agent JSON settings; the category API under `/api/dashboard`; research findings in their own column.
 
 ## Left to the builders
 Dossier budgets, reload queue concurrency, purge order, prompt wording within the rules, dashboard visual detail
