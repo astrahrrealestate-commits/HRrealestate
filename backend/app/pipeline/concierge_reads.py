@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.contracts import Channel, PlanStep
 from app.core import rent_data
 from app.db.models import MessageRow
+from app.db.models.ingestion import not_chat_only
 from app.llm.agents.briefing import fallback_briefing, render_text
 from app.llm.agents.owner_qa import FALLBACK_ANSWER
 from app.pipeline import briefing, case_repo, owner_commands, read_approvals, read_work, work_repo
@@ -175,7 +176,11 @@ def search_inbox(ctx: Ctx, step: PlanStep) -> StepResult:
                 MessageRow.sent_at,
                 MessageRow.text,
             )
-            .where(MessageRow.company_id == ctx.company_id, MessageRow.text.icontains(query, autoescape=True))
+            .where(
+                MessageRow.company_id == ctx.company_id,
+                MessageRow.text.icontains(query, autoescape=True),
+                not_chat_only(),
+            )
             .order_by(MessageRow.sent_at.desc(), MessageRow.id.desc())
             .limit(MAX_HITS)
         ).all()

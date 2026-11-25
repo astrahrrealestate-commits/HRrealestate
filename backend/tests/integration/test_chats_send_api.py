@@ -3,7 +3,7 @@ store first then enqueue, replay safety, recipient and suggestion checks, rate l
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from unittest.mock import MagicMock
 from uuid import UUID, uuid4
@@ -19,15 +19,17 @@ from app.api.v1.auth import COOKIE, Principal, issue_session
 from app.api.v1.ratelimit import RateLimiter
 from app.contracts import ActionType, CaseState, Category, Channel, Direction, OutboundMode, Urgency
 from app.core.workflow_names import CHAT_QUEUE, CHAT_SEND
-from app.db.enums import ActionStatus, DeliveryStatus, PipelineStatus, RawEventStatus
+from app.db.enums import ActionStatus, DeliveryStatus, PersonKind, PipelineStatus, RawEventStatus
 from app.db.models import (
     ActionRow,
     AllowedUser,
     Case,
     ChannelAccount,
+    ChannelIdentity,
     ChatRead,
     Company,
     OwnerAccount,
+    Person,
     UnderstandingRow,
 )
 from app.db.models.ingestion import MessageRow, RawEvent
@@ -126,7 +128,7 @@ def world(migrated_engine: Engine, pg_url: str) -> Iterator[World]:
         ids = [a.id, b.id]
         for model in (ActionRow, UnderstandingRow, ChatRead, MessageRow, Case, RawEvent):
             s.query(model).filter(model.company_id.in_(ids)).delete(synchronize_session=False)
-        for model in (AllowedUser, ChannelAccount, OwnerAccount):
+        for model in (AllowedUser, ChannelAccount, OwnerAccount, ChannelIdentity, Person):
             s.query(model).filter(model.company_id.in_(ids)).delete(synchronize_session=False)
         s.query(Company).filter(Company.id.in_(ids)).delete()
         s.commit()
@@ -181,7 +183,7 @@ def test_send_inserts_pending_row_then_enqueues_with_workflow_id(world: World) -
     (row,) = _rows(world, cmid)
     assert (row.text, row.thread_ref, row.sender_identity, row.channel) == (typed, TINA, "dashboard", Channel.whatsapp)
     stored = (row.delivery_status, row.pipeline_status, row.provider_msg_id)
-    assert stored == (None, PipelineStatus.done, f"dash:{cmid}")
+    assert stored == (None, PipelineStatus.skipped, f"dash:{cmid}")  # Tina is no directory contact: Chats only
     assert row.meta == {"client_msg_id": str(cmid), "type": "text", "dashboard": True}
     with Session(world.engine) as s:
         raw = s.get(RawEvent, row.raw_event_id)
@@ -379,7 +381,7 @@ def test_pipeline_does_not_process_dashboard_row(world: World) -> None:
     cmid = uuid4()
     message_id = UUID(_post(world, cmid).json()["id"])
     (row,) = _rows(world, cmid)
-    assert (row.pipeline_status, row.pipeline_attempts) == (PipelineStatus.done, 0)
+    assert (row.pipeline_status, row.pipeline_attempts) == (PipelineStatus.skipped, 0)
     with Session(world.engine) as s:
         understood = select(func.count()).select_from(UnderstandingRow).where(UnderstandingRow.message_id == message_id)
         assert s.scalar(understood) == 0
@@ -460,3 +462,25 @@ def test_the_inbox_section_guards_send_and_suggestions(world: World, pg_url: str
         assert other.get(f"/api/chats/{TINA}/suggestions").status_code == 403
     world.enqueue.assert_not_called()
     assert _rows(world) == []
+
+
+def test_a_reply_in_a_chat_only_chat_stays_out_of_the_pipeline_world(world: World) -> None:
+    """Tina is no directory contact: her chat is Chats-only, so his reply to her is too. A known contact's is not."""
+    with Session(world.engine) as s, s.begin():
+        person = Person(company_id=world.cid, kind=PersonKind.tenant, display_name="Carl", valid_from=date(2026, 1, 1))
+        s.add(person)
+        s.flush()
+        s.add(
+            ChannelIdentity(
+                company_id=world.cid,
+                person_id=person.id,
+                channel=Channel.whatsapp,
+                identity=CARL,
+                valid_from=date(2026, 1, 1),
+            )
+        )
+    tina, carl = uuid4(), uuid4()
+    assert _post(world, tina).status_code == 202
+    assert _post(world, carl, key=CARL).status_code == 202
+    assert [r.pipeline_status for r in _rows(world, tina)] == [PipelineStatus.skipped]
+    assert [r.pipeline_status for r in _rows(world, carl)] == [PipelineStatus.done]

@@ -27,7 +27,7 @@ from app.dev.simulate import Simulator
 
 log = get_logger(__name__)
 
-TENANT_E164 = "+4915550000001"
+TENANT_E164 = fx.DEV_TENANT_E164
 TENANT_EMAIL = "tenant-001@example.test"
 TEXTS = ("Die Heizung im Bad bleibt kalt.", "Hier ein Foto vom Heizkörper.")
 PHOTO = fx.Attachment("heizkoerper.jpg", "image/jpeg", b"\xff\xd8\xff\xe0 EstateOS demo photo")

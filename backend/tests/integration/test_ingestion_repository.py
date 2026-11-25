@@ -117,6 +117,34 @@ def test_save_message_idempotent_returns_existing_id(
     assert stored.s3_key.startswith(f"media/{account.company_id}/")
 
 
+def test_save_message_completes_a_row_stored_before_its_media_arrived(
+    dbos_client: DBOSClient, db: Session, account: ChannelAccount
+) -> None:
+    """The webhook stores the text row at once; the worker's later save adds the attachment to that same row."""
+    rid = record_event(db, dbos_client, account, "wamid.T1", {})
+    assert rid is not None
+    mid, created = save_message(db, _message(rid, account.company_id), {"type": "image"}, [])
+    att = store_attachment(MemoryStorage(), account.company_id, b"\xff\xd8jpeg", "image/jpeg", "foto.jpg")
+    again, created_again = save_message(db, _message(rid, account.company_id), {"type": "image"}, [att])
+    save_message(db, _message(rid, account.company_id), {"type": "image"}, [att])  # a replay adds nothing
+    assert (created, created_again, again) == (True, False, mid)
+    assert [a.filename for a in db.scalars(select(AttachmentRow).where(AttachmentRow.message_id == mid))] == [
+        "foto.jpg"
+    ]
+
+
+def test_save_message_records_a_media_error_on_a_row_stored_earlier(
+    dbos_client: DBOSClient, db: Session, account: ChannelAccount
+) -> None:
+    rid = record_event(db, dbos_client, account, "wamid.T1", {})
+    assert rid is not None
+    mid, _ = save_message(db, _message(rid, account.company_id), {"type": "image", "phone_number_id": PNID}, [])
+    save_message(db, _message(rid, account.company_id), {"type": "image", "media_error": "NotFoundError"}, [])
+    row = db.get(MessageRow, mid)
+    assert row is not None
+    assert row.meta == {"type": "image", "phone_number_id": PNID, "media_error": "NotFoundError"}
+
+
 def test_tenant_guards(dbos_client: DBOSClient, db: Session, account: ChannelAccount) -> None:
     rid = record_event(db, dbos_client, account, "wamid.T1", {})
     assert rid is not None

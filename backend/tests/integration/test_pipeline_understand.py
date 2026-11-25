@@ -13,7 +13,7 @@ from app.contracts import Category, Channel, Direction, Urgency
 from app.core.errors import BudgetExceededError
 from app.core.ids import new_id
 from app.core.settings import Settings
-from app.db.enums import PipelineStatus
+from app.db.enums import PipelineStatus, RawEventStatus
 from app.db.models import Company, MessageRow, ModelCall, RawEvent, UnderstandingRow
 from app.pipeline.understand import understand_message
 from app.workflows import pipeline
@@ -36,7 +36,13 @@ def dbos_runtime(test_settings: Settings, migrated_engine: Engine) -> Iterator[N
 
 def _seed_inbound(engine: Engine, company: Company, text: str = "Er lekt water") -> UUID:
     with Session(engine) as session, session.begin():
-        raw = RawEvent(company_id=company.id, provider=Channel.whatsapp, provider_msg_id=str(new_id()), payload={})
+        raw = RawEvent(
+            company_id=company.id,
+            provider=Channel.whatsapp,
+            provider_msg_id=str(new_id()),
+            payload={},
+            status=RawEventStatus.processed,  # as the worker leaves it once it has saved and routed the message
+        )
         session.add(raw)
         session.flush()
 
@@ -159,7 +165,13 @@ def _inbound(
     engine: Engine, cid: object, text: str = "Lekkage", sender: str = "+31622222222", person_id: object = None
 ) -> object:
     with Session(engine) as session, session.begin():
-        raw = RawEvent(company_id=cid, provider=Channel.whatsapp, provider_msg_id=str(new_id()), payload={})
+        raw = RawEvent(
+            company_id=cid,
+            provider=Channel.whatsapp,
+            provider_msg_id=str(new_id()),
+            payload={},
+            status=RawEventStatus.processed,  # as the worker leaves it once it has saved and routed the message
+        )
         session.add(raw)
         session.flush()
         msg = MessageRow(
@@ -417,3 +429,27 @@ def test_scanner_hit_flags_the_stored_understanding_as_suspicious(
         assert row is not None
         assert row.body["suspicious"]["flag"] is True
         assert row.body["suspicious"]["reason"].startswith("scanner:")
+
+
+def test_a_message_stored_by_the_webhook_is_not_stranded_until_the_worker_processed_it(
+    migrated_engine: Engine, committed_company: Company
+) -> None:
+    """The webhook stores a WhatsApp row before the worker routes it: the pipeline sweep must not route it first."""
+    from datetime import timedelta
+
+    from app.pipeline.understand import requeue_candidates
+
+    msg_id = _seed_inbound(migrated_engine, committed_company)
+    later = datetime.now(UTC) + timedelta(days=1)  # well past the stale-pending age
+
+    def worker_status(status: RawEventStatus) -> None:
+        with Session(migrated_engine) as session, session.begin():
+            raw_id = session.scalar(select(MessageRow.raw_event_id).where(MessageRow.id == msg_id))
+            raw = session.get(RawEvent, raw_id)
+            assert raw is not None
+            raw.status = status
+
+    worker_status(RawEventStatus.pending)
+    assert all(m != msg_id for m, _ in requeue_candidates(migrated_engine, later))
+    worker_status(RawEventStatus.processed)
+    assert (msg_id, f"pipe:{msg_id}:p{later:%Y%m%d%H}") in requeue_candidates(migrated_engine, later)

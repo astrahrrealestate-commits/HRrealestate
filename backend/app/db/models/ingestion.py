@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, ForeignKey, Index, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, ColumnElement, ForeignKey, Index, String, Text, UniqueConstraint, func
 from sqlalchemy import text as sql_text  # MessageRow has a column named `text`
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -80,6 +80,12 @@ class MessageRow(Base, CompanyScoped):
     pipeline_error: Mapped[str | None] = mapped_column(Text)
     pipeline_attempts: Mapped[int] = mapped_column(default=0, server_default="0")
     pipeline_done_at: Mapped[datetime | None]  # set once when every stage ran (drift: pipeline duration p95, 0030)
+
+
+def not_chat_only() -> ColumnElement[bool]:
+    """Messages that belong to the case pipeline's world. Every reader that scans WhatsApp by thread, channel or text
+    (inbox, page memory, search, contact history) adds this; only the Chats page and the sender read `skipped` rows."""
+    return MessageRow.pipeline_status != PipelineStatus.skipped
 
 
 class AttachmentRow(Base, CompanyScoped):

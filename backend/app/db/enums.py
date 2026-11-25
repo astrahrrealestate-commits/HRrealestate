@@ -104,6 +104,9 @@ class PipelineStatus(StrEnum):
     pending = "pending"
     done = "done"
     failed = "failed"
+    skipped = (
+        "skipped"  # WhatsApp chat only: not from a known contact, so it never enters the case pipeline or its context
+    )
 
 
 class TaskStatus(StrEnum):

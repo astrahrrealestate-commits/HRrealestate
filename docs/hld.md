@@ -66,12 +66,15 @@ contracts, core}`. Only `sender` imports `channels.*.outbound`. `contracts` and 
 
 ### 4.1 Inbound tenant message (WhatsApp)
 1. `POST /webhooks/whatsapp`. HMAC-SHA256 body signature verified per provider (`X-Hub-Signature-256` for Meta, `x-360dialog-signature` for 360dialog).
-2. Resolve `channel_accounts` → company. `INSERT raw_events … ON CONFLICT DO NOTHING`. Commit.
+2. Resolve `channel_accounts` → company. `INSERT raw_events … ON CONFLICT DO NOTHING`, and for an inbound message
+   also its `messages` row (text and metadata, no media yet; [ADR 0015](adr/0015-whatsapp-stored-at-the-webhook.md)).
+   Commit. Chats read that row, so every message shows at once, whatever the queue or the pipeline is doing. A sender
+   the directory does not know (and who is not the owner) gets `pipeline_status = skipped`: Chats only, never routed.
 3. `DBOSClient.enqueue(process_event, raw_event_id, workflow_id=f"evt:{raw_event_id}")`. Return 200.
    A duplicate webhook means the same workflow id, so DBOS runs it once.
 4. Worker `process_event` workflow; each step is checkpointed:
-   1. `normalise` → `Message` + attachments to S3 (step)
-   2. route: sender is an owner number → `owner_reply` workflow; else continue
+   1. `normalise` → `Message` + attachments to S3 (step; completes the row the webhook already stored)
+   2. route: sender is an owner number → `owner_reply` workflow; sender not a known contact → stop (Chats only); else continue
    3. `understand` → Pydantic AI agent → `Understanding` (step; `model_calls` row + Langfuse trace)
    4. `link_case` → identity → person → unit → lease → existing open case or new (transaction)
    5. `propose` → agent → `Action`s with 2–3 drafts (step)

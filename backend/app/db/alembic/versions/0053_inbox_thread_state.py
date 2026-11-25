@@ -1,7 +1,7 @@
 """inbox thread state: persist read marker and snooze timestamp on cases
 
-Revision ID: 0051
-Revises: 0050
+Revision ID: 0053
+Revises: 0052
 Create Date: 2026-11-25 00:30:00
 """
 
@@ -10,8 +10,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0051"
-down_revision: str | None = "0050"
+revision: str = "0053"
+down_revision: str | None = "0052"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

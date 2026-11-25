@@ -30,7 +30,8 @@ from app.core.errors import IgnoredMessageError, NotFoundError, UnroutableMessag
 from app.core.logging import get_logger
 from app.core.settings import get_settings
 from app.core.workflow_names import requeue_workflow_id, stale_event_workflow_id
-from app.db.enums import RawEventStatus
+from app.db.enums import PipelineStatus, RawEventStatus
+from app.db.known_contacts import feeds_pipeline, is_known_contact
 from app.db.models import AllowedUser, MessageRow, OwnerAccount, RawEvent
 from app.ingestion.media import AttachmentInput, store_attachment
 from app.ingestion.repository import Enqueuer, mark_raw_event, save_message
@@ -92,7 +93,7 @@ def persist_event(deps: IngestDeps, raw_event_id: UUID) -> Persisted:
         message_id, _ = save_message(session, message, meta, attachments)
         mark_raw_event(session, company_id, raw_event_id, RawEventStatus.processed)
 
-        route = _route(session, message)
+        route = _route(session, message, message_id)
     _index_outbound(deps, message, message_id)
     return Persisted("processed", str(message_id), route)
 
@@ -143,7 +144,7 @@ def _already(session: Session, raw: RawEvent) -> Persisted:
         raw_event_id=raw.id,
         company_id=raw.company_id,
     )
-    return Persisted("duplicate", str(row.id), _route(session, message))
+    return Persisted("duplicate", str(row.id), _route(session, message, row.id))
 
 
 def _finish(deps: IngestDeps, company_id: UUID, raw_event_id: UUID, status: RawEventStatus, why: str) -> Persisted:
@@ -221,10 +222,13 @@ def _normalise_whatsapp(
     return message, meta, [stored]
 
 
-def _route(session: Session, message: Message) -> str:
+def _route(session: Session, message: Message, message_id: UUID) -> str:
     """Owner commands come only over WhatsApp and Google Chat, where the sender id is provider-verified.
-    An email From: header is trivially spoofable, so Gmail never routes to the owner handler in Phase 1."""
+    An email From: header is trivially spoofable, so Gmail never routes to the owner handler in Phase 1.
+    WhatsApp from a number the directory does not know stays in Chats and never reaches the pipeline (ADR 0015)."""
     if message.direction is Direction.outbound:
+        if message.channel is Channel.whatsapp:
+            _skip_echo_to_stranger(session, message, message_id)
         return "none"
     if message.channel is Channel.google_chat:
         owner = session.scalar(
@@ -241,7 +245,31 @@ def _route(session: Session, message: Message) -> str:
             OwnerAccount.company_id == message.company_id, OwnerAccount.whatsapp_e164 == message.sender_identity
         )
     )
-    return "owner" if owner is not None else "pipeline"
+    if owner is not None:
+        return "owner"
+    return "pipeline" if _is_pipeline_contact(session, message, message_id) else "none"
+
+
+def _skip_echo_to_stranger(session: Session, message: Message, message_id: UUID) -> None:
+    """A reply Harjot typed on his phone to a chat-only chat stays out of the case world with that chat."""
+    row = session.get(MessageRow, message_id)
+    if row is None or row.pipeline_status is not PipelineStatus.pending or message.thread_ref is None:
+        return
+    if not feeds_pipeline(session, message.company_id, message.channel, message.thread_ref):
+        row.pipeline_status = PipelineStatus.skipped
+
+
+def _is_pipeline_contact(session: Session, message: Message, message_id: UUID) -> bool:
+    """The webhook decided once and marked the row `skipped`; a row the worker created itself is decided here."""
+    row = session.get(MessageRow, message_id)
+    if row is None or row.pipeline_status is PipelineStatus.skipped:
+        return False
+    if row.pipeline_status is not PipelineStatus.pending:  # a replay after the pipeline already ran
+        return True
+    if is_known_contact(session, message.company_id, message.channel, message.sender_identity):
+        return True
+    row.pipeline_status = PipelineStatus.skipped
+    return False
 
 
 def requeue_candidates(deps: IngestDeps) -> list[tuple[UUID, str]]:

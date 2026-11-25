@@ -29,6 +29,7 @@ from app.db.models import (
     UnderstandingRow,
     Unit,
 )
+from app.db.models.ingestion import not_chat_only
 
 AUTOMATED_SENDER_KEYWORDS = (
     "noreply",
@@ -102,7 +103,7 @@ def load_messages_batch(session: Session, company_id: UUID, cases: list[Case]) -
     if initial_msg_ids:
         for msg in session.scalars(
             select(MessageRow)
-            .where(MessageRow.company_id == company_id, MessageRow.id.in_(initial_msg_ids))
+            .where(MessageRow.company_id == company_id, MessageRow.id.in_(initial_msg_ids), not_chat_only())
             .order_by(MessageRow.sent_at.asc())
         ).all():
             msgs_by_id[msg.id] = msg
@@ -112,7 +113,7 @@ def load_messages_batch(session: Session, company_id: UUID, cases: list[Case]) -
     if thread_refs:
         for msg in session.scalars(
             select(MessageRow)
-            .where(MessageRow.company_id == company_id, MessageRow.thread_ref.in_(thread_refs))
+            .where(MessageRow.company_id == company_id, MessageRow.thread_ref.in_(thread_refs), not_chat_only())
             .order_by(MessageRow.sent_at.asc())
         ).all():
             if msg.thread_ref:
@@ -304,6 +305,7 @@ def inbox_stats_counts(session: Session, company_id: UUID) -> dict[str, int]:
             CaseLink.case_id == Case.id,
             MessageRow.company_id == company_id,
             MessageRow.direction == Direction.outbound,
+            not_chat_only(),
         )
     )
     has_sent_reply = exists(
@@ -331,6 +333,7 @@ def inbox_stats_counts(session: Session, company_id: UUID) -> dict[str, int]:
             CaseLink.case_id == Case.id,
             MessageRow.company_id == company_id,
             MessageRow.channel == Channel.whatsapp,
+            not_chat_only(),
         )
     )
     has_gmail = exists(

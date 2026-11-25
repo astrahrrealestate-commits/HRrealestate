@@ -3,15 +3,15 @@
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import Engine, or_, select
+from sqlalchemy import Engine, exists, or_, select
 from sqlalchemy.orm import Session
 
 from app.contracts import Direction, Suspicious, Understanding
 from app.core.errors import AgentFailedError, BudgetExceededError
 from app.core.logging import get_logger
 from app.core.settings import Settings
-from app.db.enums import PipelineStatus
-from app.db.models import AttachmentRow, MessageRow, OwnerAccount, UnderstandingRow
+from app.db.enums import PipelineStatus, RawEventStatus
+from app.db.models import AttachmentRow, MessageRow, OwnerAccount, RawEvent, UnderstandingRow
 from app.llm.agents.understanding import (
     MAX_UNDERSTANDING_BODY_CHARS,
     UNDERSTANDING,
@@ -160,6 +160,9 @@ def requeue_candidates(engine: Engine, now: datetime) -> list[tuple[UUID, str]]:
     owner = select(OwnerAccount.id).where(
         OwnerAccount.company_id == MessageRow.company_id, OwnerAccount.whatsapp_e164 == MessageRow.sender_identity
     )
+    # A WhatsApp row is stored by the webhook before the worker has downloaded its media or decided its route (owner
+    # command or case pipeline): only a message whose raw event the worker finished is stranded, not merely waiting.
+    worker_done = exists().where(RawEvent.id == MessageRow.raw_event_id, RawEvent.status == RawEventStatus.processed)
     with Session(engine) as session:
         failed = session.execute(
             select(MessageRow.id, MessageRow.pipeline_attempts).where(
@@ -174,6 +177,7 @@ def requeue_candidates(engine: Engine, now: datetime) -> list[tuple[UUID, str]]:
                 MessageRow.created_at < now - STALE_PENDING_AFTER,
                 or_(MessageRow.created_at > now - STALE_PENDING_UNTIL, MessageRow.pipeline_error == BUDGET_BLOCKED),
                 ~owner.exists(),
+                worker_done,
             )
         ).all()
     hour = f"{now:%Y%m%d%H}"

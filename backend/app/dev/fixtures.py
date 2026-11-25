@@ -18,6 +18,7 @@ DEV_BUSINESS_NUMBER = "4915550000999"
 DEV_MAILBOX = "hausverwaltung@example.test"
 DEV_OWNER_NAME = "Harjot Singh"
 DEV_OWNER_E164 = "+4915550000100"
+DEV_TENANT_E164 = "+4915550000001"  # the simulator's tenant: a directory contact, so its WhatsApp feeds the pipeline
 DEV_OWNER_EMAIL = ""
 
 

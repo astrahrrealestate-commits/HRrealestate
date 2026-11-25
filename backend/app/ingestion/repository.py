@@ -124,11 +124,20 @@ def save_message(
         )
         if existing is None:  # pragma: no cover — conflict without a row would be a constraint bug
             raise NotFoundError(f"message {message.provider_msg_id}")
+        _complete_row(session, message.company_id, existing, meta, attachments)
         return existing, False
+    _add_attachments(session, message.company_id, message_id, attachments)
+    if message.channel is Channel.whatsapp:
+        replay_statuses(session, message.company_id, message.provider_msg_id)
+    session.flush()
+    return message_id, True
+
+
+def _add_attachments(session: Session, company_id: UUID, message_id: UUID, attachments: list[AttachmentInput]) -> None:
     for att in attachments:
         session.add(
             AttachmentRow(
-                company_id=message.company_id,
+                company_id=company_id,
                 message_id=message_id,
                 s3_key=att.s3_key,
                 mime_type=att.mime_type,
@@ -137,10 +146,22 @@ def save_message(
                 sha256=att.sha256,
             )
         )
-    if message.channel is Channel.whatsapp:
-        replay_statuses(session, message.company_id, message.provider_msg_id)
+
+
+def _complete_row(
+    session: Session, company_id: UUID, message_id: UUID, meta: dict[str, Any], attachments: list[AttachmentInput]
+) -> None:
+    """A WhatsApp row is written when the webhook lands, before its media is downloaded. The worker's later save fills
+    in what was missing (the attachment, or why there is none) and never overwrites anything else."""
+    row = session.get(MessageRow, message_id)
+    if row is None or row.company_id != company_id:  # pragma: no cover — the id was just read for this company
+        return
+    if "media_error" in meta and "media_error" not in row.meta:
+        row.meta = {**row.meta, "media_error": meta["media_error"]}
+    has_attachment = session.scalar(select(AttachmentRow.id).where(AttachmentRow.message_id == message_id).limit(1))
+    if attachments and has_attachment is None:
+        _add_attachments(session, company_id, message_id, attachments)
     session.flush()
-    return message_id, True
 
 
 def status_event_id(wamid: str, status: DeliveryStatus) -> str:

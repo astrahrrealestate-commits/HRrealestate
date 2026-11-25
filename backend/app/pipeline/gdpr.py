@@ -19,14 +19,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import ColumnElement, and_, delete, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.contracts import Channel
 from app.core.logging import get_logger
 from app.core.texthash import source_hash
 from app.db.brixx_erasure import purge_brixx_relatie, relatie_id
-from app.db.enums import MemoryScope, MemoryStatus
+from app.db.enums import MemoryScope, MemoryStatus, PipelineStatus
 from app.db.models import (
     Case,
     ChannelIdentity,
@@ -75,6 +75,22 @@ def _delete_ticket_edits(session: Session, company_id: UUID, person_id: UUID) ->
     session.execute(delete(TicketEdit).where(TicketEdit.company_id == company_id, TicketEdit.case_id.in_(case_ids)))
 
 
+def _messages_of(company_id: UUID, person_id: UUID) -> ColumnElement[bool]:
+    """The person's messages. Chats-only WhatsApp rows (ADR 0015) never got a person, so they are found by the
+    person's WhatsApp numbers."""
+    numbers = select(ChannelIdentity.identity).where(
+        ChannelIdentity.company_id == company_id,
+        ChannelIdentity.person_id == person_id,
+        ChannelIdentity.channel == Channel.whatsapp,
+    )
+    chat_only = and_(
+        MessageRow.channel == Channel.whatsapp,
+        MessageRow.pipeline_status == PipelineStatus.skipped,
+        MessageRow.thread_ref.in_(numbers),
+    )
+    return and_(MessageRow.company_id == company_id, or_(MessageRow.person_id == person_id, chat_only))
+
+
 def erase_person(
     session: Session,
     company_id: UUID,
@@ -82,14 +98,7 @@ def erase_person(
 ) -> ErasureReport:
     """Cascade GDPR erasure for a person and all derived memory/message records."""
     # 1. Identify all messages associated with the person
-    msg_ids = list(
-        session.scalars(
-            select(MessageRow.id).where(
-                MessageRow.company_id == company_id,
-                MessageRow.person_id == person_id,
-            )
-        ).all()
-    )
+    msg_ids = list(session.scalars(select(MessageRow.id).where(_messages_of(company_id, person_id))).all())
     msg_id_strs = {str(mid) for mid in msg_ids}
 
     _delete_ticket_edits(session, company_id, person_id)
@@ -100,10 +109,7 @@ def erase_person(
         _delete_translations(session, company_id, msg_ids)
         res = session.execute(
             update(MessageRow)
-            .where(
-                MessageRow.company_id == company_id,
-                MessageRow.person_id == person_id,
-            )
+            .where(_messages_of(company_id, person_id))
             .values(
                 text="[Content erased per GDPR request]",
                 sender_identity=f"erased-{person_id}@gdpr.estateos",
