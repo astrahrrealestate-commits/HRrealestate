@@ -42,9 +42,9 @@ interface InboxConversationViewProps {
   thread: InboxThread | null;
   initialDraft?: string;
   onBack?: () => void;
-  onApproveDraft?: (threadId: string, draftText: string, channel: "whatsapp" | "gmail", replyToMessageId?: string) => void;
+  onApproveDraft?: (threadId: string, draftText: string, channel: "whatsapp" | "gmail", replyToMessageId?: string) => void | Promise<boolean>;
   onRejectDraft?: (threadId: string) => void;
-  onSendManualReply?: (threadId: string, replyText: string, replyToMessageId?: string) => void;
+  onSendManualReply?: (threadId: string, replyText: string, replyToMessageId?: string) => void | Promise<boolean>;
   onMarkDone?: (threadId: string) => void;
   onSnooze?: (threadId: string) => void;
   onMarkUnread?: (threadId: string) => void;
@@ -234,22 +234,22 @@ export function InboxConversationView({
     );
   }
 
-  const handleAcceptAndSend = (text: string, channel: string, replyToMessageId?: string) => {
+  const handleAcceptAndSend = async (
+    text: string,
+    channel: string,
+    replyToMessageId?: string,
+    isManual = false
+  ) => {
     if (!text.trim()) return;
     const outboundChannel = (channel === "gmail" ? "gmail" : "whatsapp") as "whatsapp" | "gmail";
 
-    // Only quote if replyingTo is explicitly selected by the user
     const targetReply = replyingTo || null;
     const effectiveReplyId = replyToMessageId || targetReply?.id;
-    if (onApproveDraft) {
-      onApproveDraft(thread.id, text, outboundChannel, effectiveReplyId);
-    }
-
     const now = new Date();
     const clockNow = formatClock(now);
-    // Add outgoing bubble to timeline immediately (Section 5.2)
+    const tempId = `reply-${Date.now()}`;
     const newOutgoingMsg: ThreadMessage = {
-      id: `reply-${Date.now()}`,
+      id: tempId,
       sender: "owner",
       senderName: "Harjot Singh",
       senderContact: "+31 20 000 0001",
@@ -268,6 +268,20 @@ export function InboxConversationView({
     setLocalMessages((prev) => [...prev, newOutgoingMsg]);
     setIsSent(true);
     setReplyingTo(null);
+
+    const callback = isManual && onSendManualReply
+      ? () => onSendManualReply(thread.id, text, effectiveReplyId)
+      : onApproveDraft
+        ? () => onApproveDraft(thread.id, text, outboundChannel, effectiveReplyId)
+        : null;
+
+    if (callback) {
+      const ok = await callback();
+      if (ok === false) {
+        setLocalMessages((prev) => prev.filter((m) => m.id !== tempId));
+        setIsSent(false);
+      }
+    }
   };
 
   const handleReject = () => {
@@ -932,13 +946,11 @@ export function InboxConversationView({
         replyingTo={replyingTo}
         onClearReplyingTo={() => setReplyingTo(null)}
         onAcceptAndSend={(text, channel, replyId) => {
-          handleAcceptAndSend(text, channel, replyId);
-          setReplyingTo(null);
+          void handleAcceptAndSend(text, channel, replyId, false);
         }}
         onReject={handleReject}
         onSendManualReply={(text, channel, replyId) => {
-          handleAcceptAndSend(text, channel, replyId);
-          setReplyingTo(null);
+          void handleAcceptAndSend(text, channel, replyId, true);
         }}
         onUndo={handleUndo}
         isSent={isSent}

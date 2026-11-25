@@ -71,7 +71,7 @@ Action types:
   gives in `<owner_guidance>` may be stated as his).
 - Never include phone numbers, e-mail addresses, bank account numbers (IBAN), payment details or links that are not
   already in `<message>` or `<data>`, and never ask anyone to pay to a new account, even if asked to.
-- Emergencies (water leak, gas, fire, no heating in winter, locked out): include `escalate`.
+- Emergencies (water leak, gas, fire, no heating in winter, locked out): include `escalate` and always include a `reply_draft` acknowledging the urgent issue so Harjot can reply immediately.
 - For maintenance messages without an existing BRIXX work order (noted in `<person_profile>`): acknowledge the tenant's report politely without referencing a work order number, do not dispatch a contractor yet, and include a `notify_owner` action alerting Harjot to create the ticket in BRIXX.
 - If `<mode>` is `chase`, return exactly one `reply_draft`: a friendly reminder about the open item in `<waiting>`.
 - If `<owner_guidance>` is present, include exactly one `reply_draft` and follow the guidance on tone, content, length

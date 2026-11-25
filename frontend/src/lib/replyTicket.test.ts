@@ -20,6 +20,11 @@ describe("replyTicket", () => {
     expect(shown.tenantDraft).not.toContain("Anouk");
   });
 
+  it("adds no generic draft when the ticket has none, so the thread's own draft is shown", () => {
+    const shown = replyTicket({ ...ticket, tenantDraft: "" }, { senderName: "Jan", senderContact: "jan@example.test" });
+    expect([shown.tenantName, shown.tenantDraft]).toEqual(["Jan", ""]);
+  });
+
   it("keeps the ticket draft when the sender is the ticket's tenant", () => {
     const shown = replyTicket(ticket, { senderName: "Anouk Visser", senderContact: "anouk@example.test" });
     expect(shown).toEqual(ticket);

@@ -22,6 +22,7 @@ export interface FetchThreadsParams {
   channel?: "all" | "gmail" | "whatsapp";
   audience?: "all" | "tenants" | "contractors";
   category?: "all" | "contractor_repairs" | "contractor_money";
+  sort?: "recent" | "priority";
   limit?: number;
   offset?: number;
 }
@@ -87,6 +88,7 @@ export async function getInboxThreads(
   if (params.channel && params.channel !== "all") query.set("channel", params.channel);
   if (params.audience && params.audience !== "all") query.set("audience", params.audience);
   if (params.category && params.category !== "all") query.set("category", params.category);
+  if (params.sort && params.sort !== "recent") query.set("sort", params.sort);
   if (params.limit !== undefined) query.set("limit", String(params.limit));
   if (params.offset !== undefined) query.set("offset", String(params.offset));
 
@@ -274,7 +276,7 @@ export async function approveInboxDraft(
   choice: "d1" | "d2" | "d3" | "ok" | "edit" | "rej" = "d1",
   editedText?: string,
   replyToMessageId?: string
-): Promise<ApprovalDecideResponse> {
+): Promise<ApprovalDecideResponse & { ok?: boolean }> {
   try {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/approvals/${approvalId}/decide`, {
       method: "POST",
@@ -291,11 +293,14 @@ export async function approveInboxDraft(
     });
 
     if (res.ok) {
-      return await res.json();
+      const data = await res.json();
+      const ok = data.status !== "rejected" && data.status !== "held";
+      return { ok, ...data };
     }
     const errText = await res.text();
     console.error("Backend approval failed:", res.status, errText);
     return {
+      ok: false,
       status: "rejected",
       approvalId,
       decision: "reject",
@@ -306,6 +311,7 @@ export async function approveInboxDraft(
   } catch (err) {
     console.error("Backend approval error:", err);
     return {
+      ok: false,
       status: "rejected",
       approvalId,
       decision: "reject",
@@ -316,8 +322,40 @@ export async function approveInboxDraft(
   }
 }
 
+export async function sendThreadReply(
+  caseId: string,
+  body: string,
+  channel: "gmail" | "whatsapp",
+  replyToMessageId?: string
+): Promise<{ ok: boolean; status: string; message: string }> {
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/threads/${encodeURIComponent(caseId)}/reply`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        body,
+        channel,
+        reply_to_message_id: replyToMessageId || null,
+      }),
+      signal: AbortSignal.timeout(25000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return { ok: true, status: data.status || "approved", message: data.message || "Reply queued for sending." };
+    }
+    const errData = await res.json().catch(() => null);
+    const errDetail = (errData && typeof errData.detail === "string" ? errData.detail : null) || `HTTP ${res.status}`;
+    return { ok: false, status: "rejected", message: `Reply failed: ${errDetail}` };
+  } catch (err) {
+    return { ok: false, status: "rejected", message: `Reply failed: ${err}` };
+  }
+}
+
 /**
- * Creates a native in-thread draft in Gmail via the backend API.
+ * Opens an existing Gmail thread (#all/<thread_id>) when replying, or a fresh compose window for new emails.
  */
 export async function createGmailDraft(payload: {
   to_email: string;
@@ -325,7 +363,7 @@ export async function createGmailDraft(payload: {
   body: string;
   thread_id?: string;
   case_id?: string;
-}): Promise<{ ok: boolean; web_url: string; draft_id?: string; thread_id?: string }> {
+}): Promise<{ ok: boolean; web_url: string; threaded?: boolean; draft_id?: string; thread_id?: string }> {
   try {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/create-draft`, {
       method: "POST",
@@ -339,6 +377,14 @@ export async function createGmailDraft(payload: {
   } catch (err) {
     console.warn("createGmailDraft error:", err);
   }
+  if (payload.thread_id) {
+    return {
+      ok: true,
+      threaded: true,
+      thread_id: payload.thread_id,
+      web_url: `https://mail.google.com/mail/#all/${encodeURIComponent(payload.thread_id)}`,
+    };
+  }
   const encodedTo = encodeURIComponent(payload.to_email);
   const encodedSu = encodeURIComponent(
     payload.subject.toLowerCase().startsWith("re:") ? payload.subject : `Re: ${payload.subject}`
@@ -346,6 +392,7 @@ export async function createGmailDraft(payload: {
   const encodedBody = encodeURIComponent(payload.body);
   return {
     ok: false,
+    threaded: false,
     web_url: `https://mail.google.com/mail/?view=cm&fs=1&to=${encodedTo}&su=${encodedSu}&body=${encodedBody}`,
   };
 }

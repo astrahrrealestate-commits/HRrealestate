@@ -51,6 +51,7 @@ import {
 } from "@/lib/api";
 import { formatClock } from "@/lib/clock";
 import { ContactFormModal } from "@/components/contacts/ContactFormModal";
+import { TenantDocumentsPanel } from "@/components/contacts/TenantDocumentsPanel";
 import type { SavedContact } from "@/lib/contactsWriteApi";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { FlagUK, FlagNL } from "@/components/ui/FlagIcons";
@@ -1754,11 +1755,15 @@ function ContactsContent() {
                           </div>
                         ))
                       ) : (
-                        <div className="col-span-2 text-center py-12 text-[#94a3b8] text-xs border border-dashed border-[#e2e8f0] rounded-xl">
+                        <div className="col-span-2 text-center py-8 text-[#94a3b8] text-xs border border-dashed border-[#e2e8f0] rounded-xl">
                           No lease agreements currently on file.
                         </div>
                       )}
                     </div>
+
+                    {activeContact.category === "tenant" && (
+                      <TenantDocumentsPanel tenantId={activeContact.id} name={activeContact.name} embedded />
+                    )}
                   </div>
                 )}
 
