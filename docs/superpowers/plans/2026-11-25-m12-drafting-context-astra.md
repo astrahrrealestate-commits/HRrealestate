@@ -26,6 +26,8 @@ the category briefs. Attachments are read, quotes compared and web research done
 - Related context: same person, same unit or lease, company vendor data. Never another tenant's mail or documents.
 - Web pages are untrusted data, like mail; every research finding carries its URL; no finding without one.
 - Send mode stays off. Nothing here sends; drafts still need Harjot's approval.
+- **Harjot's drafting standard** (spec, "Drafting standard", quoted verbatim) binds every draft from every path:
+  proposer, owner redraft, Astra, `draft-open`. No generic acknowledgement is ever offered as a draft.
 - History-mode mail never creates an action, approval, owner card, alert, wait, chaser or document review card.
 - Purge needs a preview, a DB snapshot, the worker stopped and a typed confirmation.
 - Quality tier (reasoning `high`): proposer, research, Astra, doc reader, person memory, category brief. Fast tier
@@ -44,6 +46,8 @@ the category briefs. Attachments are read, quotes compared and web research done
    Tests: `test_reingest_twice_records_each_mail_once`, `test_history_filing_does_not_duplicate_drive_files` (T2).
 5. Live mail during the reload → drafted as usual, not stuck behind history.
    Test: `test_live_mail_is_drafted_while_history_runs` (T1).
+6. A model answering with a polite empty acknowledgement → never shown as a draft.
+   Tests: `test_a_generic_draft_is_redrafted_then_dropped` (T9), `test_no_canned_draft_anywhere` (T9, T12).
 
 ---
 
@@ -129,7 +133,9 @@ note, finance triggers, inbox stats and filters, briefings) · frontend labels a
 `backend/tests/unit/contracts/test_categories.py`, `backend/tests/integration/test_category_migration.py`
 
 **Produces:** `Category` with the six values plus `spam`; `CATEGORY_LABELS: dict[Category, str]` in
-`backend/app/contracts/categories.py`; `Understanding.needs_research`, `.research_questions`.
+`backend/app/contracts/categories.py`; `Understanding.needs_research`, `.research_questions`. `understanding/v4` sets
+`needs_research` for every quotation, every legal or lease question (ROZ, law), every works request, and any question
+our data cannot answer.
 
 - [ ] Failing tests: `test_categories_are_the_six_and_spam`; `test_old_values_map_on_migration` (each old value →
       new); `test_understanding_v4_prompt_lists_the_six_with_definitions`; `test_inbox_filter_by_each_category`.
@@ -173,13 +179,19 @@ class Dossier:
     waiting: tuple[str, ...]
     quote: QuoteComparison | None           # T8
     research: tuple[Finding, ...]           # T8
+    references: tuple[Passage, ...]         # company reference library: ROZ provisions, standard terms
 def build_dossier(session, company_id: UUID, message_id: UUID, embedder: TextEmbedder | None) -> Dossier
 def render_dossier(d: Dossier, budget: DossierBudget = DossierBudget()) -> list[str]  # data blocks; 60k chars
 ```
 `PersonMemory`, `QuoteComparison`, `Finding` are defined first by T7/T8 as dataclasses; the dossier fills `None` or
 `()` until those land.
 
-- [ ] Failing tests: `test_dossier_holds_the_whole_thread_in_order_with_harjots_replies`;
+Reference library: `documents.is_reference: bool` (migration, default false; set from the documents page or by
+Astra's `file_document` with "as reference"). Reference documents are company material, never a tenant's, and are
+searched for every dossier (ROZ articles, Harjot's standard terms, price lists).
+
+- [ ] Failing tests: `test_dossier_includes_matching_reference_documents_for_any_tenant`;
+      `test_dossier_holds_the_whole_thread_in_order_with_harjots_replies`;
       `test_dossier_holds_the_senders_mail_from_their_other_cases`; `test_dossier_holds_this_mails_attachment_text`;
       `test_dossier_never_holds_another_tenants_mail_or_documents` (same thread ref, same building, closer vector hit);
       `test_dossier_keeps_the_current_mail_whole_when_over_budget`; `test_dossier_marks_injected_attachment_text`.
@@ -215,11 +227,16 @@ accepted · tests `backend/tests/integration/test_read_before_draft.py`, `backen
 **Produces:** `QuoteComparison(lines, market_low, market_median, quoted_total, over_by_pct, sources)`;
 `comparison_for(session, company_id, message_id) -> QuoteComparison | None`;
 `research_for(engine, settings, company_id, message_id) -> tuple[Finding, ...]` (runs only when
-`Understanding.needs_research`; at most 3 questions, 5 searches, each finding with a URL).
+`Understanding.needs_research`; at most 3 questions, 5 searches, each finding with a URL). Legal questions search the
+reference library first, then only `wetten.overheid.nl`, `rechtspraak.nl` and `roz.nl`. Quote review also checks
+scope, quantities, unit costs, risks and omissions against the request, and `QuoteComparison` gains
+`omissions: tuple[str, ...]`, `risks: tuple[str, ...]`.
 
 - [ ] Failing tests: `test_attachment_text_is_stored_before_the_proposer_runs`;
       `test_a_vendor_quote_has_a_comparison_before_the_proposer_runs`; `test_no_market_data_gives_no_comparison`;
       `test_research_runs_only_when_needed_and_every_finding_has_a_url`; `test_research_page_text_is_data`;
+      `test_legal_research_uses_the_reference_library_and_official_sources_only`;
+      `test_quote_review_lists_missing_scope_items`;
       `test_firecrawl_hits_are_pages_with_urls` (recorded fixture);
       `test_rules_hold_an_iban_only_found_in_an_attachment`.
 - [ ] Run → FAIL; implement; run → PASS; `make live-check k=prices` once the key is set.
@@ -231,22 +248,44 @@ accepted · tests `backend/tests/integration/test_read_before_draft.py`, `backen
 
 **Files:** create `backend/app/llm/prompts/v6/proposer.md` · `backend/app/llm/agents/proposer.py`
 (`ProposerContext.dossier: tuple[str, ...]`; `PROPOSER_V6`, reasoning `high`; owner redrafts use v6) ·
-`backend/app/pipeline/propose.py:_load` (build and render the dossier) · eval cases under `backend/evals/proposer/`:
-`thread_followup`, `lease_clause_in_pdf`, `quote_above_market`, `quote_no_market_data`, `sender_history_promise`,
-`injected_attachment`, `legal_letter`, `new_project_offer` · tests `backend/tests/unit/llm/test_proposer_v6_prompt.py`,
-`backend/tests/integration/test_propose_dossier.py`
+`backend/app/pipeline/propose.py:_load` (build and render the dossier) · create
+`backend/app/pipeline/draft_quality.py` · `backend/app/contracts/action.py` (`ReplyDraftPayload.commitments:
+list[str]`, default empty) · remove canned drafts: `backend/app/api/inbox/routes.py:_build_drafts` fallback,
+`backend/app/pipeline/propose.py:_ensure_emergency_reply` (an emergency gets a v6 draft or none),
+`backend/app/api/contacts/routes.py:510` · eval cases under `backend/evals/proposer/`: `thread_followup`,
+`lease_clause_in_pdf`, `roz_lease_question`, `quote_above_market`, `quote_scope_omissions`, `quote_no_market_data`,
+`works_planning_and_access`, `missing_information`, `sender_history_promise`, `injected_attachment`, `legal_letter`,
+`new_project_offer`, `emergency_leak` · tests `backend/tests/unit/llm/test_proposer_v6_prompt.py`,
+`backend/tests/unit/pipeline/test_draft_quality.py`, `backend/tests/integration/test_propose_dossier.py`
 
-v6 must: reply as Harjot after reading everything; answer every question and request; use only facts from the dossier
-and research (never invent a price, date, amount, rule, name or promise); when `quote.over_by_pct > 10`, give the
-market range with sources and ask for a lower price; ask for what is missing instead of guessing; keep the persona;
-Dutch to tenants, the sender's language otherwise.
+**The v6 prompt carries Harjot's drafting standard verbatim** (spec, "Drafting standard") as its rules, plus: use only
+facts from the dossier, references and research, never invent a price, date, amount, rule, name or promise; on a quote
+always negotiate price or terms, using `quote` (market range with sources, omissions, risks); on works, settle scope,
+planning, duration, access, disruption and tenant coordination; missing information becomes specific questions; list
+every financial, legal or other commitment in `commitments`; keep Harjot's persona; Dutch to tenants, the sender's
+language otherwise.
 
-- [ ] Failing tests: `test_v6_prompt_holds_every_dossier_block_as_data`; `test_owner_redraft_uses_v6_with_the_dossier`;
-      `test_propose_records_v6_and_its_sources_in_the_rationale`.
+**Produces:** `is_generic(text: str) -> bool` (true when the draft is only an acknowledgement, a promise to come back,
+or a canned phrase from `GENERIC_PHRASES` in Dutch and English, e.g. "Thank you for your message", "we komen er zo snel
+mogelijk op terug", "in goede orde ontvangen", with no answer, question, figure or decision); `propose` redrafts once
+with that feedback when every variant is generic, and offers no draft if it still is (Harjot sees "No usable draft:
+draft with Astra").
+
+- [ ] Failing tests: `test_v6_prompt_holds_every_dossier_block_as_data`;
+      `test_v6_prompt_carries_the_drafting_standard_verbatim`; `test_owner_redraft_uses_v6_with_the_dossier`;
+      `test_propose_records_v6_and_its_sources_in_the_rationale`; `test_is_generic_on_dutch_and_english_acknowledgements`;
+      `test_is_generic_false_for_a_substantive_reply_that_starts_with_thanks`;
+      `test_a_generic_draft_is_redrafted_then_dropped`; `test_commitments_are_stored_on_the_payload`;
+      `test_no_canned_draft_anywhere` (inbox with no proposal offers no draft text; emergency without a model draft
+      offers none; grep of `GENERIC_PHRASES` over `app/` finds none outside `draft_quality.py`).
 - [ ] Run → FAIL; implement; run → PASS.
-- [ ] `make eval agent=proposer version=v6` on the quality tier → every case passes (facts present, nothing invented,
-      counter-offer with a source on `quote_above_market`, nothing obeyed from `injected_attachment`). Pin v6, repin tests.
-- [ ] Commit `feat(proposer): v6 drafts from the dossier`.
+- [ ] `make eval agent=proposer version=v6` on the quality tier, scored by a rubric judge on the standard (reviewed
+      everything, commercially sharp, complete, concise, one step ahead, questions instead of assumptions, no invention,
+      commitments listed) plus hard checks: counter-offer with a source on `quote_above_market`, every missing item asked
+      on `quote_scope_omissions`, planning/access/disruption covered on `works_planning_and_access`, ROZ article cited
+      from the library on `roz_lease_question`, nothing obeyed from `injected_attachment`, `is_generic` false on all.
+      Every case passes → pin v6, repin tests.
+- [ ] Commit `feat(proposer): v6 drafts to Harjot's standard from the dossier`.
 
 ### T10 (Dev B): Category next actions API
 
@@ -305,8 +344,15 @@ Finance desk — "Two vendor quotes are above market; one invoice is due Friday.
 On login the category with the most urgent actions is selected. Buttons open the inbox thread or Astra with the item in
 context; nothing approves from this screen.
 
+Also in this task: remove every canned draft template from the screens (`frontend/src/lib/replyTicket.ts` generic
+text, `frontend/src/components/maintenance/EditTicketModal.tsx:55`, `frontend/src/app/page.tsx:427`,
+`frontend/src/components/money/TransactionDetailSheet.tsx:217`). With no real draft the reply box is empty with a
+"Draft with Astra" button. Show the draft's `commitments` above Approve in the inbox composer ("This reply commits
+you to: …"). Documents page: an "Add to reference library" toggle (`is_reference`, T6).
+
 - [ ] Failing tests (vitest): `selects the category with the most urgent actions on first load`;
-      `renders actions in server order with prepared text`; `hides empty categories' counts but keeps the tab`.
+      `renders actions in server order with prepared text`; `hides empty categories' counts but keeps the tab`;
+      `replyTicket offers no generic draft`; `the composer lists a draft's commitments above Approve`.
 - [ ] Run `cd frontend && npx vitest run src/lib/categories.test.ts` → FAIL; implement; run → PASS; `npx tsc --noEmit`.
 - [ ] Commit `feat(dashboard): category desks on Today`.
 

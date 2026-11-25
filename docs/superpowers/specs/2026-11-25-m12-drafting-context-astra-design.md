@@ -37,6 +37,41 @@ speed matters too.
 8. **Reload:** delete the Gmail data of `info@hrrealestate.nl`, reload 90 days in history mode (read, link, remember, no
    drafts or notices), then draft only conversations still waiting for Harjot (option A).
 
+## Drafting standard (Harjot's words, 2026-11-25; binding for every draft, including Astra's)
+> The Super Agent should never draft generic acknowledgements or basic responses. Every draft must be commercially
+> sharp and substantively complete.
+>
+> Before drafting, it must always review:
+> - the full email thread and relevant historical correspondence;
+> - all attachments, quotations, contracts and specifications;
+> - the property, address, parties involved and previous agreements;
+> - whether prices and terms are market-conform;
+> - applicable ROZ provisions and relevant laws and regulations.
+>
+> For quotations: verify scope, quantities, individual costs, risks and omissions, and always negotiate improved
+> pricing and terms.
+> For works: clarify scope, planning, duration, access, disruption and tenant coordination.
+> If information is missing: ask specific questions and never assume or invent facts.
+>
+> Every draft must be concise, strategic, complete, immediately usable and one step ahead. Financial or legal
+> commitments (or any) remain subject to my approval. Avoid empty responses such as: "Thank you for your message; I
+> will get back to you."
+
+What this means for the build (my reading, to be corrected):
+- No canned acknowledgement anywhere: the inbox fallback drafts (`app/api/inbox/routes.py:_build_drafts`), the
+  emergency acknowledgement (`app/pipeline/propose.py:_ensure_emergency_reply`), the contacts fallback
+  (`app/api/contacts/routes.py:510`) and the screen templates (`frontend/src/lib/replyTicket.ts`,
+  `EditTicketModal.tsx`, `app/page.tsx:427`, `TransactionDetailSheet.tsx`) go. With no real draft, the screen says so
+  and offers "Draft with Astra".
+- A generic draft is rejected in code and redrafted once; if still generic, no draft is offered.
+- ROZ provisions and law: a **reference library** of company documents not tied to any tenant (the ROZ general
+  provisions the leases use, Harjot's standard terms), readable by every dossier; legal web research limited to
+  official sources (`wetten.overheid.nl`, `rechtspraak.nl`, `roz.nl`) with URLs.
+- Every draft lists, for Harjot, each financial, legal or other commitment it contains (amount, date, promise) next to
+  the approve button. Nothing is committed until he approves.
+- Quotes: the review checks scope, quantities, unit costs, risks and omissions against the request and the market, and
+  the draft always negotiates price or terms.
+
 ## Non-goals
 Automatic sending (send mode stays off); running the forwarded-mail repair or label pass; WhatsApp history reload.
 
@@ -46,6 +81,7 @@ Automatic sending (send mode stays off); running the forwarded-mail repair or la
 - A reload that floods Harjot or duplicates messages, cases or Drive files.
 - A draft or brief stating a price, date, amount, rule or promise that is not in its sources.
 - A dashboard that summarises instead of telling him what to do next.
+- A generic acknowledgement or basic response offered as a draft, anywhere.
 
 ## Approaches
 - **A, chosen:** one dossier builder feeding the proposer, Astra and category briefs; history mode on the existing
@@ -73,6 +109,8 @@ Automatic sending (send mode stays off); running the forwarded-mail repair or la
 3. Harjot's own replies forwarded by the Apps Script, so drafts see what he already said.
 4. Reload scope: all of `info@hrrealestate.nl` for 90 days except spam, trash and drafts (default).
 5. Merging to `main` (prod deploy) at the two deploy points in the plan.
+6. The ROZ general provisions (algemene bepalingen) versions the leases refer to, and Harjot's standard terms, as PDFs
+   for the reference library. Without them, ROZ answers rely on public sources only.
 
 ## Left to the builders
 Dossier budgets, reload queue concurrency, purge order, prompt wording within the rules, dashboard visual detail
