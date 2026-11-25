@@ -29,6 +29,7 @@ from app.db.models import ModelCall
 from app.llm.budget import check_budget
 from app.llm.prompts import LoadedPrompt, load_prompt
 from app.llm.runtime import build_model, describe_model_error, model_name_for, output_for
+from app.llm.tiers import tier_of
 
 AGENT_RETRIES = 2  # re-asks on contract validation failure, inside one run
 
@@ -109,6 +110,14 @@ def _row(
 
 
 def model_settings(settings: Settings, spec: AgentSpec[Any]) -> ModelSettings:
+    """Fast agents keep their own reasoning level and the global caps; quality agents (app.llm.tiers) think `high`
+    with the longer timeout and token cap, since Gemini counts thinking tokens as output."""
+    if tier_of(spec.name) == "quality":
+        return ModelSettings(
+            timeout=settings.llm_quality_timeout_sec,
+            max_tokens=settings.llm_quality_max_output_tokens,
+            thinking="high",
+        )
     chosen = ModelSettings(timeout=settings.llm_timeout_sec, max_tokens=settings.llm_max_output_tokens)
     if spec.thinking is not None:
         chosen["thinking"] = spec.thinking

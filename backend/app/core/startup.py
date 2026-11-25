@@ -3,6 +3,25 @@
 from app.core.errors import UnsafeConfigurationError
 from app.core.settings import Settings
 
+GEMINI = "google-gla:"
+
+
+def _model_problems(settings: Settings) -> list[str]:
+    """Prod runs the Gemini API only (M13): every model, fallback and embedding is a `google-gla:` model on the one key;
+    `fake` and any other provider are refused. Empty overrides (concierge, quality) fall back to `llm_model`."""
+    named = [("llm_model", settings.llm_model), ("embedding_model", settings.embedding_model)]
+    named += [(f, v) for f, v in (("concierge_model", settings.concierge_model),
+                                  ("llm_quality_model", settings.llm_quality_model)) if v]  # fmt: skip
+    named += [("llm_fallback_models", m) for m in settings.llm_fallback_models]
+    problems = [
+        f"{field} is {value!r}" if value in ("fake", "test") else f"{field} is {value!r}: prod runs Gemini only"
+        for field, value in named
+        if value in ("fake", "test") or not value.startswith(GEMINI)
+    ]
+    if not settings.gemini_api_key:
+        problems.append("gemini_api_key is not set (prod runs Gemini only)")
+    return problems
+
 
 def production_problems(settings: Settings) -> list[str]:
     if settings.env != "prod":
@@ -16,20 +35,7 @@ def production_problems(settings: Settings) -> list[str]:
         problems.append("brixx_provider is 'fake'")
     elif not settings.brixx_token:
         problems.append("brixx_token is not set")
-    if settings.llm_model in ("fake", "test"):
-        problems.append(f"llm_model is {settings.llm_model!r}")
-    elif settings.llm_model.startswith("openai:") and not settings.openai_api_key:
-        problems.append("openai_api_key is not set (llm_model is an openai model)")
-    elif settings.llm_model.startswith("google-gla:") and not settings.gemini_api_key:
-        problems.append("gemini_api_key is not set (llm_model is a gemini model)")
-    elif settings.llm_model.startswith("groq:") and not settings.groq_api_key:
-        problems.append("groq_api_key is not set (llm_model is a groq model)")
-    if settings.embedding_model == "fake":
-        problems.append("embedding_model is 'fake'")
-    elif settings.embedding_model.startswith("openai:") and not settings.openai_api_key:
-        problems.append("openai_api_key is not set (embedding_model is an openai model)")
-    elif settings.embedding_model.startswith("google-gla:") and not settings.gemini_api_key:
-        problems.append("gemini_api_key is not set (embedding_model is a gemini model)")
+    problems += _model_problems(settings)
     if settings.drive_provider == "fake":
         problems.append("drive_provider is 'fake'")
     if settings.google_chat_provider == "fake":

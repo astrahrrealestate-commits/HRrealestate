@@ -10,6 +10,7 @@ from pydantic_ai.models.instrumented import InstrumentationSettings
 
 from app.core.settings import Settings
 from app.llm import fakes
+from app.llm.tiers import tier_of
 
 _KEY_FIELDS = {"google-gla": "gemini_api_key", "openai": "openai_api_key", "groq": "groq_api_key"}
 # Providers echo part of a rejected key ("Incorrect API key provided: sk-proj-abc***wxyz"); never log even that.
@@ -53,9 +54,12 @@ def _provider_model(settings: Settings, model: str) -> Model | str:
 
 
 def model_name_for(settings: Settings, agent_name: str) -> str:
-    """The model string an agent runs on: `concierge_model` for the concierge when set, else `llm_model`."""
+    """The model string an agent runs on: `concierge_model` for the concierge when set, `llm_quality_model` for a
+    quality-tier agent when set, else `llm_model`."""
     if agent_name == "concierge" and settings.concierge_model:
         return settings.concierge_model
+    if tier_of(agent_name) == "quality" and settings.llm_quality_model:
+        return settings.llm_quality_model
     return settings.llm_model
 
 

@@ -18,9 +18,9 @@ REAL: dict[str, Any] = {
     "gmail_pubsub_service_account": "push@p.iam.gserviceaccount.com",
     "gmail_pubsub_topic": "projects/p/topics/gmail",
     "s3_bucket": "estateos-prod",
-    "llm_model": "openai:gpt-4.1-mini",
-    "embedding_model": "openai:text-embedding-3-small",
-    "openai_api_key": "sk-test",
+    "llm_model": "google-gla:gemini-3.8-flash",
+    "embedding_model": "google-gla:gemini-embedding-001",
+    "gemini_api_key": "g-test",
     "drive_provider": "google",
     "price_source": "competitors",
     "brixx_provider": "api",
@@ -78,7 +78,7 @@ def test_defaults_are_fakes_and_fine_outside_prod() -> None:
         ({"dashboard_session_secret": "DEV-ONLY-" + "x" * 30}, "public dev-only default"),
         ({"google_oauth_client_id": None}, "google_oauth_client_id"),
         ({"drive_credentials_file": None}, "drive_credentials_file"),
-        ({"openai_api_key": None}, "openai_api_key"),
+        ({"gemini_api_key": None}, "gemini_api_key"),
         ({"gmail_credentials_file": Path("/nonexistent/gmail.json")}, "gmail_credentials_file"),
         ({"gmail_credentials_file": Path(".")}, "gmail_credentials_file"),
     ],
@@ -103,36 +103,17 @@ def test_llm_defaults_to_fake() -> None:
     assert _s().llm_model == "fake"
 
 
-def test_non_openai_model_needs_no_openai_key() -> None:
-    assert_production_safe(
-        _s(
-            env="prod",
-            **{
-                **REAL,
-                "llm_model": "mistral:mistral-large-latest",
-                "embedding_model": "cohere:embed-multilingual-v3.0",
-                "openai_api_key": None,
-            },
-        )
-    )
+def test_prod_refuses_every_provider_but_gemini() -> None:
+    """Gemini API only (M13): another provider is refused even with its key set (the tier tests cover each field)."""
+    other = {**REAL, "llm_model": "mistral:mistral-large-latest", "embedding_model": "cohere:embed-multilingual-v3.0"}
+    with pytest.raises(UnsafeConfigurationError, match="prod runs Gemini only"):
+        assert_production_safe(_s(env="prod", **other))
 
 
 def test_gemini_model_needs_its_key() -> None:
-    gemini = {
-        **REAL,
-        "llm_model": "google-gla:gemini-2.5-flash",
-        "embedding_model": "google-gla:gemini-embedding-001",
-        "openai_api_key": None,
-    }
     with pytest.raises(UnsafeConfigurationError, match="gemini_api_key"):
-        assert_production_safe(_s(env="prod", **gemini))
-    assert_production_safe(_s(env="prod", **{**gemini, "gemini_api_key": "g-test"}))
-
-
-def test_an_openai_embedding_model_needs_the_openai_key() -> None:
-    with pytest.raises(UnsafeConfigurationError, match="embedding_model is an openai model"):
-        assert_production_safe(_s(env="prod", **{**REAL, "llm_model": "google-gla:gemini-2.5-flash",
-                                                 "gemini_api_key": "g", "openai_api_key": None}))  # fmt: skip
+        assert_production_safe(_s(env="prod", **{**REAL, "gemini_api_key": None}))
+    assert_production_safe(_s(env="prod", **REAL))
 
 
 @pytest.mark.parametrize("field", ["frontend_base_url", "google_login_redirect_uri", "google_oauth_redirect_uri"])

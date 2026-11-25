@@ -19,7 +19,7 @@ Every external tool sits behind an adapter interface so it can be swapped. Ratio
 |---|---|---|---|
 | WhatsApp route for tenant number | 360dialog / other Meta partner / direct Cloud API (no Coexistence) | M2 WhatsApp ingestion, M7 owner channel | build against Cloud API payload format + recorded fixtures |
 | Hosting provider (EU) | AWS eu-central-1 / Scaleway / Hetzner + managed PG elsewhere | production deploy (M8) | docker compose locally; code provider-neutral |
-| LLM provider | OpenAI EU / Anthropic / Mistral | M4 evals on real model | Pydantic AI `TestModel` in tests; model string in settings |
+| LLM provider | **Gemini API only** (decided 2026-11-25, M13; prod refuses others) | M4 evals on real model | Pydantic AI `TestModel` in tests; model string in settings |
 
 Engineering choices (DBOS, Pydantic AI, import-linter, testcontainers) are reversible behind adapters and proceed
 unless vetoed.
@@ -34,7 +34,7 @@ unless vetoed.
 | Database | **PostgreSQL 16**, **SQLAlchemy 2** (typed), **Alembic**, psycopg 3 | models, repositories |
 | Config | **pydantic-settings** | settings classes |
 | Contracts / validation | **Pydantic v2** | the six contracts |
-| LLM agents | **Pydantic AI** → OpenAI (EU data residency) | prompts, agent wiring |
+| LLM agents | **Pydantic AI** → Gemini API only, quality and fast tier (`app/llm/tiers.py`) | prompts, agent wiring |
 | LLM observability + prompt eval | **Langfuse** (EU cloud, OTel) | — |
 | Golden-set evals | **pydantic-evals** | datasets, custom evaluators |
 | WhatsApp | Pydantic webhook models + `httpx` (Meta Cloud API or **360dialog**) | inbound parsing, outbound adapter, owner message builders |

@@ -13,8 +13,12 @@ def _settings() -> Settings:
 def test_inbox_critical_path_agents_do_not_spend_hidden_thinking_tokens() -> None:
     assert model_settings(_settings(), CASE_SUMMARY)["thinking"] is False
     assert model_settings(_settings(), UNDERSTANDING)["thinking"] == "minimal"
+
+
+def test_drafts_are_quality_tier_and_think_high() -> None:
+    """M13: the drafts Harjot sends are worth the reasoning (app.llm.tiers); see tests/unit/llm/test_tiers.py."""
     for proposer in (PROPOSER, PROPOSER_DOCS, PROPOSER_GUIDED, PROPOSER_PERSONA):
-        assert model_settings(_settings(), proposer)["thinking"] == "minimal"
+        assert model_settings(_settings(), proposer)["thinking"] == "high"
 
 
 def test_agents_without_a_choice_keep_the_provider_default_and_the_caps() -> None:
