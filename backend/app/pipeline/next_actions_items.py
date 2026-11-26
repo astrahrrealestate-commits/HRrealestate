@@ -65,6 +65,9 @@ def one_line(text: str | None, limit: int = 160) -> str:
 
 
 def load_quote_reviews(session: Session, company_id: UUID, viewer: ActionViewer) -> list[tuple[NextAction, datetime]]:
+    """Flagged quotes; they name prices and overcharges, so only a profile with the money section sees them."""
+    if not viewer.money:
+        return []
     rows = session.execute(
         select(QuoteReview, QuoteRow, Case, Person.display_name)
         .join(QuoteRow, (QuoteRow.id == QuoteReview.quote_id) & (QuoteRow.company_id == company_id))
