@@ -180,6 +180,9 @@ export async function getInboxThreads(
                   bodyDutch: m.bodyDutch || undefined,
                   language: m.language,
                   channel: m.channel || channel,
+                  subject: m.subject,
+                  to: Array.isArray(m.to) ? m.to : undefined,
+                  cc: Array.isArray(m.cc) ? m.cc : undefined,
                   replyTo: m.replyTo,
                   attachments: m.attachments || [],
                 }))

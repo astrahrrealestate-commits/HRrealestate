@@ -11,8 +11,8 @@ from sqlalchemy.orm import Session
 
 from app.context.sender_label import UNASSIGNED_UNIT
 from app.context.shown_sender import saved_names, sender_person_ids
-from app.contracts import ActionType, CaseState, Channel, Direction, SenderRole, Urgency
-from app.db.enums import ActionStatus, ApprovalStatus, PersonKind
+from app.contracts import ActionType, CaseState, Channel, Direction, OutboundMode, SenderRole, Urgency
+from app.db.enums import ActionStatus, ApprovalStatus, PersonKind, SendStatus
 from app.db.models import (
     ActionRow,
     Approval,
@@ -115,7 +115,7 @@ def load_messages_batch(session: Session, company_id: UUID, cases: list[Case]) -
             msgs_by_id[msg.id] = msg
 
     thread_refs = {m.thread_ref for m in msgs_by_id.values() if m.thread_ref}
-    msgs_by_ref: dict[str, list[MessageRow]] = defaultdict(list)
+    msgs_by_ref: dict[tuple[Channel, str], list[MessageRow]] = defaultdict(list)
     if thread_refs:
         for msg in session.scalars(
             select(MessageRow)
@@ -123,7 +123,17 @@ def load_messages_batch(session: Session, company_id: UUID, cases: list[Case]) -
             .order_by(MessageRow.sent_at.asc())
         ).all():
             if msg.thread_ref:
-                msgs_by_ref[msg.thread_ref].append(msg)
+                msgs_by_ref[(msg.channel, msg.thread_ref)].append(msg)
+
+    linked_case_by_msg: dict[UUID, UUID] = {}
+    sib_ids = [m.id for rows in msgs_by_ref.values() for m in rows if m.id not in msgs_by_id]
+    if sib_ids:
+        for mid_row, cid_row in session.execute(
+            select(CaseLink.message_id, CaseLink.case_id).where(
+                CaseLink.company_id == company_id, CaseLink.message_id.in_(sib_ids)
+            )
+        ).all():
+            linked_case_by_msg.setdefault(mid_row, cid_row)
 
     msgs_by_case: dict[UUID, list[MessageRow]] = {}
     target_und_msg_ids: set[UUID] = set()
@@ -132,16 +142,19 @@ def load_messages_batch(session: Session, company_id: UUID, cases: list[Case]) -
     for c in cases:
         seen_ids: set[UUID] = set()
         combined: list[MessageRow] = []
-        refs: set[str] = set()
+        refs: set[tuple[Channel, str]] = set()
         for mid in link_msg_ids_by_case.get(c.id, ()):
             found_msg = msgs_by_id.get(mid)
             if found_msg is not None and found_msg.id not in seen_ids:
                 seen_ids.add(found_msg.id)
                 combined.append(found_msg)
                 if found_msg.thread_ref:
-                    refs.add(found_msg.thread_ref)
+                    refs.add((found_msg.channel, found_msg.thread_ref))
         for ref in refs:
             for sib in msgs_by_ref.get(ref, ()):
+                owner_case = linked_case_by_msg.get(sib.id)
+                if owner_case is not None and owner_case != c.id:
+                    continue
                 if sib.id not in seen_ids:
                     seen_ids.add(sib.id)
                     combined.append(sib)
@@ -306,22 +319,60 @@ def load_details_batch(
 
 def inbox_stats_counts(session: Session, company_id: UUID) -> dict[str, int]:
     """Computes fast SQL aggregate stats for inbox navigation badges without fetching message bodies."""
-    has_outbound = exists(
-        select(1)
-        .select_from(CaseLink)
-        .join(MessageRow, MessageRow.id == CaseLink.message_id)
+    latest_inbound_at = (
+        select(func.max(MessageRow.sent_at))
+        .join(CaseLink, CaseLink.message_id == MessageRow.id)
+        .where(
+            CaseLink.case_id == Case.id,
+            MessageRow.company_id == company_id,
+            MessageRow.direction != Direction.outbound,
+            not_chat_only(),
+        )
+        .correlate(Case)
+        .scalar_subquery()
+    )
+    latest_outbound_at = (
+        select(func.max(MessageRow.sent_at))
+        .join(CaseLink, CaseLink.message_id == MessageRow.id)
         .where(
             CaseLink.case_id == Case.id,
             MessageRow.company_id == company_id,
             MessageRow.direction == Direction.outbound,
             not_chat_only(),
         )
+        .correlate(Case)
+        .scalar_subquery()
+    )
+    has_outbound = latest_outbound_at.is_not(None) & (
+        latest_inbound_at.is_(None) | (latest_outbound_at >= latest_inbound_at)
     )
     has_sent_reply = exists(
         select(1)
         .select_from(ActionRow)
         .join(Send, Send.action_id == ActionRow.id)
-        .where(ActionRow.case_id == Case.id, ActionRow.company_id == company_id)
+        .join(Company, Company.id == ActionRow.company_id)
+        .where(
+            ActionRow.case_id == Case.id,
+            ActionRow.company_id == company_id,
+            ActionRow.type == ActionType.reply_draft,
+            Send.status == SendStatus.sent,
+            Send.channel != Channel.dashboard,
+            Company.outbound_mode == OutboundMode.send,
+        )
+    )
+    has_pending_reply_approval = exists(
+        select(1)
+        .select_from(ActionRow)
+        .join(
+            Approval,
+            (Approval.action_id == ActionRow.id) & (Approval.draft_version == ActionRow.draft_version),
+        )
+        .where(
+            ActionRow.case_id == Case.id,
+            ActionRow.company_id == company_id,
+            ActionRow.type == ActionType.reply_draft,
+            Approval.status == ApprovalStatus.pending,
+        )
     )
     has_decided_approval = exists(
         select(1)
@@ -418,9 +469,7 @@ def inbox_stats_counts(session: Session, company_id: UUID) -> dict[str, int]:
     needs_you_cond = (
         Case.state.notin_((CaseState.closed, CaseState.resolved))
         & ~has_outbound
-        & ~has_sent_reply
-        & ~has_decided_approval
-        & ~is_fyi_case
+        & (has_pending_reply_approval | (~has_sent_reply & ~has_decided_approval & ~is_fyi_case))
     )
 
     row = session.execute(

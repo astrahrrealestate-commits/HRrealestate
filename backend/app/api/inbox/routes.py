@@ -48,13 +48,21 @@ from app.channels.gmail.html_sanitize import (
 )
 from app.context.sender_label import UNASSIGNED_UNIT, resolve_sender_label, role_hint_of, unit_display
 from app.context.shown_sender import sender_person_ids, shown_sender_name
-from app.contracts import ActionType, ButtonChoice, CaseState, Category, Channel, Direction, Urgency
+from app.contracts import ActionType, ButtonChoice, CaseState, Category, Channel, Direction, OutboundMode, Urgency
 from app.core.errors import NotFoundError
 from app.core.ids import case_ref, new_id
 from app.core.language import detect_language
 from app.core.logging import get_logger
 from app.core.settings import get_settings
-from app.db.enums import ActionStatus, ApprovalStatus, CaseEventKind, PersonKind, PipelineStatus, RawEventStatus
+from app.db.enums import (
+    ActionStatus,
+    ApprovalStatus,
+    CaseEventKind,
+    PersonKind,
+    PipelineStatus,
+    RawEventStatus,
+    SendStatus,
+)
 from app.db.models import (
     ActionRevision,
     ActionRow,
@@ -216,7 +224,7 @@ def _build_drafts(
                 "name": reply_action.persona_name,
                 "version": reply_action.persona_version,
             }
-        variants = reply_action.payload.get("body_variants") or []
+        variants = (reply_action.payload.get("body_variants") or [])[:2]
         commitments = [str(c) for c in reply_action.payload.get("commitments") or []]
         if not variants and reply_action.payload.get("text"):
             variants = [reply_action.payload["text"]]
@@ -478,6 +486,10 @@ def _assemble_thread(
                 raw_html, clean_body = _cached_clean_and_html(raw_text, True)
         else:
             _, clean_body = _cached_clean_and_html(raw_text, False)
+        to_list = m_meta.get("to") if isinstance(m_meta.get("to"), list) else []
+        if not to_list and m_is_incoming and isinstance(m_meta.get("mailbox"), str):
+            to_list = [m_meta["mailbox"]]
+        cc_list = m_meta.get("cc") if isinstance(m_meta.get("cc"), list) else []
         msgs_data.append(
             {
                 "id": str(m.id),
@@ -493,58 +505,79 @@ def _assemble_thread(
                 "channel": m.channel.value if m.channel else "gmail",
                 "attachments": attachments_map.get(m.id, []),
                 "subject": m_meta.get("subject", "Communication"),
+                "to": to_list,
+                "cc": cc_list,
             }
         )
 
-    actions_by_id = {a.id: a for a in actions}
-    for act in actions:
-        for s in details.sends_by_action.get(act.id, ()):
-            s_dt = s.attempted_at or now_dt
-            if s_dt.tzinfo is None:
-                s_dt = s_dt.replace(tzinfo=UTC)
-            s_time_fmt = when_label(s_dt, now_dt, company_tz)
-            act_row = actions_by_id.get(s.action_id) if s.action_id is not None else act
-            act_payload = act_row.payload if act_row and isinstance(act_row.payload, dict) else {}
+    is_send_mode = msg_batch.company is not None and msg_batch.company.outbound_mode is OutboundMode.send
+    if is_send_mode:
+        for act in actions:
+            if act.type is not ActionType.reply_draft:
+                continue
+            act_approvals = details.approvals_by_action.get(act.id, ())
+            approved_ap = next((ap for ap in act_approvals if ap.status == ApprovalStatus.approved), None)
+            choice = approved_ap.choice if approved_ap and approved_ap.choice else ButtonChoice.d1
+            choice_idx = {ButtonChoice.d2: 1, ButtonChoice.d3: 2}.get(choice, 0)
+            act_payload = act.payload if isinstance(act.payload, dict) else {}
             variants = act_payload.get("body_variants") or []
-            body_txt = variants[0] if variants else "Replied to tenant."
-            s_iso = s_dt.isoformat()
-            preceding_incoming = [m for m in msgs_data if m.get("isIncoming") and (m.get("sentAt") or "") <= s_iso]
-            reply_to_info = None
-            if preceding_incoming:
-                target_in = preceding_incoming[-1]
-                clean_in_text = (target_in.get("body") or "").strip().strip('"').strip("'")
-                reply_to_info = {
-                    "id": str(target_in.get("id")),
-                    "sender": target_in.get("senderName") or "Tenant",
-                    "text": clean_in_text[:120],
-                }
-            elif act_payload.get("reply_to"):
-                reply_to_info = act_payload.get("reply_to")
-            msgs_data.append(
-                {
-                    "id": str(s.id),
-                    "sender": "owner",
-                    "senderName": "Harjot Singh",
-                    "senderContact": "+31 20 000 0001",
-                    "sentAt": s_iso,
-                    "timeFormatted": s_time_fmt,
-                    "content": body_txt,
-                    "body": body_txt,
-                    "isIncoming": False,
-                    "channel": s.channel.value if s.channel else "whatsapp",
-                    "subject": "Reply",
-                    "replyTo": reply_to_info,
-                }
-            )
+            body_txt = variants[min(choice_idx, len(variants) - 1)] if variants else "Replied to tenant."
+            for s in details.sends_by_action.get(act.id, ()):
+                if s.status is not SendStatus.sent or s.channel is Channel.dashboard:
+                    continue
+                if any(
+                    not m.get("isIncoming") and (m.get("body") or "").strip() == body_txt.strip() for m in msgs_data
+                ):
+                    continue
+                s_dt = s.attempted_at or now_dt
+                if s_dt.tzinfo is None:
+                    s_dt = s_dt.replace(tzinfo=UTC)
+                s_time_fmt = when_label(s_dt, now_dt, company_tz)
+                s_iso = s_dt.isoformat()
+                preceding_incoming = [m for m in msgs_data if m.get("isIncoming") and (m.get("sentAt") or "") <= s_iso]
+                reply_to_info = None
+                if preceding_incoming:
+                    target_in = preceding_incoming[-1]
+                    clean_in_text = (target_in.get("body") or "").strip().strip('"').strip("'")
+                    reply_to_info = {
+                        "id": str(target_in.get("id")),
+                        "sender": target_in.get("senderName") or "Tenant",
+                        "text": clean_in_text[:120],
+                    }
+                elif act_payload.get("reply_to"):
+                    reply_to_info = act_payload.get("reply_to")
+                msgs_data.append(
+                    {
+                        "id": str(s.id),
+                        "sender": "owner",
+                        "senderName": "Harjot Singh",
+                        "senderContact": owner_email if s.channel is Channel.gmail else "+31 20 000 0001",
+                        "sentAt": s_iso,
+                        "timeFormatted": s_time_fmt,
+                        "content": body_txt,
+                        "body": body_txt,
+                        "isIncoming": False,
+                        "channel": s.channel.value if s.channel else "whatsapp",
+                        "subject": act_payload.get("subject") or "Reply",
+                        "to": [s.target] if s.target else [],
+                        "cc": [],
+                        "replyTo": reply_to_info,
+                    }
+                )
 
     msgs_data.sort(key=lambda x: x.get("sentAt", ""))
-    has_owner_reply = any(m.get("sender") == "owner" for m in msgs_data)
+    last_msg_is_owner = bool(msgs_data) and msgs_data[-1].get("sender") == "owner"
+    has_pending_reply = (
+        approval is not None and approval.status == ApprovalStatus.pending and bool(gmail_drafts or whatsapp_drafts)
+    )
     has_pending_action = any(a.status in (ActionStatus.pending_approval, ActionStatus.exception) for a in actions)
     requires_reply = und_body.get("requires_reply") if isinstance(und_body, dict) else None
     status_str = "needs_approval"
     if case.state in (CaseState.closed, CaseState.resolved):
         status_str = "closed"
-    elif (approval and approval.status == ApprovalStatus.approved) or has_owner_reply:
+    elif has_pending_reply and not last_msg_is_owner:
+        status_str = "needs_approval"
+    elif (approval and approval.status == ApprovalStatus.approved) or last_msg_is_owner:
         status_str = "approved"
     elif approval and approval.status == ApprovalStatus.rejected:
         status_str = "rejected"
@@ -554,12 +587,12 @@ def _assemble_thread(
     last_read = getattr(case, "last_read_at", None)
     if last_read is not None and last_read.tzinfo is None:
         last_read = last_read.replace(tzinfo=UTC)
-    is_read = bool(has_owner_reply or (last_read is not None and last_read >= sent_dt) or status_str == "closed")
+    is_read = bool(last_msg_is_owner or (last_read is not None and last_read >= sent_dt) or status_str == "closed")
     snoozed_until = getattr(case, "snoozed_until", None)
     subject_str = (
         prep.latest_msg.meta.get("subject") if isinstance(prep.latest_msg.meta, dict) else None
     ) or " - ".join(filter(None, (case.category.value.title(), unit_label)))
-    hide_drafts = status_str == "approved" or (bool(msgs_data) and msgs_data[-1].get("sender") == "owner")
+    hide_drafts = status_str == "approved" or last_msg_is_owner
     ticket_code = f"BRIXX-{case.brixx_ref}" if case.brixx_ref else f"#{case_ref(case.id)}"
 
     latest_raw_text = prep.latest_msg.text or ""

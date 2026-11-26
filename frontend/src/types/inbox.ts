@@ -22,16 +22,22 @@ export interface ThreadMessage {
   bodyDutch?: string; // cached Dutch for an English message
   language?: "nl" | "en" | "unknown"; // from the server's language check
   channel: ChannelType;
+  subject?: string;
+  to?: string[];
+  cc?: string[];
   replyTo?: {
     id?: string;
     sender?: string;
     text?: string;
   };
   attachments?: Array<{
+    id?: string;
     name: string;
     size: string;
     type: string;
+    mimeType?: string;
     url?: string;
+    driveUrl?: string;
   }>;
 }
 

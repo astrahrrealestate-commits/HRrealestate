@@ -588,7 +588,7 @@ export function Composer({
                   value={content}
                   onChange={(e) => editContent(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
+                    if (e.key === "Enter" && (activeChannel === "gmail" ? (e.metaKey || e.ctrlKey) : !e.shiftKey)) {
                       e.preventDefault();
                       if (hasDraft) {
                         handleAccept();
@@ -1041,7 +1041,7 @@ export function Composer({
                 value={content}
                 onChange={(e) => editContent(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
+                  if (e.key === "Enter" && (activeChannel === "gmail" ? (e.metaKey || e.ctrlKey) : !e.shiftKey)) {
                     e.preventDefault();
                     if (hasDraft) {
                       handleAccept();
@@ -1050,7 +1050,11 @@ export function Composer({
                     }
                   }
                 }}
-                placeholder={t("inbox.reply_placeholder", "Type a reply... (Press Enter to send)")}
+                placeholder={
+                  activeChannel === "gmail"
+                    ? "Type an email reply... (⌘/Ctrl+Enter to send)"
+                    : t("inbox.reply_placeholder", "Type a reply... (Press Enter to send)")
+                }
                 className="w-full min-h-[104px] text-[13.5px] px-3.5 py-2 bg-transparent border-0 text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none resize-y leading-relaxed"
               />
             </div>

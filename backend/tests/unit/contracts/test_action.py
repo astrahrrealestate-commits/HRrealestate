@@ -69,7 +69,7 @@ def test_type_payload_mismatch_rejected() -> None:
         _action(type=ActionType.escalate)
 
 
-@pytest.mark.parametrize("variants", [["only one"], ["a", "b", "c", "d"], ["a", ""], ["a", "   "]])
+@pytest.mark.parametrize("variants", [["only one"], ["a", "b", "c"], ["a", "b", "c", "d"], ["a", ""], ["a", "   "]])
 def test_variant_rules(variants: list[str]) -> None:
     with pytest.raises(ValidationError):
         _action(payload=_reply(body_variants=variants))

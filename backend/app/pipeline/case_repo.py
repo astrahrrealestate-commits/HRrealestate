@@ -3,11 +3,12 @@
 Every function takes `company_id` (invariant 4) and flushes; the caller owns the transaction.
 """
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import ColumnElement, exists, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -134,31 +135,75 @@ def link_message(
     return inserted is not None
 
 
+_MSG_ID_TOKEN = re.compile(r"<[^<>\s]+>")
+
+
+def _rfc_reply_ids(meta: dict[str, object] | None) -> list[str]:
+    if not isinstance(meta, dict):
+        return []
+    raw = " ".join(str(v) for v in (meta.get("in_reply_to"), meta.get("references")) if v)
+    return list(dict.fromkeys(_MSG_ID_TOKEN.findall(raw)))
+
+
 def thread_case(session: Session, company_id: UUID, message: MessageRow) -> UUID | None:
     """The open case already holding this thread. WhatsApp "threads" are the counterpart, so only recent messages
-    (72 h) count; Gmail thread ids are real threads and count regardless of age."""
-    if not message.thread_ref:
-        return None
-    query = (
-        select(CaseLink.case_id)
+    (72 h) count; Gmail thread ids (and RFC In-Reply-To/References fallback) are real threads and count regardless
+    of age."""
+    if message.thread_ref:
+        query = (
+            select(CaseLink.case_id)
+            .join(MessageRow, MessageRow.id == CaseLink.message_id)
+            .join(Case, Case.id == CaseLink.case_id)
+            .where(
+                CaseLink.company_id == company_id,
+                MessageRow.channel == message.channel,
+                MessageRow.thread_ref == message.thread_ref,
+                MessageRow.id != message.id,
+                Case.state.in_(OPEN_STATES),
+            )
+            .order_by(MessageRow.sent_at.desc())
+            .limit(1)
+        )
+        if message.channel is Channel.whatsapp:
+            query = query.where(MessageRow.sent_at >= message.sent_at - WHATSAPP_THREAD_WINDOW)
+        found = session.scalar(query)
+        if found is not None:
+            return found
+    if message.channel is Channel.gmail and (ref_ids := _rfc_reply_ids(message.meta)):
+        return session.scalar(
+            select(CaseLink.case_id)
+            .join(MessageRow, MessageRow.id == CaseLink.message_id)
+            .join(Case, Case.id == CaseLink.case_id)
+            .where(
+                CaseLink.company_id == company_id,
+                MessageRow.channel == Channel.gmail,
+                MessageRow.meta["message_id"].astext.in_(ref_ids),
+                MessageRow.id != message.id,
+                Case.state.in_(OPEN_STATES),
+            )
+            .order_by(MessageRow.sent_at.desc())
+            .limit(1)
+        )
+    return None
+
+
+def no_other_channel_messages(company_id: UUID, channel: Channel) -> ColumnElement[bool]:
+    """Clause matching cases that do not already hold linked messages on a different channel."""
+    return ~exists(
+        select(CaseLink.id)
         .join(MessageRow, MessageRow.id == CaseLink.message_id)
-        .join(Case, Case.id == CaseLink.case_id)
         .where(
             CaseLink.company_id == company_id,
-            MessageRow.channel == message.channel,
-            MessageRow.thread_ref == message.thread_ref,
-            MessageRow.id != message.id,
-            Case.state.in_(OPEN_STATES),
+            CaseLink.case_id == Case.id,
+            MessageRow.company_id == company_id,
+            MessageRow.channel != channel,
         )
-        .order_by(MessageRow.sent_at.desc())
-        .limit(1)
     )
-    if message.channel is Channel.whatsapp:
-        query = query.where(MessageRow.sent_at >= message.sent_at - WHATSAPP_THREAD_WINDOW)
-    return session.scalar(query)
 
 
-def open_candidates(session: Session, company_id: UUID, person_id: UUID) -> list[CaseCandidate]:
+def open_candidates(
+    session: Session, company_id: UUID, person_id: UUID, *, channel: Channel | None = None
+) -> list[CaseCandidate]:
     last = (
         select(CaseLink.case_id, func.max(MessageRow.sent_at).label("last_at"))
         .join(MessageRow, MessageRow.id == CaseLink.message_id)
@@ -166,10 +211,17 @@ def open_candidates(session: Session, company_id: UUID, person_id: UUID) -> list
         .group_by(CaseLink.case_id)
         .subquery()
     )
+    filters = [
+        Case.company_id == company_id,
+        Case.primary_person_id == person_id,
+        Case.state.in_(OPEN_STATES),
+    ]
+    if channel is not None:
+        filters.append(no_other_channel_messages(company_id, channel))
     rows = session.execute(
         select(Case.id, Case.category, Case.summary, last.c.last_at)
         .outerjoin(last, last.c.case_id == Case.id)
-        .where(Case.company_id == company_id, Case.primary_person_id == person_id, Case.state.in_(OPEN_STATES))
+        .where(*filters)
         .order_by(last.c.last_at.desc().nulls_last())
     ).all()
     return [CaseCandidate(r[0], r[1], r[2], r[3]) for r in rows]

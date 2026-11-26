@@ -28,8 +28,8 @@ from app.llm.calls import AgentSpec
 from app.llm.prompts import LoadedPrompt
 from app.llm.render import data_block, escape
 
-ROLE_AWARE_PROMPTS = frozenset({"v5", "v6", "v7"})
-DOSSIER_PROMPTS = frozenset({"v6", "v7"})  # the dossier replaces <message>, <waiting> and <excerpts>
+ROLE_AWARE_PROMPTS = frozenset({"v5", "v6", "v7", "v8"})
+DOSSIER_PROMPTS = frozenset({"v6", "v7", "v8"})  # the dossier replaces <message>, <waiting> and <excerpts>
 MAX_PERSONA_CHARS = 8000  # the persona markdown's limit (a data block holds at most this many characters)
 
 
@@ -127,16 +127,23 @@ PROPOSER_V7 = AgentSpec(  # v6 after its real-model eval: settled facts used, on
     finalize=_unchanged,
     gemini_prompted=True,
 )
+PROPOSER_V8 = AgentSpec(  # v7 with 2 draft variants instead of 3
+    name="proposer",
+    prompt=PromptRef(name="proposer", version="v8"),
+    output_type=Proposal,
+    finalize=_unchanged,
+    gemini_prompted=True,
+)
 MAX_GUIDANCE = 400  # the planner's `text` limit
 MAX_CURRENT_VARIANT = 1500
 
 
 def proposer_spec(ctx: ProposerContext) -> AgentSpec[Proposal]:
-    """v6 whenever a dossier is given (every pipeline proposal and owner redraft since M13); v4 whenever the owner's
+    """v8 whenever a dossier is given (every pipeline proposal and owner redraft); v4 whenever the owner's
     persona is given; otherwise v2 only for an owner-requested draft (guidance or a draft to
     replace), v3 when the case's own documents are in view (ADR 0008), v1 for everything else."""
     if ctx.dossier:
-        return PROPOSER_V7
+        return PROPOSER_V8
     if ctx.persona is not None:
         return PROPOSER_PERSONA
     if ctx.guided:
@@ -216,6 +223,6 @@ def _guided_blocks(ctx: ProposerContext) -> list[str]:
     edited by the owner), the guidance the owner's own words after redaction: both stay data blocks."""
     if not ctx.guided:
         return []
-    current = "\n---\n".join(v[:MAX_CURRENT_VARIANT] for v in ctx.current_draft[:3]) or "none"
+    current = "\n---\n".join(v[:MAX_CURRENT_VARIANT] for v in ctx.current_draft[:2]) or "none"
     guidance = (ctx.guidance or "").strip()[:MAX_GUIDANCE] or "none"
     return [data_block("current_draft", current), data_block("owner_guidance", guidance)]

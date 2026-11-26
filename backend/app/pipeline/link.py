@@ -14,7 +14,7 @@ from sqlalchemy import Engine, select, text
 from sqlalchemy.orm import Session
 
 from app.context.person_profile import mark_stale, person_profile_line
-from app.contracts import CaseState, Category, Urgency
+from app.contracts import CaseState, Category, Channel, Urgency
 from app.core.errors import AgentFailedError
 from app.core.logging import get_logger
 from app.core.settings import Settings
@@ -134,7 +134,11 @@ def _choose(engine: Engine, settings: Settings, f: _Facts, person_id: UUID) -> t
         thread = case_repo.thread_case(session, f.company_id, msg) if msg else None
         if thread is not None:
             return thread, LinkMethod.thread
-        open_cases = case_repo.open_candidates(session, f.company_id, person_id)
+        # Email threads follow Gmail thread / RFC reply headers only: two separate emails from the same
+        # address must never be merged into one thread.
+        if msg is not None and msg.channel is Channel.gmail:
+            return None, LinkMethod.new_case
+        open_cases = case_repo.open_candidates(session, f.company_id, person_id, channel=msg.channel if msg else None)
         profile = session.scalar(
             select(PersonProfile).where(PersonProfile.company_id == f.company_id, PersonProfile.person_id == person_id)
         )
@@ -145,17 +149,17 @@ def _choose(engine: Engine, settings: Settings, f: _Facts, person_id: UUID) -> t
         # Check if the person is linked to a unit with an existing Case for an open BRIXX ticket
         if f.category == Category.maintenance:
             with Session(engine) as session:
+                brixx_filters = [
+                    Case.company_id == f.company_id,
+                    Case.primary_person_id == person_id,
+                    Case.category == Category.maintenance,
+                    Case.state.in_(case_repo.OPEN_STATES),
+                    Case.brixx_ref.is_not(None),
+                ]
+                if msg is not None:
+                    brixx_filters.append(case_repo.no_other_channel_messages(f.company_id, msg.channel))
                 matching_brixx_case = session.scalar(
-                    select(Case.id)
-                    .where(
-                        Case.company_id == f.company_id,
-                        Case.primary_person_id == person_id,
-                        Case.category == Category.maintenance,
-                        Case.state.in_(case_repo.OPEN_STATES),
-                        Case.brixx_ref.is_not(None),
-                    )
-                    .order_by(Case.opened_at.desc())
-                    .limit(1)
+                    select(Case.id).where(*brixx_filters).order_by(Case.opened_at.desc()).limit(1)
                 )
                 if matching_brixx_case:
                     return matching_brixx_case, LinkMethod.open_case
