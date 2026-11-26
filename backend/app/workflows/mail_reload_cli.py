@@ -22,8 +22,6 @@ from sqlalchemy.orm import Session
 from app.channels import google_store
 from app.core.logging import get_logger
 from app.core.settings import Settings, get_settings
-from app.db.models import MessageRow
-from app.pipeline.draft_research import research_for
 from app.pipeline.person_memory import refresh_person_memory
 from app.storage.drive import CONTENT_PROPERTY, DriveApiError, DriveStore, content_value
 from app.workflows.deps import get_deps, get_drive
@@ -32,6 +30,7 @@ from app.workflows.mail_draft_open import MAX_AGE_DAYS, DraftOpenReport, draft_o
 from app.workflows.mail_purge import FileHash, PurgeRefusedError, ReloadPreview, preview, purge
 from app.workflows.mail_purge_scope import mailbox_company
 from app.workflows.mail_reload import IDLE_DAYS, reingest, run_history, settle_history
+from app.workflows.prepare import prepare_for_draft
 
 log = get_logger(__name__)
 DEFAULT_DAYS = 90
@@ -131,12 +130,8 @@ def _purge(engine: Engine, settings: Settings, args: argparse.Namespace, draft_r
 
 
 def _prepare(engine: Engine, settings: Settings, message_id: UUID) -> None:
-    """Research before the draft (T8). The attachments and the quote were read when the history run handled the mail."""
-    with Session(engine) as session:
-        row = session.get(MessageRow, message_id)
-        company_id = row.company_id if row is not None else None
-    if company_id is not None:
-        research_for(engine, settings, company_id, message_id)
+    """Read attachments, review any quote, and research web/reference sources before the draft (T8)."""
+    prepare_for_draft(engine, settings, message_id, research=True)
 
 
 def _memory(engine: Engine, settings: Settings, company_id: UUID, person_id: UUID) -> None:

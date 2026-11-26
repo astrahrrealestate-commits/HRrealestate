@@ -16,6 +16,17 @@ from app.db.enums import PersonKind
 from app.db.models import LeaseParty, Person
 
 UNASSIGNED_UNIT = "Unassigned Unit"
+UNKNOWN_CONTACT = "Unknown contact"
+
+
+def safe_name(name: str) -> str:
+    """A contact may be named after their email or number; hide that when the viewer lacks inbox access."""
+    shown = name.strip()
+    if "@" in shown or sum(c.isdigit() for c in shown) >= 6:
+        return UNKNOWN_CONTACT
+    return shown or UNKNOWN_CONTACT
+
+
 _FREE_MAIL = frozenset(
     {
         "gmail.com",

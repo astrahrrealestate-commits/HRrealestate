@@ -10,8 +10,9 @@ import { caseRefTail, ticketRef } from "@/lib/caseRef";
 import { BACKEND_BASE_URL, apiFetch } from "@/lib/backend";
 import { localDayNumber, localWallToDate } from "@/lib/clock";
 import { PulseMetrics, AutonomousActionLog } from "@/types/dashboard";
-import { INITIAL_METRICS, RECENT_AUTONOMOUS_LOGS } from "@/data/mockData";
-import { StalledItem, INITIAL_STALLED_ITEMS } from "@/components/today/UnresponsiveRadarCard";
+import type { BusinessCategory } from "@/lib/categoryLabels";
+import { RECENT_AUTONOMOUS_LOGS } from "@/data/mockData";
+import { StalledItem } from "@/components/today/UnresponsiveRadarCard";
 import { getContactDisplayName, getSnippet, getUnifiedThreadId } from "@/lib/selectors";
 
 
@@ -502,7 +503,7 @@ export async function getDashboardBriefing(kind: "daily" | "weekly" = "daily") {
  * Fetches executive pulse metrics (3 Pillars: Needs You, Rent, Occupancy).
  * GET /api/dashboard/pulse
  */
-export async function getDashboardPulse(): Promise<{ metrics: PulseMetrics; isLive: boolean }> {
+export async function getDashboardPulse(): Promise<{ metrics: PulseMetrics | null; isLive: boolean }> {
   try {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/dashboard/pulse`, {
       method: "GET",
@@ -529,10 +530,10 @@ export async function getDashboardPulse(): Promise<{ metrics: PulseMetrics; isLi
       };
     }
   } catch {
-    // Offline fallback
+    // Offline: never invent demo metrics
   }
 
-  return { metrics: INITIAL_METRICS, isLive: false };
+  return { metrics: null, isLive: false };
 }
 
 export interface AttentionItem {
@@ -601,17 +602,17 @@ export async function getDashboardRadar(): Promise<{ items: StalledItem[]; total
           lastMessageSent: `${item.daysWaiting ?? 0} days ago`,
           daysStalled: item.daysWaiting ?? 0,
           statusBadge: `${item.chasersSent ?? 0} reminders sent`,
-          proposedActionLabel: item.proposedActionLabel || "Send follow-up",
-          proposedActionDraft: `Beste ${item.partyName || "relatie"}, kunt u een update sturen? Groet, H R Real Estate.`,
+          proposedActionLabel: item.proposedActionLabel || "Open in Inbox",
+          proposedActionDraft: item.proposedActionDraft || "",
         }));
         return { items: mappedItems, total: data.total, isLive: true };
       }
     }
   } catch {
-    // Offline fallback
+    // Offline: never show demo rows
   }
 
-  return { items: INITIAL_STALLED_ITEMS, total: INITIAL_STALLED_ITEMS.length, isLive: false };
+  return { items: [], total: 0, isLive: false };
 }
 
 /**
@@ -1989,7 +1990,6 @@ export async function approveCalendarEvent(
   }
 }
 
-
 // ---------------------------------------------------------------------------
 // Incoming Google Calendar invites (sent to the owner directly, not proposed by EstateOS)
 // ---------------------------------------------------------------------------
@@ -2044,6 +2044,150 @@ export async function respondToInvite(
       }
     );
     if (res.ok) return { ok: true };
+    const err = await res.json().catch(() => null);
+    return { ok: false, error: err?.detail ?? `HTTP ${res.status}` };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "network error" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Today Category Desk (M13 T10 / T12)
+// ---------------------------------------------------------------------------
+
+export interface CategorySummaryItem {
+  category: BusinessCategory;
+  label: string;
+  open_actions: number;
+  urgent: number;
+}
+
+export type CategoryActionKind =
+  | "approve_draft"
+  | "reply_needed"
+  | "quote_review"
+  | "overdue_wait"
+  | "document_review"
+  | "brixx_ticket"
+  | "rent_arrears"
+  | "lease_ending";
+
+export interface CategoryNextAction {
+  id: string;
+  category: BusinessCategory;
+  kind: CategoryActionKind;
+  title: string;
+  why: string;
+  urgency: "emergency" | "high" | "normal" | "low";
+  due_at: string | null;
+  case_id: string | null;
+  approval_id: string | null;
+  prepared: string | null;
+  target_url: string;
+}
+
+export interface CategoryDeskData {
+  brief: string | null;
+  actions: CategoryNextAction[];
+}
+
+export async function getDashboardCategories(): Promise<CategorySummaryItem[] | null> {
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/dashboard/categories`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return Array.isArray(data) ? data : null;
+    }
+  } catch {
+    // Offline
+  }
+  return null;
+}
+
+export async function getCategoryDesk(category: BusinessCategory): Promise<CategoryDeskData | null> {
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/dashboard/categories/${encodeURIComponent(category)}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        brief: typeof data?.brief === "string" ? data.brief : null,
+        actions: Array.isArray(data?.actions) ? data.actions : [],
+      };
+    }
+  } catch {
+    // Offline
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Document Library & Reference Toggle (/api/v1/documents)
+// ---------------------------------------------------------------------------
+
+export interface DocumentLibraryItem {
+  id: string;
+  attachment_id: string;
+  title: string;
+  doc_type: string;
+  status: string;
+  document_date: string | null;
+  summary: string | null;
+  snippet: string | null;
+  rank: number;
+  drive_url: string | null;
+  suspicious: boolean;
+  created_at: string;
+  is_reference: boolean;
+}
+
+export async function listDocuments(params: {
+  q?: string;
+  referenceOnly?: boolean;
+  limit?: number;
+} = {}): Promise<{ items: DocumentLibraryItem[]; ok: boolean }> {
+  const query = new URLSearchParams();
+  if (params.q?.trim()) query.set("q", params.q.trim());
+  if (params.referenceOnly) query.set("reference_only", "true");
+  query.set("limit", String(params.limit ?? 30));
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/v1/documents?${query.toString()}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return { items: Array.isArray(data) ? data : [], ok: true };
+    }
+  } catch {
+    // Offline
+  }
+  return { items: [], ok: false };
+}
+
+export async function setDocumentReference(
+  documentId: string,
+  isReference: boolean
+): Promise<{ ok: boolean; is_reference?: boolean; error?: string }> {
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/v1/documents/${encodeURIComponent(documentId)}/reference`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ is_reference: isReference }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return { ok: true, is_reference: Boolean(data?.is_reference) };
+    }
     const err = await res.json().catch(() => null);
     return { ok: false, error: err?.detail ?? `HTTP ${res.status}` };
   } catch (err) {

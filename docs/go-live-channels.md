@@ -188,6 +188,24 @@ scopes alone do not stop that token from sending. The separation is enforced in 
 token, `send_message` is limited to the owner's own addresses, and tenant replies go only through `send_reply` on the
 separate reply-send token.
 
+### Historical mailbox reload runbook (M13 `scripts/mail_reload.sh`)
+
+Use `scripts/mail_reload.sh <stage|prod> <mode> [mailbox] [days]` instead of ad-hoc scripts. Every write mode logs
+counts only (no PII) and `purge` stops the ECS/worker task and snapshots Postgres before deleting that mailbox's
+stored Gmail rows (Drive files, WhatsApp messages and directory records stay untouched).
+
+1. **Baseline before prod purge:** `scripts/mail_reload.sh prod draft-report <mailbox> 30` (records T16 acceptance counts
+   per category before `purge` deletes those rows).
+2. **Deploy 1 (stage first, then prod):**
+   - `scripts/mail_reload.sh stage preview <mailbox>`
+   - `scripts/mail_reload.sh stage purge <mailbox>`
+   - `scripts/mail_reload.sh stage reingest <mailbox> 7` (`90` for prod)
+   - `scripts/mail_reload.sh stage run-history <mailbox>` (queues onto `history`; inspect `model_calls` spend to size `LLM_DAILY_BUDGET_USD`)
+3. **Deploy 2 (once `run-history` finishes, with `proposer/v6` & dossier live):**
+   - `scripts/mail_reload.sh <env> settle <mailbox>` (resolves aged threads cleanly)
+   - `scripts/mail_reload.sh <env> draft-open <mailbox> 14 --dry-run` (review list with owner)
+   - `scripts/mail_reload.sh <env> draft-open <mailbox> 14` (creates drafts for genuinely open threads)
+
 ## WhatsApp
 
 The provider decision is still open (Meta Cloud API directly, or 360dialog). Both are supported; set one.

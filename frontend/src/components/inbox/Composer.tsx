@@ -11,6 +11,7 @@ import { DraftOption } from "@/types/dashboard";
 import { DraftPersona } from "@/types/inbox";
 import { createGmailDraft, translateText } from "@/lib/api";
 import { TranslationToggle } from "@/components/inbox/TranslationToggle";
+import { DraftCommitments } from "@/components/inbox/DraftCommitments";
 import { formatClock } from "@/lib/clock";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { useLanguage } from "@/context/LanguageContext";
@@ -307,6 +308,8 @@ export function Composer({
   // State 1: AI draft available or matching draft text (only if not already sent)
   const hasDraft = !isSent && (Boolean(draftText) || Boolean(content.trim() && drafts.length > 0));
   const isMobileDraftsOpen = hasDraft && expandedDraftThreadKey === key;
+  const activeDraft = drafts.find((d, idx) => getDraftKey(d, idx) === selectedDraftId) ?? drafts[0];
+  const activeCommitments = hasDraft ? (activeDraft?.commitments ?? []) : [];
 
   // Auto-grow the collapsed mobile input so multi-line drafts (after the greeting line) show immediately
   useEffect(() => {
@@ -477,6 +480,8 @@ export function Composer({
                 </div>
               </div>
             )}
+
+            <DraftCommitments commitments={activeCommitments} />
 
             {/* Single-Line / Auto-Growing WhatsApp-Style Chat Input Bar (Pre-filled with Draft 1 when available) */}
             <div className="flex items-end gap-2">
@@ -727,6 +732,9 @@ export function Composer({
               </div>
             </div>
 
+            {/* Commitments made by this reply, right above Approve */}
+            <DraftCommitments commitments={activeCommitments} />
+
             {/* Single Side-by-Side Bottom Action Row */}
             <div className="flex items-center gap-2">
               {activeChannel === "whatsapp" && cleanPhone && (
@@ -772,10 +780,12 @@ export function Composer({
       {!isDesktopExpanded ? (
         <div
           className={cn(
-            "hidden sm:flex shrink-0 border-t border-[var(--line)] bg-[var(--pane)] px-4 py-2.5 items-center justify-between gap-2 select-none",
+            "hidden sm:flex shrink-0 border-t border-[var(--line)] bg-[var(--pane)] flex-col select-none",
             className
           )}
         >
+          <DraftCommitments commitments={activeCommitments} />
+          <div className="px-4 py-2.5 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <button
               type="button"
@@ -813,6 +823,7 @@ export function Composer({
                 {t("inbox.approve_draft", "Accept & send")}
               </Button>
             )}
+          </div>
           </div>
         </div>
       ) : (
@@ -949,6 +960,9 @@ export function Composer({
                 className="w-full min-h-[104px] text-[14px] px-3.5 py-2.5 bg-transparent border-0 text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none resize-y leading-relaxed"
               />
             </div>
+
+            {/* Commitments made by this reply, shown right above Approve */}
+            <DraftCommitments commitments={activeCommitments} />
 
             {/* Integrated Bottom Toolbar */}
             <div className="px-3 py-2 border-t border-[var(--line)] bg-[var(--bg)]/40 flex flex-wrap items-center justify-between gap-2">

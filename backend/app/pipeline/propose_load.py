@@ -27,6 +27,7 @@ class Loaded:
     paused: bool
     message_ids: tuple[UUID, ...] = ()  # messages whose text is in the prompt (model_calls, erasure)
     sources: tuple[str, ...] = ()  # documents, references and pages in view, named on the card
+    dossier_source: str = ""  # verified dossier text for output_guard (never guidance, draft, flagged or owner_copy)
 
     def guided(self, guidance: str | None, current: Sequence[str] = ()) -> "Loaded":
         return replace(self, ctx=replace(self.ctx, guidance=guidance, current_draft=tuple(current)))
@@ -36,9 +37,12 @@ class Loaded:
 
     @property
     def source(self) -> str:
-        """The conversation a draft is checked against (output guard): never the guidance or an earlier draft."""
+        """Verified text in view for the output guard: never guidance, earlier drafts, flagged or unverified text."""
         c = self.ctx
-        return "\n".join([c.subject or "", c.message_text, c.case_summary, *c.waiting])
+        parts = [c.subject or "", c.message_text, c.case_summary, *c.waiting]
+        if self.dossier_source:
+            parts.append(self.dossier_source)
+        return "\n".join(parts)
 
 
 def with_defaults(body: dict[str, Any]) -> dict[str, Any]:
@@ -76,6 +80,17 @@ def _message_ids(d: Dossier) -> tuple[UUID, ...]:
     return tuple(dict.fromkeys([*(line.message_id for line in lines), *d.extra_message_ids]))
 
 
+def _dossier_source(d: Dossier) -> str:
+    """Verified dossier content for the output guard; flagged, owner-copy and memory text are left out."""
+    thread_lines = (*d.thread, *d.sender_history, *d.older_mail)
+    lines = [line.text for line in thread_lines if not line.flagged and not line.owner_copy]
+    atts = [a.text for a in d.attachments if not a.flagged]
+    docs = [p.text for p in (*d.documents, *d.references)]
+    research = [part for f in d.research for part in (f.url, f.answer)]
+    quote = [d.quote] if d.quote else []
+    return "\n".join([*lines, *atts, *docs, *research, *quote, *d.tenancy, *d.owner_rules])
+
+
 def load(session: Session, msg: MessageRow, case: Case, und: Understanding, embedder: TextEmbedder | None) -> Loaded:
     """The writer's role comes from the mail's own sender, not the case's main person: on a shared case a contractor's
     mail gets a contractor's reply. Without a BRIXX work order no contractor is offered (Harjot creates the ticket)."""
@@ -93,4 +108,6 @@ def load(session: Session, msg: MessageRow, case: Case, und: Understanding, embe
         persona=_persona(session, msg.company_id), sender_kind=sender.kind.value, dossier=tuple(render_dossier(d)),
         brixx_ref=case.brixx_ref, brixx_needed=brixx_needed,
     )  # fmt: skip
-    return Loaded(ctx, msg.company_id, bool(company and company.paused), _message_ids(d), _sources(d))
+    return Loaded(
+        ctx, msg.company_id, bool(company and company.paused), _message_ids(d), _sources(d), _dossier_source(d)
+    )

@@ -38,11 +38,12 @@ import {
   ProspectiveInquiry,
 } from "@/lib/api";
 import { EditTicketModal } from "@/components/maintenance/EditTicketModal";
-import { StalledItem, INITIAL_STALLED_ITEMS } from "@/components/today/UnresponsiveRadarCard";
+import { StalledItem, UnresponsiveRadarCard } from "@/components/today/UnresponsiveRadarCard";
 import { BrixxAttentionCard } from "@/components/today/BrixxAttentionCard";
+import { CategoryDesk } from "@/components/today/CategoryDesk";
 import { InboxThread } from "@/types/inbox";
 import { PulseMetrics, AutonomousActionLog } from "@/types/dashboard";
-import { INITIAL_METRICS, RECENT_AUTONOMOUS_LOGS } from "@/data/mockData";
+import { RECENT_AUTONOMOUS_LOGS } from "@/data/mockData";
 import { MOCK_INBOX_THREADS } from "@/data/inboxMockData";
 import {
   needsYou,
@@ -67,10 +68,11 @@ export default function TodayPage() {
 
   // State
   const [threads, setThreads] = useState<InboxThread[]>([]);
-  const [metrics, setMetrics] = useState<PulseMetrics>(INITIAL_METRICS);
+  const [metrics, setMetrics] = useState<PulseMetrics | null>(null);
   const [portfolio, setPortfolio] = useState<PropertyComplex[] | null>(null);
   const [tenants, setTenants] = useState<TenantProfile[] | null>(null);
   const [radarItems, setRadarItems] = useState<StalledItem[]>([]);
+  const [isRadarLive, setIsRadarLive] = useState<boolean | null>(null);
   const [attention, setAttention] = useState<{ items: AttentionItem[]; total: number; urgentCount: number }>({
     items: [],
     total: 0,
@@ -167,11 +169,15 @@ export default function TodayPage() {
       Promise.all([getDashboardRadar(), getDashboardInquiries(), getAutonomousLogs()])
         .then(([rRes, iRes, lRes]) => {
           if (!isMounted) return;
+          setIsRadarLive(rRes.isLive);
           if (rRes.isLive) setRadarItems(rRes.items || []);
           if (iRes.isLive) setInquiries(iRes.inquiries || []);
           if (lRes.isLive) setLogs(lRes.logs || []);
         })
-        .catch((err) => console.warn("Failed to load auxiliary dashboard data:", err));
+        .catch((err) => {
+          console.warn("Failed to load auxiliary dashboard data:", err);
+          if (isMounted) setIsRadarLive(false);
+        });
     }, 180);
 
     return () => {
@@ -422,12 +428,10 @@ export default function TodayPage() {
     actionLockRef.current[`nudge-${item.id}`] = true;
     setNudgedItemIds((prev) => ({ ...prev, [item.id]: true }));
 
-    const reminderText =
-      item.proposedActionDraft ||
-      `Beste ${item.partyName}, vriendelijke herinnering over ${item.subject} voor ${item.unitLabel}. Graag vernemen wij je reactie. Met vriendelijke groet, Harjot (EstateOS)`;
+    const reminderText = item.proposedActionDraft || "";
 
-    // Copy reminder text to clipboard
-    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    // Copy reminder text to clipboard when one exists
+    if (reminderText.trim() && typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
       try {
         await navigator.clipboard.writeText(reminderText.trim());
       } catch {
@@ -437,14 +441,18 @@ export default function TodayPage() {
 
     if (item.contact.includes("@")) {
       const subject = `Herinnering: ${item.subject} (${item.unitLabel})`;
-      const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(item.contact)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(reminderText.trim())}`;
+      const gmailUrl = reminderText.trim()
+        ? `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(item.contact)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(reminderText.trim())}`
+        : `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(item.contact)}&su=${encodeURIComponent(subject)}`;
       window.open(gmailUrl, "_blank");
-      showToast(`Nudge copied to clipboard & opened in Gmail for ${item.partyName}.`);
+      showToast(reminderText.trim() ? `Nudge copied to clipboard & opened in Gmail for ${item.partyName}.` : `Opened Gmail compose for ${item.partyName}.`);
     } else {
       const cleanPhone = item.contact.replace(/[^0-9]/g, "");
       const waUrl = cleanPhone
-        ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(reminderText.trim())}`
-        : `https://web.whatsapp.com/send?text=${encodeURIComponent(reminderText.trim())}`;
+        ? (reminderText.trim()
+            ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(reminderText.trim())}`
+            : `https://wa.me/${cleanPhone}`)
+        : "https://web.whatsapp.com/";
       window.open(waUrl, "_blank");
       showToast(`Nudge copied to clipboard & opened in WhatsApp for ${item.partyName}.`);
     }
@@ -544,10 +552,10 @@ export default function TodayPage() {
       href: "/inbox",
     },
     {
-      count: metrics.autonomousActionsWeek,
+      count: metrics?.autonomousActionsWeek ?? 0,
       label: t("handled this week"),
     },
-  ], [currentNeedsYouCount, currentUrgentCount, metrics.autonomousActionsWeek, t]);
+  ], [currentNeedsYouCount, currentUrgentCount, metrics?.autonomousActionsWeek, t]);
 
   // Today Date & Greeting - Defer evaluation to client mount to prevent Next.js prerender error
   const [todayFormatted, setTodayFormatted] = useState<string>("");
@@ -748,7 +756,7 @@ export default function TodayPage() {
                 )}
               >
                 <div className="text-[18px] font-bold tabular-nums leading-tight">
-                  {metrics.autonomousActionsWeek}
+                  {metrics?.autonomousActionsWeek ?? 0}
                 </div>
                 <div
                   className={cn(
@@ -918,6 +926,16 @@ export default function TodayPage() {
               <StatLine items={statLineItems} />
             </div>
           </div>
+
+          <CategoryDesk
+            onAskAstra={(action) => {
+              superAgent.setActiveDrawerInfo({ title: action.title, kind: "Next Action" });
+              superAgent.setSelectedContext(
+                `${action.category}: ${action.title}${action.why ? ` — ${action.why}` : ""}`
+              );
+              superAgent.setIsOpen(true);
+            }}
+          />
 
           {/* Section Navigation & Quick Filter Bar */}
           <div className="sticky top-0 md:top-2 z-20 -mx-3.5 sm:-mx-6 md:mx-0 md:my-2 px-3.5 sm:px-6 md:px-3 py-2 md:py-1.5 bg-white/95 md:bg-[var(--pane)]/95 backdrop-blur-md border-b md:border border-[var(--line)] rounded-none md:rounded-2xl md:shadow-xs flex items-center justify-between gap-3 overflow-x-auto no-scrollbar">
@@ -1973,7 +1991,16 @@ export default function TodayPage() {
             </div>
 
             <div className="divide-y divide-[var(--line)]">
-              {radarItems.slice(0, activeSection === "all" ? 3 : 50).map((item) => {
+              {isRadarLive === false ? (
+                <div className="p-4 sm:px-5" data-testid="waiting-offline">
+                  <UnresponsiveRadarCard items={[]} isLive={false} />
+                </div>
+              ) : radarItems.length === 0 ? (
+                <div className="p-4 sm:px-5 text-xs text-[var(--ink-3)]">
+                  No stalled cases awaiting response.
+                </div>
+              ) : (
+                radarItems.slice(0, activeSection === "all" ? 3 : 50).map((item) => {
                 const isNudged = nudgedItemIds[item.id];
                 return (
                   <div
@@ -2016,7 +2043,8 @@ export default function TodayPage() {
                     </div>
                   </div>
                 );
-              })}
+              })
+              )}
             </div>
           </section>
           )}
@@ -2208,7 +2236,7 @@ export default function TodayPage() {
                       {t("Handled this week")}
                     </span>
                     <span className="font-mono text-[15px] font-semibold text-[var(--ink)] tabular-nums">
-                      {metrics.autonomousActionsWeek ?? 0}
+                      {metrics?.autonomousActionsWeek ?? 0}
                     </span>
                   </div>
 

@@ -64,6 +64,7 @@ class DocHit:
     drive_url: str | None
     suspicious: bool
     created_at: Any
+    is_reference: bool = False
 
 
 @dataclass(frozen=True)
@@ -125,7 +126,7 @@ def make_hit(row: Any, snippet: str | None, rank: float) -> DocHit:
         document_id=d.id, attachment_id=d.attachment_id, title=d.title, doc_type=d.doc_type, status=d.status,
         document_date=d.document_date, summary=d.summary, snippet=snippet, rank=rank,
         drive_url=DRIVE_URL.format(d.drive_file_id) if d.drive_file_id else None, suspicious=d.suspicious,
-        created_at=d.created_at,
+        created_at=d.created_at, is_reference=bool(d.is_reference),
     )  # fmt: skip
 
 

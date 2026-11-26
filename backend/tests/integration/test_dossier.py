@@ -385,7 +385,7 @@ def test_a_tenants_dossier_holds_their_lease_rent_arrears_and_work_order(migrate
         row.brixx_ref, row.unit_id = "4411", unit_id
     current = add_mail(migrated_engine, cid, "Klopt mijn huur?", sender=ANOUK, person_id=anouk, case_id=case)
     facts = "\n".join(_build(migrated_engine, cid, current).tenancy)
-    for expected in ("Singel 5-A, Amsterdam", "2024-03-01", "2027-02-28", "1850.00", "overdue", "4411"):
+    for expected in ("Singel 5-A, Amsterdam", "2024-03-01", "2027-02-28", "1850.00", "overdue", "4411", "Exact Online"):
         assert expected in facts, expected
     assert "<tenancy>" in _text(_build(migrated_engine, cid, current))
 

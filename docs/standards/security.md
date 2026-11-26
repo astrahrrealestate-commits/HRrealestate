@@ -111,9 +111,17 @@ Closed on 2026-11-26 (M13):
   quoted or copied promises are marked "(unverified)". The quote splitter's patterns are bounded and scan at most
   50,000 characters. A reply is never addressed to Harjot's own copy (`sender/recipient.latest_inbound`).
 - Accepted (M13): a forged `From: <owner address>` mail linked to a case shows in that case's dossier as "Harjot (copy
-  in the mailbox, not verified)"; it can never approve, send or become a stored commitment. `documents.is_reference`
-  has no setter yet: the one that is added must be owner-only, never set by filing or model output, because
-  reference passages reach every dossier.
+  in the mailbox, not verified)"; it can never approve, send or become a stored commitment. `POST
+  /api/v1/documents/{document_id}/reference` (T12) is the sole writer of `documents.is_reference`, gated by session
+  principal, CSRF header, decision rate limit, and company-scoped 404 — ingestion, filing and model output can never
+  promote a document into the reference library.
+
+- Reload, ID purge and Category Desk (M13 lane B): `mail_purge` and `mail_reload_cli` log record counts only
+  (`messages`, `cases`, `released`, `drafted`, `skipped`), never message bodies, sender names or email addresses; purge
+  requires `--worker-stopped --confirm "purge <mailbox>"` (enforced by `scripts/mail_reload.sh` with a snapshot first).
+  `pipeline/documents.py` calls `purge_text` as soon as an attachment classifies or looks like an ID document so its text
+  never reaches dossier or search chunks. `GET /api/dashboard/categories` and `/{cat}` filter all queries by
+  `company_id` and redact contact names (`safe_name`) and summaries for profiles lacking `inbox` or `money` sections.
 
 - Search and Astra (M13 lane C review): message search, the reranker and Astra's tools only ever return rows of the
   caller's company and filters; the reranker sees the matching stretch of a chunk under that line's real

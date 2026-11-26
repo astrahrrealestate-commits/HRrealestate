@@ -198,3 +198,23 @@ def test_hybrid_search_finds_across_languages_where_word_search_does_not(fx: Fix
 def test_hybrid_is_the_default_mode_and_keeps_highlights_for_matching_words(fx: Fixture) -> None:
     body = fx.client.get("/api/v1/documents", params={"q": "waarborgsom"}).json()
     assert "«waarborgsom»" in (body[0]["snippet"] or "")
+
+
+def test_owner_can_toggle_reference_library(fx: Fixture) -> None:
+    url = f"/api/v1/documents/{fx.mine}/reference"
+    assert fx.client.post(url, json={"is_reference": True}).status_code == 403
+    for doc_id in (fx.theirs, uuid4()):
+        resp = fx.client.post(f"/api/v1/documents/{doc_id}/reference", json={"is_reference": True}, headers=CSRF)
+        assert resp.status_code == 404
+
+    on = fx.client.post(url, json={"is_reference": True}, headers=CSRF)
+    assert on.status_code == 200
+    assert on.json() == {"id": str(fx.mine), "is_reference": True}
+    assert fx.client.get(f"/api/v1/documents/{fx.mine}").json()["is_reference"] is True
+    ref_docs = fx.client.get("/api/v1/documents", params={"reference_only": True}).json()
+    assert [d["id"] for d in ref_docs] == [str(fx.mine)]
+
+    off = fx.client.post(url, json={"is_reference": False}, headers=CSRF)
+    assert off.status_code == 200
+    assert off.json() == {"id": str(fx.mine), "is_reference": False}
+    assert fx.client.get("/api/v1/documents", params={"reference_only": True}).json() == []

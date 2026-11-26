@@ -17,6 +17,7 @@ export interface DraftOption {
   language?: "nl" | "en" | "unknown";
   englishMeaning?: string; // cached English of a Dutch draft
   dutchMeaning?: string; // cached Dutch of an English draft
+  commitments?: string[]; // promises made in this reply, shown above Approve
 }
 
 export interface MultiPartyDrafts {

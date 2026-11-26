@@ -44,7 +44,7 @@ from app.pipeline.document_policy import (
     name_date,
     should_skip,
 )
-from app.pipeline.document_reading import ReadInput, Unread, facts_columns, read_document
+from app.pipeline.document_reading import ReadInput, Unread, facts_columns, purge_text, read_document
 from app.storage.drive import DriveStore
 from app.storage.extract import TextExtractor
 from app.storage.ports import ObjectStorage
@@ -215,7 +215,9 @@ def _decide(engine: Engine, settings: Settings, f: Filing, storage: ObjectStorag
         _upsert(engine, f, _values(f, DocumentStatus.failed, _placeholder(f), error=str(exc)[:500]))
         return DocumentStatus.failed
     decision = _Decision(cls, call_id)
-    if _readable(settings, extractor, f, cls) and extractor is not None:
+    if cls.doc_type is DocType.id_document or looks_like_id(f.meta):
+        purge_text(engine, f.company_id, f.attachment_id, call_id)
+    elif _readable(settings, extractor, f, cls) and extractor is not None:
         decision = _with_reading(engine, settings, storage, extractor, f, decision)
     if filing_status(decision.cls) is DocumentStatus.review or decision.extra.get("suspicious"):
         extra = {"model_call_id": decision.call_id, **decision.extra}

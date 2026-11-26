@@ -1,7 +1,6 @@
 # 0017. Drafts from a per-mail dossier, six categories, two Gemini tiers
 
-Date: 2026-11-26 · Status: accepted for the drafting lane (M13, spec 2026-11-25-m13-ai-staff-design). The history
-reload, read-review-research before drafting, and the category desk are added to this record by their lanes.
+Date: 2026-11-26 · Status: accepted (M13, spec 2026-11-25-m13-ai-staff-design). Covers Lane A (drafting), Lane B (history reload, prepare step, Category Desk), and Lane C (search and Astra).
 
 ## Context
 The client found drafts too basic: the proposer saw the newest mail, a 300-character profile line, the rolling case
@@ -77,3 +76,29 @@ business. Prompts, now much larger, stayed in `model_calls` after a person was e
   shortcuts are gone.
 - A cross-language question about a long mail can pick the wrong stretch for the reranker (one miss in the real-model
   eval); embedding windows would fix it.
+
+## Lane B: history reload, prepare step and Category Desk (M13 T1, T2, T8, T10, T12; added 2026-11-26)
+### Decision
+14. **Purge-and-reload via `history` queue (`scripts/mail_reload.sh`, `mail_reload.py`).** Ad-hoc backfill scripts
+    are deleted (`backfill_vastgoed_30d.py`, `import_historical_emails.py`, `.github/workflows/backfill_vastgoed.yml`).
+    `mail_purge` removes one mailbox's Gmail rows (keeping WhatsApp, directory, and Drive untouched; Drive dedupes
+    against surviving files). `reingest` pulls N days, and `run-history` processes them on the `history` DBOS queue
+    through understanding, linking, `prepare_for_draft(research=False)`, summary and filing — stopping before
+    proposals, waits or chasers. `settle` closes aged threads before `draft-open` drafts currently open recent threads
+    with `proposer/v6`.
+15. **Unified pre-draft prepare step (`prepare_for_draft`).** Replaces the separate post-understanding quote hook:
+    first reads attachments (purging ID-document extracted text immediately via `purge_text`), then reviews quotes
+    (accepting both catalog contractors and unlisted business/contractor senders using market references), and — when
+    `research=True` in live flow — runs `draft_research` for open questions before proposing.
+16. **Six-category Today desk and zero canned drafts (`next_actions.py`, `CategoryDesk.tsx`).** `GET
+    /api/dashboard/categories` and `GET /api/dashboard/categories/{cat}` rank pending approvals, flagged quotes,
+    awaiting replies, overdue waits, document reviews and BRIXX attention items per category in the server. Today renders
+    the desk tabs and action list above the stream without approving in place; inbox composer renders each draft's
+    `commitments` above Approve; canned reply templates and demo fallback data are removed from the UI;
+    `POST /api/v1/documents/{id}/reference` exposes the owner-only `is_reference` toggle behind CSRF and rate limits.
+
+### Consequences
+- Reloading 90 days must run after Deploy 1 before `settle`/`draft-open` on Deploy 2 so `proposer/v6` sees full
+  historical threads and documents without re-drafting stale closed threads.
+- Unlisted vendors' quotes are checked only against market references (`unlisted_vendor=True`) and stored with
+  `QuoteRow.person_id = None` rather than inventing directory contractors.

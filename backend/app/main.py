@@ -133,6 +133,8 @@ def create_app(
 
     api.include_router(api_v1_router)
 
+    api.include_router(dashboard.categories_router)
+
     api.include_router(dashboard.router)
 
     api.include_router(inbox.router)

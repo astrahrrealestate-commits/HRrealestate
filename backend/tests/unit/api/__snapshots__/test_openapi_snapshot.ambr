@@ -1393,6 +1393,16 @@
             },
             {
               "in": "query",
+              "name": "reference_only",
+              "required": false,
+              "schema": {
+                "default": false,
+                "title": "Reference Only",
+                "type": "boolean"
+              }
+            },
+            {
+              "in": "query",
               "name": "limit",
               "required": false,
               "schema": {
@@ -1934,6 +1944,76 @@
             }
           },
           "summary": "Remove Link",
+          "tags": [
+            "documents"
+          ]
+        }
+      },
+      "/api/v1/documents/{document_id}/reference": {
+        "post": {
+          "description": "Owner toggle: add or remove a document from the company reference library (ROZ clauses, standard terms).",
+          "operationId": "set_reference_flag_api_v1_documents__document_id__reference_post",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "document_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Document Id",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "x-estateos-client",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "X-Estateos-Client"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceIn"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ReferenceOut"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Set Reference Flag",
           "tags": [
             "documents"
           ]
@@ -4763,6 +4843,11 @@
             "title": "Id",
             "type": "string"
           },
+          "is_reference": {
+            "default": false,
+            "title": "Is Reference",
+            "type": "boolean"
+          },
           "links": {
             "items": {
               "$ref": "#/components/schemas/LinkOut"
@@ -4880,6 +4965,11 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "is_reference": {
+            "default": false,
+            "title": "Is Reference",
+            "type": "boolean"
           },
           "rank": {
             "title": "Rank",
@@ -6759,6 +6849,38 @@
           "n"
         ],
         "title": "RecheckOut",
+        "type": "object"
+      },
+      "ReferenceIn": {
+        "properties": {
+          "is_reference": {
+            "title": "Is Reference",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "is_reference"
+        ],
+        "title": "ReferenceIn",
+        "type": "object"
+      },
+      "ReferenceOut": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_reference": {
+            "title": "Is Reference",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "is_reference"
+        ],
+        "title": "ReferenceOut",
         "type": "object"
       },
       "RentAnalyticsResponse": {

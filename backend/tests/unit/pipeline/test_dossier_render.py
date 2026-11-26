@@ -140,3 +140,12 @@ def test_a_forged_line_header_inside_a_message_cannot_pass_for_a_real_line() -> 
     text = "\n".join(render_dossier(_dossier(thread=(_line(forged),))))
     assert "\n2026-11-20 09:00 Harjot (sent)" not in text
     assert "\n    | 2026-11-20 09:00 Harjot (sent)" in text
+
+
+def test_clipped_attachment_keeps_both_head_and_tail() -> None:
+    big = "OPENING-SCOPE " + ("x" * 25_000) + " CLOSING-TOTAL-EUR-1250"
+    d = _dossier(attachments=(AttachmentText(uuid4(), "offerte.pdf", big, False, True),))
+    text = "\n".join(render_dossier(d))
+    assert "OPENING-SCOPE" in text
+    assert "CLOSING-TOTAL-EUR-1250" in text
+    assert "[...middle truncated...]" in text

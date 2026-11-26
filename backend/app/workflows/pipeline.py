@@ -20,7 +20,6 @@ from app.directory.identity import resolve_message_sender
 from app.ingestion.process import is_transient
 from app.llm.calls import is_transient as llm_transient
 from app.pipeline import case_repo
-from app.pipeline.draft_research import research_for
 from app.pipeline.link import link_message
 from app.pipeline.person_memory import refresh_for_message
 from app.pipeline.propose import propose_for_message
@@ -36,7 +35,6 @@ from app.tools.message_rag import index_message
 from app.workflows import queues
 from app.workflows.deps import get_engine
 from app.workflows.documents import enqueue_filing
-from app.workflows.finance import quote_after_understanding
 from app.workflows.owner_notify import alert_exceptions_step, send_card_step, send_owner_message
 from app.workflows.prepare import prepare_for_draft
 
@@ -121,19 +119,14 @@ def link_step(message_id: str) -> str | None:
     return str(result.case_id) if result else None
 
 
-@DBOS.step(name="pipeline.prepare")  # no retries: reading and the quote review never hold up the draft
-def prepare_step(message_id: str) -> None:
-    prepare_for_draft(get_engine(), get_settings(), _as_uuid(message_id), research=False)
+@DBOS.step(name="pipeline.prepare")  # no retries: reading, quote review and research never hold up the draft
+def prepare_step(message_id: str, research: bool = True) -> None:
+    prepare_for_draft(get_engine(), get_settings(), _as_uuid(message_id), research=research)
 
 
 @DBOS.step(name="pipeline.person_memory")  # no retries: a slow model must not hold up the draft
 def person_memory_step(message_id: str) -> None:
     refresh_for_message(get_engine(), get_settings(), _as_uuid(message_id))
-
-
-@DBOS.step(name="pipeline.research")  # no retries: research helps a draft, a slow web never holds it up
-def research_step(message_id: str, company_id: str) -> int:
-    return len(research_for(get_engine(), get_settings(), _as_uuid(company_id), _as_uuid(message_id)))
 
 
 @DBOS.step(name="pipeline.propose", **_RETRY)
@@ -203,17 +196,13 @@ def _live(company_id: str, message_id: str, final_failure: bool) -> None:
         alert_unreadable_step(company_id, message_id)
     _index(message_id)
     try:
-        prepare_step(message_id)  # attachments read and a quote reviewed before the draft (M13)
+        prepare_step(message_id, True)  # attachments, quote review and web/reference research before the draft (M13 T8)
     except Exception as exc:
         log.warning("pipeline.prepare_failed", error_type=type(exc).__name__, message_id=message_id)
     try:
         person_memory_step(message_id)  # before the draft, which reads it; a provider outage never blocks the draft
     except Exception as exc:
         log.warning("pipeline.person_memory_failed", error_type=type(exc).__name__, message_id=message_id)
-    try:
-        research_step(message_id, company_id)  # web and reference findings the draft cites (T8)
-    except Exception as exc:
-        log.warning("pipeline.research_failed", error_type=type(exc).__name__, message_id=message_id)
     proposed = propose_step(message_id)
     for approval_id in proposed["approval_ids"]:
         send_card_step(company_id, approval_id)
@@ -231,11 +220,14 @@ def _after_understanding(message_id: str, final_failure: bool, history: bool = F
         _index(message_id)
         for sent_id in link_sent_history_step(message_id, case_id):
             _index(sent_id)
+        try:
+            prepare_step(message_id, False)  # history reads attachments and reviews quotes, never researches
+        except Exception as exc:
+            log.warning("pipeline.prepare_failed", error_type=type(exc).__name__, message_id=message_id)
     else:
         _live(company_id, message_id, final_failure)
     for attachment_id in attachments_step(message_id):  # #9: file after linking (needs the case context)
         enqueue_filing(company_id, attachment_id)
-    quote_after_understanding(company_id, message_id)  # M11: a contractor's quote is reviewed; never fails the run
     return True
 
 

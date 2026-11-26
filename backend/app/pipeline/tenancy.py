@@ -12,6 +12,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core import rent_data
 from app.db.models import Case, Lease, LeaseParty, Unit
 from app.db.models.finance import TenantRentPayment
 
@@ -49,6 +50,10 @@ def _rent(session: Session, company_id: UUID, lease_id: UUID) -> list[str]:
     ).one()
     if months:
         lines.append(f"  overdue: {_eur(int(owed or 0))} over {months} invoice(s), the oldest {oldest} days late")
+        if not rent_data.RENT_DATA_AVAILABLE:
+            lines.append(
+                "  note: bank settlements (Exact Online) are not synced; verify payment before claiming arrears"
+            )
     return lines
 
 

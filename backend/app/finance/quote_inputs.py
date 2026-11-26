@@ -32,11 +32,13 @@ def units_of(lines: Sequence[NewQuoteLine]) -> dict[str, str]:
 
 
 def _vendor_cards(
-    session: Session, company_id: UUID, vendor_id: UUID, wanted: dict[str, str], snaps: dict[str, PriceSnapshot],
-    on: date,
+    session: Session, company_id: UUID, vendor_id: UUID | None, wanted: dict[str, str],
+    snaps: dict[str, PriceSnapshot], on: date,
 ) -> dict[str, Decimal | None]:  # fmt: skip
     """The QUOTING vendor's EUR card per item: the snapshot's (immutable) card when it is that vendor's own, else the
     vendor's card valid on `on` (the decision date), else None. `wanted` = item key → unit."""
+    if vendor_id is None:
+        return {}
     ids = [s.rate_card_id for s in snaps.values() if s.rate_card_id is not None]
     own = set(
         session.scalars(
@@ -57,8 +59,8 @@ def _vendor_cards(
 
 
 def gather_references(
-    engine: Engine, settings: Settings, source: PriceSource, facts: QuoteFacts, case_id: UUID, vendor_id: UUID,
-    today: date,
+    engine: Engine, settings: Settings, source: PriceSource, facts: QuoteFacts, case_id: UUID,
+    vendor_id: UUID | None, today: date,
 ) -> ReferencePlan:  # fmt: skip
     """Snapshots and the vendor's cards from the DB (session closed), then at most MAX_FRESH_KEYS fresh lookups."""
     cid, on, min_samples = facts.company_id, facts.quote_date, settings.finance_min_samples

@@ -213,13 +213,11 @@ export function TransactionDetailSheet({
             <div className="flex items-center gap-2">
               {transaction.tenantPhone && (
                 <a
-                  href={`https://wa.me/${transaction.tenantPhone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
-                    `Beste ${transaction.counterparty},\n\nDit is een vriendelijke herinnering over de huurbetaling voor ${transaction.unitLabel} van € ${transaction.amountEur.toLocaleString("nl-NL")} (factuur ${transaction.reference}).\n\nGraag vernemen we of de overboeking reeds voldaan is.\n\nMet vriendelijke groet,\nEstateOS Beheer`
-                  )}`}
+                  href={`https://wa.me/${transaction.tenantPhone.replace(/[^0-9]/g, "")}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
-                  title="Open WhatsApp with prefilled reminder"
+                  title="Open WhatsApp chat"
                 >
                   <Send className="w-3 h-3" />
                   <span>WhatsApp Nudge</span>

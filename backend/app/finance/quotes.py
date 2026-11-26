@@ -34,6 +34,7 @@ from app.db.models import (
     QuoteLineRow,
     QuoteReview,
     QuoteRow,
+    UnderstandingRow,
 )
 from app.finance import repo
 from app.finance.config import thresholds_from_settings
@@ -43,6 +44,7 @@ from app.finance.references import ReferencePlan
 from app.finance.repo_quotes import NewQuoteLine
 from app.finance.report import build_report
 from app.finance.sources import build_price_source
+from app.finance.triggers import is_vendor_quote_sender
 from app.llm.agents.quote_reader import QUOTE_READER, quote_reader_prompt
 from app.llm.calls import CallContext, run_agent
 
@@ -61,18 +63,30 @@ class _Incoming:
     text: str
     attachments: list[str]
     history: bool = False  # reloaded mail: the review is stored, no card is made
+    unlisted_vendor: bool = False  # role is contractor/business without a directory contractor row
 
 
-def _contractor(session: Session, company_id: UUID, person_id: UUID | None) -> tuple[UUID, str] | None:
-    """(id, name) of the company's contractor `person_id`; None for no person or anyone who is not a contractor."""
-    if person_id is None:
-        return None
-    row = session.execute(
-        select(Person.id, Person.display_name).where(
-            Person.company_id == company_id, Person.id == person_id, Person.kind == PersonKind.contractor
+def _vendor(
+    session: Session, company_id: UUID, message_id: UUID, person_id: UUID | None
+) -> tuple[tuple[UUID, str] | None, bool]:
+    """(contractor (id, name), unlisted_vendor). Only known contractors carry a rate card; business contacts and
+    unknown senders with a contractor/business role are reviewed against the market with person_id NULL."""
+    kind = (
+        session.scalar(select(Person.kind).where(Person.company_id == company_id, Person.id == person_id))
+        if person_id is not None
+        else None
+    )
+    if kind is PersonKind.contractor and person_id is not None:
+        name = session.scalar(
+            select(Person.display_name).where(Person.company_id == company_id, Person.id == person_id)
         )
-    ).first()
-    return (row.id, row.display_name) if row is not None else None
+        return ((person_id, name) if name is not None else None), False
+    body = session.scalar(
+        select(UnderstandingRow.body).where(
+            UnderstandingRow.company_id == company_id, UnderstandingRow.message_id == message_id
+        )
+    )
+    return None, is_vendor_quote_sender(kind, body)
 
 
 def _load_incoming(session: Session, message_id: UUID) -> _Incoming | None:
@@ -89,10 +103,11 @@ def _load_incoming(session: Session, message_id: UUID) -> _Incoming | None:
         .order_by(AttachmentRow.created_at, AttachmentRow.id)
     ).all()
     subject = msg.meta.get("subject") if msg.meta else None
+    vendor, unlisted = _vendor(session, cid, msg.id, msg.person_id)
     return _Incoming(
-        company_id=cid, case_id=case_id, vendor=_contractor(session, cid, msg.person_id),
+        company_id=cid, case_id=case_id, vendor=vendor,
         received_on=msg.sent_at.astimezone(ZoneInfo(tz)).date(), subject=subject if isinstance(subject, str) else None,
-        text=msg.text, attachments=[t for t in texts if t], history=is_history(msg),
+        text=msg.text, attachments=[t for t in texts if t], history=is_history(msg), unlisted_vendor=unlisted,
     )  # fmt: skip
 
 
@@ -167,10 +182,11 @@ def _append_review(
 
 
 def _review(
-    engine: Engine, settings: Settings, source: PriceSource | None, facts: QuoteFacts, today: date
-) -> tuple[ReferencePlan, ReviewOutcome] | None:
-    """References and the review of a linked quote (case and contractor known); None for an unlinked one."""
-    if facts.case_id is None or facts.vendor_id is None:
+    engine: Engine, settings: Settings, source: PriceSource | None, facts: QuoteFacts, today: date, *,
+    allow_unlisted: bool = False,
+) -> tuple[ReferencePlan, ReviewOutcome] | None:  # fmt: skip
+    """References and the review of a linked quote (case + contractor or unlisted vendor role); else None."""
+    if facts.case_id is None or (facts.vendor_id is None and not allow_unlisted):
         return None
     if source is None:
         source = build_price_source(settings, sessionmaker(engine), facts.company_id, facts.vendor_id, engine)
@@ -196,7 +212,7 @@ def review_message(
         log.info("finance.quote.not_a_quote", message_id=str(message_id))
         return None
     facts = _facts(inc, quote)
-    reviewed = _review(engine, settings, source, facts, today)
+    reviewed = _review(engine, settings, source, facts, today, allow_unlisted=inc.unlisted_vendor)
     with Session(engine) as session, session.begin():
         status = QuoteStatus.received if reviewed is not None else QuoteStatus.unlinked
         quote_id = _write_quote(session, facts, message_id, status)
@@ -219,8 +235,12 @@ def _load_quote(session: Session, company_id: UUID, quote_id: UUID) -> QuoteFact
     row = session.scalar(select(QuoteRow).where(QuoteRow.company_id == company_id, QuoteRow.id == quote_id))
     if row is None or row.status is QuoteStatus.unlinked or row.case_id is None:
         return None
-    vendor = _contractor(session, company_id, row.person_id)
-    if vendor is None:
+    vendor_name = (
+        session.scalar(select(Person.display_name).where(Person.company_id == company_id, Person.id == row.person_id))
+        if row.person_id is not None
+        else None
+    )
+    if row.person_id is not None and vendor_name is None:
         return None
     lines = session.scalars(
         select(QuoteLineRow)
@@ -228,7 +248,7 @@ def _load_quote(session: Session, company_id: UUID, quote_id: UUID) -> QuoteFact
         .order_by(QuoteLineRow.position, QuoteLineRow.id)
     ).all()
     return QuoteFacts(
-        company_id=company_id, case_id=row.case_id, vendor_id=vendor[0], vendor_name=vendor[1],
+        company_id=company_id, case_id=row.case_id, vendor_id=row.person_id, vendor_name=vendor_name,
         currency=row.currency, total=row.total, quote_date=row.quote_date, work_date=row.work_date,
         lines=tuple(_new_line(line) for line in lines),
     )  # fmt: skip
@@ -263,7 +283,11 @@ def recheck_quote(
             log.info("finance.quote.recheck_replay", quote_id=str(quote_id), review_id=str(review_id))
             return review_id
         facts = _load_quote(session, company_id, quote_id)
-    reviewed = _review(engine, settings, source, facts, today) if facts is not None else None
+    reviewed = (
+        _review(engine, settings, source, facts, today, allow_unlisted=facts.vendor_id is None)
+        if facts is not None
+        else None
+    )
     if facts is None or reviewed is None:
         return None
     with Session(engine) as session, session.begin():

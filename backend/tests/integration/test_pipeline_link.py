@@ -5,14 +5,14 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, func, select, update
 from sqlalchemy.orm import Session
 
 from app.contracts import CaseState, Category, Channel, Direction, Urgency
 from app.core.ids import new_id
 from app.core.settings import Settings
 from app.db.enums import LinkMethod, PersonKind, WaitStatus
-from app.db.models import Case, CaseLink, Company, MessageRow, Person, RawEvent, UnderstandingRow
+from app.db.models import Case, CaseLink, Company, MessageRow, Person, RawEvent, UnderstandingRow, WaitRow
 from app.directory.identity import resolve_message_sender
 from app.pipeline import case_repo, work_repo
 from app.pipeline.link import LinkResult
@@ -161,6 +161,7 @@ def test_answer_from_awaited_party_closes_wait_and_reopens_case(
     with Session(migrated_engine) as s, s.begin():
         case_repo.transition(s, cid, first.case_id, CaseState.waiting_on_third_party, actor="system")
         wid = work_repo.open_wait(s, cid, first.case_id, first.person_id, about="Foto", expected_by=NOW)
+        s.execute(update(WaitRow).where(WaitRow.id == wid).values(created_at=NOW))
     link_message(migrated_engine, test_settings, _message(migrated_engine, cid, "Foto", at=NOW + timedelta(hours=1)))
     with Session(migrated_engine) as s:
         assert work_repo.get_wait(s, cid, wid).status is WaitStatus.received

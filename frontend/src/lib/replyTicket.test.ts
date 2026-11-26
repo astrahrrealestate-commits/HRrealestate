@@ -16,13 +16,20 @@ describe("replyTicket", () => {
       "jan@example.test",
       "Bouw BV",
     ]);
-    expect(shown.tenantDraft).toMatch(/^Beste Jan,/);
+    expect(shown.tenantDraft).toBe("");
     expect(shown.tenantDraft).not.toContain("Anouk");
   });
 
-  it("adds no generic draft when the ticket has none, so the thread's own draft is shown", () => {
-    const shown = replyTicket({ ...ticket, tenantDraft: "" }, { senderName: "Jan", senderContact: "jan@example.test" });
-    expect([shown.tenantName, shown.tenantDraft]).toEqual(["Jan", ""]);
+  it("adds no generic draft when the ticket has none, and clears another tenant's draft without generic copy", () => {
+    const empty = replyTicket({ ...ticket, tenantDraft: "" }, { senderName: "Jan", senderContact: "jan@example.test" });
+    expect([empty.tenantName, empty.tenantDraft]).toEqual(["Jan", ""]);
+
+    const cleared = replyTicket(
+      { ...ticket, tenantDraft: "Beste Anouk, we bellen u morgen." },
+      { senderName: "Jan de Vries", senderContact: "jan@example.test" }
+    );
+    expect(cleared.tenantDraft).toBe("");
+    expect(cleared.tenantDraft).not.toContain("ontvangen");
   });
 
   it("keeps the ticket draft when the sender is the ticket's tenant", () => {
