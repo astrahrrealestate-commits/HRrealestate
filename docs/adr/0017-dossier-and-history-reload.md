@@ -30,7 +30,11 @@ business. Prompts, now much larger, stayed in `model_calls` after a person was e
 6. **Two model tiers, Gemini API only.** Proposer, draft research, Astra's research loop and person memory use
    `LLM_QUALITY_MODEL` at reasoning `high`; everything else keeps the fast model and its own reasoning level. Prod
    refuses any other provider, fallback or embedding.
-7. **Erasure reaches the call log.** Calls record the messages in their prompt (`model_calls.message_ids`); erasure
+7. **Read before drafting; tenancy and older mail in view.** A pipeline step before the draft reads the mail's
+   attachments and reviews a contractor's quote (`prepare_for_draft`). The dossier adds the person's tenancy as the
+   directory and the BRIXX rent ledger hold it (unit, lease, latest rent, overdue invoices, work order) and their
+   older mail that matches this one. Facts are read at draft time, never copied into memory, so they stay current.
+8. **Erasure reaches the call log.** Calls record the messages in their prompt (`model_calls.message_ids`); erasure
    blanks those and any untagged call whose text holds the person's addresses, full name or a line of their mail.
 
 ## Consequences

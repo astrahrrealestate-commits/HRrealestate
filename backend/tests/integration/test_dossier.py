@@ -9,6 +9,7 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError
+from app.core.settings import Settings
 from app.db.enums import DocLinkKind, MemoryKind, MemoryOrigin, MemoryScope, MemoryStatus, PersonKind
 from app.db.models import (
     AttachmentRow,
@@ -351,3 +352,87 @@ def test_harjots_copy_addressed_only_to_our_inbox_is_left_out(migrated_engine: E
     add_mail(migrated_engine, cid, "ZONDER-ADRES", sender=OWNER, case_id=case, days_ago=1, owner_authored=True)
     current = add_mail(migrated_engine, cid, "Hallo", sender=ANOUK, person_id=anouk, case_id=case)
     assert "ZONDER-ADRES" not in _text(_build(migrated_engine, cid, current))
+
+
+def _tenancy(engine: Engine, cid: UUID, person_id: UUID) -> UUID:
+    from app.db.models import LeaseParty
+    from app.db.models.finance import TenantRentPayment
+
+    with Session(engine) as s, s.begin():
+        unit = Unit(company_id=cid, label="Singel 5-A", address="Singel 5-A, Amsterdam", valid_from=date(2024, 1, 1))
+        s.add(unit)
+        s.flush()
+        lease = Lease(company_id=cid, unit_id=unit.id, valid_from=date(2024, 3, 1), valid_to=date(2027, 2, 28),
+                      brixx_ref="77:1")  # fmt: skip
+        s.add(lease)
+        s.flush()
+        s.add(LeaseParty(company_id=cid, lease_id=lease.id, person_id=person_id, role="tenant"))
+        for month, paid, status, late in ((10, 185000, "paid", 0), (11, 0, "overdue", 20)):
+            s.add(TenantRentPayment(
+                company_id=cid, invoice_number=f"F{month}", tenant_id=person_id, unit_id=unit.id, lease_id=lease.id,
+                billing_month=date(2026, month, 1), contract_rent_cents=185000, amount_paid_cents=paid,
+                due_date=date(2026, month, 1), status=status, overdue_days=late,
+            ))  # fmt: skip
+        return unit.id
+
+
+def test_a_tenants_dossier_holds_their_lease_rent_arrears_and_work_order(migrated_engine: Engine, cid: UUID) -> None:
+    anouk = add_person(migrated_engine, cid, "Anouk", ANOUK)
+    unit_id = _tenancy(migrated_engine, cid, anouk)
+    case = add_case(migrated_engine, cid, anouk)
+    with Session(migrated_engine) as s, s.begin():
+        row = s.get_one(Case, case)
+        row.brixx_ref, row.unit_id = "4411", unit_id
+    current = add_mail(migrated_engine, cid, "Klopt mijn huur?", sender=ANOUK, person_id=anouk, case_id=case)
+    facts = "\n".join(_build(migrated_engine, cid, current).tenancy)
+    for expected in ("Singel 5-A, Amsterdam", "2024-03-01", "2027-02-28", "1850.00", "overdue", "4411"):
+        assert expected in facts, expected
+    assert "<tenancy>" in _text(_build(migrated_engine, cid, current))
+
+
+def test_a_contractor_gets_the_address_of_the_case_and_no_rent(migrated_engine: Engine, cid: UUID) -> None:
+    anouk = add_person(migrated_engine, cid, "Anouk", ANOUK)
+    jan = add_person(migrated_engine, cid, "Jan", JAN, PersonKind.contractor)
+    unit_id = _tenancy(migrated_engine, cid, anouk)
+    case = add_case(migrated_engine, cid, anouk)
+    with Session(migrated_engine) as s, s.begin():
+        s.get_one(Case, case).unit_id = unit_id
+    current = add_mail(migrated_engine, cid, "Adres?", sender=JAN, person_id=jan, case_id=case, thread="tj")
+    facts = "\n".join(_build(migrated_engine, cid, current).tenancy)
+    assert "Singel 5-A, Amsterdam" in facts
+    assert "1850" not in facts
+    assert "overdue" not in facts
+
+
+def test_a_stranger_gets_no_tenancy_facts(migrated_engine: Engine, cid: UUID) -> None:
+    anouk = add_person(migrated_engine, cid, "Anouk", ANOUK)
+    stranger = add_person(migrated_engine, cid, "Onbekend", "x@evil.test", PersonKind.other)
+    _tenancy(migrated_engine, cid, anouk)
+    case = add_case(migrated_engine, cid, anouk)
+    current = add_mail(migrated_engine, cid, "Huur?", sender="x@evil.test", person_id=stranger, case_id=case)
+    assert _build(migrated_engine, cid, current).tenancy == ()
+
+
+def test_dossier_holds_relevant_older_mail_of_the_sender(
+    migrated_engine: Engine, cid: UUID, test_settings: Settings
+) -> None:
+    from app.tools.message_rag.indexer import index_message
+
+    settings = test_settings.model_copy(update={"embedding_model": "fake"})
+    anouk, bram = add_person(migrated_engine, cid, "Anouk", ANOUK), add_person(migrated_engine, cid, "Bram", BRAM)
+    old = add_case(migrated_engine, cid, anouk)
+    ids = [add_mail(migrated_engine, cid, "Mijn waarborgsom van EUR 1.900 is nog niet terug.", sender=ANOUK,
+                    person_id=anouk, case_id=old, thread="t-old", days_ago=200)]  # fmt: skip
+    ids += [add_mail(migrated_engine, cid, f"Andere vraag {i} over de tuin.", sender=ANOUK, person_id=anouk,
+                     case_id=old, thread=f"t-{i}", days_ago=100 - i) for i in range(16)]  # fmt: skip
+    ids.append(add_mail(migrated_engine, cid, "Bram zijn waarborgsom BRAM-BORG.", sender=BRAM, person_id=bram,
+                        thread="t-bram", days_ago=50))  # fmt: skip
+    for mid in ids:
+        index_message(migrated_engine, settings, mid)
+    case = add_case(migrated_engine, cid, anouk)
+    current = add_mail(migrated_engine, cid, "Wanneer krijg ik mijn waarborgsom terug?", sender=ANOUK, person_id=anouk,
+                       case_id=case)  # fmt: skip
+    d = _build(migrated_engine, cid, current)
+    assert any("1.900" in line.text for line in d.older_mail)
+    assert ids[0] in d.extra_message_ids
+    assert "BRAM-BORG" not in _text(d)

@@ -320,3 +320,41 @@ def test_a_transient_whatsapp_error_on_a_card_is_retried_not_fatal(
         set_sender_deps(None)
         set_engine(None)
         DBOS.destroy()
+
+
+def test_the_first_draft_sees_the_attachment_text(
+    stack: tuple[FakeWhatsAppOutbound, FakeDrafts], migrated_engine: Engine, committed_company: Company,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    from app.db.enums import ExtractionStatus
+    from app.db.models import AttachmentRow
+    from app.ingestion.process import IngestDeps
+    from app.llm import fakes
+    from app.storage.extract import Extraction
+    from app.storage.memory import MemoryStorage
+    from app.workflows import deps
+
+    class Reader:
+        def extract(self, data: bytes, mime_type: str, filename: str | None) -> Extraction:
+            return Extraction(ExtractionStatus.done, data.decode(), 1, "fake")
+
+    prompts: list[str] = []
+    original = fakes.fake_proposer
+    monkeypatch.setattr(fakes, "fake_proposer", lambda p: (prompts.append(p), original(p))[1])
+    storage = MemoryStorage()
+    storage.put("att/lease.pdf", b"Artikel 7: huisdieren alleen met toestemming.", "application/pdf")
+    cid = committed_company.id
+    mid = _message(migrated_engine, cid, TENANT, "Mag ik een hond houden? Zie mijn contract.", Channel.gmail,
+                   {"subject": "Hond", "message_id": "<m10@example.test>"})  # fmt: skip
+    with Session(migrated_engine) as s, s.begin():
+        s.add(AttachmentRow(company_id=cid, message_id=mid, s3_key="att/lease.pdf", mime_type="application/pdf",
+                            filename="huurcontract.pdf", size_bytes=40_000, sha256="3" * 64))  # fmt: skip
+    deps.set_deps(IngestDeps(engine=migrated_engine, storage=storage, enqueuer=None, gmail_mailbox=lambda a: None,  # type: ignore[arg-type]
+                             whatsapp_media=lambda p: None, gmail_topic="t"))  # type: ignore[arg-type]  # fmt: skip
+    deps.set_extractor(Reader())
+    try:
+        assert DBOS.start_workflow(pipeline.pipeline_entry, str(mid)).get_result() == "understood"
+    finally:
+        deps.set_deps(None)
+        deps.set_extractor(None)
+    assert any("huisdieren alleen met toestemming" in p for p in prompts)
