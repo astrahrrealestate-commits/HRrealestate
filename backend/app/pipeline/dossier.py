@@ -19,12 +19,21 @@ from app.contracts.person_memory import PersonMemory
 from app.contracts.research import Finding
 from app.core.errors import NotFoundError
 from app.db.enums import DocLinkKind, ExtractionStatus, PersonKind, WaitStatus
-from app.db.models import AttachmentRow, Case, CaseLink, MessageRow, Person, WaitRow
+from app.db.models import AttachmentRow, Case, CaseLink, ChannelIdentity, MessageRow, Person, WaitRow
 from app.db.models.ingestion import not_chat_only
 from app.llm.agents.doc_qa import Passage
 from app.llm.embeddings import TextEmbedder
 from app.pipeline import case_repo
-from app.pipeline.conversation import People, ThreadLine, line_of, load_people, new_part, other_tenants, quoted_lines
+from app.pipeline.conversation import (
+    People,
+    ThreadLine,
+    line_of,
+    load_people,
+    new_part,
+    other_tenants,
+    quoted_lines,
+    recipients,
+)
 from app.pipeline.document_qa import case_scope, strip_risky
 from app.pipeline.document_search import DocFilter
 from app.pipeline.injection_scan import scan
@@ -68,6 +77,9 @@ class _Scope:
     case: Case | None
     identities: frozenset[str]
     allowed: frozenset[UUID]  # tenants whose mail may be shown
+    trusted: bool  # the case's main person or a directory contractor: sees the case's mail, not only their own
+    allowed_identities: frozenset[str]  # addresses and numbers of the allowed people, lower-case
+    contractor: bool
 
 
 def _scope(session: Session, msg: MessageRow) -> _Scope:
@@ -77,9 +89,18 @@ def _scope(session: Session, msg: MessageRow) -> _Scope:
     case = case_repo.get_case(session, msg.company_id, case_id) if case_id else None
     person = session.get(Person, msg.person_id) if msg.person_id else None
     allowed = {msg.person_id} if msg.person_id else set()
-    if person and person.company_id == msg.company_id and person.kind is PersonKind.contractor and case:
+    contractor = bool(person and person.company_id == msg.company_id and person.kind is PersonKind.contractor)
+    if contractor and case:
         allowed |= {case.primary_person_id} if case.primary_person_id else set()
-    return _Scope(msg, case, frozenset({msg.sender_identity.lower()}), frozenset(allowed))
+    main = case is not None and msg.person_id is not None and msg.person_id == case.primary_person_id
+    own = frozenset({msg.sender_identity.lower()})
+    known = session.scalars(
+        select(ChannelIdentity.identity).where(
+            ChannelIdentity.company_id == msg.company_id, ChannelIdentity.person_id.in_(allowed)
+        )
+    )
+    reach = own | {i.strip().lower() for i in known}
+    return _Scope(msg, case, own, frozenset(allowed), main or contractor, reach, contractor)
 
 
 def _is_own(row: MessageRow, scope: _Scope) -> bool:
@@ -111,19 +132,29 @@ def _conversation(session: Session, scope: _Scope) -> list[tuple[MessageRow, UUI
     return [(row, linked) for row, linked in rows]
 
 
+def _ours(row: MessageRow) -> bool:
+    return row.direction is Direction.outbound or is_owner_authored(row)
+
+
+def _sent_to(row: MessageRow, identities: frozenset[str]) -> bool:
+    return _ours(row) and bool(recipients(row) & identities)
+
+
+def _keep(row: MessageRow, linked: UUID | None, scope: _Scope, people: People) -> bool:
+    """Allowlist. Own words always; anything sent to the person or an allowed person; for the case's main person or
+    a contractor also the case's other mail (Harjot's own forwarded copies only where they name an allowed addressee)
+    unless it involves a tenant outside the case."""
+    if _is_own(row, scope) or _sent_to(row, scope.allowed_identities):
+        return True
+    if not scope.trusted or is_owner_authored(row) or linked is None or linked != (scope.case and scope.case.id):
+        return False
+    return not other_tenants(row, people, scope.allowed, scope.identities)
+
+
 def _thread_rows(session: Session, scope: _Scope) -> tuple[list[MessageRow], People]:
-    found = _conversation(session, scope)
+    found = list({row.id: (row, linked) for row, linked in _conversation(session, scope)}.values())
     people = load_people(session, scope.msg.company_id, [scope.msg, *(row for row, _ in found)])
-    case_id = scope.case.id if scope.case else None
-    kept = [
-        row
-        for row, linked in found
-        if _is_own(row, scope)
-        or (
-            (linked == case_id or (linked is None and (row.direction is Direction.outbound or is_owner_authored(row))))
-            and not other_tenants(row, people, scope.allowed, scope.identities)
-        )
-    ]
+    kept = [row for row, linked in found if _keep(row, linked, scope, people)]
     return sorted(kept, key=lambda r: r.sent_at), people
 
 
@@ -153,7 +184,11 @@ def _sender_history(session: Session, scope: _Scope, people: People, shown: set[
     return tuple(line_of(row, people) for row in rows if not is_owner_authored(row))
 
 
-def _attachments(session: Session, msg: MessageRow, message_ids: Sequence[UUID]) -> tuple[AttachmentText, ...]:
+def _attachments(
+    session: Session, msg: MessageRow, message_ids: Sequence[UUID], photos_only: Sequence[UUID] = ()
+) -> tuple[AttachmentText, ...]:
+    """Text of the case's attachments, the current mail's first. From `photos_only` messages only images: a contractor
+    sees the photos of a defect, never the tenant's papers."""
     rows = session.execute(
         select(AttachmentRow, MessageRow.sent_at)
         .join(MessageRow, MessageRow.id == AttachmentRow.message_id)
@@ -170,7 +205,15 @@ def _attachments(session: Session, msg: MessageRow, message_ids: Sequence[UUID])
         AttachmentText(a.id, a.filename or "unnamed", text, scan(text) is not None, a.message_id == msg.id)
         for a, _ in rows
         if (text := (a.extracted_text or "").strip())
+        and (a.message_id not in photos_only or a.mime_type.startswith("image/"))
     )
+
+
+def _not_theirs(rows: Sequence[MessageRow], scope: _Scope) -> list[UUID]:
+    """For a contractor: the case's messages that are neither theirs nor sent to them."""
+    if not scope.contractor:
+        return []
+    return [r.id for r in rows if not _is_own(r, scope) and not _sent_to(r, scope.identities)]
 
 
 def _document_links(session: Session, scope: _Scope) -> tuple[tuple[DocLinkKind, UUID], ...]:
@@ -225,7 +268,7 @@ def build_dossier(session: Session, company_id: UUID, message_id: UUID, embedder
         current=current,
         thread=_thread(rows, people, scope, current.text),
         sender_history=_sender_history(session, scope, people, shown),
-        attachments=_attachments(session, msg, [row.id for row in rows]),
+        attachments=_attachments(session, msg, [row.id for row in rows], _not_theirs(rows, scope)),
         documents=_passages(session, company_id, query, DocFilter(any_link=links), embedder) if links else (),
         references=_passages(session, company_id, query, DocFilter(reference_only=True), embedder),
         memory=stored_memory(session, company_id, msg.person_id) if msg.person_id else None,

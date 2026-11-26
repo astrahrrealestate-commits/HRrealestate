@@ -23,6 +23,18 @@ def _from_value(value: str) -> tuple[str, str | None] | None:
     return found.group(0).lower(), clean_header(name) if name else None
 
 
+_TO_LINE = re.compile(r"^\s*(?:To|Aan|An|Cc)\s*:\s*(?P<value>.{0,2000})$", re.IGNORECASE)
+
+
+def forwarded_recipients(full_text: str) -> frozenset[str]:
+    """To and Cc addresses in the header block under the first forward marker (lower-case); empty without one."""
+    marker = FORWARD_MARKERS.search(full_text)
+    if marker is None:
+        return frozenset()
+    lines = full_text[marker.end() :].split("\n")[: _HEADER_LINES + 1]
+    return frozenset(a.lower() for line in lines if (m := _TO_LINE.match(line)) for a in _EMAIL.findall(m["value"]))
+
+
 def origin_from_text(full_text: str) -> tuple[str, str | None] | None:
     """(address, display name) from the header block under the first forward marker, or None."""
     marker = FORWARD_MARKERS.search(full_text)

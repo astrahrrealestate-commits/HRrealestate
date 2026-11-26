@@ -339,9 +339,14 @@ def fake_person_memory(prompt: str) -> dict[str, object]:
     lines = [" ".join(p.split()) for p in _block(prompt, "thread").split("\n\n")]
     ours = [ln for ln in lines if "Harjot" in ln.split(": ", 1)[0]]
     theirs = [ln for ln in lines if ln and ln != "none" and ln not in ours]
+
+    def promise(line: str) -> str:
+        mark = "(unverified) " if "not verified" in line.split(": ", 1)[0] else ""
+        return (mark + line.split(": ", 1)[-1])[:200]
+
     return {
         "summary": f"{len(lines)} message(s) read.",
-        "commitments": [ln.split(": ", 1)[-1][:200] for ln in ours][:10],
+        "commitments": [promise(ln) for ln in ours][:10],
         "preferences": [],
         "open_issues": [ln.split(": ", 1)[-1][:200] for ln in theirs][:10],
     }

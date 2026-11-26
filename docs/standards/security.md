@@ -100,6 +100,20 @@ Closed on 2026-11-26 (M13):
   addresses or numbers, their full name, or a line of one of their messages. Before M13 every prompt, now a whole
   dossier, stayed in `model_calls.input` after erasure. Limits: a one-word name and lines under 24 characters are not
   searched (they match strangers); outbound mail to the person is not counted as theirs, as in the message redaction.
+  Tagged calls are judged by their tags only; sign-off and footer lines are never search terms; other people's person
+  memory that names the erased person is cleared and rebuilt on its next refresh.
+- Dossier and person memory (M13 review): an allowlist decides what reaches a draft. Own words always; anything sent
+  to the person or an allowed person; the case's other mail only for its main person or a directory contractor,
+  never mail involving another tenant. Harjot's forwarded copies count only where the forwarded header names an
+  allowed addressee. A contractor sees the tenant's photos, never their papers. Inbound authors are the directory
+  name or the address, never a header display name; a message's own line breaks render as `    | `, so text cannot
+  forge a "Harjot (sent)" line. Person memory (`person_memory/v2`) takes commitments only from Harjot's sent mail;
+  quoted or copied promises are marked "(unverified)". The quote splitter's patterns are bounded and scan at most
+  50,000 characters. A reply is never addressed to Harjot's own copy (`sender/recipient.latest_inbound`).
+- Accepted (M13): a forged `From: <owner address>` mail linked to a case shows in that case's dossier as "Harjot (copy
+  in the mailbox, not verified)"; it can never approve, send or become a stored commitment. `documents.is_reference`
+  has no setter yet: the one that is added must be owner-only, never set by filing or model output, because
+  reference passages reach every dossier.
 
 Still open (fix in this order):
 - **Owner-typed inbox replies** (`POST /api/inbox/threads/{case_id}/reply`, from dev 6ac612c; no ADR yet; not accepted).

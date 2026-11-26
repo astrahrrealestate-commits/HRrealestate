@@ -31,6 +31,7 @@ def latest_inbound(session: Session, company_id: UUID, case_id: UUID, channel: C
             CaseLink.case_id == case_id,
             MessageRow.channel == channel,
             MessageRow.direction == Direction.inbound,
+            MessageRow.meta["owner_authored"].astext.is_distinct_from("true"),  # Harjot's own copy is no addressee
         )
         .order_by(MessageRow.sent_at.desc())
         .limit(1)

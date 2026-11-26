@@ -87,6 +87,8 @@ def _drafted(engine: Engine, settings: Settings, loaded: Loaded) -> list[Action]
         return kept
     log.info("pipeline.proposer_generic", case_id=str(loaded.ctx.case_id))
     others = [a for a in retry if a.type is not ActionType.reply_draft]
+    if not any(a.type is ActionType.escalate for a in others):  # an emergency never loses its escalation
+        others += [a for a in actions if a.type is ActionType.escalate][:1]
     return [*others, _notice(loaded.ctx.case_id, NO_USABLE_DRAFT, "Draft rejected as generic")][:4]
 
 
