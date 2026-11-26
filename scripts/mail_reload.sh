@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Purge and reload one mailbox on a deployed environment (M13; run book in docs/go-live-channels.md).
 #
-#   scripts/mail_reload.sh <stage|prod> <preview|purge|reingest|run-history|settle|draft-open> [mailbox] [days]
+#   scripts/mail_reload.sh <stage|prod> <mode> [mailbox] [days]
 #
+# draft-report: the T16 draft quality numbers of the last [days] (default 30); record them before a prod purge.
 # preview:     counts what a purge would delete; only reads.
 # purge:       after you type "purge <env> <mailbox>": worker stopped, database snapshot, purge, worker restored.
 # reingest:    records the last [days] (default 90) of mail as held history; nothing is processed yet.
 # run-history: puts the held mail on the history queue; the worker reads it overnight.
+# status:      the reloaded mail by pipeline state; settle and draft-open refuse until none is held or pending.
 # settle:      resolves cases quiet for [days] (tool default 14).
 # draft-open:  dry run first; after you type "draft <env>", drafts mail of the last [days] (tool default 14).
 # Only purge stops the worker. Needs the code deployed there and `aws login` with ECS, RDS and CloudWatch Logs access.
@@ -16,7 +18,7 @@ set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib/ecs_task.sh"
 
 usage() {
-  echo "usage: $0 <stage|prod> <preview|purge|reingest|run-history|settle|draft-open> [mailbox] [days]" >&2
+  echo "usage: $0 <stage|prod> <draft-report|preview|purge|reingest|run-history|status|settle|draft-open> [mailbox] [days]" >&2
   exit 64
 }
 
@@ -27,8 +29,8 @@ MAILBOX=${3:-info@hrrealestate.nl}
 DAYS=${4:-}
 case "$ENV_NAME" in stage | prod) ;; *) usage ;; esac
 case "$MODE" in
-  reingest | settle | draft-open) ;;
-  preview | purge | run-history) [ -z "$DAYS" ] || usage ;;
+  draft-report | reingest | settle | draft-open) ;;
+  preview | purge | run-history | status) [ -z "$DAYS" ] || usage ;;
   *) usage ;;
 esac
 [[ "$MAILBOX" =~ ^[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+$ ]] || usage
@@ -72,7 +74,9 @@ settle() {
 if [ "$MODE" != purge ]; then
   trap_worker_running
   case "$MODE" in
+    draft-report) run_mode draft-report --draft-report --days "${DAYS:-30}" ;;
     preview) run_mode preview --preview ;;
+    status) run_mode status --status ;;
     reingest) run_mode reingest --reingest --days "${DAYS:-90}" ;;
     run-history) run_mode run-history --run-history ;;
     settle) settle ;;

@@ -26,6 +26,7 @@ from app.ingestion.process import owner_addresses
 from app.pipeline.case_repo import OPEN_STATES
 from app.pipeline.propose import propose_for_message
 from app.workflows.mail_purge_scope import mailbox_company
+from app.workflows.mail_reload import require_history_done
 
 log = get_logger(__name__)
 MAX_AGE_DAYS = 14
@@ -184,13 +185,17 @@ def draft_open(
     dry_run: bool,
     prepare: Prepare,
     refresh_memory: RefreshMemory = no_memory_refresh,
+    force: bool = False,
 ) -> DraftOpenReport:
-    """Draft the newest unanswered mail of every open case. A dry run writes nothing and calls no model."""
+    """Draft the newest unanswered mail of every open case. A dry run writes nothing and calls no model. A real run
+    refuses while reloaded mail is unprocessed (`HistoryNotDoneError`) unless `force`: a later mail may answer it."""
     cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
     drafted: list[UUID] = []
     skipped: list[tuple[UUID, SkipReason]] = []
     with Session(engine) as session:
         company_id = mailbox_company(session, mailbox)
+        if not (dry_run or force):
+            require_history_done(session, company_id, mailbox)
         cases = _open_cases(session, company_id)
     owner = owner_addresses(engine, company_id)
     for case_id in cases:

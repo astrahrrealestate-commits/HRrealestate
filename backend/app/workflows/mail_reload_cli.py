@@ -29,7 +29,14 @@ from app.workflows.draft_report_cli import report_text
 from app.workflows.mail_draft_open import MAX_AGE_DAYS, DraftOpenReport, draft_open
 from app.workflows.mail_purge import FileHash, PurgeRefusedError, ReloadPreview, preview, purge
 from app.workflows.mail_purge_scope import mailbox_company
-from app.workflows.mail_reload import IDLE_DAYS, reingest, run_history, settle_history
+from app.workflows.mail_reload import (
+    IDLE_DAYS,
+    HistoryNotDoneError,
+    history_status,
+    reingest,
+    run_history,
+    settle_history,
+)
 from app.workflows.prepare import prepare_for_draft
 
 log = get_logger(__name__)
@@ -105,7 +112,7 @@ def _parsed(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--mailbox", required=True, help="connected company mailbox")
     mode = parser.add_mutually_exclusive_group(required=True)
-    for name in ("preview", "purge", "reingest", "run-history", "settle", "draft-open", "draft-report"):
+    for name in ("preview", "purge", "reingest", "run-history", "status", "settle", "draft-open", "draft-report"):
         mode.add_argument(f"--{name}", action="store_true")
     parser.add_argument("--worker-stopped", action="store_true", help="confirm the worker is stopped (--purge)")
     parser.add_argument("--confirm", default="", help='exactly "purge <mailbox>" (--purge)')
@@ -113,6 +120,7 @@ def _parsed(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--idle-days", type=int, default=IDLE_DAYS, help="quiet for this long: resolved (--settle)")
     parser.add_argument("--max-age-days", type=int, default=MAX_AGE_DAYS, help="newest mail at most this old")
     parser.add_argument("--dry-run", action="store_true", help="list what --draft-open would draft")
+    parser.add_argument("--force", action="store_true", help="settle or draft before the reloaded mail is processed")
     args = parser.parse_args(argv)
     if args.purge and not args.worker_stopped:
         parser.error("--purge needs --worker-stopped: stop the worker first")
@@ -151,11 +159,13 @@ def _run(args: argparse.Namespace, draft_report: DraftReport) -> str:
         return f"history mail recorded: {reingest(deps, mailbox, days=args.days or DEFAULT_DAYS)}\n"
     if args.run_history:
         return f"held messages queued: {run_history(engine, deps.enqueuer, mailbox)}\n"
+    if args.status:
+        return "".join(f"{state}: {n}\n" for state, n in history_status(engine, mailbox).items())
     if args.settle:
-        return f"cases resolved: {settle_history(engine, mailbox, idle_days=args.idle_days)}\n"
+        return f"cases resolved: {settle_history(engine, mailbox, idle_days=args.idle_days, force=args.force)}\n"
     report = draft_open(
         engine, settings, mailbox, max_age_days=args.max_age_days, dry_run=args.dry_run, prepare=_prepare,
-        refresh_memory=_memory,
+        refresh_memory=_memory, force=args.force,
     )  # fmt: skip
     return render_drafts(report, dry_run=args.dry_run)
 
@@ -164,7 +174,7 @@ def main(argv: list[str] | None = None, *, draft_report: DraftReport = mailbox_r
     args = _parsed(argv)
     try:
         sys.stdout.write(_run(args, draft_report))
-    except PurgeRefusedError as exc:
+    except (PurgeRefusedError, HistoryNotDoneError) as exc:
         sys.stdout.write(f"{exc}\n")
         return 1
     return 0

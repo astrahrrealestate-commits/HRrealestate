@@ -30,7 +30,7 @@ from app.pipeline.documents import file_document
 from app.storage.drive import CONTENT_PROPERTY, MemoryDrive, content_value
 from app.storage.memory import MemoryStorage
 from app.workflows.mail_draft_open import SkipReason, draft_open
-from app.workflows.mail_reload import reingest, run_history, settle_history
+from app.workflows.mail_reload import HistoryNotDoneError, history_status, reingest, run_history, settle_history
 from tests.integration.reload_support import HARJOT, MAILBOX, NOW, case, connect, mail, person, understanding_body
 
 pytestmark = pytest.mark.integration
@@ -316,3 +316,39 @@ def test_history_filing_does_not_duplicate_drive_files(
         row = s.scalar(select(DocumentRow).where(DocumentRow.attachment_id == att_id))
         assert row is not None
         assert row.drive_file_id == existing_id
+
+
+def _unfinished_history(engine: Engine, cid: UUID) -> UUID:
+    """A quiet open case, plus one reloaded mail the overnight run has not reached yet."""
+    connect(engine, cid)
+    p = person(engine, cid)
+    quiet = case(engine, cid, p)
+    old = NOW - timedelta(days=20)
+    mail(engine, cid, person_id=p, case_id=quiet, thread="q1", at=old, meta={"history": True},
+         understood=understanding_body())  # fmt: skip
+    mail(engine, cid, thread="q2", at=old, meta={"history": True}, status=PipelineStatus.held)
+    mail(engine, cid, thread="q3", at=old, meta={"history": True}, status=PipelineStatus.pending)
+    return quiet
+
+
+def test_settle_and_draft_open_wait_until_history_is_processed(
+    test_settings: Settings, migrated_engine: Engine, committed_company: Company
+) -> None:
+    """Settling or drafting while reloaded mail is still queued resolves or answers a case whose newer mail is still
+    on its way: both refuse until the run is done, unless forced."""
+    quiet = _unfinished_history(migrated_engine, committed_company.id)
+    with pytest.raises(HistoryNotDoneError, match="2 reloaded messages"):
+        settle_history(migrated_engine, MAILBOX, idle_days=14)
+    with pytest.raises(HistoryNotDoneError):
+        draft_open(migrated_engine, test_settings, MAILBOX, dry_run=False, prepare=_no_prepare)
+    draft_open(migrated_engine, test_settings, MAILBOX, dry_run=True, prepare=_no_prepare)  # lists, never refuses
+    with Session(migrated_engine) as s:
+        assert s.get(Case, quiet).state is CaseState.open  # type: ignore[union-attr]
+    assert settle_history(migrated_engine, MAILBOX, idle_days=14, force=True) == 1
+
+
+def test_history_status_counts_the_reloaded_mail_by_pipeline_state(
+    migrated_engine: Engine, committed_company: Company
+) -> None:
+    _unfinished_history(migrated_engine, committed_company.id)
+    assert history_status(migrated_engine, MAILBOX) == {"held": 1, "pending": 1, "failed": 0, "done": 1}
