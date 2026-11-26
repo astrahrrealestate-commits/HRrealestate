@@ -105,7 +105,7 @@ def test_propose_uses_v6_with_the_dossier_and_records_its_messages(
     assert "Eerder: de kraan druppelt." in seen[0]
     with Session(migrated_engine) as s:
         call = s.scalars(select(ModelCall).where(ModelCall.company_id == cid, ModelCall.purpose == "proposer")).one()
-    assert call.prompt_version == "v8"
+    assert call.prompt_version == "v10"
     assert mid in call.message_ids
     assert len(call.message_ids) == 2
 
@@ -114,7 +114,7 @@ def test_owner_redraft_uses_v6_with_the_dossier(migrated_engine: Engine, committ
     mid = _mail(migrated_engine, committed_company.id)
     loaded = load_message(migrated_engine, mid)
     assert loaded is not None
-    assert proposer_spec(loaded.ctx).prompt.key == "proposer/v8"
+    assert proposer_spec(loaded.ctx).prompt.key == "proposer/v10"
     assert any("Eerder: de kraan druppelt." in block for block in loaded.ctx.dossier)
 
 

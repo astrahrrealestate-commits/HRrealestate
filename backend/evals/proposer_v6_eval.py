@@ -28,6 +28,7 @@ from app.contracts import (
     Suspicious,
     Understanding,
     Urgency,
+    WaitingSide,
 )  # fmt: skip
 from app.contracts.person_memory import PersonMemory
 from app.contracts.research import Finding
@@ -135,7 +136,8 @@ def context(i: V6Input, persona: Persona) -> ProposerContext:
     und = Understanding(
         category=i.category, intent="Message", urgency=i.urgency, requires_reply=True, entities=Entities.none(),
         suspicious=Suspicious(flag=False, reason=None), confidence=0.9, sender_role=None, needs_research=False,
-        research_questions=[], prompt_version="understanding/v4",
+        research_questions=[], waiting_side=WaitingSide.none, open_obligation=None, expected_days=None,
+        prompt_version="understanding/v4",
     )  # fmt: skip
     return ProposerContext(
         case_id=UUID(int=1), channel=Channel.gmail, subject="Re", message_text=i.message, understanding=und,
