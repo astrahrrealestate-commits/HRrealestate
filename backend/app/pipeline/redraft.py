@@ -29,6 +29,7 @@ from app.core.errors import AgentFailedError
 from app.core.settings import Settings
 from app.db.enums import ActionStatus
 from app.db.models import ActionRevision, ActionRow, Approval
+from app.llm.embeddings import build_embedder
 from app.pipeline import approvals, dashboard_decisions, propose
 from app.pipeline.approvals import NewRevision
 from app.pipeline.rules import RuleDecision, Verdict
@@ -154,7 +155,7 @@ def turn_replay(
 def _decide(
     engine: Engine, settings: Settings, req: Request, current: tuple[str, ...]
 ) -> tuple[propose.Loaded, RuleDecision] | Redraft:
-    loaded = propose.load_message(engine, req.message_id)
+    loaded = propose.load_message(engine, req.message_id, embedder=build_embedder(settings))
     if loaded is None:
         return Redraft(None, (), "", NOTHING)
     try:

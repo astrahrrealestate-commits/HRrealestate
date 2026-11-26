@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.contracts import ActionType, Direction, PlanStep
 from app.db.enums import ActionStatus, ApprovalStatus
 from app.db.models import ActionRow, Approval, CaseLink, MessageRow, UnderstandingRow
+from app.llm.embeddings import build_embedder
 from app.pipeline import propose, redraft
 from app.pipeline.concierge_base import NEED_DETAIL, Ctx, StepResult, failed, log_change
 from app.pipeline.draft_guidance import (
@@ -113,7 +114,7 @@ def _reply_of(
 
 
 def _source(ctx: Ctx, message_id: UUID) -> str:
-    loaded = propose.load_message(ctx.engine, message_id)
+    loaded = propose.load_message(ctx.engine, message_id, embedder=build_embedder(ctx.settings))
     return loaded.source if loaded else ""
 
 

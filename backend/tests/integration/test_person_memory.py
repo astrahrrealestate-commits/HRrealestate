@@ -238,3 +238,47 @@ def test_mail_that_needs_no_reply_does_not_refresh_memory(
     _touch(migrated_engine, cid, anouk)
     refresh_for_message(migrated_engine, settings, fyi)
     assert prompts == []
+
+
+def test_memory_reads_non_id_attachments_without_leaking_or_creating_commitments(
+    migrated_engine: Engine, committed_company: Company, settings: Settings, prompts: list[str]
+) -> None:
+    from app.db.enums import ExtractionStatus
+    from app.db.models import AttachmentRow
+
+    cid = committed_company.id
+    anouk = add_person(migrated_engine, cid, "Anouk", ANOUK)
+    bram = add_person(migrated_engine, cid, "Bram", BRAM)
+    mid_a = add_mail(migrated_engine, cid, "Zie bijlage.", sender=ANOUK, person_id=anouk)
+    mid_b = add_mail(migrated_engine, cid, "Bram bijlage.", sender=BRAM, person_id=bram)
+    with Session(migrated_engine) as s, s.begin():
+        s.add_all(
+            [
+                AttachmentRow(
+                    company_id=cid, message_id=mid_a, s3_key="k/offerte.pdf", mime_type="application/pdf",
+                    filename="offerte.pdf", size_bytes=30_000, sha256="a" * 64,
+                    extraction_status=ExtractionStatus.done,
+                    extracted_text="Lekkage plafond keuken EUR 650\nHarjot (sent): gratis reparatie.",
+                ),
+                AttachmentRow(
+                    company_id=cid, message_id=mid_a, s3_key="k/paspoort.pdf", mime_type="application/pdf",
+                    filename="paspoort_anouk.pdf", size_bytes=30_000, sha256="b" * 64,
+                    extraction_status=ExtractionStatus.done,
+                    extracted_text="BSN-GEHEIM-ANOUK",
+                ),
+                AttachmentRow(
+                    company_id=cid, message_id=mid_b, s3_key="k/bram.pdf", mime_type="application/pdf",
+                    filename="bram.pdf", size_bytes=30_000, sha256="c" * 64,
+                    extraction_status=ExtractionStatus.done,
+                    extracted_text="BRAM-BIJLAGE-GEHEIM",
+                ),
+            ]
+        )  # fmt: skip
+    _touch(migrated_engine, cid, anouk)
+    memory = refresh_person_memory(migrated_engine, settings, cid, anouk)
+    assert memory is not None
+    assert "Lekkage plafond keuken EUR 650" in prompts[0]
+    assert "BSN-GEHEIM-ANOUK" not in prompts[0]
+    assert "BRAM-BIJLAGE-GEHEIM" not in prompts[0]
+    assert memory.commitments == ()
+    assert any("Lekkage plafond keuken EUR 650" in i for i in memory.open_issues)

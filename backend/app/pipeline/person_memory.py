@@ -1,5 +1,6 @@
 """Person memory (M13 T7): refresh what EstateOS remembers about one person from their own mail, only when stale."""
 
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -8,6 +9,7 @@ from pydantic import ValidationError
 from sqlalchemy import Engine, select, tuple_
 from sqlalchemy.orm import Session
 
+from app.context.budget import clip
 from app.context.message_origin import is_history, is_owner_authored
 from app.context.person_profile import get_or_create_profile
 from app.contracts import Direction
@@ -15,15 +17,21 @@ from app.contracts.person_memory import PersonMemory
 from app.core.errors import EstateOSError
 from app.core.logging import get_logger
 from app.core.settings import Settings
-from app.db.models import Case, ChannelIdentity, MessageRow, PersonProfile, UnderstandingRow
+from app.db.enums import ExtractionStatus
+from app.db.models import AttachmentRow, Case, ChannelIdentity, MessageRow, PersonProfile, UnderstandingRow
 from app.db.models.ingestion import not_chat_only
 from app.llm.agents.person_memory import PERSON_MEMORY, person_memory_prompt
 from app.llm.calls import CallContext, run_agent
-from app.pipeline.conversation import line_of, load_people, other_tenants, quoted_lines
+from app.llm.render import one_line
+from app.pipeline.conversation import ThreadLine, line_of, load_people, other_tenants, quoted_lines
+from app.pipeline.document_policy import FileMeta, looks_like_id
+from app.pipeline.injection_scan import scan
 
 log = get_logger(__name__)
 WINDOW = timedelta(days=90)
 MAX_MESSAGES = 40
+MAX_ATTACHMENTS = 12
+MAX_ATTACHMENT_CHARS = 2_000
 MAX_CASES = 10
 
 
@@ -68,6 +76,43 @@ def _rows(session: Session, company_id: UUID, person_id: UUID, since: datetime) 
     return sorted([*own, *sent], key=lambda r: r.sent_at, reverse=True)[:MAX_MESSAGES]
 
 
+def _attachment_lines(session: Session, company_id: UUID, kept: Sequence[MessageRow]) -> list[ThreadLine]:
+    """Extracted text from attachments on `kept` messages; ID documents are skipped, injection hits are flagged, and
+    author never names Harjot so an attachment cannot plant a commitment."""
+    if not kept:
+        return []
+    rows = session.execute(
+        select(AttachmentRow, MessageRow.sent_at)
+        .join(MessageRow, MessageRow.id == AttachmentRow.message_id)
+        .where(
+            AttachmentRow.company_id == company_id,
+            AttachmentRow.message_id.in_([r.id for r in kept]),
+            AttachmentRow.extraction_status == ExtractionStatus.done,
+            AttachmentRow.extracted_text.is_not(None),
+        )
+        .order_by(MessageRow.sent_at.desc())
+        .limit(MAX_ATTACHMENTS)
+    ).all()
+    out: list[ThreadLine] = []
+    for att, sent_at in rows:
+        text = (att.extracted_text or "").strip()
+        if not text or looks_like_id(FileMeta(att.filename, att.mime_type, att.size_bytes, sent_at)):
+            continue
+        name = one_line(att.filename or "unnamed", 80)
+        out.append(
+            ThreadLine(
+                att.message_id,
+                sent_at,
+                Direction.inbound,
+                f"Attachment ({name})",
+                None,
+                clip(text, MAX_ATTACHMENT_CHARS),
+                flagged=scan(text) is not None,
+            )
+        )
+    return out
+
+
 def _prompt(session: Session, company_id: UUID, person_id: UUID, now: datetime) -> tuple[str, tuple[UUID, ...]] | None:
     rows = _rows(session, company_id, person_id, now - WINDOW)
     if not rows:
@@ -83,7 +128,7 @@ def _prompt(session: Session, company_id: UUID, person_id: UUID, now: datetime) 
     )
     allowed = frozenset({person_id})
     kept = [r for r in rows if not other_tenants(r, people, allowed, identities)]
-    lines = [line_of(r, people) for r in kept]
+    lines = [line_of(r, people) for r in kept] + _attachment_lines(session, company_id, kept)
     own = [r for r in kept if r.person_id == person_id and not is_owner_authored(r)]
     lines += quoted_lines(own, people, frozenset(), [line.text for line in lines])
     lines.sort(key=lambda line: line.sent_at, reverse=True)
