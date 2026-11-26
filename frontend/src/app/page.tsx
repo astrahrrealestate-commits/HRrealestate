@@ -80,7 +80,7 @@ export default function TodayPage() {
       if (snap.threadsRes.status === "fulfilled") {
         setThreads(snap.threadsRes.value.threads || []);
       }
-      if (snap.pulseRes.status === "fulfilled" && snap.pulseRes.value.isLive) {
+      if (snap.pulseRes.status === "fulfilled" && snap.pulseRes.value.isLive && snap.pulseRes.value.metrics) {
         setMetrics(snap.pulseRes.value.metrics);
       }
       if (snap.attentionRes.status === "fulfilled") {
