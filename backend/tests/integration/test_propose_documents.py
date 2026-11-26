@@ -98,12 +98,12 @@ def test_another_tenants_document_never_reaches_the_prompt(
 ) -> None:
     cid = committed_company.id
     case_id, message_id = _case(migrated_engine, cid)
-    _doc_for(migrated_engine, cid, "Huur van Eve", "Geheime waarborgsom van Eve is QZXEVE euro.", None)  # unlinked
+    _doc_for(migrated_engine, cid, "Huur van Clara", "Geheime waarborgsom van Clara is QZXEVE euro.", None)  # unlinked
     other_case, _ = seed_case(migrated_engine, cid, "andere zaak")
     _doc_for(migrated_engine, cid, "Huur van Piet", "Piet betaalt waarborgsom QZXPIET.", other_case)  # another case
     _doc_for(migrated_engine, cid, "Huurovereenkomst", LEASE, case_id)
     propose_for_message(migrated_engine, settings, message_id)
-    for secret in ("Eve", "QZXEVE", "Piet", "QZXPIET"):
+    for secret in ("Clara", "QZXEVE", "Piet", "QZXPIET"):
         assert secret not in seen[0]
     assert "Huurovereenkomst" in seen[0]
 

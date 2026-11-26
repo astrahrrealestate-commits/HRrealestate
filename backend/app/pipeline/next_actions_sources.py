@@ -233,9 +233,7 @@ def enrich_actions(
     """Attach channel, sender, unit, subject, and age metadata to ranked actions in a single batch query."""
     if not actions:
         return []
-    meta = _case_meta_map(
-        session, company_id, viewer, [a.case_id for a in actions if a.case_id is not None]
-    )
+    meta = _case_meta_map(session, company_id, viewer, [a.case_id for a in actions if a.case_id is not None])
     ref = as_utc(now)
     out: list[NextAction] = []
     for act in actions:
@@ -377,18 +375,17 @@ def waiting_split(
                 and requires_reply is not False
             )
         )
-        is_their_obligation = (
-            not is_our_obligation
-            and (
-                wait is not None
-                or c.state is CaseState.waiting_on_third_party
-                or (newest is not None and (newest.direction is Direction.outbound or is_owner_authored(newest)))
-            )
+        is_their_obligation = not is_our_obligation and (
+            wait is not None
+            or c.state is CaseState.waiting_on_third_party
+            or (newest is not None and (newest.direction is Direction.outbound or is_owner_authored(newest)))
         )
 
         if is_our_obligation:
-            ob_text = promise.title if promise is not None else (
-                str(body.get("open_obligation")) if isinstance(body.get("open_obligation"), str) else None
+            ob_text = (
+                promise.title
+                if promise is not None
+                else (str(body.get("open_obligation")) if isinstance(body.get("open_obligation"), str) else None)
             )
             why_text = ob_text or (one_line(c.summary) if viewer.inbox else "") or "Awaiting our response"
             action = NextAction(
@@ -413,8 +410,10 @@ def waiting_split(
             for_us.append(((has_promise_priority, urg_rank.get(c.urgency, 2), -days), action))
         elif is_their_obligation:
             wait_days = max(0, (ref - as_utc(wait.created_at)).days) if wait is not None else days
-            ob_text = wait.about if wait is not None else (
-                str(body.get("open_obligation")) if isinstance(body.get("open_obligation"), str) else None
+            ob_text = (
+                wait.about
+                if wait is not None
+                else (str(body.get("open_obligation")) if isinstance(body.get("open_obligation"), str) else None)
             )
             why_text = (ob_text if viewer.inbox or wait else "") or f"Waiting {wait_days}d for update"
             overdue = 0 if (wait is not None and as_utc(wait.expected_by) <= ref) else 1

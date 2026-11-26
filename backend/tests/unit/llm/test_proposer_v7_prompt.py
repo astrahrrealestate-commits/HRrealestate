@@ -1,7 +1,14 @@
 """proposer/v7 (M13, after the v6 real-model eval): what was settled is used, every missing item is its own question."""
 
 from app.contracts import PromptRef
-from app.llm.agents.proposer import DOSSIER_PROMPTS, PROPOSER_V7, PROPOSER_V8, PROPOSER_V9, ROLE_AWARE_PROMPTS
+from app.llm.agents.proposer import (
+    DOSSIER_PROMPTS,
+    PROPOSER_V7,
+    PROPOSER_V8,
+    PROPOSER_V9,
+    PROPOSER_V10,
+    ROLE_AWARE_PROMPTS,
+)
 from app.llm.prompts import load_prompt
 
 
@@ -30,8 +37,9 @@ def test_v7_is_the_dossier_prompt() -> None:
     assert PROPOSER_V7.prompt.key == "proposer/v7"
     assert PROPOSER_V8.prompt.key == "proposer/v8"
     assert PROPOSER_V9.prompt.key == "proposer/v9"
-    assert {"v6", "v7", "v8", "v9"} <= DOSSIER_PROMPTS
-    assert {"v7", "v8", "v9"} <= ROLE_AWARE_PROMPTS
+    assert PROPOSER_V10.prompt.key == "proposer/v10"
+    assert {"v6", "v7", "v8", "v9", "v10"} <= DOSSIER_PROMPTS
+    assert {"v7", "v8", "v9", "v10"} <= ROLE_AWARE_PROMPTS
 
 
 def test_v8_requests_exactly_2_draft_variants() -> None:

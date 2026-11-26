@@ -6,7 +6,7 @@ from app.contracts.categories import SHOWN_CATEGORIES
 from app.llm.agents.doc_classifier import DOC_CLASSIFIER
 from app.llm.agents.draft_research import DRAFT_RESEARCH
 from app.llm.agents.person_memory import PERSON_MEMORY
-from app.llm.agents.proposer import DOSSIER_PROMPTS, MAX_PERSONA_CHARS, PROPOSER_V9, ROLE_AWARE_PROMPTS
+from app.llm.agents.proposer import DOSSIER_PROMPTS, MAX_PERSONA_CHARS, PROPOSER_V10, ROLE_AWARE_PROMPTS
 from app.llm.agents.understanding import UNDERSTANDING, sees_sender
 from app.llm.prompts import load_prompt
 
@@ -64,30 +64,33 @@ def test_understanding_contract_defaults_pre_v6_rows_and_keeps_strict_schema() -
     assert "expected_days" in schema["required"]
 
 
-def test_proposer_v9_keeps_standard_and_adds_ownership_and_playbooks() -> None:
-    v8 = load_prompt(PromptRef(name="proposer", version="v8")).text
+def test_proposer_v10_combines_m13_hierarchy_and_vastgoed_playbooks() -> None:
     v9 = load_prompt(PromptRef(name="proposer", version="v9")).text
-    assert PROPOSER_V9.prompt.key == "proposer/v9"
-    assert "v9" in DOSSIER_PROMPTS
-    assert "v9" in ROLE_AWARE_PROMPTS
-    for part in ("## Drafting standard", "## Safety rule", "## Who you are writing to"):
-        assert v8.split(part, 1)[1].split("\n## ", 1)[0] in v9, part
-    assert "Sole Ownership Authority" in v9
-    assert "1-line rule" in v9
-    assert "uitschrijving" in v9
-    assert "klein materiaal" in v9
-    assert "Bizziphone" in v9
-    assert "waiting_on_owner" in v9
+    v10 = load_prompt(PromptRef(name="proposer", version="v10")).text
+    assert PROPOSER_V10.prompt.key == "proposer/v10"
+    assert "v10" in DOSSIER_PROMPTS
+    assert "v10" in ROLE_AWARE_PROMPTS
+    for part in ("## Drafting standard", "## Who you are writing to"):
+        assert v9.split(part, 1)[1].split("\n## ", 1)[0] in v10, part
+    assert "similar_conversations" in v10
+    assert "Wet betaalbare huur" in v10
+    assert "Sole Ownership Authority" in v10
+    assert "1-line rule" in v10
+    assert "uitschrijving" in v10
+    assert "klein materiaal" in v10
+    assert "Bizziphone" in v10
+    assert "waiting_on_owner" in v10
 
 
 def test_supporting_agents_upgraded_to_new_prompt_versions() -> None:
     assert PERSON_MEMORY.prompt.key == "person_memory/v3"
     assert DOC_CLASSIFIER.prompt.key == "doc_classifier/v2"
-    assert DRAFT_RESEARCH.prompt.key == "draft_research/v2"
+    assert DRAFT_RESEARCH.prompt.key == "draft_research/v3"
     mem = load_prompt(PERSON_MEMORY.prompt).text
     doc = load_prompt(DOC_CLASSIFIER.prompt).text
     res = load_prompt(DRAFT_RESEARCH.prompt).text
     assert "ownership" in mem.lower()
     assert "taxatierapport" in doc
+    assert "iplo.nl" in res
     assert "warmteservice.nl" in res
     assert "belastingdienst.nl" in res

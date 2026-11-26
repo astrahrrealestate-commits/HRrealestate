@@ -28,8 +28,8 @@ from app.llm.calls import AgentSpec
 from app.llm.prompts import LoadedPrompt
 from app.llm.render import data_block, escape
 
-ROLE_AWARE_PROMPTS = frozenset({"v5", "v6", "v7", "v8", "v9"})
-DOSSIER_PROMPTS = frozenset({"v6", "v7", "v8", "v9"})  # the dossier replaces <message>, <waiting> and <excerpts>
+ROLE_AWARE_PROMPTS = frozenset({"v5", "v6", "v7", "v8", "v9", "v10"})
+DOSSIER_PROMPTS = frozenset({"v6", "v7", "v8", "v9", "v10"})  # the dossier replaces <message>, <waiting> and <excerpts>
 MAX_PERSONA_CHARS = 8000  # the persona markdown's limit (a data block holds at most this many characters)
 
 
@@ -141,16 +141,23 @@ PROPOSER_V9 = AgentSpec(  # v8 with ambiguity resolution priority: history -> Ha
     finalize=_unchanged,
     gemini_prompted=True,
 )
+PROPOSER_V10 = AgentSpec(  # v9 plus Sole Ownership Authority, Vastgoed playbooks, and Open-Obligation tracking
+    name="proposer",
+    prompt=PromptRef(name="proposer", version="v10"),
+    output_type=Proposal,
+    finalize=_unchanged,
+    gemini_prompted=True,
+)
 MAX_GUIDANCE = 400  # the planner's `text` limit
 MAX_CURRENT_VARIANT = 1500
 
 
 def proposer_spec(ctx: ProposerContext) -> AgentSpec[Proposal]:
-    """v9 whenever a dossier is given (every pipeline proposal and owner redraft); v4 whenever the owner's
+    """v10 whenever a dossier is given (every pipeline proposal and owner redraft); v4 whenever the owner's
     persona is given; otherwise v2 only for an owner-requested draft (guidance or a draft to
     replace), v3 when the case's own documents are in view (ADR 0008), v1 for everything else."""
     if ctx.dossier:
-        return PROPOSER_V9
+        return PROPOSER_V10
     if ctx.persona is not None:
         return PROPOSER_PERSONA
     if ctx.guided:

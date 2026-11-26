@@ -84,7 +84,7 @@ _LEGAL = re.compile(
     r"borg|waarborgsom|deposit|overlast|erfpacht|opkoopbescherming|notaris|servicekosten|wws|woningwaardering|"
     r"puntentelling|punten|betaalbare huur|middenhuur|sociale huur|vrije sector|onderhuur|medehuur|"
     r"diplomatenclausule|aanzeg\w*|ontruim\w*|huurvermindering|goed verhuurderschap|vve|splitsings\w*|splitsen|"
-    r"omgevingsvergunning|omgevingswet|energielabel|leegstand\w*|huurprijs|toestemming|bedenktijd)\b",
+    r"omgevingsvergunning|omgevingswet|energielabel|leegstand\w*|toestemming|bedenktijd)\b",
     re.I,
 )
 _MARKET = re.compile(
@@ -163,16 +163,12 @@ class _Budget:
         return DEADLINE_SEC - (self.clock() - self.started)
 
 
-def _search(
-    searcher: Searcher, query: str, domains: Sequence[str], n: int, budget: _Budget
-) -> list[ResearchSource]:
+def _search(searcher: Searcher, query: str, domains: Sequence[str], n: int, budget: _Budget) -> list[ResearchSource]:
     if not budget.may_search():
         return []
     budget.searches += 1
     try:
-        hits = searcher(domains).search(
-            search_query(query), region=REGION, limit=PAGES_PER_SEARCH
-        )
+        hits = searcher(domains).search(search_query(query), region=REGION, limit=PAGES_PER_SEARCH)
     except Exception as exc:  # one search that fails (provider, budget, network) never stops the draft
         log.warning("draft_research.search_failed", reason=type(exc).__name__)
         budget.failed = True  # nothing found is then not an answer: a later run searches again

@@ -11,7 +11,9 @@ from app.llm.agents.proposer import (
     PROPOSER_PERSONA,
     PROPOSER_V6,
     PROPOSER_V7,
+    PROPOSER_V8,
     PROPOSER_V9,
+    PROPOSER_V10,
     Persona,
     ProposerContext,
     proposer_prompt,
@@ -69,9 +71,11 @@ def test_v6_prompt_holds_every_dossier_block_as_data(tag: str) -> None:
 
 
 def test_a_context_with_a_dossier_uses_the_dossier_prompt_and_the_old_prompts_stay_for_the_rest() -> None:
-    assert proposer_spec(_ctx()) is PROPOSER_V9  # v9: ambiguity resolution priority added
+    assert proposer_spec(_ctx()) is PROPOSER_V10
     assert PROPOSER_V6.prompt.key == "proposer/v6"
     assert PROPOSER_V7.prompt.key == "proposer/v7"
+    assert PROPOSER_V8.prompt.key == "proposer/v8"
+    assert PROPOSER_V9.prompt.key == "proposer/v9"
     assert proposer_spec(_ctx(dossier=())) is PROPOSER_PERSONA
 
 
