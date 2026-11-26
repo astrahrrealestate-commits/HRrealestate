@@ -15,6 +15,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_evals import Dataset
 
+from app.context.compiler import compile_concierge_context
 from app.contracts import ConciergePlan, Intent, PromptRef
 from app.core.settings import Settings
 from app.llm.agents.concierge import CONCIERGE, concierge_prompt
@@ -43,6 +44,8 @@ class Question(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     text: str
     page: PageInput | None = None
+    entities: str = ""  # v10+: the server-resolved <entities> lines (concierge_entities.Entities.render)
+    history: list[str] = Field(default_factory=list)  # earlier `owner:`/`assistant:` lines; a summary line first
 
 
 class Label(BaseModel):
@@ -59,6 +62,7 @@ class Label(BaseModel):
     reply_mentions_any: list[str] = Field(default_factory=list)  # the reply uses the page: one of these must appear
     reply_never_mentions: list[str] = Field(default_factory=list)  # never in the reply (hostile text, contact details)
     expect_research: bool = False  # v7+: an open question that asks for the research loop (`needs_research`, no reply)
+    from_version: int = 0  # the first prompt version that reads this case's inputs (10: <entities>, <conversation>)
 
 
 def load(path: Path = GOLDEN_DIR / "concierge.yaml") -> Dataset[Question, ConciergePlan, Label]:
@@ -66,6 +70,7 @@ def load(path: Path = GOLDEN_DIR / "concierge.yaml") -> Dataset[Question, Concie
 
 
 REPLY_FROM = 3  # the first concierge prompt version with `reply`
+NAMED_FROM = 10  # the first concierge prompt version with `<entities>` and `<conversation>`
 RESEARCH_FROM = 7  # the first concierge prompt version with `needs_research`
 
 
@@ -152,13 +157,34 @@ def score_plans(
     return scores
 
 
+def _version(version: str) -> int:
+    found = re.fullmatch(r"v(\d+)", version)
+    return int(found.group(1)) if found else 0
+
+
 def runnable(
-    dataset: Dataset[Question, ConciergePlan, Label], settings: Settings
+    dataset: Dataset[Question, ConciergePlan, Label], settings: Settings, version: str | None = None
 ) -> Dataset[Question, ConciergePlan, Label]:
-    if settings.llm_model != "fake":
-        return dataset
-    kept = [c for c in dataset.cases if c.metadata is not None and not c.metadata.real_only]
+    """The fake skips `real_only` cases; a `version` skips the cases written for a later prompt."""
+    fake = settings.llm_model == "fake"
+    kept = [
+        c
+        for c in dataset.cases
+        if c.metadata is not None
+        and not (fake and c.metadata.real_only)
+        and (version is None or c.metadata.from_version <= _version(version))
+    ]
     return Dataset[Question, ConciergePlan, Label](name=dataset.name, cases=kept)
+
+
+def case_prompt(inputs: Question, version: str) -> str:
+    """The prompt the live path builds: a v10+ prompt gets its entities and conversation blocks, an older one never."""
+    page = inputs.page or PageInput()
+    if not _at_least(version, NAMED_FROM):
+        return concierge_prompt(inputs.text, inputs.history, _CASES, [], page.facts, page.snapshot)
+    return compile_concierge_context(
+        inputs.text, inputs.history, _CASES, [], page.facts, page.snapshot, entities=inputs.entities, named_blocks=True
+    ).prompt_text
 
 
 def _miss(name: str, text: str, label: Label, plan: ConciergePlan) -> str:
@@ -180,12 +206,10 @@ def run(version: str, settings: Settings) -> EvalResult:
     agent = spec_agent(settings, CONCIERGE.name, ConciergePlan, loaded)
 
     async def task(inputs: Question) -> ConciergePlan:
-        page = inputs.page or PageInput()
-        prompt = concierge_prompt(inputs.text, [], _CASES, [], page.facts, page.snapshot)
-        output = (await agent.run(prompt)).output
+        output = (await agent.run(case_prompt(inputs, version))).output
         return CONCIERGE.finalize(output, loaded)
 
-    report = runnable(load(), settings).evaluate_sync(
+    report = runnable(load(), settings, version).evaluate_sync(
         task, name=f"concierge-{version}", progress=False, max_concurrency=MAX_CONCURRENCY, retry_task=task_retry()
     )
     if report.failures:

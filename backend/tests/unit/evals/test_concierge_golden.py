@@ -14,7 +14,7 @@ from evals.concierge_eval import Label, load, plan_is_clean, runnable, score_pla
 
 MIN_GROUPS = {
     "read": 8, "task": 8, "pause": 4, "reply": 8, "clarify": 4, "out_of_scope": 4, "page": 12, "documents": 8,
-    "research": 3, "chat": 2, "remember": 2, "calendar": 2, "rent": 2, "multi": 1,
+    "research": 3, "chat": 2, "remember": 2, "calendar": 2, "rent": 2, "multi": 1, "entities": 5,
 }  # fmt: skip
 
 
@@ -260,3 +260,34 @@ def test_an_amount_case_checks_the_fact_amount_and_never_the_requested_one() -> 
     assert case.metadata is not None
     assert case.metadata.reply_mentions_any == ["950"]
     assert {"2000", "NL91"} <= set(case.metadata.reply_never_mentions)
+
+
+def _entity_cases() -> list[str]:
+    return [c.name or "" for c in load().cases if c.metadata is not None and c.metadata.from_version >= 10]
+
+
+def test_entity_and_conversation_cases_cover_what_v10_reads() -> None:
+    cases = [c for c in load().cases if (c.name or "") in _entity_cases()]
+    assert len(cases) >= 6
+    assert sum(bool(c.inputs.entities) for c in cases) >= 5
+    assert sum(bool(c.inputs.history) for c in cases) >= 2
+    assert any(c.metadata and c.metadata.expected_intents == [Intent.clarify] for c in cases)
+    assert sum(bool(c.metadata and c.metadata.expect_research) for c in cases) >= 2
+    assert sum(bool(c.metadata and c.metadata.expected_ref) for c in cases) >= 3
+
+
+def test_entity_cases_run_only_for_a_prompt_that_reads_the_blocks() -> None:
+    real = eval_settings().model_copy(update={"llm_model": "openai:gpt-test"})
+    names_v9 = {c.name for c in runnable(load(), real, "v9").cases}
+    names_v10 = {c.name for c in runnable(load(), real, "v10").cases}
+    assert not names_v9 & set(_entity_cases())
+    assert set(_entity_cases()) <= names_v10
+
+
+def test_v10_cases_are_asked_with_the_named_blocks_and_v9_never_sees_them() -> None:
+    case = next(c for c in load().cases if c.inputs.entities and c.inputs.history)
+    v10 = concierge_eval.case_prompt(case.inputs, "v10")
+    assert "<entities>" in v10
+    assert case.inputs.entities.splitlines()[0][:20] in v10
+    assert case.inputs.history[-1][:20] in v10
+    assert "<entities>" not in concierge_eval.case_prompt(case.inputs, "v9")

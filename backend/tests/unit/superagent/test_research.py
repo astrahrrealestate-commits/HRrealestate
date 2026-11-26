@@ -6,8 +6,10 @@ from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
+from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.models.test import TestModel
 
 from app.core.errors import BudgetExceededError
 from app.core.settings import Settings
@@ -206,3 +208,15 @@ def test_the_research_rules_say_unverified_quotes_are_claims() -> None:
     rules = research.RESEARCH_RULES.lower()
     assert "not verified" in rules
     assert "never" in rules.split("not verified", 1)[1][:300]
+
+
+def test_a_lookup_that_runs_its_own_model_call_works_inside_a_research_tool(
+    rows: list[Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Search reranks and plans with its own agent run; Pydantic AI refuses a sync run inside a sync tool's context,
+    so on real models every rerank failed and search fell back to its cheap path."""
+    inner = Agent(TestModel(custom_output_text="reranked: boiler still broken"))
+    monkeypatch.setattr(research, "_messages", lambda deps, query: (str(inner.run_sync(query).output), 1))
+    seen: dict[str, Any] = {}
+    _run(_scripted([("search_communications", {"query": "boiler"})], "Broken.", seen), monkeypatch)
+    assert "reranked: boiler still broken" in seen["returns"][0]
