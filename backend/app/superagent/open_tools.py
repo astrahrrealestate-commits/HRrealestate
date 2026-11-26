@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.context.budget import clip
 from app.context.shown_sender import shown_sender_name
 from app.contracts import Direction
+from app.contracts.person_memory import PersonMemory
 from app.core.localtime import to_local
 from app.db.enums import ExtractionStatus
 from app.db.models import AttachmentRow, Case, DocumentChunk, DocumentRow, Lease, LeaseParty, MessageRow, Person, Unit
@@ -18,6 +19,7 @@ from app.db.models.ingestion import not_chat_only
 from app.pipeline.concierge_entities import resolve_entities
 from app.pipeline.document_search import DocFilter, doc_filters
 from app.pipeline.injection_scan import scan
+from app.pipeline.person_memory import stored_memory
 
 MAIL_CHARS = 8_000
 ATTACHMENT_CHARS = 6_000
@@ -130,11 +132,23 @@ def open_document(session: Session, company_id: UUID, document_id: UUID, page: i
     return f"{doc.title} ({doc.doc_type}, {doc.document_date or 'undated'}), page {page} of {pages}\n\n{body}"
 
 
+def _memory_lines(memory: PersonMemory | None) -> list[str]:
+    """What EstateOS remembers about the person (written from their own mail, so untrusted like it)."""
+    if memory is None:
+        return []
+    lines = [f"memory: {memory.summary}"]
+    lines += [f"promised: {c}" for c in memory.commitments]
+    lines += [f"prefers: {p}" for p in memory.preferences]
+    lines += [f"open: {o}" for o in memory.open_issues]
+    return lines
+
+
 def open_person(session: Session, company_id: UUID, person_id: UUID) -> str | None:
     person = session.scalar(select(Person).where(Person.company_id == company_id, Person.id == person_id))
     if person is None:
         return None
     lines = [f"{person.display_name} | {person.kind.value}" + (f" | {person.trade}" if person.trade else "")]
+    lines += _memory_lines(stored_memory(session, company_id, person_id))
     leases = session.execute(
         select(Unit.label, Lease.valid_from, Lease.valid_to)
         .join(Lease, Lease.unit_id == Unit.id)

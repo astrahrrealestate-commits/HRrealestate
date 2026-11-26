@@ -215,3 +215,39 @@ def test_thread_timeline_filters_by_case_and_unit(migrated_engine: Engine, commi
     assert [m["message_id"] for m in by_case] == [str(reply), str(mine)]
     assert [m["message_id"] for m in by_unit] == [str(reply), str(mine)]
     assert len(both) == 3
+
+
+def test_open_person_shows_what_is_remembered_about_them(migrated_engine: Engine, committed_company: Company) -> None:
+    from app.db.models import PersonProfile
+
+    cid = committed_company.id
+    memory = {
+        "summary": "Tenant at Singel 1 since 2025; usually writes in Dutch.",
+        "commitments": ["Harjot promised a new bathroom fan before 1 December."],
+        "preferences": ["Prefers WhatsApp in the evening."],
+        "open_issues": ["Mould in the bathroom."],
+    }
+    with Session(migrated_engine) as s, s.begin():
+        anna = Person(company_id=cid, kind=PersonKind.tenant, display_name="Anna", valid_from=date(2025, 1, 1))
+        s.add(anna)
+        s.flush()
+        s.add(PersonProfile(company_id=cid, person_id=anna.id, memory=memory))
+        pid = anna.id
+    with Session(migrated_engine) as s:
+        text = open_person(s, cid, pid)
+    assert text is not None
+    for part in ("usually writes in Dutch", "promised a new bathroom fan", "WhatsApp in the evening", "Mould"):
+        assert part in text
+
+
+def test_open_person_without_memory_still_opens(migrated_engine: Engine, committed_company: Company) -> None:
+    cid = committed_company.id
+    with Session(migrated_engine) as s, s.begin():
+        bram = Person(company_id=cid, kind=PersonKind.tenant, display_name="Bram", valid_from=date(2025, 1, 1))
+        s.add(bram)
+        s.flush()
+        pid = bram.id
+    with Session(migrated_engine) as s:
+        text = open_person(s, cid, pid)
+    assert text is not None
+    assert "memory:" not in text
