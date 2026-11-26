@@ -5,14 +5,15 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from dbos import DBOS, SetWorkflowID
+from dbos import DBOS, SetEnqueueOptions, SetWorkflowID
 from sqlalchemy.orm import Session
 
 from app.core.errors import GmailNotConnectedError
 from app.core.logging import get_logger
-from app.core.workflow_names import GMAIL_SYNC, PROCESS_EVENT
+from app.core.workflow_names import GMAIL_SYNC, PROCESS_EVENT, history_ingest_partition
 from app.ingestion import gmail_sync as mailbox_sync
 from app.ingestion import process
+from app.ingestion.history import history_events
 from app.pipeline import case_repo
 from app.workflows import owner_reply, pipeline, queues
 from app.workflows.deps import get_deps
@@ -53,7 +54,7 @@ def process_event(raw_event_id: str) -> str:
     ) as exc:  # outlived its retries, or a bug: record it for the requeue sweep, then let DBOS mark ERROR
         mark_failed_step(raw_event_id, f"{type(exc).__name__}: {str(exc)[:300]}")
         raise
-    message_id, route = result["message_id"], result["route"]
+    message_id, route = result["message_id"], result["route"]  # "held": reloaded mail waits for `run_history`
     if message_id and route in ("owner", "pipeline"):
         target, prefix = (owner_reply.owner_reply, "owner") if route == "owner" else (pipeline.pipeline_entry, "pipe")
         with SetWorkflowID(f"{prefix}:{message_id}"):  # one routing per message, even if replayed or requeued
@@ -72,13 +73,26 @@ def requeue_candidates_step() -> list[tuple[str, str]]:
     return [(str(raw_id), wf) for raw_id, wf in candidates if str(raw_id) not in queued]
 
 
+@DBOS.step(name="ingest.history_events")
+def history_events_step(raw_event_ids: list[str]) -> list[str]:
+    return [str(i) for i in history_events(get_deps().engine, [UUID(i) for i in raw_event_ids])]
+
+
 @DBOS.workflow(name="ingest.requeue")
 def requeue_failed(scheduled_time: datetime, context: Any) -> None:
     """Hourly: rerun raw events that failed retryably or are stranded in `pending`. Ids carry the attempt (or the
     hour), so a sweep that runs twice enqueues each event once, and failures rerun at most MAX_REQUEUES times."""
-    for raw_event_id, workflow_id in requeue_candidates_step():
-        with SetWorkflowID(workflow_id):
-            queues.pipeline_queue().enqueue(process_event, raw_event_id)
+    candidates = requeue_candidates_step()
+    if not candidates:
+        return
+    history = set(history_events_step([raw_event_id for raw_event_id, _ in candidates]))
+    for n, (raw_event_id, workflow_id) in enumerate(candidates):
+        if raw_event_id in history:  # a reload's rerun stays off the live queue
+            with SetWorkflowID(workflow_id), SetEnqueueOptions(queue_partition_key=history_ingest_partition(n)):
+                queues.history_queue().enqueue(process_event, raw_event_id)
+        else:
+            with SetWorkflowID(workflow_id):
+                queues.pipeline_queue().enqueue(process_event, raw_event_id)
 
 
 @DBOS.step(name="ingest.sync_mailbox", **_RETRY)

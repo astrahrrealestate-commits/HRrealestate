@@ -57,8 +57,11 @@ def record_event(
     *,
     status: RawEventStatus = RawEventStatus.pending,
     workflow: str | None = PROCESS_EVENT,
+    queue: str = PIPELINE_QUEUE,
+    partition_key: str | None = None,
 ) -> UUID | None:
     """Insert-or-skip the raw event; when new and `workflow` is set, enqueue it in the same transaction.
+    `partition_key` goes with a partitioned `queue` (the history queue).
 
     Returns the new raw event id, or None for a duplicate delivery to this company.
     """
@@ -75,7 +78,9 @@ def record_event(
         .returning(RawEvent.id)
     )
     if raw_id is not None and workflow is not None:
-        options = {"queue_name": PIPELINE_QUEUE, "workflow_name": workflow, "workflow_id": event_workflow_id(raw_id)}
+        options = {"queue_name": queue, "workflow_name": workflow, "workflow_id": event_workflow_id(raw_id)}
+        if partition_key is not None:
+            options["queue_partition_key"] = partition_key
         client.enqueue_in_transaction(session, options, str(raw_id))
     return raw_id
 

@@ -19,7 +19,7 @@ from app.contracts.person_memory import PersonMemory
 from app.contracts.research import Finding
 from app.core.errors import NotFoundError
 from app.db.enums import DocLinkKind, ExtractionStatus, PersonKind, WaitStatus
-from app.db.models import AttachmentRow, Case, CaseLink, ChannelIdentity, MessageRow, Person, WaitRow
+from app.db.models import AttachmentRow, Case, CaseLink, ChannelIdentity, MessageRow, Person, UnderstandingRow, WaitRow
 from app.db.models.ingestion import not_chat_only
 from app.llm.agents.doc_qa import Passage
 from app.llm.embeddings import TextEmbedder
@@ -36,6 +36,7 @@ from app.pipeline.conversation import (
 )
 from app.pipeline.document_qa import case_scope, strip_risky
 from app.pipeline.document_search import DocFilter
+from app.pipeline.draft_research import stored_findings
 from app.pipeline.injection_scan import scan
 from app.pipeline.person_memory import stored_memory
 from app.pipeline.rag import retrieve_cheap
@@ -254,6 +255,16 @@ def _rules(session: Session, scope: _Scope) -> tuple[str, ...]:
     return tuple(" ".join(item.text.split()) for item in items)
 
 
+def _research(session: Session, company_id: UUID, message_id: UUID) -> tuple[Finding, ...]:
+    """What draft research (T8) found for this mail, if it ran."""
+    stored = session.scalar(
+        select(UnderstandingRow.research).where(
+            UnderstandingRow.company_id == company_id, UnderstandingRow.message_id == message_id
+        )
+    )
+    return stored_findings(stored)
+
+
 def build_dossier(session: Session, company_id: UUID, message_id: UUID, embedder: TextEmbedder | None) -> Dossier:
     msg = session.get(MessageRow, message_id)
     if msg is None or msg.company_id != company_id:
@@ -274,4 +285,5 @@ def build_dossier(session: Session, company_id: UUID, message_id: UUID, embedder
         memory=stored_memory(session, company_id, msg.person_id) if msg.person_id else None,
         owner_rules=_rules(session, scope),
         waiting=_waiting(session, scope),
+        research=_research(session, company_id, msg.id),
     )

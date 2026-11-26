@@ -104,6 +104,7 @@ class PipelineStatus(StrEnum):
     pending = "pending"
     done = "done"
     failed = "failed"
+    held = "held"  # reloaded history (M13): stored, waiting for `run_history`; no sweep or requeue touches it
     skipped = (
         "skipped"  # WhatsApp chat only: not from a known contact, so it never enters the case pipeline or its context
     )

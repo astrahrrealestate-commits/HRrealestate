@@ -11,6 +11,7 @@ from app.llm.fakes_diligence import fake_dd_reader
 from app.llm.fakes_finance import fake_job_items, fake_price_extractor, fake_quote_reader
 from app.llm.fakes_owner_qa import fake_owner_qa
 from app.llm.fakes_proposer import fake_proposer
+from app.llm.fakes_research import fake_draft_research
 
 
 def _extract_user_text(messages: list[ModelMessage]) -> str:
@@ -391,6 +392,8 @@ def model_for(agent_name: str) -> FunctionModel:
             args = fake_job_items(user_text)
         elif agent_name == "price_extractor":
             args = fake_price_extractor(user_text)
+        elif agent_name == "draft_research":
+            args = fake_draft_research(user_text)
         elif agent_name == "doc_ocr":
             args = {"text": _extract_binary(messages).removeprefix(b"SCAN").decode("utf-8", errors="replace").strip()}
         else:

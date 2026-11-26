@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.channels.dashboard import feed
 from app.channels.prices.ports import PriceSource
+from app.context.message_origin import is_history
 from app.contracts.finance import ExtractedQuote
 from app.core.ids import new_id
 from app.core.logging import get_logger
@@ -59,6 +60,7 @@ class _Incoming:
     subject: str | None
     text: str
     attachments: list[str]
+    history: bool = False  # reloaded mail: the review is stored, no card is made
 
 
 def _contractor(session: Session, company_id: UUID, person_id: UUID | None) -> tuple[UUID, str] | None:
@@ -90,7 +92,7 @@ def _load_incoming(session: Session, message_id: UUID) -> _Incoming | None:
     return _Incoming(
         company_id=cid, case_id=case_id, vendor=_contractor(session, cid, msg.person_id),
         received_on=msg.sent_at.astimezone(ZoneInfo(tz)).date(), subject=subject if isinstance(subject, str) else None,
-        text=msg.text, attachments=[t for t in texts if t],
+        text=msg.text, attachments=[t for t in texts if t], history=is_history(msg),
     )  # fmt: skip
 
 
@@ -139,9 +141,11 @@ def _append_review(
     plan: ReferencePlan,
     outcome: ReviewOutcome,
     review_id: UUID | None = None,
+    card: bool = True,
 ) -> UUID:
-    """The review row, its feed card (key `quote_review:{review_id}`) and the `reviewed` status, in the caller's
-    transaction. A review id already stored (a racing retry) writes nothing and returns that id."""
+    """The review row, its feed card (key `quote_review:{review_id}`, unless `card` is off) and the `reviewed`
+    status, in the caller's transaction. A review id already stored (a racing retry) writes nothing and returns that
+    id."""
     review_id, result = review_id or new_id(), outcome.result
     report = build_report(quote_id=quote_id, review_id=review_id, facts=facts, outcome=outcome, plan=plan)
     if repo.insert_review(
@@ -150,8 +154,9 @@ def _append_review(
     ) is None:  # fmt: skip
         log.info("finance.quote.review_raced", quote_id=str(quote_id), review_id=str(review_id))
         return review_id  # a concurrent retry stored this review, its card and the status: nothing more to write
-    key = f"{FEED_KEY_PREFIX}{review_id}"
-    feed.deliver_payload(session, facts.company_id, key, FeedKind.quote_review, quote_id, report)
+    if card:
+        key = f"{FEED_KEY_PREFIX}{review_id}"
+        feed.deliver_payload(session, facts.company_id, key, FeedKind.quote_review, quote_id, report)
     session.execute(
         update(QuoteRow)
         .where(QuoteRow.company_id == facts.company_id, QuoteRow.id == quote_id)
@@ -200,7 +205,7 @@ def review_message(
         if reviewed is None:
             log.info("finance.quote.unlinked", message_id=str(message_id), quote_id=str(quote_id))
             return None
-        return _append_review(session, facts, quote_id, *reviewed)
+        return _append_review(session, facts, quote_id, *reviewed, card=not inc.history)
 
 
 def _new_line(row: QuoteLineRow) -> NewQuoteLine:

@@ -32,10 +32,11 @@ from app.core.logging import get_logger
 from app.core.settings import get_settings
 from app.core.workflow_names import requeue_workflow_id, stale_event_workflow_id
 from app.db.enums import PipelineStatus, RawEventStatus
-from app.db.known_contacts import feeds_pipeline, is_known_contact
-from app.db.models import MessageRow, OwnerAccount, RawEvent
+from app.db.models import MessageRow, RawEvent
+from app.ingestion.history import HELD, hold, is_history_event
 from app.ingestion.media import AttachmentInput, store_attachment
 from app.ingestion.repository import Enqueuer, mark_raw_event, save_message
+from app.ingestion.routing import route_message
 from app.storage.ports import ObjectStorage
 from app.tools.message_rag import index_message
 
@@ -60,7 +61,7 @@ class IngestDeps:
 class Persisted:
     outcome: str  # processed | duplicate | failed | ignored
     message_id: str | None = None
-    route: str = "none"  # owner | pipeline | none
+    route: str = "none"  # owner | pipeline | held | none
 
 
 def is_transient(exc: BaseException) -> bool:
@@ -82,7 +83,7 @@ def persist_event(deps: IngestDeps, raw_event_id: UUID) -> Persisted:
             return Persisted("failed")
         if not _runnable(raw):
             return _already(session, raw)
-        company_id, provider, payload = raw.company_id, raw.provider, dict(raw.payload)
+        company_id, provider, payload, received_at = raw.company_id, raw.provider, dict(raw.payload), raw.received_at
         last_attempt = raw.attempts >= MAX_REQUEUES - 1  # no rerun follows: give up on media, keep the message
     try:
         message, meta, attachments = _normalise(deps, company_id, raw_event_id, provider, payload, last_attempt)
@@ -90,12 +91,16 @@ def persist_event(deps: IngestDeps, raw_event_id: UUID) -> Persisted:
         return _finish(deps, company_id, raw_event_id, RawEventStatus.ignored, str(exc))
     except (UnroutableMessageError, NotFoundError, ValueError) as exc:
         return _finish(deps, company_id, raw_event_id, RawEventStatus.failed, f"{type(exc).__name__}: {exc}")
+    history = is_history_event(payload, received_at, message.sent_at)
+    meta = {**meta, "history": True} if history else meta
     with Session(deps.engine) as session, session.begin():
-        message_id, _ = save_message(session, message, meta, attachments)
+        message_id, created = save_message(session, message, meta, attachments)
         mark_raw_event(session, company_id, raw_event_id, RawEventStatus.processed)
-
-        route = _route(session, message, message_id)
-    _index_outbound(deps, message, message_id)
+        route = (
+            hold(session, message, message_id) if history and created else route_message(session, message, message_id)
+        )
+    if not history:  # reloaded mail is indexed by the history run of its thread, in order
+        _index_outbound(deps, message, message_id)
     return Persisted("processed", str(message_id), route)
 
 
@@ -134,6 +139,8 @@ def _already(session: Session, raw: RawEvent) -> Persisted:
     )
     if row is None:
         return Persisted(raw.status.value)
+    if row.pipeline_status is PipelineStatus.held:
+        return Persisted("duplicate", str(row.id), HELD)
     message = Message(
         channel=row.channel,
         provider_msg_id=row.provider_msg_id,
@@ -145,7 +152,7 @@ def _already(session: Session, raw: RawEvent) -> Persisted:
         raw_event_id=raw.id,
         company_id=raw.company_id,
     )
-    return Persisted("duplicate", str(row.id), _route(session, message, row.id))
+    return Persisted("duplicate", str(row.id), route_message(session, message, row.id))
 
 
 def _finish(deps: IngestDeps, company_id: UUID, raw_event_id: UUID, status: RawEventStatus, why: str) -> Persisted:
@@ -226,56 +233,6 @@ def _normalise_whatsapp(
         return message, {**meta, "media_error": type(exc).__name__}, []  # keep the message, flag the media
     stored = store_attachment(deps.storage, company_id, blob.data, blob.mime_type, event.media.filename)
     return message, meta, [stored]
-
-
-def _route(session: Session, message: Message, message_id: UUID) -> str:
-    """Owner commands come only over WhatsApp and Google Chat, where the sender id is provider-verified.
-    An email From: header is trivially spoofable, so Gmail never routes to the owner handler in Phase 1.
-    WhatsApp from a number the directory does not know stays in Chats and never reaches the pipeline (ADR 0015)."""
-    if message.direction is Direction.outbound:
-        if message.channel is Channel.whatsapp:
-            _skip_echo_to_stranger(session, message, message_id)
-        return "none"
-    if message.channel is Channel.google_chat:
-        owner = session.scalar(
-            select(OwnerAccount.id).where(
-                OwnerAccount.company_id == message.company_id,
-                OwnerAccount.chat_user == message.sender_identity,
-            )
-        )
-        return "owner" if owner is not None else "none"
-    if message.channel is not Channel.whatsapp:
-        return "pipeline"
-    owner = session.scalar(
-        select(OwnerAccount.id).where(
-            OwnerAccount.company_id == message.company_id, OwnerAccount.whatsapp_e164 == message.sender_identity
-        )
-    )
-    if owner is not None:
-        return "owner"
-    return "pipeline" if _is_pipeline_contact(session, message, message_id) else "none"
-
-
-def _skip_echo_to_stranger(session: Session, message: Message, message_id: UUID) -> None:
-    """A reply Harjot typed on his phone to a chat-only chat stays out of the case world with that chat."""
-    row = session.get(MessageRow, message_id)
-    if row is None or row.pipeline_status is not PipelineStatus.pending or message.thread_ref is None:
-        return
-    if not feeds_pipeline(session, message.company_id, message.channel, message.thread_ref):
-        row.pipeline_status = PipelineStatus.skipped
-
-
-def _is_pipeline_contact(session: Session, message: Message, message_id: UUID) -> bool:
-    """The webhook decided once and marked the row `skipped`; a row the worker created itself is decided here."""
-    row = session.get(MessageRow, message_id)
-    if row is None or row.pipeline_status is PipelineStatus.skipped:
-        return False
-    if row.pipeline_status is not PipelineStatus.pending:  # a replay after the pipeline already ran
-        return True
-    if is_known_contact(session, message.company_id, message.channel, message.sender_identity):
-        return True
-    row.pipeline_status = PipelineStatus.skipped
-    return False
 
 
 def requeue_candidates(deps: IngestDeps) -> list[tuple[UUID, str]]:

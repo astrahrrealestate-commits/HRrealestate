@@ -12,11 +12,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.context.message_origin import is_history
 from app.contracts import DocType
 from app.core.logging import get_logger
 from app.core.settings import get_settings
 from app.core.workflow_names import DOC_SKIP, FILE_DOCUMENT
-from app.db.models import AttachmentRow, DocumentRow
+from app.db.models import AttachmentRow, DocumentRow, MessageRow
 from app.ingestion.process import is_transient
 from app.llm.calls import is_transient as llm_transient
 from app.owner.cards import document_review_key, document_review_payload
@@ -100,13 +101,14 @@ def skip_step(company_id: str, attachment_id: str) -> str:
 def review_card_step(company_id: str, attachment_id: str) -> bool:
     with Session(get_engine()) as session:
         row = session.execute(
-            select(DocumentRow, AttachmentRow.filename, AttachmentRow.mime_type)
+            select(DocumentRow, AttachmentRow.filename, AttachmentRow.mime_type, MessageRow)
             .join(AttachmentRow, AttachmentRow.id == DocumentRow.attachment_id)
+            .join(MessageRow, MessageRow.id == AttachmentRow.message_id)
             .where(DocumentRow.company_id == UUID(company_id), DocumentRow.attachment_id == UUID(attachment_id))
         ).first()
-    if row is None:
+    if row is None or is_history(row[3]):  # a reload never puts cards in front of Harjot; the review list has it
         return False
-    doc, filename, mime = row
+    doc, filename, mime, _message = row
     build = document_review_payload(UUID(attachment_id), filename or mime, doc.doc_type, doc.title)
     return send_owner_message(company_id, document_review_key(attachment_id), build)
 

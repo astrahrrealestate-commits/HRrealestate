@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     owner_qa_daily_budget_usd: Decimal | None = None
     concierge_daily_cap: int | None = None  # Super Agent plans per day
     concierge_daily_budget_usd: Decimal | None = None
+    history_queue_concurrency: PositiveInt = 4  # reloaded mails processed at once per worker (M13)
     concierge_worker_concurrency: PositiveInt = 4  # Super Agent turns running at once per worker (chat queue)
 
     # Owner channel: approved WhatsApp template that reopens the 24-hour window ("{{1}} items need you").

@@ -22,6 +22,7 @@ class UnderstandingRow(Base, CompanyScoped):
     urgency: Mapped[Urgency] = mapped_column(str_enum(Urgency), index=True)
     body: Mapped[dict[str, Any]]  # full Understanding contract JSON
     prompt_version: Mapped[str] = mapped_column(String(64))
+    research: Mapped[dict[str, Any] | None]  # findings behind the draft (M13 T8, 0060); NULL = not researched
 
 
 class Case(Base, CompanyScoped):

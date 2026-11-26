@@ -5881,6 +5881,7 @@
           "pending",
           "done",
           "failed",
+          "held",
           "skipped"
         ],
         "title": "PipelineStatus",

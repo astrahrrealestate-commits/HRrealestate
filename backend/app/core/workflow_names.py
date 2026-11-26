@@ -13,6 +13,7 @@ CONCIERGE_QUEUE = "concierge"  # Super Agent turns: never wait behind pipeline w
 CHAT_QUEUE = "chat"  # owner-typed WhatsApp sends (ADR 0013): a person waits on the click; short poll interval
 BRIXX_QUEUE = "brixx"  # BRIXX mirror table syncs: slow upstream, never competes with pipeline work
 BRIXX_DOCUMENTS_QUEUE = "brixx_documents"  # BRIXX file downloads, one at a time: never delays the table syncs
+HISTORY_QUEUE = "history"  # reloaded mail (M13), partitioned by sender: never in front of live mail, in sent order
 FINANCE_QUEUE = "finance"  # price snapshots and quote reviews (M11): never wait behind pipeline work
 PROCESS_EVENT = "ingest.process_event"
 GMAIL_SYNC = "ingest.gmail_sync"
@@ -103,6 +104,24 @@ def finance_recheck_workflow_id(quote_id: object, n: int) -> str:
 def finance_review_id(quote_id: object, n: int) -> UUID:
     """The review id of the n-th recheck of a quote: the same on every retry, so a retried step never adds a row."""
     return uuid5(_FINANCE_REVIEW_NAMESPACE, f"{quote_id}:{n}")
+
+
+HISTORY_INGEST_PARTITIONS = 4  # reloaded mails fetched and stored at once
+
+
+def history_ingest_partition(n: int) -> str:
+    """The history queue's partition for fetching the n-th mail of a reload (order does not matter there)."""
+    return f"ingest:{n % HISTORY_INGEST_PARTITIONS}"
+
+
+def history_partition(company_id: object, sender: str) -> str:
+    """One sender's reloaded mail runs one at a time, in the order it was released."""
+    return f"{company_id}:{sender}"
+
+
+def pipeline_workflow_id(message_id: object) -> str:
+    """`pipe:<message_id>`: the first pipeline run of a message."""
+    return f"pipe:{message_id}"
 
 
 def event_workflow_id(raw_event_id: object) -> str:

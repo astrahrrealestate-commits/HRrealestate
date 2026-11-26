@@ -176,11 +176,11 @@ def _record(engine: Engine, f: _Facts, person_id: UUID, case_id: UUID | None, me
 
 
 def _after_link(session: Session, f: _Facts, person_id: UUID, case_id: UUID) -> None:
-    """An awaited answer arrived (#5): close the wait, reopen the case. A more urgent message raises urgency."""
+    """An awaited answer arrived (#5): close the waits opened before it was sent, reopen the case. A more urgent message
+    raises urgency."""
     case = case_repo.get_case(session, f.company_id, case_id)
-    if work_repo.mark_received(session, f.company_id, case_id, person_id) and (
-        case.state is CaseState.waiting_on_third_party
-    ):
+    received = work_repo.mark_received(session, f.company_id, case_id, person_id, sent_at=f.sent_at)
+    if received and case.state is CaseState.waiting_on_third_party:
         case_repo.transition(session, f.company_id, case_id, CaseState.open, actor="system")
     if _URGENCY_RANK[f.urgency] > _URGENCY_RANK[case.urgency]:
         case.urgency = f.urgency
