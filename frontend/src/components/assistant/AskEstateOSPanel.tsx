@@ -63,6 +63,7 @@ export interface AssistantMessage {
     body: string;
   };
   steps?: string[];
+  sources?: AnswerSource[];
   previewCard?: PreviewCardData | null;
   previewCards?: PreviewCardData[];
   cards?: AssistantCard[];
@@ -75,6 +76,7 @@ export interface AssistantMessage {
 }
 
 import { useSuperAgent } from "@/context/SuperAgentContext";
+import { sourceChips, type AnswerSource } from "@/lib/sources";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { TranslationToggle } from "@/components/inbox/TranslationToggle";
 import { useLanguage } from "@/context/LanguageContext";
@@ -334,6 +336,7 @@ export function AskEstateOSPanel({
         timestamp: formatClock(new Date()),
         text: res.answer,
         steps: res.steps,
+        sources: res.sources,
         previewCard: res.previewCard,
         previewCards: res.previewCards || (res.previewCard ? [res.previewCard] : []),
         cards: res.cards,
@@ -1514,7 +1517,12 @@ export function AskEstateOSPanel({
 
   const renderMessageSteps = (msg: AssistantMessage, cardDark: boolean) => {
     const validSteps = filterValidSteps(msg.steps);
-    if (validSteps.length === 0) return null;
+    const chips = sourceChips(msg.sources);
+    if (validSteps.length === 0 && chips.length === 0) return null;
+    const chipClass = cn(
+      "inline-flex max-w-[16rem] items-center rounded-full border px-2 py-0.5 truncate",
+      cardDark ? "border-white/15 text-[#CBD5E1]" : "border-[#E5E7EB] text-[#374151]"
+    );
     return (
       <div className={cn("mt-2 space-y-1 text-[11.5px]", cardDark ? "text-[#94A3B8]" : "text-[#4B5563]")}>
         {validSteps.map((st, sIdx) => (
@@ -1523,6 +1531,23 @@ export function AskEstateOSPanel({
             <span className="leading-tight">{st}</span>
           </div>
         ))}
+        {chips.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 pt-1" aria-label="Sources">
+            <span className="font-medium">Sources:</span>
+            {chips.map((chip) =>
+              chip.href ? (
+                <a key={`${chip.kind}-${chip.label}`} href={chip.href} target="_blank" rel="noopener noreferrer"
+                   className={cn(chipClass, "underline-offset-2 hover:underline")} title={chip.label}>
+                  {chip.label}
+                </a>
+              ) : (
+                <span key={`${chip.kind}-${chip.label}`} className={chipClass} title={chip.label}>
+                  {chip.label}
+                </span>
+              )
+            )}
+          </div>
+        )}
       </div>
     );
   };

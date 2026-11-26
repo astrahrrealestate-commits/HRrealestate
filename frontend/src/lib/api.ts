@@ -4,6 +4,7 @@
  * Pure data integration layer (REST endpoints) with robust error handling and fallback.
  */
 
+import type { AnswerSource } from "./sources";
 import { InboxThread } from "@/types/inbox";
 import { caseRefTail, ticketRef } from "@/lib/caseRef";
 import { BACKEND_BASE_URL, apiFetch } from "@/lib/backend";
@@ -1011,6 +1012,7 @@ export interface AskAgentResponse {
   debugInfo?: DebugInfo | null;
   suggestedPrompts?: string[];
   focus_state?: Record<string, any>;
+  sources?: AnswerSource[];
 }
 
 export interface ConversationSummaryItem {
