@@ -42,3 +42,34 @@ business. Prompts, now much larger, stayed in `model_calls` after a person was e
   the reference library when every dossier should see it.
 - Rejected: a separate drafting service with its own retrieval (duplicates the scoping rules); proposer with free
   tools (unbounded, harder to keep inside one tenant's data).
+
+## Lane C: search and Astra (M13 T11, T14, T15, T16; added 2026-11-26)
+### Decision
+8. **Questions are embedded as queries, stored text as documents** (Gemini task types). Chunks were embedded through
+   the query path before; the 90-day reload re-embeds them.
+9. **Message search** fuses an all-words list, an any-words list (Dutch/English glossary, header words left out) and
+   vectors. Astra's searches are reranked by the document reranker; a hit is dropped only when the model scored it
+   unhelpful, and a search by date or channel lists what it found. The reranker sees the stretch of a long chunk that
+   matches, always under that line's real `[time | sender | direction]` head; bodies cannot write a head of their own.
+   Reranker calls store sizes only (`AgentSpec.redact_input`).
+10. **An email adds its new part once**; a reply of Harjot's that exists only as a quote is indexed once per chunk as
+    "Harjot (quoted in a later mail, not verified)", never as his outbound line. Re-indexing a message rebuilds its
+    chunk from its messages as they are now (corrected sender, direction, person, case; refused messages leave).
+11. **Astra cites, never names.** Every row or page a tool returns gets a short reference (`m1`, `d2`, `w1`, `q1`,
+    `p1`); tools open and the answer cites only those, and citations the tools never handed out are dropped. An answer
+    that looked things up but cites nothing real is replaced by what was searched. Research has a deadline
+    (`SUPER_AGENT_DEADLINE_SEC`, 35 s; the browser gives up at 55 s): lookups stop at 60 % of it, past it the owner is
+    told what was checked.
+12. **The planner resolves names** (people, vendors by trade, units, open and closed cases) with `rapidfuzz` and the
+    glossary inside the company; their case ids may be acted on. It keeps 12 turns and the conversation summary as
+    its own block. `concierge/v10` adds research for every content question; it stays unpinned until its gate passes.
+13. **Draft quality is counted, not judged**: per category and prompt version (`actions.prompt_version`, 0058),
+    approvals, owner edits, sent-folder outcomes, "no usable draft", minutes to draft and cost; counts only.
+
+### Consequences
+- Every Astra research question is one quality-tier call plus a reranker call per message search; a web search adds a
+  grounding call and page fetches. The 35 s deadline trades depth for an answer the browser still waits for.
+- The dashboard chat's document shortcut stays until `find_document` renders the Drive card; the standing-rule
+  shortcuts are gone.
+- A cross-language question about a long mail can pick the wrong stretch for the reranker (one miss in the real-model
+  eval); embedding windows would fix it.
