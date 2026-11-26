@@ -322,6 +322,64 @@ def test_gmail_reply_links_via_in_reply_to_when_thread_ref_differs(
     assert (r2.case_id, r2.method) == (r1.case_id, LinkMethod.thread)
 
 
+def test_gmail_forward_opens_new_case_even_when_in_reply_to_matches_open_case(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    """A forwarded email in a new Gmail thread must open a new case even if Gmail copied In-Reply-To."""
+    cid = committed_company.id
+    email_addr = "tenant@example.test"
+    orig = _message(
+        migrated_engine,
+        cid,
+        "Origineel bericht over de CV-ketel",
+        thread="gmail-thr-orig",
+        sender=email_addr,
+        channel=Channel.gmail,
+        meta={"subject": "CV-ketel", "message_id": "<orig-fwd-1@example.test>"},
+    )
+    r_orig = link_message(migrated_engine, test_settings, orig)
+    assert r_orig is not None
+
+    fwd_by_subject = _message(
+        migrated_engine,
+        cid,
+        "Zie onderstaand bericht",
+        at=NOW + timedelta(minutes=15),
+        thread="gmail-thr-fwd-1",
+        sender=email_addr,
+        channel=Channel.gmail,
+        meta={
+            "subject": "Fwd: CV-ketel",
+            "message_id": "<fwd-1@example.test>",
+            "in_reply_to": "<orig-fwd-1@example.test>",
+        },
+    )
+    fwd_by_marker = _message(
+        migrated_engine,
+        cid,
+        "---------- Forwarded message ---------\nFrom: iemand@example.test\n\nGraag oppakken",
+        at=NOW + timedelta(minutes=30),
+        thread="gmail-thr-fwd-2",
+        sender=email_addr,
+        channel=Channel.gmail,
+        meta={
+            "subject": "CV-ketel melding",
+            "message_id": "<fwd-2@example.test>",
+            "in_reply_to": "<orig-fwd-1@example.test>",
+        },
+    )
+
+    r_fwd_1 = link_message(migrated_engine, test_settings, fwd_by_subject)
+    r_fwd_2 = link_message(migrated_engine, test_settings, fwd_by_marker)
+    assert r_fwd_1 is not None
+    assert r_fwd_1.method is LinkMethod.new_case
+    assert r_fwd_2 is not None
+    assert r_fwd_2.method is LinkMethod.new_case
+    assert r_fwd_1.case_id != r_orig.case_id
+    assert r_fwd_2.case_id != r_orig.case_id
+    assert r_fwd_2.case_id != r_fwd_1.case_id
+
+
 def test_whatsapp_and_gmail_from_same_person_stay_separate_cases(
     migrated_engine: Engine, committed_company: Company, test_settings: Settings
 ) -> None:

@@ -134,7 +134,7 @@ PROPOSER_V8 = AgentSpec(  # v7 with 2 draft variants instead of 3
     finalize=_unchanged,
     gemini_prompted=True,
 )
-PROPOSER_V9 = AgentSpec(  # v8 plus Sole Ownership Authority and Open-Obligation follow-up pairing
+PROPOSER_V9 = AgentSpec(  # v8 with ambiguity resolution priority: history -> Harjot persona -> NL real-estate law
     name="proposer",
     prompt=PromptRef(name="proposer", version="v9"),
     output_type=Proposal,

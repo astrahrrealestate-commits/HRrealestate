@@ -47,6 +47,7 @@ LEGAL_DOMAINS = (
     "roz.nl",
     "rijksoverheid.nl",
     "huurcommissie.nl",
+    "iplo.nl",
     "amsterdam.nl",
     "juridischloket.nl",
     "wooninfo.nl",
@@ -79,8 +80,11 @@ MAINTENANCE_DOMAINS = (
 REGION = "NL"
 _LEGAL = re.compile(
     r"\b(roz|wet|wetboek|bw|artikel|art\.|huurrecht|huurcommissie|opzeg\w*|indexer\w*|huurverhoging|rechtspraak|"
-    r"law|legal|statute|eviction|ontbinding|algemene bepalingen|borg|deposit|overlast|erfpacht|opkoopbescherming|"
-    r"notaris|splitsingsakte|bedenktijd|wws|punten)\b",
+    r"law|legal|statute|eviction|ontbinding|algemene bepalingen|kleine herstellingen|gebrek\w*|onderhoudsplicht|"
+    r"borg|waarborgsom|deposit|overlast|erfpacht|opkoopbescherming|notaris|servicekosten|wws|woningwaardering|"
+    r"puntentelling|punten|betaalbare huur|middenhuur|sociale huur|vrije sector|onderhuur|medehuur|"
+    r"diplomatenclausule|aanzeg\w*|ontruim\w*|huurvermindering|goed verhuurderschap|vve|splitsings\w*|splitsen|"
+    r"omgevingsvergunning|omgevingswet|energielabel|leegstand\w*|huurprijs|toestemming|bedenktijd)\b",
     re.I,
 )
 _MARKET = re.compile(

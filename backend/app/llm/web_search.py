@@ -30,7 +30,7 @@ from app.llm.render import data_block
 from app.llm.runtime import build_model, describe_model_error, model_name_for
 
 NAME = "web_search"
-PROMPT = PromptRef(name=NAME, version="v1")
+PROMPT = PromptRef(name=NAME, version="v2")
 MAX_QUERY_CHARS = 400
 
 

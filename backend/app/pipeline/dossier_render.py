@@ -105,8 +105,8 @@ def _fixed(d: Dossier) -> dict[str, str]:
 
 
 ORDER = (
-    "owner_rules", "person_memory", "tenancy", "open_waits", "older_mail", "sender_history", "thread", "documents",
-    "references",
+    "owner_rules", "person_memory", "tenancy", "open_waits", "older_mail", "similar_conversations",
+    "sender_history", "thread", "documents", "references",
     "attachment_text", "quote_review", "research", "current_message",
 )  # fmt: skip
 
@@ -134,6 +134,9 @@ def render_dossier(d: Dossier, budget: DossierBudget | None = None) -> list[str]
         "thread": list(reversed(thread)),
         "sender_history": fit.take("sender_history", [_line(line, budget.line) for line in d.sender_history]),
         "older_mail": fit.take("older_mail", [_line(line, budget.line) for line in d.older_mail]),
+        "similar_conversations": fit.take(
+            "similar_conversations", [_line(line, budget.line) for line in d.similar_conversations]
+        ),
         "documents": fit.take("documents", [entry_text(p) for p in d.documents]),
         "references": fit.take("references", [entry_text(p) for p in d.references]),
     }

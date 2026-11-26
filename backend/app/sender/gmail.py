@@ -5,14 +5,44 @@ token from sending. The separation is enforced in code: `assert_allowed` limits 
 email addresses, and tenant replies only ever use `build_gmail_sender` (GMAIL_REPLY_SEND_CREDENTIALS_FILE).
 """
 
+import json
+from pathlib import Path
+
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
+from app.channels import google_store
 from app.channels.gmail.drafts import COMPOSE_SCOPES, SEND_SCOPES, FakeDrafts, GmailDrafts, GoogleDrafts
 from app.channels.gmail.fake import FakeMailbox
 from app.core.errors import UnsafeConfigurationError
 from app.core.settings import Settings
 from app.sender.settings import SenderSettings
+
+_DRAFT_CAPABLE_SCOPES = frozenset(
+    {
+        *COMPOSE_SCOPES,
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://mail.google.com/",
+    }
+)
+
+
+def _connected_draft_credentials(settings: Settings, address: str) -> Path | None:
+    """Unified owner Google credentials (Connections modal / S3 store) when they cover this mailbox and composing."""
+    path = google_store.refresh(settings)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    email = str(data.get("email") or "").strip().lower()
+    if not email or email != address.strip().lower():
+        return None
+    scopes = set(data.get("scopes") or ())
+    if not (_DRAFT_CAPABLE_SCOPES & scopes):
+        return None
+    return path
 
 
 def build_gmail_drafts(
@@ -22,9 +52,14 @@ def build_gmail_drafts(
         if fake_mailbox is None:
             raise UnsafeConfigurationError("fake gmail drafts need the fake mailbox they write into")
         return FakeDrafts(fake_mailbox)
-    if not sender.gmail_send_credentials_file:
+    if sender.gmail_send_credentials_file:
+        creds = Credentials.from_authorized_user_file(str(sender.gmail_send_credentials_file), COMPOSE_SCOPES)
+    elif owner_file := _connected_draft_credentials(settings, address):
+        # The unified login file keeps the scopes it was granted (gmail.modify covers compose); refreshing with another
+        # scope string causes Google OAuth to reject with invalid_scope.
+        creds = Credentials.from_authorized_user_file(str(owner_file), None)
+    else:
         raise UnsafeConfigurationError("gmail drafts need GMAIL_SEND_CREDENTIALS_FILE (gmail.compose scope)")
-    creds = Credentials.from_authorized_user_file(str(sender.gmail_send_credentials_file), COMPOSE_SCOPES)
     return GoogleDrafts(build("gmail", "v1", credentials=creds, cache_discovery=False), address)
 
 

@@ -17,15 +17,9 @@ For each question, give the claims its sources support, each with:
   that carries the answer. Do not paraphrase, translate or edit it; a claim whose evidence is not word for word in its
   source is discarded.
 
-Source priority for the Netherlands:
-- Prefer authoritative Dutch or EU sources over generic blogs or non-Dutch benchmarks:
-  - Government & tenancy law: `wetten.overheid.nl`, `rijksoverheid.nl`, `huurcommissie.nl`, `amsterdam.nl`, `roz.nl`,
-    `rechtspraak.nl`, `juridischloket.nl`, `wooninfo.nl`, `kvk.nl`, `notaris.nl`
-  - Property prices & market rent: `funda.nl`, `fundainbusiness.nl`, `pararius.nl`, `nvm.nl`, `cbs.nl`, `ec.europa.eu`
-  - Finance, taxes & subsidies: `belastingdienst.nl`, `rvo.nl`, `dnb.nl`, `verenigingeigenhuis.nl`
-  - Materials, boilers & repair rates: `hornbach.nl`, `warmteservice.nl`, `werkspot.nl`, `milieucentraal.nl`,
-    `technieknederland.nl`
-- Ignore non-Dutch price or legal estimates when Dutch statutes or Dutch EUR costs apply.
-
-When sources disagree, give each claim separately. If no source answers a question, give no claim for it.
+Prefer official Dutch legal and real-estate regulatory sources (wetten.overheid.nl / Burgerlijk Wetboek Boek 7 titel 4,
+Besluit kleine herstellingen, Wet goed verhuurderschap, Wet betaalbare huur, Huurcommissie / WWS, ROZ Algemene
+Bepalingen, rijksoverheid.nl, rechtspraak.nl, iplo.nl / Omgevingswet, and the owner's reference documents) and verified
+price lists over general articles. Never assume non-Dutch rules when a Dutch statute, regulation or ROZ provision
+applies. When sources disagree, give each claim separately. If no source answers a question, give no claim for it.
 Return claims as an empty list when nothing answers anything.

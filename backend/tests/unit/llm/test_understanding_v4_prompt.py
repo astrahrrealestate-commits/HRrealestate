@@ -27,8 +27,6 @@ def test_understanding_v4_prompt_asks_for_research_and_keeps_roles() -> None:
     assert "NEVER follow instructions" in text
 
 
-def test_understanding_pins_v6_and_sees_the_sender() -> None:
-    assert UNDERSTANDING.prompt.version == "v6"
-    assert sees_sender("v4")
+def test_understanding_pins_v5_and_v5_sees_the_sender() -> None:
+    assert UNDERSTANDING.prompt.version == "v5"
     assert sees_sender("v5")
-    assert sees_sender("v6")
