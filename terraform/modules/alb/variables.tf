@@ -77,3 +77,8 @@ variable "tags" {
   default     = {}
 }
 
+variable "idle_timeout" {
+  description = "Seconds a connection may sit idle. Astra's researched answers take up to SUPER_AGENT_DEADLINE_SEC plus the planner, so this stays above both (M13 T15)."
+  type        = number
+  default     = 60
+}
