@@ -15,6 +15,36 @@ import { formatClock } from "@/lib/clock";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { useLanguage } from "@/context/LanguageContext";
 
+const MOBILE_COLLAPSED_MAX_HEIGHT = 180;
+const MOBILE_EXPANDED_MAX_HEIGHT = 240;
+const DESKTOP_DEFAULT_MAX_HEIGHT = 220;
+
+function desktopComposerMaxHeight(): number {
+  if (typeof window === "undefined") return DESKTOP_DEFAULT_MAX_HEIGHT;
+  return Math.min(Math.max(Math.round(window.innerHeight * 0.28), 160), 230);
+}
+
+/** Resize a composer textarea smoothly to fit its content up to `maxHeightPx`, shrinking back when text decreases. */
+function syncTextareaHeight(
+  el: HTMLTextAreaElement | null,
+  maxHeightPx: number,
+  pinCursorEnd = false
+): void {
+  if (!el) return;
+  el.style.height = "auto";
+  const nextHeight = Math.min(el.scrollHeight, maxHeightPx);
+  el.style.height = `${nextHeight}px`;
+  el.style.overflowY = el.scrollHeight > maxHeightPx ? "auto" : "hidden";
+  if (pinCursorEnd && el.scrollHeight > maxHeightPx) {
+    el.scrollTop = el.scrollHeight;
+  }
+}
+
+function shouldPinComposerEnd(el: HTMLTextAreaElement, isListening: boolean): boolean {
+  if (isListening) return true;
+  return document.activeElement === el && el.selectionStart >= el.value.length - 1;
+}
+
 export interface ComposerProps {
   /** Which thread this composer is for: text typed in one thread comes back when the owner returns to it. */
   threadKey?: string;
@@ -87,10 +117,12 @@ export function Composer({
   const [isMobileEnOpen, setIsMobileEnOpen] = useState(false);
   const [mobileEnResults, setMobileEnResults] = useState<Record<string, string | null>>({});
   const [mobileEnLoadingText, setMobileEnLoadingText] = useState<string | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const desktopTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const mobileExpandedTextareaRef = useRef<HTMLTextAreaElement>(null);
   const collapsedTextareaRef = useRef<HTMLTextAreaElement>(null);
   const typedByThread = useRef<Record<string, string>>({});
   const selectedDraftByThread = useRef<Record<string, string>>({});
+  const desktopCollapsedByThread = useRef<Record<string, boolean>>({});
   const key = threadKey ?? "";
   const threadKeyRef = useRef(key);
   const isEditingFullRef = useRef(isEditingFull);
@@ -155,13 +187,14 @@ export function Composer({
     setSelectedDraftId(draftKey);
     editContent(d.text ?? "");
     setIsSent(false);
-    if (collapsedTextareaRef.current) {
-      collapsedTextareaRef.current.scrollTop = 0;
+    for (const ref of [collapsedTextareaRef, mobileExpandedTextareaRef, desktopTextareaRef]) {
+      if (ref.current) ref.current.scrollTop = 0;
     }
   };
   const forgetTyped = () => {
     delete typedByThread.current[key];
     delete selectedDraftByThread.current[key];
+    delete desktopCollapsedByThread.current[key];
   };
   const handleRejectClick = () => {
     forgetTyped();
@@ -197,7 +230,7 @@ export function Composer({
     setIsDraftingGmail(true);
     try {
       if (externalThreadId && textToSend.trim() && typeof navigator !== "undefined" && navigator.clipboard) {
-        navigator.clipboard.writeText(textToSend).catch(() => {});
+        navigator.clipboard.writeText(textToSend).catch(() => { });
       }
       const res = await createGmailDraft({
         to_email: effectiveEmail,
@@ -237,16 +270,28 @@ export function Composer({
     setContent(draftText || (!initialSent && hasDrafts ? firstDraftText || "" : ""));
   }, [key, draftText, channel, hasDrafts, firstDraftKey, firstDraftText, initialSent]);
 
+  // Auto-open on desktop when an AI draft is waiting (unless the owner collapsed it for this thread),
+  // so drafts don't stay hidden in a tiny 1-line bar at the bottom.
   useEffect(() => {
-    setIsDesktopExpanded(false);
-  }, [key]);
+    if (initialSent) {
+      setIsDesktopExpanded(false);
+      return;
+    }
+    if (desktopCollapsedByThread.current[key]) {
+      setIsDesktopExpanded(false);
+      return;
+    }
+    const threadHasDraft = Boolean(draftText) || hasDrafts;
+    setIsDesktopExpanded(threadHasDraft);
+  }, [key, initialSent, hasDrafts, draftText]);
 
   useEffect(() => {
     if (replyingTo) {
+      desktopCollapsedByThread.current[key] = false;
       setIsDesktopExpanded(true);
-      textareaRef.current?.focus();
+      desktopTextareaRef.current?.focus();
     }
-  }, [replyingTo]);
+  }, [replyingTo, key]);
 
   // Handle sent state countdown
   useEffect(() => {
@@ -308,13 +353,28 @@ export function Composer({
   const hasDraft = !isSent && (Boolean(draftText) || Boolean(content.trim() && drafts.length > 0));
   const isMobileDraftsOpen = hasDraft && expandedDraftThreadKey === key;
 
-  // Auto-grow the collapsed mobile input so multi-line drafts (after the greeting line) show immediately
+  // Auto-grow and auto-shrink all inline reply boxes smoothly with content (Gmail-style inline sizing).
   useEffect(() => {
     const el = collapsedTextareaRef.current;
     if (!el || isMobileDraftsOpen) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
-  }, [content, isMobileDraftsOpen, hasDraft]);
+    syncTextareaHeight(el, MOBILE_COLLAPSED_MAX_HEIGHT, shouldPinComposerEnd(el, isListening));
+  }, [content, isMobileDraftsOpen, hasDraft, isListening]);
+
+  useEffect(() => {
+    const el = mobileExpandedTextareaRef.current;
+    if (!el || !isMobileDraftsOpen) return;
+    syncTextareaHeight(el, MOBILE_EXPANDED_MAX_HEIGHT, shouldPinComposerEnd(el, isListening));
+  }, [content, isMobileDraftsOpen, hasDraft, isListening]);
+
+  useEffect(() => {
+    const el = desktopTextareaRef.current;
+    if (!el || !isDesktopExpanded || isSent) return;
+    const resize = () =>
+      syncTextareaHeight(el, desktopComposerMaxHeight(), shouldPinComposerEnd(el, isListening));
+    resize();
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, [content, isDesktopExpanded, isSent, hasDraft, activeChannel, isListening]);
 
   const currentCachedEn = drafts.find((d) => d.text.trim() === content.trim())?.englishMeaning;
   const mobileEnAvailable = drafts.some((d) => d.language === "nl") || Boolean(currentCachedEn);
@@ -533,7 +593,7 @@ export function Composer({
                     }
                   }}
                   placeholder={activeChannel === "gmail" ? "Type a Gmail reply..." : "Type a WhatsApp reply..."}
-                  className="w-full max-h-[132px] overflow-y-auto text-[14.5px] bg-transparent text-[var(--ink)] placeholder:text-[#94A3B8] focus:outline-none resize-none leading-[1.35] py-0.5"
+                  className="w-full max-h-[180px] overflow-y-auto text-[14.5px] bg-transparent text-[var(--ink)] placeholder:text-[#94A3B8] focus:outline-none resize-none leading-[1.35] py-0.5"
                 />
 
                 {activeChannel === "whatsapp" && cleanPhone && (
@@ -686,15 +746,15 @@ export function Composer({
               </div>
             )}
 
-            {/* Compact 3-line Draft Box with Tucked Voice + NL Pill */}
+            {/* Auto-growing Draft Box with Tucked Voice + NL Pill */}
             <div className="relative rounded-[12px] bg-[var(--bg)] border border-[var(--line)] focus-within:border-[var(--ink)] focus-within:bg-[var(--pane)] transition-colors">
               <textarea
-                ref={textareaRef}
-                rows={3}
+                ref={mobileExpandedTextareaRef}
+                rows={4}
                 value={content}
                 onChange={(e) => editContent(e.target.value)}
                 placeholder="Edit Astra draft..."
-                className="w-full min-h-[76px] max-h-[135px] text-[15px] p-2.5 pr-18 bg-transparent text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none resize-none leading-snug"
+                className="w-full min-h-[108px] max-h-[240px] text-[15px] p-2.5 pr-18 bg-transparent text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none resize-none leading-snug"
               />
               <div className="absolute right-2 bottom-2 flex items-center gap-1">
                 <button
@@ -767,62 +827,84 @@ export function Composer({
       </div>
 
       {/* =================================================================== */}
-      {/* DESKTOP COMPOSER (Compact 1-row dock, expands on click/reply)       */}
+      {/* DESKTOP COMPOSER (Floating dock, expands smoothly on click/reply)    */}
       {/* =================================================================== */}
       {!isDesktopExpanded ? (
         <div
           className={cn(
-            "hidden sm:flex shrink-0 border-t border-[var(--line)] bg-[var(--pane)] px-4 py-2.5 items-center justify-between gap-2 select-none",
+            "hidden sm:flex shrink-0 px-4 pt-1 pb-[max(1.5rem,env(safe-area-inset-bottom))] bg-transparent select-none",
             className
           )}
         >
-          <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div
+            className={cn(
+              "w-full flex items-center justify-between gap-3 px-4 py-3 rounded-[16px] border transition-all",
+              hasDraft
+                ? "border-[#93C5FD] bg-gradient-to-r from-[#EFF6FF] via-[var(--pane)] to-[var(--pane)] shadow-[0_12px_34px_rgba(26,115,232,0.18)] ring-1 ring-[#1a73e8]/15"
+                : "border-[var(--line)] bg-[var(--pane)] shadow-[0_10px_28px_rgba(10,27,47,0.11)] hover:shadow-[0_12px_32px_rgba(10,27,47,0.14)]"
+            )}
+          >
             <button
               type="button"
               onClick={() => {
+                desktopCollapsedByThread.current[key] = false;
                 setIsDesktopExpanded(true);
-                setTimeout(() => textareaRef.current?.focus(), 40);
+                setTimeout(() => desktopTextareaRef.current?.focus(), 40);
               }}
-              className="flex-1 text-left px-3 py-1.5 rounded-[var(--radius-ctl)] border border-[var(--line)] bg-[var(--bg)] hover:bg-[var(--selected)]/60 text-[13px] text-[var(--ink-2)] truncate transition-colors cursor-pointer"
+              className="flex-1 flex items-center gap-2.5 min-w-0 text-left px-1.5 py-1 rounded-[10px] hover:bg-black/[0.03] transition-colors cursor-pointer"
             >
-              {hasDraft
-                ? `AI Draft ready (${drafts.length}): "${(content || drafts[0]?.text || "").replace(/\s+/g, " ").slice(0, 70)}..."`
-                : t("inbox.reply_placeholder", "Click to reply...")}
+              {hasDraft && (
+                <span className="w-7 h-7 rounded-full bg-[#1a73e8]/12 text-[#1a73e8] inline-flex items-center justify-center shrink-0">
+                  <AstraIcon className="w-4 h-4" />
+                </span>
+              )}
+              <span className="truncate text-[13.5px] text-[var(--ink-2)]">
+                {hasDraft ? (
+                  <>
+                    <strong className="font-semibold text-[#0A1B2F]">AI Draft ready ({drafts.length}):</strong>{" "}
+                    <span>&ldquo;{(content || drafts[0]?.text || "").replace(/\s+/g, " ").slice(0, 110)}...&rdquo;</span>
+                  </>
+                ) : (
+                  t("inbox.reply_placeholder", "Click to reply...")
+                )}
+              </span>
             </button>
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setIsDesktopExpanded(true);
-                setTimeout(() => textareaRef.current?.focus(), 40);
-              }}
-              className="h-8 px-2.5 text-xs border border-[var(--line)]"
-            >
-              {hasDraft ? t("Edit") : "Reply"}
-            </Button>
-            {hasDraft && (
+
+            <div className="flex items-center gap-2 shrink-0">
               <Button
-                variant="primary"
+                variant="ghost"
                 size="sm"
-                onClick={handleAccept}
-                className="h-8 px-3 text-xs font-bold"
-                icon={<AstraIcon className="w-3.5 h-3.5" />}
+                onClick={() => {
+                  desktopCollapsedByThread.current[key] = false;
+                  setIsDesktopExpanded(true);
+                  setTimeout(() => desktopTextareaRef.current?.focus(), 40);
+                }}
+                className="h-9 px-3 text-[12.5px] border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] rounded-[10px]"
               >
-                {t("inbox.approve_draft", "Accept & send")}
+                {hasDraft ? t("Edit") : "Reply"}
               </Button>
-            )}
+              {hasDraft && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleAccept}
+                  className="h-9 px-3.5 text-[12.5px] font-bold rounded-[10px] shadow-xs"
+                  icon={<AstraIcon className="w-3.5 h-3.5" />}
+                >
+                  {t("inbox.approve_draft", "Accept & send")}
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       ) : (
         <div
           className={cn(
-            "hidden sm:flex shrink-0 border-t border-[var(--line)] bg-[var(--pane)] px-4 pt-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex-col select-none",
+            "hidden sm:flex shrink-0 px-4 pt-1 pb-[max(1.25rem,env(safe-area-inset-bottom))] bg-transparent flex-col select-none",
             className
           )}
         >
-          <div className="rounded-[12px] border border-[var(--line)] bg-[var(--pane)] shadow-2xs focus-within:border-[var(--ink)] transition-colors overflow-hidden flex flex-col">
+          <div className="rounded-[16px] border border-[var(--line)] bg-[var(--pane)] shadow-[0_12px_36px_rgba(10,27,47,0.13)] focus-within:border-[var(--ink)] transition-all overflow-hidden flex flex-col">
             {/* Top Integrated Composer Bar: Channel + Draft Switcher + Compact Persona + Collapse */}
             <div className="px-3 py-1.5 border-b border-[var(--line)] bg-[var(--bg)]/60 flex items-center justify-between gap-2 flex-wrap text-xs text-[var(--ink-3)]">
               <div className="flex items-center gap-2 flex-wrap min-w-0">
@@ -894,7 +976,19 @@ export function Composer({
                 )}
                 <button
                   type="button"
-                  onClick={() => setIsDesktopExpanded(false)}
+                  onClick={handleOpenFullEdit}
+                  className="p-1 rounded hover:bg-[var(--selected)] text-[var(--ink-3)] hover:text-[var(--ink)] cursor-pointer"
+                  title="Expand reply window"
+                  aria-label="Expand reply window"
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    desktopCollapsedByThread.current[key] = true;
+                    setIsDesktopExpanded(false);
+                  }}
                   className="p-1 rounded hover:bg-[var(--selected)] text-[var(--ink-3)] hover:text-[var(--ink)] cursor-pointer"
                   title="Collapse reply box"
                   aria-label="Collapse reply box"
@@ -928,11 +1022,11 @@ export function Composer({
               </div>
             )}
 
-            {/* Clean Open Writing Canvas */}
+            {/* Clean Auto-Growing Writing Canvas (balanced inline height so email above stays visible) */}
             <div className="relative bg-[var(--pane)]">
               <textarea
-                ref={textareaRef}
-                rows={hasDraft ? 4 : 3}
+                ref={desktopTextareaRef}
+                rows={4}
                 value={content}
                 onChange={(e) => editContent(e.target.value)}
                 onKeyDown={(e) => {
@@ -946,12 +1040,12 @@ export function Composer({
                   }
                 }}
                 placeholder={t("inbox.reply_placeholder", "Type a reply... (Press Enter to send)")}
-                className="w-full min-h-[104px] text-[14px] px-3.5 py-2.5 bg-transparent border-0 text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none resize-y leading-relaxed"
+                className="w-full min-h-[104px] text-[13.5px] px-3.5 py-2 bg-transparent border-0 text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none resize-y leading-relaxed"
               />
             </div>
 
             {/* Integrated Bottom Toolbar */}
-            <div className="px-3 py-2 border-t border-[var(--line)] bg-[var(--bg)]/40 flex flex-wrap items-center justify-between gap-2">
+            <div className="px-2.5 py-1.5 border-t border-[var(--line)] bg-[var(--bg)]/40 flex flex-wrap items-center justify-between gap-1.5">
               {/* Left utilities: Dictate + Lang + English toggle */}
               <div className="flex items-center gap-1.5 flex-wrap">
                 <button
@@ -1041,24 +1135,16 @@ export function Composer({
                 />
               </div>
 
-              {/* Right actions */}
+              {/* Right actions (no redundant Edit button while already editing inline) */}
               {hasDraft ? (
                 <div className="flex flex-wrap items-center gap-1.5 justify-end ml-auto">
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={handleRejectClick}
-                    className="text-[var(--ink-3)] hover:text-[var(--ink)] whitespace-nowrap shrink-0 h-8"
+                    className="text-[var(--ink-3)] hover:text-red-600 whitespace-nowrap shrink-0 h-8 px-2.5"
                   >
                     {t("Reject")}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => textareaRef.current?.focus()}
-                    className="whitespace-nowrap shrink-0 h-8"
-                  >
-                    {t("Edit")}
                   </Button>
                   {activeChannel === "whatsapp" && cleanPhone && (
                     <Button
@@ -1140,66 +1226,88 @@ export function Composer({
         </div>
       )}
 
-      {/* Mobile Full-Height Editor Sheet (Section 5.6.1) */}
+      {/* Expanded Pop-Out Editor (Mobile Full-Height Sheet + Desktop Gmail-style Compose Dialog) */}
       {isEditingFull && (
-        <div className="fixed inset-0 z-50 md:hidden bg-[var(--pane)] flex flex-col">
-          <div className="h-14 px-4 border-b border-[var(--line)] flex items-center justify-between flex-shrink-0">
-            <span className="font-heading font-bold text-[16px] text-[var(--ink)]">
-              Edit AI Draft
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => toggleVoiceInput(fullEditText)}
-                className={cn(
-                  "p-1.5 rounded-full transition-all cursor-pointer flex items-center justify-center shrink-0 border",
-                  isListening
-                    ? "bg-cyan-500 text-black border-cyan-400 shadow-[0_0_12px_rgba(0,229,255,0.7)] animate-pulse"
-                    : "bg-[var(--pane)] text-[var(--ink-2)] border-[var(--line)]"
+        <div
+          className="fixed inset-0 z-50 bg-[var(--pane)] sm:bg-black/40 sm:backdrop-blur-[1px] flex flex-col sm:items-center sm:justify-center sm:p-6"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              stopListening();
+              setIsEditingFull(false);
+            }
+          }}
+        >
+          <div className="flex-1 sm:flex-initial flex flex-col w-full h-full sm:max-w-3xl sm:h-[78vh] sm:max-h-[760px] bg-[var(--pane)] sm:rounded-[14px] sm:border sm:border-[var(--line)] sm:shadow-2xl overflow-hidden">
+            <div className="h-14 px-4 sm:px-5 border-b border-[var(--line)] flex items-center justify-between gap-3 flex-shrink-0 bg-[var(--bg)]/50">
+              <div className="min-w-0 flex items-center gap-2.5">
+                <span className="font-heading font-bold text-[15px] sm:text-[16px] text-[var(--ink)] shrink-0">
+                  {hasDraft ? "Edit AI Draft" : "Compose Reply"}
+                </span>
+                {subject && (
+                  <span className="hidden sm:inline text-xs text-[var(--ink-3)] truncate">
+                    · {subject}
+                  </span>
                 )}
-                title={isListening ? "Listening... click to stop" : "Voice dictation"}
-              >
-                {isListening ? <MicOff className="w-4 h-4 stroke-[2.5]" /> : <Mic className="w-4 h-4 stroke-[2]" />}
-              </button>
-              <button
-                type="button"
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => toggleVoiceInput(fullEditText)}
+                  className={cn(
+                    "p-1.5 rounded-full transition-all cursor-pointer flex items-center justify-center shrink-0 border",
+                    isListening
+                      ? "bg-cyan-500 text-black border-cyan-400 shadow-[0_0_12px_rgba(0,229,255,0.7)] animate-pulse"
+                      : "bg-[var(--pane)] text-[var(--ink-2)] border-[var(--line)]"
+                  )}
+                  title={isListening ? "Listening... click to stop" : "Voice dictation"}
+                >
+                  {isListening ? <MicOff className="w-4 h-4 stroke-[2.5]" /> : <Mic className="w-4 h-4 stroke-[2]" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    stopListening();
+                    setIsEditingFull(false);
+                  }}
+                  className="p-1.5 rounded-lg text-[var(--ink-3)] hover:text-[var(--ink)] hover:bg-[var(--selected)] cursor-pointer"
+                  title="Close expanded editor"
+                  aria-label="Close expanded editor"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 p-4 sm:p-5 flex flex-col min-h-0">
+              <textarea
+                autoFocus
+                value={fullEditText}
+                onChange={(e) => setFullEditText(e.target.value)}
+                className="flex-1 w-full text-base sm:text-[14.5px] leading-relaxed p-3.5 bg-[var(--bg)] border border-[var(--line)] rounded-[var(--radius-ctl)] text-[var(--ink)] focus:outline-none focus:border-[var(--ink)] resize-none overflow-y-auto"
+              />
+            </div>
+
+            <div className="p-4 sm:px-5 border-t border-[var(--line)] flex gap-2 sm:justify-end pb-[max(1rem,env(safe-area-inset-bottom))]">
+              <Button
+                variant="ghost"
+                size="default"
+                className="flex-1 sm:flex-initial sm:px-5"
                 onClick={() => {
                   stopListening();
                   setIsEditingFull(false);
                 }}
-                className="p-1 rounded text-[var(--ink-3)]"
               >
-                <X className="w-5 h-5" />
-              </button>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="default"
+                className="flex-1 sm:flex-initial sm:px-6 font-bold"
+                onClick={handleSaveFullEdit}
+              >
+                Save Draft
+              </Button>
             </div>
-          </div>
-
-          <div className="flex-1 p-4 flex flex-col">
-            <textarea
-              autoFocus
-              value={fullEditText}
-              onChange={(e) => setFullEditText(e.target.value)}
-              className="flex-1 w-full text-base p-3 bg-[var(--bg)] border border-[var(--line)] rounded-[var(--radius-ctl)] text-[var(--ink)] focus:outline-none focus:border-[var(--ink)] resize-none"
-            />
-          </div>
-
-          <div className="p-4 border-t border-[var(--line)] flex gap-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
-            <Button
-              variant="ghost"
-              size="default"
-              className="flex-1"
-              onClick={() => setIsEditingFull(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              size="default"
-              className="flex-1"
-              onClick={handleSaveFullEdit}
-            >
-              Save Draft
-            </Button>
           </div>
         </div>
       )}

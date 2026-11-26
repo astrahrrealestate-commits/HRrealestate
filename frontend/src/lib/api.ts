@@ -10,7 +10,7 @@ import { BACKEND_BASE_URL, apiFetch } from "@/lib/backend";
 import { localDayNumber, localWallToDate } from "@/lib/clock";
 import { PulseMetrics, AutonomousActionLog } from "@/types/dashboard";
 import { INITIAL_METRICS, RECENT_AUTONOMOUS_LOGS } from "@/data/mockData";
-import { StalledItem, INITIAL_STALLED_ITEMS } from "@/components/today/UnresponsiveRadarCard";
+import { StalledItem } from "@/components/today/UnresponsiveRadarCard";
 import { getContactDisplayName, getSnippet, getUnifiedThreadId } from "@/lib/selectors";
 
 
@@ -610,7 +610,7 @@ export async function getDashboardRadar(): Promise<{ items: StalledItem[]; total
     // Offline fallback
   }
 
-  return { items: INITIAL_STALLED_ITEMS, total: INITIAL_STALLED_ITEMS.length, isLive: false };
+  return { items: [], total: 0, isLive: false };
 }
 
 /**

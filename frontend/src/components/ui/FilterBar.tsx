@@ -131,17 +131,17 @@ export function FilterBar({
 
   return (
     <div className={cn("@container/filter flex flex-col gap-1.5 w-full relative z-20", className)}>
-      <div className="flex flex-col gap-2 p-2.5 @[420px]/filter:p-3 bg-[var(--pane)] border-b border-[var(--line)] min-w-0">
+      <div className="flex flex-col gap-1.5 p-2 @[420px]/filter:p-2.5 bg-[var(--pane)] border-b border-[var(--line)] min-w-0">
         {headerStrip && (
           <div className="flex items-center justify-between gap-2 min-w-0 pb-1 border-b border-[var(--line)]/60">
             {headerStrip}
           </div>
         )}
 
-        {/* Row 1: View Tabs (scroll horizontally on narrow panes instead of crushing labels) */}
+        {/* Row 1: View Tabs (wrap cleanly on narrow sidebars so nothing clips like "Sno...") */}
         <div className="flex items-center justify-between gap-2 min-w-0">
-          <div className="flex items-center gap-1 flex-1 min-w-0 bg-[var(--bg)] p-0.5 rounded-[var(--radius-ctl)] border border-[var(--line)] overflow-x-auto no-scrollbar">
-            {leadingControl && <div className="shrink-0 pl-1">{leadingControl}</div>}
+          <div className="flex flex-wrap items-center gap-1 flex-1 min-w-0 bg-[var(--bg)] p-1 rounded-[var(--radius-ctl)] border border-[var(--line)]">
+            {leadingControl && <div className="shrink-0 pl-0.5">{leadingControl}</div>}
             {tabs.map((tab) => {
               const isActive = tab.id === activeTab;
               return (
@@ -150,7 +150,7 @@ export function FilterBar({
                   type="button"
                   onClick={() => onTabChange(tab.id)}
                   className={cn(
-                    "shrink-0 inline-flex items-center justify-center gap-1.5 px-2.5 py-1 rounded-[6px] text-[12px] transition-all cursor-pointer select-none whitespace-nowrap",
+                    "shrink-0 inline-flex items-center justify-center gap-1 px-2 py-0.5 rounded-[5px] text-[11.5px] transition-all cursor-pointer select-none whitespace-nowrap",
                     isActive
                       ? "bg-[#0A1B2F] text-white font-semibold shadow-sm"
                       : "text-[var(--ink-2)] font-medium hover:text-[var(--ink)] hover:bg-black/5"

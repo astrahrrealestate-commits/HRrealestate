@@ -431,9 +431,9 @@ export function InboxConversationView({
         </div>
       </div>
 
-      {/* Desktop Header (>= 640px) */}
-      <div className="hidden sm:flex min-h-14 px-4 lg:px-6 py-2 border-b border-[var(--line)] bg-[var(--pane)] items-center justify-between gap-3 shrink-0 z-10">
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+      {/* Desktop Header (>= 640px) — slim 2-line header without duplicate contact/ticket pills */}
+      <div className="hidden sm:flex min-h-12 px-4 lg:px-5 py-2 border-b border-[var(--line)] bg-[var(--pane)] items-center justify-between gap-3 shrink-0 z-10">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
           {showBackOnDesktop && onBack && (
             <>
               <button
@@ -470,23 +470,37 @@ export function InboxConversationView({
           <Avatar name={thread.senderName} channel={thread.channel} size="sm" className="shrink-0" />
 
           <div className="min-w-0 flex-1">
-            <div className="flex items-start gap-2 flex-wrap min-w-0">
-              <h2 className="font-heading font-bold text-[16px] lg:text-[18px] text-[var(--ink)] break-words leading-snug">
+            <div className="flex items-center gap-2 min-w-0">
+              <h2
+                className="font-heading font-bold text-[15px] lg:text-[16px] text-[var(--ink)] truncate leading-snug min-w-0"
+                title={thread.subject || thread.issueTitle || thread.unitLabel}
+              >
                 {thread.subject || thread.issueTitle || thread.unitLabel}
               </h2>
               {urgentThread && <UrgentLabel />}
             </div>
 
-            <div className="flex items-center gap-1.5 flex-wrap text-xs text-[var(--ink-3)] leading-normal mt-0.5 min-w-0">
-              {thread.unitLabel && (
+            <div className="flex items-center gap-1.5 text-[11.5px] text-[var(--ink-3)] leading-tight mt-0.5 min-w-0 overflow-hidden">
+              {thread.unitLabel && thread.unitLabel !== thread.senderContact && (
                 <>
-                  <span className="font-semibold text-[var(--ink)] truncate max-w-[160px]">{thread.unitLabel}</span>
-                  <span>·</span>
+                  <span className="font-medium text-[var(--ink-2)] truncate max-w-[140px]">{thread.unitLabel}</span>
+                  <span className="shrink-0">·</span>
                 </>
               )}
-              <span className="text-[var(--ink-2)] truncate max-w-[120px]">{thread.senderName}</span>
+              {thread.senderName && thread.senderName !== thread.senderContact && (
+                <>
+                  <span className="text-[var(--ink-2)] truncate max-w-[130px]">{thread.senderName}</span>
+                  <span className="shrink-0">·</span>
+                </>
+              )}
+              {thread.senderContact && (
+                <span className="font-mono text-[11px] text-[var(--ink-2)] inline-flex items-center gap-1.5 truncate min-w-0" title={thread.senderContact}>
+                  <span className={cn("inline-block w-1.5 h-1.5 rounded-full shrink-0", thread.channel === "gmail" ? "bg-[#EA4335]" : "bg-[#25D366]")} />
+                  <span className="truncate">{thread.senderContact}</span>
+                </span>
+              )}
               {thread.recipientRoleDetail && thread.recipientRoleDetail !== "Contact" && (
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[10.5px] font-semibold text-[var(--ink-2)] shrink-0">
+                <span className="inline-flex items-center px-1.5 py-0.2 rounded border border-[var(--line)] bg-[var(--bg)] text-[10px] font-semibold text-[var(--ink-2)] shrink-0">
                   {thread.recipientRoleDetail}
                 </span>
               )}
@@ -494,21 +508,14 @@ export function InboxConversationView({
                 const catLabel = formatCategoryLabel(thread.category);
                 if (!catLabel || catLabel.toLowerCase() === thread.recipientRoleDetail?.toLowerCase()) return null;
                 return (
-                  <span className="inline-flex items-center px-1.5 py-0.5 rounded border border-[var(--line)] bg-[var(--selected)]/60 text-[10.5px] font-medium text-[var(--ink-2)] shrink-0">
+                  <span className="inline-flex items-center px-1.5 py-0.2 rounded border border-[var(--line)] bg-[var(--selected)]/60 text-[10px] font-medium text-[var(--ink-2)] shrink-0">
                     {catLabel}
                   </span>
                 );
               })()}
-              {thread.senderContact && (
-                <>
-                  <span>·</span>
-                  <span className="font-mono text-[11px] text-[var(--ink-2)] bg-[var(--selected)] px-1.5 py-0.5 rounded border border-[var(--line)] inline-flex items-center gap-1.5 truncate max-w-[175px]" title={thread.senderContact}>
-                    <span className={cn("inline-block w-1.5 h-1.5 rounded-full shrink-0", thread.channel === "gmail" ? "bg-[#EA4335]" : "bg-[#25D366]")} />
-                    <span className="truncate">{thread.senderContact}</span>
-                  </span>
-                </>
+              {thread.ticketNumber && !(thread.category === "maintenance" && thread.ticketNumber) && (
+                <span className="shrink-0">· {thread.ticketNumber}</span>
               )}
-              {thread.ticketNumber && <span className="shrink-0">· {thread.ticketNumber}</span>}
             </div>
           </div>
         </div>
@@ -520,11 +527,11 @@ export function InboxConversationView({
               variant="ghost"
               size="sm"
               icon={<Ticket className="w-3.5 h-3.5 text-[var(--accent-ink)]" />}
-              className="text-xs border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] px-2.5 h-8"
+              className="text-xs border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] px-2.5 h-7.5 whitespace-nowrap"
               onClick={() => setIsTicketModalOpen(true)}
               title="View and Edit Maintenance Ticket details"
             >
-              Ticket {thread.ticketNumber}
+              <span>{thread.ticketNumber}</span>
             </Button>
           )}
 
@@ -534,10 +541,10 @@ export function InboxConversationView({
               size="sm"
               icon={<Clock className="w-3.5 h-3.5" />}
               onClick={() => onSnooze(thread.id)}
-              className="text-xs px-2 h-8"
+              className="text-xs px-2 h-7.5"
               title="Snooze until tomorrow"
             >
-              <span className="hidden xl:inline">Snooze</span>
+              <span className="hidden 2xl:inline">Snooze</span>
             </Button>
           )}
 
@@ -546,7 +553,7 @@ export function InboxConversationView({
             size="sm"
             icon={<Check className="w-3.5 h-3.5" />}
             onClick={() => onMarkDone?.(thread.id)}
-            className="text-xs px-2.5 h-8"
+            className="text-xs px-2 h-7.5"
             title="Mark thread done"
           >
             Done
