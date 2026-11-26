@@ -1951,7 +1951,7 @@
       },
       "/api/v1/documents/{document_id}/reference": {
         "post": {
-          "description": "Owner toggle: add or remove a document from the company reference library (ROZ clauses, standard terms).",
+          "description": "Admin toggle: add or remove a document from the company reference library (ROZ clauses, standard terms). Every\ndraft reads the library, so a member with only the inbox or maintenance section may not change it, and a\nperson's own document is refused (409).",
           "operationId": "set_reference_flag_api_v1_documents__document_id__reference_post",
           "parameters": [
             {

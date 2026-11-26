@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, select, update
 from sqlalchemy.orm import Session
 
 from app.api.v1.auth import COOKIE, CSRF_HEADER, CSRF_VALUE, Principal, issue_session
@@ -28,6 +28,7 @@ from app.db.models import (
     RawEvent,
 )
 from app.main import create_app
+from tests.integration.access_support import add_person_to_team, build_app, signed_in
 from tests.integration.conftest import purge_company
 
 pytestmark = pytest.mark.integration
@@ -43,6 +44,8 @@ class Fixture:
     my_person: UUID
     their_person: UUID
     engine: Engine
+    company_id: UUID
+    pg_url: str
 
 
 def _doc(s: Session, cid: UUID, title: str, status: DocumentStatus, text: str) -> UUID:
@@ -90,7 +93,7 @@ def fx(migrated_engine: Engine, pg_url: str, committed_company: Company) -> Iter
     principal = Principal(company_id=committed_company.id, owner_id=owner.id, email="h@a.test")
     with TestClient(create_app(settings, engine=migrated_engine, workflow_client=MagicMock())) as c:
         c.cookies.set(COOKIE, issue_session(settings, principal, datetime.now(UTC)))
-        yield Fixture(c, mine, review, theirs, mine_p.id, their_p.id, migrated_engine)
+        yield Fixture(c, mine, review, theirs, mine_p.id, their_p.id, migrated_engine, committed_company.id, pg_url)
     purge_company(migrated_engine, other.id)
 
 
@@ -218,3 +221,34 @@ def test_owner_can_toggle_reference_library(fx: Fixture) -> None:
     assert off.status_code == 200
     assert off.json() == {"id": str(fx.mine), "is_reference": False}
     assert fx.client.get("/api/v1/documents", params={"reference_only": True}).json() == []
+
+
+def test_a_tenants_own_papers_never_become_reference_documents(fx: Fixture) -> None:
+    """Every dossier reads the reference library: a lease linked to a tenant, or anyone's ID, would reach the drafts
+    to every other tenant."""
+    url = f"/api/v1/documents/{fx.mine}/reference"
+    with Session(fx.engine) as s, s.begin():
+        link = DocumentLink(company_id=fx.company_id, document_id=fx.mine, kind="person", ref_id=fx.my_person,
+                            method="owner", score=1.0)  # fmt: skip
+        s.add(link)
+    linked = fx.client.post(url, json={"is_reference": True}, headers=CSRF)
+    assert linked.status_code == 409
+    with Session(fx.engine) as s, s.begin():
+        s.execute(update(DocumentLink).where(DocumentLink.document_id == fx.mine).values(kind="unit"))
+        s.execute(update(DocumentRow).where(DocumentRow.id == fx.review).values(doc_type="id_document"))
+    assert fx.client.post(url, json={"is_reference": True}, headers=CSRF).status_code == 409
+    review_url = f"/api/v1/documents/{fx.review}/reference"
+    assert fx.client.post(review_url, json={"is_reference": True}, headers=CSRF).status_code == 409
+    assert fx.client.get("/api/v1/documents", params={"reference_only": True}).json() == []
+    assert fx.client.post(url, json={"is_reference": False}, headers=CSRF).status_code == 200  # unmarking always works
+
+
+def test_only_an_admin_may_change_the_reference_library(fx: Fixture) -> None:
+    """A promoted document reaches every draft, so a maintenance member may read documents but not promote one."""
+    member = add_person_to_team(
+        fx.engine, fx.company_id, f"m-{uuid4().hex[:6]}@t.test", role="member", sections=["maintenance"]
+    )
+    app, settings = build_app(fx.engine, fx.pg_url)
+    with signed_in(app, settings, member) as client:
+        resp = client.post(f"/api/v1/documents/{fx.mine}/reference", json={"is_reference": True}, headers=CSRF)
+    assert resp.status_code == 403

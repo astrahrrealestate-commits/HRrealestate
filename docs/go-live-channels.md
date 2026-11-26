@@ -202,9 +202,11 @@ stored Gmail rows (Drive files, WhatsApp messages and directory records stay unt
    - `scripts/mail_reload.sh stage reingest <mailbox> 7` (`90` for prod)
    - `scripts/mail_reload.sh stage run-history <mailbox>` (queues onto `history`; inspect `model_calls` spend to size `LLM_DAILY_BUDGET_USD`)
 3. **Deploy 2 (once `run-history` finishes, with `proposer/v6` & dossier live):**
+   - `scripts/mail_reload.sh <env> status <mailbox>`: the reloaded mail by pipeline state. Wait until `held` and
+     `pending` are 0; `settle` and `draft-open` refuse before that (the CLI's `--force` overrides, for a stuck run only).
    - `scripts/mail_reload.sh <env> settle <mailbox>` (resolves aged threads cleanly)
-   - `scripts/mail_reload.sh <env> draft-open <mailbox> 14 --dry-run` (review list with owner)
-   - `scripts/mail_reload.sh <env> draft-open <mailbox> 14` (creates drafts for genuinely open threads)
+   - `scripts/mail_reload.sh <env> draft-open <mailbox> 14`: lists what it would draft (dry run) first, then asks you
+     to type `draft <env>` before it drafts anything. Drafts wait for Harjot's approval; nothing is sent.
 
 ## WhatsApp
 

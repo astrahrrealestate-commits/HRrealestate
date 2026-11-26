@@ -21,11 +21,12 @@ from app.tools.message_rag.search import MessageChunkHit
 
 log = get_logger(__name__)
 HEAD_CHARS = 200
+MAX_SEMANTIC_WINDOWS = 16  # a page or mail is untrusted and any size: beyond this the keyword pick stands
 
 
 def _pick_semantic(parts: Sequence[str], question: str, embedder: TextEmbedder | None) -> int:
     """When keywords overlap zero windows (unseen cross-language wording), rank stretches by vector similarity."""
-    if embedder is None or len(parts) < 2 or not question.strip():
+    if embedder is None or not 2 <= len(parts) <= MAX_SEMANTIC_WINDOWS or not question.strip():
         return 0
     try:
         q_vec = embedder.embed_query(question)

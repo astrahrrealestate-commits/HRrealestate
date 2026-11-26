@@ -1088,7 +1088,8 @@ export async function askAgent(
         Accept: "application/json",
       },
       body: JSON.stringify({ query, context, history, conversation_id: conversationId || null }),
-      signal: AbortSignal.timeout(55000),
+      // A researched answer takes the planner plus SUPER_AGENT_DEADLINE_SEC (100 s in stage/prod, ALB idle 150 s).
+      signal: AbortSignal.timeout(150000),
     });
 
     if (res.ok) {

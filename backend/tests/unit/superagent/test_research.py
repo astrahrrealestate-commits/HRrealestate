@@ -210,6 +210,12 @@ def test_the_research_rules_say_unverified_quotes_are_claims() -> None:
     assert "never" in rules.split("not verified", 1)[1][:300]
 
 
+def test_the_research_rules_ask_for_independent_searches_in_one_turn() -> None:
+    """Each model turn costs about ten seconds on Gemini; searches asked together run at the same time."""
+    rules = " ".join(research.RESEARCH_RULES.lower().split())
+    assert "in the same turn" in rules
+
+
 def test_a_lookup_that_runs_its_own_model_call_works_inside_a_research_tool(
     rows: list[Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -220,3 +226,15 @@ def test_a_lookup_that_runs_its_own_model_call_works_inside_a_research_tool(
     seen: dict[str, Any] = {}
     _run(_scripted([("search_communications", {"query": "boiler"})], "Broken.", seen), monkeypatch)
     assert "reranked: boiler still broken" in seen["returns"][0]
+
+
+def test_the_research_loop_thinks_low_so_its_lookups_fit_the_deadline() -> None:
+    """Gemini 3 thinks high by default on every tool turn; with that, half the eval questions ran past the 35 s
+    deadline. The loop routes lookups and writes from what they return, so it thinks low."""
+    from app.superagent import research_run
+
+    seen: dict[str, Any] = {}
+    agent = MagicMock(run_sync=lambda query, **kwargs: seen.update(kwargs))
+    deps = research.SuperAgentDeps(MagicMock(), _settings(), uuid4(), None)
+    research_run._start(35.0, agent, "q", deps).result()
+    assert seen["model_settings"]["thinking"] == "low"

@@ -18,6 +18,7 @@ resource "aws_lb" "this" {
   subnets            = var.public_subnet_ids
 
   enable_deletion_protection = var.enable_deletion_protection
+  idle_timeout               = var.idle_timeout
 
   tags = merge(
     var.tags,
@@ -165,4 +166,3 @@ resource "aws_lb_listener_rule" "frontend_http" {
     }
   }
 }
-

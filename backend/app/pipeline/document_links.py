@@ -18,7 +18,7 @@ from sqlalchemy import Engine, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.core.errors import NotFoundError
+from app.core.errors import NotFoundError, PersonalDocumentError
 from app.db.enums import DocLinkKind
 from app.db.models import (
     AttachmentRow,
@@ -263,14 +263,28 @@ def set_link(engine: Engine, company_id: UUID, document_id: UUID, kind: DocLinkK
         )  # fmt: skip
 
 
+PERSONAL_TYPES = frozenset({"id_document", "correspondence"})  # someone's own papers, whoever they are linked to
+
+
+def _personal(session: Session, company_id: UUID, document_id: UUID, doc_type: str) -> bool:
+    """A document of a person, lease, unit or case, or one of a personal kind: never shared with every dossier."""
+    linked = session.scalar(
+        select(DocumentLink.id).where(DocumentLink.company_id == company_id, DocumentLink.document_id == document_id)
+    )
+    return linked is not None or doc_type in PERSONAL_TYPES
+
+
 def set_reference(engine: Engine, company_id: UUID, document_id: UUID, is_reference: bool) -> bool:
-    """Owner action: mark or unmark a company document as part of the reference library."""
+    """Owner action: mark or unmark a company document as part of the reference library. Every dossier reads the
+    library, so a tenant's own papers are refused (`PersonalDocumentError`); unmarking always works."""
     with Session(engine) as session, session.begin():
-        doc_id = session.scalar(
-            select(DocumentRow.id).where(DocumentRow.id == document_id, DocumentRow.company_id == company_id)
+        doc_type = session.scalar(
+            select(DocumentRow.doc_type).where(DocumentRow.id == document_id, DocumentRow.company_id == company_id)
         )
-        if doc_id is None:
+        if doc_type is None:
             raise NotFoundError("document not found")
+        if is_reference and _personal(session, company_id, document_id, doc_type):
+            raise PersonalDocumentError("a person's own document cannot be a reference document")
         session.execute(
             update(DocumentRow)
             .where(DocumentRow.id == document_id, DocumentRow.company_id == company_id)

@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic_ai import Agent
 from pydantic_ai.run import AgentRunResult
-from pydantic_ai.settings import ModelSettings
+from pydantic_ai.settings import ModelSettings, ThinkingLevel
 from pydantic_ai.usage import RunUsage, UsageLimits
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
@@ -20,6 +20,9 @@ from app.llm.render import data_block
 from app.superagent.research_base import MAX_TOOL_CALLS, SuperAgentDeps
 
 MAX_TOKENS = 4000  # Gemini counts thinking tokens against the cap
+# Gemini 3 thinks high by default on every tool turn, which ran half the questions past the deadline. The loop routes
+# lookups and writes from what they return; it needs no deep reasoning of its own.
+THINKING: ThinkingLevel = "low"
 HISTORY_LINES = 24  # 12 exchanges
 HISTORY_LINE_CHARS = 1220
 _POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="research")
@@ -38,6 +41,7 @@ def _start(
 ) -> "Future[AgentRunResult[SourcedAnswer]]":
     """The run on a worker thread, so a hung provider cannot hold the owner's request past the deadline."""
     settings = ModelSettings(timeout=min(deps.settings.llm_timeout_sec, deadline), max_tokens=MAX_TOKENS)
+    settings["thinking"] = THINKING
     limits = UsageLimits(request_limit=MAX_TOOL_CALLS + 3, tool_calls_limit=MAX_TOOL_CALLS + 5)
     context = contextvars.copy_context()  # keeps the trace of the turn
     return _POOL.submit(

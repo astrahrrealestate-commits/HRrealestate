@@ -129,3 +129,20 @@ def test_long_message_with_zero_lexical_overlap_uses_embedder_for_window() -> No
     got = best_lines(text, "When are the solar panels installed?", 300, embedder=TailEmbedder())
     assert "zonnepanelen" in got
     assert got.startswith(TENANT)
+
+
+def test_a_huge_text_never_embeds_more_than_a_capped_number_of_windows() -> None:
+    """A web page or mail is untrusted and can be any size: the fallback must not cost one embedding per window."""
+    asked: list[int] = []
+
+    class CountingEmbedder:
+        def embed_query(self, text: str) -> list[float]:
+            return [1.0, 0.0]
+
+        def embed_documents(self, texts: object) -> list[list[float]]:
+            asked.append(len(texts))  # type: ignore[arg-type]
+            return [[0.0, 1.0] for _ in texts]  # type: ignore[attr-defined]
+
+    text = " ".join(f"Punt {i}: algemene staat zonder opmerkingen." for i in range(1, 1500))
+    rerank.best_part(text, "When are the solar panels installed?", 300, embedder=CountingEmbedder())
+    assert sum(asked) <= rerank.MAX_SEMANTIC_WINDOWS

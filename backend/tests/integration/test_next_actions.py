@@ -146,6 +146,10 @@ def test_each_category_lists_only_its_own_actions(migrated_engine: Engine, commi
     assert [a.kind for a in fin] == ["quote_review"]
     assert [a.kind for a in legal] == ["approve_draft"]
     assert admin == []
+    no_money = ActionViewer(money=False, inbox=True)  # a quote review names prices and overcharges: money data
+    with Session(migrated_engine) as s:
+        assert [a.kind for a in next_actions(s, cid, Category.maintenance, no_money)] == ["approve_draft"]
+        assert next_actions(s, cid, Category.finance, no_money) == []
 
 
 def test_actions_rank_by_urgency_then_due_date(migrated_engine: Engine, committed_company: Company) -> None:

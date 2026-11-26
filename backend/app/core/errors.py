@@ -37,6 +37,11 @@ class NotFoundError(EstateOSError):
     """A requested row does not exist (within the caller's company)."""
 
 
+class PersonalDocumentError(EstateOSError):
+    """A person's own document (linked to them, their lease, unit or case, or an ID) asked to join the reference
+    library, which every dossier reads."""
+
+
 class DiligenceRequestError(EstateOSError):
     """A due diligence request the caller must fix (no documents, too many, review not restartable)."""
 

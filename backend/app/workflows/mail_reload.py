@@ -8,10 +8,11 @@ leaves it `held`. `run_history` puts the held mail on the history queue, oldest 
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import Engine, func, select
+from sqlalchemy import ColumnElement, Engine, func, select
 from sqlalchemy.orm import Session
 
 from app.contracts import CaseState, Channel, Direction
+from app.core.errors import EstateOSError
 from app.core.logging import get_logger
 from app.core.workflow_names import (
     HISTORY_QUEUE,
@@ -26,6 +27,7 @@ from app.ingestion.gmail_sync import _listing
 from app.ingestion.process import IngestDeps
 from app.ingestion.repository import Enqueuer, record_event, resolve_channel_account
 from app.pipeline import case_repo
+from app.pipeline.understand import MAX_PIPELINE_ATTEMPTS
 from app.workflows.mail_purge_scope import mailbox_company, of_mailbox
 
 log = get_logger(__name__)
@@ -125,26 +127,63 @@ def _idle_cases(session: Session, company_id: UUID, mailbox: str, cutoff: dateti
     )
 
 
-def _unprocessed(session: Session, company_id: UUID, mailbox: str) -> int:
-    """Reloaded inbound mail the pipeline has not finished: settling now could resolve a case whose newest mail is
-    still on its way."""
-    query = select(func.count()).where(
+class HistoryNotDoneError(EstateOSError):
+    """Reloaded mail is still on its way through the pipeline: settling or drafting now could resolve or answer a case
+    whose newer mail has not been read yet."""
+
+
+def _history_of(company_id: UUID, mailbox: str) -> list[ColumnElement[bool]]:
+    return [
         of_mailbox(company_id, mailbox),
         MessageRow.direction == Direction.inbound,
         MessageRow.meta["history"].as_boolean().is_(True),
-        MessageRow.pipeline_status.in_([PipelineStatus.held, PipelineStatus.pending]),
+    ]
+
+
+def _unprocessed(session: Session, company_id: UUID, mailbox: str) -> int:
+    """Reloaded inbound mail the pipeline has not finished: held, pending, or failed with a retry still to come."""
+    retrying = (MessageRow.pipeline_status == PipelineStatus.failed) & (
+        MessageRow.pipeline_attempts < MAX_PIPELINE_ATTEMPTS
     )
+    waiting = MessageRow.pipeline_status.in_([PipelineStatus.held, PipelineStatus.pending]) | retrying
+    query = select(func.count()).where(*_history_of(company_id, mailbox), waiting)
     return int(session.scalar(query) or 0)
 
 
-def settle_history(engine: Engine, mailbox: str, *, idle_days: int = IDLE_DAYS) -> int:
-    """Resolve the reloaded cases quiet for `idle_days` (they reopen on new mail as usual). Returns how many."""
+def require_history_done(session: Session, company_id: UUID, mailbox: str) -> None:
+    """`HistoryNotDoneError` while `run-history` is still working through the reloaded mail."""
+    waiting = _unprocessed(session, company_id, mailbox)
+    if waiting:
+        raise HistoryNotDoneError(
+            f"{waiting} reloaded messages are not processed yet; wait for run-history to finish (see --status) "
+            "or pass --force"
+        )
+
+
+def history_status(engine: Engine, mailbox: str) -> dict[str, int]:
+    """How far the overnight run is: the reloaded inbound mail by pipeline state."""
+    states = (PipelineStatus.held, PipelineStatus.pending, PipelineStatus.failed, PipelineStatus.done)
+    with Session(engine) as session:
+        company_id = mailbox_company(session, mailbox)
+        rows = session.execute(
+            select(MessageRow.pipeline_status, func.count())
+            .where(*_history_of(company_id, mailbox))
+            .group_by(MessageRow.pipeline_status)
+        ).all()
+    counts = {status: int(n) for status, n in rows}
+    return {state.value: counts.get(state, 0) for state in states}
+
+
+def settle_history(engine: Engine, mailbox: str, *, idle_days: int = IDLE_DAYS, force: bool = False) -> int:
+    """Resolve the reloaded cases quiet for `idle_days` (they reopen on new mail as usual). Returns how many. Refuses
+    while reloaded mail is unprocessed (`HistoryNotDoneError`) unless `force`."""
     cutoff = datetime.now(UTC) - timedelta(days=idle_days)
     with Session(engine) as session, session.begin():
         company_id = mailbox_company(session, mailbox)
-        waiting = _unprocessed(session, company_id, mailbox)
-        if waiting:
-            log.warning("mail_reload.settle_before_history_done", unprocessed=waiting)
+        if force:
+            log.warning("mail_reload.settle_forced", unprocessed=_unprocessed(session, company_id, mailbox))
+        else:
+            require_history_done(session, company_id, mailbox)
         cases = _idle_cases(session, company_id, mailbox, cutoff)
         for case_id in cases:
             case_repo.transition(session, company_id, case_id, CaseState.resolved, actor=RELOAD_ACTOR)

@@ -88,6 +88,9 @@ def test_a_failed_purge_restores_the_worker(tmp_path: Path) -> None:
         (("run-history",), ["--run-history"]),
         (("settle",), ["--settle"]),
         (("settle", BOX, "21"), ["--settle", "--idle-days", "21"]),
+        (("draft-report",), ["--draft-report", "--days", "30"]),
+        (("draft-report", BOX, "60"), ["--draft-report", "--days", "60"]),
+        (("status",), ["--status"]),
     ],
 )
 def test_every_other_mode_leaves_the_worker_running(tmp_path: Path, args: tuple[str, ...], expected: list[str]) -> None:
@@ -164,6 +167,8 @@ def test_the_worker_stays_stopped_when_the_purge_task_cannot_be_stopped(tmp_path
         ("prod", "reingest", BOX, "many"),
         ("prod", "reingest", BOX, "0"),
         ("prod", "purge", BOX, "90"),
+        ("prod", "status", BOX, "7"),
+        ("prod", "draft-open", BOX, "14", "--dry-run"),
     ],
 )
 def test_bad_arguments_do_nothing(tmp_path: Path, args: tuple[str, ...]) -> None:
