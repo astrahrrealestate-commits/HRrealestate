@@ -11,7 +11,8 @@ from enum import StrEnum
 from uuid import UUID
 
 from pydantic_ai.messages import BinaryContent, UserContent
-from sqlalchemy import Engine, update
+from sqlalchemy import Engine, or_, select, update
+from sqlalchemy.dialects.postgresql import array
 from sqlalchemy.orm import Session
 
 from app.contracts import DocType, DocumentFacts
@@ -19,10 +20,11 @@ from app.core.errors import AgentFailedError, BudgetExceededError, NotFoundError
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import ExtractionStatus
-from app.db.models import AttachmentRow, ModelCall
+from app.db.models import AttachmentRow, MessageRow, ModelCall, PersonProfile
 from app.llm.agents.doc_reader import DOC_OCR, DOC_READER, doc_reader_prompt
 from app.llm.calls import CallContext, run_agent
 from app.pipeline.document_index import document_text_for_prompt
+from app.pipeline.document_policy import looks_like_id_text
 from app.pipeline.document_qa import strip_risky
 from app.pipeline.injection_scan import scan
 from app.storage.extract import Extraction, TextExtractor
@@ -62,9 +64,10 @@ class ReadInput:
     case_summary: str | None
 
 
-def _ocr(engine: Engine, settings: Settings, data: bytes, mime_type: str, company_id: UUID) -> str:
-    content: list[UserContent] = [_OCR_INSTRUCTION, BinaryContent(data=data, media_type=mime_type)]
-    return run_agent(engine, settings, DOC_OCR, content, CallContext(company_id, "doc_ocr")).output.text.strip()
+def _ocr(engine: Engine, settings: Settings, data: bytes, row: AttachmentRow) -> str:
+    content: list[UserContent] = [_OCR_INSTRUCTION, BinaryContent(data=data, media_type=row.mime_type)]
+    ctx = CallContext(row.company_id, "doc_ocr", message_ids=(row.message_id,))  # a purge finds the call by its mail
+    return run_agent(engine, settings, DOC_OCR, content, ctx).output.text.strip()
 
 
 def _save(engine: Engine, company_id: UUID, attachment_id: UUID, ex: Extraction, text: str | None) -> None:
@@ -88,11 +91,14 @@ def _extract(engine: Engine, settings: Settings, storage: ObjectStorage, extract
     text = ex.text
     if text is None and ex.needs_ocr and row.mime_type in _VISION_TYPES:
         try:
-            text = _ocr(engine, settings, storage.get(row.s3_key), row.mime_type, row.company_id) or None
+            text = _ocr(engine, settings, storage.get(row.s3_key), row) or None
         except BudgetExceededError:
             return Unread.budget  # not stored: a later run, with budget, reads it
         except AgentFailedError:
             ex = Extraction(ExtractionStatus.failed, None, ex.page_count, "doc_ocr", note="vision failed")
+    if text and looks_like_id_text(text):  # an identity document under any name: its text is never kept or shown
+        purge_text(engine, row.company_id, row.id, None)
+        return Unread.no_text
     _save(engine, row.company_id, row.id, ex, text)
     return text or Unread.no_text
 
@@ -108,14 +114,34 @@ def attachment_text(engine: Engine, settings: Settings, storage: ObjectStorage, 
     return _extract(engine, settings, storage, extractor, row)
 
 
-def purge_text(engine: Engine, company_id: UUID, attachment_id: UUID, call_id: UUID) -> None:
-    """The reader found an identity document: forget the text, and blank what the reader call recorded (ADR 0007)."""
+REDACTED_ID = {"redacted": "identity document"}
+
+
+def purge_text(engine: Engine, company_id: UUID, attachment_id: UUID, call_id: UUID | None) -> None:
+    """An identity document: forget its text, blank the call that found it and every call tagged with its mail (OCR,
+    proposer, person memory), and drop the memory of the person who sent it, rebuilt on its next refresh (ADR 0007)."""
     with Session(engine) as session, session.begin():
-        session.execute(
-            update(ModelCall)
-            .where(ModelCall.id == call_id, ModelCall.company_id == company_id)
-            .values(input={"redacted": "identity document"}, output={"redacted": "identity document"})
+        row = session.scalar(
+            select(AttachmentRow).where(AttachmentRow.id == attachment_id, AttachmentRow.company_id == company_id)
         )
+        found = [ModelCall.id == call_id] if call_id is not None else []
+        if row is not None:
+            found.append(ModelCall.message_ids.overlap(array([row.message_id])))
+            sender = session.scalar(
+                select(MessageRow.person_id).where(MessageRow.id == row.message_id, MessageRow.company_id == company_id)
+            )
+            if sender is not None:
+                session.execute(
+                    update(PersonProfile)
+                    .where(PersonProfile.company_id == company_id, PersonProfile.person_id == sender)
+                    .values(memory=None, memory_at=None)
+                )
+        if found:
+            session.execute(
+                update(ModelCall)
+                .where(ModelCall.company_id == company_id, or_(*found))
+                .values(input=REDACTED_ID, output=REDACTED_ID)
+            )
         session.execute(
             update(AttachmentRow)
             .where(AttachmentRow.id == attachment_id, AttachmentRow.company_id == company_id)

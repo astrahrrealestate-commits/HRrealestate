@@ -10,6 +10,7 @@ from app.contracts.action import ReplyDraftPayload
 from app.llm.agents.proposer import (
     PROPOSER_PERSONA,
     PROPOSER_V6,
+    PROPOSER_V7,
     Persona,
     ProposerContext,
     proposer_prompt,
@@ -66,8 +67,8 @@ def test_v6_prompt_holds_every_dossier_block_as_data(tag: str) -> None:
     assert f"`<{tag}>`" in safety
 
 
-def test_a_context_with_a_dossier_uses_v6_and_the_old_prompts_stay_for_the_rest() -> None:
-    assert proposer_spec(_ctx()) is PROPOSER_V6
+def test_a_context_with_a_dossier_uses_the_dossier_prompt_and_the_old_prompts_stay_for_the_rest() -> None:
+    assert proposer_spec(_ctx()) is PROPOSER_V7  # v7 since the v6 real-model eval
     assert PROPOSER_V6.prompt.key == "proposer/v6"
     assert proposer_spec(_ctx(dossier=())) is PROPOSER_PERSONA
 

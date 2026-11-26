@@ -9,6 +9,7 @@ also scores Harjot's drafting standard. No database.
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -159,6 +160,14 @@ def hard_problem(label: V6Label, out: V6Output) -> str | None:
     return None
 
 
+def judge_problem(asserts: dict[str, Any]) -> str | None:
+    """The first failed judge check with its reason, for the report's misses."""
+    for result in asserts.values():
+        if not result.value:
+            return f"judge: {cell(str(result.reason or 'failed'), 160)}"
+    return None
+
+
 def score(pairs: Sequence[tuple[V6Label, V6Output]]) -> dict[str, float]:
     n = len(pairs) or 1
     return {
@@ -203,7 +212,7 @@ def run(version: str, settings: Settings) -> EvalResult:
         scores["judge_pass"] = sum(all(a.value for a in asserts.values()) for *_, asserts in done) / (len(done) or 1)
     misses = [
         f"| {name} | {problem} | {cell(o.variants[0] if o.variants else '')} |"
-        for name, g, o, _ in done
-        if (problem := hard_problem(g, o)) is not None
+        for name, g, o, asserts in done
+        if (problem := hard_problem(g, o) or judge_problem(asserts)) is not None
     ]
     return EvalResult(scores, misses, MISS_HEADER, loaded)

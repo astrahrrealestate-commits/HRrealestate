@@ -29,6 +29,7 @@ from app.core.settings import Settings
 from app.db.models import DocumentRow, UnderstandingRow
 from app.llm.agents.draft_research import DRAFT_RESEARCH, ResearchSource, draft_research_prompt
 from app.llm.calls import CallContext, is_transient, run_agent
+from app.pipeline.concierge_sanitize import redact_contact
 from app.pipeline.document_qa import strip_risky
 from app.pipeline.document_search import DRIVE_URL, DocFilter
 from app.pipeline.rag import retrieve_cheap
@@ -48,6 +49,10 @@ _LEGAL = re.compile(
     re.I,
 )
 Searcher = Callable[[Sequence[str]], SearchClient]  # allowed domains (empty = any) -> a search client
+
+
+MIN_EVIDENCE_CHARS = 10  # "€ 40 per m2" is enough; "per" is not
+MIN_EVIDENCE_WORDS = 3
 
 
 def _squash(text: str) -> str:
@@ -83,7 +88,7 @@ def _references(session: Session, company_id: UUID, question: str, n: int) -> li
 
 class _Budget:
     def __init__(self, clock: Callable[[], float]) -> None:
-        self.clock, self.started, self.searches = clock, clock(), 0
+        self.clock, self.started, self.searches, self.failed = clock, clock(), 0, False
 
     def may_search(self) -> bool:
         return self.searches < MAX_SEARCHES and self.clock() - self.started < SEARCH_UNTIL_SEC
@@ -97,23 +102,41 @@ def _search(searcher: Searcher, query: str, legal: bool, n: int, budget: _Budget
         return []
     budget.searches += 1
     try:
-        hits = searcher(LEGAL_DOMAINS if legal else ()).search(query, region=REGION, limit=PAGES_PER_SEARCH)
+        hits = searcher(LEGAL_DOMAINS if legal else ()).search(
+            search_query(query), region=REGION, limit=PAGES_PER_SEARCH
+        )
     except Exception as exc:  # one search that fails (provider, budget, network) never stops the draft
         log.warning("draft_research.search_failed", reason=type(exc).__name__)
+        budget.failed = True  # nothing found is then not an answer: a later run searches again
         return []
     return [ResearchSource(n, hit.url, hit.title, hit.text) for hit in hits if hit.text.strip()]
 
 
+def search_query(question: str) -> str:
+    """What leaves for the web: the question without phone numbers, addresses or links (it came from tenant mail)."""
+    return " ".join(redact_contact(strip_risky(question)).split())
+
+
+def _references_for(
+    engine: Engine, company_id: UUID, questions: Sequence[str], category: Category
+) -> list[ResearchSource]:
+    """Reference-library passages for the legal questions, in a session that ends before any web request."""
+    with Session(engine) as session:
+        return [
+            source
+            for n, question in enumerate(questions, start=1)
+            if is_legal(question, category)
+            for source in _references(session, company_id, question, n)
+        ]
+
+
 def _gather(
-    session: Session, company_id: UUID, questions: Sequence[str], category: Category, searcher: Searcher,
+    references: list[ResearchSource], questions: Sequence[str], category: Category, searcher: Searcher,
     budget: _Budget,
 ) -> list[ResearchSource]:  # fmt: skip
-    sources: list[ResearchSource] = []
+    sources = list(references)
     for n, question in enumerate(questions, start=1):
-        legal = is_legal(question, category)
-        if legal:
-            sources += _references(session, company_id, question, n)
-        sources += _search(searcher, question, legal, n, budget)
+        sources += _search(searcher, question, is_legal(question, category), n, budget)
     for n, question in enumerate(questions, start=1):  # a second try, with what is left, for questions with nothing
         if not any(s.question == n for s in sources):
             sources += _search(searcher, f"{question} Nederland", is_legal(question, category), n, budget)
@@ -128,7 +151,10 @@ def checked(questions: Sequence[str], sources: Sequence[ResearchSource], claims:
         if not (1 <= q <= len(questions) and 1 <= s <= len(sources)) or sources[s - 1].question != q:
             continue
         source = sources[s - 1]
-        if _squash(str(getattr(claim, "evidence", ""))) not in _squash(f"{source.title}\n{source.text}"):
+        evidence = _squash(str(getattr(claim, "evidence", "")))
+        if len(evidence) < MIN_EVIDENCE_CHARS or len(evidence.split()) < MIN_EVIDENCE_WORDS:
+            continue  # a word or two is found on any page: it proves nothing
+        if evidence not in _squash(f"{source.title}\n{source.text}"):
             continue
         answer = strip_risky(str(getattr(claim, "answer", ""))).strip()
         if answer:
@@ -192,12 +218,16 @@ def research_for(
             return stored_findings(row.research)
         if not und.needs_research or not und.requires_reply or und.suspicious.flag:
             return ()
-        questions = [q for q in (strip_risky(q).strip() for q in und.research_questions[:MAX_QUESTIONS]) if q]
-        search = searcher or (lambda domains: search_client(settings, engine, company_id, domains))
-        budget = _Budget(clock)
-        sources = _gather(session, company_id, questions, und.category, search, budget) if questions else []
+    questions = [q for q in (strip_risky(q).strip() for q in und.research_questions[:MAX_QUESTIONS]) if q]
+    search = searcher or (lambda domains: search_client(settings, engine, company_id, domains))
+    budget = _Budget(clock)
+    references = _references_for(engine, company_id, questions, und.category) if questions else []
+    sources = _gather(references, questions, und.category, search, budget) if questions else []
     findings = _ask(engine, settings, company_id, message_id, questions, sources, budget.left())
     unanswered = [q for q in questions if not any(f.question == q for f in findings)]
+    if budget.failed and unanswered:
+        log.info("draft_research.not_final", unanswered=len(unanswered))
+        return tuple(findings)  # not stored: a search failed, so a later run (redraft, draft-open) tries again
     _store(engine, company_id, row.id, findings, unanswered)
     log.info("draft_research.done", findings=len(findings), unanswered=len(unanswered), searches=budget.searches)
     return tuple(findings)

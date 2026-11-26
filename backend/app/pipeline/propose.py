@@ -2,7 +2,7 @@
 
 Replay-safe: actions carry `context_ref = [message_id]`, and a message that already has actions is not proposed
 again. A failed proposer never drops the message: Harjot gets a "could not draft" notice to approve or dismiss.
-Since M13 every proposal and owner redraft reads the message's dossier (`proposer/v6`). A reply that only
+Since M13 every proposal and owner redraft reads the message's dossier (`proposer/v7`). A reply that only
 acknowledges or promises to come back is redrafted once with feedback; if it still is, no reply is offered and the
 card says to draft with Astra. An owner-requested draft passes the owner's sanitised guidance and a key; its reply
 then also gets an ActionRevision under that key, so the turn's retry finds it. The redraft module reuses
