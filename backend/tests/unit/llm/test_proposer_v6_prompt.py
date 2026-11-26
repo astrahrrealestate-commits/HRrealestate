@@ -12,6 +12,7 @@ from app.llm.agents.proposer import (
     PROPOSER_V6,
     PROPOSER_V7,
     PROPOSER_V8,
+    PROPOSER_V9,
     Persona,
     ProposerContext,
     proposer_prompt,
@@ -69,9 +70,10 @@ def test_v6_prompt_holds_every_dossier_block_as_data(tag: str) -> None:
 
 
 def test_a_context_with_a_dossier_uses_the_dossier_prompt_and_the_old_prompts_stay_for_the_rest() -> None:
-    assert proposer_spec(_ctx()) is PROPOSER_V8  # v8: 2 draft variants instead of 3
+    assert proposer_spec(_ctx()) is PROPOSER_V9
     assert PROPOSER_V6.prompt.key == "proposer/v6"
     assert PROPOSER_V7.prompt.key == "proposer/v7"
+    assert PROPOSER_V8.prompt.key == "proposer/v8"
     assert proposer_spec(_ctx(dossier=())) is PROPOSER_PERSONA
 
 

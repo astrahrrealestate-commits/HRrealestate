@@ -14,7 +14,7 @@ def _stamp_prompt_version(output: Understanding, loaded: LoadedPrompt) -> Unders
 
 UNDERSTANDING = AgentSpec(
     name="understanding",
-    prompt=PromptRef(name="understanding", version="v5"),
+    prompt=PromptRef(name="understanding", version="v6"),
     output_type=Understanding,
     finalize=_stamp_prompt_version,
     thinking="minimal",
@@ -24,7 +24,7 @@ UNDERSTANDING = AgentSpec(
 MAX_UNDERSTANDING_BODY_CHARS: int = 10_000
 MAX_SENDER_CHARS: int = 320  # an email address; anything longer is not one
 SENDER_AWARE_PROMPTS = frozenset(
-    {"v3", "v4", "v5"}
+    {"v3", "v4", "v5", "v6"}
 )  # prompts that tell the model what a `From:` line is; earlier ones never see it
 
 

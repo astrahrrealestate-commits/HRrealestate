@@ -64,6 +64,44 @@ def create_task(
     ).scalar_one()
 
 
+def close_case_tasks(session: Session, company_id: UUID, case_id: UUID, *, source: str = "promise") -> int:
+    """Mark open/snoozed tasks on a case for a given source (e.g. an owner follow-up promise) as done."""
+    result = session.execute(
+        update(TaskRow)
+        .where(
+            TaskRow.company_id == company_id,
+            TaskRow.case_id == case_id,
+            TaskRow.source == source,
+            TaskRow.status.in_([TaskStatus.open, TaskStatus.snoozed]),
+        )
+        .values(status=TaskStatus.done)
+    )
+    return int(result.rowcount)  # type: ignore[attr-defined]
+
+
+def record_owner_promise(
+    session: Session,
+    company_id: UUID,
+    case_id: UUID,
+    *,
+    title: str,
+    due_at: datetime | None = None,
+    priority: TaskPriority = TaskPriority.p2,
+) -> UUID:
+    """Keep at most one active owner-promise task per case so Waiting for our message stays deduplicated."""
+    close_case_tasks(session, company_id, case_id, source="promise")
+    return create_task(
+        session,
+        company_id,
+        title=title,
+        assignee="owner",
+        source="promise",
+        case_id=case_id,
+        due_at=due_at,
+        priority=priority,
+    )
+
+
 def close_action_tasks(session: Session, company_id: UUID, action_id: UUID) -> int:
     result = session.execute(
         update(TaskRow)

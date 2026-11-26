@@ -57,7 +57,7 @@ from app.contracts.prompt_ref import PromptRef
 from app.contracts.proposal import Proposal
 from app.contracts.rag import FactKind, PassageScore, QueryPlan, RerankResult
 from app.contracts.summary import CaseSummary
-from app.contracts.understanding import Category, Entities, SenderRole, Suspicious, Understanding, Urgency
+from app.contracts.understanding import Category, Entities, SenderRole, Suspicious, Understanding, Urgency, WaitingSide
 
 __all__ = [
     "ALLOWED",
@@ -128,6 +128,7 @@ __all__ = [
     "UpdateCaseStatePayload",
     "Urgency",
     "Verdict",
+    "WaitingSide",
     "assert_transition",
     "can_transition",
     "normalise_identity",

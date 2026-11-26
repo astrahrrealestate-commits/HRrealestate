@@ -22,6 +22,7 @@ from app.contracts import (
     RequestContractorPayload,
     Suspicious,
     Understanding,
+    WaitingSide,
 )
 from app.core.errors import AgentFailedError, NotFoundError
 from app.core.logging import get_logger
@@ -71,7 +72,24 @@ def open_waits_after_execute(engine: Engine, action_id: UUID, *, now: datetime) 
         if action.type is ActionType.request_contractor:
             party, about = UUID(action.payload["contractor_person_id"]), "Contractor to respond to our request"
         elif action.type is ActionType.reply_draft and case.state is CaseState.waiting_on_third_party:
-            party, about = case.primary_person_id, "Tenant to answer our reply"
+            work_repo.close_case_tasks(session, action.company_id, case.id, source="promise")
+            commitments = action.payload.get("commitments") if isinstance(action.payload, dict) else None
+            about_txt = (
+                str(commitments[0])[:280]
+                if isinstance(commitments, list) and commitments
+                else "Counterparty to answer our reply"
+            )
+            party, about = case.primary_person_id, about_txt
+        elif action.type is ActionType.reply_draft and case.state is CaseState.waiting_on_owner:
+            commitments = action.payload.get("commitments") if isinstance(action.payload, dict) else None
+            title = (
+                str(commitments[0])[:200]
+                if isinstance(commitments, list) and commitments
+                else "Owner follow-up promised"
+            )
+            due = add_business_days(now, company.chase_after_days, company.timezone)
+            work_repo.record_owner_promise(session, action.company_id, case.id, title=title, due_at=due)
+            return None
         else:
             return None
         due = add_business_days(now, company.chase_after_days, company.timezone)
@@ -110,6 +128,9 @@ def _tenant_chaser(
         sender_role=None,
         needs_research=False,
         research_questions=[],
+        waiting_side=WaitingSide.third_party,
+        open_obligation=wait.about[:200] or None,
+        expected_days=None,
         prompt_version="understanding/v2",
     )
     persona = load_persona(engine, case.company_id)

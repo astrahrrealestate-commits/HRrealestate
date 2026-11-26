@@ -2,6 +2,8 @@ import { SHOWN_CATEGORIES, categoryLabel, type BusinessCategory } from "@/lib/ca
 import type { CategorySummaryItem } from "@/lib/api";
 
 export { SHOWN_CATEGORIES, categoryLabel, type BusinessCategory };
+export type DashboardTab = "all" | BusinessCategory;
+export type UrgencyFilter = "all" | "emergency" | "high";
 
 export function fallbackCategorySummaries(): CategorySummaryItem[] {
   return SHOWN_CATEGORIES.map((category) => ({

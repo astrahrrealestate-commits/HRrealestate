@@ -2064,6 +2064,7 @@ export interface CategorySummaryItem {
   label: string;
   open_actions: number;
   urgent: number;
+  emergency?: number;
 }
 
 export type CategoryActionKind =
@@ -2088,11 +2089,22 @@ export interface CategoryNextAction {
   approval_id: string | null;
   prepared: string | null;
   target_url: string;
+  channel?: string | null;
+  sender_name?: string | null;
+  unit_label?: string | null;
+  subject?: string | null;
+  last_at?: string | null;
+  waiting_side?: "owner" | "third_party" | null;
+  waiting_days?: number | null;
+  obligation?: string | null;
+  has_draft?: boolean;
 }
 
 export interface CategoryDeskData {
   brief: string | null;
   actions: CategoryNextAction[];
+  waiting_for_us?: CategoryNextAction[];
+  waiting_for_other?: CategoryNextAction[];
 }
 
 export async function getDashboardCategories(): Promise<CategorySummaryItem[] | null> {
@@ -2112,18 +2124,27 @@ export async function getDashboardCategories(): Promise<CategorySummaryItem[] | 
   return null;
 }
 
-export async function getCategoryDesk(category: BusinessCategory): Promise<CategoryDeskData | null> {
+export async function getCategoryDesk(
+  category: BusinessCategory,
+  urgency: "all" | "emergency" | "high" = "all"
+): Promise<CategoryDeskData | null> {
   try {
-    const res = await apiFetch(`${BACKEND_BASE_URL}/api/dashboard/categories/${encodeURIComponent(category)}`, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(10000),
-    });
+    const qs = urgency === "all" ? "?limit=25" : `?limit=25&urgency=${encodeURIComponent(urgency)}`;
+    const res = await apiFetch(
+      `${BACKEND_BASE_URL}/api/dashboard/categories/${encodeURIComponent(category)}${qs}`,
+      {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(10000),
+      }
+    );
     if (res.ok) {
       const data = await res.json();
       return {
         brief: typeof data?.brief === "string" ? data.brief : null,
         actions: Array.isArray(data?.actions) ? data.actions : [],
+        waiting_for_us: Array.isArray(data?.waiting_for_us) ? data.waiting_for_us : [],
+        waiting_for_other: Array.isArray(data?.waiting_for_other) ? data.waiting_for_other : [],
       };
     }
   } catch {

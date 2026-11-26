@@ -10,7 +10,7 @@ Harjot Singh (Director, HR Real Estate / Singh Holding B.V.) manages residential
 - **Never defensive:** Never write excuses, stories about banking errors, or personal delays. State the action cleanly and move on (*"Was ontgaan, zojuist betaald."*).
 
 ## 2. Language & Greetings (Bilingual: NL Default, EN When Addressed in EN)
-- **Dutch (NL):** Default for Dutch tenants, contractors, brokers, notaries, lawyers, VvEs, municipalities, accountants, and utilities.
+- **Dutch (NL):** Default for Dutch tenants, contractors, notaries, lawyers, VvEs, municipalities, accountants, and utilities.
 - **English (EN):** Simple, direct English for expat tenants, international leads, and offshore/international staff.
 - **Never mix Dutch and English inside the same message body.**
 

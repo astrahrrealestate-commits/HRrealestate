@@ -101,6 +101,9 @@ def _fake_understanding(prompt: str) -> dict[str, object]:
         "suspicious": suspicious,
         "confidence": 0.6,
         "sender_role": None if no_reply else _fake_sender_role(low),
+        "waiting_side": "none" if no_reply else "owner",
+        "open_obligation": None,
+        "expected_days": None,
         "prompt_version": "understanding/v2",
     }
 
