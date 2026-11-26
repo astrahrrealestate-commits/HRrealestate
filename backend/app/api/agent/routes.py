@@ -40,10 +40,11 @@ from app.api.v1.access import require_agent
 from app.api.v1.auth import Principal, require_session
 from app.api.v1.session_limits import ask_limit
 from app.channels.calendar import CalendarUnavailableError, get_calendar_client
-from app.context.compiler import compile_concierge_context
+from app.context.compiler import SUMMARY_PREFIX, compile_concierge_context
 from app.context.selection import rank_cases
 from app.context.super_agent_prompt import build_super_agent_system_prompt
 from app.contracts import ActionType, Channel, ConciergePlan, Direction, Intent, PlanStep
+from app.contracts.sourced_answer import Source
 from app.core.errors import AgentFailedError, NotFoundError
 from app.core.ids import case_ref as short_case_ref
 from app.core.ids import new_id
@@ -80,6 +81,7 @@ from app.llm.fakes_concierge import fake_concierge
 from app.llm.runtime import describe_model_error
 from app.pipeline import case_repo, owner_commands, understand, work_repo
 from app.pipeline.concierge import StepResult, run_plan
+from app.pipeline.concierge_entities import NO_ENTITIES, Entities, resolve_entities
 from app.pipeline.concierge_outcome import task_brief
 from app.pipeline.document_search import DocFilter
 from app.pipeline.rag import search_hybrid
@@ -122,6 +124,7 @@ class AskAgentResponse(BaseModel):
     debugInfo: DebugInfo | None = None
     suggestedPrompts: list[str] = Field(default_factory=list, description="Dynamic 3 workflow suggestion pills")
     focus_state: dict[str, Any] = Field(default_factory=dict, description="Active thread focus")
+    sources: list[Source] = Field(default_factory=list, description="What a researched answer rests on")
 
 
 class ConversationSummaryItem(BaseModel):
@@ -246,6 +249,27 @@ def _generate_chat_answer(
 ) -> str | None:
     """The direct answer on the configured model (Gemini via Pydantic AI); None means use the deterministic fallback."""
     return chat_answer(engine, settings, company_id, system_prompt, history or [], query)
+
+
+def _step_sources(results: Sequence[StepResult]) -> list[Source]:
+    """The sources a researched `answer` step carried (the plan's research loop, run inside run_plan)."""
+    found: list[Source] = []
+    for r in results:
+        for raw in (r.data or {}).get("sources") or []:
+            source = Source.model_validate(raw)
+            if source not in found:
+                found.append(source)
+    return found
+
+
+def _entities(engine: Engine, company_id: UUID, question: str) -> Entities:
+    """Who and what the question names, inside the company; a failure costs the hint, never the answer."""
+    try:
+        with Session(engine) as session:
+            return resolve_entities(session, company_id, question)
+    except Exception as exc:
+        log.warning("api.superagent.entities_failed", error=type(exc).__name__)
+        return NO_ENTITIES
 
 
 def _research_answer(
@@ -1376,6 +1400,7 @@ def _finish_agent_response(
     briefs: list[CaseBrief],
     preview_cards: list[PreviewCardData] | None = None,
     turn_id: UUID | None = None,
+    sources: Sequence[Source] = (),
 ) -> AskAgentResponse:
     ans_text = _clean_executive_answer(ans_text)
     effective_preview_cards = (
@@ -1421,6 +1446,7 @@ def _finish_agent_response(
                 "actions": [a.model_dump() for a in action_buttons],
                 "steps": step_descriptions,
                 "suggestedPrompts": suggestions,
+                "sources": [s.model_dump() for s in sources],
             },
         )
         session.add(agent_turn)
@@ -1442,6 +1468,7 @@ def _finish_agent_response(
         debugInfo=DebugInfo(pipeline_stage=pipeline_stage, fallback_reason=fallback_reason),
         suggestedPrompts=suggestions,
         focus_state=current_focus,
+        sources=list(sources),
     )
 
 
@@ -1562,48 +1589,6 @@ def ask_agent(
         open_tasks = work_repo.open_tasks(session, company_id, now=now)[:20]
         tasks = [task_brief(t.id, t.title) for t in open_tasks]
 
-        # Early check: If query directly asks about active T5 standing rules / memories, return immediately
-        matching_rule = None
-        q_words = [
-            w
-            for w in q_low.split()
-            if len(w) > 3
-            and w not in ["what", "which", "tell", "show", "about", "contractor", "rule", "rules", "from", "with"]
-        ]
-        if any(
-            k in q_low for k in ["rule", "rules", "preference", "remember", "standing", "custom", "contractor policy"]
-        ):
-            for m in approved_memories:
-                m_low = m.lower()
-                if any(w in m_low for w in q_words) or ("rule" in q_low and len(approved_memories) == 1):
-                    matching_rule = m
-                    break
-
-        if matching_rule:
-            return _finish_agent_response(
-                engine=engine,
-                conv_id=conv_id,
-                req=req,
-                ans_text=f"**Authoritative Standing Rule (T5 Memory):**\n\n• {matching_rule}",
-                case_refs=[],
-                suggested_action="View Standing Rules in Settings",
-                action_buttons=[
-                    ActionButtonData(
-                        label="View Standing Rules in Settings",
-                        actionType="navigate",
-                        payload="/settings",
-                        isPrimary=True,
-                    )
-                ],
-                step_descriptions=["Retrieved active workspace rules"],
-                preview_card=None,
-                cards_list=[],
-                pipeline_stage="memory_rule",
-                fallback_reason=None,
-                suggestions=["What should I do first?", "Who owes rent?", "Check calendar"],
-                now=now,
-                briefs=briefs,
-            )
         task_command = owner_commands.parse_command(req.query)
         if task_command.kind in (owner_commands.CommandKind.done, owner_commands.CommandKind.snooze):
             # "done #ref" / "snooze #ref 2d" act on the owner's own task list: never left to the model's plan
@@ -1754,6 +1739,7 @@ def ask_agent(
 
     # Build prompt using context compiler with active memory rules and page facts
     history = (req.history or [])[-MAX_HISTORY:]
+    entities = _entities(engine, company_id, req.query)
     thread_summary = ""
     focus_cid: str | None = None
     try:
@@ -1788,9 +1774,11 @@ def ask_agent(
                 )
             )
         fresh_chat_text = new_chat_fact(prior_turns or 0)
+        summary_line = [f"{SUMMARY_PREFIX}{thread_summary}"] if thread_summary.strip() else []
         compiled = compile_concierge_context(
             question=req.query,
-            recent=history,
+            recent=[*summary_line, *history],
+            entities=entities.render(),
             cases=rank_cases(briefs, req.query, focus_cid),
             open_tasks=tasks,
             page_facts_text="\n\n".join(t for t in ((page_facts_text or "") + focus_text, fresh_chat_text) if t),
@@ -1891,6 +1879,7 @@ def ask_agent(
     try:
         if plan and plan.in_scope and plan.steps:
             known_cases_list = [b.case_id for b in briefs]
+            known_cases_list += [c for c in entities.case_ids if c not in known_cases_list]  # found by name
             if conv and conv.focus_state and conv.focus_state.get("case_id"):
                 try:
                     f_cid = UUID(str(conv.focus_state["case_id"]))
@@ -2000,20 +1989,6 @@ def ask_agent(
             turn_id=turn_id,
         )
 
-    # If active memory matches the query directly, return it as authoritative
-    matching_rule = None
-    q_words = [w for w in q_low.split() if len(w) > 3 and w not in ["what", "which", "tell", "show", "about"]]
-    if q_words:
-        for m in approved_memories:
-            matches = sum(1 for w in q_words if w in m.lower())
-            if matches >= 2 or (len(q_words) == 1 and q_words[0] in m.lower()):
-                matching_rule = m
-                break
-
-    if matching_rule:
-        ans_text = f"**Authoritative Standing Rule (T5 Memory):**\n\n• {matching_rule}"
-        pipeline_stage = "memory_rule"
-
     # If the response is empty or an unhandled placeholder, invoke Gemini or clean executive domain generator
     needs_fallback = (
         not ans_text
@@ -2029,6 +2004,7 @@ def ask_agent(
         )
     )
     research_steps: tuple[str, ...] = ()
+    sources = _step_sources(results)
     is_only_open_view = bool(results) and all(r.intent == Intent.open_view for r in results)
     is_nav_command = q_low.startswith(("open ", "go to ", "navigate "))
     needs_view_prose = (
@@ -2057,6 +2033,7 @@ def ask_agent(
             researched = None
         if researched is not None:
             research_steps = researched.steps
+            sources = list(researched.sources)
             chat_resp: str | None = researched.answer
         else:
             try:
@@ -2589,6 +2566,7 @@ def ask_agent(
         briefs=briefs,
         preview_cards=target_cards,
         turn_id=turn_id,
+        sources=sources,
     )
 
 
