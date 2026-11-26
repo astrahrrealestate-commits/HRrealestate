@@ -12,7 +12,10 @@ from app.core.settings import Settings
 from app.db.models import Company, DocumentRow
 from app.llm.embeddings import HashingEmbedder
 from app.pipeline.document_embed import embed_chunks, embed_documents_summary
-from app.superagent.research import SNIPPET_CHARS, SuperAgentDeps, _documents, _messages, _messages_filtered
+from app.superagent.lookups import documents as _documents
+from app.superagent.lookups import messages as _messages
+from app.superagent.lookups import messages_filtered as _messages_filtered
+from app.superagent.research_base import SNIPPET_CHARS, SuperAgentDeps
 from tests.integration.test_document_search import _doc
 from tests.integration.test_message_search import _indexed
 

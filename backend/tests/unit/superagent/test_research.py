@@ -11,7 +11,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from app.core.errors import BudgetExceededError
 from app.core.settings import Settings
-from app.superagent import research
+from app.superagent import lookups, research
 
 
 def _settings(model: str = "google-gla:gemini-2.5-flash") -> Settings:
@@ -87,7 +87,7 @@ def test_tools_take_no_company_or_recipient_argument(rows: list[Any], monkeypatc
     seen: dict[str, Any] = {}
     _run(_scripted([], "hi", seen), monkeypatch)
     assert set(seen["tools"]) == {
-        "query_database", "search_communications", "search_documents",
+        "query_database", "search_communications", "search_documents", "search_web",
         "open_message", "open_thread", "open_document", "open_person",
     }  # fmt: skip
     for tool in seen["tools"].values():
@@ -175,7 +175,7 @@ def test_a_failed_run_keeps_the_steps_it_took_in_the_audit_row(
 
 def test_database_wrapper_reports_a_failed_query_without_leaking_the_error(monkeypatch: pytest.MonkeyPatch) -> None:
     failed = MagicMock(ok=False, answer="Could not execute query safely: secret detail", row_count=0)
-    monkeypatch.setattr(research, "run_query_agent", lambda *a, **k: failed)
+    monkeypatch.setattr(lookups, "run_query_agent", lambda *a, **k: failed)
     deps = research.SuperAgentDeps(MagicMock(), _settings(), uuid4(), None)
     assert research._database(deps, "q") == (research.LOOKUP_FAILED, 0)
 
@@ -193,10 +193,10 @@ def test_message_wrapper_searches_the_servers_company_and_formats_one_line_per_h
         seen.update(company_id=company_id, query=query, limit=limit)
         return [hit]
 
-    monkeypatch.setattr(research, "search_messages", fake_search)
-    monkeypatch.setattr(research, "rerank_hits", lambda _e, _s, _c, _q, hits: hits)
-    monkeypatch.setattr(research, "Session", lambda engine: MagicMock(__enter__=lambda s: s, __exit__=lambda *a: None))
+    monkeypatch.setattr(lookups, "search_messages", fake_search)
+    monkeypatch.setattr(lookups, "rerank_hits", lambda _e, _s, _c, _q, hits: hits)
+    monkeypatch.setattr(lookups, "Session", lambda engine: MagicMock(__enter__=lambda s: s, __exit__=lambda *a: None))
     company = uuid4()
     text, count = research._messages(research.SuperAgentDeps(MagicMock(), _settings(), company, None), "boiler")
-    assert (count, seen["company_id"], seen["query"], seen["limit"]) == (1, company, "boiler", research.RERANK_TOP)
+    assert (count, seen["company_id"], seen["query"], seen["limit"]) == (1, company, "boiler", lookups.RERANK_TOP)
     assert text == "[m1] 2026-11-05 whatsapp | Pieter | Keizersgracht 42-A: boiler broken"

@@ -12,13 +12,10 @@ answer. Every run writes one `model_calls` row.
 """
 
 import contextvars
-import json
 import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as DeadlineError
-from datetime import date
-from typing import Any
 from uuid import UUID
 
 from pydantic_ai import Agent, RunContext
@@ -28,7 +25,6 @@ from pydantic_ai.usage import RunUsage
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
-from app.context.budget import clip
 from app.contracts.sourced_answer import SourcedAnswer
 from app.core.errors import BudgetExceededError
 from app.core.logging import get_logger
@@ -36,127 +32,36 @@ from app.core.settings import Settings
 from app.db.models import ModelCall
 from app.llm.budget import CONCIERGE_PURPOSE, check_budget
 from app.llm.embeddings import TextEmbedder
-from app.llm.render import data_block, one_line
+from app.llm.render import data_block
 from app.llm.runtime import build_model, describe_model_error
-from app.pipeline.document_search import DocFilter, metadata_hits
-from app.pipeline.rag import RERANK_TOP, retrieve_context
 from app.superagent.chat import history_messages, new_call, record_call
+from app.superagent.lookups import database as _database
+from app.superagent.lookups import documents as _documents
+from app.superagent.lookups import messages as _messages
+from app.superagent.lookups import messages_filtered as _messages_filtered
+from app.superagent.lookups import plural as _plural
+from app.superagent.lookups import web as _web
 from app.superagent.open_tools import named_people, open_document, open_message, open_person, open_thread
 from app.superagent.research_base import (
     AGENT_NAME,
     LOOKUP_FAILED,
-    MAX_HITS,
     MAX_TOOL_CALLS,
     NO_MORE_LOOKUPS,
     NO_RESULTS,
     NOT_AVAILABLE,
     OUT_OF_TIME,
     RESEARCH_RULES,
-    SNIPPET_CHARS,
     TOOL_SHARE,
     ResearchResult,
     SuperAgentDeps,
 )
 from app.superagent.sources import screen
-from app.tools.message_rag.rerank import best_lines, best_part, rerank_hits
-from app.tools.message_rag.search import search_messages
-from app.tools.query_agent.agent import run_query_agent
 
 __all__ = ["MAX_TOOL_CALLS", "ResearchResult", "SuperAgentDeps", "run_research"]
 
 log = get_logger(__name__)
 MAX_TOKENS = 4000  # Gemini counts thinking tokens against the cap
 _POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="research")
-
-
-def _plural(n: int, one: str, many: str) -> str:
-    return f"{n} {one if n == 1 else many}"
-
-
-def _database(deps: SuperAgentDeps, question: str) -> tuple[str, int]:
-    result = run_query_agent(deps.engine, deps.settings, deps.company_id, question)
-    if not result.ok:
-        return LOOKUP_FAILED, 0
-    display = getattr(result, "display_rows", None)
-    if isinstance(display, list) and display:
-        return json.dumps(display[:15], ensure_ascii=False), result.row_count
-    return result.answer, result.row_count
-
-
-def _parse_iso_date(raw: str | None) -> date | None:
-    if not raw:
-        return None
-    try:
-        return date.fromisoformat(raw.strip()[:10])
-    except ValueError:
-        return None
-
-
-def _messages_filtered(
-    deps: SuperAgentDeps,
-    query: str,
-    *,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    channel: str | None = None,
-) -> tuple[str, int]:
-    chan = channel.strip().lower() if isinstance(channel, str) and channel.strip() else None
-    if chan not in ("gmail", "whatsapp"):
-        chan = None
-    df = _parse_iso_date(date_from)
-    dt = _parse_iso_date(date_to)
-    return _message_lines(deps, query, "%Y-%m-%d %H:%M", channel=chan, date_from=df, date_to=dt)
-
-
-def _messages(deps: SuperAgentDeps, query: str) -> tuple[str, int]:
-    return _message_lines(deps, query, "%Y-%m-%d")
-
-
-def _snippet(text: str, query: str) -> str:
-    return clip(best_part(" ".join(text.split()), query, SNIPPET_CHARS), SNIPPET_CHARS)
-
-
-def _chunk(text: str, query: str) -> str:
-    return one_line(best_lines(text, query, SNIPPET_CHARS), SNIPPET_CHARS)
-
-
-def _browse(filters: dict[str, Any]) -> bool:
-    return any(v is not None for v in filters.values())
-
-
-def _message_lines(deps: SuperAgentDeps, query: str, stamp: str, **filters: Any) -> tuple[str, int]:
-    """Candidates first, then the reranker once the session is closed; a date-only search has no question to rank by."""
-    limit = RERANK_TOP if query.strip() else MAX_HITS
-    with Session(deps.engine) as session:
-        hits = search_messages(session, deps.company_id, query, deps.embedder, limit=limit, **filters)
-    if query.strip():
-        helpful = rerank_hits(deps.engine, deps.settings, deps.company_id, query, hits)
-        # "new messages today" has no passage that answers it: a search with a date or channel lists what it found
-        hits = (helpful or (hits if _browse(filters) else []))[:MAX_HITS]
-    lines = []
-    for h in hits:
-        who, when = h.person_name or "unknown", h.last_sent_at.strftime(stamp)
-        ref = deps.sources.add("message", str(h.first_message_id), f"{who}, {h.channel}, {when[:10]}")
-        lines.append(f"[{ref}] {when} {h.channel} | {who} | {h.unit_address or '-'}: {_chunk(h.text, query)}")
-    return "\n".join(lines), len(lines)
-
-
-def _documents(deps: SuperAgentDeps, query: str) -> tuple[str, int]:
-    """The answering passages (plan, hybrid, rerank), then documents whose title or file name holds the query."""
-    flt = DocFilter(readable_only=True)
-    found = retrieve_context(deps.engine, deps.settings, deps.company_id, query, flt, deps.embedder, fact_first=False)
-    rows = [(p.document_id, p.title, p.doc_type, _snippet(p.text, query)) for p in found.passages]
-    if found.fact is not None:
-        f = found.fact
-        rows.append((f.document_id, f.title, f.doc_type, f"{f.label}: {f.value}"))
-    with Session(deps.engine) as session:
-        titled = metadata_hits(session, deps.company_id, query, flt, {r[0] for r in rows}, MAX_HITS)
-    rows += [(h.document_id, h.title, h.doc_type, _snippet(h.summary or "", query)) for h in titled]
-    lines = []
-    for doc_id, title, kind, text in rows[:MAX_HITS]:
-        ref = deps.sources.add("document", str(doc_id), f"{title} ({kind})")
-        lines.append(f"[{ref}] {one_line(title)} ({kind}): {one_line(text, SNIPPET_CHARS)}")
-    return "\n".join(lines), len(lines)
 
 
 def _safely(
@@ -239,6 +144,15 @@ def _add_search_tools(agent: Agent[SuperAgentDeps, SourcedAnswer]) -> None:
                 query,
             )
         ctx.deps.steps.append(f"Searched messages ({_plural(hits, 'match', 'matches')})")
+        return _as_data(text)
+
+    @agent.tool
+    def search_web(ctx: RunContext[SuperAgentDeps], query: str) -> str:
+        """Search public web pages (prices, rules, laws, products) for what our own data cannot answer."""
+        if not ctx.deps.take_call():
+            return NO_MORE_LOOKUPS
+        text, pages = _safely(_web, ctx.deps, query)
+        ctx.deps.steps.append(f"Searched the web ({_plural(pages, 'page', 'pages')})")
         return _as_data(text)
 
     @agent.tool

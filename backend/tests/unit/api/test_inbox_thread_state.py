@@ -273,7 +273,7 @@ def test_agent_coverage_fact_and_research_date_filters() -> None:
     assert str(dt) == "2026-10-31"
     assert ch == "whatsapp"
 
-    with patch("app.superagent.research.search_messages", return_value=[]) as mock_search:
+    with patch("app.superagent.lookups.search_messages", return_value=[]) as mock_search:
         deps = research.SuperAgentDeps(MagicMock(), MagicMock(), PRINCIPAL.company_id, None)
         text, hits = research._messages_filtered(
             deps, "", date_from="2026-10-01", date_to="2026-10-31", channel="gmail"
