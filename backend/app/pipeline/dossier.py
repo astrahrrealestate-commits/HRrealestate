@@ -37,7 +37,7 @@ from app.pipeline.document_policy import FileMeta, looks_like_id
 from app.pipeline.document_qa import case_scope, strip_risky
 from app.pipeline.document_search import DocFilter
 from app.pipeline.dossier_facts import open_waits, owner_rules
-from app.pipeline.dossier_history import older_mail
+from app.pipeline.dossier_history import older_mail, similar_conversations
 from app.pipeline.draft_research import stored_findings
 from app.pipeline.injection_scan import scan
 from app.pipeline.person_memory import stored_memory
@@ -75,6 +75,7 @@ class Dossier:
     research: tuple[Finding, ...] = ()
     tenancy: tuple[str, ...] = ()  # lease, rent, arrears, work order (directory and BRIXX ledger)
     older_mail: tuple[ThreadLine, ...] = ()  # the person's older mail that matches this one
+    similar_conversations: tuple[ThreadLine, ...] = ()  # redacted outbound precedents from similar company cases
     extra_message_ids: tuple[UUID, ...] = ()  # messages behind `older_mail` (call log, erasure)
 
 
@@ -277,6 +278,10 @@ def build_dossier(session: Session, company_id: UUID, message_id: UUID, embedder
         older_mail(session, company_id, msg.person_id, query, embedder, {msg.id, *shown})
         if msg.person_id and embedder is not None else ((), ())
     )  # fmt: skip
+    precedents = (
+        similar_conversations(session, company_id, msg.person_id, query, embedder, {msg.id, *shown, *older_ids})
+        if embedder is not None else ()
+    )  # fmt: skip
     return Dossier(
         current=current,
         thread=_thread(rows, people, scope, current.text),
@@ -291,5 +296,6 @@ def build_dossier(session: Session, company_id: UUID, message_id: UUID, embedder
         research=_research(session, company_id, msg.id),
         tenancy=_tenancy(session, scope),
         older_mail=older,
+        similar_conversations=precedents,
         extra_message_ids=older_ids,
     )  # fmt: skip

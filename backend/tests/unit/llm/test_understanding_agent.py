@@ -42,7 +42,7 @@ def test_understanding_agent_fake_execution() -> None:
     res = run_agent(mock_engine, settings, UNDERSTANDING, prompt, ctx)
     assert res.output.category == Category.maintenance
     assert res.output.urgency == Urgency.emergency
-    assert res.output.prompt_version == "understanding/v4"
+    assert res.output.prompt_version == "understanding/v5"
     assert res.model_call_id is not None
 
 
@@ -116,7 +116,7 @@ def test_the_sender_is_shown_only_for_email_and_only_to_a_prompt_that_knows_it(m
     assert sender_shown_to_model(Channel.gmail, None) is None
 
 
-def test_the_pinned_prompt_shows_email_sender_for_v4() -> None:
-    """Pin test: `UNDERSTANDING` runs v4 (six categories) and still classifies `sender_role` from the `From:` line."""
-    assert UNDERSTANDING.prompt.version == "v4"
+def test_the_pinned_prompt_shows_email_sender_for_v5() -> None:
+    """Pin test: `UNDERSTANDING` runs v5 (six categories) and still classifies `sender_role` from the `From:` line."""
+    assert UNDERSTANDING.prompt.version == "v5"
     assert sender_shown_to_model(Channel.gmail, "k@pactadvocaten.nl") == "k@pactadvocaten.nl"

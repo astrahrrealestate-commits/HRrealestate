@@ -12,6 +12,7 @@ from sqlalchemy import ColumnElement, exists, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.channels.gmail.forward import FORWARD_MARKERS
 from app.context.person_profile import refresh_profile_deterministic
 from app.contracts import CaseState, Category, Channel, Direction, Urgency, assert_transition
 from app.core.errors import NotFoundError
@@ -136,6 +137,19 @@ def link_message(
 
 
 _MSG_ID_TOKEN = re.compile(r"<[^<>\s]+>")
+_FWD_SUBJECT = re.compile(r"^\s*(?:fwd?|wg|doorgestuurd)\s*:", re.IGNORECASE)
+
+
+def _is_forward(message: MessageRow) -> bool:
+    """A forwarded email starts a new thread even when Gmail copies the original Message-ID into In-Reply-To."""
+    meta = message.meta if isinstance(message.meta, dict) else {}
+    if meta.get("forwarded_by"):
+        return True
+    subject = str(meta.get("subject") or "")
+    if _FWD_SUBJECT.match(subject):
+        return True
+    body = str(meta.get("full_text") or message.text or "")
+    return bool(FORWARD_MARKERS.search(body))
 
 
 def _rfc_reply_ids(meta: dict[str, object] | None) -> list[str]:
@@ -147,8 +161,8 @@ def _rfc_reply_ids(meta: dict[str, object] | None) -> list[str]:
 
 def thread_case(session: Session, company_id: UUID, message: MessageRow) -> UUID | None:
     """The open case already holding this thread. WhatsApp "threads" are the counterpart, so only recent messages
-    (72 h) count; Gmail thread ids (and RFC In-Reply-To/References fallback) are real threads and count regardless
-    of age."""
+    (72 h) count; Gmail thread ids (and RFC In-Reply-To/References fallback for non-forwarded replies) are real
+    threads and count regardless of age."""
     if message.thread_ref:
         query = (
             select(CaseLink.case_id)
@@ -169,7 +183,7 @@ def thread_case(session: Session, company_id: UUID, message: MessageRow) -> UUID
         found = session.scalar(query)
         if found is not None:
             return found
-    if message.channel is Channel.gmail and (ref_ids := _rfc_reply_ids(message.meta)):
+    if message.channel is Channel.gmail and not _is_forward(message) and (ref_ids := _rfc_reply_ids(message.meta)):
         return session.scalar(
             select(CaseLink.case_id)
             .join(MessageRow, MessageRow.id == CaseLink.message_id)

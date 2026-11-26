@@ -41,11 +41,22 @@ PAGES_PER_SEARCH = 3
 REFERENCES_PER_QUESTION = 2
 DEADLINE_SEC = 60.0
 SEARCH_UNTIL_SEC = 35.0  # searches stop here: the model needs the rest
-LEGAL_DOMAINS = ("wetten.overheid.nl", "rechtspraak.nl", "roz.nl", "rijksoverheid.nl", "huurcommissie.nl")
+LEGAL_DOMAINS = (
+    "wetten.overheid.nl",
+    "rechtspraak.nl",
+    "roz.nl",
+    "rijksoverheid.nl",
+    "huurcommissie.nl",
+    "iplo.nl",
+)
 REGION = "NL"
 _LEGAL = re.compile(
     r"\b(roz|wet|wetboek|bw|artikel|art\.|huurrecht|huurcommissie|opzeg\w*|indexer\w*|huurverhoging|rechtspraak|"
-    r"law|legal|statute|eviction|ontbinding|algemene bepalingen)\b",
+    r"law|legal|statute|eviction|ontbinding|algemene bepalingen|kleine herstellingen|gebrek\w*|onderhoudsplicht|"
+    r"borg|waarborgsom|servicekosten|wws|woningwaardering|puntentelling|betaalbare huur|middenhuur|sociale huur|"
+    r"vrije sector|onderhuur|medehuur|diplomatenclausule|aanzeg\w*|ontruim\w*|huurvermindering|"
+    r"goed verhuurderschap|vve|splitsings\w*|splitsen|omgevingsvergunning|omgevingswet|energielabel|"
+    r"leegstand\w*|huurprijs|toestemming)\b",
     re.I,
 )
 Searcher = Callable[[Sequence[str]], SearchClient]  # allowed domains (empty = any) -> a search client

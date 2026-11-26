@@ -11,12 +11,15 @@ from sqlalchemy.orm import Session
 from app.contracts import Direction
 from app.db.models import MessageChunk
 from app.llm.embeddings import TextEmbedder
+from app.pipeline.concierge_sanitize import redact_contact
 from app.pipeline.conversation import ThreadLine
 from app.pipeline.injection_scan import scan
 from app.tools.message_rag.search import search_messages
 
 MAX_OLDER = 6
+MAX_PRECEDENTS = 3
 OLDER = "earlier mail of this sender"
+PRECEDENT = "precedent from another case (style & policy pattern only)"
 
 
 def older_mail(
@@ -42,3 +45,36 @@ def older_mail(
         for h in own
     )
     return lines, tuple(dict.fromkeys(i for h in own for i in h.message_ids))
+
+
+def similar_conversations(
+    session: Session,
+    company_id: UUID,
+    person_id: UUID | None,
+    query: str,
+    embedder: TextEmbedder | None,
+    shown: Collection[UUID],
+) -> tuple[ThreadLine, ...]:
+    """Redacted outbound precedents from similar company cases when a current reply is ambiguous.
+
+    Only uses outbound (Harjot/team) messages from other contacts, skips anything flagged for prompt injection, and
+    strips links, emails, phones and IBANs so no other party's contact details leak into a dossier."""
+    if not query.strip():
+        return ()
+    hits = search_messages(session, company_id, query, embedder, direction="outbound", limit=MAX_PRECEDENTS * 4)
+    seen = set(shown)
+    out: list[ThreadLine] = []
+    for h in hits:
+        if person_id is not None and h.person_id == person_id:
+            continue
+        if set(h.message_ids) <= seen or scan(h.text) is not None:
+            continue
+        cleaned = redact_contact(h.text).strip()
+        if not cleaned:
+            continue
+        out.append(
+            ThreadLine(h.first_message_id, h.first_sent_at, Direction.outbound, PRECEDENT, None, cleaned, False, False)
+        )
+        if len(out) >= MAX_PRECEDENTS:
+            break
+    return tuple(out)

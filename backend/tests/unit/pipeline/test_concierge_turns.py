@@ -319,19 +319,6 @@ def test_the_reply_is_screened_before_the_plan_is_stored_and_run(io: dict[str, M
     assert ran.model_dump(mode="json") == stored
 
 
-@pytest.fixture
-def v10(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(ct, "NAMED_BLOCKS", True)
-
-
-def test_the_v9_planner_gets_no_names_and_no_cases_by_name(io: dict[str, MagicMock]) -> None:
-    io["entities"].return_value = Entities((), (), (Entity(uuid4(), "open | Lekkage"),))
-    ct._outcome(MagicMock(), MagicMock(), _start("reply to Anna"))
-    assert "<entities>" not in io["agent"].call_args.args[3]
-    assert io["plan"].call_args.kwargs["brief_cases"] == []
-
-
-@pytest.mark.usefixtures("v10")
 def test_the_planner_gets_the_names_the_question_matched(io: dict[str, MagicMock]) -> None:
     case_id = uuid4()
     anna, leak = Entity(uuid4(), "Anna de Vries"), Entity(case_id, "resolved | Lekkage")
@@ -343,7 +330,6 @@ def test_the_planner_gets_the_names_the_question_matched(io: dict[str, MagicMock
     assert case_id in io["plan"].call_args.kwargs["brief_cases"]  # a closed case found by name may be acted on
 
 
-@pytest.mark.usefixtures("v10")
 def test_a_retried_plan_may_still_act_on_the_cases_found_by_name(io: dict[str, MagicMock]) -> None:
     case_id = uuid4()
     io["entities"].return_value = Entities((), (), (Entity(case_id, "open | Lekkage"),))
