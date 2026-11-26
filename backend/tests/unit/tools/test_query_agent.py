@@ -422,3 +422,17 @@ def test_sanitize_rows_labels_brixx_tickets_and_lease_facts():
     ]
     cols, _ = sanitize_rows_for_display(rows)
     assert cols == ["Source", "Ticket", "Property", "Title", "Open", "Monthly Rent (€)", "Area (m²)"]
+
+
+def test_gemini_is_never_asked_for_a_retired_model():
+    """gemini-2.0-flash answers 404 now; trying it only costs a round trip before the configured LLM takes over."""
+    from pydantic import SecretStr
+
+    from app.tools.query_agent.agent import _call_gemini
+
+    settings = SETTINGS.model_copy(update={"gemini_api_key": SecretStr("k")})
+    with patch("app.tools.query_agent.agent.httpx.post", return_value=MagicMock(status_code=503, text="")) as post:
+        assert _call_gemini("q", settings) is None
+    asked = [call.args[0] for call in post.call_args_list]
+    assert asked
+    assert not any("gemini-2.0" in url for url in asked)

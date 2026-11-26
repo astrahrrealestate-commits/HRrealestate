@@ -13,6 +13,7 @@ answer. Every run writes one `model_calls` row.
 
 import time
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as DeadlineError
 from uuid import UUID
 
@@ -57,14 +58,18 @@ from app.superagent.sources import screen
 __all__ = ["MAX_TOOL_CALLS", "ResearchResult", "SuperAgentDeps", "run_research"]
 
 log = get_logger(__name__)
+_LOOKUPS = ThreadPoolExecutor(max_workers=8, thread_name_prefix="research-lookup")
 
 
 def _safely(
     lookup: Callable[[SuperAgentDeps, str], tuple[str, int]], deps: SuperAgentDeps, arg: str
 ) -> tuple[str, int]:
-    """A failing lookup is a result the model can explain, not a reason to abort the run and lose the other steps."""
+    """A failing lookup is a result the model can explain, not a reason to abort the run and lose the other steps.
+
+    The lookup runs on `_LOOKUPS`: search plans and reranks with its own model call, and Pydantic AI refuses a sync run
+    inside a sync tool (it flags the tool's context). A pool thread starts with a fresh context and event loop."""
     try:
-        return lookup(deps, arg)
+        return _LOOKUPS.submit(lookup, deps, arg).result()
     except Exception as exc:
         log.warning("superagent.lookup_failed", company_id=str(deps.company_id), error=type(exc).__name__)
         return LOOKUP_FAILED, 0
