@@ -15,10 +15,10 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import WorkflowClient, get_embedder_dep, get_engine, get_workflow_client
 from app.api.v1 import enqueue
-from app.api.v1.access import require_section
+from app.api.v1.access import require_admin, require_section
 from app.api.v1.auth import Principal, require_csrf, require_principal
 from app.api.v1.ratelimit import decision_limit
-from app.core.errors import NotFoundError
+from app.core.errors import NotFoundError, PersonalDocumentError
 from app.db.enums import DocLinkKind, DocumentStatus, ReorgItemStatus, ReorgPlanStatus
 from app.llm.embeddings import TextEmbedder
 from app.pipeline.document_links import set_link, set_reference
@@ -29,6 +29,7 @@ from app.pipeline.rag import search_hybrid
 
 router = APIRouter(tags=["documents"], dependencies=[Depends(require_section("inbox", also=("maintenance",)))])
 NOT_FOUND = "not found"
+PERSONAL_DOCUMENT = "a document of a person, their lease, unit or case cannot be a reference document"
 Owner = Annotated[Principal, Depends(require_principal)]
 Engine_ = Annotated[Engine, Depends(get_engine)]
 Embedder_ = Annotated[TextEmbedder, Depends(get_embedder_dep)]
@@ -241,12 +242,16 @@ class ReferenceOut(BaseModel):
 
 @router.post(
     "/documents/{document_id}/reference",
-    dependencies=[Depends(require_csrf), Depends(decision_limit)],
+    dependencies=[Depends(require_csrf), Depends(decision_limit), Depends(require_admin)],
 )
 def set_reference_flag(document_id: UUID, body: ReferenceIn, who: Owner, engine: Engine_) -> ReferenceOut:
-    """Owner toggle: add or remove a document from the company reference library (ROZ clauses, standard terms)."""
+    """Admin toggle: add or remove a document from the company reference library (ROZ clauses, standard terms). Every
+    draft reads the library, so a member with only the inbox or maintenance section may not change it, and a
+    person's own document is refused (409)."""
     try:
         flag = set_reference(engine, who.company_id, document_id, body.is_reference)
     except NotFoundError:
         raise HTTPException(status_code=404, detail=NOT_FOUND) from None
+    except PersonalDocumentError:
+        raise HTTPException(status_code=409, detail=PERSONAL_DOCUMENT) from None
     return ReferenceOut(id=document_id, is_reference=flag)

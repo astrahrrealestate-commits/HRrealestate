@@ -61,6 +61,15 @@ the architectural invariants in [CLAUDE.md](../../CLAUDE.md). A **blocker** fail
 **nit** (hardening or clarity).
 
 ## Known gaps (2026-11-09; remove an item when it is fixed)
+- M13 lane B (2026-11-26, open): the pre-draft read (`pipeline/draft_reading.py`) OCRs an attachment before filing
+  classifies it, so ID-document text sent under a neutral file name can reach `attachments.extracted_text`, person
+  memory, the proposer dossier and their `model_calls` rows; `purge_text` later blanks only the classifier call. The
+  line above saying its text "never reaches dossier or search chunks" holds only once this is fixed (lane A owns it).
+- M13 lane B (2026-11-26, needs a decision): a mailbox purge deletes the actions, approvals and revisions of replies
+  that were already sent; `sends` stay with `action_id` NULL, so what Harjot approved, and when, is then only in the
+  RDS snapshot taken before the purge. Keep that snapshot, or archive sent actions' approvals first (a migration).
+- M13 lane B (2026-11-26, open): `understandings.research` (migration 0060) holds questions and answers taken from a
+  person's mail, and `erase_person` clears neither it nor `attachments.extracted_text`.
 Closed on 2026-11-09 after an audit of `app/api` (regression guard: `tests/unit/api/test_route_auth_guard.py`, which fails
 the build when a route answers an anonymous caller without being listed as public):
 - every dashboard router (`agent`, `calendar`, `contacts`, `dashboard`, `inbox`, `maintenance`, `properties`, `tenants`)
@@ -112,9 +121,11 @@ Closed on 2026-11-26 (M13):
   50,000 characters. A reply is never addressed to Harjot's own copy (`sender/recipient.latest_inbound`).
 - Accepted (M13): a forged `From: <owner address>` mail linked to a case shows in that case's dossier as "Harjot (copy
   in the mailbox, not verified)"; it can never approve, send or become a stored commitment. `POST
-  /api/v1/documents/{document_id}/reference` (T12) is the sole writer of `documents.is_reference`, gated by session
-  principal, CSRF header, decision rate limit, and company-scoped 404 — ingestion, filing and model output can never
-  promote a document into the reference library.
+  /api/v1/documents/{document_id}/reference` (T12) is the sole writer of `documents.is_reference`, gated by an admin
+  profile (`require_admin`), CSRF header, decision rate limit, and company-scoped 404 — ingestion, filing and model
+  output can never promote a document into the reference library. Every dossier reads the library, so a document
+  linked to a person, unit, lease or case, or an `id_document`/`correspondence`, is refused with 409
+  (`document_links.set_reference`; `test_a_tenants_own_papers_never_become_reference_documents`).
 
 - Reload, ID purge and Category Desk (M13 lane B): `mail_purge` and `mail_reload_cli` log record counts only
   (`messages`, `cases`, `released`, `drafted`, `skipped`), never message bodies, sender names or email addresses; purge
