@@ -16,7 +16,7 @@ NEXT_REV = $(shell printf '%04d' $$(( $$(ls backend/app/db/alembic/versions/[0-9
 .PHONY: help all start doctor env seed stop reset requirements frontend frontend-install frontend-build frontend-test \
         setup gmail-consent translation-model up up-db down logs ps migrate migration migrate-roundtrip alembic-check \
         fmt lint type boundaries test-unit test-int test cov quick check smoke audit eval \
-        workflows harness-test clean sim-demo sim-agents mock-mail rag-eval draft-report live-check gmail-pull pending approve context-report
+        workflows harness-test clean sim-demo sim-agents mock-mail rag-eval research-eval draft-report live-check gmail-pull pending approve context-report
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -172,6 +172,10 @@ rag-eval: up-db ## ADR 0008: document and message RAG quality on the synthetic c
 	$(UV) alembic upgrade head
 	$(UV) python -m evals.rag_eval
 	$(UV) python -m evals.message_rag_eval
+
+research-eval: up-db ## (M13 T15) Astra's research answers on the document and message corpora (real models: LLM_MODEL, EMBEDDING_MODEL)
+	$(UV) alembic upgrade head
+	$(UV) python -m evals.research_eval
 
 draft-report: ## (M13 T16) draft acceptance per category and prompt version, counts only: make draft-report company=<uuid> days=30
 	$(UV) python -m app.workflows.draft_report_cli --company-id $(company) --days $(or $(days),30)
