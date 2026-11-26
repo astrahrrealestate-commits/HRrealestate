@@ -196,7 +196,7 @@ def test_message_wrapper_searches_the_servers_company_and_formats_one_line_per_h
         return [hit]
 
     monkeypatch.setattr(lookups, "search_messages", fake_search)
-    monkeypatch.setattr(lookups, "rerank_hits", lambda _e, _s, _c, _q, hits: hits)
+    monkeypatch.setattr(lookups, "rerank_hits", lambda _e, _s, _c, _q, hits, **_kw: hits)
     monkeypatch.setattr(lookups, "Session", lambda engine: MagicMock(__enter__=lambda s: s, __exit__=lambda *a: None))
     company = uuid4()
     text, count = research._messages(research.SuperAgentDeps(MagicMock(), _settings(), company, None), "boiler")

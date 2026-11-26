@@ -66,12 +66,12 @@ def messages(deps: SuperAgentDeps, query: str) -> tuple[str, int]:
     return message_lines(deps, query, "%Y-%m-%d")
 
 
-def snippet(text: str, query: str) -> str:
-    return clip(best_part(" ".join(text.split()), query, SNIPPET_CHARS), SNIPPET_CHARS)
+def snippet(text: str, query: str, embedder: Any = None) -> str:
+    return clip(best_part(" ".join(text.split()), query, SNIPPET_CHARS, embedder=embedder), SNIPPET_CHARS)
 
 
-def chunk(text: str, query: str) -> str:
-    return one_line(best_lines(text, query, SNIPPET_CHARS), SNIPPET_CHARS)
+def chunk(text: str, query: str, embedder: Any = None) -> str:
+    return one_line(best_lines(text, query, SNIPPET_CHARS, embedder=embedder), SNIPPET_CHARS)
 
 
 def browse(filters: dict[str, Any]) -> bool:
@@ -84,14 +84,16 @@ def message_lines(deps: SuperAgentDeps, query: str, stamp: str, **filters: Any) 
     with Session(deps.engine) as session:
         hits = search_messages(session, deps.company_id, query, deps.embedder, limit=limit, **filters)
     if query.strip():
-        helpful = rerank_hits(deps.engine, deps.settings, deps.company_id, query, hits)
+        helpful = rerank_hits(deps.engine, deps.settings, deps.company_id, query, hits, embedder=deps.embedder)
         # "new messages today" has no passage that answers it: a search with a date or channel lists what it found
         hits = (helpful or (hits if browse(filters) else []))[:MAX_HITS]
     lines = []
     for h in hits:
         who, when = h.person_name or "unknown", h.last_sent_at.strftime(stamp)
         ref = deps.sources.add("message", str(h.first_message_id), f"{who}, {h.channel}, {when[:10]}")
-        lines.append(f"[{ref}] {when} {h.channel} | {who} | {h.unit_address or '-'}: {chunk(h.text, query)}")
+        lines.append(
+            f"[{ref}] {when} {h.channel} | {who} | {h.unit_address or '-'}: {chunk(h.text, query, deps.embedder)}"
+        )
     return "\n".join(lines), len(lines)
 
 
@@ -99,13 +101,13 @@ def documents(deps: SuperAgentDeps, query: str) -> tuple[str, int]:
     """The answering passages (plan, hybrid, rerank), then documents whose title or file name holds the query."""
     flt = DocFilter(readable_only=True)
     found = retrieve_context(deps.engine, deps.settings, deps.company_id, query, flt, deps.embedder, fact_first=False)
-    rows = [(p.document_id, p.title, p.doc_type, snippet(p.text, query)) for p in found.passages]
+    rows = [(p.document_id, p.title, p.doc_type, snippet(p.text, query, deps.embedder)) for p in found.passages]
     if found.fact is not None:
         f = found.fact
         rows.append((f.document_id, f.title, f.doc_type, f"{f.label}: {f.value}"))
     with Session(deps.engine) as session:
         titled = metadata_hits(session, deps.company_id, query, flt, {r[0] for r in rows}, MAX_HITS)
-    rows += [(h.document_id, h.title, h.doc_type, snippet(h.summary or "", query)) for h in titled]
+    rows += [(h.document_id, h.title, h.doc_type, snippet(h.summary or "", query, deps.embedder)) for h in titled]
     lines = []
     for doc_id, title, kind, text in rows[:MAX_HITS]:
         ref = deps.sources.add("document", str(doc_id), f"{title} ({kind})")
@@ -121,5 +123,5 @@ def web(deps: SuperAgentDeps, query: str) -> tuple[str, int]:
     for hit in hits[:MAX_WEB_PAGES]:
         host = urlsplit(hit.url).hostname or ""
         ref = deps.sources.add("web", hit.url, one_line(f"{hit.title or host} ({host})", 120))
-        lines.append(f"[{ref}] {one_line(hit.title, 120)} ({hit.url}): {snippet(hit.text, query)}")
+        lines.append(f"[{ref}] {one_line(hit.title, 120)} ({hit.url}): {snippet(hit.text, query, deps.embedder)}")
     return "\n".join(lines), len(lines)

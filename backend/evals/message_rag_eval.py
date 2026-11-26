@@ -111,7 +111,7 @@ def astra_search(engine: Engine, settings: Settings, embedder: TextEmbedder | No
         person_id = seeded.people[q.person] if q.person else None
         with Session(engine) as s:
             hits = search_messages(s, seeded.company_id, q.text, embedder, person_id=person_id, limit=RERANK_TOP)
-        return rerank_hits(engine, settings, seeded.company_id, q.text, hits)[:LIMIT]
+        return rerank_hits(engine, settings, seeded.company_id, q.text, hits, embedder=embedder)[:LIMIT]
 
     return search
 

@@ -132,7 +132,8 @@ def _add_search_tools(agent: Agent[SuperAgentDeps, SourcedAnswer]) -> None:
         date_to: str | None = None,
         channel: str | None = None,
     ) -> str:
-        """Search tenant/contractor WhatsApp and email messages by keywords and/or date range (YYYY-MM-DD)."""
+        """Search emails, attachments and WhatsApp messages (notices, quotes, inspections, promises, chat) by keywords
+        and/or date range (YYYY-MM-DD)."""
         if not ctx.deps.take_call():
             return NO_MORE_LOOKUPS
         if date_from is None and date_to is None and channel is None:
