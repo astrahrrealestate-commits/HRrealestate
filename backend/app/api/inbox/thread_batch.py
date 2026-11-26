@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.context.sender_label import UNASSIGNED_UNIT
 from app.context.shown_sender import saved_names, sender_person_ids
 from app.contracts import ActionType, CaseState, Channel, Direction, SenderRole, Urgency
-from app.db.enums import ApprovalStatus, PersonKind
+from app.db.enums import ActionStatus, ApprovalStatus, PersonKind
 from app.db.models import (
     ActionRow,
     Approval,
@@ -31,22 +31,6 @@ from app.db.models import (
     Unit,
 )
 from app.db.models.ingestion import not_chat_only
-
-AUTOMATED_SENDER_KEYWORDS = (
-    "noreply",
-    "newsletter",
-    "linkedin",
-    "glassdoor",
-    "naukri",
-    "typesafe",
-    "googleai",
-    "update",
-    "notification",
-    "alert",
-    "job",
-    "career",
-    "digest",
-)
 
 
 @dataclass
@@ -75,12 +59,6 @@ class ThreadDetailsBatch:
     attachments_by_msg: dict[UUID, list[AttachmentRow]]
     docs_by_att: dict[UUID, DocumentRow]
     leases_by_unit_key: dict[str, list[tuple[UUID, str, str | None]]]
-
-
-def is_automated_sender(sender_email: str) -> bool:
-    """True when sender address belongs to automated notifications/newsletters."""
-    low = sender_email.lower()
-    return any(kw in low for kw in AUTOMATED_SENDER_KEYWORDS)
 
 
 def _leased_flats(session: Session, company_id: UUID, person_ids: set[UUID]) -> dict[UUID, str]:
@@ -405,11 +383,44 @@ def inbox_stats_counts(session: Session, company_id: UUID) -> dict[str, int]:
             Person.kind == PersonKind.tenant,
         )
     )
+    has_pending_action = exists(
+        select(1)
+        .select_from(ActionRow)
+        .where(
+            ActionRow.case_id == Case.id,
+            ActionRow.company_id == company_id,
+            ActionRow.status.in_((ActionStatus.pending_approval, ActionStatus.exception)),
+        )
+    )
+    latest_inbound_msg = (
+        select(MessageRow.id)
+        .join(CaseLink, CaseLink.message_id == MessageRow.id)
+        .where(
+            CaseLink.case_id == Case.id,
+            MessageRow.company_id == company_id,
+            MessageRow.direction != Direction.outbound,
+            not_chat_only(),
+        )
+        .order_by(MessageRow.sent_at.desc(), MessageRow.id.desc())
+        .limit(1)
+        .correlate(Case)
+        .scalar_subquery()
+    )
+    is_fyi_case = (~has_pending_action) & exists(
+        select(1)
+        .select_from(UnderstandingRow)
+        .where(
+            UnderstandingRow.company_id == company_id,
+            UnderstandingRow.message_id == latest_inbound_msg,
+            UnderstandingRow.body["requires_reply"].astext == "false",
+        )
+    )
     needs_you_cond = (
         Case.state.notin_((CaseState.closed, CaseState.resolved))
         & ~has_outbound
         & ~has_sent_reply
         & ~has_decided_approval
+        & ~is_fyi_case
     )
 
     row = session.execute(

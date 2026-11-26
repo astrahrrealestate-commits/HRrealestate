@@ -10,6 +10,7 @@ The first price that passes is the page's one observation; VAT unknown counts as
 import re
 import unicodedata
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from decimal import Decimal
 from urllib.parse import urlsplit
@@ -60,12 +61,15 @@ class WebPriceSource:
         self.max_hits = max_hits
 
     def lookup(self, item_key: str, unit: str, as_of: date) -> list[PriceObservation]:
-        observations: list[PriceObservation] = []
-        for hit in self._hits(item_key):
-            observed = self._observe(hit, item_key, unit, as_of)
-            if observed is not None:
-                observations.append(observed)
-        return observations
+        hits = self._hits(item_key)
+        if not hits:
+            return []
+        if len(hits) == 1:
+            one = self._observe(hits[0], item_key, unit, as_of)
+            return [one] if one is not None else []
+        with ThreadPoolExecutor(max_workers=min(4, len(hits))) as pool:
+            observed = list(pool.map(lambda h: self._observe(h, item_key, unit, as_of), hits))
+        return [obs for obs in observed if obs is not None]
 
     def _hits(self, item_key: str) -> list[SearchHit]:
         """Dutch then English results, each URL once, at most `max_hits` pages in all."""

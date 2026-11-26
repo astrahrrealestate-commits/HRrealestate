@@ -305,6 +305,7 @@ def test_research_runs_only_when_needed_and_every_finding_has_a_url(
 
     cid = committed_company.id
     mid_no = _mail(migrated_engine, cid)
+    mid_fyi = add_mail(migrated_engine, cid, "VvE reminder met vraag.", sender=ANOUK)
     mid_yes = add_mail(migrated_engine, cid, "Wat mag qua huurverhoging?", sender=ANOUK)
     with Session(migrated_engine) as s, s.begin():
         s.add(
@@ -314,6 +315,18 @@ def test_research_runs_only_when_needed_and_every_finding_has_a_url(
                 category=Category.maintenance,
                 urgency="normal",
                 body=understanding_body(),
+                prompt_version="understanding/v4",
+            )
+        )
+        s.add(
+            UnderstandingRow(
+                company_id=cid,
+                message_id=mid_fyi,
+                category=Category.business,
+                urgency="normal",
+                body=understanding_body(
+                    requires_reply=False, category=Category.business, research=["Wat is de VvE norm?"]
+                ),
                 prompt_version="understanding/v4",
             )
         )
@@ -348,12 +361,19 @@ def test_research_runs_only_when_needed_and_every_finding_has_a_url(
             ]
 
     assert research_for(migrated_engine, test_settings, cid, mid_no, searcher=lambda d: FakeSearch(tuple(d))) == ()
+    assert research_for(migrated_engine, test_settings, cid, mid_fyi, searcher=lambda d: FakeSearch(tuple(d))) == ()
     assert calls == []
     findings = research_for(migrated_engine, test_settings, cid, mid_yes, searcher=lambda d: FakeSearch(tuple(d)))
     assert len(findings) == 1
     assert findings[0].url == "https://wetten.overheid.nl/huurverhoging"
     assert calls
-    assert set(calls[0][0]) == {"wetten.overheid.nl", "rechtspraak.nl", "roz.nl"}
+    assert set(calls[0][0]) == {
+        "wetten.overheid.nl",
+        "rechtspraak.nl",
+        "roz.nl",
+        "rijksoverheid.nl",
+        "huurcommissie.nl",
+    }
 
 
 def test_legal_research_uses_the_reference_library_and_official_sources_only(
@@ -426,7 +446,10 @@ def test_legal_research_uses_the_reference_library_and_official_sources_only(
     findings = research_for(migrated_engine, test_settings, cid, mid, searcher=lambda d: FakeSearch(tuple(d)))
     assert findings
     assert "drive-roz-1" in findings[0].url
-    assert all(set(d) == {"wetten.overheid.nl", "rechtspraak.nl", "roz.nl"} for d in seen_domains)
+    assert all(
+        set(d) == {"wetten.overheid.nl", "rechtspraak.nl", "roz.nl", "rijksoverheid.nl", "huurcommissie.nl"}
+        for d in seen_domains
+    )
 
 
 def test_rules_hold_an_iban_only_found_in_an_attachment(

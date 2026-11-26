@@ -29,7 +29,6 @@ from app.api.inbox.thread_batch import (
     ThreadDetailsBatch,
     ThreadMessagesBatch,
     inbox_stats_counts,
-    is_automated_sender,
     load_details_batch,
     load_messages_batch,
 )
@@ -281,8 +280,6 @@ def _prepare_cases(
         tenant_msg = inbound_msgs[-1] if inbound_msgs else messages[0]
         latest_msg = messages[-1]
         sender_email = tenant_msg.sender_identity
-        if is_automated_sender(sender_email):
-            continue
 
         contact = msg_batch.people_by_id.get(case.primary_person_id) if case.primary_person_id else None
         # Label and flat belong to the sender shown, who on a shared or older case is not the case's contact.

@@ -17,19 +17,35 @@ pytestmark = pytest.mark.integration
 T0 = datetime(2026, 11, 1, tzinfo=UTC)
 
 
-def _case(db: Session, company: Company, category: Category, role: str | None = None) -> None:
+def _case(
+    db: Session,
+    company: Company,
+    category: Category,
+    role: str | None = None,
+    *,
+    sender: str = "a@b.nl",
+    requires_reply: bool = True,
+) -> None:
     case = Case(company_id=company.id, category=category, urgency=Urgency.normal, summary=category.value)
     raw = RawEvent(company_id=company.id, provider=Channel.gmail, provider_msg_id=f"m-{uuid4()}", payload={})
     db.add_all([case, raw])
     db.flush()
     msg = MessageRow(company_id=company.id, raw_event_id=raw.id, channel=Channel.gmail,
-                     provider_msg_id=raw.provider_msg_id, thread_ref=f"t-{uuid4()}", sender_identity="a@b.nl",
+                     provider_msg_id=raw.provider_msg_id, thread_ref=f"t-{uuid4()}", sender_identity=sender,
                      direction=Direction.inbound, sent_at=T0, text=category.value)  # fmt: skip
     db.add(msg)
     db.flush()
     db.add(CaseLink(company_id=company.id, case_id=case.id, message_id=msg.id, method=LinkMethod.thread))
-    db.add(UnderstandingRow(company_id=company.id, message_id=msg.id, category=category, urgency=Urgency.normal,
-                            body={"sender_role": role}, prompt_version="understanding/v4"))  # fmt: skip
+    db.add(
+        UnderstandingRow(
+            company_id=company.id,
+            message_id=msg.id,
+            category=category,
+            urgency=Urgency.normal,
+            body={"sender_role": role, "requires_reply": requires_reply},
+            prompt_version="understanding/v4",
+        )
+    )
     db.flush()
 
 
@@ -48,3 +64,21 @@ def test_contractor_count_uses_the_senders_role_not_the_category(db: Session, co
     _case(db, company, Category.maintenance, role="contractor")
     _case(db, company, Category.maintenance, role="tenant")
     assert inbox_stats_counts(db, company.id)["contractorsCount"] == 1
+
+
+def test_non_spam_no_reply_and_noreply_senders_are_visible_and_excluded_from_needs_you(
+    db: Session, company: Company
+) -> None:
+    """Every non-spam email is visible in the Inbox even from noreply@ or with requires_reply=False (status=fyi)."""
+    _case(db, company, Category.administration, sender="noreply-accounts@google.com", requires_reply=False)
+    _case(db, company, Category.maintenance, sender="tenant@example.nl", requires_reply=True)
+
+    threads = _build_live_threads(db, company.id, include_html=False)
+    assert len(threads) == 2
+    by_sender = {t["sender"]["contact"]: t for t in threads}
+    assert by_sender["noreply-accounts@google.com"]["status"] == "fyi"
+    assert by_sender["tenant@example.nl"]["status"] == "needs_approval"
+
+    stats = inbox_stats_counts(db, company.id)
+    assert stats["allCount"] == 2
+    assert stats["needsYouCount"] == 1

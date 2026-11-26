@@ -48,6 +48,7 @@ class _Facts:
     urgency: Urgency
     requires_reply: bool = True
     suspicious: bool = False
+    unreadable_stranger: bool = False
 
 
 def _has_attachments(session: Session, msg: MessageRow) -> bool:
@@ -88,8 +89,10 @@ def _load(session: Session, message_id: UUID) -> _Facts | LinkResult | None:
         # Unlinked stranger or marketing sender with failed understanding:
         # do not require a reply or open a primary triage case
         requires_reply = False
+        unreadable_stranger = True
     else:
         requires_reply = bool(body.get("requires_reply", category is not Category.spam))
+        unreadable_stranger = False
 
     suspicious = bool((body.get("suspicious") or {}).get("flag", False))
     return _Facts(
@@ -103,6 +106,7 @@ def _load(session: Session, message_id: UUID) -> _Facts | LinkResult | None:
         urgency,
         requires_reply,
         suspicious,
+        unreadable_stranger,
     )
 
 
@@ -214,28 +218,15 @@ def _refresh_summary(engine: Engine, settings: Settings, f: _Facts, result: Link
         case_repo.update_summary(session, f.company_id, result.case_id, summary, expected_version=version)
 
 
-def _join_thread_only(engine: Engine, f: _Facts, person_id: UUID) -> LinkResult | None:
-    """Mail that needs no answer opens no case and costs no model call. Inside a thread that already has an open case
-    it is kept as history (and an awaited answer still closes its wait)."""
-    with Session(engine) as session:
-        msg = session.get(MessageRow, f.message_id)
-        case_id = case_repo.thread_case(session, f.company_id, msg) if msg else None
-    if case_id is None:
-        return None
-    return _record(engine, f, person_id, case_id, LinkMethod.thread)
-
-
 def link_message(engine: Engine, settings: Settings, message_id: UUID) -> LinkResult | None:
-    """None for missing messages and spam (no case is opened for spam)."""
+    """None for missing messages, spam, and unreadable unknown senders (all understood non-spam mail opens a case)."""
     with Session(engine) as session:
         facts = _load(session, message_id)
     if facts is None or isinstance(facts, LinkResult):
         return facts
-    if facts.category is Category.spam or facts.person_id is None:  # sender resolved by the directory step first
+    if facts.category is Category.spam or facts.person_id is None or facts.unreadable_stranger:
         return None
     person_id = facts.person_id
-    if not facts.requires_reply and not facts.suspicious:
-        return _join_thread_only(engine, facts, person_id)
     case_id, method = _choose(engine, settings, facts, person_id)
     result = _record(engine, facts, person_id, case_id, method)
     _refresh_summary(engine, settings, facts, result)

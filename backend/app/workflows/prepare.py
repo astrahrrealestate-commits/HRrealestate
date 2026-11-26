@@ -5,6 +5,7 @@ attachment text and the review. Every part is idempotent and none ever fails the
 and the asynchronous quote hook still run and catch up whatever this could not do.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -38,18 +39,31 @@ def _research(engine: Engine, settings: Settings, message_id: UUID) -> None:
         research_for(engine, settings, company_id, message_id)
 
 
+def _run_quote(engine: Engine, settings: Settings, message_id: UUID) -> None:
+    try:
+        _review_quote(engine, settings, message_id)
+    except Exception as exc:
+        log.warning("prepare.quote_failed", message_id=str(message_id), error_type=type(exc).__name__)
+
+
+def _run_research(engine: Engine, settings: Settings, message_id: UUID) -> None:
+    try:
+        _research(engine, settings, message_id)
+    except Exception as exc:
+        log.warning("prepare.research_failed", message_id=str(message_id), error_type=type(exc).__name__)
+
+
 def prepare_for_draft(engine: Engine, settings: Settings, message_id: UUID, *, research: bool = True) -> None:
     """Read attachments, review any quote, and optionally research web/reference sources before drafting."""
     try:
         read_attachments(engine, settings, get_deps().storage, get_extractor(), message_id)
     except Exception as exc:
         log.warning("prepare.read_failed", message_id=str(message_id), error_type=type(exc).__name__)
-    try:
-        _review_quote(engine, settings, message_id)
-    except Exception as exc:
-        log.warning("prepare.quote_failed", message_id=str(message_id), error_type=type(exc).__name__)
-    if research:
-        try:
-            _research(engine, settings, message_id)
-        except Exception as exc:
-            log.warning("prepare.research_failed", message_id=str(message_id), error_type=type(exc).__name__)
+    if not research:
+        _run_quote(engine, settings, message_id)
+        return
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f_quote = pool.submit(_run_quote, engine, settings, message_id)
+        f_research = pool.submit(_run_research, engine, settings, message_id)
+        f_quote.result()
+        f_research.result()
