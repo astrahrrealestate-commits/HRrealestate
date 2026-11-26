@@ -54,6 +54,29 @@ def looks_like_id(meta: FileMeta) -> bool:
     return bool(meta.filename and _ID_NAME.search(meta.filename))
 
 
+_MRZ = re.compile(r"^[A-Z0-9<]{28,44}$", re.MULTILINE)
+_ID_WORDS = re.compile(
+    r"paspoort|passport|identiteitskaart|identity card|rijbewijs|driving licen[cs]e|verblijfsdocument|"
+    r"residence permit|personalausweis|reisepass",
+    re.IGNORECASE,
+)
+_ID_FIELDS = re.compile(
+    r"geboortedatum|date of birth|nationaliteit|nationality|documentnummer|document no|geldig tot|date of expiry|"
+    r"\b4[abcd]\.\s|\bBSN\b|burgerservicenummer",
+    re.IGNORECASE,
+)
+_BSN = re.compile(r"(?:burgerservicenummer|\bBSN\b)\s*:?\s*\d{8,9}\b", re.IGNORECASE)
+
+
+def looks_like_id_text(text: str) -> bool:
+    """Text that reads like a passport, ID card, driving licence or residence permit, or carries a BSN: a passport
+    machine-readable line, or a document word with an identity field. File names prove nothing (ADR 0007)."""
+    head = text[:20_000]
+    if any("<<" in line for line in _MRZ.findall(head)) or _BSN.search(head):
+        return True
+    return bool(_ID_WORDS.search(head) and _ID_FIELDS.search(head))
+
+
 def slug(text: str, limit: int = 40) -> str:
     ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
     cut = re.sub(r"[^a-z0-9]+", "-", ascii_text.lower()).strip("-")[:limit].strip("-")
