@@ -23,28 +23,22 @@ from uuid import UUID
 from sqlalchemy import Engine, func, select, update
 from sqlalchemy.orm import Session
 
-from app.context.conversation_summary import (
-    count_unsummarized_turns,
-    should_summarize,
-    summarize_conversation_rolling,
-    update_conversation_summary,
-)
 from app.contracts import ConciergePlan, PageContext
 from app.core.errors import NotFoundError
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import TurnStatus
 from app.db.models import AgentConversation, AgentTurn
-from app.llm.agents.concierge import CONCIERGE
-from app.llm.agents.owner_qa import FALLBACK_ANSWER
+from app.llm.agents.concierge import CONCIERGE, NAMED_BLOCKS
 from app.llm.budget import CONCIERGE_PURPOSE
 from app.llm.calls import CallContext, run_agent
 from app.pipeline import concierge_page, owner_commands, page_state, read_turns, turn_timings
 from app.pipeline.concierge import run_plan
 from app.pipeline.concierge_base import Researcher
-from app.pipeline.concierge_brief import Brief, load_brief, load_history
+from app.pipeline.concierge_brief import Brief, load_brief, load_history, summarize_if_due
 from app.pipeline.concierge_brief import brief_case_ids as _brief_case_ids
-from app.pipeline.concierge_entities import NO_ENTITIES, Entities, resolve_entities
+from app.pipeline.concierge_entities import NO_ENTITIES, Entities
+from app.pipeline.concierge_entities import entities_for as _entities
 from app.pipeline.concierge_outcome import (
     APOLOGY,
     PROMPT_REF,
@@ -55,10 +49,11 @@ from app.pipeline.concierge_outcome import (
     failed_outcome,
     fallback_for,
     result_json,
-    resumes,
     stored_answer,
 )
 from app.pipeline.concierge_reply import prepare_plan, stored_plan
+from app.pipeline.concierge_turn_reads import owner_qa as owner_qa_answer
+from app.pipeline.concierge_turn_reads import turn_state as turn_state
 from app.pipeline.turn_timings import ANSWER, EXECUTOR, PAGE_RESOLVE, PLANNER, TOTAL, Clock, TurnTimer, merged, started
 
 log = get_logger(__name__)
@@ -144,32 +139,6 @@ def _update(
         )
 
 
-def _maybe_summarize_conversation(engine: Engine, company_id: UUID, turn_id: UUID) -> None:
-    try:
-        with Session(engine) as session, session.begin():
-            turn = session.get(AgentTurn, turn_id)
-            if turn is None:
-                return
-            conv = session.scalar(
-                select(AgentConversation).where(
-                    AgentConversation.company_id == company_id,
-                    AgentConversation.id == turn.conversation_id,
-                )
-            )
-            if conv is None:
-                return
-            unsummarized = count_unsummarized_turns(session, company_id, conv.id, conv.summary_through)
-            if not should_summarize(unsummarized):
-                return
-            exchanges = read_turns.earlier_exchanges(session, company_id, conv.id, (turn.created_at, turn.id), 6)
-            new_summary = summarize_conversation_rolling(conv.summary, [(e[0], e[1] or "") for e in exchanges])
-            update_conversation_summary(
-                session, company_id, conv.id, new_summary, turn.id, expected_version=conv.summary_version
-            )
-    except Exception as exc:
-        log.warning("concierge.conversation_summary_failed", turn_id=str(turn_id), error=type(exc).__name__)
-
-
 def _finish(
     engine: Engine, company_id: UUID, turn_id: UUID, outcome: Outcome, timings: dict[str, int] | None = None
 ) -> None:
@@ -187,7 +156,7 @@ def _finish(
         values["results"] = outcome.results
     _update(engine, company_id, turn_id, values, timings=timings)
     if outcome.status is TurnStatus.done:
-        _maybe_summarize_conversation(engine, company_id, turn_id)
+        summarize_if_due(engine, company_id, turn_id)
     total = (timings or {}).get(TOTAL)
     log.info(
         "concierge.turn_finished",
@@ -199,19 +168,6 @@ def _brief(engine: Engine, start: TurnStart) -> Brief:
     return load_brief(engine, start.company_id, start.conversation_id, start.at, start.turn_id)
 
 
-def _owner_qa(engine: Engine, settings: Settings, start: TurnStart) -> str:
-    """The planner failed: answer through the existing owner_qa path, then the fixed fallback."""
-    cmd = owner_commands.Command(owner_commands.CommandKind.question, text=start.text)
-    page = concierge_page.stored_prompt(start.page)
-    try:
-        return owner_commands.run_command(engine, settings, start.company_id, cmd, now=start.at, page=page)
-    except Exception as exc:
-        if fallback_for(exc) is Fallback.retry:
-            raise
-        log.warning("concierge.owner_qa_failed", company_id=str(start.company_id), error=type(exc).__name__)
-        return FALLBACK_ANSWER
-
-
 def _page(engine: Engine, start: TurnStart) -> TurnStart:
     """The page facts are resolved once and stored on the turn before the model call: a retry reuses them."""
     fresh = concierge_page.resolve_once(engine, start.company_id, start.page)
@@ -220,24 +176,14 @@ def _page(engine: Engine, start: TurnStart) -> TurnStart:
     return start if fresh is None else replace(start, page=fresh)
 
 
-def _entities(engine: Engine, company_id: UUID, text: str) -> Entities:
-    """Who and what the question names, resolved inside the company. A failure costs the hint, never the turn."""
-    try:
-        with Session(engine) as session:
-            return resolve_entities(session, company_id, text)
-    except Exception as exc:
-        if fallback_for(exc) is Fallback.retry:
-            raise
-        log.warning("concierge.entities_failed", company_id=str(company_id), error=type(exc).__name__)
-        return NO_ENTITIES
-
-
 def _plan(
     engine: Engine, settings: Settings, start: TurnStart, brief: Brief, timer: TurnTimer, entities: Entities
 ) -> ConciergePlan | Outcome:
     briefs, tasks, history = brief
     page = concierge_page.stored_prompt(start.page)
-    compiled = compile_prompt(start.text, history, briefs, tasks, page, entities=entities.render())
+    compiled = compile_prompt(
+        start.text, history, briefs, tasks, page, entities=entities.render(), named_blocks=NAMED_BLOCKS
+    )
     context = CallContext(start.company_id, CONCIERGE_PURPOSE, prefix_hash=compiled.prefix_hash)
     try:
         with timer.measure(PLANNER):
@@ -253,7 +199,7 @@ def _plan(
             return Outcome(owner_commands.LIMIT_ANSWER)
         if kind is Fallback.owner_qa:
             with timer.measure(ANSWER):
-                return Outcome(_owner_qa(engine, settings, start))
+                return Outcome(owner_qa_answer(engine, settings, start))
         raise
     return result.output
 
@@ -264,7 +210,8 @@ def _planned(
     """The stored plan of an earlier attempt, else a fresh one (stored before anything executes, so a retry runs
     the same plan and never asks the model twice), with the brief's case ids: with the page's, the only case ids
     the plan may name. A retry re-reads only those ids, so a case closed in between is no longer actionable."""
-    entities = _entities(engine, start.company_id, start.text)  # a case found by name may be acted on, closed too
+    # A case found by name may be acted on, closed too; only a prompt that reads <entities> gets them (v10+).
+    entities = _entities(engine, start.company_id, start.text) if NAMED_BLOCKS else NO_ENTITIES
     if start.plan is not None:
         history = load_history(engine, start.company_id, start.conversation_id, start.at, start.turn_id)
         known = [*_brief_case_ids(engine, start.company_id), *entities.case_ids]
@@ -341,14 +288,3 @@ def fail_turn(engine: Engine, turn_id: UUID, error: str) -> None:
         company_id = session.scalar(select(AgentTurn.company_id).where(AgentTurn.id == turn_id))
     if company_id is not None:
         _finish(engine, company_id, turn_id, Outcome(APOLOGY, status=TurnStatus.failed, error=error))
-
-
-def turn_state(engine: Engine, turn_id: UUID) -> dict[str, str | bool]:
-    """Final status, company and whether the owner's own exact `resume` command ran (outage fallback only, never a
-    planned step); the workflow then re-runs approved actions, exactly as the WhatsApp path does."""
-    with Session(engine) as session:
-        turn = session.scalar(select(AgentTurn).where(AgentTurn.id == turn_id))
-    if turn is None:
-        return {"status": "missing", "company_id": "", "resume": False}
-    resumed = turn.status is TurnStatus.done and resumes(turn.text, turn.plan, turn.results)
-    return {"status": turn.status.value, "company_id": str(turn.company_id), "resume": resumed}

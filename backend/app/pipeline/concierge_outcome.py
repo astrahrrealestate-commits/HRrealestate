@@ -100,6 +100,7 @@ def compile_prompt(
     tasks: Sequence[str],
     page: PagePrompt = NO_PAGE,
     entities: str = "",
+    named_blocks: bool = False,
 ) -> CompiledContext:
     """Compile the concierge context using ContextSpec and return CompiledContext. `entities`: the people, units and
     cases the server matched to names in the question (`concierge_entities`), rendered."""
@@ -114,6 +115,7 @@ def compile_prompt(
         page.snapshot,
         page.filters,
         entities=entities,
+        named_blocks=named_blocks,
     )
 
 

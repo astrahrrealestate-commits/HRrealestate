@@ -15,6 +15,7 @@ from app.llm.render import data_block
 # rules, v9 the Astra persona, no placeholder `calendar` steps, database-vs-document routing and directory lookups;
 # v1-v8 stay published and loadable (evals: version=vN).
 PROMPT_VERSION = "v9"
+NAMED_BLOCKS = int(PROMPT_VERSION.removeprefix("v")) >= 10  # v10 reads <entities> and <conversation>
 MAX_HISTORY = 24  # lines: `owner:` and `assistant:` for each of 12 turns
 MAX_HISTORY_LINE = 1220  # an `owner: ` prefix plus 1,200 characters
 SUMMARY_CHARS = 1200

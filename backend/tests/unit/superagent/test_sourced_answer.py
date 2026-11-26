@@ -11,7 +11,7 @@ from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart, Tool
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from app.core.settings import Settings
-from app.superagent import lookups, research
+from app.superagent import lookups, research, research_run
 from app.superagent.sources import NOT_FOUND
 
 
@@ -158,7 +158,7 @@ def test_the_cost_of_a_run_past_its_deadline_is_still_recorded(
     rows: list[Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     late: list[Any] = []
-    monkeypatch.setattr(research, "record_late_usage", lambda _e, call_id, usage: late.append((call_id, usage)))
+    monkeypatch.setattr(research_run, "record_late_usage", lambda _e, call_id, usage: late.append((call_id, usage)))
     model = _model([], {"answer": "late", "sources": [], "found": True}, [], delay=0.4)
     _run(monkeypatch, model, deadline=0.1)
     time.sleep(1.0)

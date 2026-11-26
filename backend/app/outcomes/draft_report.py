@@ -154,7 +154,7 @@ def draft_report(session: Session, company_id: UUID, *, since: datetime, until: 
         if action.type is ActionType.notify_owner:
             row.no_usable += action.rationale == NO_USABLE_RATIONALE
             continue
-        _count_reply(row, approvals.get(action.id), action.draft_version > 1 or action.id in edited)
+        _count_reply(row, approvals.get(action.id), action.id in edited)  # an Astra redraft he asked for is not
         if action.id in labels:
             row.outcomes = dict(Counter(row.outcomes) + Counter([labels[action.id]]))
         stored = messages.get(action.context_ref[0]) if action.context_ref else None

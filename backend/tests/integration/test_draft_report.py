@@ -197,3 +197,25 @@ def test_the_command_prints_the_report_for_one_company(
     out = capsys.readouterr().out
     assert "business | v6 | 1 | 1 |" in out
     assert "loodgieter" not in out
+
+
+def test_a_redraft_harjot_asked_for_is_not_his_edit(migrated_engine: Engine, committed_company: Company) -> None:
+    with Session(migrated_engine) as s, s.begin():
+        seed = Seed(s, committed_company.id)
+        action = seed.draft(seed.case(Category.legal), "v6", approval=ApprovalStatus.approved)
+        row = s.get(ActionRow, action)
+        assert row is not None
+        row.draft_version = 2  # an Astra redraft: a new version, no owner revision
+    report = draft_report(Session(migrated_engine), committed_company.id, since=SINCE, until=UNTIL)
+    [row_] = report.rows
+    assert (row_.approved_unedited, row_.approved_edited) == (1, 0)
+
+
+def test_the_latest_approval_decides(migrated_engine: Engine, committed_company: Company) -> None:
+    with Session(migrated_engine) as s, s.begin():
+        seed = Seed(s, committed_company.id)
+        action = seed.draft(seed.case(Category.legal), "v6", approval=ApprovalStatus.edited)
+        s.add(Approval(company_id=committed_company.id, action_id=action, draft_version=2,
+                       status=ApprovalStatus.approved, created_at=START + timedelta(hours=1)))  # fmt: skip
+    [row] = _report(migrated_engine, committed_company.id).rows
+    assert (row.approved_unedited, row.pending) == (1, 0)

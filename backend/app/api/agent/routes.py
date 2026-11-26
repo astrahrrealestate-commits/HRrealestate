@@ -72,7 +72,7 @@ from app.db.models import (
 from app.db.models.calendar import CalendarEventRow
 from app.db.models.finance import QuoteRow
 from app.llm.agents.calendar import TimeNotStatedError, propose_calendar_event
-from app.llm.agents.concierge import CONCIERGE, MAX_HISTORY, concierge_prompt
+from app.llm.agents.concierge import CONCIERGE, MAX_HISTORY, NAMED_BLOCKS, concierge_prompt
 from app.llm.agents.owner_qa import CaseBrief
 from app.llm.budget import CONCIERGE_PURPOSE
 from app.llm.calls import CallContext, run_agent
@@ -83,6 +83,7 @@ from app.pipeline import case_repo, owner_commands, understand, work_repo
 from app.pipeline.concierge import StepResult, run_plan
 from app.pipeline.concierge_entities import NO_ENTITIES, Entities, resolve_entities
 from app.pipeline.concierge_outcome import task_brief
+from app.pipeline.concierge_reply import screen_reply
 from app.pipeline.document_search import DocFilter
 from app.pipeline.rag import search_hybrid
 from app.superagent.chat import chat_answer
@@ -1739,12 +1740,14 @@ def ask_agent(
 
     # Build prompt using context compiler with active memory rules and page facts
     history = (req.history or [])[-MAX_HISTORY:]
-    entities = _entities(engine, company_id, req.query)
+    entities = _entities(engine, company_id, req.query) if NAMED_BLOCKS else NO_ENTITIES
+    summary_line: list[str] = []
     thread_summary = ""
     focus_cid: str | None = None
     try:
         if conv:
             thread_summary = conv.summary or ""
+            summary_line = [f"{SUMMARY_PREFIX}{thread_summary}"] if thread_summary.strip() else []
             focus_cid = str((conv.focus_state or {}).get("case_id") or "") or None
     except Exception as focus_err:  # a detached thread only costs the focus hint
         log.warning("api.superagent.focus_read_failed", error=type(focus_err).__name__)
@@ -1774,11 +1777,11 @@ def ask_agent(
                 )
             )
         fresh_chat_text = new_chat_fact(prior_turns or 0)
-        summary_line = [f"{SUMMARY_PREFIX}{thread_summary}"] if thread_summary.strip() else []
         compiled = compile_concierge_context(
             question=req.query,
             recent=[*summary_line, *history],
             entities=entities.render(),
+            named_blocks=NAMED_BLOCKS,
             cases=rank_cases(briefs, req.query, focus_cid),
             open_tasks=tasks,
             page_facts_text="\n\n".join(t for t in ((page_facts_text or "") + focus_text, fresh_chat_text) if t),
@@ -1949,6 +1952,7 @@ def ask_agent(
                         brief_cases=known_cases_list,
                         turn_id=turn_id,
                         research=make_researcher(engine, settings),
+                        history=[*summary_line, *history],
                     )
                 )
                 return results
@@ -2034,7 +2038,7 @@ def ask_agent(
         if researched is not None:
             research_steps = researched.steps
             sources = list(researched.sources)
-            chat_resp: str | None = researched.answer
+            chat_resp: str | None = screen_reply(researched.answer)  # web pages and mail reach it: screen like a reply
         else:
             try:
                 chat_resp = _generate_chat_answer(req.query, settings, engine, company_id, system_prompt, req.history)

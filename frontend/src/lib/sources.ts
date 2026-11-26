@@ -10,6 +10,7 @@ export interface AnswerSource {
 }
 
 export interface SourceChip {
+  key: string;
   kind: SourceKind;
   label: string;
   href: string | null;
@@ -33,7 +34,7 @@ export function sourceChips(sources: AnswerSource[] | undefined | null): SourceC
     const key = `${source.kind}:${source.ref}`;
     if (!label || seen.has(key)) continue;
     seen.add(key);
-    chips.push({ kind: source.kind, label, href: safeLink(source) });
+    chips.push({ key, kind: source.kind, label, href: safeLink(source) });
   }
   return chips;
 }

@@ -1536,12 +1536,12 @@ export function AskEstateOSPanel({
             <span className="font-medium">Sources:</span>
             {chips.map((chip) =>
               chip.href ? (
-                <a key={`${chip.kind}-${chip.label}`} href={chip.href} target="_blank" rel="noopener noreferrer"
+                <a key={chip.key} href={chip.href} target="_blank" rel="noopener noreferrer"
                    className={cn(chipClass, "underline-offset-2 hover:underline")} title={chip.label}>
                   {chip.label}
                 </a>
               ) : (
-                <span key={`${chip.kind}-${chip.label}`} className={chipClass} title={chip.label}>
+                <span key={chip.key} className={chipClass} title={chip.label}>
                   {chip.label}
                 </span>
               )

@@ -154,3 +154,19 @@ def test_at_most_five_of_each(migrated_engine: Engine, committed_company: Compan
             _case(s, cid, "Verwarming", _person(s, cid, f"Anna Nummer{i}"))
     got = _resolve(migrated_engine, cid, "Anna")
     assert (len(got.people), len(got.cases)) == (5, 5)
+
+
+def test_a_stranger_with_a_tenants_name_is_marked_and_ranked_after_the_tenant(
+    migrated_engine: Engine, committed_company: Company
+) -> None:
+    cid = committed_company.id
+    with Session(migrated_engine) as s, s.begin():
+        stranger = _person(s, cid, "Jan de Vries", PersonKind.other)
+        tenant = _person(s, cid, "Jan de Vries")
+        _case(s, cid, "Lekkage", tenant)
+        _case(s, cid, "Prijs", stranger)
+    got = _resolve(migrated_engine, cid, "draft a reply to Jan de Vries")
+    assert [p.id for p in got.people] == [tenant, stranger]
+    assert "tenant" in got.people[0].label
+    assert "unverified" in got.people[1].label
+    assert len(got.cases) == 1  # only the directory person's cases while one matches

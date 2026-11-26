@@ -8,15 +8,18 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from rapidfuzz import fuzz
-from sqlalchemy import or_, select
+from sqlalchemy import Engine, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.logging import get_logger
 from app.core.property_terms import ITEM_TERMS, canonical_tokens, fold, normalise_item_key
 from app.db.enums import PersonKind
 from app.db.models import Case, Person, Unit
 from app.pipeline.case_repo import OPEN_STATES
+from app.pipeline.concierge_outcome import Fallback, fallback_for
 from app.pipeline.concierge_sanitize import plain_line, redact_contact
 
+log = get_logger(__name__)
 LIMIT = 5
 MAX_NAME = 80
 MAX_CASE_ROWS = 60  # newest cases of the resolved people and units that are ranked
@@ -137,7 +140,8 @@ def _people(session: Session, company_id: UUID, question: str, words: list[str],
             score += TRADE
         if score:
             scored.append((score, person))
-    scored.sort(key=lambda p: (-p[0], p[1].valid_to is not None, p[1].id))
+    # The directory first: an `other` person is anyone who once mailed, under a name they chose themselves.
+    scored.sort(key=lambda p: (p[1].kind is PersonKind.other, -p[0], p[1].valid_to is not None, p[1].id))
     return [p for _, p in scored[:limit]]
 
 
@@ -174,15 +178,32 @@ def _cases(
     return ranked[:limit]
 
 
+def _kind(person: Person) -> str:
+    return "unverified sender" if person.kind is PersonKind.other else person.kind.value
+
+
 def resolve_entities(session: Session, company_id: UUID, question: str, limit: int = LIMIT) -> Entities:
     words = _words(question)
     if not words:
         return NO_ENTITIES
     people = _people(session, company_id, question, words, limit)
     units = _units(session, company_id, question, words, limit)
-    cases = _cases(session, company_id, question, people, units, limit)
+    known = [p for p in people if p.kind is not PersonKind.other] or people
+    cases = _cases(session, company_id, question, known, units, limit)
     return Entities(
-        tuple(Entity(p.id, _label(p.display_name)) for p in people),
+        tuple(Entity(p.id, f"{_label(p.display_name)} ({_kind(p)})") for p in people),
         tuple(Entity(u.id, _label(u.label)) for u in units),
         tuple(Entity(c.id, f"{c.state.value} | {_label(c.summary)}") for c in cases),
     )
+
+
+def entities_for(engine: Engine, company_id: UUID, text: str) -> Entities:
+    """Who and what the question names, resolved inside the company. A failure costs the hint, never the turn."""
+    try:
+        with Session(engine) as session:
+            return resolve_entities(session, company_id, text)
+    except Exception as exc:
+        if fallback_for(exc) is Fallback.retry:
+            raise
+        log.warning("concierge.entities_failed", company_id=str(company_id), error=type(exc).__name__)
+        return NO_ENTITIES

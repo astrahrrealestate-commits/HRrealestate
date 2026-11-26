@@ -58,7 +58,7 @@ def test_concierge_spec_slices_order_and_budget() -> None:
 
 
 def _compiled(history: list[str], **kw: object) -> str:
-    return compile_concierge_context("q", history, [], [], **kw).prompt_text  # type: ignore[arg-type]
+    return compile_concierge_context("q", history, [], [], named_blocks=True, **kw).prompt_text  # type: ignore[arg-type]
 
 
 def test_entities_are_their_own_data_block() -> None:
@@ -99,3 +99,23 @@ def test_a_history_over_budget_keeps_its_newest_turns() -> None:
 def test_a_detailed_case_summary_keeps_twelve_hundred_characters() -> None:
     case = CaseBrief(case_id=uuid4(), label="Leak", state="open", urgency="high", summary="y" * 1100 + "END")
     assert "END" in compile_concierge_context("q", [], [case], []).prompt_text
+
+
+def test_a_prompt_before_v10_gets_neither_names_nor_a_conversation_block() -> None:
+    text = compile_concierge_context(
+        "q", [f"{SUMMARY_PREFIX}earlier", "owner: hi"], [], [], entities="person: 1 | Anna", named_blocks=False
+    ).prompt_text
+    assert "<entities>" not in text
+    assert "<conversation>" not in text
+    assert "earlier" in text.split("<history>")[1]  # v9 reads the summary as its first history line
+
+
+def test_a_prompt_over_its_total_budget_keeps_the_newest_turns() -> None:
+    cases = [CaseBrief(uuid4(), f"Case {i}", "open", "normal", "word " * 300) for i in range(40)]
+    lines = [f"owner: question {i} " + "x" * 1100 for i in range(24)]
+    text = compile_concierge_context(
+        "q", lines, cases, [f"task {i} " * 60 for i in range(20)], page_facts_text="fact\n" * 6000,
+        snapshot="snap " * 3000, entities="person: x | y\n" * 400, named_blocks=True,
+    ).prompt_text  # fmt: skip
+    history = text.split("<history>")[1].split("</history>")[0]
+    assert "question 23 " in history

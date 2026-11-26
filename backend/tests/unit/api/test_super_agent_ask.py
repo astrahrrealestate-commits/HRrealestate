@@ -1356,6 +1356,7 @@ def test_the_planner_gets_the_names_the_question_matched_and_may_act_on_them():
     with (
         patch("app.api.agent.routes.Session", return_value=create_mock_session()),
         patch("app.api.agent.routes.resolve_entities", return_value=found),
+        patch("app.api.agent.routes.NAMED_BLOCKS", True),
         patch("app.api.agent.routes.run_agent") as mock_run_agent,
         patch("app.api.agent.routes.run_plan", return_value=[]) as mock_run_plan,
         TestClient(app) as client,
@@ -1384,3 +1385,35 @@ def test_research_sources_reach_the_answer():
     ):
         data = client.post(URL, json={"query": "what did Anna say about the leak?"}).json()
     assert data["sources"] == [source.model_dump()]
+
+
+def test_a_research_answer_is_screened_before_harjot_sees_it():
+    from app.superagent.research import ResearchResult
+
+    found = ResearchResult("Pay at https://evil.example/pay or to NL91ABNA0417164300 today.", ("Searched (1)",))
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    with (
+        patch("app.api.agent.routes.Session", return_value=create_mock_session()),
+        patch("app.api.agent.routes.run_agent", side_effect=Exception("offline")),
+        patch("app.api.agent.routes.fake_concierge", return_value={"in_scope": False, "steps": [], "reply": None}),
+        patch("app.api.agent.routes._research_answer", return_value=found),
+        TestClient(app) as client,
+    ):
+        answer = client.post(URL, json={"query": "how do I pay the plumber?"}).json()["answer"]
+    assert "evil.example" not in answer
+    assert "NL91ABNA0417164300" not in answer
+
+
+def test_the_dashboard_plan_researches_with_the_conversation():
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    with (
+        patch("app.api.agent.routes.Session", return_value=create_mock_session()),
+        patch("app.api.agent.routes.run_agent") as mock_run_agent,
+        patch("app.api.agent.routes.run_plan", return_value=[]) as mock_run_plan,
+        TestClient(app) as client,
+    ):
+        mock_run_agent.return_value.output = _plan(_step(Intent.answer))
+        client.post(
+            URL, json={"query": "and what did he quote?", "history": ["User: Who is Bakker?", "Assistant: A plumber."]}
+        )
+    assert mock_run_plan.call_args.kwargs["history"][-2:] == ["User: Who is Bakker?", "Assistant: A plumber."]

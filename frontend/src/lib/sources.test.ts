@@ -31,3 +31,14 @@ describe("sourceChips", () => {
     expect(sourceChips(undefined)).toEqual([]);
   });
 });
+
+
+describe("sourceChips keys", () => {
+  it("gives two mails with the same label different keys", () => {
+    const chips = sourceChips([
+      { kind: "message", ref: "1", label: "Anna, gmail, 2026-09-01" },
+      { kind: "message", ref: "2", label: "Anna, gmail, 2026-09-01" },
+    ]);
+    expect(new Set(chips.map((c) => c.key)).size).toBe(2);
+  });
+});

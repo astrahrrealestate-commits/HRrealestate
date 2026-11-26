@@ -63,6 +63,7 @@ def test_compiled_concierge_prompt_stays_inside_the_total_budget() -> None:
         snapshot="snap " * 2000,
         filters="status: open",
         entities="person: x | y\n" * 400,
+        named_blocks=True,
     )
     assert len(compiled.prompt_text) < 41000
     assert "<message>\nstatus of case 3?\n</message>" in compiled.prompt_text
@@ -77,6 +78,7 @@ def test_compiled_concierge_reports_what_it_dropped() -> None:
         page_facts_text="fact\n" * 6000,
         snapshot="snap " * 3000,
         entities="person: x | y\n" * 400,
+        named_blocks=True,
     )
     assert compiled.dropped == ("page_snapshot",)
     assert "<page_snapshot>" not in compiled.prompt_text
