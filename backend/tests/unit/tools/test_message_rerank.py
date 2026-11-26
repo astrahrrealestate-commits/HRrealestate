@@ -114,3 +114,18 @@ def test_twenty_full_entries_all_fit() -> None:
 
 def test_the_rerank_call_is_stored_without_message_text() -> None:
     assert RAG_RERANK.redact_input is True
+
+
+def test_long_message_with_zero_lexical_overlap_uses_embedder_for_window() -> None:
+    class TailEmbedder:
+        def embed_query(self, text: str) -> list[float]:
+            return [1.0, 0.0]
+
+        def embed_documents(self, texts: object) -> list[list[float]]:
+            return [[1.0, 0.0] if "zonnepanelen" in t else [0.0, 1.0] for t in texts]  # type: ignore[attr-defined]
+
+    filler = " ".join(f"Punt {i}: algemene staat zonder opmerkingen." for i in range(1, 35))
+    text = f"{TENANT}{filler} De zonnepanelen op het dak worden in mei geplaatst."
+    got = best_lines(text, "When are the solar panels installed?", 300, embedder=TailEmbedder())
+    assert "zonnepanelen" in got
+    assert got.startswith(TENANT)

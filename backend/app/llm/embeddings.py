@@ -6,13 +6,14 @@ retrieval, cross-language matching and ranking in tests. It is not a language mo
 production: boot refuses `embedding_model=fake` in prod.
 """
 
+import asyncio
 import hashlib
 import math
+import threading
 from collections import Counter
-from collections.abc import Callable, Sequence
-from concurrent.futures import ThreadPoolExecutor
-from functools import partial
-from typing import Protocol
+from collections.abc import Coroutine, Sequence
+from concurrent.futures import TimeoutError as FutureTimeoutError
+from typing import Any, Protocol
 
 from pydantic_ai.embeddings import Embedder, EmbeddingSettings
 
@@ -49,7 +50,28 @@ class HashingEmbedder:
         return self._vector(text[:MAX_CHARS])
 
 
-_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="embed")
+_LOOP: asyncio.AbstractEventLoop | None = None
+_LOOP_LOCK = threading.Lock()
+
+
+def _run_loop(loop: asyncio.AbstractEventLoop, ready: threading.Event) -> None:
+    asyncio.set_event_loop(loop)
+    ready.set()
+    loop.run_forever()
+
+
+def _embed_loop() -> asyncio.AbstractEventLoop:
+    """One dedicated asyncio loop for all provider embedding calls: httpx.AsyncClient pools keep-alive sockets on
+    the loop that opened them, so running calls across worker threads raises 'bound to a different event loop'."""
+    global _LOOP
+    with _LOOP_LOCK:
+        if _LOOP is None:
+            loop = asyncio.new_event_loop()
+            ready = threading.Event()
+            threading.Thread(target=_run_loop, args=(loop, ready), name="embed-loop", daemon=True).start()
+            ready.wait()
+            _LOOP = loop
+        return _LOOP
 
 
 class ModelEmbedder:
@@ -61,25 +83,37 @@ class ModelEmbedder:
         self._timeout = timeout_sec
         self._settings = EmbeddingSettings(dimensions=EMBEDDING_DIMENSIONS)
 
-    def _within_deadline(self, call: Callable[[], list[list[float]]]) -> list[list[float]]:
-        return _POOL.submit(call).result(timeout=self._timeout)
+    def _within_deadline(self, coro: Coroutine[Any, Any, list[list[float]]]) -> list[list[float]]:
+        try:
+            loop = _embed_loop()
+            future = asyncio.run_coroutine_threadsafe(asyncio.wait_for(coro, timeout=self._timeout), loop)
+        except Exception:
+            coro.close()
+            raise
+        try:
+            return future.result(timeout=self._timeout + 1.0)
+        except FutureTimeoutError as exc:
+            future.cancel()
+            raise TimeoutError from exc
 
     def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
         out: list[list[float]] = []
         for start in range(0, len(texts), BATCH):
             batch = [t[:MAX_CHARS] for t in texts[start : start + BATCH]]
-            out.extend(self._within_deadline(partial(self._embed, batch)))
+            out.extend(self._within_deadline(self._embed(batch)))
         return out
 
-    def _embed(self, batch: list[str]) -> list[list[float]]:
-        return [list(v) for v in self._embedder.embed_documents_sync(batch, settings=self._settings).embeddings]
+    async def _embed(self, batch: list[str]) -> list[list[float]]:
+        res = await self._embedder.embed_documents(batch, settings=self._settings)
+        return [list(v) for v in res.embeddings]
 
     def embed_query(self, text: str) -> list[float]:
         """A question, not a passage: providers embed the two differently. Never use it for text that is stored."""
-        return self._within_deadline(partial(self._embed_question, text[:MAX_CHARS]))[0]
+        return self._within_deadline(self._embed_question(text[:MAX_CHARS]))[0]
 
-    def _embed_question(self, text: str) -> list[list[float]]:
-        return [list(v) for v in self._embedder.embed_query_sync(text, settings=self._settings).embeddings]
+    async def _embed_question(self, text: str) -> list[list[float]]:
+        res = await self._embedder.embed_query(text, settings=self._settings)
+        return [list(v) for v in res.embeddings]
 
 
 def build_embedder(settings: Settings) -> TextEmbedder:

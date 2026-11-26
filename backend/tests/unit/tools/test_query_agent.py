@@ -436,3 +436,16 @@ def test_gemini_is_never_asked_for_a_retired_model():
     asked = [call.args[0] for call in post.call_args_list]
     assert asked
     assert not any("gemini-2.0" in url for url in asked)
+
+
+def test_gemini_prefers_configured_google_model_before_fallback():
+    from pydantic import SecretStr
+
+    from app.tools.query_agent.agent import _call_gemini
+
+    settings = SETTINGS.model_copy(
+        update={"gemini_api_key": SecretStr("k"), "llm_model": "google-gla:gemini-2.5-flash"}
+    )
+    with patch("app.tools.query_agent.agent.httpx.post", return_value=MagicMock(status_code=503, text="")) as post:
+        assert _call_gemini("q", settings) is None
+    assert "gemini-2.5-flash" in post.call_args_list[0].args[0]

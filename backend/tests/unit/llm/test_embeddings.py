@@ -124,3 +124,27 @@ def test_a_very_long_question_is_cut_before_the_provider_sees_it() -> None:
 
     ModelEmbedder(Embedder(Spy(dimensions=EMBEDDING_DIMENSIONS))).embed_query("x" * 10_000)
     assert sizes == [MAX_CHARS]
+
+
+def test_model_embedder_runs_concurrent_threads_on_one_event_loop() -> None:
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
+    loops: set[int] = set()
+
+    class LoopSpy(TestEmbeddingModel):
+        async def embed(self, inputs, *, input_type, settings=None):  # type: ignore[no-untyped-def]
+            loops.add(id(asyncio.get_running_loop()))
+            return await super().embed(inputs, input_type=input_type, settings=settings)
+
+    embedder = ModelEmbedder(Embedder(LoopSpy(dimensions=EMBEDDING_DIMENSIONS)))
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futures = [
+            pool.submit(embedder.embed_query, f"q{i}")
+            if i % 2 == 0
+            else pool.submit(embedder.embed_documents, [f"d{i}"])
+            for i in range(12)
+        ]
+        for fut in futures:
+            fut.result()
+    assert len(loops) == 1

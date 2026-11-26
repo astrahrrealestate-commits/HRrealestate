@@ -169,6 +169,14 @@ class QueryAgentResponse:
     display_rows: list[dict[str, Any]] = field(default_factory=list)
 
 
+def _gemini_models(settings: Settings) -> list[str]:
+    candidates: list[str] = []
+    if settings.llm_model.startswith("google-gla:"):
+        candidates.append(settings.llm_model.removeprefix("google-gla:"))
+    candidates.extend(["gemini-2.5-flash", "gemini-2.5-flash-lite"])
+    return list(dict.fromkeys(candidates))
+
+
 def _call_gemini(
     prompt: str,
     settings: Settings,
@@ -178,7 +186,7 @@ def _call_gemini(
     gemini_key = settings.gemini_api_key.get_secret_value() if settings.gemini_api_key else None
     if not gemini_key:
         return None
-    for model in ["gemini-3.8-flash", "gemini-2.5-flash"]:  # gemini-2.0-flash is retired (404)
+    for model in _gemini_models(settings):  # gemini-2.0-flash is retired (404)
         try:
             resp = httpx.post(
                 f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_key}",
