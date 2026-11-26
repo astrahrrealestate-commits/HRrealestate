@@ -81,7 +81,14 @@ function InboxContent() {
   const [hasMore, setHasMore] = useState<boolean>(true);
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
 
-  const [activeTab, setActiveTab] = useState<string>("needs_you");
+  const threadParam = searchParams?.get("thread") || "";
+  const draftParam = searchParams?.get("draft") || "";
+  const searchParam = searchParams?.get("search") || "";
+  const tabParam = searchParams?.get("tab") || "";
+
+  const [activeTab, setActiveTab] = useState<string>(() =>
+    ["needs_you", "unread", "snoozed", "all", "done"].includes(tabParam) ? tabParam : "all"
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFilterIds, setSelectedFilterIds] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState<string>("urgency");
@@ -92,6 +99,12 @@ function InboxContent() {
   const [showThreadsDrawer, setShowThreadsDrawer] = useState<boolean>(false);
   const [isMobile, setIsMobile] = useState<boolean>(false);
   const [layoutMode, setLayoutMode] = useState<InboxLayoutMode>("vertical");
+
+  useEffect(() => {
+    if (["needs_you", "unread", "snoozed", "all", "done"].includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam]);
 
   const {
     size: listWidth,
@@ -125,10 +138,6 @@ function InboxContent() {
       localStorage.setItem("estateos_inbox_layout", next);
     } catch {}
   };
-
-  const threadParam = searchParams?.get("thread") || "";
-  const draftParam = searchParams?.get("draft") || "";
-  const searchParam = searchParams?.get("search") || "";
 
   useEffect(() => {
     if (searchParam) {

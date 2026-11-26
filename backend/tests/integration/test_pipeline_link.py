@@ -194,25 +194,28 @@ def test_photo_only_message_marked_spam_still_opens_a_case(
         assert s.scalar(select(Case.category).where(Case.id == result.case_id)) is Category.administration
 
 
-def test_mail_needing_no_reply_opens_no_case_but_joins_an_existing_thread(
-    migrated_engine: Engine, committed_company: Company, test_settings: Settings, monkeypatch: pytest.MonkeyPatch
+def test_mail_needing_no_reply_still_opens_a_case_and_joins_an_existing_thread(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
 ) -> None:
     cid = committed_company.id
     first = link_message(migrated_engine, test_settings, _message(migrated_engine, cid, "Lekkage"))
     assert first is not None
 
-    def forbidden(_s: object, _n: object) -> None:
-        raise AssertionError("no model call for mail that needs no reply")
+    # A non-spam FYI message from another sender on a new thread opens its own Case so it appears in the Inbox,
+    # and a follow-up in the existing thread still joins that existing Case.
+    fyi = _message(
+        migrated_engine, cid, "VvE agenda reminder", thread="fyi-1", sender="+31699999999", requires_reply=False
+    )
+    fyi_link = link_message(migrated_engine, test_settings, fyi)
+    assert fyi_link is not None
+    assert fyi_link.case_id != first.case_id
 
-    monkeypatch.setattr("app.llm.calls.build_model", forbidden)
-    newsletter = _message(migrated_engine, cid, "Tips!", thread="news-1", requires_reply=False)
-    assert link_message(migrated_engine, test_settings, newsletter) is None  # no case, nothing to look at
     thanks = _message(migrated_engine, cid, "Bedankt!", requires_reply=False, at=NOW + timedelta(hours=1))
-    joined = link_message(migrated_engine, test_settings, thanks)  # same thread as the open case: history only
+    joined = link_message(migrated_engine, test_settings, thanks)
     assert joined is not None
     assert joined.case_id == first.case_id
     with Session(migrated_engine) as s:
-        assert s.scalar(select(func.count()).select_from(Case).where(Case.company_id == cid)) == 1
+        assert s.scalar(select(func.count()).select_from(Case).where(Case.company_id == cid)) == 2
 
 
 def test_unreadable_message_lands_in_administration(

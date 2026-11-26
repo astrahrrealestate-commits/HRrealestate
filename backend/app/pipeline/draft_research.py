@@ -40,7 +40,7 @@ PAGES_PER_SEARCH = 3
 REFERENCES_PER_QUESTION = 2
 DEADLINE_SEC = 60.0
 SEARCH_UNTIL_SEC = 35.0  # searches stop here: the model needs the rest
-LEGAL_DOMAINS = ("wetten.overheid.nl", "rechtspraak.nl", "roz.nl")
+LEGAL_DOMAINS = ("wetten.overheid.nl", "rechtspraak.nl", "roz.nl", "rijksoverheid.nl", "huurcommissie.nl")
 REGION = "NL"
 _LEGAL = re.compile(
     r"\b(roz|wet|wetboek|bw|artikel|art\.|huurrecht|huurcommissie|opzeg\w*|indexer\w*|huurverhoging|rechtspraak|"
@@ -190,7 +190,7 @@ def research_for(
         row, und = loaded
         if row.research is not None:
             return stored_findings(row.research)
-        if not und.needs_research or und.suspicious.flag:
+        if not und.needs_research or not und.requires_reply or und.suspicious.flag:
             return ()
         questions = [q for q in (strip_risky(q).strip() for q in und.research_questions[:MAX_QUESTIONS]) if q]
         search = searcher or (lambda domains: search_client(settings, engine, company_id, domains))

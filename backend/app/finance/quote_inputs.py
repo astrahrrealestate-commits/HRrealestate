@@ -5,6 +5,7 @@ the quote's company.
 """
 
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -77,8 +78,17 @@ def gather_references(
         decided = min((s.as_of for s in snaps.values()), default=on)
         cards = _vendor_cards(session, cid, vendor_id, wanted, snaps, decided)
     looked = dict(list(wanted.items())[:MAX_FRESH_KEYS])
-    fresh: dict[str, Fresh] = {
-        k: fresh_from(source.lookup(k, u, today), u, vat_rate=settings.finance_vat_rate, min_samples=min_samples)
-        for k, u in looked.items()
-    }
+    if len(looked) <= 1:
+        fresh: dict[str, Fresh] = {
+            k: fresh_from(source.lookup(k, u, today), u, vat_rate=settings.finance_vat_rate, min_samples=min_samples)
+            for k, u in looked.items()
+        }
+    else:
+        with ThreadPoolExecutor(max_workers=min(3, len(looked))) as pool:
+            items = list(looked.items())
+            results = list(pool.map(lambda kv: source.lookup(kv[0], kv[1], today), items))
+        fresh = {
+            k: fresh_from(obs, u, vat_rate=settings.finance_vat_rate, min_samples=min_samples)
+            for (k, u), obs in zip(items, results, strict=True)
+        }
     return plan_lines(units, snaps, cards, fresh, quote_date=on, min_samples=min_samples)
