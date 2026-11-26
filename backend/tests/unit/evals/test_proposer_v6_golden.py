@@ -53,3 +53,14 @@ def test_fake_runs_the_set_without_crashing() -> None:
     result = proposer_v6_eval.run("v6", _fake())
     assert set(result.scores) == {"hard_pass", "generic_rate", "escalation_ok"}
     assert result.scores["generic_rate"] == 0.0
+
+
+def test_a_failed_judge_check_names_its_reason() -> None:
+    from types import SimpleNamespace
+
+    from evals.proposer_v6_eval import judge_problem
+
+    passed = {"LLMJudge": SimpleNamespace(value=True, reason="fine")}
+    failed = {"LLMJudge": SimpleNamespace(value=False, reason="Asks no question about the planning | and more")}
+    assert judge_problem(passed) is None
+    assert judge_problem(failed) == "judge: Asks no question about the planning / and more"
