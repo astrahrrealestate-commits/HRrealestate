@@ -130,8 +130,11 @@ Closed on 2026-11-26 (M13):
 - Reload, ID purge and Category Desk (M13 lane B): `mail_purge` and `mail_reload_cli` log record counts only
   (`messages`, `cases`, `released`, `drafted`, `skipped`), never message bodies, sender names or email addresses; purge
   requires `--worker-stopped --confirm "purge <mailbox>"` (enforced by `scripts/mail_reload.sh` with a snapshot first).
-  `pipeline/documents.py` calls `purge_text` as soon as an attachment classifies or looks like an ID document so its text
-  never reaches dossier or search chunks. `GET /api/dashboard/categories` and `/{cat}` filter all queries by
+  Identity documents are refused by name (`looks_like_id`) and by text (`looks_like_id_text`: a passport
+  machine-readable line, a BSN, or a document word with an identity field) before any text is stored, so a passport
+  sent as `IMG_2041.jpg` never reaches the dossier, person memory or search chunks; when filing classifies one later,
+  `purge_text` blanks its text, the call that found it, every call tagged with its mail (OCR, proposer, memory) and the
+  sender's memory. `GET /api/dashboard/categories` and `/{cat}` filter all queries by
   `company_id` and redact contact names (`safe_name`) and summaries for profiles lacking `inbox` or `money` sections.
 
 - Search and Astra (M13 lane C review): message search, the reranker and Astra's tools only ever return rows of the

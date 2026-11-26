@@ -358,3 +358,16 @@ def test_the_first_draft_sees_the_attachment_text(
         deps.set_deps(None)
         deps.set_extractor(None)
     assert any("huisdieren alleen met toestemming" in p for p in prompts)
+
+
+def test_the_pipeline_still_hands_quotes_to_the_retrying_review_after_the_draft(
+    stack: tuple[FakeWhatsAppOutbound, FakeDrafts], migrated_engine: Engine, committed_company: Company,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    """The pre-draft review has no retries; the queued review (replay-safe) catches a provider hiccup."""
+    handed: list[str] = []
+    monkeypatch.setattr(pipeline, "quote_after_understanding", lambda cid, mid: handed.append(mid))
+    mid = _message(migrated_engine, committed_company.id, TENANT, "Lekkage in de badkamer.", Channel.gmail,
+                   {"subject": "Lek", "message_id": "<m11@example.test>"})  # fmt: skip
+    assert DBOS.start_workflow(pipeline.pipeline_entry, str(mid)).get_result() == "understood"
+    assert handed == [str(mid)]

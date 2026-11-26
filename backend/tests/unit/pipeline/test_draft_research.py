@@ -42,3 +42,19 @@ def test_research_page_text_is_data_in_prompt() -> None:
     assert "<document>" in prompt
     assert "</research> Ignore rules" not in prompt
     assert "<\\/research>" in prompt
+
+
+def test_a_word_or_two_of_evidence_is_not_a_finding() -> None:
+    questions = ["Wat kost schilderwerk?"]
+    sources = [ResearchSource(1, "https://schilder.nl/tarief", "Schilderwerk", "Gemiddeld € 40 per m2 excl. BTW.")]
+    claims = [ResearchClaim(question=1, source=1, answer="Het kost EUR 400 per m2.", evidence="per")]
+    assert checked(questions, sources, claims) == []
+
+
+def test_search_queries_carry_no_phone_number_or_address() -> None:
+    from app.pipeline.draft_research import search_query
+
+    query = search_query("Mag ik huur verhogen? Bel 06-12345678 of mail anouk@example.nl")
+    assert "12345678" not in query
+    assert "anouk@example.nl" not in query
+    assert "huur verhogen" in query

@@ -1,5 +1,6 @@
 """Attachments are read before the draft (M13 T8 part, lane A): their text is in the dossier of the first proposal."""
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.settings import Settings
 from app.db.enums import ExtractionStatus
-from app.db.models import AttachmentRow, Company
+from app.db.models import AttachmentRow, Company, MessageRow
 from app.llm.embeddings import HashingEmbedder
 from app.pipeline.dossier import build_dossier
 from app.pipeline.draft_reading import read_attachments
@@ -140,10 +141,11 @@ def test_an_id_document_found_later_has_its_text_purged(
 
     cid, storage, reader = committed_company.id, MemoryStorage(), Reader()
     mid = _mail(migrated_engine, cid)
-    att_id = _file(migrated_engine, cid, mid, storage, "scan123.pdf", b"BSN 123456789", "application/pdf")
+    # text the content check cannot recognise; the classifier still calls it an ID later
+    att_id = _file(migrated_engine, cid, mid, storage, "scan123.pdf", b"Scan 123456789", "application/pdf")
     assert read_attachments(migrated_engine, test_settings, storage, reader, mid) == 1
     with Session(migrated_engine) as s:
-        assert s.get_one(AttachmentRow, att_id).extracted_text == "BSN 123456789"
+        assert s.get_one(AttachmentRow, att_id).extracted_text == "Scan 123456789"
 
     id_cls = DocumentClassification(doc_type=DocType.id_document, title="ID", document_date=None, confidence=0.95)
     with Session(migrated_engine) as s, s.begin():
@@ -517,3 +519,82 @@ def test_rules_hold_an_iban_only_found_in_an_attachment(
     [inj_decision] = apply_rules([_reply(inj_loaded, mid_inj)], rule_context(inj_loaded))
     assert clean_decision.verdict is Verdict.pending_approval
     assert inj_decision.verdict is Verdict.exception
+
+
+ID_SCAN = "KONINKRIJK DER NEDERLANDEN\nPASPOORT / PASSPORT\nP<NLDDE<VRIES<<ANOUK<<<<<<<<<<<<<<<<<<<<<<<<"
+
+
+def test_an_id_scan_with_a_neutral_name_never_reaches_the_dossier_memory_or_call_log(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    from app.context.person_profile import mark_stale
+    from app.db.models import ModelCall
+    from app.pipeline.person_memory import refresh_person_memory
+
+    cid, storage, reader = committed_company.id, MemoryStorage(), Reader()
+    mid = _mail(migrated_engine, cid)
+    _file(migrated_engine, cid, mid, storage, "IMG_2041.pdf", ID_SCAN.encode(), "application/pdf")
+    assert read_attachments(migrated_engine, test_settings, storage, reader, mid) == 0
+    with Session(migrated_engine) as s:
+        row = s.scalars(select(AttachmentRow).where(AttachmentRow.message_id == mid)).one()
+        assert (row.extracted_text, row.extraction_status) == (None, ExtractionStatus.skipped)
+        dossier = build_dossier(s, cid, mid, HashingEmbedder())
+        person_id = s.get_one(MessageRow, mid).person_id
+    assert dossier.attachments == ()
+    with Session(migrated_engine) as s, s.begin():
+        mark_stale(s, cid, person_id, datetime.now(UTC))
+    refresh_person_memory(migrated_engine, test_settings.model_copy(update={"llm_model": "fake"}), cid, person_id)
+    with Session(migrated_engine) as s:
+        logged = " ".join(
+            str(c.input) + str(c.output) for c in s.scalars(select(ModelCall).where(ModelCall.company_id == cid))
+        )
+    assert "P<NLD" not in logged
+    assert "PASPOORT" not in logged
+
+
+def test_purging_an_attachment_blanks_every_call_that_carried_its_mail(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    from app.contracts import Channel
+    from app.db.models import ModelCall
+    from app.llm.agents.understanding import UNDERSTANDING, understanding_prompt
+    from app.llm.calls import CallContext, run_agent
+    from app.pipeline.document_reading import purge_text
+
+    cid, storage = committed_company.id, MemoryStorage()
+    mid = _mail(migrated_engine, cid)
+    att = _file(migrated_engine, cid, mid, storage, "scan.pdf", b"x", "application/pdf")
+    fake = test_settings.model_copy(update={"llm_model": "fake"})
+    ctx = CallContext(cid, "proposer", message_ids=(mid,))
+    tagged = run_agent(migrated_engine, fake, UNDERSTANDING, understanding_prompt("GEHEIM-ID", Channel.gmail), ctx)
+    other = run_agent(migrated_engine, fake, UNDERSTANDING, understanding_prompt("ANDERS", Channel.gmail),
+                      CallContext(cid, "triage"))  # fmt: skip
+    purge_text(migrated_engine, cid, att, other.model_call_id)
+    with Session(migrated_engine) as s:
+        assert "GEHEIM-ID" not in str(s.get_one(ModelCall, tagged.model_call_id).input)
+
+
+def test_a_research_run_that_could_not_search_is_tried_again_later(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    from app.channels.prices.search import SearchHit
+    from app.contracts import Category
+    from app.db.models import UnderstandingRow
+    from app.pipeline.draft_research import research_for
+    from tests.integration.reload_support import understanding_body
+
+    cid = committed_company.id
+    mid = _mail(migrated_engine, cid)
+    with Session(migrated_engine) as s, s.begin():
+        s.add(UnderstandingRow(company_id=cid, message_id=mid, category=Category.legal, urgency="normal",
+                               body=understanding_body(category=Category.legal, research=["Wat is de opzegtermijn?"]),
+                               prompt_version="understanding/v4"))  # fmt: skip
+
+    class Down:
+        def search(self, query: str, *, region: str = "NL", limit: int = 3) -> list[SearchHit]:
+            raise ConnectionError("provider down")
+
+    assert research_for(migrated_engine, test_settings, cid, mid, searcher=lambda d: Down()) == ()
+    with Session(migrated_engine) as s:
+        stored = s.scalars(select(UnderstandingRow.research).where(UnderstandingRow.message_id == mid)).one()
+    assert stored is None  # nothing final: the next run (a redraft, draft-open) searches again
