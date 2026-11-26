@@ -22,6 +22,7 @@ class UnderstandingRow(Base, CompanyScoped):
     urgency: Mapped[Urgency] = mapped_column(str_enum(Urgency), index=True)
     body: Mapped[dict[str, Any]]  # full Understanding contract JSON
     prompt_version: Mapped[str] = mapped_column(String(64))
+    research: Mapped[dict[str, Any] | None]  # findings behind the draft (M13 T8, 0060); NULL = not researched
 
 
 class Case(Base, CompanyScoped):
@@ -101,6 +102,7 @@ class ActionRow(Base, CompanyScoped):
     draft_version: Mapped[int] = mapped_column(default=1, server_default="1")
     persona_name: Mapped[str | None] = mapped_column(String(120))  # the owner persona a draft was written in
     persona_version: Mapped[int | None]
+    prompt_version: Mapped[str | None] = mapped_column(String(16))  # the proposer prompt that wrote it (0058)
     status: Mapped[ActionStatus] = mapped_column(
         str_enum(ActionStatus), default=ActionStatus.proposed, server_default=ActionStatus.proposed.value, index=True
     )

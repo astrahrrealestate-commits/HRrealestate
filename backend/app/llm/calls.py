@@ -29,6 +29,7 @@ from app.db.models import ModelCall
 from app.llm.budget import check_budget
 from app.llm.prompts import LoadedPrompt, load_prompt
 from app.llm.runtime import build_model, describe_model_error, model_name_for, output_for
+from app.llm.tiers import tier_of
 
 AGENT_RETRIES = 2  # re-asks on contract validation failure, inside one run
 
@@ -38,6 +39,7 @@ class CallContext:
     company_id: UUID
     purpose: str
     prefix_hash: str | None = None
+    message_ids: tuple[UUID, ...] = ()  # messages whose text is in the prompt, so erasure can find the call
 
 
 @dataclass(frozen=True)
@@ -53,6 +55,7 @@ class AgentSpec[T]:
     output_type: type[T]
     finalize: Callable[[T, LoadedPrompt], T]
     redact_output: bool = False  # the output is document text stored elsewhere: `model_calls` keeps only its size
+    redact_input: bool = False  # the prompt is other people's mail: `model_calls` keeps only its size (erasure)
     gemini_prompted: bool = (
         False  # schema too nested for Gemini's tool mode: prompt for JSON instead (runtime.output_for)
     )
@@ -101,14 +104,24 @@ def _row(
     ctx: CallContext,
     prompt: str | Sequence[UserContent],
 ) -> ModelCall:
+    text = describe_prompt(prompt)
+    stored: dict[str, Any] = {"redacted": True, "chars": len(text)} if spec.redact_input else {"prompt": text}
     return ModelCall(
         id=new_id(), company_id=ctx.company_id, purpose=ctx.purpose, prompt_name=spec.prompt.name,
         prompt_version=spec.prompt.version, prompt_sha256=loaded.sha256, model=model_name_for(settings, spec.name),
-        input={"prompt": describe_prompt(prompt)}, prefix_hash=ctx.prefix_hash,
+        input=stored, prefix_hash=ctx.prefix_hash, message_ids=list(ctx.message_ids),
     )  # fmt: skip
 
 
 def model_settings(settings: Settings, spec: AgentSpec[Any]) -> ModelSettings:
+    """Fast agents keep their own reasoning level and the global caps; quality agents (app.llm.tiers) think `high`
+    with the longer timeout and token cap, since Gemini counts thinking tokens as output."""
+    if tier_of(spec.name) == "quality":
+        return ModelSettings(
+            timeout=settings.llm_quality_timeout_sec,
+            max_tokens=settings.llm_quality_max_output_tokens,
+            thinking="high",
+        )
     chosen = ModelSettings(timeout=settings.llm_timeout_sec, max_tokens=settings.llm_max_output_tokens)
     if spec.thinking is not None:
         chosen["thinking"] = spec.thinking

@@ -1,6 +1,5 @@
 "use client";
 
-import { greetingName } from "@/lib/replyTicket";
 import React, { useState, useEffect } from "react";
 import { MaintenanceTicket } from "@/lib/api";
 import { X, Check, Wrench, Shield, MessageSquare, AlertCircle } from "lucide-react";
@@ -46,14 +45,8 @@ export function EditTicketModal({
       setContractorEmail(ticket.contractorEmail || "");
       setPoBudgetCap(ticket.poBudgetCap || "");
       setNotes(ticket.notes || "");
-      setContractorDraft(
-        ticket.contractorDraft ||
-          `Beste ${ticket.contractorName || "aannemer"}, spoedverzoek voor ${ticket.unitLabel}: ${ticket.issueTitle}. Huurder ${ticket.tenantName} (${ticket.tenantPhone}). ${ticket.poBudgetCap ? `Geautoriseerd budgetplafond: ${ticket.poBudgetCap}. ` : ""}Gelieve ETA te bevestigen.`
-      );
-      setTenantDraft(
-        ticket.tenantDraft ||
-          `Beste ${greetingName(ticket.tenantName)}, we hebben je melding over ${ticket.issueTitle.toLowerCase()} ontvangen. Onze ${ticket.contractorTrade.toLowerCase()} ${ticket.contractorName} is geautoriseerd en neemt z.s.m. contact op. Met vriendelijke groet, Harjot`
-      );
+      setContractorDraft(ticket.contractorDraft || "");
+      setTenantDraft(ticket.tenantDraft || "");
     }
   }, [isOpen, ticket]);
 

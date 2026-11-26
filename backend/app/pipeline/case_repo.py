@@ -205,6 +205,26 @@ def transition(session: Session, company_id: UUID, case_id: UUID, new_state: Cas
     session.flush()
 
 
+def link_thread_outbound(session: Session, company_id: UUID, case_id: UUID, message: MessageRow) -> list[UUID]:
+    """Reloaded history: our own sent mail was stored before its thread had a case, so it joins the case of the mail it
+    stands with. Returns the messages linked now; a repeat links nothing."""
+    if message.channel is not Channel.gmail or not message.thread_ref:
+        return []
+    linked = select(CaseLink.id).where(CaseLink.company_id == company_id, CaseLink.message_id == MessageRow.id)
+    found = session.scalars(
+        select(MessageRow.id)
+        .where(
+            MessageRow.company_id == company_id,
+            MessageRow.channel == Channel.gmail,
+            MessageRow.thread_ref == message.thread_ref,
+            MessageRow.direction == Direction.outbound,
+            ~linked.exists(),
+        )
+        .order_by(MessageRow.sent_at, MessageRow.id)
+    ).all()
+    return [m for m in found if link_message(session, company_id, case_id, m, LinkMethod.thread, 1.0)]
+
+
 def link_outbound_reply(session: Session, message_id: UUID) -> UUID | None:
     """An owner reply sent outside EstateOS (e.g. straight from Gmail) joins the open case holding its thread.
     The id comes from our own persist step; everything after is scoped to the message's company. Idempotent."""

@@ -209,85 +209,6 @@ def test_send_thread_reply_creates_approved_action_and_enqueues_sender() -> None
     assert len(added_rows) >= 3
 
 
-def test_ensure_emergency_reply_adds_draft_when_model_only_escalates() -> None:
-    from app.contracts import (
-        Action,
-        ActionType,
-        Category,
-        Channel,
-        Entities,
-        EscalatePayload,
-        Suspicious,
-        Understanding,
-        Urgency,
-    )
-    from app.llm.agents.proposer import ProposerContext
-    from app.pipeline.propose import FALLBACK_RATIONALE, Loaded, _ensure_emergency_reply
-
-    cid = uuid4()
-    und = Understanding(
-        category=Category.maintenance,
-        intent="Burst pipe",
-        urgency=Urgency.emergency,
-        requires_reply=True,
-        entities=Entities.none(),
-        suspicious=Suspicious(flag=False, reason=None),
-        confidence=0.95,
-        sender_role=None,
-        prompt_version="understanding/v3",
-    )
-    loaded = Loaded(
-        ctx=ProposerContext(
-            case_id=cid,
-            channel=Channel.gmail,
-            subject="Water leak",
-            message_text="Water pouring from ceiling",
-            understanding=und,
-            case_state="open",
-            case_summary="Emergency leak",
-            waiting=(),
-            contractors=(),
-            mode="reply",
-        ),
-        company_id=PRINCIPAL.company_id,
-        paused=False,
-    )
-    esc = Action(
-        type=ActionType.escalate,
-        case_id=cid,
-        payload=EscalatePayload(kind="escalate", reason="Emergency leak"),
-        rationale="Urgent",
-        context_ref=[],
-        draft_version=1,
-    )
-
-    out = _ensure_emergency_reply([esc], loaded)
-    assert out[0].type is ActionType.reply_draft
-    assert out[0].payload.channel is Channel.gmail  # type: ignore[union-attr]
-    assert out[1].type is ActionType.escalate
-
-    # Skipped if fallback, suspicious, or no reply required
-    no_reply_loaded = Loaded(
-        ctx=ProposerContext(
-            case_id=cid,
-            channel=Channel.gmail,
-            subject="Water leak",
-            message_text="FYI",
-            understanding=und.model_copy(update={"requires_reply": False}),
-            case_state="open",
-            case_summary="FYI",
-            waiting=(),
-            contractors=(),
-            mode="reply",
-        ),
-        company_id=PRINCIPAL.company_id,
-        paused=False,
-    )
-    assert _ensure_emergency_reply([esc], no_reply_loaded) == [esc]
-    fallback_act = esc.model_copy(update={"rationale": FALLBACK_RATIONALE})
-    assert _ensure_emergency_reply([fallback_act], loaded) == [fallback_act]
-
-
 def test_get_inbox_threads_passes_sort_priority_param() -> None:
     from app.api.inbox.routes import get_inbox_threads
 
@@ -352,7 +273,7 @@ def test_agent_coverage_fact_and_research_date_filters() -> None:
     assert str(dt) == "2026-10-31"
     assert ch == "whatsapp"
 
-    with patch("app.superagent.research.search_messages", return_value=[]) as mock_search:
+    with patch("app.superagent.lookups.search_messages", return_value=[]) as mock_search:
         deps = research.SuperAgentDeps(MagicMock(), MagicMock(), PRINCIPAL.company_id, None)
         text, hits = research._messages_filtered(
             deps, "", date_from="2026-10-01", date_to="2026-10-31", channel="gmail"

@@ -4,6 +4,7 @@ Provides executive pulse metrics, unresponsive radar stalled cases, prospective 
 and autonomous operation logs for the Today Dashboard.
 """
 
+from app.api.dashboard.categories import router as categories_router
 from app.api.dashboard.routes import router
 
-__all__ = ["router"]
+__all__ = ["categories_router", "router"]

@@ -3,7 +3,7 @@
 from typing import Any
 
 from app.contracts import Understanding
-from app.pipeline.propose import _with_defaults
+from app.pipeline.propose import with_defaults as _with_defaults
 
 OLD_BODY: dict[str, Any] = {
     "category": "maintenance",

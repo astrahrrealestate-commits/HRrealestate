@@ -59,7 +59,7 @@ class World:
 
 
 def _company_rows(s: Session, company: Company, tag: str) -> tuple[UUID, UUID, UUID]:
-    case = Case(company_id=company.id, category=Category.other, urgency=Urgency.high, summary=f"case {tag}")
+    case = Case(company_id=company.id, category=Category.administration, urgency=Urgency.high, summary=f"case {tag}")
     s.add(case)
     s.flush()
     action = ActionRow(
@@ -257,7 +257,7 @@ def test_tasks_exclude_future_snoozed_and_done(world: World) -> None:
 
 def test_waits_exclude_non_waiting(world: World) -> None:
     with Session(world.engine) as s:
-        other = Case(company_id=world.cid, category=Category.other, urgency=Urgency.normal)
+        other = Case(company_id=world.cid, category=Category.administration, urgency=Urgency.normal)
         s.add(other)
         s.flush()
         s.add(WaitRow(company_id=world.cid, case_id=other.id, about="got it", expected_by=T0,
@@ -268,7 +268,11 @@ def test_waits_exclude_non_waiting(world: World) -> None:
 
 def test_cases_state_filter_matches(world: World) -> None:
     with Session(world.engine) as s:
-        s.add(Case(company_id=world.cid, category=Category.other, urgency=Urgency.normal, state=CaseState.resolved))
+        s.add(
+            Case(
+                company_id=world.cid, category=Category.administration, urgency=Urgency.normal, state=CaseState.resolved
+            )
+        )
         s.commit()
     open_ids = [c["id"] for c in world.client.get("/api/v1/cases", params={"state": "open"}).json()]
     resolved = world.client.get("/api/v1/cases", params={"state": "resolved"}).json()

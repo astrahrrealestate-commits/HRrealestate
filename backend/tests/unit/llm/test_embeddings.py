@@ -7,7 +7,7 @@ from pydantic_ai.embeddings import Embedder
 from pydantic_ai.embeddings.test import TestEmbeddingModel
 
 from app.core.settings import EMBEDDING_DIMENSIONS, Settings
-from app.llm.embeddings import BATCH, HashingEmbedder, ModelEmbedder, build_embedder, to_sql
+from app.llm.embeddings import BATCH, MAX_CHARS, HashingEmbedder, ModelEmbedder, build_embedder, to_sql
 
 
 def cosine(a: list[float], b: list[float]) -> float:
@@ -88,3 +88,39 @@ def test_a_hung_provider_times_out_instead_of_holding_the_caller() -> None:
     embedder = ModelEmbedder(Embedder(Slow(dimensions=EMBEDDING_DIMENSIONS)), timeout_sec=0.05)
     with pytest.raises(TimeoutError):
         embedder.embed_query("hello")
+
+
+class _Recorder(TestEmbeddingModel):
+    """Remembers which task type each batch was embedded with."""
+
+    def __init__(self) -> None:
+        super().__init__(dimensions=EMBEDDING_DIMENSIONS)
+        self.types: list[str] = []
+
+    async def embed(self, inputs, *, input_type, settings=None):  # type: ignore[no-untyped-def]
+        self.types.append(input_type)
+        return await super().embed(inputs, input_type=input_type, settings=settings)
+
+
+def test_query_embedding_uses_the_query_task_type() -> None:
+    model = _Recorder()
+    assert len(ModelEmbedder(Embedder(model)).embed_query("waar lekt het?")) == EMBEDDING_DIMENSIONS
+    assert model.types == ["query"]
+
+
+def test_documents_keep_the_document_task_type() -> None:
+    model = _Recorder()
+    ModelEmbedder(Embedder(model)).embed_documents(["De huur is 900 euro."])
+    assert model.types == ["document"]
+
+
+def test_a_very_long_question_is_cut_before_the_provider_sees_it() -> None:
+    sizes: list[int] = []
+
+    class Spy(TestEmbeddingModel):
+        async def embed(self, inputs, *, input_type, settings=None):  # type: ignore[no-untyped-def]
+            sizes.extend(len(i) for i in ([inputs] if isinstance(inputs, str) else inputs))
+            return await super().embed(inputs, input_type=input_type, settings=settings)
+
+    ModelEmbedder(Embedder(Spy(dimensions=EMBEDDING_DIMENSIONS))).embed_query("x" * 10_000)
+    assert sizes == [MAX_CHARS]

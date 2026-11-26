@@ -21,7 +21,7 @@ from app.api.v1.ratelimit import decision_limit
 from app.core.errors import NotFoundError
 from app.db.enums import DocLinkKind, DocumentStatus, ReorgItemStatus, ReorgPlanStatus
 from app.llm.embeddings import TextEmbedder
-from app.pipeline.document_links import set_link
+from app.pipeline.document_links import set_link, set_reference
 from app.pipeline.document_qa import strip_risky
 from app.pipeline.document_search import DocDetail, DocFilter, DocHit, get_document, list_documents, search_documents
 from app.pipeline.drive_reorg import PlanView, build_plan, decide_plan, latest_plan
@@ -48,6 +48,7 @@ class DocumentOut(BaseModel):
     drive_url: str | None
     suspicious: bool
     created_at: AwareDatetime
+    is_reference: bool = False
 
 
 class LinkOut(BaseModel):
@@ -116,7 +117,7 @@ def _out(h: DocHit) -> DocumentOut:
         id=h.document_id, attachment_id=h.attachment_id, title=strip_risky(h.title), doc_type=h.doc_type,
         status=h.status, document_date=h.document_date, summary=strip_risky(h.summary) if h.summary else None,
         snippet=strip_risky(h.snippet) if h.snippet else None, rank=h.rank, drive_url=h.drive_url,
-        suspicious=h.suspicious, created_at=created,
+        suspicious=h.suspicious, created_at=created, is_reference=h.is_reference,
     )  # fmt: skip
 
 
@@ -145,9 +146,13 @@ def search(
     date_from: date | None = None,
     date_to: date | None = None,
     needs_link: bool = False,
+    reference_only: bool = False,
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
 ) -> list[DocumentOut]:
-    flt = DocFilter(type, status, person_id, unit_id, lease_id, case_id, date_from, date_to, needs_link)
+    flt = DocFilter(
+        type, status, person_id, unit_id, lease_id, case_id, date_from, date_to, needs_link,
+        reference_only=reference_only,
+    )  # fmt: skip
     with Session(engine) as session:
         if q and q.strip() and mode == "hybrid":
             hits = search_hybrid(session, who.company_id, q.strip(), flt, embedder, limit)
@@ -223,3 +228,25 @@ def add_link(document_id: UUID, body: LinkIn, who: Owner, engine: Engine_) -> No
 )  # fmt: skip
 def remove_link(document_id: UUID, kind: DocLinkKind, ref_id: UUID, who: Owner, engine: Engine_) -> None:
     _write(engine, who, document_id, LinkIn(kind=kind, ref_id=ref_id), "removed")
+
+
+class ReferenceIn(BaseModel):
+    is_reference: bool
+
+
+class ReferenceOut(BaseModel):
+    id: UUID
+    is_reference: bool
+
+
+@router.post(
+    "/documents/{document_id}/reference",
+    dependencies=[Depends(require_csrf), Depends(decision_limit)],
+)
+def set_reference_flag(document_id: UUID, body: ReferenceIn, who: Owner, engine: Engine_) -> ReferenceOut:
+    """Owner toggle: add or remove a document from the company reference library (ROZ clauses, standard terms)."""
+    try:
+        flag = set_reference(engine, who.company_id, document_id, body.is_reference)
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail=NOT_FOUND) from None
+    return ReferenceOut(id=document_id, is_reference=flag)

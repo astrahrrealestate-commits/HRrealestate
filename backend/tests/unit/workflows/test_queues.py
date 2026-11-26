@@ -32,6 +32,7 @@ def test_every_named_queue_is_registered_at_boot() -> None:
         "brixx",
         "brixx_documents",
         "finance",
+        "history",
     }
     names = {v for k, v in vars(workflow_names).items() if k.endswith("_QUEUE")}
     assert names == set(registered)

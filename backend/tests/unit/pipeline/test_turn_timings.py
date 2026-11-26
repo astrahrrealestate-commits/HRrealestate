@@ -133,6 +133,7 @@ def staged() -> Iterator[tuple[Clock, dict[str, MagicMock]]]:
         patch(f"{M}.run_agent", side_effect=lambda *a, **k: clock.spend(0.8, result)),
         patch(f"{M}.run_plan", side_effect=lambda *a, **k: clock.spend(0.3, listed)),
         patch(f"{M}._brief_case_ids", return_value=[]),
+        patch(f"{M}.load_history", return_value=[]),
         patch(f"{M}._update") as upd,
         patch(f"{M}._finish") as finish,
     ):

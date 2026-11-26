@@ -10,6 +10,7 @@ from uuid import UUID
 from pydantic_core import to_jsonable_python
 
 from app.context import CompiledContext, compile_concierge_context
+from app.context.compiler import SUMMARY_PREFIX as SUMMARY_PREFIX
 from app.core.errors import AgentFailedError, BudgetExceededError
 from app.db.enums import TurnStatus
 from app.llm.agents.concierge import CONCIERGE
@@ -22,9 +23,9 @@ from app.pipeline.work_repo import short_ref
 
 MAX_BRIEF_CASES = 20
 MAX_BRIEF_TASKS = 20
-MAX_HISTORY_TURNS = 6
-MAX_OWNER_CHARS = 400
-MAX_ANSWER_CHARS = 300
+MAX_HISTORY_TURNS = 12
+MAX_OWNER_CHARS = 1200
+MAX_ANSWER_CHARS = 1200
 PROMPT_REF = CONCIERGE.prompt.key
 EMPTY_PLAN = "I am not sure what to do with that. Try rephrasing it, or send `help` for the commands."
 APOLOGY = "Sorry, something went wrong with that message. Please try again in a moment."
@@ -98,16 +99,23 @@ def compile_prompt(
     cases: Sequence[CaseBrief],
     tasks: Sequence[str],
     page: PagePrompt = NO_PAGE,
+    entities: str = "",
+    named_blocks: bool = False,
 ) -> CompiledContext:
-    """Compile the concierge context using ContextSpec and return CompiledContext."""
+    """Compile the concierge context using ContextSpec and return CompiledContext. `entities`: the people, units and
+    cases the server matched to names in the question (`concierge_entities`), rendered."""
+    summary = [h for h in history if h.startswith(SUMMARY_PREFIX)]
+    turns = [h for h in history if not h.startswith(SUMMARY_PREFIX)]
     return compile_concierge_context(
         text,
-        list(history)[-2 * MAX_HISTORY_TURNS :],
+        [*summary, *turns[-2 * MAX_HISTORY_TURNS :]],
         list(cases)[:MAX_BRIEF_CASES],
         list(tasks)[:MAX_BRIEF_TASKS],
         page.facts,
         page.snapshot,
         page.filters,
+        entities=entities,
+        named_blocks=named_blocks,
     )
 
 

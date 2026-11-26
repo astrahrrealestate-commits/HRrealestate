@@ -261,3 +261,19 @@ def set_link(engine: Engine, company_id: UUID, document_id: UUID, kind: DocLinkK
             update(DocumentRow).where(DocumentRow.id == document_id, DocumentRow.company_id == company_id)
             .values(index_version=None)
         )  # fmt: skip
+
+
+def set_reference(engine: Engine, company_id: UUID, document_id: UUID, is_reference: bool) -> bool:
+    """Owner action: mark or unmark a company document as part of the reference library."""
+    with Session(engine) as session, session.begin():
+        doc_id = session.scalar(
+            select(DocumentRow.id).where(DocumentRow.id == document_id, DocumentRow.company_id == company_id)
+        )
+        if doc_id is None:
+            raise NotFoundError("document not found")
+        session.execute(
+            update(DocumentRow)
+            .where(DocumentRow.id == document_id, DocumentRow.company_id == company_id)
+            .values(is_reference=is_reference, index_version=None)
+        )
+    return is_reference

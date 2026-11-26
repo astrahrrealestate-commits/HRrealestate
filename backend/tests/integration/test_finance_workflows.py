@@ -30,6 +30,7 @@ def env(
 ) -> Engine:
     """Steps use the test settings (fake model, fake prices), never a developer `.env`; sends never leave."""
     monkeypatch.setattr(finance, "get_settings", lambda: test_settings)
+    monkeypatch.setattr(pipeline, "get_settings", lambda: test_settings)
     monkeypatch.setattr(actions, "after_execute_step", lambda action_id: None)
     monkeypatch.setattr(actions, "tell_blocked_step", lambda *a: None)
     return migrated_engine
@@ -157,11 +158,12 @@ def test_contractor_quote_runs_end_to_end_once(
     mid = _message_from(env, seeded, seeded.vendor_id, [AMOUNT])
 
     assert _pipeline(monkeypatch, seeded, mid) == "understood"
-    review_id = DBOS.retrieve_workflow(f"fin:quote:{mid}").get_result()
+    with Session(env) as s:
+        review_id = str(s.scalars(select(QuoteReview.id).where(QuoteReview.company_id == seeded.company_id)).one())
 
-    assert review_id is not None
     assert _quote_cards(env, seeded.company_id) == 1
-    assert finance.enqueue_quote(str(seeded.company_id), str(mid)) is True  # deduped by id
+    assert finance.enqueue_quote(str(seeded.company_id), str(mid)) is True
+    assert DBOS.retrieve_workflow(f"fin:quote:{mid}").get_result() == review_id
     with SetWorkflowID(f"replay:{mid}"):  # a replay of the review under another id adds nothing
         assert DBOS.start_workflow(finance.quote_wf, str(mid)).get_result() == review_id
     assert _workflows("fin:quote:") == [f"fin:quote:{mid}"]
@@ -183,6 +185,7 @@ def test_non_contractor_or_no_amount_is_not_enqueued(
 
     assert _workflows("fin:quote:") == []
     assert _quote_cards(env, seeded.company_id) == 0
+    assert _count(env, QuoteReview, seeded.company_id) == 0
 
 
 def test_recheck_twice_with_the_same_round_adds_one_review(
@@ -191,7 +194,6 @@ def test_recheck_twice_with_the_same_round_adds_one_review(
     seeded = _seed(env, committed_company)
     mid = _message_from(env, seeded, seeded.vendor_id, [AMOUNT])
     _pipeline(monkeypatch, seeded, mid)
-    assert DBOS.retrieve_workflow(f"fin:quote:{mid}").get_result() is not None
     with Session(env) as s:
         quote_id = str(s.scalars(select(QuoteReview.quote_id).where(QuoteReview.company_id == seeded.company_id)).one())
 

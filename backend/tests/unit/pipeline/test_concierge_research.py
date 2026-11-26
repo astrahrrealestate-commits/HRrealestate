@@ -4,6 +4,7 @@ The flag is model output, so it is only honoured next to read steps without a us
 screened like any reply, and a loop that returns nothing falls back to owner_qa.
 """
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID
@@ -13,6 +14,7 @@ from sqlalchemy import Engine
 
 from app.contracts import ConciergePlan, Intent, PlanStep
 from app.contracts.concierge import MAX_PLAN_STEPS
+from app.contracts.sourced_answer import Source
 from app.core.settings import Settings
 from app.pipeline import concierge, concierge_reads
 from app.pipeline.concierge_base import Ctx, Researched
@@ -85,7 +87,7 @@ def test_the_flag_is_dropped_when_no_answer_step_fits() -> None:
 def test_the_answer_step_uses_the_research_loop_when_the_plan_asks_for_it() -> None:
     calls: list[tuple[UUID, str]] = []
 
-    def research(company_id: UUID, question: str, _page: Any) -> Researched:
+    def research(company_id: UUID, question: str, _page: Any, _history: Any) -> Researched:
         calls.append((company_id, question))
         return Researched("Piet has two open invoices.", ("Checked the database (2 rows)",))
 
@@ -150,3 +152,21 @@ def test_run_plan_hands_the_flag_to_the_answer_step_only_beside_read_steps(monke
     monkeypatch.setitem(concierge._HANDLERS, Intent.pause, spy)
     concierge.run_plan(engine, settings, COMPANY, mixed, **args)
     assert flags == [False, False]
+
+
+def test_a_follow_up_is_researched_with_the_conversation() -> None:
+    heard: list[Any] = []
+
+    def research(_c: UUID, _q: str, _p: Any, history: Any) -> Researched:
+        heard.extend(history)
+        return Researched("480 euro.")
+
+    ctx = replace(_ctx(research), history=("owner: And Bakker?", "assistant: Which job?"))
+    concierge_reads.answer(ctx, _step(Intent.answer))
+    assert heard == ["owner: And Bakker?", "assistant: Which job?"]
+
+
+def test_the_answer_step_carries_the_sources() -> None:
+    source = Source(kind="message", ref="00000000-0000-0000-0000-000000000005", label="Anna, 1 Sep")
+    result = concierge_reads.answer(_ctx(lambda *_: Researched("It leaks.", (), (source,))), _step(Intent.answer))
+    assert result.data == {"sources": [source.model_dump()]}

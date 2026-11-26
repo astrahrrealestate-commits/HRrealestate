@@ -20,6 +20,11 @@ for the first backlog (thousands of files, a tenant waiting to open one).
 
 The `finance` queue (M11 quote checker) runs decision-day snapshots and quote reviews, at most
 `FINANCE_WORKER_CONCURRENCY` per worker; each run makes one model call (job_items or quote_reader; a recheck none).
+
+The `history` queue (M13 mailbox reload) is apart from `pipeline`, so thousands of reloaded mails never stand in front
+of a live one. It is partitioned by sender with one run per partition (a reply is never linked before the mail it
+answers) and runs at most `Settings.history_queue_concurrency` at once per worker, which adds that many model calls
+in flight while a reload runs.
 """
 
 from dbos import DBOS, Queue
@@ -33,6 +38,7 @@ from app.core.workflow_names import (
     DOCUMENTS_QUEUE,
     FINANCE_QUEUE,
     GMAIL_SYNC_QUEUE,
+    HISTORY_QUEUE,
     PIPELINE_QUEUE,
     TIMERS_QUEUE,
 )
@@ -49,6 +55,7 @@ __all__ = [
     "FINANCE_QUEUE",
     "FINANCE_WORKER_CONCURRENCY",
     "GMAIL_SYNC_QUEUE",
+    "HISTORY_QUEUE",
     "PIPELINE_QUEUE",
     "PIPELINE_WORKER_CONCURRENCY",
     "brixx_documents_queue",
@@ -58,6 +65,7 @@ __all__ = [
     "documents_queue",
     "finance_queue",
     "gmail_sync_queue",
+    "history_queue",
     "pipeline_queue",
 ]
 
@@ -94,6 +102,13 @@ def register_queues(settings: Settings) -> None:
         CHAT_QUEUE, worker_concurrency=CHAT_WORKER_CONCURRENCY, polling_interval_sec=CHAT_POLL_SECONDS
     )
     _handles[FINANCE_QUEUE] = DBOS.register_queue(FINANCE_QUEUE, worker_concurrency=FINANCE_WORKER_CONCURRENCY)
+    _register_history(settings)
+
+
+def _register_history(settings: Settings) -> None:
+    _handles[HISTORY_QUEUE] = DBOS.register_queue(
+        HISTORY_QUEUE, worker_concurrency=settings.history_queue_concurrency, partition_concurrency=1
+    )
 
 
 def _handle(name: str) -> Queue:
@@ -133,6 +148,10 @@ def brixx_queue() -> Queue:
 
 def brixx_documents_queue() -> Queue:
     return _handle(BRIXX_DOCUMENTS_QUEUE)
+
+
+def history_queue() -> Queue:
+    return _handle(HISTORY_QUEUE)
 
 
 def finance_queue() -> Queue:

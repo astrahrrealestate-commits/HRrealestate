@@ -34,8 +34,8 @@ def test_under_budget_is_unchanged_and_nothing_dropped() -> None:
 
 
 def test_each_slice_is_clipped_to_its_own_budget() -> None:
-    fitted, _ = fit_to_budget(CONCIERGE_SPEC, {"history": "h" * 9000, "message": "question"})
-    assert len(fitted["history"]) <= 5000
+    fitted, _ = fit_to_budget(CONCIERGE_SPEC, {"history": "h" * 20000, "message": "question"})
+    assert len(fitted["history"]) <= 12000
     assert fitted["message"] == "question"
 
 

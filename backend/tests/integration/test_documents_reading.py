@@ -121,7 +121,8 @@ def test_identity_document_by_name_is_never_read(migrated_engine: Engine, fake_s
                                                  storage: MemoryStorage, company_id: UUID) -> None:  # fmt: skip
     att = _attachment(migrated_engine, company_id, storage, "paspoort_anna.pdf", "application/pdf", b"Paspoort 123456")
     assert _file(migrated_engine, fake_settings, storage, MemoryDrive(), company_id, att) is DocumentStatus.filed
-    assert _attachment_row(migrated_engine, att).extraction_status is None
+    stored = _attachment_row(migrated_engine, att)
+    assert (stored.extracted_text, stored.extraction_status) == (None, ExtractionStatus.skipped)
     assert _purposes(migrated_engine, company_id) == ["doc_classifier"]
     assert _doc(migrated_engine, att).facts is None
 

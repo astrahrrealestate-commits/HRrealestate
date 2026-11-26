@@ -11,6 +11,7 @@ from app.llm.fakes_diligence import fake_dd_reader
 from app.llm.fakes_finance import fake_job_items, fake_price_extractor, fake_quote_reader
 from app.llm.fakes_owner_qa import fake_owner_qa
 from app.llm.fakes_proposer import fake_proposer
+from app.llm.fakes_research import fake_draft_research
 
 
 def _extract_user_text(messages: list[ModelMessage]) -> str:
@@ -56,19 +57,22 @@ def _fake_sender_role(low: str) -> str | None:
 def _fake_understanding(prompt: str) -> dict[str, object]:
     low = prompt.lower()
     if re.search(r"(contract|kündigung|opzeg|verhuis)", low):
-        category = Category.lease
+        category = Category.legal
         intent = "Lease inquiry"
     elif re.search(r"(lek|leak|overstrom|flood|heizung|verwarming|kapot|broken|gaslucht|\bgas\b|brand|fire)", low):
         category = Category.maintenance
         intent = "Maintenance request"
     elif re.search(r"(huur|miete|\brent\b|betal)", low):
-        category = Category.payment
+        category = Category.finance
         intent = "Payment inquiry"
-    elif re.search(r"(offerte|quote|factuur|invoice)", low):
-        category = Category.contractor_update
-        intent = "Contractor update"
+    elif re.search(r"(factuur|invoice)", low):
+        category = Category.finance
+        intent = "Invoice"
+    elif re.search(r"(offerte|quote)", low):
+        category = Category.maintenance
+        intent = "Contractor quote"
     else:
-        category = Category.other
+        category = Category.administration
         intent = "General inquiry"
 
     if re.search(r"(overstrom|flood|gaslucht|\bgas\b|\bbrand\b|fire|rook|smoke|water staat)", low):
@@ -331,6 +335,24 @@ def _fake_rag_rerank(prompt: str) -> dict[str, object]:
     return {"scores": _fake_rerank_scores(_block(prompt, "message"), passages)}
 
 
+def fake_person_memory(prompt: str) -> dict[str, object]:
+    """What Harjot wrote becomes a commitment, what the person wrote an open issue: enough to test the plumbing."""
+    lines = [" ".join(p.split()) for p in _block(prompt, "thread").split("\n\n")]
+    ours = [ln for ln in lines if "Harjot" in ln.split(": ", 1)[0]]
+    theirs = [ln for ln in lines if ln and ln != "none" and ln not in ours]
+
+    def promise(line: str) -> str:
+        mark = "(unverified) " if "not verified" in line.split(": ", 1)[0] else ""
+        return (mark + line.split(": ", 1)[-1])[:200]
+
+    return {
+        "summary": f"{len(lines)} message(s) read.",
+        "commitments": [promise(ln) for ln in ours][:10],
+        "preferences": [],
+        "open_issues": [ln.split(": ", 1)[-1][:200] for ln in theirs][:10],
+    }
+
+
 def model_for(agent_name: str) -> FunctionModel:
     def fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         user_text = _extract_user_text(messages)
@@ -342,6 +364,8 @@ def model_for(agent_name: str) -> FunctionModel:
             args = _fake_link_check(user_text)
         elif agent_name == "case_summary":
             args = _fake_case_summary(user_text)
+        elif agent_name == "person_memory":
+            args = fake_person_memory(user_text)
         elif agent_name == "proposer":
             args = fake_proposer(user_text)
         elif agent_name == "owner_qa":
@@ -368,6 +392,8 @@ def model_for(agent_name: str) -> FunctionModel:
             args = fake_job_items(user_text)
         elif agent_name == "price_extractor":
             args = fake_price_extractor(user_text)
+        elif agent_name == "draft_research":
+            args = fake_draft_research(user_text)
         elif agent_name == "doc_ocr":
             args = {"text": _extract_binary(messages).removeprefix(b"SCAN").decode("utf-8", errors="replace").strip()}
         else:

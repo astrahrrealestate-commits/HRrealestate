@@ -184,27 +184,32 @@ def choose(cands: list[Candidate], relevance: dict[UUID, int] | None) -> list[Ca
 
 
 def retrieve_context(engine: Engine, settings: Settings, company_id: UUID, question: str, flt: DocFilter,
-                     embedder: TextEmbedder | None) -> RagContext:  # fmt: skip
+                     embedder: TextEmbedder | None, *, fact_first: bool = True) -> RagContext:  # fmt: skip
+    """`fact_first=False` for a question no filter narrows to one person or unit: a stored fact may then be somebody
+    else's, so it is handed over beside the passages, never instead of them. No session is open in a model call."""
     with Session(engine) as session:
         if session.scalar(select(DocumentRow.id).where(*doc_filters(company_id, flt)).limit(1)) is None:
             return RagContext("none", [])  # nothing in scope: no model call, no cost
     plan = plan_question(engine, settings, company_id, question)
     with Session(engine) as session:
-        if plan and plan.fact is not None and (fact := lookup_fact(session, company_id, flt, plan.fact)):
+        fact = lookup_fact(session, company_id, flt, plan.fact) if plan and plan.fact is not None else None
+        if fact is not None and fact_first:
             return RagContext("fact", [], fact, plan)
         cands = hybrid_candidates(
             session, company_id, question, flt, embedder,
             variants=plan.keywords if plan else (), dense_texts=[plan.hypothetical_answer] if plan else (),
         )  # fmt: skip
-        if plan and plan.doc_types:
-            expected = {t.value for t in plan.doc_types}
-            cands = sorted((replace(c, score=c.score * (TYPE_BOOST if c.doc_type in expected else 1.0)) for c in cands),
-                           key=lambda c: -c.score)  # fmt: skip
-        top = cands[:RERANK_TOP]
-        relevance = rerank(engine, settings, company_id, question, top)
-        picks = choose(top, relevance)
+    if plan and plan.doc_types:
+        expected = {t.value for t in plan.doc_types}
+        cands = sorted((replace(c, score=c.score * (TYPE_BOOST if c.doc_type in expected else 1.0)) for c in cands),
+                       key=lambda c: -c.score)  # fmt: skip
+    top = cands[:RERANK_TOP]
+    relevance = rerank(engine, settings, company_id, question, top)
+    picks = choose(top, relevance)
+    with Session(engine) as session:
         passages = passages_from(session, company_id, picks) if picks else []
-    return RagContext("hybrid" if passages else "none", passages, None, plan, len(cands), relevance is not None)
+    route = "hybrid" if passages else "none"
+    return RagContext(route, passages, fact, plan, len(cands), relevance is not None)
 
 
 def retrieve_cheap(session: Session, company_id: UUID, question: str, flt: DocFilter, embedder: TextEmbedder | None,

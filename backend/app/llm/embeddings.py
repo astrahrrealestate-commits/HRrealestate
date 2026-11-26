@@ -75,7 +75,11 @@ class ModelEmbedder:
         return [list(v) for v in self._embedder.embed_documents_sync(batch, settings=self._settings).embeddings]
 
     def embed_query(self, text: str) -> list[float]:
-        return self.embed_documents([text])[0]
+        """A question, not a passage: providers embed the two differently. Never use it for text that is stored."""
+        return self._within_deadline(partial(self._embed_question, text[:MAX_CHARS]))[0]
+
+    def _embed_question(self, text: str) -> list[list[float]]:
+        return [list(v) for v in self._embedder.embed_query_sync(text, settings=self._settings).embeddings]
 
 
 def build_embedder(settings: Settings) -> TextEmbedder:

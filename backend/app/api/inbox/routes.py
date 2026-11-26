@@ -48,7 +48,7 @@ from app.channels.gmail.html_sanitize import (
     sanitize_email_html,
 )
 from app.context.sender_label import UNASSIGNED_UNIT, resolve_sender_label, role_hint_of, unit_display
-from app.context.shown_sender import greeting_name, sender_person_ids, shown_sender_name
+from app.context.shown_sender import sender_person_ids, shown_sender_name
 from app.contracts import ActionType, ButtonChoice, CaseState, Category, Channel, Direction, Urgency
 from app.core.errors import NotFoundError
 from app.core.ids import case_ref, new_id
@@ -106,10 +106,6 @@ DEFAULT_SEEDED_THREADS: list[dict[str, Any]] = []
 def _is_contractor_case(case: Case, person: Any, sender_email: str, messages: list[MessageRow]) -> bool:
     return (
         (person is not None and person.kind == PersonKind.contractor)
-        or (
-            case.category is not None
-            and case.category.value in ("contractor_update", "contractor_invoices", "contractor_repairs")
-        )
         or any(c_kw in sender_email.lower() for c_kw in ("chahalbouw.nl", "contractor", "loodgieter"))
         or any("chahalbouw.nl" in (m.sender_identity or "").lower() for m in messages)
     )
@@ -222,6 +218,7 @@ def _build_drafts(
                 "version": reply_action.persona_version,
             }
         variants = reply_action.payload.get("body_variants") or []
+        commitments = [str(c) for c in reply_action.payload.get("commitments") or []]
         if not variants and reply_action.payload.get("text"):
             variants = [reply_action.payload["text"]]
         elif not variants and reply_action.payload.get("body"):
@@ -234,7 +231,7 @@ def _build_drafts(
                     "label": f"Draft {idx} (Recommended)" if idx == 1 else f"Draft {idx} (Alternative)",
                     "channel": "gmail",
                     "text": text,
-                    "confidence": 98 if idx == 1 else 95,
+                    "commitments": commitments,  # every promise the draft makes, shown next to Approve (M13)
                 }
             )
             whatsapp_drafts.append(
@@ -243,39 +240,10 @@ def _build_drafts(
                     "label": f"WhatsApp {idx} (Quick Confirmation)" if idx == 1 else f"WhatsApp {idx} (Detailed)",
                     "channel": "whatsapp",
                     "text": text,
-                    "confidence": 98 if idx == 1 else 95,
+                    "commitments": commitments,  # every promise the draft makes, shown next to Approve (M13)
                 }
             )
 
-    if not gmail_drafts:
-        # No agent draft yet: neutral acknowledgements only. They state no fact, date, amount or commitment.
-        greet = greeting_name(sender_name)
-        hello = f" {greet}" if greet else ""
-        d1_en = (
-            f"Dear {greet or 'sir/madam'},\n\nThank you for your message. We have received it and will get back to you "
-            "shortly.\n\nBest regards,\nHarjot"
-        )
-        d2_en = (
-            f"Hello{hello},\n\nThanks for reaching out. I am looking into this and will follow up as soon "
-            "as I can.\n\nKind regards,\nHarjot"
-        )
-        d1_wa = f"Hi{hello}, thank you for your message. We have received it and will reply shortly."
-        d2_wa = f"Hello{hello}, thanks for reaching out. I am looking into this and will get back to you."
-
-        gmail_drafts = [
-            {"id": "gd1", "label": "Draft 1 (Recommended)", "channel": "gmail", "text": d1_en, "confidence": 98},
-            {"id": "gd2", "label": "Draft 2 (Alternative)", "channel": "gmail", "text": d2_en, "confidence": 95},
-        ]
-        whatsapp_drafts = [
-            {
-                "id": "wd1",
-                "label": "WhatsApp 1 (Quick Confirmation)",
-                "channel": "whatsapp",
-                "text": d1_wa,
-                "confidence": 98,
-            },
-            {"id": "wd2", "label": "WhatsApp 2 (Detailed)", "channel": "whatsapp", "text": d2_wa, "confidence": 95},
-        ]
     return gmail_drafts, whatsapp_drafts, draft_persona
 
 

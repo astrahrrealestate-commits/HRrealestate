@@ -27,9 +27,7 @@ export function replyTicket<T extends Addressed>(ticket: T, thread: Sender): T {
     ...ticket,
     tenantName: name,
     tenantPhone,
-    // A draft written to the ticket's tenant is replaced; with none, the thread's own draft is used.
-    tenantDraft: ticket.tenantDraft?.trim()
-      ? `Beste ${greetingName(name)}, we hebben je bericht ontvangen en komen er zo snel mogelijk op terug. Met vriendelijke groet, Harjot`
-      : ticket.tenantDraft,
+    // A draft written to the ticket's tenant is dropped rather than replaced by a generic template.
+    tenantDraft: ticket.tenantDraft?.trim() ? "" : ticket.tenantDraft,
   };
 }

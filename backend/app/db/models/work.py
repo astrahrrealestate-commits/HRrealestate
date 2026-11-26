@@ -103,6 +103,8 @@ class DocumentRow(Base, CompanyScoped):
     suspicious: Mapped[bool] = mapped_column(
         default=False, server_default=false()
     )  # injection scan hit: not draft context
+    # Company reference library (M13): general terms readable by every dossier. Set by the owner, never by the pipeline.
+    is_reference: Mapped[bool] = mapped_column(default=False, server_default=false())
     index_version: Mapped[str | None] = mapped_column(String(8))  # chunking/embedding recipe of this document's chunks
     doc_embedding: Mapped[Any | None] = mapped_column(
         Vector(EMBEDDING_DIMENSIONS)

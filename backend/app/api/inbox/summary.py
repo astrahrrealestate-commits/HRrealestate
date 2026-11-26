@@ -7,7 +7,8 @@ drafts, attachments, provider ids (a WhatsApp thread id is the customer's phone 
 
 from typing import Any
 
-UNKNOWN_CONTACT = "Unknown contact"
+from app.context.sender_label import UNKNOWN_CONTACT as UNKNOWN_CONTACT
+from app.context.sender_label import safe_name as safe_name
 
 HEADLINE_KEYS = (
     "id",
@@ -32,14 +33,6 @@ HEADLINE_KEYS = (
     "status",
 )
 UNDERSTANDING_KEYS = ("ticket", "problem", "unit", "priority")
-
-
-def safe_name(name: str) -> str:
-    """A contact may be named after their email or number (they were created from a message); that is contact data."""
-    shown = name.strip()
-    if "@" in shown or sum(c.isdigit() for c in shown) >= 6:
-        return UNKNOWN_CONTACT
-    return shown or UNKNOWN_CONTACT
 
 
 def headline_only(thread: dict[str, Any]) -> dict[str, Any]:

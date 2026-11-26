@@ -168,3 +168,38 @@ cases:
 - {name: reply-07, inputs: {text: "Make the draft for Sanne shorter"}, metadata: {group: reply, expected_in_scope: true, expected_intents: [draft_reply], expected_ref: "00000000-0000-0000-0000-000000000001", must_not_include: [pause, resume, task_done, create_task, chase_now]}}
 - {name: reply-08, inputs: {text: "Translate the draft for Piet into Dutch"}, metadata: {group: reply, real_only: true, expected_in_scope: true, expected_intents: [draft_reply], expected_ref: "00000000-0000-0000-0000-000000000002", must_not_include: [pause, resume, task_done, create_task, chase_now]}}
 - {name: multi-01, inputs: {text: "mark #a1b2c3 done, remember that rent is due on the 1st, and book the plumber Thursday at ten"}, metadata: {group: multi, real_only: true, expected_in_scope: true, expected_intents: [task_done, remember, calendar], must_not_include: [rent_status, pause, resume, draft_reply, chase_now]}}
+# --- concierge/v10 (M13 T15): `inputs.entities` is the server-resolved <entities> block (people, units, open and
+# closed cases matched to names in the message), `inputs.history` the earlier turns. The entity case ids …0005-…0009
+# are NOT in the brief, so naming one proves the plan used <entities>. from_version 10: older prompts never see them.
+- name: ent-01
+  inputs:
+    text: "What is the status of her case?"
+    history: ["owner: Is the boiler at Dorpsstraat 54 E fixed yet?", "assistant: Not yet. Jane Smith reported error F28 and the plumber visit is not booked."]
+    entities: "person: 00000000-0000-0000-0000-000000000a01 | Jane Smith (tenant)\nunit: 00000000-0000-0000-0000-000000000b01 | Dorpsstraat 54 E\ncase: 00000000-0000-0000-0000-000000000005 | open | Boiler shows error F28 at Dorpsstraat 54 E"
+  metadata: {group: entities, from_version: 10, real_only: true, expected_in_scope: true, expected_intents: [case_status], expected_ref: "00000000-0000-0000-0000-000000000005", must_not_include: *state}
+- name: ent-02
+  inputs:
+    text: "What happened with the roof leak at Keizersgracht 42-A?"
+    entities: "unit: 00000000-0000-0000-0000-000000000b02 | Keizersgracht 42-A\ncase: 00000000-0000-0000-0000-000000000006 | closed | Leaking roof at Keizersgracht 42-A, repaired in October"
+  metadata: {group: entities, from_version: 10, real_only: true, expected_in_scope: true, expected_intents: [case_status], expected_ref: "00000000-0000-0000-0000-000000000006", must_not_include: *state}
+- name: ent-03
+  inputs:
+    text: "Chase Bakker for the quote"
+    entities: "person: 00000000-0000-0000-0000-000000000a03 | Jan Bakker (contractor)\ncase: 00000000-0000-0000-0000-000000000007 | open | Bathroom sealant and drain at Kerkstraat 12-2, waiting for Bakker's quote"
+  metadata: {group: reply, from_version: 10, real_only: true, expected_in_scope: true, expected_intents: [chase_now], expected_ref: "00000000-0000-0000-0000-000000000007", must_not_include: [pause, resume, task_done, create_task]}
+- name: ent-04
+  inputs:
+    text: "What is the status of Jan's case?"
+    entities: "person: 00000000-0000-0000-0000-000000000a04 | Jan de Vries (tenant)\nperson: 00000000-0000-0000-0000-000000000a05 | Jan Smit (tenant)\ncase: 00000000-0000-0000-0000-000000000008 | open | Jan de Vries: rent question at Zeestraat 7\ncase: 00000000-0000-0000-0000-000000000009 | open | Jan Smit: broken window at Dorpsstraat 54 E"
+  metadata: {group: entities, from_version: 10, real_only: true, expected_in_scope: true, expected_intents: [clarify], must_not_include: [task_done, task_snooze, pause, resume, draft_reply, chase_now]}
+- name: ent-05
+  inputs:
+    text: "What exactly did Bakker write about the drain?"
+    entities: "person: 00000000-0000-0000-0000-000000000a03 | Jan Bakker (contractor)\ncase: 00000000-0000-0000-0000-000000000007 | open | Bathroom sealant and drain at Kerkstraat 12-2, waiting for Bakker's quote"
+  metadata: {group: entities, from_version: 10, real_only: true, expected_in_scope: true, expected_intents: [answer], expect_research: true, must_not_include: *state}
+- name: ent-06
+  inputs:
+    text: "And what does the law say about raising his rent by 10% next year?"
+    history: ["owner: What does Jan de Vries pay for Zeestraat 7?", "assistant: Jan de Vries pays 980 euro basic rent for Zeestraat 7."]
+    entities: "person: 00000000-0000-0000-0000-000000000a04 | Jan de Vries (tenant)\nunit: 00000000-0000-0000-0000-000000000b03 | Zeestraat 7"
+  metadata: {group: entities, from_version: 10, real_only: true, expected_in_scope: true, expected_intents: [answer], expect_research: true, must_not_include: *state}

@@ -3,6 +3,7 @@
 import re
 from dataclasses import asdict
 from datetime import date, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -56,12 +57,15 @@ def answer(ctx: Ctx, step: PlanStep) -> StepResult:
 def _researched_answer(ctx: Ctx, step: PlanStep) -> StepResult | None:
     if not ctx.needs_research or ctx.research is None:
         return None
-    found = ctx.research(ctx.company_id, ctx.question, ctx.page)
+    found = ctx.research(ctx.company_id, ctx.question, ctx.page, ctx.history)
     text = screen_reply(found.answer) if found is not None else None
     if found is None or text is None:
         return None
     log.info("concierge.researched_reply", company_id=str(ctx.company_id), steps=len(found.steps))
-    return StepResult(step.intent, True, text, {"steps": list(found.steps)} if found.steps else None, None)
+    data: dict[str, Any] = {"steps": list(found.steps)} if found.steps else {}
+    if found.sources:
+        data["sources"] = [s.model_dump() for s in found.sources]
+    return StepResult(step.intent, True, text, data or None, None)
 
 
 def _owner_qa_answer(ctx: Ctx, step: PlanStep) -> StepResult:

@@ -6,12 +6,14 @@ from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
-from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
+from pydantic_ai import Agent
+from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.models.test import TestModel
 
 from app.core.errors import BudgetExceededError
 from app.core.settings import Settings
-from app.superagent import research
+from app.superagent import lookups, research
 
 
 def _settings(model: str = "google-gla:gemini-2.5-flash") -> Settings:
@@ -32,7 +34,8 @@ def _scripted(calls: list[tuple[str, dict[str, Any]]], final: str, seen: dict[st
         if returned < len(calls):
             name, args = calls[returned]
             return ModelResponse(parts=[ToolCallPart(name, args)])
-        return ModelResponse(parts=[TextPart(final)])
+        answer = {"answer": final, "sources": ["q1"], "found": True}  # q1: the database lookup, if one ran
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, answer)])
 
     return FunctionModel(model)
 
@@ -42,6 +45,7 @@ def rows(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     out: list[Any] = []
     monkeypatch.setattr(research, "check_budget", lambda *a, **k: None)
     monkeypatch.setattr(research, "record_call", lambda _e, row: out.append(row))
+    monkeypatch.setattr(research, "named_people", lambda *a: ())
     monkeypatch.setattr(research, "_database", lambda deps, question: ("2 units are vacant.", 2))
     monkeypatch.setattr(research, "_messages", lambda deps, query: ("Pieter: boiler is still broken", 1))
     monkeypatch.setattr(research, "_documents", lambda deps, query: ("", 0))
@@ -84,10 +88,13 @@ def test_tool_results_reach_the_model_as_escaped_data_blocks(rows: list[Any], mo
 def test_tools_take_no_company_or_recipient_argument(rows: list[Any], monkeypatch: pytest.MonkeyPatch) -> None:
     seen: dict[str, Any] = {}
     _run(_scripted([], "hi", seen), monkeypatch)
-    assert set(seen["tools"]) == {"query_database", "search_communications", "search_documents"}
+    assert set(seen["tools"]) == {
+        "query_database", "search_communications", "search_documents", "search_web",
+        "open_message", "open_thread", "open_document", "open_person",
+    }  # fmt: skip
     for tool in seen["tools"].values():
         props = set(tool.parameters_json_schema["properties"])
-        assert props.isdisjoint({"company_id", "recipient", "phone", "email", "sql"})
+        assert props.isdisjoint({"company_id", "recipient", "phone", "email", "sql", "id", "url"})
 
 
 def test_company_comes_from_the_server_not_the_model(rows: list[Any], monkeypatch: pytest.MonkeyPatch) -> None:
@@ -109,13 +116,16 @@ def test_a_model_supplied_company_id_is_rejected_and_never_reaches_a_search(
     assert "UnexpectedModelBehavior" in (rows[0].error or "")
 
 
-def test_a_fourth_tool_call_is_refused_and_the_run_degrades_to_none(
+def test_a_call_past_the_cap_is_refused_and_the_run_still_answers(
     rows: list[Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    calls = [("query_database", {"question": f"q{i}"}) for i in range(5)]
-    assert _run(_scripted(calls, "never"), monkeypatch) is None
-    assert len(rows) == 1
-    assert rows[0].error is not None
+    calls = [("query_database", {"question": f"q{i}"}) for i in range(research.MAX_TOOL_CALLS + 1)]
+    seen: dict[str, Any] = {}
+    result = _run(_scripted(calls, "With what I have: two.", seen), monkeypatch)
+    assert result is not None
+    assert result.answer == "With what I have: two."
+    assert research.NO_MORE_LOOKUPS in str(seen["returns"][-1])
+    assert rows[0].error is None
 
 
 def test_offline_fake_model_skips_the_loop(rows: list[Any]) -> None:
@@ -155,14 +165,19 @@ def test_an_empty_answer_returns_none(rows: list[Any], monkeypatch: pytest.Monke
 def test_a_failed_run_keeps_the_steps_it_took_in_the_audit_row(
     rows: list[Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    calls = [("query_database", {"question": f"q{i}"}) for i in range(5)]
-    assert _run(_scripted(calls, "never"), monkeypatch) is None
-    assert len(rows[0].output["steps"]) == research.MAX_TOOL_CALLS
+    def model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        if any(isinstance(p, ToolReturnPart) for m in messages for p in getattr(m, "parts", [])):
+            raise RuntimeError("provider down")
+        return ModelResponse(parts=[ToolCallPart("query_database", {"question": "q"})])
+
+    assert _run(FunctionModel(model), monkeypatch) is None
+    assert rows[0].output["steps"] == ["Checked the database (2 rows)"]
+    assert "RuntimeError" in (rows[0].error or "")
 
 
 def test_database_wrapper_reports_a_failed_query_without_leaking_the_error(monkeypatch: pytest.MonkeyPatch) -> None:
     failed = MagicMock(ok=False, answer="Could not execute query safely: secret detail", row_count=0)
-    monkeypatch.setattr(research, "run_query_agent", lambda *a, **k: failed)
+    monkeypatch.setattr(lookups, "run_query_agent", lambda *a, **k: failed)
     deps = research.SuperAgentDeps(MagicMock(), _settings(), uuid4(), None)
     assert research._database(deps, "q") == (research.LOOKUP_FAILED, 0)
 
@@ -180,9 +195,28 @@ def test_message_wrapper_searches_the_servers_company_and_formats_one_line_per_h
         seen.update(company_id=company_id, query=query, limit=limit)
         return [hit]
 
-    monkeypatch.setattr(research, "search_messages", fake_search)
-    monkeypatch.setattr(research, "Session", lambda engine: MagicMock(__enter__=lambda s: s, __exit__=lambda *a: None))
+    monkeypatch.setattr(lookups, "search_messages", fake_search)
+    monkeypatch.setattr(lookups, "rerank_hits", lambda _e, _s, _c, _q, hits: hits)
+    monkeypatch.setattr(lookups, "Session", lambda engine: MagicMock(__enter__=lambda s: s, __exit__=lambda *a: None))
     company = uuid4()
     text, count = research._messages(research.SuperAgentDeps(MagicMock(), _settings(), company, None), "boiler")
-    assert (count, seen["company_id"], seen["query"], seen["limit"]) == (1, company, "boiler", research.MAX_HITS)
-    assert text == "2026-11-05 whatsapp | Pieter | Keizersgracht 42-A: boiler broken"
+    assert (count, seen["company_id"], seen["query"], seen["limit"]) == (1, company, "boiler", lookups.RERANK_TOP)
+    assert text == "[m1] 2026-11-05 whatsapp | Pieter | Keizersgracht 42-A: boiler broken"
+
+
+def test_the_research_rules_say_unverified_quotes_are_claims() -> None:
+    rules = research.RESEARCH_RULES.lower()
+    assert "not verified" in rules
+    assert "never" in rules.split("not verified", 1)[1][:300]
+
+
+def test_a_lookup_that_runs_its_own_model_call_works_inside_a_research_tool(
+    rows: list[Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Search reranks and plans with its own agent run; Pydantic AI refuses a sync run inside a sync tool's context,
+    so on real models every rerank failed and search fell back to its cheap path."""
+    inner = Agent(TestModel(custom_output_text="reranked: boiler still broken"))
+    monkeypatch.setattr(research, "_messages", lambda deps, query: (str(inner.run_sync(query).output), 1))
+    seen: dict[str, Any] = {}
+    _run(_scripted([("search_communications", {"query": "boiler"})], "Broken.", seen), monkeypatch)
+    assert "reranked: boiler still broken" in seen["returns"][0]

@@ -6,10 +6,12 @@ from uuid import UUID
 from sqlalchemy import Engine, exists, or_, select
 from sqlalchemy.orm import Session
 
+from app.context.message_origin import is_history
 from app.contracts import Direction, Suspicious, Understanding
 from app.core.errors import AgentFailedError, BudgetExceededError
 from app.core.logging import get_logger
 from app.core.settings import Settings
+from app.core.workflow_names import history_partition
 from app.db.enums import PipelineStatus, RawEventStatus
 from app.db.models import AttachmentRow, MessageRow, OwnerAccount, RawEvent, UnderstandingRow
 from app.llm.agents.understanding import (
@@ -79,7 +81,7 @@ def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> 
         wordless_with_files = not msg.text.strip() and bool(attachments)
 
     try:
-        ctx = CallContext(company_id=company_id, purpose="triage")
+        ctx = CallContext(company_id=company_id, purpose="triage", message_ids=(message_id,))
         res = run_agent(engine, settings, UNDERSTANDING, prompt_text, ctx)
         understanding_data = res.output
         if wordless_with_files and not understanding_data.requires_reply:
@@ -182,6 +184,13 @@ def requeue_candidates(engine: Engine, now: datetime) -> list[tuple[UUID, str]]:
         ).all()
     hour = f"{now:%Y%m%d%H}"
     return [(mid, f"pipe:{mid}:r{n}:{hour}") for mid, n in failed] + [(mid, f"pipe:{mid}:p{hour}") for mid in stranded]
+
+
+def history_partitions(engine: Engine, message_ids: list[UUID]) -> dict[UUID, str]:
+    """The history queue partition of each reloaded message among our own ids (live messages are absent)."""
+    with Session(engine) as session:
+        rows = session.scalars(select(MessageRow).where(MessageRow.id.in_(message_ids))).all()
+        return {m.id: history_partition(m.company_id, m.sender_identity) for m in rows if is_history(m)}
 
 
 def mark_pipeline_failed(engine: Engine, message_id: UUID, error: str) -> int:

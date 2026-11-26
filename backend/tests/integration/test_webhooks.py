@@ -472,7 +472,7 @@ def test_a_person_with_a_case_the_pipeline_already_opened_keeps_flowing(
         s.add(
             Case(
                 company_id=accounts.id,
-                category=Category.other,
+                category=Category.administration,
                 urgency=Urgency.normal,
                 state=CaseState.open,
                 primary_person_id=person_id,

@@ -625,3 +625,17 @@ def test_reply_to_names_the_sender_unless_it_is_one_of_our_mailboxes(env: Env) -
         row = message_for(env, raw.id)
         rows[row.meta["subject"]] = row.sender_identity
     assert rows == {"jan": "jan@example.test", "eigen": "tenant-001@example.test"}
+
+
+def test_mail_from_an_owner_address_is_marked_owner_authored_and_a_tenants_is_not(env: Env) -> None:
+    """Harjot's own mail copied into the mailbox is context, never mail to answer (From can be forged: the mark only
+    ever stops a draft, it grants nothing)."""
+    env.mailbox.add_message(_mail("kopie", sender=f"Harjot <{OWNER_EMAIL.upper()}>"), labels=["INBOX"])
+    env.mailbox.add_message(_mail("huurder"), labels=["INBOX"])
+    assert _sync(env, env.mailbox.current_history_id()) == 2
+    marks = {}
+    for raw in _gmail_raws(env):
+        assert wait(event_workflow_id(raw.id)) == "processed"
+        row = message_for(env, raw.id)
+        marks[row.meta["subject"]] = row.meta.get("owner_authored")
+    assert marks == {"kopie": True, "huurder": None}

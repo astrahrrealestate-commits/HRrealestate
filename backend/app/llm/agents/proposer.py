@@ -10,6 +10,8 @@ of the case's own documents in view (ADR 0008): that adds an `<excerpts>` block 
 A call that carries the owner's persona (his writing-style markdown, added as a `<persona>` block) uses `proposer/v4`,
 which handles every mode above. Production always loads the persona, so v1 to v3 stay published (immutable) and are
 used only by calls built without one (tests, evals of older versions).
+`proposer/v6` (M13) is v5 with Harjot's drafting standard instead of every acknowledgement rule, fed the whole dossier
+(`app.pipeline.dossier`) in place of `<message>`, `<waiting>` and `<excerpts>`; it runs on the quality tier.
 `proposer/v5` is v4 plus the sender's role (`<sender>`, ADR 0014): how to write to a tenant, a contractor, a lawyer, the
 VvE, a business or a prospect. Only prompts in `ROLE_AWARE_PROMPTS` are shown the block, so every earlier prompt stays
 byte-identical; `PROPOSER_PERSONA` moves to v5 once the proposer eval has run against a real model.
@@ -26,7 +28,8 @@ from app.llm.calls import AgentSpec
 from app.llm.prompts import LoadedPrompt
 from app.llm.render import data_block, escape
 
-ROLE_AWARE_PROMPTS = frozenset({"v5"})
+ROLE_AWARE_PROMPTS = frozenset({"v5", "v6"})
+DOSSIER_PROMPTS = frozenset({"v6"})  # the dossier replaces <message>, <waiting> and <excerpts>
 MAX_PERSONA_CHARS = 8000  # the persona markdown's limit (a data block holds at most this many characters)
 
 
@@ -64,6 +67,10 @@ class ProposerContext:
     person_profile: str | None = None
     persona: Persona | None = None  # the owner's writing persona (v4 prompt)
     sender_kind: str | None = None  # who wrote, from the directory then the model's role (a SenderKind value; v5)
+    dossier: Sequence[str] = ()  # rendered dossier blocks (v6): thread, attachments, documents, memory, current mail
+    brixx_ref: str | None = None
+    brixx_needed: bool = False  # a maintenance case with no BRIXX work order yet (a fact for v6, not an instruction)
+    quality_feedback: str | None = None  # why the previous attempt was rejected (one retry, draft_quality)
 
     @property
     def guided(self) -> bool:
@@ -106,13 +113,23 @@ PROPOSER_PERSONA = AgentSpec(
     gemini_prompted=True,
     thinking="minimal",
 )
+PROPOSER_V6 = AgentSpec(  # M13: Harjot's drafting standard over the whole dossier, on the quality tier
+    name="proposer",
+    prompt=PromptRef(name="proposer", version="v6"),
+    output_type=Proposal,
+    finalize=_unchanged,
+    gemini_prompted=True,
+)
 MAX_GUIDANCE = 400  # the planner's `text` limit
 MAX_CURRENT_VARIANT = 1500
 
 
 def proposer_spec(ctx: ProposerContext) -> AgentSpec[Proposal]:
-    """v4 whenever the owner's persona is given; otherwise v2 only for an owner-requested draft (guidance or a draft to
+    """v6 whenever a dossier is given (every pipeline proposal and owner redraft since M13); v4 whenever the owner's
+    persona is given; otherwise v2 only for an owner-requested draft (guidance or a draft to
     replace), v3 when the case's own documents are in view (ADR 0008), v1 for everything else."""
+    if ctx.dossier:
+        return PROPOSER_V6
     if ctx.persona is not None:
         return PROPOSER_PERSONA
     if ctx.guided:
@@ -137,6 +154,25 @@ def _sender_block(ctx: ProposerContext, version: str) -> list[str]:
     return [f"<sender>\nrole: {escape(ctx.sender_kind, 'sender')}\n</sender>"]
 
 
+def _brixx(ctx: ProposerContext) -> str:
+    if ctx.brixx_ref:
+        return f"\nBRIXX work order: #{ctx.brixx_ref}"
+    return "\nBRIXX work order: none yet" if ctx.brixx_needed else ""
+
+
+def _dossier_prompt(ctx: ProposerContext, case: str, version: str) -> str:
+    u = ctx.understanding
+    data = f"Subject: {ctx.subject or '-'}\nIntent: {u.intent}\nCase summary: {ctx.case_summary or 'none'}{_brixx(ctx)}"
+    feedback = [data_block("quality_feedback", ctx.quality_feedback)] if ctx.quality_feedback else []
+    persona = [data_block("persona", ctx.persona.text, MAX_PERSONA_CHARS)] if ctx.persona else []
+    return "\n".join(
+        [
+            f"<mode>{ctx.mode}</mode>", case, *_sender_block(ctx, version), *persona, data_block("data", data),
+            _contractors(ctx.contractors), *ctx.dossier, *_guided_blocks(ctx), *feedback,
+        ]
+    )  # fmt: skip
+
+
 def proposer_prompt(ctx: ProposerContext, version: str | None = None) -> str:
     """`version` defaults to the prompt `proposer_spec(ctx)` would load; evals pass the version they are scoring."""
     u = ctx.understanding
@@ -144,6 +180,9 @@ def proposer_prompt(ctx: ProposerContext, version: str | None = None) -> str:
         f"<case>\ncase_id: {ctx.case_id}\nchannel: {ctx.channel.value}\nstate: {ctx.case_state}\n"
         f"category: {u.category.value}\nurgency: {u.urgency.value}\n</case>"
     )
+    version = version or proposer_spec(ctx).prompt.version
+    if version in DOSSIER_PROMPTS:
+        return _dossier_prompt(ctx, case, version)
     profile_block = [data_block("person_profile", ctx.person_profile)] if ctx.person_profile else []
     persona_block = [data_block("persona", ctx.persona.text, MAX_PERSONA_CHARS)] if ctx.persona else []
     data = f"Subject: {ctx.subject or '-'}\nIntent: {u.intent}\nCase summary: {ctx.case_summary or 'none'}"
@@ -152,7 +191,7 @@ def proposer_prompt(ctx: ProposerContext, version: str | None = None) -> str:
         [
             f"<mode>{ctx.mode}</mode>",
             case,
-            *_sender_block(ctx, version or proposer_spec(ctx).prompt.version),
+            *_sender_block(ctx, version),
             *persona_block,
             *profile_block,
             data_block("data", data),

@@ -26,84 +26,36 @@ export interface StalledItem {
   proposedActionDraft: string;
 }
 
-export const INITIAL_STALLED_ITEMS: StalledItem[] = [
-  {
-    id: "stall-1",
-    type: "contractor_stalled",
-    unitLabel: "Singel 412",
-    partyName: "FastFix Loodgieters",
-    partyRole: "Contractor · Heating & Plumbing",
-    contact: "+31 20 555 0199",
-    subject: "Radiator valve quote · Dispatched 3 days ago",
-    remindersSentCount: 1,
-    lastMessageSent: "3 days ago via Email",
-    daysStalled: 3,
-    statusBadge: "Awaiting quote response",
-    proposedActionLabel: "Send nudge",
-    proposedActionDraft:
-      "Beste FastFix, heeft u al gelegenheid gehad om naar de offerte voor de radiatorkranen op Singel 412 te kijken? We horen het graag. Groet, H R Real Estate.",
-  },
-  {
-    id: "stall-2",
-    type: "unpaid_rent",
-    unitLabel: "Keizersgracht 42-A",
-    partyName: "Anouk de Jong",
-    partyRole: "Tenant",
-    contact: "+31 6 49 18 27 36",
-    subject: "October rent overdue · 14-day statutory threshold",
-    amount: 2150.0,
-    remindersSentCount: 2,
-    lastMessageSent: "3 days ago via WhatsApp",
-    daysStalled: 11,
-    statusBadge: "2 reminders sent",
-    proposedActionLabel: "Send demand notice",
-    proposedActionDraft:
-      "Beste Anouk, ondanks eerdere herinneringen staat de huur van € 2.150,- voor Keizersgracht 42-A nog open. Gelieve binnen 5 werkdagen te voldoen om verdere incassomaatregelen te voorkomen. Groet, H R Real Estate.",
-  },
-  {
-    id: "stall-3",
-    type: "unpaid_rent",
-    unitLabel: "Prinsengracht 118 B",
-    partyName: "Daan Vermeulen",
-    partyRole: "Tenant",
-    contact: "daan.vermeulen@gmail.com",
-    subject: "October rent overdue · Email reminder unread",
-    amount: 1890.0,
-    remindersSentCount: 1,
-    lastMessageSent: "4 days ago via Email",
-    daysStalled: 9,
-    statusBadge: "Email unopened",
-    proposedActionLabel: "Send reminder",
-    proposedActionDraft:
-      "Hoi Daan, we zagen dat de huur van € 1.890,- voor Prinsengracht 118 B nog openstaat. Lukt het om dit vandaag via iDEAL over te maken? Groet, H R Real Estate.",
-  },
-  {
-    id: "stall-4",
-    type: "moveout_pending",
-    unitLabel: "Henry Dunantweg 5 F",
-    partyName: "Lars van den Berg",
-    partyRole: "Tenant",
-    contact: "lars@vandenberg.nl",
-    subject: "Pre-inspection booking link pending · 5 days without response",
-    remindersSentCount: 1,
-    lastMessageSent: "5 days ago via Email",
-    daysStalled: 5,
-    statusBadge: "Handover pending",
-    proposedActionLabel: "Resend link",
-    proposedActionDraft:
-      "Beste Lars, ter herinnering voor je opzegging per 31 december: gelieve via deze link de voorinspectie in te plannen voor de sleuteloverdracht. Groet, H R Real Estate.",
-  },
-];
-
 interface UnresponsiveRadarCardProps {
   items?: StalledItem[];
+  isLive?: boolean;
   onActionTriggered?: (item: StalledItem) => void;
 }
 
-export function UnresponsiveRadarCard({ items: propItems, onActionTriggered }: UnresponsiveRadarCardProps) {
-  const items = propItems && propItems.length > 0 ? propItems : INITIAL_STALLED_ITEMS;
+export function UnresponsiveRadarCard({
+  items: propItems,
+  isLive = true,
+  onActionTriggered,
+}: UnresponsiveRadarCardProps) {
+  const items = propItems ?? [];
   const [filterType, setFilterType] = useState<"all" | "unpaid_rent" | "contractor_stalled">("all");
   const [resolvedIds, setResolvedIds] = useState<Record<string, boolean>>({});
+
+  if (!isLive) {
+    return (
+      <Card className="space-y-2" data-testid="radar-offline">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-[16px] font-semibold text-[#0A0A0A] leading-tight">
+            Unresponsive cases
+          </h3>
+          <Pill variant="default">Offline</Pill>
+        </div>
+        <p className="text-[12.5px] text-[#666666]">
+          Radar offline. Connect to the backend to load overdue follow-ups and stalled work orders.
+        </p>
+      </Card>
+    );
+  }
 
   const filteredItems = items.filter((item) => {
     if (filterType === "all") return true;

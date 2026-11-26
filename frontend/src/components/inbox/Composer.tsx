@@ -11,6 +11,7 @@ import { DraftOption } from "@/types/dashboard";
 import { DraftPersona } from "@/types/inbox";
 import { createGmailDraft, translateText } from "@/lib/api";
 import { TranslationToggle } from "@/components/inbox/TranslationToggle";
+import { DraftCommitments } from "@/components/inbox/DraftCommitments";
 import { formatClock } from "@/lib/clock";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { useLanguage } from "@/context/LanguageContext";
@@ -352,6 +353,8 @@ export function Composer({
   // State 1: AI draft available or matching draft text (only if not already sent)
   const hasDraft = !isSent && (Boolean(draftText) || Boolean(content.trim() && drafts.length > 0));
   const isMobileDraftsOpen = hasDraft && expandedDraftThreadKey === key;
+  const activeDraft = drafts.find((d, idx) => getDraftKey(d, idx) === selectedDraftId) ?? drafts[0];
+  const activeCommitments = hasDraft ? (activeDraft?.commitments ?? []) : [];
 
   // Auto-grow and auto-shrink all inline reply boxes smoothly with content (Gmail-style inline sizing).
   useEffect(() => {
@@ -537,6 +540,8 @@ export function Composer({
                 </div>
               </div>
             )}
+
+            <DraftCommitments commitments={activeCommitments} />
 
             {/* Single-Line / Auto-Growing WhatsApp-Style Chat Input Bar (Pre-filled with Draft 1 when available) */}
             <div className="flex items-end gap-2">
@@ -787,6 +792,9 @@ export function Composer({
               </div>
             </div>
 
+            {/* Commitments made by this reply, right above Approve */}
+            <DraftCommitments commitments={activeCommitments} />
+
             {/* Single Side-by-Side Bottom Action Row */}
             <div className="flex items-center gap-2">
               {activeChannel === "whatsapp" && cleanPhone && (
@@ -838,62 +846,65 @@ export function Composer({
         >
           <div
             className={cn(
-              "w-full flex items-center justify-between gap-3 px-4 py-3 rounded-[16px] border transition-all",
+              "w-full flex flex-col overflow-hidden rounded-[16px] border transition-all",
               hasDraft
                 ? "border-[#93C5FD] bg-gradient-to-r from-[#EFF6FF] via-[var(--pane)] to-[var(--pane)] shadow-[0_12px_34px_rgba(26,115,232,0.18)] ring-1 ring-[#1a73e8]/15"
                 : "border-[var(--line)] bg-[var(--pane)] shadow-[0_10px_28px_rgba(10,27,47,0.11)] hover:shadow-[0_12px_32px_rgba(10,27,47,0.14)]"
             )}
           >
-            <button
-              type="button"
-              onClick={() => {
-                desktopCollapsedByThread.current[key] = false;
-                setIsDesktopExpanded(true);
-                setTimeout(() => desktopTextareaRef.current?.focus(), 40);
-              }}
-              className="flex-1 flex items-center gap-2.5 min-w-0 text-left px-1.5 py-1 rounded-[10px] hover:bg-black/[0.03] transition-colors cursor-pointer"
-            >
-              {hasDraft && (
-                <span className="w-7 h-7 rounded-full bg-[#1a73e8]/12 text-[#1a73e8] inline-flex items-center justify-center shrink-0">
-                  <AstraIcon className="w-4 h-4" />
-                </span>
-              )}
-              <span className="truncate text-[13.5px] text-[var(--ink-2)]">
-                {hasDraft ? (
-                  <>
-                    <strong className="font-semibold text-[#0A1B2F]">AI Draft ready ({drafts.length}):</strong>{" "}
-                    <span>&ldquo;{(content || drafts[0]?.text || "").replace(/\s+/g, " ").slice(0, 110)}...&rdquo;</span>
-                  </>
-                ) : (
-                  t("inbox.reply_placeholder", "Click to reply...")
-                )}
-              </span>
-            </button>
-
-            <div className="flex items-center gap-2 shrink-0">
-              <Button
-                variant="ghost"
-                size="sm"
+            <DraftCommitments commitments={activeCommitments} />
+            <div className="w-full flex items-center justify-between gap-3 px-4 py-3">
+              <button
+                type="button"
                 onClick={() => {
                   desktopCollapsedByThread.current[key] = false;
                   setIsDesktopExpanded(true);
                   setTimeout(() => desktopTextareaRef.current?.focus(), 40);
                 }}
-                className="h-9 px-3 text-[12.5px] border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] rounded-[10px]"
+                className="flex-1 flex items-center gap-2.5 min-w-0 text-left px-1.5 py-1 rounded-[10px] hover:bg-black/[0.03] transition-colors cursor-pointer"
               >
-                {hasDraft ? t("Edit") : "Reply"}
-              </Button>
-              {hasDraft && (
+                {hasDraft && (
+                  <span className="w-7 h-7 rounded-full bg-[#1a73e8]/12 text-[#1a73e8] inline-flex items-center justify-center shrink-0">
+                    <AstraIcon className="w-4 h-4" />
+                  </span>
+                )}
+                <span className="truncate text-[13.5px] text-[var(--ink-2)]">
+                  {hasDraft ? (
+                    <>
+                      <strong className="font-semibold text-[#0A1B2F]">AI Draft ready ({drafts.length}):</strong>{" "}
+                      <span>&ldquo;{(content || drafts[0]?.text || "").replace(/\s+/g, " ").slice(0, 110)}...&rdquo;</span>
+                    </>
+                  ) : (
+                    t("inbox.reply_placeholder", "Click to reply...")
+                  )}
+                </span>
+              </button>
+
+              <div className="flex items-center gap-2 shrink-0">
                 <Button
-                  variant="primary"
+                  variant="ghost"
                   size="sm"
-                  onClick={handleAccept}
-                  className="h-9 px-3.5 text-[12.5px] font-bold rounded-[10px] shadow-xs"
-                  icon={<AstraIcon className="w-3.5 h-3.5" />}
+                  onClick={() => {
+                    desktopCollapsedByThread.current[key] = false;
+                    setIsDesktopExpanded(true);
+                    setTimeout(() => desktopTextareaRef.current?.focus(), 40);
+                  }}
+                  className="h-9 px-3 text-[12.5px] border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] rounded-[10px]"
                 >
-                  {t("inbox.approve_draft", "Accept & send")}
+                  {hasDraft ? t("Edit") : "Reply"}
                 </Button>
-              )}
+                {hasDraft && (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleAccept}
+                    className="h-9 px-3.5 text-[12.5px] font-bold rounded-[10px] shadow-xs"
+                    icon={<AstraIcon className="w-3.5 h-3.5" />}
+                  >
+                    {t("inbox.approve_draft", "Accept & send")}
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1043,6 +1054,9 @@ export function Composer({
                 className="w-full min-h-[104px] text-[13.5px] px-3.5 py-2 bg-transparent border-0 text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none resize-y leading-relaxed"
               />
             </div>
+
+            {/* Commitments made by this reply, shown right above Approve */}
+            <DraftCommitments commitments={activeCommitments} />
 
             {/* Integrated Bottom Toolbar */}
             <div className="px-2.5 py-1.5 border-t border-[var(--line)] bg-[var(--bg)]/40 flex flex-wrap items-center justify-between gap-1.5">

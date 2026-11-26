@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/context/LanguageContext";
+import { DocumentLibrarySection } from "@/components/knowledge/DocumentLibrarySection";
 import {
   getOwnerPersona,
   resetOwnerPersona,
@@ -478,6 +479,8 @@ function KnowledgeContent() {
                 </p>
               </div>
             </div>
+
+            <DocumentLibrarySection />
           </div>
         </main>
       </div>
@@ -508,4 +511,3 @@ export default function KnowledgePage() {
     </Suspense>
   );
 }
-

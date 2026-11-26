@@ -178,16 +178,20 @@ def open_wait(
     return wait.id
 
 
-def mark_received(session: Session, company_id: UUID, case_id: UUID, party_person_id: UUID) -> list[UUID]:
-    """The party answered on this case: close its open waits and cancel their pending timers."""
-    waits = session.scalars(
-        select(WaitRow).where(
-            WaitRow.company_id == company_id,
-            WaitRow.case_id == case_id,
-            WaitRow.party_person_id == party_person_id,
-            WaitRow.status == WaitStatus.waiting,
-        )
-    ).all()
+def mark_received(
+    session: Session, company_id: UUID, case_id: UUID, party_person_id: UUID, *, sent_at: datetime | None = None
+) -> list[UUID]:
+    """The party answered on this case: close its open waits and cancel their pending timers. With `sent_at`, only the
+    waits opened before that: a mail written before we asked is no answer."""
+    query = select(WaitRow).where(
+        WaitRow.company_id == company_id,
+        WaitRow.case_id == case_id,
+        WaitRow.party_person_id == party_person_id,
+        WaitRow.status == WaitStatus.waiting,
+    )
+    if sent_at is not None:
+        query = query.where(WaitRow.created_at <= sent_at)
+    waits = session.scalars(query).all()
     for wait in waits:
         wait.status = WaitStatus.received
         timers.cancel(session, company_id, f"wait:{wait.id}:{wait.chase_count}")

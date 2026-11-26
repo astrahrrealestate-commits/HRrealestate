@@ -75,11 +75,12 @@ contracts, core}`. Only `sender` imports `channels.*.outbound`. `contracts` and 
 4. Worker `process_event` workflow; each step is checkpointed:
    1. `normalise` → `Message` + attachments to S3 (step; completes the row the webhook already stored)
    2. route: sender is an owner number → `owner_reply` workflow; sender not a known contact → stop (Chats only); else continue
-   3. `understand` → Pydantic AI agent → `Understanding` (step; `model_calls` row + Langfuse trace)
+   3. `understand` → Pydantic AI agent → `Understanding` over the 6 business categories (+ internal `spam`)
    4. `link_case` → identity → person → unit → lease → existing open case or new (transaction)
-   5. `propose` → agent → `Action`s with 2–3 drafts (step)
-   6. `apply_rules` → pure function → `pending_approval` | `exception` (suspicious) | `paused` (company paused)
-   7. `notify_owner` → enqueue `execute_action(notify_owner …)` (sender path)
+   5. `prepare` (`app/workflows/prepare.py`): read attachments (purging ID-document text), review vendor/contractor quotes against catalog and market references, and — in live mode (`history=False`) — run quality-tier draft research for open questions
+   6. `propose` (`history=False` only; `history=True` stops before proposing) → dossier-backed `proposer/v6` → `Action`s with drafts and extracted `commitments`
+   7. `apply_rules` → pure function → `pending_approval` | `exception` (suspicious) | `paused` (company paused)
+   8. `notify_owner` → enqueue `execute_action(notify_owner …)` (sender path)
 
 ### 4.2 Inbound email
 Pub/Sub push → verify OIDC JWT (google-auth) → enqueue `gmail_sync(mailbox, history_id)` with workflow id
@@ -120,6 +121,11 @@ actions and Super Agent turns stranded by a crash between commit and enqueue (24
 | 07:30 briefing (company tz) | rows in the same `timers` table, rescheduled after each run, so timezone and DST are handled in our code |
 | Gmail watch renewal | DBOS cron daily |
 | Outcome capture | DBOS cron every 15 min: Sent-folder diff + echo matching |
+
+### 4.6 Search, Astra and Today Category Desk (M13)
+- **Message search** fuses all-words, any-words (with a Dutch/English glossary excluding header words) and vector similarity (`gemini-embedding-001` query vs document task types), then reranks matching chunks for Astra with redaction (`model_calls` stores sizes only).
+- **Astra turn** (`app/super_agent/`): resolves portfolio entities (`rapidfuzz`), loads the last 12 turns + conversation summary block, runs read-only research tools (`open_message`, `open_thread`, `open_document`, `open_person`, `search_web` with guarded page fetch) within `SUPER_AGENT_DEADLINE_SEC` (35 s), and emits answers backed strictly by returned short references (`m1`, `d2`, `w1`, `q1`, `p1`).
+- **Today Category Desk** (`GET /api/dashboard/categories`, `/{cat}`): ranks pending approvals, flagged quotes, overdue waits, awaiting replies, document reviews and BRIXX attention items across the 6 business categories; the frontend renders server order without inline approvals or demo fallbacks.
 
 ## 5. Data
 Schema per M1 spec (24 domain tables). DBOS keeps its own tables in schema `dbos` in the same database, so one backup

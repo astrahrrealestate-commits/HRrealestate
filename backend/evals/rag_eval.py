@@ -97,7 +97,7 @@ def _people(s: Session, cid: UUID) -> tuple[dict[str, UUID], dict[str, UUID]]:
         s.add(lease)
         s.flush()
         case = Case(company_id=cid, unit_id=unit.id, lease_id=lease.id, primary_person_id=person.id,
-                    state=CaseState.open, category=Category.other, urgency=Urgency.normal)  # fmt: skip
+                    state=CaseState.open, category=Category.administration, urgency=Urgency.normal)  # fmt: skip
         s.add(case)
         s.flush()
         people[key], cases[key] = person.id, case.id
@@ -229,7 +229,7 @@ def _purge(engine: Engine, company_id: UUID) -> None:  # pragma: no cover
 def main() -> int:  # pragma: no cover  (needs a scratch database and, for real runs, provider keys)
     from app.db.session import make_engine
     from app.llm.embeddings import build_embedder
-    from evals.common import eval_settings
+    from evals.common import eval_settings, write_rag_report
 
     settings = eval_settings()
     engine = make_engine(settings.sqlalchemy_url)
@@ -247,6 +247,8 @@ def main() -> int:  # pragma: no cover  (needs a scratch database and, for real 
             scores = score(outcomes)
             sys.stdout.write(f"\n{label}\n" + "\n".join(f"  {k}: {v:.2f}" for k, v in scores.items()) + "\n")
         misses = [o for o in hybrid if not (o.context_hit or o.fact_ok or o.abstained)]
+        write_rag_report("document-rag", settings.embedding_model, settings.llm_model, score(hybrid),
+                         [f"[{o.question.group}] {o.question.text}" for o in misses])  # fmt: skip
         sys.stdout.write("\nmisses:\n" + "\n".join(f"  [{o.question.group}] {o.question.text}" for o in misses) + "\n")
     finally:
         _purge(engine, company_id)

@@ -3,9 +3,12 @@
 import json
 import re
 import threading
+from collections.abc import Sequence
 from functools import lru_cache
+from uuid import UUID
 
 from googleapiclient.discovery import build
+from sqlalchemy import Engine
 
 from app.channels import google_store
 from app.channels.brixx.fake import FakeBrixxApi
@@ -22,6 +25,7 @@ from app.channels.gmail.push import (
     local_push_verifier,
 )
 from app.channels.google_chat.verifier import ChatVerifier
+from app.channels.prices.gemini_search import GeminiSearchClient
 from app.channels.prices.search import FakeSearchClient, SearchClient, UnconfiguredSearchClient
 from app.channels.whatsapp.fake_media import DirWhatsAppMedia
 from app.channels.whatsapp.media import HttpWhatsAppMedia, WhatsAppMedia
@@ -206,8 +210,16 @@ def brixx_api(settings: Settings) -> BrixxApi:
     )
 
 
-def search_client(settings: Settings) -> SearchClient:
-    """The web-search adapter for `price_search_provider`. A real provider adds its case here."""
+def search_client(
+    settings: Settings,
+    engine: Engine | None = None,
+    company_id: UUID | None = None,
+    allowed_domains: Sequence[str] = (),
+) -> SearchClient:
+    """The web-search adapter for `price_search_provider`. With `engine` and `company_id` a Gemini search is recorded
+    in `model_calls` and counts against the budget; `allowed_domains` limits the pages it may return."""
     if settings.price_search_provider == "fake":
         return FakeSearchClient()
+    if settings.price_search_provider == "gemini":
+        return GeminiSearchClient(settings, engine=engine, company_id=company_id, allowed_domains=allowed_domains)
     return UnconfiguredSearchClient()

@@ -21,12 +21,12 @@ export const inboxTranslations = {
   "inbox.portal": { en: "Portal", nl: "Portaal" },
 
   "inbox.filter_type": { en: "Type", nl: "Type" },
-  "inbox.repairs": { en: "Repairs", nl: "Reparaties" },
-  "inbox.rent_money": { en: "Rent & Money", nl: "Huur & Financiën" },
-  "inbox.lease": { en: "Lease", nl: "Huurcontract" },
-  "inbox.complaint": { en: "Complaint", nl: "Klacht" },
-  "inbox.contractor_updates": { en: "Contractor", nl: "Aannemer" },
-  "inbox.admin": { en: "Admin", nl: "Administratie" },
+  "category.maintenance": { en: "Maintenance", nl: "Onderhoud" },
+  "category.finance": { en: "Finance", nl: "Financiën" },
+  "category.legal": { en: "Legal", nl: "Juridisch" },
+  "category.business": { en: "Business", nl: "Zakelijk" },
+  "category.administration": { en: "Administration", nl: "Administratie" },
+  "category.new_projects": { en: "New projects", nl: "Nieuwe projecten" },
 
   // Composer & Actions
   "inbox.approve_draft": { en: "Approve & Send", nl: "Goedkeuren & Verzenden" },

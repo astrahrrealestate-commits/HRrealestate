@@ -50,8 +50,8 @@ def _sentence(low: str) -> str:
     if day:
         return f"Wij komen {day} bij u langs."
     if who:
-        return f"{who} neemt zo snel mogelijk contact met u op."
-    return "Wij nemen uw bericht in behandeling."
+        return f"{who} belt u om een tijd af te spreken; op welk nummer bent u overdag bereikbaar?"
+    return "Wanneer bent u thuis, zodat wij dit kunnen oplossen?"
 
 
 def guided_variants(guidance: str) -> list[str]:
@@ -70,22 +70,30 @@ _CHASE = [
     "Geachte heer/mevrouw,\n\nGraag herinneren wij u aan ons eerdere bericht. Kunt u reageren?" + _SIGN,
     "Beste,\n\nWij wachten nog op uw reactie. Laat u het ons weten?" + _SIGN,
 ]
-_REPLY = [
-    "Geachte heer/mevrouw,\n\nDank voor uw bericht. Wij nemen dit in behandeling en komen zo snel "
-    "mogelijk bij u terug." + _SIGN,
-    "Geachte heer/mevrouw,\n\nDank voor uw bericht. Kunt u een foto sturen, zodat wij de juiste "
-    "vakman kunnen inschakelen?" + _SIGN,
-]
 
 
-_ENTRY = re.compile(r"\[ref [0-9a-f]{8}\] ([^\n]*)\n(.*?)(?=\n\n---\n\n|\Z)", re.S)
+def _reply(prompt: str) -> list[str]:
+    """Two replies that ask what is needed to act on the mail, as the drafting standard asks (no invented facts)."""
+    text = _block(prompt, "current_message") or _block(prompt, "message") or ""
+    topic = re.sub(r"^\S+ \S+ [^:]{0,80}: ", "", " ".join(text.split()))[:120].rstrip(" .") or "uw bericht"
+    return [
+        f'Geachte heer/mevrouw,\n\nU schrijft: "{topic}". Sinds wanneer speelt dit, en wanneer bent u thuis zodat '
+        f"een vakman kan komen kijken?{_SIGN}",
+        f'Geachte heer/mevrouw,\n\nOver "{topic}": kunt u een foto sturen en laten weten waar het precies zit, '
+        f"zodat wij de juiste vakman inschakelen?{_SIGN}",
+    ]
+
+
+_ENTRY = re.compile(r"\[ref [0-9a-f]{8}\] ([^\n]*)\n(.*?)(?=\n\n(?:---\n\n)?\[ref |\Z)", re.S)
 
 
 def _cited_clause(prompt: str) -> tuple[str, str] | None:
     """The excerpt sentence that shares the most words with the tenant's message, with its document title."""
-    asked = set(re.findall(r"[^\W_]{5,}", (_block(prompt, "message") or "").lower()))
+    message = _block(prompt, "current_message") or _block(prompt, "message") or ""
+    asked = set(re.findall(r"[^\W_]{5,}", message.lower()))
+    entries = "\n\n".join(_block(prompt, tag) or "" for tag in ("excerpts", "documents", "references"))
     best: tuple[int, str, str] = (0, "", "")
-    for head, text in _ENTRY.findall(_block(prompt, "excerpts") or ""):
+    for head, text in _ENTRY.findall(entries):
         for sentence in re.split(r"(?<=[.!?\n])\s+", text):
             score = len(asked & set(re.findall(r"[^\W_]{5,}", sentence.lower())))
             if score > best[0]:
@@ -103,12 +111,14 @@ def fake_proposer(prompt: str) -> dict[str, object]:
     elif guidance is not None:
         variants, rationale = guided_variants(guidance), "Reply as the owner asked"
     else:
-        variants, rationale = list(_REPLY), "Acknowledge and ask for details"
+        variants, rationale = _reply(prompt), "Ask what is needed to act"
         if cited := _cited_clause(prompt):
             title, sentence = cited
             variants.append(f"Geachte heer/mevrouw,\n\nVolgens {title} geldt: {sentence}{_SIGN}")
             rationale = f"Answer from {title}"
-    payload: dict[str, object] = {"channel": channel, "subject": reply_subject, "body_variants": variants}
+    payload: dict[str, object] = {
+        "channel": channel, "subject": reply_subject, "body_variants": variants, "commitments": [],
+    }  # fmt: skip
     actions = [_action(case_id, "reply_draft", payload, rationale)]
     if "<mode>chase</mode>" not in prompt and _field(prompt, "urgency") == "emergency":
         actions.append(_action(case_id, "escalate", {"reason": "Emergency reported by tenant"}, "Emergency"))

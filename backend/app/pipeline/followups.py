@@ -108,6 +108,8 @@ def _tenant_chaser(
         suspicious=Suspicious(flag=False, reason=None),
         confidence=1.0,
         sender_role=None,
+        needs_research=False,
+        research_questions=[],
         prompt_version="understanding/v2",
     )
     persona = load_persona(engine, case.company_id)

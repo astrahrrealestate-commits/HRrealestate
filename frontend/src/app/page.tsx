@@ -6,33 +6,17 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, Check, ChevronDown, Sparkles } from "lucide-react";
 import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
 import { StatLine, StatItem } from "@/components/ui/StatLine";
-import { CategoryPills } from "@/components/today/CategoryPills";
-import { CategoryActionList } from "@/components/today/CategoryActionList";
+import { CategoryDesk } from "@/components/today/CategoryDesk";
 import { CalendarApprovalsCard } from "@/components/today/CalendarApprovalsCard";
 import { BrixxAttentionCard } from "@/components/today/BrixxAttentionCard";
-import { StalledItem } from "@/components/today/UnresponsiveRadarCard";
 import { formatLongDay } from "@/lib/clock";
 import { cn, formatCurrency } from "@/lib/utils";
-import {
-  buildAllBucket,
-  buildCategoryBrief,
-  buildCategoryBuckets,
-  DashboardItem,
-  DashboardTabId,
-} from "@/lib/dashboardCategories";
 import { needsYouCount, urgentCount } from "@/lib/selectors";
 import {
-  CalendarEvent,
-  getCalendarEvents,
   getDashboardAttention,
   getDashboardBriefing,
-  getDashboardInquiries,
   getDashboardPulse,
-  getDashboardRadar,
   getInboxThreads,
-  getMaintenanceTickets,
-  MaintenanceTicket,
-  ProspectiveInquiry,
   syncGmailInbox,
   type AttentionItem,
 } from "@/lib/api";
@@ -40,17 +24,9 @@ import { getPortfolio, getTenantProfiles } from "@/lib/portfolioApi";
 import type { PropertyComplex, TenantProfile } from "@/types/portfolio";
 import { InboxThread } from "@/types/inbox";
 import { PulseMetrics } from "@/types/dashboard";
-import { INITIAL_METRICS } from "@/data/mockData";
+import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
-
-function greetingPrefix(): string {
-  if (typeof window === "undefined") return "Good morning";
-  const hr = new Date().getHours();
-  if (hr < 12) return "Good morning";
-  if (hr < 18) return "Good afternoon";
-  return "Good evening";
-}
 
 interface BriefingPayload {
   headline: string;
@@ -60,30 +36,23 @@ interface BriefingPayload {
 
 export default function TodayPage() {
   const router = useRouter();
+  const superAgent = useSuperAgent();
   const { user, canAccess } = useAuth();
   const { t } = useLanguage();
 
-  // Live backend state
+  // Live backend state (never seed demo metrics when offline)
   const [threads, setThreads] = useState<InboxThread[]>([]);
   const [attentionItems, setAttentionItems] = useState<AttentionItem[]>([]);
   const [attentionTotal, setAttentionTotal] = useState<number>(0);
-  const [maintenanceTickets, setMaintenanceTickets] = useState<MaintenanceTicket[]>([]);
-  const [radarItems, setRadarItems] = useState<StalledItem[]>([]);
-  const [inquiries, setInquiries] = useState<ProspectiveInquiry[]>([]);
-  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
-  const [metrics, setMetrics] = useState<PulseMetrics>(INITIAL_METRICS);
+  const [metrics, setMetrics] = useState<PulseMetrics | null>(null);
   const [portfolio, setPortfolio] = useState<PropertyComplex[] | null>(null);
   const [tenants, setTenants] = useState<TenantProfile[] | null>(null);
   const [briefingKind, setBriefingKind] = useState<"daily" | "weekly">("daily");
   const [briefingData, setBriefingData] = useState<BriefingPayload | null>(null);
   const [isBriefingExpanded, setIsBriefingExpanded] = useState<boolean>(false);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
-
-  // Active tab ("all" shows unified overview + meeting requests + BRIXX; 6 categories filter by area)
-  const [activeTab, setActiveTab] = useState<DashboardTabId>("all");
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [clientClock, setClientClock] = useState<{ day: string; greeting: string } | null>(null);
+  const [clientDay, setClientDay] = useState<string | null>(null);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -92,24 +61,18 @@ export default function TodayPage() {
 
   useEffect(() => {
     const id = requestAnimationFrame(() => {
-      setClientClock({
-        day: formatLongDay(new Date()),
-        greeting: greetingPrefix(),
-      });
+      setClientDay(formatLongDay(new Date()));
     });
     return () => cancelAnimationFrame(id);
   }, []);
 
   const fetchDashboardSnapshot = useCallback(async () => {
-    const [threadsRes, pulseRes, attentionRes, ticketsRes, calRes] = await Promise.allSettled([
+    const [threadsRes, pulseRes, attentionRes] = await Promise.allSettled([
       getInboxThreads({ limit: 100, sort: "priority", includeHtml: false }),
       getDashboardPulse(),
       getDashboardAttention(),
-      getMaintenanceTickets(),
-      getCalendarEvents({ status: "proposed" }),
     ]);
-
-    return { threadsRes, pulseRes, attentionRes, ticketsRes, calRes };
+    return { threadsRes, pulseRes, attentionRes };
   }, []);
 
   const commitDashboardSnapshot = useCallback(
@@ -124,39 +87,22 @@ export default function TodayPage() {
         setAttentionItems(snap.attentionRes.value.items || []);
         setAttentionTotal(snap.attentionRes.value.total || 0);
       }
-      if (snap.ticketsRes.status === "fulfilled" && snap.ticketsRes.value.isLive) {
-        setMaintenanceTickets(snap.ticketsRes.value.tickets || []);
-      }
-      if (snap.calRes.status === "fulfilled" && snap.calRes.value.isLive) {
-        setCalendarEvents(snap.calRes.value.events || []);
-      }
     },
     []
   );
 
   useEffect(() => {
     let mounted = true;
-    fetchDashboardSnapshot()
-      .then((snap) => {
-        if (mounted) commitDashboardSnapshot(snap);
-      })
-      .finally(() => {
-        if (mounted) setIsLoading(false);
-      });
+    fetchDashboardSnapshot().then((snap) => {
+      if (mounted) commitDashboardSnapshot(snap);
+    });
 
     const secondaryTimer = setTimeout(() => {
       if (!mounted) return;
-      Promise.allSettled([
-        getPortfolio(),
-        getTenantProfiles(),
-        getDashboardRadar(),
-        getDashboardInquiries(),
-      ]).then(([pRes, tRes, rRes, iRes]) => {
+      Promise.allSettled([getPortfolio(), getTenantProfiles()]).then(([pRes, tRes]) => {
         if (!mounted) return;
         if (pRes.status === "fulfilled" && pRes.value.ok) setPortfolio(pRes.value.data);
         if (tRes.status === "fulfilled" && tRes.value.ok) setTenants(tRes.value.data);
-        if (rRes.status === "fulfilled" && rRes.value.isLive) setRadarItems(rRes.value.items || []);
-        if (iRes.status === "fulfilled" && iRes.value.isLive) setInquiries(iRes.value.inquiries || []);
       });
     }, 160);
 
@@ -168,38 +114,15 @@ export default function TodayPage() {
 
   useEffect(() => {
     let mounted = true;
-    getDashboardBriefing(briefingKind)
-      .then(({ data, isLive }) => {
-        if (mounted && isLive && data) {
-          setBriefingData(data);
-        }
-      })
-      .catch(() => {});
+    getDashboardBriefing(briefingKind).then((res) => {
+      if (mounted && res.isLive && res.data) {
+        setBriefingData(res.data);
+      }
+    });
     return () => {
       mounted = false;
     };
   }, [briefingKind]);
-
-  // Build 6 category buckets sorted by urgency + unified "All" bucket (threads/radar/leads; BRIXX & Calendar have dedicated cards on All)
-  const buckets = useMemo(
-    () =>
-      buildCategoryBuckets({
-        threads,
-        attentionItems,
-        maintenanceTickets,
-        radarItems,
-        inquiries,
-        calendarEvents,
-      }),
-    [threads, attentionItems, maintenanceTickets, radarItems, inquiries, calendarEvents]
-  );
-
-  const allBucket = useMemo(
-    () => buildAllBucket(buckets, { includeBrixx: false, includeCalendar: false }),
-    [buckets]
-  );
-
-  const activeBucket = activeTab === "all" ? allBucket : buckets[activeTab];
 
   // Single source of truth counts
   const currentNeedsYouCount = useMemo(() => needsYouCount(threads), [threads]);
@@ -232,7 +155,7 @@ export default function TodayPage() {
   const occupancyHeadline =
     portfolio && portfolioUnits > 0
       ? `${Math.round((portfolioOccupied / portfolioUnits) * 1000) / 10}%`
-      : metrics.totalUnits > 0
+      : metrics && metrics.totalUnits > 0
         ? `${metrics.occupancyPercentage}%`
         : "—";
 
@@ -250,11 +173,11 @@ export default function TodayPage() {
         href: "/inbox",
       },
       {
-        count: metrics.autonomousActionsWeek,
+        count: metrics?.autonomousActionsWeek ?? 0,
         label: t("handled this week"),
       },
     ],
-    [currentNeedsYouCount, currentUrgentCount, metrics.autonomousActionsWeek, t]
+    [currentNeedsYouCount, currentUrgentCount, metrics?.autonomousActionsWeek, t]
   );
 
   const handleSyncMailbox = async () => {
@@ -271,26 +194,6 @@ export default function TodayPage() {
     }
   };
 
-  // Direct navigation on click (no side drawer)
-  const handleSelectItem = (item: DashboardItem) => {
-    if (item.thread) {
-      router.push(`/inbox?thread=${encodeURIComponent(item.thread.id)}`);
-      return;
-    }
-    if (item.href) {
-      router.push(item.href);
-      return;
-    }
-    if (item.kind === "radar" && item.radarItem) {
-      router.push("/inbox");
-      return;
-    }
-    if (item.kind === "calendar") {
-      setActiveTab("all");
-      return;
-    }
-  };
-
   const firstName = user?.name?.trim().split(/\s+/)[0] ?? "";
 
   return (
@@ -301,7 +204,7 @@ export default function TodayPage() {
       onSyncMailbox={handleSyncMailbox}
       isSyncing={isSyncing}
       agentPageName="Today"
-      agentContext={`${activeTab === "all" ? "All" : activeBucket.meta.label} · ${currentNeedsYouCount} need you · ${currentUrgentCount} urgent`}
+      agentContext={`${currentNeedsYouCount} need you · ${currentUrgentCount} urgent`}
       onAgentAction={(actionType) => {
         if (actionType === "approve_queue_item") {
           router.push("/inbox");
@@ -316,10 +219,10 @@ export default function TodayPage() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div>
               <p className="text-[12px] sm:text-[13px] font-medium text-[var(--ink-3)] tracking-tight">
-                {clientClock?.day ? `${clientClock.day} · Amsterdam (CET)` : "Amsterdam (CET)"}
+                {clientDay ? `${clientDay} · Amsterdam (CET)` : "Amsterdam (CET)"}
               </p>
               <h1 className="font-heading font-bold text-[24px] sm:text-[30px] text-[var(--ink)] tracking-tight leading-tight mt-0.5">
-                {briefingKind === "daily" ? clientClock?.greeting ?? "Good morning" : "Weekly executive review"}
+                {briefingKind === "daily" ? "Hey" : "Weekly executive review"}
                 {firstName ? `, ${firstName}` : ""}
               </h1>
             </div>
@@ -359,7 +262,7 @@ export default function TodayPage() {
               {briefingData?.summarySentence ? (
                 <span>{briefingData.summarySentence} </span>
               ) : (
-                <span>{buildCategoryBrief(activeBucket)} </span>
+                <span>Here is your live portfolio desk: </span>
               )}
               <Link
                 href="/inbox"
@@ -420,42 +323,35 @@ export default function TodayPage() {
           <StatLine items={statLineItems} className="pt-0.5" />
         </header>
 
-        {/* All + 6 Main Categories */}
-        <CategoryPills
-          activeTab={activeTab}
-          allCount={allBucket.openCount}
-          allUrgentCount={allBucket.urgentCount}
-          buckets={buckets}
-          onSelect={(tab) => setActiveTab(tab)}
+        {/* M13 Live 6-Category Desk (/api/dashboard/categories) */}
+        <CategoryDesk
+          onAskAstra={(action) => {
+            superAgent.setActiveDrawerInfo({ title: action.title, kind: "Next Action" });
+            superAgent.setSelectedContext(
+              `${action.category}: ${action.title}${action.why ? ` — ${action.why}` : ""}`
+            );
+            superAgent.setIsOpen(true);
+          }}
         />
 
-        {/* Mails & Actions Sorted by Urgency (click any row to open exact thread in /inbox) */}
-        <CategoryActionList
-          bucket={activeBucket}
-          isLoading={isLoading}
-          onSelectItem={handleSelectItem}
-        />
+        {/* Meeting Requests & BRIXX Attention */}
+        <div className="space-y-5">
+          <CalendarApprovalsCard
+            onApproveSuccess={(_eventId, title) => {
+              showToast(`Visit approved & synced to Google Calendar: ${title}`);
+            }}
+            onInviteAnswered={(title, response) => {
+              showToast(`Invite ${response}: ${title}`);
+            }}
+          />
 
-        {/* Meeting Requests & BRIXX Attention on the All Overview */}
-        {activeTab === "all" && (
-          <div className="space-y-5">
-            <CalendarApprovalsCard
-              onApproveSuccess={(_eventId, title) => {
-                showToast(`Visit approved & synced to Google Calendar: ${title}`);
-              }}
-              onInviteAnswered={(title, response) => {
-                showToast(`Invite ${response}: ${title}`);
-              }}
-            />
-
-            <BrixxAttentionCard
-              items={attentionItems}
-              total={attentionTotal}
-              urgentTotal={urgentAttentionCount}
-              onlyUrgent={false}
-            />
-          </div>
-        )}
+          <BrixxAttentionCard
+            items={attentionItems}
+            total={attentionTotal}
+            urgentTotal={urgentAttentionCount}
+            onlyUrgent={false}
+          />
+        </div>
 
         {/* Quiet Single-Line Portfolio Footer */}
         <footer className="border-t border-[var(--line)] pt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-[12px] text-[var(--ink-3)]">

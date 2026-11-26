@@ -39,18 +39,25 @@ def snapshot_company(session: Session, action_id: UUID) -> UUID | None:
     return row.company_id if row is not None and snapshot_trigger(row.type) else None
 
 
+def is_vendor_quote_sender(kind: PersonKind | None, body: Any) -> bool:
+    """Known contractor, or an unclassified/other sender whose understanding says contractor/business."""
+    if kind is PersonKind.contractor:
+        return True
+    if kind is not None and kind is not PersonKind.other:
+        return False
+    role = body.get("sender_role") if isinstance(body, dict) else None
+    return role in ("contractor", "business")
+
+
 def is_quote_candidate(session: Session, message_id: UUID) -> bool:
     msg = session.scalar(select(MessageRow).where(MessageRow.id == message_id))  # our own id: it gives the company
     if msg is None:
         return False
     cid = msg.company_id
-    contractor = msg.person_id is not None and (
-        session.scalar(
-            select(Person.id).where(
-                Person.company_id == cid, Person.id == msg.person_id, Person.kind == PersonKind.contractor
-            )
-        )
-        is not None
+    kind = (
+        session.scalar(select(Person.kind).where(Person.company_id == cid, Person.id == msg.person_id))
+        if msg.person_id is not None
+        else None
     )
     body = session.scalar(
         select(UnderstandingRow.body).where(UnderstandingRow.company_id == cid, UnderstandingRow.message_id == msg.id)
@@ -59,6 +66,8 @@ def is_quote_candidate(session: Session, message_id: UUID) -> bool:
         select(func.count(AttachmentRow.id)).where(AttachmentRow.company_id == cid, AttachmentRow.message_id == msg.id)
     )
     return quote_candidate(
-        inbound=msg.direction is Direction.inbound, contractor=contractor, amounts=amounts_in(body),
+        inbound=msg.direction is Direction.inbound,
+        contractor=is_vendor_quote_sender(kind, body),
+        amounts=amounts_in(body),
         attachments=files or 0,
-    )  # fmt: skip
+    )

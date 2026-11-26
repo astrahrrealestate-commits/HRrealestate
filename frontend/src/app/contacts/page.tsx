@@ -55,6 +55,7 @@ import { TenantDocumentsPanel } from "@/components/contacts/TenantDocumentsPanel
 import type { SavedContact } from "@/lib/contactsWriteApi";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { FlagUK, FlagNL } from "@/components/ui/FlagIcons";
+import { SHOWN_CATEGORIES } from "@/lib/categoryLabels";
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -66,8 +67,8 @@ function getInitials(name: string): string {
 
 function getEmailPriority(email: ContactEmailItem): "emergency" | "high" | "normal" | "low" {
   if (email.priority) return email.priority;
-  if (email.category === "maintenance" || email.category === "complaint") return "high";
-  if (email.category === "payment") return "normal";
+  if (email.category === "maintenance") return "high";
+  if (email.category === "finance" || email.category === "legal") return "normal";
   return "low";
 }
 
@@ -1071,7 +1072,7 @@ function ContactsContent() {
 
                           {isCategoryMenuOpen && (
                             <div className="absolute top-[calc(100%+5px)] left-0 min-w-[150px] bg-white border border-[#e2e8f0] rounded-[8px] shadow-[0_8px_24px_rgba(15,23,42,0.1)] p-1 z-50 flex flex-col">
-                              {["all", "lease", "payment", "maintenance", "complaint", "contractor_update", "admin"].map((cat) => (
+                              {["all", ...SHOWN_CATEGORIES].map((cat) => (
                                 <button
                                   key={cat}
                                   type="button"

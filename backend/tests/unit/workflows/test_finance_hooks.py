@@ -210,16 +210,24 @@ def test_the_steps_only_retry_transient_errors() -> None:
 AFTER: Callable[[str, bool], bool] = pipeline._after_understanding
 
 
-def test_pipeline_runs_the_quote_hook_last_and_keeps_its_result() -> None:
+def test_pipeline_prepares_quotes_before_the_draft() -> None:
     order = MagicMock()
     with (
         patch.object(pipeline, "resolve_step", order.resolve),
         patch.object(pipeline, "link_step", MagicMock(return_value="case-1")),
         patch.object(pipeline, "company_step", MagicMock(return_value="co-1")),
-        patch.object(pipeline, "propose_step", MagicMock(return_value={"approval_ids": [], "exceptions": []})),
+        patch.object(pipeline, "index_message_step"),
+        patch.object(pipeline, "prepare_step", order.prepare),
+        patch.object(pipeline, "person_memory_step"),
+        patch.object(pipeline, "propose_step", order.propose),
         patch.object(pipeline, "attachments_step", MagicMock(return_value=["att-1"])),
         patch.object(pipeline, "enqueue_filing", order.file),
-        patch.object(pipeline, "quote_after_understanding", order.quote),
     ):
+        order.propose.return_value = {"approval_ids": [], "exceptions": []}
         assert AFTER("msg-1", False) is True
-    assert order.mock_calls == [call.resolve("msg-1"), call.file("co-1", "att-1"), call.quote("co-1", "msg-1")]
+    assert order.mock_calls == [
+        call.resolve("msg-1"),
+        call.prepare("msg-1", True),
+        call.propose("msg-1"),
+        call.file("co-1", "att-1"),
+    ]

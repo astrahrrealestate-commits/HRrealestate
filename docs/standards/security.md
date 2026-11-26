@@ -93,7 +93,54 @@ Closed on 2026-11-12:
   one, the cache is unique per (company, source hash, target), and `erase_person` also drops the company's en→nl rows
   because their Dutch output may be a message sent to the erased person
 
+Closed on 2026-11-26 (M13):
+- `erase_person` blanks the model-call log too (`pipeline/gdpr_calls.py`): input, output and error of every call
+  tagged with one of the person's messages (`model_calls.message_ids`, migration 0057; set by triage, link check,
+  case summary, person memory and the proposer), and of untagged calls whose text holds one of the person's
+  addresses or numbers, their full name, or a line of one of their messages. Before M13 every prompt, now a whole
+  dossier, stayed in `model_calls.input` after erasure. Limits: a one-word name and lines under 24 characters are not
+  searched (they match strangers); outbound mail to the person is not counted as theirs, as in the message redaction.
+  Tagged calls are judged by their tags only; sign-off and footer lines are never search terms; other people's person
+  memory that names the erased person is cleared and rebuilt on its next refresh.
+- Dossier and person memory (M13 review): an allowlist decides what reaches a draft. Own words always; anything sent
+  to the person or an allowed person; the case's other mail only for its main person or a directory contractor,
+  never mail involving another tenant. Harjot's forwarded copies count only where the forwarded header names an
+  allowed addressee. A contractor sees the tenant's photos, never their papers. Inbound authors are the directory
+  name or the address, never a header display name; a message's own line breaks render as `    | `, so text cannot
+  forge a "Harjot (sent)" line. Person memory (`person_memory/v2`) takes commitments only from Harjot's sent mail;
+  quoted or copied promises are marked "(unverified)". The quote splitter's patterns are bounded and scan at most
+  50,000 characters. A reply is never addressed to Harjot's own copy (`sender/recipient.latest_inbound`).
+- Accepted (M13): a forged `From: <owner address>` mail linked to a case shows in that case's dossier as "Harjot (copy
+  in the mailbox, not verified)"; it can never approve, send or become a stored commitment. `POST
+  /api/v1/documents/{document_id}/reference` (T12) is the sole writer of `documents.is_reference`, gated by session
+  principal, CSRF header, decision rate limit, and company-scoped 404 — ingestion, filing and model output can never
+  promote a document into the reference library.
+
+- Reload, ID purge and Category Desk (M13 lane B): `mail_purge` and `mail_reload_cli` log record counts only
+  (`messages`, `cases`, `released`, `drafted`, `skipped`), never message bodies, sender names or email addresses; purge
+  requires `--worker-stopped --confirm "purge <mailbox>"` (enforced by `scripts/mail_reload.sh` with a snapshot first).
+  `pipeline/documents.py` calls `purge_text` as soon as an attachment classifies or looks like an ID document so its text
+  never reaches dossier or search chunks. `GET /api/dashboard/categories` and `/{cat}` filter all queries by
+  `company_id` and redact contact names (`safe_name`) and summaries for profiles lacking `inbox` or `money` sections.
+
+- Search and Astra (M13 lane C review): message search, the reranker and Astra's tools only ever return rows of the
+  caller's company and filters; the reranker sees the matching stretch of a chunk under that line's real
+  `[time | sender | direction]` head, bodies cannot write a head, entries cannot forge or crowd out other entries, and
+  reranker calls keep only sizes in `model_calls`. Astra opens and cites by short references the server handed out in
+  that run (never ids or URLs from the model); opened mail and threads use the dossier's line rules, so a stranger's
+  mail or a forged line never reads as "Harjot (sent)"; quoted or copied Harjot text is "not verified" and the
+  research rules say it is a claim, never his word. The conversation reaches research only as a data block. Web pages
+  come only from grounding metadata through the guarded page fetch, are data, and web queries are stripped of contact
+  details. Dashboard research and chat answers are screened like a reply. Name resolution is company-scoped, marks an
+  unknown sender "unverified sender" and ranks the directory first; the live v9 planner gets no names until v10 is
+  pinned.
+
 Still open (fix in this order):
+- **Astra sources outlive erasure** (M13 lane C): each dashboard turn stores its sources in `agent_turns.results`, and a
+  message source's label is "name, channel, date"; `erase_person` does not touch `agent_turns`, and turns have no
+  retention purge. Fix: blank the labels (and answers that name the person) of turns citing one of their messages.
+- **Reranker and web search calls are not tagged with message ids** (M13 lane C): erasure finds a rerank call only
+  through its stored size (no text is kept) and a grounding call by text match of its model-written query.
 - **Owner-typed inbox replies** (`POST /api/inbox/threads/{case_id}/reply`, from dev 6ac612c; no ADR yet; not accepted).
   Fixed on merge: Approve never falls back to it, held or refused drafts are not offered, it needs the suspicious
   confirmation, and it records only a quoted mail. **Keep send mode off until these are fixed:** no client idempotency

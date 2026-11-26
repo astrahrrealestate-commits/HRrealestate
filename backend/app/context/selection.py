@@ -14,8 +14,8 @@ from app.core.ids import case_ref
 from app.llm.agents.owner_qa import CaseBrief
 
 DETAIL_CASES = 5  # cases that keep a summary; the rest are index lines
-SUMMARY_CHARS = 400
-LIST_CHARS = 5500  # the case listing of one prompt; leaves room for tasks inside the 8000-char data block
+SUMMARY_CHARS = 1200
+LIST_CHARS = 9500  # the case listing of one prompt; leaves room for tasks inside the 12000-char data block
 NOTE_RESERVE = 120  # room kept for the closing count note
 
 _FOCUS_SCORE = 1000

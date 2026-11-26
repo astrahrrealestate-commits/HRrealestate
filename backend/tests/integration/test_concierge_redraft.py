@@ -87,7 +87,7 @@ def test_pending_draft_is_superseded_exactly_once_under_retry(
     assert action.context_ref == [_message(migrated_engine, cid, case_id)]  # the suspicious gate's source
     assert all(len(v) < 160 for v in action.payload["body_variants"])  # the fake honoured "shorter"
     assert _revisions(migrated_engine, cid, f"agent:{redraft_turn}:0") == 1
-    assert [c.prompt_version for c in _proposer_calls(migrated_engine, cid)] == ["v4", "v4"]  # retry: no call
+    assert [c.prompt_version for c in _proposer_calls(migrated_engine, cid)] == ["v6", "v6"]  # retry: no call
     assert count(migrated_engine, Send, cid) == 0
 
 
@@ -134,7 +134,8 @@ def test_guidance_never_reaches_a_payload_or_picks_a_recipient(
         assert all(leak not in str(c.input) for c in _proposer_calls(migrated_engine, cid))
     assert all("[redacted]" in str(c.input) for c in _proposer_calls(migrated_engine, cid))
     assert all(
-        set(a.payload) == {"kind", "channel", "subject", "body_variants"} for a in _actions(migrated_engine, cid)
+        set(a.payload) == {"kind", "channel", "subject", "body_variants", "commitments"}
+        for a in _actions(migrated_engine, cid)
     )
     assert count(migrated_engine, Send, cid) == 0  # the sender derives any recipient from the DB, at approval time
 

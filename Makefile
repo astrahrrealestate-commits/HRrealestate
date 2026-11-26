@@ -16,7 +16,7 @@ NEXT_REV = $(shell printf '%04d' $$(( $$(ls backend/app/db/alembic/versions/[0-9
 .PHONY: help all start doctor env seed stop reset requirements frontend frontend-install frontend-build frontend-test \
         setup gmail-consent translation-model up up-db down logs ps migrate migration migrate-roundtrip alembic-check \
         fmt lint type boundaries test-unit test-int test cov quick check smoke audit eval \
-        workflows harness-test clean sim-demo sim-agents mock-mail rag-eval live-check gmail-pull pending approve context-report
+        workflows harness-test clean sim-demo sim-agents mock-mail rag-eval research-eval draft-report live-check gmail-pull pending approve context-report
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -168,9 +168,17 @@ audit: ## dependency vulnerability audit
 	cd backend && uv export --frozen --no-hashes --format requirements-txt > ../.claude/.cache/req.txt
 	$(UV_HERE) pip-audit -r .claude/.cache/req.txt --strict
 
-rag-eval: up-db ## ADR 0008: document RAG quality on the synthetic corpus, M10 baseline vs hybrid (scratch company in the dev DB; real models via EMBEDDING_MODEL/LLM_MODEL)
+rag-eval: up-db ## ADR 0008: document and message RAG quality on the synthetic corpora; reports in backend/evals/reports (scratch company in the dev DB; real models via EMBEDDING_MODEL/LLM_MODEL)
 	$(UV) alembic upgrade head
 	$(UV) python -m evals.rag_eval
+	$(UV) python -m evals.message_rag_eval
+
+research-eval: up-db ## (M13 T15) Astra's research answers on the document and message corpora (real models: LLM_MODEL, EMBEDDING_MODEL)
+	$(UV) alembic upgrade head
+	$(UV) python -m evals.research_eval
+
+draft-report: ## (M13 T16) draft acceptance per category and prompt version, counts only: make draft-report company=<uuid> days=30
+	$(UV) python -m app.workflows.draft_report_cli --company-id $(company) --days $(or $(days),30)
 
 eval: ## (M4) golden-set eval: make eval agent=understanding|linking|owner_qa|concierge|proposer|doc_reader|quote_reader|job_items|dd_reader version=v2
 	$(UV) python -m evals.run --agent $(agent) --version $(version)

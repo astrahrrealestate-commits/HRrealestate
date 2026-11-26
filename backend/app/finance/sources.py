@@ -48,7 +48,7 @@ def _web_source(settings: Settings, engine: Engine | None, company_id: UUID) -> 
     if engine is None:
         raise PriceSourceNotConfiguredError("price_source 'web' needs a database engine for the page extractor")
     return WebPriceSource(
-        search_client(settings),
+        search_client(settings, engine, company_id, settings.price_allowed_domains),
         llm_price_extractor(engine, settings, company_id),
         allowed_domains=settings.price_allowed_domains,
     )

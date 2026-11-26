@@ -23,6 +23,7 @@ from sqlalchemy import Engine, Select, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.context.message_origin import is_history
 from app.contracts import DocType, DocumentClassification
 from app.core.errors import AgentFailedError, BudgetExceededError, NotFoundError
 from app.core.logging import get_logger
@@ -31,7 +32,7 @@ from app.db.enums import DocumentStatus
 from app.db.models import AttachmentRow, Case, CaseLink, Company, DocumentRow, MessageRow, Person
 from app.llm.agents.doc_classifier import DOC_CLASSIFIER, doc_classifier_prompt
 from app.llm.calls import CallContext, run_agent
-from app.pipeline.document_drive import upload_planned
+from app.pipeline.document_drive import ContentKey, upload_planned
 from app.pipeline.document_index import new_chunks_needed, write_chunks
 from app.pipeline.document_layout import Placement, folder_path_v2, placement
 from app.pipeline.document_policy import (
@@ -43,7 +44,7 @@ from app.pipeline.document_policy import (
     name_date,
     should_skip,
 )
-from app.pipeline.document_reading import ReadInput, Unread, facts_columns, read_document
+from app.pipeline.document_reading import ReadInput, Unread, facts_columns, purge_text, read_document
 from app.storage.drive import DriveStore
 from app.storage.extract import TextExtractor
 from app.storage.ports import ObjectStorage
@@ -65,6 +66,8 @@ class Filing:
     case_summary: str | None
     existing: DocumentRow | None
     message_id: UUID
+    sha256: str = ""
+    history: bool = False  # reloaded mail: a Drive file with the same content is reused, not uploaded again
 
 
 @dataclass(frozen=True)
@@ -99,7 +102,10 @@ def load_filing(engine: Engine, company_id: UUID, attachment_id: UUID) -> Filing
         existing = session.scalar(_row_query(company_id, attachment_id))
     meta = FileMeta(filename=att.filename, mime_type=att.mime_type, size_bytes=att.size_bytes, sent_at=msg.sent_at)
     party = display_name or "unknown"  # never a raw phone number or email address in Harjot's Drive
-    return Filing(company_id, attachment_id, att.s3_key, meta, party, tz, msg.text, case_summary, existing, msg.id)
+    return Filing(
+        company_id, attachment_id, att.s3_key, meta, party, tz, msg.text, case_summary, existing, msg.id,
+        sha256=att.sha256, history=is_history(msg),
+    )  # fmt: skip
 
 
 def _upsert(engine: Engine, f: Filing, values: dict[str, object], text: str | None = None,
@@ -209,7 +215,9 @@ def _decide(engine: Engine, settings: Settings, f: Filing, storage: ObjectStorag
         _upsert(engine, f, _values(f, DocumentStatus.failed, _placeholder(f), error=str(exc)[:500]))
         return DocumentStatus.failed
     decision = _Decision(cls, call_id)
-    if _readable(settings, extractor, f, cls) and extractor is not None:
+    if cls.doc_type is DocType.id_document or looks_like_id(f.meta):
+        purge_text(engine, f.company_id, f.attachment_id, call_id)
+    elif _readable(settings, extractor, f, cls) and extractor is not None:
         decision = _with_reading(engine, settings, storage, extractor, f, decision)
     if filing_status(decision.cls) is DocumentStatus.review or decision.extra.get("suspicious"):
         extra = {"model_call_id": decision.call_id, **decision.extra}
@@ -251,7 +259,8 @@ def file_document(
         return plan
     if plan.status in _FINAL:  # already done, possibly by a concurrent caller
         return plan.status
-    upload_planned(engine, drive, storage, f.company_id, f.attachment_id, f.s3_key, f.meta.mime_type, plan)
+    content = ContentKey(f.sha256, reuse=f.history)
+    upload_planned(engine, drive, storage, f.company_id, f.attachment_id, f.s3_key, f.meta.mime_type, plan, content)
     return DocumentStatus.filed
 
 

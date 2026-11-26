@@ -1,3 +1,4 @@
+import type { MessageCategory } from "@/types/inbox";
 import { DocumentItem } from "@/components/ui/DocumentViewerModal";
 
 export type ContactCategory =
@@ -11,15 +12,8 @@ export type ContactCategory =
   | "municipal"
   | "other";
 
-export type AgentUnderstandingCategory =
-  | "maintenance"
-  | "payment"
-  | "lease"
-  | "complaint"
-  | "contractor_update"
-  | "admin"
-  | "spam"
-  | "other";
+/** The understanding agent's category (backend `Category`): the six business areas plus internal `spam`. */
+export type AgentUnderstandingCategory = MessageCategory;
 
 export interface AIDraftVariant {
   id: "d1" | "d2" | "d3" | string;

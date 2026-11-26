@@ -4,6 +4,8 @@ Both see untrusted text only inside data blocks (the owner's question in `messag
 never sees documents. Their outputs only steer a search; nothing they return is shown to the owner or run as an action.
 """
 
+import re
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -14,6 +16,7 @@ from app.llm.prompts import LoadedPrompt
 from app.llm.render import data_block, one_line
 
 MAX_QUESTION_CHARS = 400
+_ENTRY = re.compile(r"\[(\d+)\]")
 MAX_PASSAGE_CHARS = 700  # enough to judge a passage; the full chunk is used later for the answer
 
 
@@ -29,7 +32,11 @@ RAG_PLAN = AgentSpec(
     name="rag_plan", prompt=PromptRef(name="rag_plan", version="v1"), output_type=QueryPlan, finalize=_plan
 )
 RAG_RERANK = AgentSpec(
-    name="rag_rerank", prompt=PromptRef(name="rag_rerank", version="v1"), output_type=RerankResult, finalize=_rerank
+    name="rag_rerank",
+    prompt=PromptRef(name="rag_rerank", version="v1"),
+    output_type=RerankResult,
+    finalize=_rerank,
+    redact_input=True,
 )
 
 
@@ -50,13 +57,20 @@ def plan_prompt(question: str) -> str:
 def _heading(it: RerankItem) -> str:
     """The passage's header as the reranker sees it: who and where it is about, not only what it says."""
     if it.context:
-        return one_line(it.context)
+        return one_line(_entry_text(it.context))
     page = f", p.{it.page}" if it.page else ""
-    return f"{one_line(it.title)} ({it.doc_type}, {it.document_date or 'undated'}{page})"
+    return f"{one_line(_entry_text(it.title))} ({it.doc_type}, {it.document_date or 'undated'}{page})"
+
+
+def _entry_text(text: str) -> str:
+    """Normalised before any cap (one character can become eighteen), with `[12]` unable to open another entry."""
+    return _ENTRY.sub(r"(\1)", unicodedata.normalize("NFKC", text[: 4 * MAX_PASSAGE_CHARS]))
 
 
 def rerank_prompt(question: str, items: Sequence[RerankItem]) -> str:
-    entries = [f"[{i}] {_heading(it)}\n{it.text[:MAX_PASSAGE_CHARS]}" for i, it in enumerate(items, start=1)]
+    entries = [
+        f"[{i}] {_heading(it)}\n{_entry_text(it.text)[:MAX_PASSAGE_CHARS]}" for i, it in enumerate(items, start=1)
+    ]
     body = "\n\n".join(entries) or "none"
-    excerpts = data_block("excerpts", body, len(items) * (MAX_PASSAGE_CHARS + 200))
+    excerpts = data_block("excerpts", body, max(len(body), 1))  # every entry is bounded above
     return f"{excerpts}\n{data_block('message', question[:MAX_QUESTION_CHARS])}"

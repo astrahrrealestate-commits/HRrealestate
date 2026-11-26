@@ -5,6 +5,7 @@ import { Check, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/ui/Avatar";
 import { formatListTime } from "@/lib/dateUtils";
+import { categoryLabel } from "@/lib/categoryLabels";
 
 export interface ThreadRowItem {
   id: string;
@@ -25,27 +26,9 @@ export interface ThreadRowItem {
   status: "needs_you" | "handled" | "waiting" | string;
 }
 
-const CATEGORY_LABELS: Record<string, string> = {
-  maintenance: "Maintenance",
-  payment: "Payment",
-  rent: "Rent",
-  lease: "Lease",
-  complaint: "Complaint",
-  sublet: "Sublet",
-  contractor_update: "Contractor",
-  contractor_repairs: "Repairs",
-  contractor_invoices: "Invoices",
-  admin: "Admin",
-  legal: "Legal",
-  spam: "Spam",
-};
-
-/** Display-friendly label for non-generic thread categories. */
+/** Display label of a thread's category: one of the six business areas, or null (spam, old or unknown values). */
 export function formatCategoryLabel(category?: string): string | null {
-  if (!category) return null;
-  const key = category.toLowerCase();
-  if (key === "other" || key === "general") return null;
-  return CATEGORY_LABELS[key] ?? key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, " ");
+  return categoryLabel(category);
 }
 
 export interface ThreadRowProps {

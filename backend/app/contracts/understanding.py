@@ -13,14 +13,15 @@ from app.contracts.common import Contract, Money, NonBlankStr, max_len
 
 
 class Category(StrEnum):
+    """The six business areas Harjot works by (M13), plus internal `spam`, which is never shown."""
+
     maintenance = "maintenance"
-    payment = "payment"
-    lease = "lease"
-    complaint = "complaint"
-    contractor_update = "contractor_update"
-    admin = "admin"
+    finance = "finance"
+    legal = "legal"
+    business = "business"
+    administration = "administration"
+    new_projects = "new_projects"
     spam = "spam"
-    other = "other"
 
 
 class SenderRole(StrEnum):
@@ -75,7 +76,18 @@ class Understanding(Contract):
     suspicious: Suspicious
     confidence: Annotated[float, Field(ge=0.0, le=1.0)]
     sender_role: SenderRole | None  # None when the sender is unclear or the mail is not about the portfolio
+    needs_research: bool  # a quote, legal or works question, or anything our data cannot answer (M13)
+    research_questions: Annotated[list[Annotated[NonBlankStr, max_len(300)]], Field(max_length=3)]
     prompt_version: Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*/v[0-9]+$")]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _research_defaults_for_stored_bodies(cls, data: Any) -> Any:
+        """Bodies stored before understanding/v4 have no research fields: nothing to research. Required in the LLM
+        schema (strict mode lists every property), defaulted here."""
+        if not isinstance(data, dict):
+            return data
+        return {"needs_research": False, "research_questions": [], **data}
 
     @model_validator(mode="before")
     @classmethod

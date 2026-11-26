@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     # Model for the Super Agent's concierge planner when it should differ from `llm_model` (e.g. a cheap Gemini Flash
     # for intent routing); empty = use `llm_model`.
     concierge_model: str = ""
+    # Astra's research must answer within this. The browser gives up at 55 s (`askAgent`), the load balancer at its idle
+    # timeout: raise all three together (90 s here needs 120 s there).
+    super_agent_deadline_sec: float = 35.0
+    # Quality tier (M13, app.llm.tiers): proposer, draft research, Astra's research loop and person memory run on this
+    # model with reasoning `high`; empty = `llm_model`. Gemini bills thinking as output, hence the larger caps.
+    llm_quality_model: str = ""
+    llm_quality_timeout_sec: float = 180.0
+    llm_quality_max_output_tokens: int = 16000
     llm_timeout_sec: float = 60.0
     # Tried in order when `llm_model` answers an error (Pydantic AI FallbackModel), e.g. "openai:gpt-4.1-mini". A
     # fallback whose provider key is not set is left out, so naming one is harmless until its key exists.
@@ -56,6 +64,7 @@ class Settings(BaseSettings):
     owner_qa_daily_budget_usd: Decimal | None = None
     concierge_daily_cap: int | None = None  # Super Agent plans per day
     concierge_daily_budget_usd: Decimal | None = None
+    history_queue_concurrency: PositiveInt = 4  # reloaded mails processed at once per worker (M13)
     concierge_worker_concurrency: PositiveInt = 4  # Super Agent turns running at once per worker (chat queue)
 
     # Owner channel: approved WhatsApp template that reopens the 24-hour window ("{{1}} items need you").
@@ -94,8 +103,8 @@ class Settings(BaseSettings):
     # offline prices (tests, simulator); prod refuses it.
     price_source: Literal["fake", "competitors", "web"] = "fake"
     # Web prices (ADR 0009): which search API feeds `price_source=web`. `none` = not connected yet; `fake` = recorded
-    # pages (tests, simulator). A real provider adds one SearchClient implementation and one literal here.
-    price_search_provider: Literal["none", "fake"] = "none"
+    # pages (tests, simulator); `gemini` = Google Search grounding on the Gemini key (also draft research).
+    price_search_provider: Literal["none", "fake", "gemini"] = "none"
     price_allowed_domains: Annotated[list[str], NoDecode] = []  # hosts web prices may come from; empty = any
     finance_ok_pct: Decimal = Decimal(5)  # up to this much over the reference is still ok
     finance_above_market_pct: Decimal = Decimal(15)  # over this: above market
@@ -148,6 +157,12 @@ class Settings(BaseSettings):
     s3_bucket: str | None = None
     s3_access_key_id: str | None = None
     s3_secret_access_key: SecretStr | None = None
+
+    @field_validator("concierge_model", "llm_quality_model", mode="before")
+    @classmethod
+    def _empty_model_is_unset(cls, value: object) -> object:
+        """`NAME=` parses to None (env_parse_none_str); for an optional model override that means empty."""
+        return "" if value is None else value
 
     @field_validator("dashboard_cors_origins", mode="before")
     @classmethod

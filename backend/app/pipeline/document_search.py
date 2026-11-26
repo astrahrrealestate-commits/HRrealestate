@@ -46,6 +46,7 @@ class DocFilter:
     date_to: date | None = None
     needs_link: bool = False
     any_link: tuple[tuple[DocLinkKind, UUID], ...] = ()  # linked to at least one of these (a case's whole scope)
+    reference_only: bool = False  # the company's reference library (ROZ provisions, standard terms): no tenant's papers
     readable_only: bool = False  # drops documents flagged suspicious: for text that reaches a model
 
 
@@ -63,6 +64,7 @@ class DocHit:
     drive_url: str | None
     suspicious: bool
     created_at: Any
+    is_reference: bool = False
 
 
 @dataclass(frozen=True)
@@ -108,6 +110,8 @@ def doc_filters(company_id: UUID, flt: DocFilter) -> list[ColumnElement[bool]]:
         conds.append(func.coalesce(DocumentRow.document_date, func.date(DocumentRow.created_at)) <= flt.date_to)
     if flt.any_link:
         conds.append(or_(*(_link_exists(company_id, kind, ref) for kind, ref in flt.any_link)))
+    if flt.reference_only:
+        conds.append(DocumentRow.is_reference.is_(True))
     if flt.readable_only:
         conds.append(DocumentRow.suspicious.is_(False))
     if flt.needs_link:
@@ -122,7 +126,7 @@ def make_hit(row: Any, snippet: str | None, rank: float) -> DocHit:
         document_id=d.id, attachment_id=d.attachment_id, title=d.title, doc_type=d.doc_type, status=d.status,
         document_date=d.document_date, summary=d.summary, snippet=snippet, rank=rank,
         drive_url=DRIVE_URL.format(d.drive_file_id) if d.drive_file_id else None, suspicious=d.suspicious,
-        created_at=d.created_at,
+        created_at=d.created_at, is_reference=bool(d.is_reference),
     )  # fmt: skip
 
 

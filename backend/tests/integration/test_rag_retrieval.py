@@ -50,7 +50,7 @@ def corpus(migrated_engine: Engine, committed_company: Company) -> Corpus:
                      chunks=["De waarborgsom bedraagt drie maanden kale huur."])  # fmt: skip
         invoice = _doc(s, cid, title="Factuur loodgieter", doc_type="invoice", day=date(2026, 9, 3),
                        chunks=["Reparatie van de waterleiding. Totaal EUR 245,00."])  # fmt: skip
-        case = Case(company_id=cid, state=CaseState.open, category=Category.other, urgency=Urgency.normal)
+        case = Case(company_id=cid, state=CaseState.open, category=Category.administration, urgency=Urgency.normal)
         s.add(case)
         s.flush()
         s.add(
@@ -168,6 +168,9 @@ class Broken(HashingEmbedder):
     def embed_documents(self, texts):  # type: ignore[no-untyped-def]
         raise ValueError("401 invalid api key")  # not a transient error: a bad or expired key
 
+    def embed_query(self, text):  # type: ignore[no-untyped-def]
+        raise ValueError("401 invalid api key")
+
 
 def test_any_embedder_failure_degrades_to_words_and_is_not_raised(migrated_engine: Engine, corpus: Corpus) -> None:
     with Session(migrated_engine) as s:
@@ -183,3 +186,13 @@ def test_another_companys_document_vectors_never_rank(migrated_engine: Engine, c
     with Session(migrated_engine) as s:
         assert document_ranking(s, new_id(), q, DocFilter()) == []
         assert vector_ranking(s, new_id(), q, DocFilter()) == []
+
+
+def test_a_failing_hypothetical_passage_keeps_the_questions_own_vector(migrated_engine: Engine, corpus: Corpus) -> None:
+    class HalfBroken(HashingEmbedder):
+        def embed_documents(self, texts):  # type: ignore[no-untyped-def]
+            raise TimeoutError
+
+    with Session(migrated_engine) as s:
+        got = hybrid_candidates(s, corpus.company_id, "waarborgsom", DocFilter(), HalfBroken(), dense_texts=["borg"])
+    assert any(c.vector_rank is not None for c in got)

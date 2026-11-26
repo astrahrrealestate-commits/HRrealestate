@@ -487,52 +487,9 @@ def generate_email_drafts(
                         ],
                     )
 
-    # 4. Contextual fallback if unlinked or model error
-    subject = "uw bericht"
-    with Session(engine) as session:
-        if _is_uuid(message_id):
-            msg = session.scalars(
-                select(MessageRow).where(
-                    MessageRow.id == UUID(message_id), MessageRow.company_id == principal.company_id
-                )
-            ).first()
-            if msg and msg.meta and msg.meta.get("subject"):
-                subject = str(msg.meta["subject"])
-
-    clean_subj = subject.lower().replace("re:", "").strip()
-
-    drafts = [
-        DraftVariantItem(
-            id="d1",
-            label="Option 1: Direct Confirmation",
-            body=(
-                f"Beste,\n\nDank voor uw bericht over {clean_subj}. "
-                f"We hebben dit in goede orde ontvangen en bevestigen dat alles volgens afspraak wordt afgehandeld.\n\n"
-                f"Met vriendelijke groet,\nHarjot"
-            ),
-        ),
-        DraftVariantItem(
-            id="d2",
-            label="Option 2: Clarification / Extra Details",
-            body=(
-                f"Beste,\n\nDank voor de toelichting over {clean_subj}. "
-                f"Om dit zo snel en accuraat mogelijk op te pakken: "
-                f"kunt u hier eventueel aanvullende gegevens of een foto van delen?\n\n"
-                f"Alvast dank en groet,\nHarjot"
-            ),
-        ),
-        DraftVariantItem(
-            id="d3",
-            label="Option 3: Schedule Visit / Appointment",
-            body=(
-                "Beste,\n\nWe plannen hiervoor graag direct een afspraak in bij het pand. "
-                "Schikt komende woensdagochtend om 10:00 uur u voor een kort bezoek?\n\n"
-                "Met vriendelijke groet,\nHarjot"
-            ),
-        ),
-    ]
-
-    return GenerateDraftsResponse(message_id=message_id, drafts=drafts)
+    # 4. No usable draft (unlinked message, model error, or only generic drafts): offer none. A canned reply would be
+    # exactly the empty acknowledgement Harjot's drafting standard forbids; the screen offers "Draft with Astra".
+    return GenerateDraftsResponse(message_id=message_id, drafts=[])
 
 
 @router.post(

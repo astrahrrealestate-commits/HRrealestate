@@ -1059,7 +1059,7 @@ def test_multi_draft_request_expands_to_three_urgency_ordered_cards():
         Case(
             id=c_norm,
             company_id=comp_id,
-            category=Category.other,
+            category=Category.administration,
             urgency=Urgency.normal,
             state=CaseState.open,
             summary="Lease renewal C",
@@ -1295,3 +1295,125 @@ def test_sanitize_suggestions_filters_unsafe_and_channel_mismatched_pills():
     assert all("ticket drawer" not in p.lower() for p in cleaned)
     assert all("whatsapp" not in p.lower() for p in cleaned)
     assert "Open in Inbox" in cleaned
+
+
+def _session_with_rules(*rules: str) -> MagicMock:
+    sess = create_mock_session()
+    plain = sess.scalars.side_effect
+
+    def scalars(query):  # type: ignore[no-untyped-def]
+        result = plain(query)
+        if "memory_items" in str(query).lower():
+            result.all.return_value = list(rules)
+        return result
+
+    sess.scalars.side_effect = scalars
+    return sess
+
+
+RULE = "Contractor invoices always go to the accountant first"
+
+
+def test_a_question_that_mentions_rules_still_goes_to_the_planner():
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    answered = [StepResult(Intent.answer, True, "Bakker's invoice of 245 euro is open.", None, None)]
+    with (
+        patch("app.api.agent.routes.Session", return_value=_session_with_rules(RULE)),
+        patch("app.api.agent.routes.run_agent") as mock_run_agent,
+        patch("app.api.agent.routes.run_plan", return_value=answered),
+        TestClient(app) as client,
+    ):
+        mock_run_agent.return_value.output = _plan(_step(Intent.answer))
+        res = client.post(URL, json={"query": "which contractor invoices are open, and what is my rule for them?"})
+    data = res.json()
+    mock_run_agent.assert_called_once()
+    assert "245 euro" in data["answer"]
+    assert data["debugInfo"]["pipeline_stage"] != "memory_rule"
+
+
+def test_a_standing_rule_never_replaces_a_finished_answer():
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    answered = [StepResult(Intent.answer, True, "Bakker's invoice of 245 euro is open.", None, None)]
+    with (
+        patch("app.api.agent.routes.Session", return_value=_session_with_rules(RULE)),
+        patch("app.api.agent.routes.run_agent") as mock_run_agent,
+        patch("app.api.agent.routes.run_plan", return_value=answered),
+        TestClient(app) as client,
+    ):
+        mock_run_agent.return_value.output = _plan(_step(Intent.answer))
+        res = client.post(URL, json={"query": "contractor invoices accountant status"})
+    data = res.json()
+    assert "245 euro" in data["answer"]
+    assert "Authoritative Standing Rule" not in data["answer"]
+
+
+def test_the_planner_gets_the_names_the_question_matched_and_may_act_on_them():
+    from app.pipeline.concierge_entities import Entities, Entity
+
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    case_id = uuid4()
+    found = Entities((Entity(uuid4(), "Anna de Vries"),), (), (Entity(case_id, "resolved | Lekkage"),))
+    with (
+        patch("app.api.agent.routes.Session", return_value=create_mock_session()),
+        patch("app.api.agent.routes.resolve_entities", return_value=found),
+        patch("app.api.agent.routes.NAMED_BLOCKS", True),
+        patch("app.api.agent.routes.run_agent") as mock_run_agent,
+        patch("app.api.agent.routes.run_plan", return_value=[]) as mock_run_plan,
+        TestClient(app) as client,
+    ):
+        mock_run_agent.return_value.output = _plan(_step(Intent.answer))
+        client.post(URL, json={"query": "draft a reply on Anna's leak"})
+    prompt = mock_run_agent.call_args.args[3]
+    assert "<entities>" in prompt
+    assert "Anna de Vries" in prompt
+    assert case_id in mock_run_plan.call_args.kwargs["brief_cases"]
+
+
+def test_research_sources_reach_the_answer():
+    from app.contracts.sourced_answer import Source
+    from app.superagent.research import ResearchResult
+
+    source = Source(kind="message", ref=str(uuid4()), label="Anna, gmail, 2026-09-01")
+    found = ResearchResult("The tap in the bathroom leaks.", ("Searched messages (1 match)",), (source,))
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    with (
+        patch("app.api.agent.routes.Session", return_value=create_mock_session()),
+        patch("app.api.agent.routes.run_agent", side_effect=Exception("offline")),
+        patch("app.api.agent.routes.fake_concierge", return_value={"in_scope": False, "steps": [], "reply": None}),
+        patch("app.api.agent.routes._research_answer", return_value=found),
+        TestClient(app) as client,
+    ):
+        data = client.post(URL, json={"query": "what did Anna say about the leak?"}).json()
+    assert data["sources"] == [source.model_dump()]
+
+
+def test_a_research_answer_is_screened_before_harjot_sees_it():
+    from app.superagent.research import ResearchResult
+
+    found = ResearchResult("Pay at https://evil.example/pay or to NL91ABNA0417164300 today.", ("Searched (1)",))
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    with (
+        patch("app.api.agent.routes.Session", return_value=create_mock_session()),
+        patch("app.api.agent.routes.run_agent", side_effect=Exception("offline")),
+        patch("app.api.agent.routes.fake_concierge", return_value={"in_scope": False, "steps": [], "reply": None}),
+        patch("app.api.agent.routes._research_answer", return_value=found),
+        TestClient(app) as client,
+    ):
+        answer = client.post(URL, json={"query": "how do I pay the plumber?"}).json()["answer"]
+    assert "evil.example" not in answer
+    assert "NL91ABNA0417164300" not in answer
+
+
+def test_the_dashboard_plan_researches_with_the_conversation():
+    app = as_owner(create_app(SETTINGS, engine=MagicMock()))
+    with (
+        patch("app.api.agent.routes.Session", return_value=create_mock_session()),
+        patch("app.api.agent.routes.run_agent") as mock_run_agent,
+        patch("app.api.agent.routes.run_plan", return_value=[]) as mock_run_plan,
+        TestClient(app) as client,
+    ):
+        mock_run_agent.return_value.output = _plan(_step(Intent.answer))
+        client.post(
+            URL, json={"query": "and what did he quote?", "history": ["User: Who is Bakker?", "Assistant: A plumber."]}
+        )
+    assert mock_run_plan.call_args.kwargs["history"][-2:] == ["User: Who is Bakker?", "Assistant: A plumber."]

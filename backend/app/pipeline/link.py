@@ -69,9 +69,9 @@ def _load(session: Session, message_id: UUID) -> _Facts | LinkResult | None:
             UnderstandingRow.company_id == msg.company_id, UnderstandingRow.message_id == msg.id
         )
     )
-    category, urgency = (und.category, und.urgency) if und else (Category.other, Urgency.normal)
+    category, urgency = (und.category, und.urgency) if und else (Category.administration, Urgency.normal)
     if category is Category.spam and (not msg.text.strip() or _has_attachments(session, msg)):
-        category = Category.other  # a photo or file with no words is never dropped as spam: Harjot sees it
+        category = Category.administration  # a photo or file with no words is never dropped as spam: Harjot sees it
     body = und.body if und else {}
 
     # Non-Actionable Fallback on Crash:
@@ -115,7 +115,9 @@ def _ask_model(
 ) -> UUID | None:
     prompt = link_check_prompt(f.text, f.category, cands, profile_line)
     try:
-        result = run_agent(engine, settings, LINK_CHECK, prompt, CallContext(f.company_id, "link_check"))
+        result = run_agent(
+            engine, settings, LINK_CHECK, prompt, CallContext(f.company_id, "link_check", message_ids=(f.message_id,))
+        )
     except AgentFailedError:
         log.warning("pipeline.link_check_failed", message_id=str(f.message_id))
         return None
@@ -174,11 +176,11 @@ def _record(engine: Engine, f: _Facts, person_id: UUID, case_id: UUID | None, me
 
 
 def _after_link(session: Session, f: _Facts, person_id: UUID, case_id: UUID) -> None:
-    """An awaited answer arrived (#5): close the wait, reopen the case. A more urgent message raises urgency."""
+    """An awaited answer arrived (#5): close the waits opened before it was sent, reopen the case. A more urgent message
+    raises urgency."""
     case = case_repo.get_case(session, f.company_id, case_id)
-    if work_repo.mark_received(session, f.company_id, case_id, person_id) and (
-        case.state is CaseState.waiting_on_third_party
-    ):
+    received = work_repo.mark_received(session, f.company_id, case_id, person_id, sent_at=f.sent_at)
+    if received and case.state is CaseState.waiting_on_third_party:
         case_repo.transition(session, f.company_id, case_id, CaseState.open, actor="system")
     if _URGENCY_RANK[f.urgency] > _URGENCY_RANK[case.urgency]:
         case.urgency = f.urgency
@@ -197,7 +199,13 @@ def _refresh_summary(engine: Engine, settings: Settings, f: _Facts, result: Link
         )
     prompt = case_summary_prompt(previous, [(f.sent_at, label, f.text)])
     try:
-        out = run_agent(engine, settings, CASE_SUMMARY, prompt, CallContext(f.company_id, "case_summary")).output
+        out = run_agent(
+            engine,
+            settings,
+            CASE_SUMMARY,
+            prompt,
+            CallContext(f.company_id, "case_summary", message_ids=(f.message_id,)),
+        ).output
     except AgentFailedError:
         log.warning("pipeline.case_summary_failed", case_id=str(result.case_id))
         return

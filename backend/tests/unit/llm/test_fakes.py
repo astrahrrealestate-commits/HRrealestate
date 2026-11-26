@@ -15,9 +15,9 @@ from app.llm.fakes import _fake_link_check, _fake_understanding
         ("Overstroming in de kelder, het water staat 10 cm hoog!", "maintenance", "emergency"),
         ("Ik ruik een gaslucht in de keuken", "maintenance", "emergency"),
         ("Brand in de meterkast", "maintenance", "emergency"),
-        ("Ik wil mijn huurcontract opzeggen", "lease", "normal"),
-        ("Wanneer moet ik de huur betalen?", "payment", "normal"),
-        ("Hierbij de factuur voor het werk", "contractor_update", "normal"),
+        ("Ik wil mijn huurcontract opzeggen", "legal", "normal"),
+        ("Wanneer moet ik de huur betalen?", "finance", "normal"),
+        ("Hierbij de factuur voor het werk", "finance", "normal"),
     ],
 )
 def test_fake_triage_is_plausible(text: str, category: str, urgency: str) -> None:

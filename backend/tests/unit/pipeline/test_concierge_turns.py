@@ -18,6 +18,7 @@ from app.llm.calls import CallResult
 from app.llm.page_blocks import NO_PAGE
 from app.pipeline import concierge_turns as ct
 from app.pipeline.concierge_base import StepResult
+from app.pipeline.concierge_entities import NO_ENTITIES, Entities, Entity
 from app.pipeline.concierge_outcome import APOLOGY, PROMPT_REF, Outcome
 from app.pipeline.owner_commands import LIMIT_ANSWER, NOT_A_QUESTION, CommandKind
 
@@ -48,8 +49,9 @@ def io() -> Iterator[dict[str, MagicMock]]:
         ) as rp,
         patch(f"{M}.owner_commands.run_command", return_value="cmd reply") as cmd,
         patch(f"{M}._update") as upd,
+        patch(f"{M}._entities", return_value=NO_ENTITIES) as ents,
     ):
-        yield {"brief": brief, "agent": agent, "plan": rp, "cmd": cmd, "update": upd}
+        yield {"brief": brief, "agent": agent, "plan": rp, "cmd": cmd, "update": upd, "entities": ents}
 
 
 @pytest.mark.parametrize("text", ["tasks", "pause", "done #abc123", "done with the roof leak, what is the status?"])
@@ -103,7 +105,7 @@ def _turn_row(text: str, plan: dict[str, Any] | None, results: list[dict[str, An
 def test_turn_state_resume(text: str, plan: dict[str, Any] | None, results: Any, expected: bool) -> None:
     session_cls = MagicMock()
     session_cls.return_value.__enter__.return_value.scalar.return_value = _turn_row(text, plan, results)
-    with patch(f"{M}.Session", session_cls):
+    with patch("app.pipeline.concierge_turn_reads.Session", session_cls):
         state = ct.turn_state(MagicMock(), uuid4())
     assert (state["status"], state["resume"]) == ("done", expected)
 
@@ -133,6 +135,7 @@ def test_question_plans_once_runs_the_plan_and_stores_it(io: dict[str, MagicMock
         "turn_id": start.turn_id,  # keys an owner-requested redraft
         "timer": ANY,  # the turn's stage clock (answer_ms of an owner_qa call)
         "research": None,  # no researcher injected: a needs_research plan falls back to owner_qa
+        "history": ["earlier"],  # the conversation so far, for the research loop's follow-ups
     }
 
 
@@ -240,13 +243,17 @@ def test_plan_is_stored_before_it_runs_and_results_right_after(io: dict[str, Mag
 
 def test_stored_plan_is_reused_without_a_model_call(io: dict[str, MagicMock]) -> None:
     case_id = uuid4()
-    with patch(f"{M}._brief_case_ids", return_value=[case_id]) as ids:
+    with (
+        patch(f"{M}._brief_case_ids", return_value=[case_id]) as ids,
+        patch(f"{M}.load_history", return_value=["owner: earlier"]),
+    ):
         out = ct._outcome(MagicMock(), MagicMock(), _start("what is open?", plan=PLAN.model_dump(mode="json")))
     io["agent"].assert_not_called()
     io["brief"].assert_not_called()  # no full brief: only its case ids are re-read to check the stored plan
     ids.assert_called_once()
     assert io["plan"].call_args.args[3] == PLAN
     assert io["plan"].call_args.kwargs["brief_cases"] == [case_id]
+    assert io["plan"].call_args.kwargs["history"] == ["owner: earlier"]  # a retried follow-up keeps its subject
     assert io["update"].call_count == 1  # only the results: the plan is already stored
     assert io["update"].call_args.args[3] == {"results": LISTED}
     assert out.results == LISTED
@@ -295,7 +302,7 @@ def test_failed_turns_are_terminal_like_done() -> None:
 
 def test_a_plan_stored_before_v3_has_no_reply_key_and_is_still_reused(io: dict[str, MagicMock]) -> None:
     old = {"in_scope": True, "steps": [PLAN.steps[0].model_dump(mode="json")]}
-    with patch(f"{M}._brief_case_ids", return_value=[]):
+    with patch(f"{M}._brief_case_ids", return_value=[]), patch(f"{M}.load_history", return_value=[]):
         ct._outcome(MagicMock(), MagicMock(), _start("what is open?", plan=old))
     io["agent"].assert_not_called()
     assert io["plan"].call_args.args[3] == PLAN
@@ -310,3 +317,36 @@ def test_the_reply_is_screened_before_the_plan_is_stored_and_run(io: dict[str, M
     assert [s["intent"] for s in stored["steps"]] == ["answer"]  # so the reply is shown
     ran = io["plan"].call_args.args[3]
     assert ran.model_dump(mode="json") == stored
+
+
+@pytest.fixture
+def v10(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ct, "NAMED_BLOCKS", True)
+
+
+def test_the_v9_planner_gets_no_names_and_no_cases_by_name(io: dict[str, MagicMock]) -> None:
+    io["entities"].return_value = Entities((), (), (Entity(uuid4(), "open | Lekkage"),))
+    ct._outcome(MagicMock(), MagicMock(), _start("reply to Anna"))
+    assert "<entities>" not in io["agent"].call_args.args[3]
+    assert io["plan"].call_args.kwargs["brief_cases"] == []
+
+
+@pytest.mark.usefixtures("v10")
+def test_the_planner_gets_the_names_the_question_matched(io: dict[str, MagicMock]) -> None:
+    case_id = uuid4()
+    anna, leak = Entity(uuid4(), "Anna de Vries"), Entity(case_id, "resolved | Lekkage")
+    io["entities"].return_value = Entities((anna,), (), (leak,))
+    ct._outcome(MagicMock(), MagicMock(), _start("draft a reply on Anna's leak"))
+    prompt = io["agent"].call_args.args[3]
+    assert "<entities>" in prompt
+    assert "Anna de Vries" in prompt
+    assert case_id in io["plan"].call_args.kwargs["brief_cases"]  # a closed case found by name may be acted on
+
+
+@pytest.mark.usefixtures("v10")
+def test_a_retried_plan_may_still_act_on_the_cases_found_by_name(io: dict[str, MagicMock]) -> None:
+    case_id = uuid4()
+    io["entities"].return_value = Entities((), (), (Entity(case_id, "open | Lekkage"),))
+    with patch(f"{M}._brief_case_ids", return_value=[]), patch(f"{M}.load_history", return_value=[]):
+        ct._outcome(MagicMock(), MagicMock(), _start("reply to Anna", plan=PLAN.model_dump(mode="json")))
+    assert case_id in io["plan"].call_args.kwargs["brief_cases"]

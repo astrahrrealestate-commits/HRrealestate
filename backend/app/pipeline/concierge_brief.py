@@ -8,17 +8,26 @@ from uuid import UUID
 from sqlalchemy import Engine, Select, select
 from sqlalchemy.orm import Session
 
-from app.db.models import AgentConversation, Case
+from app.context.conversation_summary import (
+    count_unsummarized_turns,
+    should_summarize,
+    summarize_conversation_rolling,
+    update_conversation_summary,
+)
+from app.core.logging import get_logger
+from app.db.models import AgentConversation, AgentTurn, Case
 from app.llm.agents.owner_qa import CaseBrief
 from app.pipeline import case_repo, owner_commands, read_turns, work_repo
 from app.pipeline.concierge_outcome import (
     MAX_BRIEF_CASES,
     MAX_BRIEF_TASKS,
     MAX_HISTORY_TURNS,
+    SUMMARY_PREFIX,
     history_lines,
     task_brief,
 )
 
+log = get_logger(__name__)
 Brief = tuple[list[CaseBrief], list[str], list[str]]  # (open cases, open tasks, history lines)
 
 
@@ -47,14 +56,51 @@ def load_brief(engine: Engine, company_id: UUID, conversation_id: UUID, at: date
         ]
         open_tasks = work_repo.open_tasks(session, company_id, now=at)[:MAX_BRIEF_TASKS]
         tasks = [task_brief(t.id, t.title) for t in open_tasks]
-        conv = session.scalar(
-            select(AgentConversation).where(
-                AgentConversation.company_id == company_id,
-                AgentConversation.id == conversation_id,
-            )
-        )
-        exchanges = read_turns.earlier_exchanges(session, company_id, conversation_id, (at, turn_id), MAX_HISTORY_TURNS)
-        h_lines = history_lines(exchanges)
-        if conv and conv.summary:
-            h_lines.insert(0, f"Summary of earlier conversation: {conv.summary}")
+        h_lines = _history(session, company_id, conversation_id, at, turn_id)
     return briefs, tasks, h_lines
+
+
+def load_history(engine: Engine, company_id: UUID, conversation_id: UUID, at: datetime, turn_id: UUID) -> list[str]:
+    """The conversation before this turn alone (a retried turn's research needs it, not the brief)."""
+    with Session(engine) as session:
+        return _history(session, company_id, conversation_id, at, turn_id)
+
+
+def _history(session: Session, company_id: UUID, conversation_id: UUID, at: datetime, turn_id: UUID) -> list[str]:
+    conv = session.scalar(
+        select(AgentConversation).where(
+            AgentConversation.company_id == company_id,
+            AgentConversation.id == conversation_id,
+        )
+    )
+    exchanges = read_turns.earlier_exchanges(session, company_id, conversation_id, (at, turn_id), MAX_HISTORY_TURNS)
+    h_lines = history_lines(exchanges)
+    if conv and conv.summary:
+        h_lines.insert(0, f"{SUMMARY_PREFIX}{conv.summary}")
+    return h_lines
+
+
+def summarize_if_due(engine: Engine, company_id: UUID, turn_id: UUID) -> None:
+    try:
+        with Session(engine) as session, session.begin():
+            turn = session.get(AgentTurn, turn_id)
+            if turn is None:
+                return
+            conv = session.scalar(
+                select(AgentConversation).where(
+                    AgentConversation.company_id == company_id,
+                    AgentConversation.id == turn.conversation_id,
+                )
+            )
+            if conv is None:
+                return
+            unsummarized = count_unsummarized_turns(session, company_id, conv.id, conv.summary_through)
+            if not should_summarize(unsummarized):
+                return
+            exchanges = read_turns.earlier_exchanges(session, company_id, conv.id, (turn.created_at, turn.id), 6)
+            new_summary = summarize_conversation_rolling(conv.summary, [(e[0], e[1] or "") for e in exchanges])
+            update_conversation_summary(
+                session, company_id, conv.id, new_summary, turn.id, expected_version=conv.summary_version
+            )
+    except Exception as exc:
+        log.warning("concierge.conversation_summary_failed", turn_id=str(turn_id), error=type(exc).__name__)

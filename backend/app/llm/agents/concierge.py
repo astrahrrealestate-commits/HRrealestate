@@ -15,8 +15,10 @@ from app.llm.render import data_block
 # rules, v9 the Astra persona, no placeholder `calendar` steps, database-vs-document routing and directory lookups;
 # v1-v8 stay published and loadable (evals: version=vN).
 PROMPT_VERSION = "v9"
-MAX_HISTORY = 12  # lines: `owner:` and `assistant:` for each of 6 turns
-MAX_HISTORY_LINE = 420  # an `owner: ` prefix plus 400 characters
+NAMED_BLOCKS = int(PROMPT_VERSION.removeprefix("v")) >= 10  # v10 reads <entities> and <conversation>
+MAX_HISTORY = 24  # lines: `owner:` and `assistant:` for each of 12 turns
+MAX_HISTORY_LINE = 1220  # an `owner: ` prefix plus 1,200 characters
+SUMMARY_CHARS = 1200
 
 
 def _unchanged(output: ConciergePlan, _loaded: LoadedPrompt) -> ConciergePlan:
@@ -41,7 +43,8 @@ def concierge_prompt(
     filters: str = "",
 ) -> str:
     lines = [
-        f"case: {c.case_id} | {c.label} | {c.state} | {c.urgency}\n  {' '.join(c.summary.split())[:400]}" for c in cases
+        f"case: {c.case_id} | {c.label} | {c.state} | {c.urgency}\n  {' '.join(c.summary.split())[:SUMMARY_CHARS]}"
+        for c in cases
     ]
     tasks = [f"task: {t}" for t in open_tasks]
     data = "\n".join([*lines, *tasks]) or "no open cases or tasks"

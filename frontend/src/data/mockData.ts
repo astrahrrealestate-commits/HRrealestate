@@ -1,23 +1,8 @@
-import { AutonomousActionLog, PulseMetrics, TriageItem } from "@/types/dashboard";
-
-export const INITIAL_METRICS: PulseMetrics = {
-  needsYouCount: 0,
-  emergencyCount: 0,
-  openRentTotalEur: 0,
-  overdueRentEur: 0,
-  overdueTenantsCount: 0,
-  occupancyPercentage: 0,
-  totalUnits: 0,
-  occupiedUnits: 0,
-  autonomousActionsWeek: 0,
-  hoursSavedWeek: 0,
-};
+import { AutonomousActionLog, ExecutiveBriefing, TriageItem } from "@/types/dashboard";
 
 export const INITIAL_TRIAGE_ITEMS: TriageItem[] = [];
 
 export const RECENT_AUTONOMOUS_LOGS: AutonomousActionLog[] = [];
-
-import { ExecutiveBriefing } from "@/types/dashboard";
 
 export const DAILY_BRIEFING: ExecutiveBriefing = {
   kind: "daily",

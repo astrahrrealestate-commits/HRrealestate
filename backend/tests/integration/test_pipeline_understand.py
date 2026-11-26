@@ -81,7 +81,7 @@ def test_pipeline_entry_understand(
         assert u_row is not None
         assert u_row.category == Category.maintenance
         assert u_row.urgency == Urgency.emergency
-        assert u_row.prompt_version == "understanding/v3"
+        assert u_row.prompt_version == "understanding/v4"
 
         call_row = session.scalar(select(ModelCall).where(ModelCall.id == u_row.model_call_id))
         assert call_row is not None
@@ -230,7 +230,7 @@ def test_final_understanding_failure_from_a_known_tenant_opens_an_other_case(
         category = session.scalar(
             select(Case.category).join(CaseLink, CaseLink.case_id == Case.id).where(CaseLink.message_id == msg_id)
         )
-    assert category is Category.other
+    assert category is Category.administration
 
 
 def test_final_understanding_failure_from_an_unlinked_stranger_opens_no_case(
@@ -305,7 +305,7 @@ def test_photo_only_message_always_needs_a_reply_whatever_the_model_says(
 
     def says_no_reply(messages: object, info: object) -> ModelResponse:
         args = {
-            "category": "other",
+            "category": "administration",
             "intent": "photo",
             "urgency": "low",
             "requires_reply": False,

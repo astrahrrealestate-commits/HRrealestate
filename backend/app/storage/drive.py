@@ -23,6 +23,7 @@ from app.core.errors import EstateOSError
 DRIVE_SCOPES = ("https://www.googleapis.com/auth/drive.file",)
 FOLDER_MIME = "application/vnd.google-apps.folder"
 APP_PROPERTY = "estateos_attachment_id"
+CONTENT_PROPERTY = "estateos_sha256"  # `<company hex>:<sha256>`: the same file is found again after a mailbox reload
 RESUMABLE_ABOVE = 5 * 1024 * 1024  # Drive: multipart uploads are for files up to 5 MB
 CHUNK_SIZE = 8 * 1024 * 1024
 _RATE_LIMIT_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded", "sharingRateLimitExceeded"})
@@ -44,6 +45,10 @@ class DriveStore(Protocol):
     def new_file_id(self) -> str: ...
 
     def find_by_attachment(self, attachment_id: UUID) -> str | None: ...
+
+    def find_by_sha256(self, company_id: UUID, sha256: str) -> str | None:
+        """A file of this company with exactly this content, filed earlier (oldest first)."""
+        ...
 
     def ensure_folder(self, path: tuple[str, ...]) -> str: ...
 
@@ -84,6 +89,10 @@ class MemoryDrive:
     def find_by_attachment(self, attachment_id: UUID) -> str | None:
         return next((fid for fid, (_, _, att) in self.files.items() if att == attachment_id), None)
 
+    def find_by_sha256(self, company_id: UUID, sha256: str) -> str | None:
+        wanted = content_value(company_id, sha256)
+        return next((fid for fid in self.files if self.properties.get(fid, {}).get(CONTENT_PROPERTY) == wanted), None)
+
     def ensure_folder(self, path: tuple[str, ...]) -> str:
         if not path:
             raise ValueError("folder path must not be empty")
@@ -114,6 +123,11 @@ class MemoryDrive:
             raise DriveApiError("drive annotate failed (404)", status=404, retryable=False)
         self.description[file_id] = description
         self.properties[file_id] = {**self.properties.get(file_id, {}), **properties}
+
+
+def content_value(company_id: UUID, sha256: str) -> str:
+    """The content property's value: scoped by company, so one Drive serving two companies never shares a file."""
+    return f"{company_id.hex}:{sha256}"
 
 
 def _quote(value: str) -> str:
@@ -161,6 +175,11 @@ class GoogleDrive:
     def find_by_attachment(self, attachment_id: UUID) -> str | None:
         prop = f"appProperties has {{ key={_quote(APP_PROPERTY)} and value={_quote(str(attachment_id))} }}"
         return self._first_id(f"{prop} and trashed = false", "lookup")
+
+    def find_by_sha256(self, company_id: UUID, sha256: str) -> str | None:
+        value = content_value(company_id, sha256)
+        prop = f"appProperties has {{ key={_quote(CONTENT_PROPERTY)} and value={_quote(value)} }}"
+        return self._first_id(f"{prop} and trashed = false", "content lookup")
 
     def ensure_folder(self, path: tuple[str, ...]) -> str:
         """Find-or-create each level. The oldest duplicate wins, so concurrent first filings converge on one folder."""

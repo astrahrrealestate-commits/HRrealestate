@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from app.context.compiler import compile_concierge_context
+from app.context.compiler import SUMMARY_PREFIX, compile_concierge_context
 from app.context.super_agent_prompt import MAX_SYSTEM_CHARS, build_super_agent_system_prompt
 from app.llm.agents.owner_qa import CaseBrief
 
@@ -56,25 +56,29 @@ def test_compiled_concierge_prompt_stays_inside_the_total_budget() -> None:
     cases = _cases(40)
     compiled = compile_concierge_context(
         "status of case 3?",
-        [f"owner: {'x' * 400}"] * 12,
+        [f"owner: {'x' * 1200}"] * 24,
         cases,
         [f"task {i} " * 50 for i in range(20)],
         page_facts_text="fact\n" * 6000,
         snapshot="snap " * 2000,
         filters="status: open",
+        entities="person: x | y\n" * 400,
+        named_blocks=True,
     )
-    assert len(compiled.prompt_text) < 28000
+    assert len(compiled.prompt_text) < 41000
     assert "<message>\nstatus of case 3?\n</message>" in compiled.prompt_text
 
 
 def test_compiled_concierge_reports_what_it_dropped() -> None:
     compiled = compile_concierge_context(
         "q",
-        [f"owner: {'x' * 400}"] * 12,
+        [f"{SUMMARY_PREFIX}{'s' * 3000}", *[f"owner: {'x' * 1200}"] * 24],
         _cases(40),
         [f"task {i} " * 50 for i in range(20)],
         page_facts_text="fact\n" * 6000,
         snapshot="snap " * 3000,
+        entities="person: x | y\n" * 400,
+        named_blocks=True,
     )
     assert compiled.dropped == ("page_snapshot",)
     assert "<page_snapshot>" not in compiled.prompt_text

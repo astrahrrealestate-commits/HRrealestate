@@ -109,4 +109,6 @@ class PersonProfile(Base, CompanyScoped):
     response_hours_p50: Mapped[float | None]
     source_max_message_at: Mapped[datetime | None]
     profile_version: Mapped[int] = mapped_column(default=1, server_default="1")
+    memory: Mapped[dict[str, Any] | None]  # PersonMemory contract JSON (M13), written by the person_memory agent
+    memory_at: Mapped[datetime | None]  # source_max_message_at the memory was written from
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
