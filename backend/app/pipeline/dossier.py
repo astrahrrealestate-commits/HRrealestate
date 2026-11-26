@@ -12,14 +12,13 @@ from uuid import UUID
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
-from app.context.memory_items import get_active_preferences
 from app.context.message_origin import full_text, is_owner_authored
 from app.contracts import Direction
 from app.contracts.person_memory import PersonMemory
 from app.contracts.research import Finding
 from app.core.errors import NotFoundError
-from app.db.enums import DocLinkKind, ExtractionStatus, PersonKind, WaitStatus
-from app.db.models import AttachmentRow, Case, CaseLink, ChannelIdentity, MessageRow, Person, UnderstandingRow, WaitRow
+from app.db.enums import DocLinkKind, ExtractionStatus, PersonKind
+from app.db.models import AttachmentRow, Case, CaseLink, ChannelIdentity, MessageRow, Person, UnderstandingRow
 from app.db.models.ingestion import not_chat_only
 from app.llm.agents.doc_qa import Passage
 from app.llm.embeddings import TextEmbedder
@@ -34,18 +33,22 @@ from app.pipeline.conversation import (
     quoted_lines,
     recipients,
 )
+from app.pipeline.document_policy import FileMeta, looks_like_id
 from app.pipeline.document_qa import case_scope, strip_risky
 from app.pipeline.document_search import DocFilter
+from app.pipeline.dossier_facts import open_waits, owner_rules
+from app.pipeline.dossier_history import older_mail
 from app.pipeline.draft_research import stored_findings
 from app.pipeline.injection_scan import scan
 from app.pipeline.person_memory import stored_memory
+from app.pipeline.quote_text import quote_review_text
 from app.pipeline.rag import retrieve_cheap
+from app.pipeline.tenancy import owns_tenancy, tenancy_facts
 
 MAX_THREAD = 60
 MAX_SENDER_HISTORY = 15
 MAX_ATTACHMENTS = 12
 MAX_PASSAGES = 4
-MAX_RULES = 20
 
 
 @dataclass(frozen=True)
@@ -70,6 +73,9 @@ class Dossier:
     waiting: tuple[str, ...]
     quote: str | None = None
     research: tuple[Finding, ...] = ()
+    tenancy: tuple[str, ...] = ()  # lease, rent, arrears, work order (directory and BRIXX ledger)
+    older_mail: tuple[ThreadLine, ...] = ()  # the person's older mail that matches this one
+    extra_message_ids: tuple[UUID, ...] = ()  # messages behind `older_mail` (call log, erasure)
 
 
 @dataclass(frozen=True)
@@ -206,6 +212,7 @@ def _attachments(
         AttachmentText(a.id, a.filename or "unnamed", text, scan(text) is not None, a.message_id == msg.id)
         for a, _ in rows
         if (text := (a.extracted_text or "").strip())
+        and not looks_like_id(FileMeta(a.filename, a.mime_type, a.size_bytes, msg.sent_at))
         and (a.message_id not in photos_only or a.mime_type.startswith("image/"))
     )
 
@@ -215,6 +222,19 @@ def _not_theirs(rows: Sequence[MessageRow], scope: _Scope) -> list[UUID]:
     if not scope.contractor:
         return []
     return [r.id for r in rows if not _is_own(r, scope) and not _sent_to(r, scope.identities)]
+
+
+def _case_ids(scope: _Scope) -> tuple[UUID | None, ...]:
+    return (scope.case.id, scope.case.unit_id) if scope.case else ()
+
+
+def _tenancy(session: Session, scope: _Scope) -> tuple[str, ...]:
+    """Own lease and rent for the main person or a tenant on a lease; a contractor gets the case's address only."""
+    if not scope.trusted:
+        return ()
+    cid, pid = scope.msg.company_id, scope.msg.person_id
+    full = not scope.contractor and owns_tenancy(session, cid, pid, scope.case)
+    return tenancy_facts(session, cid, pid, scope.case, full=full, today=scope.msg.sent_at.date())
 
 
 def _document_links(session: Session, scope: _Scope) -> tuple[tuple[DocLinkKind, UUID], ...]:
@@ -231,28 +251,6 @@ def _passages(
 ) -> tuple[Passage, ...]:
     found = retrieve_cheap(session, company_id, query, replace(flt, readable_only=True), embedder, MAX_PASSAGES)
     return tuple(replace(p, text=strip_risky(p.text)) for p in found)
-
-
-def _waiting(session: Session, scope: _Scope) -> tuple[str, ...]:
-    if scope.case is None:
-        return ()
-    return tuple(
-        session.scalars(
-            select(WaitRow.about).where(
-                WaitRow.company_id == scope.msg.company_id,
-                WaitRow.case_id == scope.case.id,
-                WaitRow.status == WaitStatus.waiting,
-            )
-        )
-    )
-
-
-def _rules(session: Session, scope: _Scope) -> tuple[str, ...]:
-    ids = [scope.msg.person_id, *((scope.case.id, scope.case.unit_id) if scope.case else ())]
-    items = get_active_preferences(
-        session, scope.msg.company_id, scope_ids=[i for i in ids if i is not None], limit=MAX_RULES
-    )
-    return tuple(" ".join(item.text.split()) for item in items)
 
 
 def _research(session: Session, company_id: UUID, message_id: UUID) -> tuple[Finding, ...]:
@@ -275,6 +273,10 @@ def build_dossier(session: Session, company_id: UUID, message_id: UUID, embedder
     shown = {row.id for row in rows}
     query = f"{(msg.meta or {}).get('subject') or ''}\n{new_part(msg)}".strip()
     links = _document_links(session, scope)
+    older, older_ids = (
+        older_mail(session, company_id, msg.person_id, query, embedder, {msg.id, *shown})
+        if msg.person_id and embedder is not None else ((), ())
+    )  # fmt: skip
     return Dossier(
         current=current,
         thread=_thread(rows, people, scope, current.text),
@@ -283,7 +285,11 @@ def build_dossier(session: Session, company_id: UUID, message_id: UUID, embedder
         documents=_passages(session, company_id, query, DocFilter(any_link=links), embedder) if links else (),
         references=_passages(session, company_id, query, DocFilter(reference_only=True), embedder),
         memory=stored_memory(session, company_id, msg.person_id) if msg.person_id else None,
-        owner_rules=_rules(session, scope),
-        waiting=_waiting(session, scope),
+        owner_rules=owner_rules(session, company_id, [msg.person_id, *_case_ids(scope)]),
+        waiting=open_waits(session, company_id, scope.case.id if scope.case else None),
+        quote=quote_review_text(session, company_id, [msg.id, *(row.id for row in rows if _is_own(row, scope))]),
         research=_research(session, company_id, msg.id),
-    )
+        tenancy=_tenancy(session, scope),
+        older_mail=older,
+        extra_message_ids=older_ids,
+    )  # fmt: skip

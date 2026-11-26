@@ -24,7 +24,7 @@ BLOCK_TAGS = (
     "page_snapshot", "owner_guidance", "current_draft", "document", "excerpts", "persona", "sender",
     "person_profile", "thread", "sender_history", "attachment_text", "documents", "references", "person_memory",
     "owner_rules", "open_waits", "quote_review", "research", "current_message", "quality_feedback", "entities",
-    "conversation",
+    "conversation", "tenancy", "older_mail",
 )  # fmt: skip
 
 # Applied after NFKC: fullwidth and small forms are already plain there, and U+2329/U+232A became U+3008/U+3009.

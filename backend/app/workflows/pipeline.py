@@ -38,6 +38,7 @@ from app.workflows.deps import get_engine
 from app.workflows.documents import enqueue_filing
 from app.workflows.finance import quote_after_understanding
 from app.workflows.owner_notify import alert_exceptions_step, send_card_step, send_owner_message
+from app.workflows.prepare import prepare_for_draft
 
 log = get_logger(__name__)
 
@@ -120,6 +121,11 @@ def link_step(message_id: str) -> str | None:
     return str(result.case_id) if result else None
 
 
+@DBOS.step(name="pipeline.prepare")  # no retries: reading and the quote review never hold up the draft
+def prepare_step(message_id: str) -> None:
+    prepare_for_draft(get_engine(), get_settings(), _as_uuid(message_id), research=False)
+
+
 @DBOS.step(name="pipeline.person_memory")  # no retries: a slow model must not hold up the draft
 def person_memory_step(message_id: str) -> None:
     refresh_for_message(get_engine(), get_settings(), _as_uuid(message_id))
@@ -196,6 +202,10 @@ def _live(company_id: str, message_id: str, final_failure: bool) -> None:
     if final_failure:
         alert_unreadable_step(company_id, message_id)
     _index(message_id)
+    try:
+        prepare_step(message_id)  # attachments read and a quote reviewed before the draft (M13)
+    except Exception as exc:
+        log.warning("pipeline.prepare_failed", error_type=type(exc).__name__, message_id=message_id)
     try:
         person_memory_step(message_id)  # before the draft, which reads it; a provider outage never blocks the draft
     except Exception as exc:
