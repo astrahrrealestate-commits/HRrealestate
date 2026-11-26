@@ -27,7 +27,7 @@ def _inbound_label(msg: MessageRow, person_name: str | None) -> str:
     return name
 
 
-def format_message_line(msg: MessageRow, person_name: str | None = None) -> str:
+def format_message_line(msg: MessageRow, person_name: str | None = None, *, text: str | None = None) -> str:
     """Formats a single message with an Amsterdam timestamp and sender attribution."""
     local_dt = msg.sent_at.astimezone(AMSTERDAM_TZ)
     stamp = local_dt.strftime("%Y-%m-%d %H:%M")
@@ -38,7 +38,8 @@ def format_message_line(msg: MessageRow, person_name: str | None = None) -> str:
     sender = "Harjot (Owner)" if is_outbound else _inbound_label(msg, person_name)
 
     # Clean multi-line whitespace
-    clean_text = " ".join(msg.text.split()) if msg.text else "(no text)"
+    body = msg.text if text is None else text
+    clean_text = " ".join(body.split()) if body else "(no text)"
     return f"[{stamp} | {sender} | {dir_str}] {plain_body(clean_text)}"
 
 

@@ -20,10 +20,10 @@ from app.llm.embeddings import build_embedder
 from app.tools.message_rag.chunker import (
     compute_content_hash,
     format_context_header,
-    format_message_line,
     should_start_new_chunk,
 )
 from app.tools.message_rag.gate import should_index_message
+from app.tools.message_rag.lines import merge_lines, message_lines
 from app.tools.message_rag.resolve import MessageFacts, resolve_facts
 
 log = get_logger(__name__)
@@ -105,12 +105,15 @@ def _rebuild(session: Session, chunk: MessageChunk) -> MessageChunk | None:
         session.flush()
         return None
     facts = [resolve_facts(session, m) for m in kept]
+    lines: list[str] = []
+    for m, f in zip(kept, facts, strict=True):
+        lines += merge_lines(lines, message_lines(session, m, f.person_name))
     chunk.message_ids = [m.id for m in kept]
     chunk.first_message_id, chunk.last_message_id = kept[0].id, kept[-1].id
     chunk.first_sent_at, chunk.last_sent_at = min(m.sent_at for m in kept), max(m.sent_at for m in kept)
     chunk.has_outbound = any(m.direction is Direction.outbound for m in kept)
     chunk.has_inbound = any(m.direction is not Direction.outbound for m in kept)
-    chunk.text = "\n".join(format_message_line(m, f.person_name) for m, f in zip(kept, facts, strict=True))
+    chunk.text = "\n".join(lines)
     chunk.person_id = chunk.unit_id = chunk.lease_id = chunk.subject = None
     chunk.participant_ids, chunk.case_ids = [], []
     for f in facts:
@@ -121,7 +124,7 @@ def _rebuild(session: Session, chunk: MessageChunk) -> MessageChunk | None:
 def _place(session: Session, msg: MessageRow) -> tuple[MessageChunk, str | None]:
     """A message seen for the first time: the thread's open chunk when it fits, else a new one. With the text before."""
     facts = resolve_facts(session, msg)
-    line = format_message_line(msg, facts.person_name)
+    lines = message_lines(session, msg, facts.person_name)
     channel, thread_ref = _thread(msg)
     open_chunk = session.scalar(
         select(MessageChunk)
@@ -136,13 +139,14 @@ def _place(session: Session, msg: MessageRow) -> tuple[MessageChunk, str | None]
     )
     if open_chunk is not None:
         before, last = open_chunk.text, open_chunk.last_sent_at
+        line = "\n".join(merge_lines(before.split("\n"), lines))
         if not should_start_new_chunk(len(before), len(line), last, msg.sent_at, open_chunk.is_open):
             _append(open_chunk, msg, line)
             _apply_facts(open_chunk, facts)
             return open_chunk, before
         open_chunk.is_open = False
         session.flush()
-    chunk = _new_chunk(msg, line, facts)
+    chunk = _new_chunk(msg, "\n".join(merge_lines([], lines)), facts)
     session.add(chunk)
     return chunk, None
 
