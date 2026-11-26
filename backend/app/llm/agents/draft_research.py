@@ -32,7 +32,7 @@ def _unchanged(output: ResearchAnswers, _loaded: LoadedPrompt) -> ResearchAnswer
 
 DRAFT_RESEARCH = AgentSpec(
     name="draft_research",
-    prompt=PromptRef(name="draft_research", version="v1"),
+    prompt=PromptRef(name="draft_research", version="v2"),
     output_type=ResearchAnswers,
     finalize=_unchanged,
 )

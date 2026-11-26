@@ -19,7 +19,7 @@ def _unchanged(output: DocumentClassification, _loaded: LoadedPrompt) -> Documen
 
 DOC_CLASSIFIER = AgentSpec(
     name="doc_classifier",
-    prompt=PromptRef(name="doc_classifier", version="v1"),
+    prompt=PromptRef(name="doc_classifier", version="v2"),
     output_type=DocumentClassification,
     finalize=_unchanged,
     thinking=False,

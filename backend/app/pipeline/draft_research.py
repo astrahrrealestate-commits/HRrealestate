@@ -41,11 +41,56 @@ PAGES_PER_SEARCH = 3
 REFERENCES_PER_QUESTION = 2
 DEADLINE_SEC = 60.0
 SEARCH_UNTIL_SEC = 35.0  # searches stop here: the model needs the rest
-LEGAL_DOMAINS = ("wetten.overheid.nl", "rechtspraak.nl", "roz.nl", "rijksoverheid.nl", "huurcommissie.nl")
+LEGAL_DOMAINS = (
+    "wetten.overheid.nl",
+    "rechtspraak.nl",
+    "roz.nl",
+    "rijksoverheid.nl",
+    "huurcommissie.nl",
+    "amsterdam.nl",
+    "juridischloket.nl",
+    "wooninfo.nl",
+    "kvk.nl",
+    "notaris.nl",
+)
+MARKET_DOMAINS = (
+    "funda.nl",
+    "fundainbusiness.nl",
+    "pararius.nl",
+    "nvm.nl",
+    "cbs.nl",
+    "ec.europa.eu",
+)
+FINANCE_DOMAINS = (
+    "belastingdienst.nl",
+    "rvo.nl",
+    "dnb.nl",
+    "verenigingeigenhuis.nl",
+    "cbs.nl",
+    "rijksoverheid.nl",
+)
+MAINTENANCE_DOMAINS = (
+    "hornbach.nl",
+    "warmteservice.nl",
+    "werkspot.nl",
+    "milieucentraal.nl",
+    "technieknederland.nl",
+)
 REGION = "NL"
 _LEGAL = re.compile(
     r"\b(roz|wet|wetboek|bw|artikel|art\.|huurrecht|huurcommissie|opzeg\w*|indexer\w*|huurverhoging|rechtspraak|"
-    r"law|legal|statute|eviction|ontbinding|algemene bepalingen)\b",
+    r"law|legal|statute|eviction|ontbinding|algemene bepalingen|borg|deposit|overlast|erfpacht|opkoopbescherming|"
+    r"notaris|splitsingsakte|bedenktijd|wws|punten)\b",
+    re.I,
+)
+_MARKET = re.compile(
+    r"\b(funda|pararius|nvm|huurprijs|markthuur|koopprijs|vraagprijs|vierkante meter|per m2|m2|taxatie|waardebepaling|"
+    r"cpi|pbk|woningmarkt|market rent|asking price)\b",
+    re.I,
+)
+_FINANCE = re.compile(
+    r"\b(belasting|btw|vat|box\s*3|leegwaarderatio|overdrachtsbelasting|ozb|isde|svve|subsidie|hypotheek|rente|"
+    r"rvo|dnb|tax|subsidy|mortgage)\b",
     re.I,
 )
 Searcher = Callable[[Sequence[str]], SearchClient]  # allowed domains (empty = any) -> a search client
@@ -61,6 +106,23 @@ def _squash(text: str) -> str:
 
 def is_legal(question: str, category: Category) -> bool:
     return category is Category.legal or _LEGAL.search(question) is not None
+
+
+def domains_for(question: str, category: Category) -> tuple[str, ...]:
+    """Trusted Dutch/EU domains for Gemini Search grounding by question intent and category."""
+    if is_legal(question, category):
+        return LEGAL_DOMAINS
+    if _MARKET.search(question) is not None:
+        return MARKET_DOMAINS
+    if _FINANCE.search(question) is not None or category is Category.finance:
+        return FINANCE_DOMAINS
+    if category is Category.maintenance:
+        return MAINTENANCE_DOMAINS
+    if category is Category.new_projects:
+        return (*MARKET_DOMAINS, "rvo.nl", "amsterdam.nl")
+    if category is Category.business:
+        return MARKET_DOMAINS
+    return ()
 
 
 def stored_findings(research: dict[str, object] | None) -> tuple[Finding, ...]:
@@ -97,12 +159,14 @@ class _Budget:
         return DEADLINE_SEC - (self.clock() - self.started)
 
 
-def _search(searcher: Searcher, query: str, legal: bool, n: int, budget: _Budget) -> list[ResearchSource]:
+def _search(
+    searcher: Searcher, query: str, domains: Sequence[str], n: int, budget: _Budget
+) -> list[ResearchSource]:
     if not budget.may_search():
         return []
     budget.searches += 1
     try:
-        hits = searcher(LEGAL_DOMAINS if legal else ()).search(
+        hits = searcher(domains).search(
             search_query(query), region=REGION, limit=PAGES_PER_SEARCH
         )
     except Exception as exc:  # one search that fails (provider, budget, network) never stops the draft
@@ -136,10 +200,10 @@ def _gather(
 ) -> list[ResearchSource]:  # fmt: skip
     sources = list(references)
     for n, question in enumerate(questions, start=1):
-        sources += _search(searcher, question, is_legal(question, category), n, budget)
+        sources += _search(searcher, question, domains_for(question, category), n, budget)
     for n, question in enumerate(questions, start=1):  # a second try, with what is left, for questions with nothing
         if not any(s.question == n for s in sources):
-            sources += _search(searcher, f"{question} Nederland", is_legal(question, category), n, budget)
+            sources += _search(searcher, f"{question} Nederland", domains_for(question, category), n, budget)
     return sources
 
 

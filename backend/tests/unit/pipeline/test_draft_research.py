@@ -3,7 +3,15 @@
 from app.contracts import Category
 from app.contracts.draft_research import ResearchClaim
 from app.llm.agents.draft_research import ResearchSource, draft_research_prompt
-from app.pipeline.draft_research import LEGAL_DOMAINS, checked, is_legal
+from app.pipeline.draft_research import (
+    FINANCE_DOMAINS,
+    LEGAL_DOMAINS,
+    MAINTENANCE_DOMAINS,
+    MARKET_DOMAINS,
+    checked,
+    domains_for,
+    is_legal,
+)
 
 
 def test_checked_keeps_only_findings_with_matching_source_and_verbatim_evidence() -> None:
@@ -31,6 +39,19 @@ def test_is_legal_detects_legal_category_and_dutch_or_english_terms() -> None:
     assert is_legal("Wat kost dakreparatie per m2?", Category.maintenance) is False
     assert "wetten.overheid.nl" in LEGAL_DOMAINS
     assert "roz.nl" in LEGAL_DOMAINS
+
+
+def test_domains_for_routes_verified_dutch_websites_and_skips_kadaster() -> None:
+    assert "hornbach.nl" in domains_for("Wat kost een nieuwe radiator?", Category.maintenance)
+    assert "warmteservice.nl" in domains_for("Wat kost een cv-ketel?", Category.maintenance)
+    assert "funda.nl" in domains_for("Wat is de gemiddelde huurprijs per m2 in Amsterdam?", Category.business)
+    assert "pararius.nl" in domains_for("Markthuur per m2 berekenen", Category.administration)
+    assert "belastingdienst.nl" in domains_for("Wat is Box 3 leegwaarderatio in 2026?", Category.finance)
+    assert "rvo.nl" in domains_for("ISDE subsidie warmtepomp", Category.finance)
+    assert "amsterdam.nl" in domains_for("Opkoopbescherming en erfpacht regels", Category.legal)
+    for group in (LEGAL_DOMAINS, MARKET_DOMAINS, FINANCE_DOMAINS, MAINTENANCE_DOMAINS):
+        assert "kadaster.nl" not in group
+        assert "wozwaardeloket.nl" not in group
 
 
 def test_research_page_text_is_data_in_prompt() -> None:

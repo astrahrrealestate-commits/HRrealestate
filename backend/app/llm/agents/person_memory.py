@@ -18,7 +18,7 @@ def _unchanged(output: PersonMemory, _loaded: LoadedPrompt) -> PersonMemory:
 
 PERSON_MEMORY = AgentSpec(
     name="person_memory",
-    prompt=PromptRef(name="person_memory", version="v2"),
+    prompt=PromptRef(name="person_memory", version="v3"),
     output_type=PersonMemory,
     finalize=_unchanged,
     redact_output=True,  # stored on the profile, which erasure deletes; the call log keeps only its size
