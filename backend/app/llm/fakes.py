@@ -338,6 +338,29 @@ def _fake_rag_rerank(prompt: str) -> dict[str, object]:
     return {"scores": _fake_rerank_scores(_block(prompt, "message"), passages)}
 
 
+def _fake_enhance_planner(prompt: str) -> dict[str, object]:
+    instr = _block(prompt, "instruction").lower()
+    rag = (
+        ["huurcontract waarborgsom"]
+        if any(w in instr for w in ("lease", "contract", "deposit", "borg", "vve", "clause"))
+        else []
+    )
+    mail = (
+        [instr[:80]] if any(w in instr for w in ("previous", "earlier", "promised", "history", "email", "mail")) else []
+    )
+    web = (
+        [f"Nederlandse regelgeving: {instr[:120]}"]
+        if any(w in instr for w in ("law", "legal", "wws", "wet", "recht", "rule"))
+        else []
+    )
+    db = (
+        f"Check portfolio facts for: {instr[:120]}"
+        if any(w in instr for w in ("rent", "overdue", "arrears", "rate", "huur", "m2"))
+        else None
+    )
+    return {"rag_queries": rag, "mail_queries": mail, "web_questions": web, "db_question": db}
+
+
 def fake_person_memory(prompt: str) -> dict[str, object]:
     """What Harjot wrote becomes a commitment, what the person wrote an open issue: enough to test the plumbing."""
     lines = [" ".join(p.split()) for p in _block(prompt, "thread").split("\n\n")]
@@ -397,6 +420,8 @@ def model_for(agent_name: str) -> FunctionModel:
             args = fake_price_extractor(user_text)
         elif agent_name == "draft_research":
             args = fake_draft_research(user_text)
+        elif agent_name == "enhance_planner":
+            args = _fake_enhance_planner(user_text)
         elif agent_name == "doc_ocr":
             args = {"text": _extract_binary(messages).removeprefix(b"SCAN").decode("utf-8", errors="replace").strip()}
         else:

@@ -195,10 +195,11 @@ describe("Today Category Desk", () => {
 });
 
 describe("Inbox composer commitments", () => {
-  it("the composer lists a draft's commitments above Approve", () => {
+  it("the composer shows a collapsible commitments pill above Approve and opens its card when enabled", () => {
     const commitmentsHtml = renderToStaticMarkup(
       React.createElement(DraftCommitments, {
         commitments: ["Send mechanic Friday morning", "Cap invoice at €250"],
+        defaultOpen: true,
       })
     );
     expect(commitmentsHtml).toContain("Send mechanic Friday morning");
@@ -229,7 +230,7 @@ describe("Inbox composer commitments", () => {
       )
     );
 
-    const commitmentPos = composerHtml.indexOf("Monteur komt vrijdagochtend");
+    const commitmentPos = composerHtml.indexOf("Commitments (2)");
     const approvePos = composerHtml.indexOf("Accept &amp; send");
     expect(commitmentPos).toBeGreaterThan(-1);
     expect(approvePos).toBeGreaterThan(commitmentPos);

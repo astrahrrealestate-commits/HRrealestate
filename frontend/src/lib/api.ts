@@ -282,7 +282,8 @@ export async function approveInboxDraft(
   approvalId: string,
   choice: "d1" | "d2" | "d3" | "ok" | "edit" | "rej" = "d1",
   editedText?: string,
-  replyToMessageId?: string
+  replyToMessageId?: string,
+  attachmentIds?: string[]
 ): Promise<ApprovalDecideResponse & { ok?: boolean }> {
   try {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/approvals/${approvalId}/decide`, {
@@ -295,6 +296,7 @@ export async function approveInboxDraft(
         choice,
         edited_text: editedText || null,
         reply_to_message_id: replyToMessageId || null,
+        attachment_ids: attachmentIds ?? [],
       }),
       signal: AbortSignal.timeout(25000), // Real Gmail API dispatch takes 5-8s
     });
@@ -333,7 +335,8 @@ export async function sendThreadReply(
   caseId: string,
   body: string,
   channel: "gmail" | "whatsapp",
-  replyToMessageId?: string
+  replyToMessageId?: string,
+  attachmentIds?: string[]
 ): Promise<{ ok: boolean; status: string; message: string }> {
   try {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/threads/${encodeURIComponent(caseId)}/reply`, {
@@ -346,6 +349,7 @@ export async function sendThreadReply(
         body,
         channel,
         reply_to_message_id: replyToMessageId || null,
+        attachment_ids: attachmentIds ?? [],
       }),
       signal: AbortSignal.timeout(25000),
     });
@@ -1776,6 +1780,102 @@ export async function translateText(text: string, target: "en" | "nl" = "en"): P
     return res.ok ? ((await res.json()) as TranslateResult) : null;
   } catch {
     return null;
+  }
+}
+
+export interface EnhanceDraftResult {
+  ok: boolean;
+  draftText: string;
+  variants: string[];
+  commitments: string[];
+  commitmentsByVariant?: string[][];
+  approvalId?: string | null;
+  draftVersion?: number | null;
+  sourcesUsed?: string[];
+  problem?: string;
+}
+
+export interface UploadedThreadAttachment {
+  ok: boolean;
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  gmailAllowed: boolean;
+  whatsappAllowed: boolean;
+  driveQueued: boolean;
+  problem?: string;
+}
+
+export async function uploadThreadAttachment(caseId: string, file: File): Promise<UploadedThreadAttachment> {
+  const form = new FormData();
+  form.append("file", file);
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/threads/${encodeURIComponent(caseId)}/attachments`, {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(60000),
+    });
+    if (res.ok) {
+      return (await res.json()) as UploadedThreadAttachment;
+    }
+    const err = (await res.json().catch(() => ({}))) as { detail?: string };
+    return {
+      ok: false,
+      attachmentId: "",
+      filename: file.name,
+      mimeType: file.type || "application/octet-stream",
+      sizeBytes: file.size,
+      gmailAllowed: false,
+      whatsappAllowed: false,
+      driveQueued: false,
+      problem: err.detail || "Upload failed.",
+    };
+  } catch {
+    return {
+      ok: false,
+      attachmentId: "",
+      filename: file.name,
+      mimeType: file.type || "application/octet-stream",
+      sizeBytes: file.size,
+      gmailAllowed: false,
+      whatsappAllowed: false,
+      driveQueued: false,
+      problem: "Upload timed out or could not reach the server.",
+    };
+  }
+}
+
+export async function enhanceThreadDraft(
+  caseId: string,
+  payload: { instruction: string; current_text: string; message_id?: string }
+): Promise<EnhanceDraftResult> {
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/threads/${encodeURIComponent(caseId)}/enhance`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(90000),
+    });
+    if (res.ok) {
+      return (await res.json()) as EnhanceDraftResult;
+    }
+    const err = (await res.json().catch(() => ({}))) as { detail?: string };
+    return {
+      ok: false,
+      draftText: "",
+      variants: [],
+      commitments: [],
+      problem: err.detail || "Could not enhance draft.",
+    };
+  } catch {
+    return {
+      ok: false,
+      draftText: "",
+      variants: [],
+      commitments: [],
+      problem: "Enhance request timed out or could not reach the server.",
+    };
   }
 }
 

@@ -21,6 +21,7 @@ from app.core.workflow_names import (
     chat_workflow_id,
     concierge_workflow_id,
     dd_workflow_id,
+    document_workflow_id,
     exec_workflow_id,
     finance_recheck_workflow_id,
     reorg_workflow_id,
@@ -44,6 +45,17 @@ def enqueue_filing(client: WorkflowClient, company_id: UUID, attachment_id: UUID
         "queue_partition_key": str(company_id),
     }
     client.enqueue(options, str(company_id), str(attachment_id), choice)
+
+
+def enqueue_document(client: WorkflowClient, company_id: UUID, attachment_id: UUID) -> None:
+    """File an attachment automatically (classify, RAG index, Google Drive upload) on the documents queue."""
+    options = {
+        "queue_name": DOCUMENTS_QUEUE,
+        "workflow_name": FILE_DOCUMENT,
+        "workflow_id": document_workflow_id(attachment_id),
+        "queue_partition_key": str(company_id),
+    }
+    client.enqueue(options, str(company_id), str(attachment_id), None)
 
 
 def enqueue_reorg(client: WorkflowClient, company_id: UUID, plan_id: UUID) -> None:

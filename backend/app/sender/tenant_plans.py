@@ -50,6 +50,17 @@ def _checked_body(body: str, channel: Channel) -> str:
     return body
 
 
+def _attachment_ids(action: ActionRow) -> tuple[UUID, ...]:
+    raw = (action.payload or {}).get("attachment_ids") or ()
+    out: list[UUID] = []
+    for item in raw:
+        try:
+            out.append(UUID(str(item)))
+        except ValueError:
+            continue
+    return tuple(out)
+
+
 def tenant_gmail(session: Session, action: ActionRow, body: str, key: str) -> Plan:
     """A reply in the thread of the contact's own latest message, to the contact's identity. The subject comes from
     the stored thread only, never from the proposal (model text Harjot did not see as the subject)."""
@@ -57,7 +68,13 @@ def tenant_gmail(session: Session, action: ActionRow, body: str, key: str) -> Pl
     assert_addressee(session, action, msg)
     subject = thread_subject(msg.meta.get("subject"))
     plan = reply_plan(session, msg, to, subject, _checked_body(body, Channel.gmail), key)
-    return replace(plan, tenant_send=True, case_id=action.case_id)
+    return replace(
+        plan,
+        tenant_send=True,
+        case_id=action.case_id,
+        company_id=action.company_id,
+        attachment_ids=_attachment_ids(action),
+    )
 
 
 def tenant_whatsapp(session: Session, action: ActionRow, body: str, now: datetime) -> Plan:
@@ -66,7 +83,15 @@ def tenant_whatsapp(session: Session, action: ActionRow, body: str, now: datetim
     if not whatsapp_window_open(msg, now):
         raise SendBlockedError(WINDOW_CLOSED)
     payload = payloads.text(to, _checked_body(body, Channel.whatsapp))
-    return Plan(Channel.whatsapp, to, whatsapp=payload, tenant_send=True, case_id=action.case_id)
+    return Plan(
+        Channel.whatsapp,
+        to,
+        whatsapp=payload,
+        tenant_send=True,
+        case_id=action.case_id,
+        company_id=action.company_id,
+        attachment_ids=_attachment_ids(action),
+    )
 
 
 def tenant_plan(session: Session, action: ActionRow, body: str, key: str, now: datetime) -> Plan:

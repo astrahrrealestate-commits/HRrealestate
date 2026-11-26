@@ -16,10 +16,11 @@ as `execute._prepare`). `mark` writes the send first; only the attempt holding t
 deadlock with a give-up is aborted by Postgres and retried by the step.
 """
 
+import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from sqlalchemy import Engine, select, update
@@ -29,14 +30,16 @@ from sqlalchemy.orm import Session
 from app.channels.dashboard import feed
 from app.channels.gmail.drafts import GmailDrafts
 from app.channels.google_chat.outbound import GoogleChatOutbound
+from app.channels.whatsapp import payloads as wa_payloads
 from app.channels.whatsapp.outbound import WhatsAppOutbound
-from app.contracts import Channel
+from app.contracts import Channel, MailAttachment
 from app.core.errors import EstateOSError
 from app.db.enums import ActionStatus, SendStatus
-from app.db.models import ActionRow, Send
+from app.db.models import ActionRow, AttachmentRow, Send
 from app.sender.errors import SendBlockedError
 from app.sender.plan import Plan
 from app.sender.tenant_gate import GMAIL_SEND_MISSING, write_alert
+from app.storage.ports import MAX_PRESIGN_TTL_S, ObjectStorage
 
 
 @dataclass(frozen=True)
@@ -52,6 +55,7 @@ class SenderDeps:
     tenant_sends_per_hour: int = 30
     owner_chat_sends_per_hour: int = 200
     owner_chat_sends_per_number_per_hour: int = 20
+    storage: ObjectStorage | None = None
 
 
 @dataclass(frozen=True)
@@ -95,15 +99,81 @@ def claim(session: Session, company_id: UUID, key: str, action_id: UUID | None, 
     return send
 
 
+_WA_IMAGE_LIMIT = 16 * 1024 * 1024
+_WA_DOC_LIMIT = 100 * 1024 * 1024
+
+
+def _load_attachments(deps: SenderDeps, plan: Plan) -> list[AttachmentRow]:
+    if deps.storage is None or not plan.attachment_ids or plan.company_id is None:
+        return []
+    with Session(deps.engine) as session:
+        rows = list(
+            session.scalars(
+                select(AttachmentRow).where(
+                    AttachmentRow.company_id == plan.company_id,
+                    AttachmentRow.id.in_(plan.attachment_ids),
+                )
+            ).all()
+        )
+    by_id = {row.id: row for row in rows}
+    return [by_id[aid] for aid in plan.attachment_ids if aid in by_id]
+
+
+def _gmail_attachments(deps: SenderDeps, plan: Plan) -> tuple[MailAttachment, ...]:
+    if deps.storage is None:
+        return ()
+    out: list[MailAttachment] = []
+    for row in _load_attachments(deps, plan):
+        raw = deps.storage.get(row.s3_key)
+        out.append(MailAttachment(row.filename or "attachment", row.mime_type or "application/octet-stream", raw))
+    return tuple(out)
+
+
+def _whatsapp_media_payloads(deps: SenderDeps, plan: Plan) -> list[dict[str, Any]]:
+    if deps.storage is None:
+        return []
+    out: list[dict[str, Any]] = []
+    for row in _load_attachments(deps, plan):
+        is_image = (row.mime_type or "").startswith("image/")
+        limit = _WA_IMAGE_LIMIT if is_image else _WA_DOC_LIMIT
+        if row.size_bytes > limit:
+            continue
+        try:
+            url = deps.storage.presigned_url(
+                row.s3_key,
+                MAX_PRESIGN_TTL_S,
+                content_type=row.mime_type,
+                disposition="inline" if is_image else "attachment",
+            )
+        except Exception:
+            logging.getLogger(__name__).warning("whatsapp media presign skipped for %s", row.s3_key, exc_info=True)
+            continue
+        if not url.startswith("https://"):
+            continue
+        out.append(
+            wa_payloads.media(
+                plan.target,
+                kind="image" if is_image else "document",
+                link=url,
+                filename=row.filename or "attachment",
+            )
+        )
+    return out
+
+
 def deliver(deps: SenderDeps, plan: Plan) -> str:
     if plan.tenant_send and plan.channel is Channel.gmail:
         if deps.gmail_sender is None or plan.draft is None or plan.mailbox is None:
             raise SendBlockedError(GMAIL_SEND_MISSING)
-        return deps.gmail_sender(plan.mailbox).send_reply(plan.draft)
+        attachments = _gmail_attachments(deps, plan)
+        draft = replace(plan.draft, attachments=attachments) if attachments else plan.draft
+        return deps.gmail_sender(plan.mailbox).send_reply(draft)
     if plan.tenant_send and plan.channel is not Channel.whatsapp:
         raise SendBlockedError(f"{plan.channel.value} is not a tenant reply channel")
     if plan.channel is Channel.gmail and plan.draft is not None and plan.mailbox is not None:
-        return deps.gmail_drafts(plan.mailbox).create_draft(plan.draft)
+        attachments = _gmail_attachments(deps, plan)
+        draft = replace(plan.draft, attachments=attachments) if attachments else plan.draft
+        return deps.gmail_drafts(plan.mailbox).create_draft(draft)
     if plan.channel is Channel.gmail and plan.email is not None and plan.mailbox is not None:
         return deps.gmail_drafts(plan.mailbox).send_message(plan.email)
     if plan.channel is Channel.google_chat and plan.google_chat is not None:
@@ -111,7 +181,10 @@ def deliver(deps: SenderDeps, plan: Plan) -> str:
             raise SendBlockedError("Google Chat outbound not configured")
         return deps.google_chat.send(plan.target, plan.google_chat)
     if plan.whatsapp is not None:
-        return deps.whatsapp.send(plan.whatsapp)
+        ref = deps.whatsapp.send(plan.whatsapp)
+        for media_payload in _whatsapp_media_payloads(deps, plan):
+            deps.whatsapp.send(media_payload)
+        return ref
     raise SendBlockedError("nothing to deliver")
 
 

@@ -5,7 +5,7 @@ Limits follow the documented Cloud API constraints; violations raise ValueError 
 
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 _E164 = re.compile(r"\+[1-9][0-9]{6,14}")
 
@@ -127,4 +127,24 @@ def template(to: str, name: str, language: str, body_params: list[str]) -> dict[
         payload["template"]["components"] = [
             {"type": "body", "parameters": [{"type": "text", "text": p} for p in body_params]}
         ]
+    return payload
+
+
+def media(
+    to: str,
+    *,
+    kind: Literal["image", "document"],
+    link: str,
+    filename: str | None = None,
+    caption: str | None = None,
+) -> dict[str, Any]:
+    """Outbound WhatsApp `image` or `document` message referencing an HTTPS URL."""
+    _check(link.startswith("https://"), "WhatsApp media link must use https://")
+    payload = _base(to, kind, None)
+    body: dict[str, Any] = {"link": link}
+    if kind == "document" and filename:
+        body["filename"] = filename[:240]
+    if caption and caption.strip():
+        body["caption"] = caption.strip()[:BODY_MAX]
+    payload[kind] = body
     return payload

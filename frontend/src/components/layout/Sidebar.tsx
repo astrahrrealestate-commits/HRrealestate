@@ -50,6 +50,27 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
   const pathname = usePathname() || "/";
   const [isConnectionsOpen, setIsConnectionsOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isUserMenuOpen) return;
+    function handleOutsideClick(event: MouseEvent) {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setIsUserMenuOpen(false);
+      }
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsUserMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleOutsideClick);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isUserMenuOpen]);
 
   // Auto-open Connections modal if returning from OAuth
   useEffect(() => {
@@ -146,7 +167,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
     <aside
       style={{ width: compact ? 68 : sidebarWidth }}
       className={cn(
-        "hidden md:flex flex-col justify-between select-none h-dvh overflow-hidden flex-shrink-0 border-r border-[#162B45] bg-[#0A1B2F] transition-[width] duration-150 z-20 relative"
+        "hidden md:flex flex-col justify-between select-none h-dvh overflow-visible flex-shrink-0 border-r border-[#162B45] bg-[#0A1B2F] transition-[width] duration-150 z-40 relative"
       )}
     >
       <ResizeHandle
@@ -297,7 +318,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
 
       {/* Bottom Section: Knowledge Base, Connections & User Profile */}
       <div className="border-t border-[#162B45] shrink-0">
-        <div className={cn("space-y-1", compact ? "p-2" : "p-2.5")}>
+        <div className={cn("space-y-1 overflow-hidden", compact ? "p-2" : "p-2.5")}>
           {/* Knowledge Base */}
           {canAccess("reports") && (
             <Link
@@ -361,12 +382,14 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
         </div>
 
         {/* User Profile & Logout Popover */}
-        <div className="relative border-t border-[#162B45]">
+        <div ref={userMenuRef} className="relative border-t border-[#162B45]">
           {isUserMenuOpen && (
             <div
               className={cn(
-                "absolute bottom-full mb-2 p-2 rounded-xl bg-[#0E2138] border border-[#162B45] shadow-xl z-50 animate-in fade-in slide-in-from-bottom-2 duration-150",
-                compact ? "left-2 w-[220px]" : "left-2 right-2"
+                "absolute p-2 rounded-xl bg-[#0E2138] border border-[#162B45] shadow-xl z-50 animate-in fade-in duration-150",
+                compact
+                  ? "left-full bottom-2 ml-2 w-[232px] slide-in-from-left-2"
+                  : "bottom-full mb-2 left-2 right-2 slide-in-from-bottom-2"
               )}
             >
               <div className="px-2 py-1.5 border-b border-[#162B45] mb-1">
@@ -413,7 +436,7 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
           <div
             onClick={() => setIsUserMenuOpen((prev) => !prev)}
             className={cn(
-              "flex items-center gap-2.5 bg-white/[0.02] hover:bg-white/[0.06] transition-colors cursor-pointer select-none",
+              "flex items-center gap-2.5 overflow-hidden bg-white/[0.02] hover:bg-white/[0.06] transition-colors cursor-pointer select-none",
               compact ? "p-2.5 justify-center" : "p-2.5 px-3 justify-between"
             )}
             title={user?.isAdmin ? "Profile, team & access, sign out" : "Profile & sign out"}

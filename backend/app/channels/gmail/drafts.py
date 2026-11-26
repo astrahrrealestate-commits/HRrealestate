@@ -82,6 +82,14 @@ def build_mime(sender: str, request: DraftRequest) -> bytes:
     if request.references:
         msg["References"] = _trim_references(clean_header(request.references, 64_000) or "")
     msg.set_content(request.body, charset="utf-8")
+    for att in request.attachments:
+        maintype, _, subtype = (att.mime_type or "application/octet-stream").partition("/")
+        msg.add_attachment(
+            att.content,
+            maintype=maintype or "application",
+            subtype=subtype or "octet-stream",
+            filename=clean_header(att.filename, 255) or "attachment",
+        )
     return msg.as_bytes()
 
 

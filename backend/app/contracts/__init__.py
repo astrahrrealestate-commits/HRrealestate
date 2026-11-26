@@ -21,6 +21,7 @@ from app.contracts.common import (
     DraftRequest,
     EmailRequest,
     InteractiveChannel,
+    MailAttachment,
     Money,
     OutboundMode,
 )
@@ -101,6 +102,7 @@ __all__ = [
     "KeyFact",
     "LineStatus",
     "LinkDecision",
+    "MailAttachment",
     "Message",
     "Money",
     "NotifyOwnerPayload",
