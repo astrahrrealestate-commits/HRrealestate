@@ -121,30 +121,20 @@ export function ThreadRow({
       {/* Avatar with tiny channel badge */}
       <Avatar name={t.contactName} channel={t.channel} />
 
-      {/* Text column: Sender name, Flat/Address, Subject, Snippet */}
-      <span className="min-w-0">
-        <span className="flex items-center gap-1.5 min-w-0">
+      {/* Text column: Sender name, Flat/Address, Subject, Snippet + clean tag line */}
+      <div className="min-w-0 overflow-hidden">
+        <div className="flex items-center gap-1.5 min-w-0">
           <span
             className={cn(
-              "truncate text-[14.5px] leading-snug",
+              "truncate text-[14px] leading-snug",
               isUnread ? "font-bold text-[var(--ink)]" : "font-normal text-[var(--ink-2)]"
             )}
           >
             {t.contactName}
           </span>
-          {t.roleLabel && t.roleLabel !== "Contact" && t.roleLabel !== "Tenant" && (
-            <span className="shrink-0 inline-flex items-center px-1.5 py-0.2 rounded border border-[var(--line)] bg-[var(--bg)] text-[10px] font-semibold text-[var(--ink-2)] leading-tight">
-              {t.roleLabel}
-            </span>
-          )}
-          {showCategory && (
-            <span className="shrink-0 inline-flex items-center px-1.5 py-0.2 rounded border border-[var(--line)] bg-[var(--selected)]/60 text-[10px] font-medium text-[var(--ink-2)] leading-tight">
-              {categoryLabel}
-            </span>
-          )}
-        </span>
+        </div>
 
-        <span className="block truncate text-sm leading-normal mt-0.5" title={t.subject || undefined}>
+        <span className="block truncate text-[13px] leading-normal mt-0.5" title={t.subject || undefined}>
           {t.unit ? (
             <span className={cn("text-[var(--ink)]", isUnread ? "font-bold" : "font-semibold")}>{t.unit}</span>
           ) : null}
@@ -156,11 +146,26 @@ export function ThreadRow({
           </span>
         </span>
 
-        <span className={cn("block truncate text-sm leading-normal", isUnread ? "text-[var(--ink-2)] font-medium" : "text-[var(--ink-3)]")}>
+        <span className={cn("block truncate text-[12.5px] leading-normal", isUnread ? "text-[var(--ink-2)] font-medium" : "text-[var(--ink-3)]")}>
           {t.lastFromUs && "You: "}
           {t.snippet}
         </span>
-      </span>
+
+        {((t.roleLabel && t.roleLabel !== "Contact" && t.roleLabel !== "Tenant") || showCategory) && (
+          <div className="mt-1 flex items-center gap-1 flex-wrap">
+            {t.roleLabel && t.roleLabel !== "Contact" && t.roleLabel !== "Tenant" && (
+              <span className="inline-flex items-center px-1.5 py-0.2 rounded border border-[var(--line)] bg-[var(--bg)] text-[10px] font-semibold text-[var(--ink-2)] leading-tight">
+                {t.roleLabel}
+              </span>
+            )}
+            {showCategory && (
+              <span className="inline-flex items-center px-1.5 py-0.2 rounded border border-[var(--line)] bg-[var(--selected)]/60 text-[10px] font-medium text-[var(--ink-2)] leading-tight">
+                {categoryLabel}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Time & urgency / waiting indicator */}
       <span className="flex flex-col items-end gap-1 whitespace-nowrap text-xs flex-shrink-0 pt-0.5">

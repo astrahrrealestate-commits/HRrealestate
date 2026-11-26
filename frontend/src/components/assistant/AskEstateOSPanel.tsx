@@ -146,32 +146,18 @@ export function AskEstateOSPanel({
   };
 
   const isDark = theme === "dark";
-  const handleSendQueryRef = useRef<(q: string) => void>(() => {});
   const {
     isListening,
-    isPausing: isPausingToAutoSend,
     error: voiceError,
     speechLang,
     setSpeechLang,
     startListening,
     stopListening,
     toggleVoiceInput: toggleVoice,
-    cancelPause,
   } = useVoiceInput({
     initialLang: "en",
-    silenceTimeoutMs: 1800, // after 1.8s of silence the spoken question is sent on its own
     onTranscript: (text) => setInputQuery(text),
-    onSilencePause: (text) => {
-      const queryToSend = text.trim();
-      if (queryToSend) {
-        setInputQuery("");
-        handleSendQueryRef.current(queryToSend);
-      }
-    },
   });
-
-  // Typing cancels a pending auto-send; the shared hook owns the recognition session itself.
-  const cancelAutoSend = cancelPause;
 
   const toggleVoiceInput = (overrideLang?: "en" | "nl") => toggleVoice(inputQuery, overrideLang);
 
@@ -199,6 +185,26 @@ export function AskEstateOSPanel({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const dockInputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const MAX_INPUT_HEIGHT_PX = 140;
+    const syncTextarea = (el: HTMLTextAreaElement | null) => {
+      if (!el) return;
+      el.style.height = "auto";
+      const clampedHeight = Math.min(el.scrollHeight, MAX_INPUT_HEIGHT_PX);
+      el.style.height = `${clampedHeight}px`;
+      el.style.overflowY = el.scrollHeight > MAX_INPUT_HEIGHT_PX ? "auto" : "hidden";
+      if (el.scrollHeight > MAX_INPUT_HEIGHT_PX) {
+        const caretAtEnd = (el.selectionEnd ?? el.value.length) >= el.value.length - 1;
+        if (isListening || caretAtEnd) {
+          el.scrollTop = el.scrollHeight;
+        }
+      }
+    };
+    syncTextarea(inputRef.current);
+    syncTextarea(dockInputRef.current);
+  }, [inputQuery, isListening, isOpen]);
 
   // Keyboard shortcut listener: Ctrl+J to toggle, Esc to close
   useEffect(() => {
@@ -281,6 +287,7 @@ export function AskEstateOSPanel({
   const handleSendQuery = async (queryText: string) => {
     const trimmed = queryText.trim();
     if (!trimmed) return;
+    if (isListening) stopListening();
 
     const userMsg: AssistantMessage = {
       id: `user-${Date.now()}`,
@@ -358,8 +365,6 @@ export function AskEstateOSPanel({
       setIsTyping(false);
     }
   };
-
-  handleSendQueryRef.current = handleSendQuery;
 
   const handleApproveCalendar = async (cardId: string, eventId?: string | null, payloadUrl?: string | null) => {
     setApprovingCalendarId(cardId);
@@ -1836,21 +1841,20 @@ export function AskEstateOSPanel({
               className="flex flex-col gap-2"
             >
               <textarea
+                ref={dockInputRef}
                 rows={1}
                 value={inputQuery}
                 onChange={(e) => {
-                  cancelAutoSend();
                   setInputQuery(e.target.value);
                 }}
                 onKeyDown={(e) => {
-                  cancelAutoSend();
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     handleSendQuery(inputQuery);
                   }
                 }}
                 placeholder={t("agent.dock_placeholder", "Talk to Astra and get your job done")}
-                className="w-full text-[13px] bg-transparent outline-none resize-none text-white placeholder:text-slate-500 leading-normal"
+                className="w-full text-[13px] bg-transparent outline-none resize-none overflow-hidden text-white placeholder:text-slate-500 leading-normal"
               />
               <div className="flex items-center justify-between pt-1">
                 {/* Left: Language selector & Listening status */}
@@ -1875,11 +1879,7 @@ export function AskEstateOSPanel({
                   {isListening && (
                     <span className="text-[11px] text-cyan-300 font-medium animate-pulse flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping inline-block" />
-                      {isPausingToAutoSend
-                        ? "⚡ Sending..."
-                        : speechLang === "nl"
-                        ? "Luisteren (NL)..."
-                        : "Listening (EN)..."}
+                      {speechLang === "nl" ? "Luisteren (NL)..." : "Listening (EN)..."}
                     </span>
                   )}
                   {voiceError && !isListening && (
@@ -2561,11 +2561,9 @@ export function AskEstateOSPanel({
                 rows={1}
                 value={inputQuery}
                 onChange={(e) => {
-                  cancelAutoSend();
                   setInputQuery(e.target.value);
                 }}
                 onKeyDown={(e) => {
-                  cancelAutoSend();
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     handleSendQuery(inputQuery);
@@ -2573,7 +2571,7 @@ export function AskEstateOSPanel({
                 }}
                 placeholder={t("agent.ask_placeholder")}
                 className={cn(
-                  "w-full text-[13px] bg-transparent outline-none resize-none leading-relaxed",
+                  "w-full text-[13px] bg-transparent outline-none resize-none overflow-hidden leading-relaxed",
                   isDark
                     ? "text-[#FFFFFF] placeholder:text-[#64748B]"
                     : "text-[#1f1f1f] placeholder:text-[#444746]",
@@ -2626,11 +2624,7 @@ export function AskEstateOSPanel({
                   {isListening && (
                     <span className="text-[11px] text-cyan-400 font-medium animate-pulse flex items-center gap-1 pl-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping inline-block" />
-                      {isPausingToAutoSend
-                        ? "⚡ Sending..."
-                        : speechLang === "nl"
-                        ? "Luisteren (Dutch)..."
-                        : "Listening (English)..."}
+                      {speechLang === "nl" ? "Luisteren (Dutch)..." : "Listening (English)..."}
                     </span>
                   )}
                   {voiceError && !isListening && (
