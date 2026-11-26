@@ -1,0 +1,34 @@
+# Eval: concierge/v9
+
+- date: 2026-11-26T03:47:54+00:00
+- model: google-gla:gemini-3.8-flash
+- prompt sha256: 06f8d73c4dfd040a15bd1784598adf8e5968326632af10681deaea5fd5034b03
+
+| metric | score |
+|---|---|
+| intent_sequence_match | 0.84 |
+| scope_accuracy | 1.00 |
+| forbidden_intent_rate | 0.01 |
+| invariant_pass_rate | 1.00 |
+| reply_rate | 0.50 |
+| research_recall | 1.00 |
+| research_false_rate | 0.01 |
+
+## Misses (14)
+
+| case | expected | got | text |
+|---|---|---|---|
+| read-05 | in_scope=True ['answer'] | in_scope=True ['case_status'] reply=False research=False | How is the rent situation with Piet going? |
+| read-06 | in_scope=True ['answer'] | in_scope=True ['answer'] reply=False research=True | What did the contractor say about the boiler? |
+| task-01 | in_scope=True ['task_done'] | in_scope=True ['clarify'] reply=False research=False | done #a1b2c3 |
+| task-02 | in_scope=True ['task_done'] | in_scope=True ['clarify'] reply=False research=False | Done #0f9e8d, thanks |
+| task-03 | in_scope=True ['task_snooze'] | in_scope=True ['clarify'] reply=False research=False | snooze #a1b2c3 for 2d |
+| task-04 | in_scope=True ['task_snooze'] | in_scope=True ['clarify'] reply=False research=False | snooze #0f9e8d 3d |
+| reply-04 | in_scope=True ['chase_now'] | in_scope=True ['clarify'] reply=False research=False | Nudge the contractor again about the boiler |
+| clarify-03 | in_scope=True ['clarify'] | in_scope=True ['draft_reply'] reply=False research=False | Reply to him |
+| page-01 | in_scope=True ['case_status'] | in_scope=True ['answer'] reply=True research=False | summarise this |
+| page-02 | in_scope=True ['open_view', 'answer'] | in_scope=True ['answer'] reply=True research=False | is this draft okay? |
+| page-08 | in_scope=True ['case_status'] | in_scope=True ['answer'] reply=True research=False | summarise this |
+| page-12 | in_scope=True ['case_status'] | in_scope=True ['answer'] reply=True research=False | summarise this |
+| page-13 | in_scope=True ['clarify'] | in_scope=True ['answer'] reply=True research=False | reply to this |
+| page-16 | in_scope=True ['answer'] | in_scope=True ['answer'] reply=True research=False | what does the latest message say? |

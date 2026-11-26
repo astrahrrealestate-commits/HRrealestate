@@ -115,7 +115,24 @@ Closed on 2026-11-26 (M13):
   has no setter yet: the one that is added must be owner-only, never set by filing or model output, because
   reference passages reach every dossier.
 
+- Search and Astra (M13 lane C review): message search, the reranker and Astra's tools only ever return rows of the
+  caller's company and filters; the reranker sees the matching stretch of a chunk under that line's real
+  `[time | sender | direction]` head, bodies cannot write a head, entries cannot forge or crowd out other entries, and
+  reranker calls keep only sizes in `model_calls`. Astra opens and cites by short references the server handed out in
+  that run (never ids or URLs from the model); opened mail and threads use the dossier's line rules, so a stranger's
+  mail or a forged line never reads as "Harjot (sent)"; quoted or copied Harjot text is "not verified" and the
+  research rules say it is a claim, never his word. The conversation reaches research only as a data block. Web pages
+  come only from grounding metadata through the guarded page fetch, are data, and web queries are stripped of contact
+  details. Dashboard research and chat answers are screened like a reply. Name resolution is company-scoped, marks an
+  unknown sender "unverified sender" and ranks the directory first; the live v9 planner gets no names until v10 is
+  pinned.
+
 Still open (fix in this order):
+- **Astra sources outlive erasure** (M13 lane C): each dashboard turn stores its sources in `agent_turns.results`, and a
+  message source's label is "name, channel, date"; `erase_person` does not touch `agent_turns`, and turns have no
+  retention purge. Fix: blank the labels (and answers that name the person) of turns citing one of their messages.
+- **Reranker and web search calls are not tagged with message ids** (M13 lane C): erasure finds a rerank call only
+  through its stored size (no text is kept) and a grounding call by text match of its model-written query.
 - **Owner-typed inbox replies** (`POST /api/inbox/threads/{case_id}/reply`, from dev 6ac612c; no ADR yet; not accepted).
   Fixed on merge: Approve never falls back to it, held or refused drafts are not offered, it needs the suspicious
   confirmation, and it records only a quoted mail. **Keep send mode off until these are fixed:** no client idempotency
