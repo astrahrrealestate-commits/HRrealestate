@@ -64,11 +64,14 @@ def test_greeting_needs_no_source() -> None:
     assert got.answer == "Good morning, Harjot."
 
 
-def test_an_honest_not_found_is_kept_as_written() -> None:
+def test_not_found_after_lookups_is_said_by_the_server() -> None:
     log = SourceLog()
-    answer = SourcedAnswer(answer="I found nothing about a wifi password.", sources=[], found=False)
+    log.add("message", "a", "Anna")
+    answer = SourcedAnswer(answer="Nothing found, but the deposit is 900 euro.", sources=["m1"], found=False)
     got = screen(answer, log, steps=["Searched messages (0 matches)"])
-    assert got.answer == "I found nothing about a wifi password."
+    assert "900" not in got.answer
+    assert got.answer.startswith(NOT_FOUND)
+    assert "Searched messages (0 matches)" in got.answer
 
 
 def test_duplicate_citations_appear_once_in_order() -> None:

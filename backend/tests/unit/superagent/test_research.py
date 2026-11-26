@@ -32,7 +32,7 @@ def _scripted(calls: list[tuple[str, dict[str, Any]]], final: str, seen: dict[st
         if returned < len(calls):
             name, args = calls[returned]
             return ModelResponse(parts=[ToolCallPart(name, args)])
-        answer = {"answer": final, "sources": [], "found": False}  # sources: test_sourced_answer.py
+        answer = {"answer": final, "sources": ["q1"], "found": True}  # q1: the database lookup, if one ran
         return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, answer)])
 
     return FunctionModel(model)
@@ -200,3 +200,9 @@ def test_message_wrapper_searches_the_servers_company_and_formats_one_line_per_h
     text, count = research._messages(research.SuperAgentDeps(MagicMock(), _settings(), company, None), "boiler")
     assert (count, seen["company_id"], seen["query"], seen["limit"]) == (1, company, "boiler", lookups.RERANK_TOP)
     assert text == "[m1] 2026-11-05 whatsapp | Pieter | Keizersgracht 42-A: boiler broken"
+
+
+def test_the_research_rules_say_unverified_quotes_are_claims() -> None:
+    rules = research.RESEARCH_RULES.lower()
+    assert "not verified" in rules
+    assert "never" in rules.split("not verified", 1)[1][:300]

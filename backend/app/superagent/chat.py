@@ -31,8 +31,8 @@ log = get_logger(__name__)
 AGENT_NAME = "super_agent_chat"
 PROMPT_VERSION = "code"
 CHAT_MAX_TOKENS = 1500  # Gemini thinking tokens count against the cap; the prompt, not the cap, keeps answers short
-MAX_HISTORY_LINES = 24  # 12 exchanges
-TURN_CHARS = 1200
+MAX_HISTORY_LINES = 4  # the plain chat answer keeps its old, short history
+TURN_CHARS = 600
 
 
 def record_call(engine: Engine, row: ModelCall) -> None:

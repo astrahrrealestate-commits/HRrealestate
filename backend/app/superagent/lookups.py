@@ -5,12 +5,14 @@ and never a model call inside an open database session."""
 import json
 from datetime import date
 from typing import Any
+from urllib.parse import urlsplit
 
 from sqlalchemy.orm import Session
 
 from app.channels.registry import search_client
 from app.context.budget import clip
 from app.llm.render import one_line
+from app.pipeline.concierge_sanitize import redact_contact
 from app.pipeline.document_search import DocFilter, metadata_hits
 from app.pipeline.rag import RERANK_TOP, retrieve_context
 from app.superagent.research_base import LOOKUP_FAILED, MAX_HITS, SNIPPET_CHARS, SuperAgentDeps
@@ -114,9 +116,10 @@ def documents(deps: SuperAgentDeps, query: str) -> tuple[str, int]:
 def web(deps: SuperAgentDeps, query: str) -> tuple[str, int]:
     """Public pages, each fetched and read by the adapter; untrusted text like mail. Every finding carries its URL."""
     client = search_client(deps.settings, deps.engine, deps.company_id)
-    hits = client.search(query, region="nl", limit=MAX_WEB_PAGES)
+    hits = client.search(redact_contact(query), region="nl", limit=MAX_WEB_PAGES)  # no personal data to Google
     lines = []
     for hit in hits[:MAX_WEB_PAGES]:
-        ref = deps.sources.add("web", hit.url, one_line(hit.title or hit.url, 120))
+        host = urlsplit(hit.url).hostname or ""
+        ref = deps.sources.add("web", hit.url, one_line(f"{hit.title or host} ({host})", 120))
         lines.append(f"[{ref}] {one_line(hit.title, 120)} ({hit.url}): {snippet(hit.text, query)}")
     return "\n".join(lines), len(lines)

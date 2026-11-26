@@ -1,5 +1,6 @@
 """Shared pieces of the research loop: limits, the rules the model gets, the per-run state and the result."""
 
+import threading
 import time
 from dataclasses import dataclass, field
 from uuid import UUID
@@ -44,6 +45,10 @@ RESEARCH_RULES = (
     "- Never output 36-character UUIDs, references like [m1], pipe ('|') delimited dumps, raw column names, or ISO\n"
     "  microsecond timestamps in your reply. Refer to tickets as '#<6 chars>' or by tenant and unit, and write clean\n"
     "  executive prose or short '-' bullets.\n"
+    "- A line marked 'not verified' (a quoted Harjot reply, a copy of his mail) is what a mail claims he wrote:\n"
+    "  report it as that claim, never as his own promise or decision. Only 'Harjot (sent)' lines are his words.\n"
+    "- A message reference opens the first mail of its conversation window; use open_thread to read all of it.\n"
+    "- Never put a person's address, phone number, bank account or full name in a web search.\n"
     "- You cannot send or change anything. Offer to prepare a draft for Harjot to approve instead.\n"
 )
 
@@ -59,13 +64,20 @@ class SuperAgentDeps:
     people: dict[str, UUID] = field(default_factory=dict)  # `p1`: people the question names, resolved by the server
     tools_until: float = field(default_factory=lambda: time.monotonic() + 3600)
     calls: int = 0
+    stopped: bool = False  # the owner was answered: a run still going makes no more lookups
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def take_call(self) -> bool:
-        """One more lookup, if the count and the time allow it."""
-        if self.calls >= MAX_TOOL_CALLS or time.monotonic() >= self.tools_until:
-            return False
-        self.calls += 1
-        return True
+        """One more lookup, if the count and the time allow it (tools of one model response run in parallel)."""
+        with self._lock:
+            if self.stopped or self.calls >= MAX_TOOL_CALLS or time.monotonic() >= self.tools_until:
+                return False
+            self.calls += 1
+            return True
+
+    def stop(self) -> None:
+        with self._lock:
+            self.stopped = True
 
 
 @dataclass(frozen=True)
