@@ -2,8 +2,8 @@ name: ci
 
 on:
   push:
-    # main/stage/dev: verifies merge/promotion results and seeds caches for new branches. m*-*: feature branches (except m13-ai-staff).
-    branches: [main, stage, dev, "m*-*", "!m13-ai-staff"]
+    # main/stage/dev: verifies merge/promotion results and seeds caches.
+    branches: [main, stage, dev]
   pull_request:
     branches: [main, stage, dev]
 
