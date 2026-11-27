@@ -154,7 +154,7 @@ module "ecs" {
     { name = "DASHBOARD_CORS_ORIGINS", value = var.dashboard_cors_origins },
     { name = "DASHBOARD_AUTH_PROVIDER", value = "google" },
     { name = "DASHBOARD_TRUST_FORWARDED_FOR", value = "true" },
-    { name = "LLM_MODEL", value = "google-gla:gemini-2.5-flash" },
+    { name = "LLM_MODEL", value = "google-gla:gemini-3.8-flash" }, # live since 2026-11-23; every eval ran on it
     { name = "EMBEDDING_MODEL", value = "google-gla:gemini-embedding-001" },
     # google-genai 3.x defaults to API v1, which rejects instructions/tools; the code pins v1beta too.
     { name = "GOOGLE_GENAI_API_VERSION", value = "v1beta" },
