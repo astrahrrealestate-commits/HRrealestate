@@ -41,7 +41,7 @@ _UND = Understanding(
     category=Category.maintenance, intent="Tenant message", urgency=Urgency.normal, requires_reply=True,
     entities=Entities.none(), suspicious=Suspicious(flag=False, reason=None), confidence=0.9,
     sender_role=None, needs_research=False, research_questions=[], waiting_side=WaitingSide.none,
-    open_obligation=None, expected_days=None, prompt_version="understanding/v2",
+    open_obligation=None, expected_days=None, expected_date=None, prompt_version="understanding/v2",
 )  # fmt: skip
 
 

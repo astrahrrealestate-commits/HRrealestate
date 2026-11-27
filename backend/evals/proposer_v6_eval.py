@@ -143,7 +143,7 @@ def context(i: V6Input, persona: Persona) -> ProposerContext:
         category=i.category, intent="Message", urgency=i.urgency, requires_reply=True, entities=Entities.none(),
         suspicious=Suspicious(flag=False, reason=None), confidence=0.9, sender_role=None, needs_research=False,
         research_questions=[], waiting_side=WaitingSide.none, open_obligation=None, expected_days=None,
-        prompt_version="understanding/v4",
+        expected_date=None, prompt_version="understanding/v4",
     )  # fmt: skip
     return ProposerContext(
         case_id=UUID(int=1), channel=Channel.gmail, subject="Re", message_text=i.message, understanding=und,
