@@ -1,6 +1,6 @@
 """Quote, wait and document loaders for category next actions (M13 T10). Every query filters by `company_id`."""
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
@@ -13,7 +13,17 @@ from app.contracts import CaseState, Category, Urgency
 from app.contracts.categories import current_category
 from app.contracts.common import Contract
 from app.db.enums import DocLinkKind, DocumentStatus, WaitStatus
-from app.db.models import Case, DocumentLink, DocumentRow, Person, QuoteReview, QuoteRow, WaitRow
+from app.db.models import (
+    AttachmentRow,
+    Case,
+    DocumentLink,
+    DocumentRow,
+    MessageRow,
+    Person,
+    QuoteReview,
+    QuoteRow,
+    WaitRow,
+)
 from app.pipeline.document_qa import strip_risky
 
 ActionKind = Literal[
@@ -27,6 +37,9 @@ ActionKind = Literal[
     "lease_ending",
 ]
 OPEN_STATES = (CaseState.open, CaseState.waiting_on_owner, CaseState.waiting_on_third_party)
+# Older than this, a document or flagged quote shows only while its case is open: a mailbox reload makes every row
+# new, so the age is the mail's or the quote's own date.
+DESK_DAYS = 30
 FLAGGED_VERDICTS = ("above_market", "well_above_market", "above_agreed")
 
 
@@ -69,6 +82,16 @@ def as_utc(dt: datetime) -> datetime:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
 
 
+def _older(when: datetime | date | None) -> bool:
+    """Past the desk window; an item with no date of its own stays."""
+    if when is None:
+        return False
+    cutoff = datetime.now(UTC) - timedelta(days=DESK_DAYS)
+    return (as_utc(when) if isinstance(when, datetime) else when) < (
+        cutoff if isinstance(when, datetime) else cutoff.date()
+    )
+
+
 def one_line(text: str | None, limit: int = 160) -> str:
     return " ".join((text or "").split())[:limit]
 
@@ -92,6 +115,9 @@ def load_quote_reviews(session: Session, company_id: UUID, viewer: ActionViewer)
             continue
         seen_quotes.add(quote.id)
         if review.verdict.value not in FLAGGED_VERDICTS or (case is not None and case.state not in OPEN_STATES):
+            continue
+        unlinked: Case | None = case  # an outer join: a quote without a case has none
+        if unlinked is None and _older(quote.quote_date):
             continue
         vendor = viewer.party(vendor_name, "Vendor")
         over = f"€{Decimal(review.overcharge):,.2f}" if review.overcharge else "€0.00"
@@ -166,15 +192,20 @@ def load_overdue_waits(
 def load_document_reviews(
     session: Session, company_id: UUID, viewer: ActionViewer
 ) -> list[tuple[NextAction, datetime]]:  # fmt: skip
-    docs = list(
-        session.scalars(
-            select(DocumentRow).where(DocumentRow.company_id == company_id, DocumentRow.status == DocumentStatus.review)
-        ).all()
-    )
-    if not docs:
+    found = session.execute(
+        select(DocumentRow, MessageRow.sent_at)
+        .outerjoin(
+            AttachmentRow, (AttachmentRow.id == DocumentRow.attachment_id) & (AttachmentRow.company_id == company_id)
+        )
+        .outerjoin(MessageRow, (MessageRow.id == AttachmentRow.message_id) & (MessageRow.company_id == company_id))
+        .where(DocumentRow.company_id == company_id, DocumentRow.status == DocumentStatus.review)
+    ).all()
+    if not found:
         return []
+    docs = [doc for doc, _ in found]
+    sent = {doc.id: sent_at for doc, sent_at in found}
     case_links = session.execute(
-        select(DocumentLink.document_id, Case.id, Case.category, Case.urgency)
+        select(DocumentLink.document_id, Case.id, Case.category, Case.urgency, Case.state)
         .join(Case, (Case.id == DocumentLink.ref_id) & (Case.company_id == company_id))
         .where(
             DocumentLink.company_id == company_id,
@@ -182,10 +213,12 @@ def load_document_reviews(
             DocumentLink.document_id.in_([d.id for d in docs]),
         )
     ).all()
-    by_doc = {doc_id: (cid, cat, urg) for doc_id, cid, cat, urg in case_links}
+    by_doc = {doc_id: (cid, cat, urg) for doc_id, cid, cat, urg, state in case_links if state in OPEN_STATES}
     out: list[tuple[NextAction, datetime]] = []
     for doc in docs:
         linked = by_doc.get(doc.id)
+        if linked is None and _older(sent[doc.id] or doc.created_at):
+            continue
         cat = current_category(linked[1].value) if linked else Category.administration
         if cat is Category.spam:
             continue

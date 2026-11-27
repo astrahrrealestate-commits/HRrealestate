@@ -5,13 +5,24 @@ from types import SimpleNamespace
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+import pytest
+
+from app.api.inbox import routes
 from app.api.inbox.routes import _assemble_thread, _build_drafts, _PreparedCase
 from app.api.inbox.thread_batch import ThreadDetailsBatch, ThreadMessagesBatch
 from app.context.sender_label import SenderKind, SenderLabel
 from app.contracts import ActionType, CaseState, Category, Channel, Direction, OutboundMode, Urgency
+from app.core.settings import Settings
 from app.db.enums import ActionStatus, ApprovalStatus, SendStatus
 
 NOW = datetime(2026, 11, 26, 12, 0, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Explicit settings: the thread reads the owner's address, and a unit test must not need a developer's env."""
+    settings = Settings(database_url="postgresql+psycopg://u:p@localhost:1/db", _env_file=None)  # type: ignore[call-arg]
+    monkeypatch.setattr(routes, "get_settings", lambda: settings)
 
 
 def _prep(company_id, case_id, messages, *, sender_email="tenant@example.test") -> _PreparedCase:

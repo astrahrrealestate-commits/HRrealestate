@@ -53,6 +53,7 @@ from app.superagent.research_base import (
     SuperAgentDeps,
 )
 from app.superagent.research_run import _conversation, _given_up, _start
+from app.superagent.source_links import with_links
 from app.superagent.sources import screen
 
 __all__ = ["MAX_TOOL_CALLS", "ResearchResult", "SuperAgentDeps", "run_research"]
@@ -256,4 +257,6 @@ def run_research(
     screened = screen(result.output, deps.sources, deps.steps)
     row.output = {"chars": len(screened.answer), "sources": len(screened.sources)}
     _finish(engine, row, started, deps, result.usage)
-    return ResearchResult(screened.answer, tuple(deps.steps), screened.sources) if screened.answer else None
+    if not screened.answer:
+        return None
+    return ResearchResult(screened.answer, tuple(deps.steps), with_links(engine, company_id, screened.sources))

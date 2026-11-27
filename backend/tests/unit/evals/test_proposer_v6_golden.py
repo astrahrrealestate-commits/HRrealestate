@@ -50,6 +50,13 @@ def test_runner_maps_proposer_v6_to_this_eval() -> None:
     assert run.runner_for("proposer", "v2") is run.RUNNERS["proposer"]
 
 
+def test_every_dossier_prompt_is_scored_by_the_dossier_eval() -> None:
+    """The live proposer reads the dossier: the old v2 eval would grade a dossier prompt on the wrong thing."""
+    from app.llm.agents.proposer import DOSSIER_PROMPTS
+
+    assert all(run.runner_for("proposer", v) is proposer_v6_eval.run for v in DOSSIER_PROMPTS)
+
+
 def test_fake_runs_the_set_without_crashing() -> None:
     result = proposer_v6_eval.run("v6", _fake())
     assert set(result.scores) == {"hard_pass", "generic_rate", "escalation_ok"}

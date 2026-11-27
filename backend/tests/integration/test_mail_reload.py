@@ -14,13 +14,14 @@ from app.channels.whatsapp.media import FakeWhatsAppMedia
 from app.contracts import CaseState, Channel, Direction
 from app.core.settings import Settings
 from app.core.workflow_names import HISTORY_QUEUE
-from app.db.enums import DocumentStatus, PipelineStatus
+from app.db.enums import DocumentStatus, MessageIndexStatus, PipelineStatus
 from app.db.models import (
     ActionRow,
     AttachmentRow,
     Case,
     Company,
     DocumentRow,
+    MessageIndexState,
     MessageRow,
     RawEvent,
 )
@@ -30,7 +31,14 @@ from app.pipeline.documents import file_document
 from app.storage.drive import CONTENT_PROPERTY, MemoryDrive, content_value
 from app.storage.memory import MemoryStorage
 from app.workflows.mail_draft_open import SkipReason, draft_open
-from app.workflows.mail_reload import HistoryNotDoneError, history_status, reingest, run_history, settle_history
+from app.workflows.mail_reload import (
+    HistoryNotDoneError,
+    history_status,
+    index_sent_history,
+    reingest,
+    run_history,
+    settle_history,
+)
 from tests.integration.reload_support import HARJOT, MAILBOX, NOW, case, connect, mail, person, understanding_body
 
 pytestmark = pytest.mark.integration
@@ -352,3 +360,24 @@ def test_history_status_counts_the_reloaded_mail_by_pipeline_state(
 ) -> None:
     _unfinished_history(migrated_engine, committed_company.id)
     assert history_status(migrated_engine, MAILBOX) == {"held": 1, "pending": 1, "failed": 0, "done": 1}
+
+
+def test_sent_only_threads_are_indexed_for_astra(
+    test_settings: Settings, migrated_engine: Engine, committed_company: Company
+) -> None:
+    """A reloaded thread that holds only Harjot's own mail has no inbound mail for the history run to start from, so
+    nothing would ever index what he wrote; a thread with a tenant's mail is left to that mail's run."""
+    cid = committed_company.id
+    connect(migrated_engine, cid)
+    old = NOW - timedelta(days=10)
+    promise = "Beste Bram, ik zorg dat de buren vrijdag een brief krijgen."
+    alone = mail(migrated_engine, cid, direction=Direction.outbound, thread="sent-only", at=old, text=promise,
+                 meta={"history": True})  # fmt: skip
+    mail(migrated_engine, cid, thread="both", at=old, meta={"history": True}, status=PipelineStatus.held)
+    paired = mail(migrated_engine, cid, direction=Direction.outbound, thread="both", at=old, meta={"history": True})
+    assert index_sent_history(migrated_engine, test_settings, MAILBOX) == 1
+    assert index_sent_history(migrated_engine, test_settings, MAILBOX) == 0  # a rerun indexes nothing twice
+    with Session(migrated_engine) as s:
+        states = dict(s.execute(select(MessageIndexState.message_id, MessageIndexState.status)).all())
+    assert states.get(alone.message_id) is MessageIndexStatus.indexed
+    assert paired.message_id not in states
