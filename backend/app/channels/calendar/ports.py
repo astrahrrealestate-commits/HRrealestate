@@ -6,6 +6,16 @@ from typing import Any, Protocol
 
 from app.core.errors import EstateOSError
 
+# Owner-facing: `str(CalendarUnavailableError)` is shown to Harjot as it is, so each says what to do.
+NOT_CONNECTED = "Google Calendar is not connected. Connect Google in Connections and ask again."
+SIGN_IN_EXPIRED = "Your Google sign-in has expired or been revoked. Reconnect Google in Connections and ask again."
+ACCESS_REFUSED = (
+    "Google refused Calendar access. Reconnect Google in Connections and allow Calendar; if it is still refused, "
+    "the Google Calendar API is switched off for the Google project."
+)
+NO_ANSWER = "Google Calendar did not answer. Ask again in a minute."
+REJECTED = "Google Calendar rejected the request. Check the time and the invitee addresses."
+
 
 class CalendarUnavailableError(EstateOSError):
     """Google Calendar is not connected or did not answer. We never assume a free calendar or a saved event."""

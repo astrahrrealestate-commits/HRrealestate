@@ -175,6 +175,7 @@ export function AskEstateOSPanel({
   const [liveStage, setLiveStage] = useState<string>("thinking");
   const [liveSteps, setLiveSteps] = useState<string[]>([]);
   const [approvingCalendarId, setApprovingCalendarId] = useState<string | null>(null);
+  const [calendarProblems, setCalendarProblems] = useState<Record<string, string>>({});
   const [approvedCalendarIds, setApprovedCalendarIds] = useState<Set<string>>(new Set());
   const [approvingMemoryId, setApprovingMemoryId] = useState<string | null>(null);
   const [approvedMemoryIds, setApprovedMemoryIds] = useState<Set<string>>(new Set());
@@ -398,16 +399,20 @@ export function AskEstateOSPanel({
 
   const handleApproveCalendar = async (cardId: string, eventId?: string | null, payloadUrl?: string | null) => {
     setApprovingCalendarId(cardId);
+    setCalendarProblems((prev) => ({ ...prev, [cardId]: "" }));
     try {
       const url = payloadUrl || `/api/calendar/events/${eventId}/approve`;
       const fullUrl = url.startsWith("http") ? url : `${BACKEND_BASE_URL}${url}`;
       const res = await apiFetch(fullUrl, { method: "POST", headers: { "Content-Type": "application/json" } });
       if (!res.ok) {
-        throw new Error(`Calendar approval failed: ${res.statusText}`);
+        const body = await res.json().catch(() => null);
+        throw new Error(typeof body?.detail === "string" ? body.detail : `Calendar approval failed (HTTP ${res.status})`);
       }
       setApprovedCalendarIds((prev) => new Set([...prev, cardId]));
     } catch (err) {
       console.error("Failed to approve calendar event:", err);
+      const text = err instanceof Error ? err.message : "Could not add this to Google Calendar.";
+      setCalendarProblems((prev) => ({ ...prev, [cardId]: text }));
     } finally {
       setApprovingCalendarId(null);
     }
@@ -1135,6 +1140,11 @@ export function AskEstateOSPanel({
                       </div>
                     )}
                   </div>
+                  {calendarProblems[cardStateKey] && (
+                    <p role="alert" className={cn("text-[11.5px]", cardDark ? "text-red-400" : "text-red-700")}>
+                      {calendarProblems[cardStateKey]}
+                    </p>
+                  )}
                   <div className={cn("pt-1.5 flex items-center justify-between border-t", cardDark ? "border-[#1E2328]" : "border-[#E8E8E5]")}>
                     <span className={cn("text-[10.5px] font-mono", cardDark ? "text-[#64748B]" : "text-[#6B7280]")}>
                       {approvedCalendarIds.has(cardStateKey) || pCard.status === "confirmed"

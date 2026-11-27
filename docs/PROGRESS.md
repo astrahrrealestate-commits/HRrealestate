@@ -530,3 +530,10 @@ bidirectional translation controls onto the new unified Composer, and fixed what
 - [x] estateos-security passed (0 blockers) and estateos-reviewer findings fixed (2026-11-27): write-through cache setter, cache keyed by query, access re-check on 401/403, no approve, send, dispatch, calendar approve or RSVP on a cached copy
 - [ ] No component tests: the fresh gating, persona guard and sign-out/reload branches are covered by review only
 - [ ] Not yet run: `make check` (Docker Desktop would not start), browser check against real data
+
+## Calendar errors named (2026-11-27)
+- [x] Connections showed Google connected while Astra said "not connected": every Google refusal was worded that way. Calendar errors now say not connected / sign-in expired / access refused / no answer; a failed event list or a free/busy answer with `errors` is no longer an empty or free calendar; a failed create is a 503 with the reason, not a 500; a connect saves the granted scopes, not the requested ones; a refused delete, reschedule or RSVP is a 503 with the reason, so a cancel never marks a row cancelled while the event stays on Google; the approve buttons show the reason
+- [ ] Which refusal the deployed account gets is not yet confirmed from logs or a retry
+- [ ] Connections status still only checks the token file has an email; no live Calendar check
+- [ ] A create that times out after Google saved the event can be approved twice (needs a deterministic event id)
+- [ ] A failed invite read still shows as no invites
