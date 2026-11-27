@@ -11,6 +11,8 @@ Cascades tenant erasure across:
 7. `ticket_edits` of the person's cases (deleted: the owner's edits can quote the person's messages or drafts to them).
 8. `chat_reads` of the person's WhatsApp chats (deleted, found by their WhatsApp identities).
 11. BRIXX library documents linked to the person (`gdpr_documents`; chunks and links cascade).
+12. What was derived from their messages (`gdpr_derived`): understandings' research and free text, attachment text and
+    the documents read from it, and Astra's turns citing one of their messages.
 10. `model_calls` whose prompt or output carried the person's words (input, output and error blanked; gdpr_calls).
 9. BRIXX mirror: a person with a numeric `brixx_ref` gets a `brixx_erased_refs` tombstone and their mirror rows
    (`brixx.prg_relatie`, `brixx.zprg_relatie`) are deleted, so a re-sync never resurrects them.
