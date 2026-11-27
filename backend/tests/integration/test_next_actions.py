@@ -415,3 +415,38 @@ def test_the_brief_counts_every_action_not_only_the_page(
         body = client.get("/api/dashboard/categories/maintenance", params={"limit": 1}).json()
     assert len(body["actions"]) == 1
     assert body["brief"].startswith("3 ")
+
+
+def test_replies_needed_take_the_same_few_queries_for_any_number_of_cases(
+    migrated_engine: Engine, committed_company: Company
+) -> None:
+    """A reload opens many cases; the desk must not run queries per case."""
+    from sqlalchemy import event
+
+    from app.pipeline.next_actions_sources import load_replies_needed
+
+    cid = committed_company.id
+
+    def seed(n: int) -> None:
+        for _ in range(n):
+            with Session(migrated_engine) as s, s.begin():
+                _, c = _seed_case(s, cid, Category.maintenance)
+            mail(migrated_engine, cid, case_id=c, thread=f"r{uuid4().hex[:6]}", understood=understanding_body())
+
+    def queries() -> tuple[int, int]:
+        seen: list[str] = []
+        listener = lambda *args: seen.append(args[2])  # noqa: E731
+        event.listen(migrated_engine, "before_cursor_execute", listener)
+        try:
+            with Session(migrated_engine) as s:
+                found = load_replies_needed(s, cid, ActionViewer(money=True, inbox=True))
+        finally:
+            event.remove(migrated_engine, "before_cursor_execute", listener)
+        return len(seen), len(found)
+
+    seed(2)
+    few, two = queries()
+    seed(6)
+    many, eight = queries()
+    assert (two, eight) == (2, 8)
+    assert many == few

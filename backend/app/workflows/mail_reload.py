@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.contracts import CaseState, Channel, Direction
 from app.core.errors import EstateOSError
 from app.core.logging import get_logger
+from app.core.settings import Settings
 from app.core.workflow_names import (
     HISTORY_QUEUE,
     PIPELINE_ENTRY,
@@ -22,12 +23,13 @@ from app.core.workflow_names import (
     pipeline_workflow_id,
 )
 from app.db.enums import PipelineStatus, WaitStatus
-from app.db.models import Case, CaseLink, MessageRow, WaitRow
+from app.db.models import Case, CaseLink, MessageIndexState, MessageRow, WaitRow
 from app.ingestion.gmail_sync import _listing
 from app.ingestion.process import IngestDeps
 from app.ingestion.repository import Enqueuer, record_event, resolve_channel_account
 from app.pipeline import case_repo
 from app.pipeline.understand import MAX_PIPELINE_ATTEMPTS
+from app.tools.message_rag.indexer import index_message
 from app.workflows.mail_purge_scope import mailbox_company, of_mailbox
 
 log = get_logger(__name__)
@@ -189,3 +191,35 @@ def settle_history(engine: Engine, mailbox: str, *, idle_days: int = IDLE_DAYS, 
             case_repo.transition(session, company_id, case_id, CaseState.resolved, actor=RELOAD_ACTOR)
     log.info("mail_reload.settled", company_id=str(company_id), cases=len(cases))
     return len(cases)
+
+
+def _sent_only(session: Session, company_id: UUID, mailbox: str) -> list[UUID]:
+    """Reloaded sent mail in a thread without inbound mail and not yet in the index: no history run reaches it."""
+    inbound = select(MessageRow.thread_ref).where(
+        MessageRow.company_id == company_id, MessageRow.direction == Direction.inbound,
+        MessageRow.thread_ref.is_not(None),
+    )  # fmt: skip
+    indexed = select(MessageIndexState.message_id).where(MessageIndexState.company_id == company_id)
+    query = (
+        select(MessageRow.id)
+        .where(
+            of_mailbox(company_id, mailbox),
+            MessageRow.direction == Direction.outbound,
+            MessageRow.meta["history"].as_boolean().is_(True),
+            MessageRow.thread_ref.not_in(inbound),
+            MessageRow.id.not_in(indexed),
+        )
+        .order_by(MessageRow.sent_at, MessageRow.id)
+    )
+    return list(session.scalars(query).all())
+
+
+def index_sent_history(engine: Engine, settings: Settings, mailbox: str) -> int:
+    """Index Harjot's reloaded mail in threads that hold only his mail, so Astra can find what he wrote there.
+    Returns how many were indexed; a rerun picks up only what is still missing."""
+    with Session(engine) as session:
+        company_id = mailbox_company(session, mailbox)
+        pending = _sent_only(session, company_id, mailbox)
+    done = sum(index_message(engine, settings, message_id) == "indexed" for message_id in pending)
+    log.info("mail_reload.sent_history_indexed", company_id=str(company_id), indexed=done, seen=len(pending))
+    return done

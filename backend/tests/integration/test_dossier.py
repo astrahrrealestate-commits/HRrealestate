@@ -145,6 +145,8 @@ def test_dossier_holds_this_cases_attachment_text(migrated_engine: Engine, cid: 
     add_attachment(migrated_engine, cid, current, "ongelezen.pdf", None)
     d = _build(migrated_engine, cid, current)
     assert [(a.filename, a.current) for a in d.attachments] == [("offerte.pdf", True), ("oud.pdf", False)]
+    assert d.unread_attachments == ("ongelezen.pdf",)  # named, so the draft never asks for a file already sent
+    assert "ongelezen.pdf" in _text(d)
 
 
 def test_dossier_holds_owner_rules_waits_and_memory(migrated_engine: Engine, cid: UUID) -> None:
@@ -436,6 +438,49 @@ def test_dossier_holds_relevant_older_mail_of_the_sender(
     assert any("1.900" in line.text for line in d.older_mail)
     assert ids[0] in d.extra_message_ids
     assert "BRAM-BORG" not in _text(d)
+
+
+def test_dossier_includes_redacted_similar_precedents_for_trusted_sender_only(
+    migrated_engine: Engine, cid: UUID, test_settings: Settings
+) -> None:
+    from app.tools.message_rag.indexer import index_message
+
+    settings = test_settings.model_copy(update={"embedding_model": "fake"})
+    anouk = add_person(migrated_engine, cid, "Anouk", ANOUK)
+    bram = add_person(migrated_engine, cid, "Bram Vermeer", BRAM)
+    stranger = add_person(migrated_engine, cid, "Onbekend", "x@evil.test", PersonKind.other)
+    other_case = add_case(migrated_engine, cid, bram)
+    outbound = add_mail(
+        migrated_engine,
+        cid,
+        "Beste Bram Vermeer, volgens het Besluit kleine herstellingen zijn kleine reparaties en EUR 150 "
+        "voor de huurder; mail bram@example.test.",
+        sender="",
+        outbound_to=[BRAM],
+        person_id=bram,
+        case_id=other_case,
+        thread="t-prev",
+        days_ago=10,
+    )
+    index_message(migrated_engine, settings, outbound)
+    case = add_case(migrated_engine, cid, anouk)
+    current = add_mail(
+        migrated_engine, cid, "Wie betaalt kleine herstellingen aan de kraan?", sender=ANOUK, person_id=anouk,
+        case_id=case,
+    )  # fmt: skip
+    d = _build(migrated_engine, cid, current)
+    assert any("Besluit kleine herstellingen" in line.text for line in d.similar_conversations)
+    joined = "\n".join(line.text for line in d.similar_conversations)
+    for leaked in ("Bram", "Vermeer", "150", BRAM):
+        assert leaked not in joined, leaked
+    rendered = _text(d)
+    assert "<similar_conversations>" in rendered
+
+    stranger_msg = add_mail(
+        migrated_engine, cid, "Wie betaalt kleine herstellingen?", sender="x@evil.test", person_id=stranger,
+        case_id=case,
+    )  # fmt: skip
+    assert _build(migrated_engine, cid, stranger_msg).similar_conversations == ()
 
 
 def test_older_mail_never_brings_an_unknown_senders_words(

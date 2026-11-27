@@ -36,9 +36,13 @@ def test_checked_keeps_only_findings_with_matching_source_and_verbatim_evidence(
 def test_is_legal_detects_legal_category_and_dutch_or_english_terms() -> None:
     assert is_legal("Wat kost een loodgieter?", Category.legal) is True
     assert is_legal("Geldt artikel 7:242 BW of ROZ algemene bepalingen?", Category.maintenance) is True
+    assert is_legal("Wat bepaalt het Besluit kleine herstellingen over een kraan?", Category.maintenance) is True
+    assert is_legal("Mag de VvE het splitsen of onderhuur weigeren?", Category.administration) is True
+    assert is_legal("Geldt Wet betaalbare huur en WWS puntentelling voor waarborgsom?", Category.finance) is True
     assert is_legal("Wat kost dakreparatie per m2?", Category.maintenance) is False
     assert "wetten.overheid.nl" in LEGAL_DOMAINS
     assert "roz.nl" in LEGAL_DOMAINS
+    assert "iplo.nl" in LEGAL_DOMAINS
 
 
 def test_domains_for_routes_verified_dutch_websites_and_skips_kadaster() -> None:
