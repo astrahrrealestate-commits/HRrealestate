@@ -1062,7 +1062,8 @@ export async function askAgent(
   query: string,
   context?: string,
   history?: string[],
-  conversationId?: string | null
+  conversationId?: string | null,
+  onStatus?: (status: { stage?: string; step?: string }) => void
 ): Promise<AskAgentResponse> {
   const buildErrorResponse = (
     answer: string,
@@ -1095,8 +1096,8 @@ export async function askAgent(
         Accept: "text/event-stream, application/json",
       },
       body: JSON.stringify({ query, context, history, conversation_id: conversationId || null }),
-      // A researched answer takes the planner plus SUPER_AGENT_DEADLINE_SEC (100 s in stage/prod, ALB idle 150 s).
-      signal: AbortSignal.timeout(150000),
+      // A researched answer takes the planner plus SUPER_AGENT_DEADLINE_SEC (270 s backend, 300 s / 5 min client).
+      signal: AbortSignal.timeout(300000),
     });
 
     if (res.ok) {
@@ -1121,6 +1122,14 @@ export async function askAgent(
             else if (line.startsWith("data:")) dataLine += line.slice(5).trim();
           }
           if (!dataLine) continue;
+          if (eventType === "status") {
+            try {
+              onStatus?.(JSON.parse(dataLine) as { stage?: string; step?: string });
+            } catch {
+              // ignore malformed heartbeat
+            }
+            continue;
+          }
           if (eventType === "result") {
             return JSON.parse(dataLine) as AskAgentResponse;
           }
@@ -1932,7 +1941,7 @@ export async function enhanceThreadDraft(
       method: "POST",
       headers: { Accept: "application/json", "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(90000),
+      signal: AbortSignal.timeout(180000),
     });
     if (res.ok) {
       return (await res.json()) as EnhanceDraftResult;

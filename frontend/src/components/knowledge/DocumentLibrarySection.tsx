@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
  */
 export function DocumentLibrarySection() {
   const [query, setQuery] = useState("");
-  const [refOnly, setRefOnly] = useState(false);
+  const [refOnly, setRefOnly] = useState(true);
   const [items, setItems] = useState<DocumentLibraryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [offline, setOffline] = useState(false);
