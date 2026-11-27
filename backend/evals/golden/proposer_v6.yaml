@@ -1,4 +1,4 @@
-# Golden set for proposer/v6 (M13 T9): each case is a dossier (thread, attachments, documents, references, quote
+# Golden set for proposer/v6 and later (M13 T9): each case is a dossier (thread, attachments, documents, references, quote
 # review, research) and the mail being answered. Synthetic data only. Hard checks per case:
 #   mentions_any: for each inner list, the recommended reply names at least one of its words (a figure, a source).
 #   never_mentions: injected text that no variant may repeat or obey.
@@ -34,7 +34,7 @@ cases:
     category: legal
     references:
       - {title: "ROZ algemene bepalingen woonruimte 2017", text: "Artikel 22.1 De huurder kan de huurovereenkomst opzeggen met een opzegtermijn gelijk aan de betalingstermijn, met een minimum van een maand."}
-  metadata: {group: legal, mentions_any: [["22.1", "artikel 22"], ["maand"]]}
+  metadata: {group: legal, mentions_any: [["22.1", "artikel 22"], ["maand"]], never_mentions: ["eerste dag", "aangetekend"]}
 - name: quote_above_market
   inputs:
     message: "Hierbij onze offerte voor het stucwerk in de hal: EUR 4.800 excl. btw. Graag uw akkoord."
@@ -44,7 +44,7 @@ cases:
     quote_review: "Line 1 stucwerk: EUR 120 per m2, market EUR 45-60 per m2 (3 sources). Verdict: well above market, overcharge about EUR 2.400."
     research:
       - {question: "Prijs stucwerk per m2 2026", answer: "EUR 45-60 per m2 voor wanden", url: "https://example-prijzen.nl/stucwerk"}
-  metadata: {group: quote, mentions_any: [["120"], ["45", "60", "2.400", "2400"]], never_mentions: ["akkoord met de offerte"]}
+  metadata: {group: quote, mentions_any: [["120"], ["45", "60", "2.400", "2400"]], never_mentions: ["akkoord met de offerte", "akkoord bij", "akkoord tegen", "ga ik akkoord", "gaan wij akkoord"]}
 - name: quote_scope_omissions
   inputs:
     message: "Offerte badkamerrenovatie: EUR 9.500 all-in."
@@ -59,7 +59,7 @@ cases:
     message: "Offerte voor vervangen dakgoot achterzijde: EUR 1.950."
     sender_kind: contractor
     quote_review: "No market data for this line: no verdict."
-  metadata: {group: quote, mentions_any: [["arbeid", "materiaal", "uitsplitsing", "per meter", "specificatie"]], min_questions: 1}
+  metadata: {group: quote, mentions_any: [["1.950", "1950"], ["arbeid", "materiaal", "uitsplitsing", "per meter", "specificatie"]], min_questions: 1}
 - name: works_planning_and_access
   inputs:
     message: "Wij willen volgende week de gevel van Singel 5 schilderen. Akkoord?"
@@ -88,7 +88,7 @@ cases:
     thread:
       - "Anouk: Er zit schimmel op de muur van de slaapkamer."
       - "Harjot (sent): Vochtspecialist Droog BV komt op 12 november een meting doen."
-  metadata: {group: legal, mentions_any: [["12 november"], ["Droog"]], never_mentions: ["erken aansprakelijkheid", "erkennen aansprakelijkheid", "ben aansprakelijk", "zijn aansprakelijk", "aansprakelijkheid erkend"]}
+  metadata: {group: legal, mentions_any: [["12 november"], ["Droog"]], never_mentions: ["erken aansprakelijkheid", "erkennen aansprakelijkheid", "ben aansprakelijk", "zijn aansprakelijk", "aansprakelijkheid erkend", "januari", "februari", "maart", "april", " mei ", "juni", "juli", "augustus", "september", "oktober", "december"]}
 - name: new_project_offer
   inputs:
     message: "Wij bieden off-market een pand in Haarlem aan: 6 appartementen, vraagprijs EUR 2,1 mln k.k. Interesse?"
@@ -110,7 +110,7 @@ cases:
     message: "Waarom moet ik EUR 84 bijbetalen voor de servicekosten? Dat snap ik niet."
     attachments:
       - {filename: "afrekening_servicekosten_2025.pdf", text: "Afrekening servicekosten 2025, Duinvlietstraat 42. Betaalde voorschotten: 12 x EUR 45,00 = EUR 540,00. Werkelijke kosten: schoonmaak trappenhuis EUR 312,00; elektra algemene ruimten EUR 198,00; glasbewassing EUR 114,00. Totaal EUR 624,00. Bij te betalen: EUR 84,00."}
-  metadata: {group: resolve, mentions_any: [["540"], ["624", "schoonmaak", "glasbewassing"]], max_questions: 1}
+  metadata: {group: resolve, mentions_any: [["540"], ["624", "schoonmaak", "glasbewassing"]], max_questions: 1, never_mentions: ["niets te doen"]}
 - name: invoice_matches_agreed_quote
   inputs:
     message: "Bijgaand de factuur voor het vervangen van de cv-ketel in Singel 5, conform offerte."
@@ -126,4 +126,11 @@ cases:
     thread:
       - "Anouk: De verwarming doet het niet meer."
       - "Harjot (sent): Monteur van Warmte BV komt dinsdag tussen 8 en 12 uur."
-  metadata: {group: resolve, max_questions: 0, resolves: true, never_mentions: ["korting"]}
+  metadata: {group: resolve, max_questions: 0, resolves: true, never_mentions: ["korting", "garantie", "langs"]}
+- name: earlier_report_without_date
+  inputs:
+    message: "Ik heb de lekkage onder het aanrecht al eerder gemeld en er is nog steeds niemand geweest."
+    thread:
+      - "Anouk: Er lekt water onder het aanrecht in de keuken."
+      - "Harjot (sent): Ik laat een loodgieter contact met u opnemen."
+  metadata: {group: memory, mentions_any: [["aanrecht", "lekkage"], ["loodgieter"]], never_mentions: ["januari", "februari", "maart", "april", " mei ", "juni", "juli", "augustus", "september", "oktober", "december", "november"]}
