@@ -78,7 +78,7 @@ contracts, core}`. Only `sender` imports `channels.*.outbound`. `contracts` and 
    3. `understand` → Pydantic AI agent → `Understanding` over the 6 business categories (+ internal `spam`)
    4. `link_case` → identity → person → unit → lease → existing open case or new (transaction)
    5. `prepare` (`app/workflows/prepare.py`): read attachments (purging ID-document text), review vendor/contractor quotes against catalog and market references, and — in live mode (`history=False`) — run quality-tier draft research for open questions
-   6. `propose` (`history=False` only; `history=True` stops before proposing) → dossier-backed `proposer/v12` (answers from the dossier before it asks, closes settled cases, negotiates only on money, cites law only when the data quotes it, ends a closing reply with what happens next) → `Action`s with drafts and extracted `commitments`
+   6. `propose` (`history=False` only; `history=True` stops before proposing) → dossier-backed `proposer/v13` (answers from the dossier before it asks, closes settled cases, negotiates only on money, never names a price, rule or date the data does not hold, ends a closing reply with what happens next) → `Action`s with drafts and extracted `commitments`
    7. `apply_rules` → pure function → `pending_approval` | `exception` (suspicious) | `paused` (company paused)
    8. `notify_owner` → enqueue `execute_action(notify_owner …)` (sender path)
 
