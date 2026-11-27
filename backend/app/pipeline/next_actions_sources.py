@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.orm import Session
 
 from app.context.message_origin import is_owner_authored
@@ -104,6 +105,24 @@ def load_approvals(session: Session, company_id: UUID, viewer: ActionViewer) -> 
     return out
 
 
+def _newest_per_case(session: Session, company_id: UUID, case_ids: list[UUID]) -> dict[UUID, tuple[MessageRow, object]]:
+    """Each case's newest message (chat-only mail left out) with its understanding, in one query."""
+    if not case_ids:
+        return {}
+    rows = session.execute(
+        select(CaseLink.case_id, MessageRow, UnderstandingRow.body)
+        .join(MessageRow, (MessageRow.id == CaseLink.message_id) & (MessageRow.company_id == company_id))
+        .outerjoin(
+            UnderstandingRow,
+            (UnderstandingRow.message_id == MessageRow.id) & (UnderstandingRow.company_id == company_id),
+        )
+        .where(CaseLink.company_id == company_id, CaseLink.case_id.in_(case_ids), not_chat_only())
+        .order_by(CaseLink.case_id, MessageRow.sent_at.desc(), MessageRow.id.desc())
+        .ext(distinct_on(CaseLink.case_id))
+    ).all()
+    return {case_id: (message, body) for case_id, message, body in rows}
+
+
 def load_replies_needed(session: Session, company_id: UUID, viewer: ActionViewer) -> list[RankedItem]:
     live_cases = set(
         session.scalars(
@@ -123,25 +142,18 @@ def load_replies_needed(session: Session, company_id: UUID, viewer: ActionViewer
             .where(Case.company_id == company_id, Case.state.in_(OPEN_STATES))
         ).all()
     )
+    wanted = [
+        c.id for c, _ in cases if c.id not in live_cases and current_category(c.category.value) is not Category.spam
+    ]
+    newest_of = _newest_per_case(session, company_id, wanted)
     out: list[RankedItem] = []
     for case, name in cases:
         cat = current_category(case.category.value)
-        if cat is Category.spam or case.id in live_cases:
+        if case.id not in newest_of:
             continue
-        newest = session.scalar(
-            select(MessageRow)
-            .join(CaseLink, (CaseLink.message_id == MessageRow.id) & (CaseLink.company_id == company_id))
-            .where(CaseLink.company_id == company_id, CaseLink.case_id == case.id, not_chat_only())
-            .order_by(MessageRow.sent_at.desc(), MessageRow.id.desc())
-            .limit(1)
-        )
-        if newest is None or newest.direction is Direction.outbound or is_owner_authored(newest):
+        newest, body = newest_of[case.id]
+        if newest.direction is Direction.outbound or is_owner_authored(newest):
             continue
-        body = session.scalar(
-            select(UnderstandingRow.body).where(
-                UnderstandingRow.company_id == company_id, UnderstandingRow.message_id == newest.id
-            )
-        )
         if not (isinstance(body, dict) and body.get("requires_reply")):
             continue
         party = viewer.party(name)
