@@ -119,6 +119,12 @@ Closed on 2026-11-26 (M13):
   forge a "Harjot (sent)" line. Person memory (`person_memory/v2`) takes commitments only from Harjot's sent mail;
   quoted or copied promises are marked "(unverified)". The quote splitter's patterns are bounded and scan at most
   50,000 characters. A reply is never addressed to Harjot's own copy (`sender/recipient.latest_inbound`).
+- BRIXX documents in the library (M13, ADR 0017 §17): only the newest stored version is read; identity, income, bank
+  and health papers (by BRIXX label or title) and text that reads like an identity document are never read; a
+  document of a relatie erased under GDPR is never read; links follow BRIXX's own links (relatie, contract and its
+  lease parties, unit, building), so a tenant's dossier sees their own papers and contract through the existing case
+  scope and never another tenant's; `erase_person` deletes the person's BRIXX library documents. Scans are not read
+  (no OCR on this path).
 - Accepted (M13): a forged `From: <owner address>` mail linked to a case shows in that case's dossier as "Harjot (copy
   in the mailbox, not verified)"; it can never approve, send or become a stored commitment. `POST
   /api/v1/documents/{document_id}/reference` (T12) is the sole writer of `documents.is_reference`, gated by an admin

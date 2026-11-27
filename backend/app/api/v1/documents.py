@@ -38,7 +38,7 @@ WorkflowClient_ = Annotated[WorkflowClient, Depends(get_workflow_client)]
 
 class DocumentOut(BaseModel):
     id: UUID
-    attachment_id: UUID
+    attachment_id: UUID | None  # None for a document indexed from BRIXX
     title: str
     doc_type: str
     status: DocumentStatus

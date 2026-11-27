@@ -2259,7 +2259,7 @@ export async function getCategoryDesk(
 
 export interface DocumentLibraryItem {
   id: string;
-  attachment_id: string;
+  attachment_id: string | null; // null for a document from BRIXX
   title: string;
   doc_type: string;
   status: string;
