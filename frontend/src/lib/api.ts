@@ -1205,29 +1205,10 @@ export async function updateAgentConversation(
 // Authentication Handshake & Session Management
 // ---------------------------------------------------------------------------
 
-let authPromise: Promise<void> | null = null;
-
 export async function ensureAuthenticated(): Promise<void> {
-  // The fixed test token only exists for the fake identity provider of local development. A production bundle never
-  // sends it: real sessions come from the Google login page.
-  if (process.env.NODE_ENV === "production") return;
-  if (authPromise) return authPromise;
-  authPromise = (async () => {
-    try {
-      await apiFetch(`${BACKEND_BASE_URL}/api/v1/auth/session`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-EstateOS-Client": "dashboard",
-        },
-        body: JSON.stringify({ id_token: "test-owner-token" }),
-        credentials: "include",
-      });
-    } catch (err) {
-      console.warn("Auth handshake failed (dev mode fallback active):", err);
-    }
-  })();
-  return authPromise;
+  // Authentication is handled via /login and AuthContext; never silently overwrite
+  // the active session cookie in the background.
+  return;
 }
 
 // ---------------------------------------------------------------------------
