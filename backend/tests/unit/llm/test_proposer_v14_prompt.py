@@ -1,8 +1,9 @@
 """proposer/v14 (M13): v13 plus the fixes for its real-model misses on gemini-3.8-flash."""
 
 from app.contracts import PromptRef
-from app.llm.agents.proposer import DOSSIER_PROMPTS, PROPOSER_V14, ROLE_AWARE_PROMPTS
+from app.llm.agents.proposer import DOSSIER_PROMPTS, PROPOSER_V14, ROLE_AWARE_PROMPTS, proposer_spec
 from app.llm.prompts import load_prompt
+from tests.unit.llm.test_proposer_v6_prompt import _ctx
 
 
 def _v(version: str) -> str:
@@ -39,7 +40,9 @@ def test_v14_ends_every_variant_with_the_next_step() -> None:
     assert "Every variant, a short answer and a closing reply too, ends with the next concrete step" in _v("v14")
 
 
-def test_v14_is_a_dossier_prompt() -> None:
+def test_v14_is_the_production_dossier_prompt() -> None:
+    """Pinned: on gemini-3.8-flash it beat v13 (hard 0.95 vs 0.89, judge 1.00 vs 0.89; 2026-11-27)."""
     assert PROPOSER_V14.prompt.key == "proposer/v14"
     assert "v14" in DOSSIER_PROMPTS
     assert "v14" in ROLE_AWARE_PROMPTS
+    assert proposer_spec(_ctx()) is PROPOSER_V14

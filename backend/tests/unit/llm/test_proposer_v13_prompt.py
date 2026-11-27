@@ -1,9 +1,8 @@
 """proposer/v13 (M13): v12 plus the fixes for its real-model misses on gemini-3.8-flash, all invented specifics."""
 
 from app.contracts import PromptRef
-from app.llm.agents.proposer import DOSSIER_PROMPTS, PROPOSER_V13, ROLE_AWARE_PROMPTS, proposer_spec
+from app.llm.agents.proposer import DOSSIER_PROMPTS, PROPOSER_V13, ROLE_AWARE_PROMPTS
 from app.llm.prompts import load_prompt
-from tests.unit.llm.test_proposer_v6_prompt import _ctx
 
 
 def _v(version: str) -> str:
@@ -39,9 +38,7 @@ def test_v13_example_carries_no_figure_from_the_golden_set() -> None:
     assert "1.950" not in _v("v13")
 
 
-def test_v13_is_the_production_dossier_prompt() -> None:
-    """Pinned: on the tighter golden set it beat v12 on hard checks (0.95 vs 0.89) and tied on judge (0.84)."""
+def test_v13_stays_a_published_dossier_prompt() -> None:
     assert PROPOSER_V13.prompt.key == "proposer/v13"
     assert "v13" in DOSSIER_PROMPTS
     assert "v13" in ROLE_AWARE_PROMPTS
-    assert proposer_spec(_ctx()) is PROPOSER_V13
