@@ -21,7 +21,8 @@ from app.pipeline.next_actions import (
     NextAction,
     category_brief,
     category_summaries,
-    next_actions,
+    enrich_actions,
+    ranked_actions,
     waiting_split,
 )
 
@@ -90,12 +91,11 @@ def get_category_desk(
     with Session(engine) as session:
         viewer, brixx = _brixx(session, principal)
         cat = Category(category)
-        actions = next_actions(
-            session, principal.company_id, cat, viewer, limit=limit, brixx_items=brixx, urgency_filter=urgency
-        )
+        ranked = ranked_actions(session, principal.company_id, cat, viewer, brixx_items=brixx, urgency_filter=urgency)
+        actions = enrich_actions(session, principal.company_id, viewer, ranked[:limit], now=datetime.now(UTC))
         wait_us, wait_other = waiting_split(session, principal.company_id, cat, viewer, limit=limit)
     return CategoryDeskResponse(
-        brief=category_brief(actions),
+        brief=category_brief(ranked),  # every action of the category, not only the page shown
         actions=actions,
         waiting_for_us=wait_us,
         waiting_for_other=wait_other,

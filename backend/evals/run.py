@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.core.settings import Settings
+from app.llm.agents.proposer import DOSSIER_PROMPTS
 from evals import (
     concierge_eval,
     dd_reader_eval,
@@ -40,7 +41,7 @@ RUNNERS: dict[str, Callable[[str, Settings], EvalResult]] = {
 }
 
 
-DOSSIER_VERSIONS = frozenset({"v6", "v7", "v8"})  # proposer prompts fed the M13 dossier: scored by proposer_v6_eval
+DOSSIER_VERSIONS = DOSSIER_PROMPTS  # proposer prompts fed the M13 dossier: scored by proposer_v6_eval
 
 
 def runner_for(agent: str, version: str) -> Callable[[str, Settings], EvalResult]:
