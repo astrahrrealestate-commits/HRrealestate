@@ -42,6 +42,7 @@ import { cn } from "@/lib/utils";
 import { askAgent, approveInboxDraft, approveStandingRule, AssistantCard, PreviewCardData, updateAgentConversation } from "@/lib/api";
 import { formatClock, formatShortDate } from "@/lib/clock";
 import { AstraIcon, AstraWordmark } from "@/components/ui/AstraBrand";
+import { SendConfirmModal } from "@/components/common/SendConfirmModal";
 
 export interface AssistantAction {
   label: string;
@@ -142,7 +143,7 @@ export function AskEstateOSPanel({
     setTheme(next);
     try {
       localStorage.setItem("superagent_theme", next);
-    } catch {}
+    } catch { }
   };
 
   const isDark = theme === "dark";
@@ -171,13 +172,26 @@ export function AskEstateOSPanel({
   };
 
   const [sendingCardId, setSendingCardId] = useState<string | null>(null);
+  const [liveStage, setLiveStage] = useState<string>("thinking");
+  const [liveSteps, setLiveSteps] = useState<string[]>([]);
   const [approvingCalendarId, setApprovingCalendarId] = useState<string | null>(null);
+  const [calendarProblems, setCalendarProblems] = useState<Record<string, string>>({});
   const [approvedCalendarIds, setApprovedCalendarIds] = useState<Set<string>>(new Set());
   const [approvingMemoryId, setApprovingMemoryId] = useState<string | null>(null);
   const [approvedMemoryIds, setApprovedMemoryIds] = useState<Set<string>>(new Set());
   const [sentCardIds, setSentCardIds] = useState<Set<string>>(new Set());
   const [sendErrorCardIds, setSendErrorCardIds] = useState<Set<string>>(new Set());
   const [selectedDraftVariants, setSelectedDraftVariants] = useState<Record<string, number>>({});
+  const [pendingDraftConfirm, setPendingDraftConfirm] = useState<{
+    cardStateKey: string;
+    actionId?: string | null;
+    caseId?: string | null;
+    choiceKey: "d1" | "d2" | "d3" | "ok" | "edit" | "rej";
+    body: string;
+    channel: string;
+    recipient: string;
+    subject?: string;
+  } | null>(null);
 
   // Use persistent shared messages from SuperAgentContext
   const messages = superAgent.messages;
@@ -299,6 +313,8 @@ export function AskEstateOSPanel({
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
     setInputQuery("");
+    setLiveStage("thinking");
+    setLiveSteps([]);
     setIsTyping(true);
 
     // Extract recent conversation history strings for Super Agent context
@@ -311,7 +327,15 @@ export function AskEstateOSPanel({
         trimmed,
         `${currentPageName}: ${selectedContext}`,
         recentHistory,
-        superAgent.currentConversationId
+        superAgent.currentConversationId,
+        (status) => {
+          if (status.stage && status.stage !== "step") {
+            setLiveStage(status.stage);
+          }
+          if (status.step) {
+            setLiveSteps((prev) => (prev.includes(status.step!) ? prev : [...prev, status.step!]));
+          }
+        }
       );
 
       if (res.conversation_id) {
@@ -375,16 +399,20 @@ export function AskEstateOSPanel({
 
   const handleApproveCalendar = async (cardId: string, eventId?: string | null, payloadUrl?: string | null) => {
     setApprovingCalendarId(cardId);
+    setCalendarProblems((prev) => ({ ...prev, [cardId]: "" }));
     try {
       const url = payloadUrl || `/api/calendar/events/${eventId}/approve`;
       const fullUrl = url.startsWith("http") ? url : `${BACKEND_BASE_URL}${url}`;
       const res = await apiFetch(fullUrl, { method: "POST", headers: { "Content-Type": "application/json" } });
       if (!res.ok) {
-        throw new Error(`Calendar approval failed: ${res.statusText}`);
+        const body = await res.json().catch(() => null);
+        throw new Error(typeof body?.detail === "string" ? body.detail : `Calendar approval failed (HTTP ${res.status})`);
       }
       setApprovedCalendarIds((prev) => new Set([...prev, cardId]));
     } catch (err) {
       console.error("Failed to approve calendar event:", err);
+      const text = err instanceof Error ? err.message : "Could not add this to Google Calendar.";
+      setCalendarProblems((prev) => ({ ...prev, [cardId]: text }));
     } finally {
       setApprovingCalendarId(null);
     }
@@ -1112,6 +1140,11 @@ export function AskEstateOSPanel({
                       </div>
                     )}
                   </div>
+                  {calendarProblems[cardStateKey] && (
+                    <p role="alert" className={cn("text-[11.5px]", cardDark ? "text-red-400" : "text-red-700")}>
+                      {calendarProblems[cardStateKey]}
+                    </p>
+                  )}
                   <div className={cn("pt-1.5 flex items-center justify-between border-t", cardDark ? "border-[#1E2328]" : "border-[#E8E8E5]")}>
                     <span className={cn("text-[10.5px] font-mono", cardDark ? "text-[#64748B]" : "text-[#6B7280]")}>
                       {approvedCalendarIds.has(cardStateKey) || pCard.status === "confirmed"
@@ -1419,7 +1452,18 @@ export function AskEstateOSPanel({
                               <span className={cn("text-[11px]", cardDark ? "text-rose-400" : "text-rose-600")}>Failed to dispatch draft.</span>
                               <button
                                 type="button"
-                                onClick={() => handleApproveDraft(cardStateKey, pCard?.actionId, pCard?.caseId, choiceKey, activeDraftBody)}
+                                onClick={() =>
+                                  setPendingDraftConfirm({
+                                    cardStateKey,
+                                    actionId: pCard?.actionId,
+                                    caseId: pCard?.caseId,
+                                    choiceKey,
+                                    body: activeDraftBody,
+                                    channel: pCard?.channel || "whatsapp",
+                                    recipient: pCard?.recipient || "",
+                                    subject: pCard?.subject || undefined,
+                                  })
+                                }
                                 className="text-[11px] text-[#1a73e8] hover:underline cursor-pointer font-semibold"
                               >
                                 Retry
@@ -1432,7 +1476,18 @@ export function AskEstateOSPanel({
                           ) : (
                             <button
                               type="button"
-                              onClick={() => handleApproveDraft(cardStateKey, pCard?.actionId, pCard?.caseId, choiceKey, activeDraftBody)}
+                              onClick={() =>
+                                setPendingDraftConfirm({
+                                  cardStateKey,
+                                  actionId: pCard?.actionId,
+                                  caseId: pCard?.caseId,
+                                  choiceKey,
+                                  body: activeDraftBody,
+                                  channel: pCard?.channel || "whatsapp",
+                                  recipient: pCard?.recipient || "",
+                                  subject: pCard?.subject || undefined,
+                                })
+                              }
                               disabled={sendingCardId === cardStateKey || !pCard?.recipient}
                               className="px-3 py-1.5 rounded-[7px] bg-[#1a73e8] hover:bg-[#1557b0] text-[#FFFFFF] font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                               title={!pCard?.recipient ? "Cannot dispatch: recipient is missing" : "Approve and send"}
@@ -1552,7 +1607,7 @@ export function AskEstateOSPanel({
             {chips.map((chip) =>
               chip.href ? (
                 <a key={chip.key} href={chip.href} target="_blank" rel="noopener noreferrer"
-                   className={cn(chipClass, "underline-offset-2 hover:underline")} title={chip.label}>
+                  className={cn(chipClass, "underline-offset-2 hover:underline")} title={chip.label}>
                   {chip.label}
                 </a>
               ) : (
@@ -1815,9 +1870,25 @@ export function AskEstateOSPanel({
                 </div>
               ))}
             {isTyping && (
-              <div className="flex items-center gap-2 text-xs text-cyan-300 py-1">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>{t("agent.thinking", "Astra is thinking...")}</span>
+              <div className="flex flex-col gap-1.5 text-xs text-cyan-300 py-1.5">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  <span>
+                    {liveStage === "researching"
+                      ? t("agent.researching", "Astra is researching...")
+                      : t("agent.thinking", "Astra is thinking...")}
+                  </span>
+                </div>
+                {liveSteps.length > 0 && (
+                  <div className="ml-5 space-y-1 border-l border-cyan-500/30 pl-2.5 text-[11px] text-slate-300">
+                    {liveSteps.map((s, idx) => (
+                      <div key={idx} className="flex items-center gap-1.5">
+                        <Check className="w-3 h-3 text-emerald-400 shrink-0" />
+                        <span>{s}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
             <div ref={messagesEndRef} />
@@ -2392,278 +2463,308 @@ export function AskEstateOSPanel({
               )}
             >
               <div className="max-w-[760px] mx-auto w-full space-y-4">
-          {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={cn(
-                "flex flex-col gap-1 min-w-0",
-                msg.sender === "user" ? "ml-auto items-end max-w-[85%] sm:max-w-[75%]" : "mr-auto items-start w-full max-w-full"
-              )}
-            >
-              {msg.sender === "user" ? (
-                /* User Chat Bubble: Modern pill capsule */
-                <div
-                  className={cn(
-                    "px-4 py-2.5 rounded-[20px] text-[13.5px] leading-relaxed break-words [overflow-wrap:anywhere]",
-                    isDark
-                      ? "bg-[#20272E] border border-[#2E3742] text-[#F9FAFB]"
-                      : "bg-[#F3F4F6] border border-[#E5E7EB] text-[#111827]",
-                    "max-md:bg-cyan-500/20 max-md:border-cyan-400/35 max-md:text-white max-md:backdrop-blur-md max-md:shadow-[0_4px_16px_rgba(0,229,255,0.15)]"
-                  )}
-                >
-                  <p className="whitespace-pre-line leading-relaxed">{msg.text}</p>
-                </div>
-              ) : (
-                /* Assistant Message: Clean unboxed canvas (text flows freely, cards remain intact below) */
-                <div className="w-full space-y-3 min-w-0 text-[13.5px] leading-relaxed">
+                {messages.map((msg) => (
                   <div
+                    key={msg.id}
                     className={cn(
-                      "whitespace-pre-line leading-relaxed break-words [overflow-wrap:anywhere] min-w-0 max-w-full",
-                      isDark ? "text-[#E5E7EB]" : "text-[#111827]",
-                      "max-md:text-white/95 max-md:drop-shadow-xs"
-                    )}
-                    dangerouslySetInnerHTML={{
-                      __html: formatMarkdown(
-                        msg.id === "initial-msg" ? t("agent.welcome_sub", msg.text) : msg.text,
-                        isDark
-                      ),
-                    }}
-                  />
-
-                {/* The agent writes English; a Dutch dashboard offers the Dutch for it on demand. */}
-                {language === "nl" && msg.id !== "initial-msg" && msg.text.trim() && (
-                  <TranslationToggle text={msg.text} language="en" />
-                )}
-
-                {/* Read citation: subtle inline text */}
-                {msg.readSource && (
-                  <div
-                    className={cn(
-                      "mt-2.5 pt-2 border-t text-[11px] flex items-center gap-1.5 font-mono",
-                      isDark ? "border-[#1E2328] text-[#64748B]" : "border-[#E8E8E5] text-[#6B7280]"
+                      "flex flex-col gap-1 min-w-0",
+                      msg.sender === "user" ? "ml-auto items-end max-w-[85%] sm:max-w-[75%]" : "mr-auto items-start w-full max-w-full"
                     )}
                   >
-                    <span className={isDark ? "text-[#94A3B8]" : "text-[#4B5563]"}>Read:</span>
-                    <span className="truncate">{msg.readSource}</span>
+                    {msg.sender === "user" ? (
+                      /* User Chat Bubble: Modern pill capsule */
+                      <div
+                        className={cn(
+                          "px-4 py-2.5 rounded-[20px] text-[13.5px] leading-relaxed break-words [overflow-wrap:anywhere]",
+                          isDark
+                            ? "bg-[#20272E] border border-[#2E3742] text-[#F9FAFB]"
+                            : "bg-[#F3F4F6] border border-[#E5E7EB] text-[#111827]",
+                          "max-md:bg-cyan-500/20 max-md:border-cyan-400/35 max-md:text-white max-md:backdrop-blur-md max-md:shadow-[0_4px_16px_rgba(0,229,255,0.15)]"
+                        )}
+                      >
+                        <p className="whitespace-pre-line leading-relaxed">{msg.text}</p>
+                      </div>
+                    ) : (
+                      /* Assistant Message: Clean unboxed canvas (text flows freely, cards remain intact below) */
+                      <div className="w-full space-y-3 min-w-0 text-[13.5px] leading-relaxed">
+                        <div
+                          className={cn(
+                            "whitespace-pre-line leading-relaxed break-words [overflow-wrap:anywhere] min-w-0 max-w-full",
+                            isDark ? "text-[#E5E7EB]" : "text-[#111827]",
+                            "max-md:text-white/95 max-md:drop-shadow-xs"
+                          )}
+                          dangerouslySetInnerHTML={{
+                            __html: formatMarkdown(
+                              msg.id === "initial-msg" ? t("agent.welcome_sub", msg.text) : msg.text,
+                              isDark
+                            ),
+                          }}
+                        />
+
+                        {/* The agent writes English; a Dutch dashboard offers the Dutch for it on demand. */}
+                        {language === "nl" && msg.id !== "initial-msg" && msg.text.trim() && (
+                          <TranslationToggle text={msg.text} language="en" />
+                        )}
+
+                        {/* Read citation: subtle inline text */}
+                        {msg.readSource && (
+                          <div
+                            className={cn(
+                              "mt-2.5 pt-2 border-t text-[11px] flex items-center gap-1.5 font-mono",
+                              isDark ? "border-[#1E2328] text-[#64748B]" : "border-[#E8E8E5] text-[#6B7280]"
+                            )}
+                          >
+                            <span className={isDark ? "text-[#94A3B8]" : "text-[#4B5563]"}>Read:</span>
+                            <span className="truncate">{msg.readSource}</span>
+                          </div>
+                        )}
+
+                        {/* Facts: Minimal 2-column key/value list without heavy nested boxes */}
+                        {msg.facts && msg.facts.length > 0 && (
+                          <div
+                            className={cn(
+                              "mt-3 pt-2.5 border-t grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11.5px]",
+                              isDark ? "border-[#1E2328]" : "border-[#E8E8E5]"
+                            )}
+                          >
+                            {msg.facts.map((fact, idx) => (
+                              <div key={idx} className="flex flex-col">
+                                <span
+                                  className={cn(
+                                    "text-[10px] uppercase font-mono tracking-wider mb-0.5",
+                                    isDark ? "text-[#64748B]" : "text-[#6B7280]"
+                                  )}
+                                >
+                                  {fact.label}
+                                </span>
+                                <span
+                                  className={cn(
+                                    "font-medium truncate",
+                                    fact.isAlert ? "text-[#1a73e8]" : isDark ? "text-[#E2E8F0]" : "text-[#0A0A0A]"
+                                  )}
+                                >
+                                  {fact.value}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {renderMessageSteps(msg, isDark)}
+                        {renderPreviewCardsBlock(msg, isDark, false)}
+
+                      </div>
+                    )}
+
+                    {renderMessageActions(msg, isDark, false)}
+
+                    {/* Pipeline debug is for developers: never shown to the owner unless NEXT_PUBLIC_SHOW_AGENT_DEBUG=1 */}
+                    {msg.debugInfo && process.env.NEXT_PUBLIC_SHOW_AGENT_DEBUG === "1" && (
+                      <div className={cn("flex items-center gap-1.5 px-1 text-[9.5px] font-mono", isDark ? "text-[#64748B]" : "text-[#888888]")}>
+                        <span className={cn(
+                          "px-1.5 py-0.5 rounded border",
+                          isDark ? "bg-[#14181B] border-[#20262B] text-[#94A3B8]" : "bg-[#F0F0EE] border-[#E8E8E5] text-[#6B7280]"
+                        )}>
+                          stage: {msg.debugInfo.pipeline_stage}
+                        </span>
+                        {msg.debugInfo.fallback_reason && (
+                          <span className="text-amber-600 font-semibold">
+                            ⚠️ {msg.debugInfo.fallback_reason}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    <span className={cn("text-[10px] font-mono px-1", isDark ? "text-[#666666]" : "text-[#9CA3AF]")}>
+                      {msg.timestamp}
+                    </span>
+                  </div>
+                ))}
+
+                {/* Animated 3-dot Typing Indicator */}
+                {isTyping && (
+                  <div className="flex flex-col gap-1.5 py-2 px-1 w-full">
+                    <div className="flex items-center gap-2 text-xs text-[#64748b] dark:text-slate-300">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[#1a73e8] shrink-0" />
+                      <span>
+                        {liveStage === "researching"
+                          ? t("agent.researching", "Astra is researching...")
+                          : t("agent.thinking", "Astra is thinking...")}
+                      </span>
+                    </div>
+                    {liveSteps.length > 0 && (
+                      <div className="ml-5 space-y-1 border-l border-[#1a73e8]/30 pl-2.5 text-[11.5px] text-[#475569] dark:text-slate-400">
+                        {liveSteps.map((s, idx) => (
+                          <div key={idx} className="flex items-center gap-1.5">
+                            <Check className="w-3 h-3 text-emerald-500 shrink-0" />
+                            <span>{s}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {/* Facts: Minimal 2-column key/value list without heavy nested boxes */}
-                {msg.facts && msg.facts.length > 0 && (
-                  <div
-                    className={cn(
-                      "mt-3 pt-2.5 border-t grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11.5px]",
-                      isDark ? "border-[#1E2328]" : "border-[#E8E8E5]"
-                    )}
-                  >
-                    {msg.facts.map((fact, idx) => (
-                      <div key={idx} className="flex flex-col">
-                        <span
-                          className={cn(
-                            "text-[10px] uppercase font-mono tracking-wider mb-0.5",
-                            isDark ? "text-[#64748B]" : "text-[#6B7280]"
-                          )}
-                        >
-                          {fact.label}
-                        </span>
-                        <span
-                          className={cn(
-                            "font-medium truncate",
-                            fact.isAlert ? "text-[#1a73e8]" : isDark ? "text-[#E2E8F0]" : "text-[#0A0A0A]"
-                          )}
-                        >
-                          {fact.value}
-                        </span>
-                      </div>
+                <div ref={messagesEndRef} />
+              </div>
+            </div>
+
+            {/* 4. Floating Prompt Bar Footer (No hard border line, symmetrical spacing) */}
+            <div
+              className={cn(
+                "px-4 sm:px-6 pt-1 flex-shrink-0 transition-colors bg-transparent",
+                isFullScreen ? "pb-6 sm:pb-7" : "pb-3.5 sm:pb-4",
+                "max-md:px-3 max-md:pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]"
+              )}
+            >
+              <div className="max-w-[760px] mx-auto w-full space-y-2.5">
+                {/* Dynamic Next Step Suggestion Pills (Simple Plain Text, No Arrow) */}
+                {suggestedChips.length > 0 && !isTyping && (
+                  <div className="flex items-center gap-2 overflow-x-auto pb-0.5 scrollbar-none no-scrollbar">
+                    {suggestedChips.slice(0, 3).map((chip: string, idx: number) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => handleSendQuery(chip)}
+                        className={cn(
+                          "px-3.5 py-1 rounded-full border text-[12px] font-normal transition-all whitespace-nowrap cursor-pointer shrink-0 shadow-2xs hover:scale-[1.02] active:scale-[0.98]",
+                          isDark
+                            ? "bg-[#14181C] hover:bg-[#1E242B] border-[#222830] text-[#94a3b8] hover:text-white hover:border-[#1a73e8]/40"
+                            : "bg-[#F8FAFD] hover:bg-[#eff6ff] border-[#DCE2EA] text-[#444746] hover:text-[#1a73e8] hover:border-[#1a73e8]/40",
+                          "max-md:bg-black/45 max-md:border-white/20 max-md:text-white/85 max-md:backdrop-blur-lg max-md:hover:border-cyan-400"
+                        )}
+                      >
+                        {chip}
+                      </button>
                     ))}
                   </div>
                 )}
-
-                {renderMessageSteps(msg, isDark)}
-                {renderPreviewCardsBlock(msg, isDark, false)}
-
-                </div>
-              )}
-
-              {renderMessageActions(msg, isDark, false)}
-
-              {/* Pipeline debug is for developers: never shown to the owner unless NEXT_PUBLIC_SHOW_AGENT_DEBUG=1 */}
-              {msg.debugInfo && process.env.NEXT_PUBLIC_SHOW_AGENT_DEBUG === "1" && (
-                <div className={cn("flex items-center gap-1.5 px-1 text-[9.5px] font-mono", isDark ? "text-[#64748B]" : "text-[#888888]")}>
-                  <span className={cn(
-                    "px-1.5 py-0.5 rounded border",
-                    isDark ? "bg-[#14181B] border-[#20262B] text-[#94A3B8]" : "bg-[#F0F0EE] border-[#E8E8E5] text-[#6B7280]"
-                  )}>
-                    stage: {msg.debugInfo.pipeline_stage}
-                  </span>
-                  {msg.debugInfo.fallback_reason && (
-                    <span className="text-amber-600 font-semibold">
-                      ⚠️ {msg.debugInfo.fallback_reason}
-                    </span>
-                  )}
-                </div>
-              )}
-
-              <span className={cn("text-[10px] font-mono px-1", isDark ? "text-[#666666]" : "text-[#9CA3AF]")}>
-                {msg.timestamp}
-              </span>
-            </div>
-          ))}
-
-          {/* Animated 3-dot Typing Indicator */}
-          {isTyping && (
-            <div className="flex items-center gap-1.5 py-2 px-1 w-fit">
-              <div className="w-2 h-2 rounded-full bg-[#1a73e8] animate-bounce" />
-              <div className="w-2 h-2 rounded-full bg-[#1a73e8] animate-bounce [animation-delay:0.15s]" />
-              <div className="w-2 h-2 rounded-full bg-[#1a73e8] animate-bounce [animation-delay:0.3s]" />
-            </div>
-          )}
-
-          <div ref={messagesEndRef} />
-              </div>
-        </div>
-
-        {/* 4. Floating Prompt Bar Footer (No hard border line, symmetrical spacing) */}
-        <div
-          className={cn(
-            "px-4 sm:px-6 pt-1 flex-shrink-0 transition-colors bg-transparent",
-            isFullScreen ? "pb-6 sm:pb-7" : "pb-3.5 sm:pb-4",
-            "max-md:px-3 max-md:pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]"
-          )}
-        >
-          <div className="max-w-[760px] mx-auto w-full space-y-2.5">
-            {/* Dynamic Next Step Suggestion Pills (Simple Plain Text, No Arrow) */}
-            {suggestedChips.length > 0 && !isTyping && (
-              <div className="flex items-center gap-2 overflow-x-auto pb-0.5 scrollbar-none no-scrollbar">
-                {suggestedChips.slice(0, 3).map((chip: string, idx: number) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => handleSendQuery(chip)}
-                    className={cn(
-                      "px-3.5 py-1 rounded-full border text-[12px] font-normal transition-all whitespace-nowrap cursor-pointer shrink-0 shadow-2xs hover:scale-[1.02] active:scale-[0.98]",
-                      isDark
-                        ? "bg-[#14181C] hover:bg-[#1E242B] border-[#222830] text-[#94a3b8] hover:text-white hover:border-[#1a73e8]/40"
-                        : "bg-[#F8FAFD] hover:bg-[#eff6ff] border-[#DCE2EA] text-[#444746] hover:text-[#1a73e8] hover:border-[#1a73e8]/40",
-                      "max-md:bg-black/45 max-md:border-white/20 max-md:text-white/85 max-md:backdrop-blur-lg max-md:hover:border-cyan-400"
-                    )}
-                  >
-                    {chip}
-                  </button>
-                ))}
-              </div>
-            )}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSendQuery(inputQuery);
-              }}
-              className={cn(
-                "border-[1.5px] rounded-[20px] p-2.5 pb-2 flex flex-col gap-1.5 transition-all shadow-2xs",
-                isDark
-                  ? "bg-[#14181C] border-[#222830] focus-within:border-[#1a73e8] focus-within:bg-[#181D22]"
-                  : "bg-[#f8fafd] border-[#dce2ea] focus-within:border-[#1a73e8] focus-within:bg-white",
-                "max-md:bg-black/60 max-md:border-white/20 max-md:backdrop-blur-2xl max-md:shadow-[0_8px_32px_rgba(0,0,0,0.6)] max-md:rounded-[24px] max-md:focus-within:border-cyan-400 max-md:focus-within:bg-black/75"
-              )}
-            >
-              <textarea
-                ref={inputRef}
-                rows={1}
-                value={inputQuery}
-                onChange={(e) => {
-                  setInputQuery(e.target.value);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
+                <form
+                  onSubmit={(e) => {
                     e.preventDefault();
                     handleSendQuery(inputQuery);
-                  }
-                }}
-                placeholder={t("agent.ask_placeholder")}
-                className={cn(
-                  "w-full text-[13px] bg-transparent outline-none resize-none overflow-hidden leading-relaxed",
-                  isDark
-                    ? "text-[#FFFFFF] placeholder:text-[#64748B]"
-                    : "text-[#1f1f1f] placeholder:text-[#444746]",
-                  "max-md:text-white max-md:placeholder:text-white/50"
-                )}
-              />
-
-              <div className="flex items-center justify-between pt-0.5">
-                {/* Voice Input Mic Button & Speech Language Switcher */}
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => toggleVoiceInput()}
-                    className={cn(
-                      "p-1.5 rounded-full transition-all cursor-pointer flex items-center justify-center shrink-0",
-                      isListening
-                        ? "bg-cyan-500 text-black shadow-[0_0_15px_rgba(0,229,255,0.7)] animate-pulse ring-2 ring-cyan-300"
-                        : isDark
-                        ? "text-slate-400 hover:text-white hover:bg-white/10"
-                        : "text-[#5f6368] hover:text-[#1a73e8] hover:bg-slate-100"
-                    )}
-                    title={isListening ? "Listening... click to stop" : `Voice input (${speechLang === "nl" ? "Dutch" : "English"})`}
-                    aria-label="Voice input"
-                  >
-                    {isListening ? (
-                      <MicOff className="w-4 h-4 stroke-[2.5]" />
-                    ) : (
-                      <Mic className="w-4 h-4 stroke-[2]" />
-                    )}
-                  </button>
-
-                  {/* Speech Language Switcher */}
-                  <button
-                    type="button"
-                    onClick={handleToggleLang}
-                    className={cn(
-                      "text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all cursor-pointer flex items-center gap-1 select-none",
-                      speechLang === "nl"
-                        ? "bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/25"
-                        : "bg-blue-500/15 text-blue-400 border-blue-500/30 hover:bg-blue-500/25"
-                    )}
-                    title={speechLang === "nl" ? "Voice language: Nederlands (click to switch to English)" : "Voice language: English (click to switch to Nederlands)"}
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      {speechLang === "nl" ? <FlagNL className="w-3.5 h-2.5" /> : <FlagUK className="w-3.5 h-2.5" />}
-                      <span>{speechLang === "nl" ? "NL" : "EN"}</span>
-                    </span>
-                  </button>
-
-                  {isListening && (
-                    <span className="text-[11px] text-cyan-400 font-medium animate-pulse flex items-center gap-1 pl-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping inline-block" />
-                      {speechLang === "nl" ? "Luisteren (Dutch)..." : "Listening (English)..."}
-                    </span>
-                  )}
-                  {voiceError && !isListening && (
-                    <span className="text-[11px] text-amber-500 font-medium pl-1">{voiceError}</span>
-                  )}
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={!inputQuery.trim() || isTyping}
+                  }}
                   className={cn(
-                    "w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0",
-                    inputQuery.trim()
-                      ? "bg-[#1a73e8] max-md:bg-gradient-to-r max-md:from-cyan-400 max-md:to-blue-600 max-md:text-black hover:bg-[#1557b0] text-white shadow-[0_2px_6px_rgba(26,115,232,0.3)] max-md:shadow-[0_0_12px_rgba(0,229,255,0.4)] hover:scale-105 active:scale-95"
-                      : isDark
-                      ? "bg-[#1c2227] max-md:bg-white/10 text-[#64748b] max-md:text-white/30 cursor-not-allowed opacity-60"
-                      : "bg-[#e8eaed] max-md:bg-white/10 text-[#5f6368] max-md:text-white/30 cursor-not-allowed opacity-70"
+                    "border-[1.5px] rounded-[20px] p-2.5 pb-2 flex flex-col gap-1.5 transition-all shadow-2xs",
+                    isDark
+                      ? "bg-[#14181C] border-[#222830] focus-within:border-[#1a73e8] focus-within:bg-[#181D22]"
+                      : "bg-[#f8fafd] border-[#dce2ea] focus-within:border-[#1a73e8] focus-within:bg-white",
+                    "max-md:bg-black/60 max-md:border-white/20 max-md:backdrop-blur-2xl max-md:shadow-[0_8px_32px_rgba(0,0,0,0.6)] max-md:rounded-[24px] max-md:focus-within:border-cyan-400 max-md:focus-within:bg-black/75"
                   )}
-                  title="Send query"
                 >
-                  <ArrowUp className="w-3.5 h-3.5 stroke-[2.5]" />
-                </button>
+                  <textarea
+                    ref={inputRef}
+                    rows={1}
+                    value={inputQuery}
+                    onChange={(e) => {
+                      setInputQuery(e.target.value);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendQuery(inputQuery);
+                      }
+                    }}
+                    placeholder={t("agent.ask_placeholder")}
+                    className={cn(
+                      "w-full text-[13px] bg-transparent outline-none resize-none overflow-hidden leading-relaxed",
+                      isDark
+                        ? "text-[#FFFFFF] placeholder:text-[#64748B]"
+                        : "text-[#1f1f1f] placeholder:text-[#444746]",
+                      "max-md:text-white max-md:placeholder:text-white/50"
+                    )}
+                  />
+
+                  <div className="flex items-center justify-between pt-0.5">
+                    {/* Voice Input Mic Button & Speech Language Switcher */}
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => toggleVoiceInput()}
+                        className={cn(
+                          "p-1.5 rounded-full transition-all cursor-pointer flex items-center justify-center shrink-0",
+                          isListening
+                            ? "bg-cyan-500 text-black shadow-[0_0_15px_rgba(0,229,255,0.7)] animate-pulse ring-2 ring-cyan-300"
+                            : isDark
+                              ? "text-slate-400 hover:text-white hover:bg-white/10"
+                              : "text-[#5f6368] hover:text-[#1a73e8] hover:bg-slate-100"
+                        )}
+                        title={isListening ? "Listening... click to stop" : `Voice input (${speechLang === "nl" ? "Dutch" : "English"})`}
+                        aria-label="Voice input"
+                      >
+                        {isListening ? (
+                          <MicOff className="w-4 h-4 stroke-[2.5]" />
+                        ) : (
+                          <Mic className="w-4 h-4 stroke-[2]" />
+                        )}
+                      </button>
+
+                      {/* Speech Language Switcher */}
+                      <button
+                        type="button"
+                        onClick={handleToggleLang}
+                        className={cn(
+                          "text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all cursor-pointer flex items-center gap-1 select-none",
+                          speechLang === "nl"
+                            ? "bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/25"
+                            : "bg-blue-500/15 text-blue-400 border-blue-500/30 hover:bg-blue-500/25"
+                        )}
+                        title={speechLang === "nl" ? "Voice language: Nederlands (click to switch to English)" : "Voice language: English (click to switch to Nederlands)"}
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          {speechLang === "nl" ? <FlagNL className="w-3.5 h-2.5" /> : <FlagUK className="w-3.5 h-2.5" />}
+                          <span>{speechLang === "nl" ? "NL" : "EN"}</span>
+                        </span>
+                      </button>
+
+                      {isListening && (
+                        <span className="text-[11px] text-cyan-400 font-medium animate-pulse flex items-center gap-1 pl-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping inline-block" />
+                          {speechLang === "nl" ? "Luisteren (Dutch)..." : "Listening (English)..."}
+                        </span>
+                      )}
+                      {voiceError && !isListening && (
+                        <span className="text-[11px] text-amber-500 font-medium pl-1">{voiceError}</span>
+                      )}
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={!inputQuery.trim() || isTyping}
+                      className={cn(
+                        "w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0",
+                        inputQuery.trim()
+                          ? "bg-[#1a73e8] max-md:bg-gradient-to-r max-md:from-cyan-400 max-md:to-blue-600 max-md:text-black hover:bg-[#1557b0] text-white shadow-[0_2px_6px_rgba(26,115,232,0.3)] max-md:shadow-[0_0_12px_rgba(0,229,255,0.4)] hover:scale-105 active:scale-95"
+                          : isDark
+                            ? "bg-[#1c2227] max-md:bg-white/10 text-[#64748b] max-md:text-white/30 cursor-not-allowed opacity-60"
+                            : "bg-[#e8eaed] max-md:bg-white/10 text-[#5f6368] max-md:text-white/30 cursor-not-allowed opacity-70"
+                      )}
+                      title="Send query"
+                    >
+                      <ArrowUp className="w-3.5 h-3.5 stroke-[2.5]" />
+                    </button>
+                  </div>
+                </form>
               </div>
-            </form>
+            </div>
           </div>
         </div>
-      </div>
-    </div>
-  </aside>
+      </aside>
+      <SendConfirmModal
+        isOpen={pendingDraftConfirm !== null}
+        channel={pendingDraftConfirm?.channel ?? "whatsapp"}
+        recipient={pendingDraftConfirm?.recipient}
+        subject={pendingDraftConfirm?.subject}
+        body={pendingDraftConfirm?.body ?? ""}
+        isSending={sendingCardId !== null && sendingCardId === pendingDraftConfirm?.cardStateKey}
+        onConfirm={async () => {
+          if (!pendingDraftConfirm) return;
+          const target = pendingDraftConfirm;
+          setPendingDraftConfirm(null);
+          await handleApproveDraft(target.cardStateKey, target.actionId, target.caseId, target.choiceKey, target.body);
+        }}
+        onCancel={() => setPendingDraftConfirm(null)}
+      />
     </>
   );
 }

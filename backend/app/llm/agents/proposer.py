@@ -30,9 +30,9 @@ from app.llm.calls import AgentSpec
 from app.llm.prompts import LoadedPrompt
 from app.llm.render import data_block, escape
 
-ROLE_AWARE_PROMPTS = frozenset({"v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12"})
+ROLE_AWARE_PROMPTS = frozenset({"v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14"})
 # the dossier replaces <message>, <waiting> and <excerpts>
-DOSSIER_PROMPTS = frozenset({"v6", "v7", "v8", "v9", "v10", "v11", "v12"})
+DOSSIER_PROMPTS = frozenset({"v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14"})
 MAX_PERSONA_CHARS = 8000  # the persona markdown's limit (a data block holds at most this many characters)
 
 
@@ -165,16 +165,30 @@ PROPOSER_V12 = AgentSpec(  # v11 after its real-model misses: cited law only, nu
     finalize=_unchanged,
     gemini_prompted=True,
 )
+PROPOSER_V13 = AgentSpec(  # v12 after its real-model misses: no invented figure, date or rule detail; open scope asked
+    name="proposer",
+    prompt=PromptRef(name="proposer", version="v13"),
+    output_type=Proposal,
+    finalize=_unchanged,
+    gemini_prompted=True,
+)
+PROPOSER_V14 = AgentSpec(  # v13 after its real-model misses: no unstated promise, each item asked once, next step
+    name="proposer",
+    prompt=PromptRef(name="proposer", version="v14"),
+    output_type=Proposal,
+    finalize=_unchanged,
+    gemini_prompted=True,
+)
 MAX_GUIDANCE = 400  # the planner's `text` limit
 MAX_CURRENT_VARIANT = 1500
 
 
 def proposer_spec(ctx: ProposerContext) -> AgentSpec[Proposal]:
-    """v11 whenever a dossier is given (every pipeline proposal and owner redraft); v4 whenever the owner's
+    """v14 whenever a dossier is given (every pipeline proposal and owner redraft); v4 whenever the owner's
     persona is given; otherwise v2 only for an owner-requested draft (guidance or a draft to
     replace), v3 when the case's own documents are in view (ADR 0008), v1 for everything else."""
     if ctx.dossier:
-        return PROPOSER_V11  # v12 is published for its real-model eval; pinned only if it beats v11
+        return PROPOSER_V14  # beat v13 on gemini-3.8-flash: hard 0.95 vs 0.89, judge 1.00 vs 0.89 (2026-11-27)
     if ctx.persona is not None:
         return PROPOSER_PERSONA
     if ctx.guided:

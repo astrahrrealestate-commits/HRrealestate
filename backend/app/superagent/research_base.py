@@ -1,7 +1,9 @@
 """Shared pieces of the research loop: limits, the rules the model gets, the per-run state and the result."""
 
+import contextlib
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from uuid import UUID
 
@@ -36,7 +38,9 @@ RESEARCH_RULES = (
     "  search_web (public pages: prices, laws, rules, products; pass topic='legal'|'finance'|'market'|'maintenance'\n"
     "  to prefer verified Dutch sources like wetten.overheid.nl, rechtspraak.nl, roz.nl, rijksoverheid.nl,\n"
     "  huurcommissie.nl, iplo.nl, belastingdienst.nl, funda.nl, nvm.nl, warmteservice.nl, hornbach.nl,\n"
-    "  milieucentraal.nl; skip kadaster.nl/wozwaardeloket.nl; use only when our own data/docs cannot settle it).\n"
+    "  milieucentraal.nl; skip kadaster.nl/wozwaardeloket.nl; use only when our own data/docs cannot settle it;\n"
+    "  for Dutch market queries, translate terms like '1 bhk' into Dutch/EU terms e.g. '1-slaapkamer appartement'\n"
+    "  or '1 bedroom apartment').\n"
     "- When a question, policy or drafting decision is ambiguous, resolve it in strict order:\n"
     "  (1) History & similar conversations first (check search_communications, open_thread and search_documents\n"
     "  for how Harjot handled comparable cases, plus <owner_preferences>);\n"
@@ -54,6 +58,8 @@ RESEARCH_RULES = (
     "  search_communications too.\n"
     "- NEVER say something is not found or unrecorded until you have checked search_communications AND\n"
     "  search_documents: VvE inspection dates, bank offers, quotes and promises often exist only in emails or PDFs.\n"
+    "- When asked about a document, docx, PDF, or attachment that someone sent, ALWAYS check search_communications\n"
+    "  (and open_message to read its attachments) alongside search_documents.\n"
     "- Check our own records (query_database, search_communications, search_documents) BEFORE search_web; if\n"
     "  search_web fails, still check search_communications and search_documents.\n"
     "- Ask for lookups that do not depend on each other in the same turn (for example search_communications and\n"
@@ -88,7 +94,14 @@ class SuperAgentDeps:
     tools_until: float = field(default_factory=lambda: time.monotonic() + 3600)
     calls: int = 0
     stopped: bool = False  # the owner was answered: a run still going makes no more lookups
+    on_step: Callable[[str], None] | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def record_step(self, step: str) -> None:
+        self.steps.append(step)
+        if self.on_step is not None:
+            with contextlib.suppress(Exception):
+                self.on_step(step)
 
     def take_call(self) -> bool:
         """One more lookup, if the count and the time allow it (tools of one model response run in parallel)."""

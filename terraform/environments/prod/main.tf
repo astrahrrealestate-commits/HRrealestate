@@ -101,7 +101,7 @@ module "iam" {
 # --- 8. Application Load Balancer Module ---
 module "alb" {
   source = "../../modules/alb"
-  # Astra research: planner + SUPER_AGENT_DEADLINE_SEC (100 s) + answer; the browser waits 150 s.
+  # Non-streaming calls that run long. Astra asks stream (/api/agent/ask/stream sends a status event every 2 s).
   idle_timeout = 150
 
   project_name               = var.project_name
@@ -163,13 +163,13 @@ module "ecs" {
     { name = "DASHBOARD_CORS_ORIGINS", value = var.dashboard_cors_origins },
     { name = "DASHBOARD_AUTH_PROVIDER", value = "google" },
     { name = "DASHBOARD_TRUST_FORWARDED_FOR", value = "true" },
-    { name = "LLM_MODEL", value = "google-gla:gemini-2.5-flash" },
+    { name = "LLM_MODEL", value = "google-gla:gemini-3.8-flash" }, # live since 2026-11-23; every eval ran on it
     { name = "EMBEDDING_MODEL", value = "google-gla:gemini-embedding-001" },
     # google-genai 3.x defaults to API v1, which rejects instructions/tools; the code pins v1beta too.
     { name = "GOOGLE_GENAI_API_VERSION", value = "v1beta" },
     { name = "LLM_TIMEOUT_SEC", value = "30" },
-    # Astra stops looking things up at 60% of this and answers from what it found (needs the ALB idle_timeout above).
-    { name = "SUPER_AGENT_DEADLINE_SEC", value = "100" },
+    # Astra stops looking things up at 60% of this and answers from what it found; the browser waits 300 s.
+    { name = "SUPER_AGENT_DEADLINE_SEC", value = "270" },
     # Tried when Gemini answers an error; prod only allows google-gla:* models.
     { name = "LLM_FALLBACK_MODELS", value = "google-gla:gemini-2.5-flash-lite" },
     { name = "WHATSAPP_PROVIDER", value = "cloud_api" },

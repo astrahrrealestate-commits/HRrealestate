@@ -106,7 +106,7 @@ def _open(
 
     text, opened = _safely(lookup, deps, "")
     if opened:
-        deps.steps.append(f"Opened {label}")
+        deps.record_step(f"Opened {label}")
     return _as_data(text)
 
 
@@ -131,7 +131,7 @@ def _add_search_tools(agent: Agent[SuperAgentDeps, SourcedAnswer]) -> None:
             return NO_MORE_LOOKUPS
         text, rows = _safely(_database, ctx.deps, question)
         step = f"Checked the database ({_plural(rows, 'row', 'rows')})"
-        ctx.deps.steps.append(step)
+        ctx.deps.record_step(step)
         ref = ctx.deps.sources.add("data", f"query {len(ctx.deps.steps)}", step)
         return _as_data(f"[{ref}] {text}")
 
@@ -155,7 +155,7 @@ def _add_search_tools(agent: Agent[SuperAgentDeps, SourcedAnswer]) -> None:
                 ctx.deps,
                 query,
             )
-        ctx.deps.steps.append(f"Searched messages ({_plural(hits, 'match', 'matches')})")
+        ctx.deps.record_step(f"Searched messages ({_plural(hits, 'match', 'matches')})")
         return _as_data(text)
 
     @agent.tool
@@ -174,7 +174,7 @@ def _add_search_tools(agent: Agent[SuperAgentDeps, SourcedAnswer]) -> None:
             ctx.deps,
             query,
         )
-        ctx.deps.steps.append(f"Searched cases ({_plural(hits, 'match', 'matches')})")
+        ctx.deps.record_step(f"Searched cases ({_plural(hits, 'match', 'matches')})")
         return _as_data(text)
 
     @agent.tool
@@ -183,8 +183,13 @@ def _add_search_tools(agent: Agent[SuperAgentDeps, SourcedAnswer]) -> None:
         Optional topic presets trusted sources: 'legal', 'finance', 'market', 'maintenance', or 'general'."""
         if not ctx.deps.take_call():
             return NO_MORE_LOOKUPS
+        if ctx.deps.on_step is not None:
+            ctx.deps.on_step("Searching the web...")
+        before = len(ctx.deps.sources.all())
         text, pages = _safely(lambda deps, q: _web(deps, q, topic=topic), ctx.deps, query)
-        ctx.deps.steps.append(f"Searched the web ({_plural(pages, 'page', 'pages')})")
+        new_urls = [s.ref for s in ctx.deps.sources.all()[before:] if s.kind == "web"]
+        url_note = f": {', '.join(new_urls)}" if new_urls else ""
+        ctx.deps.record_step(f"Searched the web ({_plural(pages, 'page', 'pages')}{url_note})")
         return _as_data(text)
 
     @agent.tool
@@ -193,7 +198,7 @@ def _add_search_tools(agent: Agent[SuperAgentDeps, SourcedAnswer]) -> None:
         if not ctx.deps.take_call():
             return NO_MORE_LOOKUPS
         text, count = _safely(lambda deps, _q: _calendar_events(deps, days_ahead=days_ahead), ctx.deps, "")
-        ctx.deps.steps.append(f"Checked calendar ({_plural(count, 'item', 'items')})")
+        ctx.deps.record_step(f"Checked calendar ({_plural(count, 'item', 'items')})")
         return _as_data(text)
 
     @agent.tool
@@ -202,7 +207,7 @@ def _add_search_tools(agent: Agent[SuperAgentDeps, SourcedAnswer]) -> None:
         if not ctx.deps.take_call():
             return NO_MORE_LOOKUPS
         text, _ = _safely(lambda deps, _q: _calendar_free_busy(deps, start_iso, end_iso), ctx.deps, "")
-        ctx.deps.steps.append("Checked calendar availability")
+        ctx.deps.record_step("Checked calendar availability")
         return _as_data(text)
 
     @agent.tool
@@ -211,7 +216,7 @@ def _add_search_tools(agent: Agent[SuperAgentDeps, SourcedAnswer]) -> None:
         if not ctx.deps.take_call():
             return NO_MORE_LOOKUPS
         text, hits = _safely(_documents, ctx.deps, query)
-        ctx.deps.steps.append(f"Searched documents ({_plural(hits, 'match', 'matches')})")
+        ctx.deps.record_step(f"Searched documents ({_plural(hits, 'match', 'matches')})")
         return _as_data(text)
 
 
@@ -277,6 +282,7 @@ def run_research(
     query: str,
     *,
     embedder: TextEmbedder | None,
+    on_step: Callable[[str], None] | None = None,
 ) -> ResearchResult | None:
     if settings.llm_model == "fake":
         return None
@@ -284,7 +290,7 @@ def run_research(
         check_budget(engine, settings, company_id, CONCIERGE_PURPOSE)
     except BudgetExceededError:
         return None
-    deps = SuperAgentDeps(engine, settings, company_id, embedder)
+    deps = SuperAgentDeps(engine, settings, company_id, embedder, on_step=on_step)
     row = new_call(settings, company_id, AGENT_NAME, system_prompt, query)
     started, deadline = time.perf_counter(), settings.super_agent_deadline_sec
     run = None
@@ -312,4 +318,8 @@ def run_research(
     _finish(engine, row, started, deps, result.usage)
     if not screened.answer:
         return None
-    return ResearchResult(screened.answer, tuple(deps.steps), with_links(engine, company_id, screened.sources))
+    seen_refs = {(s.kind, s.ref) for s in screened.sources}
+    merged_sources = list(screened.sources) + [
+        s for s in deps.sources.all() if s.kind == "web" and (s.kind, s.ref) not in seen_refs
+    ]
+    return ResearchResult(screened.answer, tuple(deps.steps), with_links(engine, company_id, merged_sources))

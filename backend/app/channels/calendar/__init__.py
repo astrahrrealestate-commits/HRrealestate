@@ -9,6 +9,7 @@ from app.channels import google_store
 from app.channels.calendar.fake import FakeCalendarClient
 from app.channels.calendar.google import GoogleCalendarClient
 from app.channels.calendar.ports import (
+    NOT_CONNECTED,
     CalendarAttendee,
     CalendarClientProtocol,
     CalendarEvent,
@@ -47,13 +48,13 @@ def get_calendar_client(credentials: dict[str, Any] | None = None) -> CalendarCl
         live = _google_client()
     except Exception as exc:  # unreadable settings or token
         log.warning("calendar.google_client_unavailable", error=type(exc).__name__)
-        raise CalendarUnavailableError("Google Calendar is not connected") from exc
+        raise CalendarUnavailableError(NOT_CONNECTED) from exc
 
     if live is not None:
         return live
     if credentials and "service" in credentials:
         return GoogleCalendarClient(service=credentials["service"])
-    raise CalendarUnavailableError("Google Calendar is not connected")
+    raise CalendarUnavailableError(NOT_CONNECTED)
 
 
 __all__ = [

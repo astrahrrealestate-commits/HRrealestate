@@ -67,13 +67,17 @@ def _clip(value: str) -> str:
     return value.encode("utf-8")[:MAX_PROPERTY_BYTES].decode("utf-8", errors="ignore")
 
 
-def drive_properties(doc_type: str, unit_label: str | None, party: str | None, day: date) -> dict[str, str]:
+def drive_properties(
+    doc_type: str, unit_label: str | None, party: str | None, day: date, sender: str | None = None
+) -> dict[str, str]:
     """What Drive's own search can filter on (`appProperties`); short keys, values clipped to the byte limit."""
     props = {"doc_type": doc_type, "date": day.isoformat(), "layout": LAYOUT_VERSION}
     if unit_label:
         props["unit"] = _clip(unit_label)
     if party:
         props["party"] = _clip(party)
+    if sender:
+        props["sender"] = _clip(sender)
     return props
 
 

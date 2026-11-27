@@ -43,6 +43,7 @@ from app.llm.agents.calendar import (
 from app.main import create_app
 from app.pipeline.concierge import StepResult
 from app.pipeline.concierge_reads import CALENDAR_POINTER
+from app.superagent import lookups
 from tests.api_auth import as_owner, with_conversation
 
 AMSTERDAM = ZoneInfo("Europe/Amsterdam")
@@ -606,3 +607,81 @@ def test_a_calendar_step_the_helper_cannot_place_points_to_the_calendar_page() -
     """Nothing to book or look up in the step's text: the pipeline calendar handler's own pointer, no card."""
     segment = calendar_segment((None, None, [], []))
     assert (segment.text, segment.cards, segment.actions, segment.preview_card) == (CALENDAR_POINTER, [], [], None)
+
+
+# ---------------------------------------------------------------------------
+# 6. WHAT GOOGLE SAID REACHES THE OWNER
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "query", ["Schedule a focus review Friday at 3 PM", "What visits are on my calendar this week?"]
+)
+def test_the_calendar_answer_says_why_google_calendar_is_unavailable(query: str) -> None:
+    reason = "Your Google sign-in has expired or been revoked."
+    client = MagicMock()
+    client.check_free_busy.side_effect = CalendarUnavailableError(reason)
+    client.list_events.side_effect = CalendarUnavailableError(reason)
+    mock_sess = MagicMock()
+    mock_sess.__enter__.return_value = mock_sess
+    mock_sess.scalars.return_value.all.return_value = []
+
+    with (
+        patch("app.api.agent.routes.Session", return_value=mock_sess),
+        patch("app.api.agent.routes.unit_named", return_value=None),
+        patch("app.api.agent.routes.get_calendar_client", return_value=client),
+    ):
+        answer, *_ = agent_routes._resolve_calendar_action(query, MagicMock(), TEST_COMP_ID, [])
+
+    assert reason in (answer or "")
+    assert "no upcoming appointments" not in (answer or "")
+
+
+def test_a_refused_delete_leaves_the_event_uncancelled() -> None:
+    event_id = uuid4()
+    row = CalendarEventRow(
+        id=event_id,
+        company_id=TEST_COMP_ID,
+        title="Visit",
+        start_time=datetime(2026, 10, 30, 15, tzinfo=AMSTERDAM),
+        end_time=datetime(2026, 10, 30, 16, tzinfo=AMSTERDAM),
+        status="confirmed",
+        event_type="meeting",
+        external_event_id="g1",
+    )
+    client = MagicMock()
+    client.delete_event.side_effect = CalendarUnavailableError("Reconnect Google.")
+    app = as_owner(create_app(SETTINGS, engine=MagicMock(), workflow_client=MagicMock()))
+
+    with (
+        patch("app.api.calendar.routes.Session", return_value=create_test_mock_session({event_id: row})),
+        patch("app.api.calendar.routes.get_calendar_client", return_value=client),
+        TestClient(app) as http,
+    ):
+        res = http.post(f"/api/calendar/events/{event_id}/cancel")
+
+    assert res.status_code == 503
+    assert res.json()["detail"] == "Reconnect Google."
+    assert row.status == "confirmed"
+
+
+@pytest.mark.parametrize(
+    "lookup",
+    [
+        lambda deps: lookups.calendar_events(deps, 7),
+        lambda deps: lookups.calendar_free_busy(deps, "2026-11-30T10:00", "2026-11-30T11:00"),
+    ],
+)
+def test_a_research_lookup_says_why_the_calendar_could_not_be_read(lookup: Any) -> None:
+    mock_sess = MagicMock()
+    mock_sess.__enter__.return_value = mock_sess
+    mock_sess.scalars.return_value.all.return_value = []
+
+    with (
+        patch("app.superagent.lookups.Session", return_value=mock_sess),
+        patch("app.superagent.lookups.get_calendar_client", side_effect=CalendarUnavailableError("Reconnect Google.")),
+    ):
+        text, found = lookup(MagicMock())
+
+    assert "Reconnect Google." in text
+    assert found == 0

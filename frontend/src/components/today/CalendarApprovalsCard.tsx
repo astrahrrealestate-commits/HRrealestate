@@ -76,6 +76,8 @@ export function CalendarApprovalsCard({
   // Approving creates the Google event, so a card painted from the last visit stays locked until this fetch answers.
   const [fresh, setFresh] = useState(Boolean(initialEvents?.length));
   const [approvingId, setApprovingId] = useState<string | null>(null);
+  // Why the last approve failed (the API says so in `detail`), shown on that row.
+  const [problem, setProblem] = useState<{ id: string; text: string } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [filterMode, setFilterMode] = useState<"pending" | "all">("pending");
 
@@ -115,6 +117,7 @@ export function CalendarApprovalsCard({
 
   const handleApprove = async (event: CalendarEvent) => {
     setApprovingId(event.id);
+    setProblem(null);
     const prevStatus = event.status;
 
     // Optimistic UI state update
@@ -141,6 +144,7 @@ export function CalendarApprovalsCard({
         onApproveSuccess?.(event.id, event.title);
       } else {
         // Rollback on rejection
+        setProblem({ id: event.id, text: res.error || t("Could not add this to Google Calendar.") });
         setEvents((prev) =>
           prev.map((e) => (e.id === event.id ? { ...e, status: prevStatus } : e))
         );
@@ -339,11 +343,17 @@ export function CalendarApprovalsCard({
 
                 {/* Footer Action Bar */}
                 <div className="flex items-center justify-between gap-3 pt-1">
-                  <span className="font-mono text-[10.5px] text-[var(--ink-3)]">
-                    {isConfirmed
-                      ? "1-click confirmed and synced to Google Calendar"
-                      : "Awaiting owner 1-click confirmation"}
-                  </span>
+                  {problem?.id === evt.id ? (
+                    <span role="alert" className="text-[11.5px] text-red-700 dark:text-red-400">
+                      {problem.text}
+                    </span>
+                  ) : (
+                    <span className="font-mono text-[10.5px] text-[var(--ink-3)]">
+                      {isConfirmed
+                        ? "1-click confirmed and synced to Google Calendar"
+                        : "Awaiting owner 1-click confirmation"}
+                    </span>
+                  )}
 
                   <div className="flex items-center gap-2">
                     {isConfirmed ? (

@@ -5,7 +5,10 @@ Executes multi-step plans (case status, drafting replies, task completions/snooz
 """
 
 import asyncio
+import contextlib
+import contextvars
 import json
+import queue
 import re
 from collections.abc import AsyncIterator, Callable, Sequence
 from datetime import UTC, datetime, timedelta
@@ -278,6 +281,18 @@ def _entities(engine: Engine, company_id: UUID, question: str) -> Entities:
         return NO_ENTITIES
 
 
+_STEP_CALLBACK: contextvars.ContextVar[Callable[[str], None] | None] = contextvars.ContextVar(
+    "agent_step_callback", default=None
+)
+
+
+def _emit_step(step: str) -> None:
+    cb = _STEP_CALLBACK.get()
+    if cb is not None:
+        with contextlib.suppress(Exception):
+            cb(step)
+
+
 def _research_answer(
     query: str,
     settings: Settings,
@@ -288,7 +303,14 @@ def _research_answer(
 ) -> ResearchResult | None:
     """The answer from the read-only research loop (database, messages, documents); None means use the chat answer."""
     return run_research(
-        engine, settings, company_id, system_prompt, history or [], query, embedder=build_embedder(settings)
+        engine,
+        settings,
+        company_id,
+        system_prompt,
+        history or [],
+        query,
+        embedder=build_embedder(settings),
+        on_step=_STEP_CALLBACK.get(),
     )
 
 
@@ -693,10 +715,9 @@ def _resolve_calendar_action(
                     [],
                     ["Awaiting appointment time"],
                 )
-            except CalendarUnavailableError:
+            except CalendarUnavailableError as exc:
                 return (
-                    "Google Calendar is not connected right now, so I cannot check your availability or book. "
-                    "Connect it in Connections and ask again.",
+                    f"I cannot check your availability or book. {exc}",
                     None,
                     [],
                     ["Google Calendar unavailable"],
@@ -799,6 +820,7 @@ def _resolve_calendar_action(
                 event_lines.append(f"• **{e.title}** ({st_badge})\n  {date_lbl} at {loc}")
 
             live_count = 0
+            calendar_problem = ""
             try:
                 client = get_calendar_client()
                 win_start = datetime.now(UTC)
@@ -808,14 +830,20 @@ def _resolve_calendar_action(
                     date_lbl = to_local(ev.start_time).strftime("%a %b %d · %H:%M")
                     loc = ev.location or "no location set"
                     event_lines.append(f"• **{ev.title}** ([GOOGLE CALENDAR])\n  {date_lbl} at {loc}")
-            except CalendarUnavailableError:
-                pass
+            except CalendarUnavailableError as exc:
+                calendar_problem = str(exc)
 
             if event_lines:
                 sched_text = "\n".join(event_lines[:10])
                 ans = f"Here are your upcoming scheduled visits and appointments:\n\n{sched_text}"
             else:
-                ans = "You have no upcoming appointments booked on your calendar."
+                ans = (
+                    "I found no appointments in EstateOS."
+                    if calendar_problem
+                    else "You have no upcoming appointments booked on your calendar."
+                )
+            if calendar_problem:
+                ans += f"\n\nI could not read Google Calendar. {calendar_problem}"
 
             actions = [
                 ActionButtonData(
@@ -827,7 +855,9 @@ def _resolve_calendar_action(
             ]
             steps = [
                 "Queried scheduled property visits and Google Calendar",
-                f"Retrieved {len(events)} DB and {live_count} Google Calendar appointments",
+                f"Retrieved {len(events)} DB appointments; Google Calendar could not be read"
+                if calendar_problem
+                else f"Retrieved {len(events)} DB and {live_count} Google Calendar appointments",
             ]
             return ans, None, actions, steps
 
@@ -1529,13 +1559,28 @@ async def ask_agent_stream(
     principal: Annotated[Principal, Depends(require_session)],
 ) -> StreamingResponse:
     async def _events() -> AsyncIterator[str]:
+        step_queue: queue.SimpleQueue[str] = queue.SimpleQueue()
+        token = _STEP_CALLBACK.set(step_queue.put)
         yield f"event: status\ndata: {json.dumps({'stage': 'thinking'})}\n\n"
         task = asyncio.create_task(run_in_threadpool(ask_agent, req, engine, settings, principal))
+        last_heartbeat = asyncio.get_running_loop().time()
         try:
             while not task.done():
-                done, _ = await asyncio.wait({task}, timeout=2.0)
-                if not done:
+                await asyncio.wait({task}, timeout=0.3)
+                emitted = False
+                while not step_queue.empty():
+                    step_text = step_queue.get_nowait()
+                    emitted = True
+                    yield f"event: status\ndata: {json.dumps({'stage': 'step', 'step': step_text})}\n\n"
+                now_t = asyncio.get_running_loop().time()
+                if emitted:
+                    last_heartbeat = now_t
+                elif not task.done() and (now_t - last_heartbeat) >= 2.0:
+                    last_heartbeat = now_t
                     yield f"event: status\ndata: {json.dumps({'stage': 'researching'})}\n\n"
+            while not step_queue.empty():
+                step_text = step_queue.get_nowait()
+                yield f"event: status\ndata: {json.dumps({'stage': 'step', 'step': step_text})}\n\n"
             result = await task
             yield f"event: result\ndata: {result.model_dump_json()}\n\n"
         except HTTPException as exc:
@@ -1543,6 +1588,8 @@ async def ask_agent_stream(
         except Exception as exc:
             log.warning("agent.ask_stream.error", error_type=type(exc).__name__)
             yield f"event: error\ndata: {json.dumps({'status': 500, 'detail': 'Internal error'})}\n\n"
+        finally:
+            _STEP_CALLBACK.reset(token)
 
     return StreamingResponse(
         _events(),
@@ -1708,7 +1755,25 @@ def ask_agent(
                     q_low,
                 )
             )
-            and not any(w in q_low for w in ["message", "messages", "reply", "email", "mail", "whatsapp"])
+            and not any(
+                w in q_low
+                for w in [
+                    "message",
+                    "messages",
+                    "reply",
+                    "email",
+                    "mail",
+                    "whatsapp",
+                    "sent",
+                    "send",
+                    "attachment",
+                    "attachments",
+                    "received",
+                    "from",
+                    "last",
+                    "latest",
+                ]
+            )
         )
         if is_explicit_doc_inquiry:
             try:
@@ -2038,7 +2103,7 @@ def ask_agent(
                         now=now,
                         brief_cases=known_cases_list,
                         turn_id=turn_id,
-                        research=make_researcher(engine, settings),
+                        research=make_researcher(engine, settings, on_step=_STEP_CALLBACK.get()),
                         history=[*summary_line, *history],
                     )
                 )

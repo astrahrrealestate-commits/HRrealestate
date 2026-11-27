@@ -44,6 +44,7 @@ from app.core.settings import Settings, get_settings  # noqa: E402
 from app.db.enums import PipelineStatus, RawEventStatus  # noqa: E402
 from app.db.models import ChannelAccount, Company, MessageRow, RawEvent  # noqa: E402
 from app.db.session import make_engine  # noqa: E402
+from app.directory.identity import resolve_message_sender  # noqa: E402
 from app.ingestion.process import company_mailboxes, owner_addresses  # noqa: E402
 from app.ingestion.media import store_attachment  # noqa: E402
 from app.ingestion.repository import mark_raw_event, save_message  # noqa: E402
@@ -279,6 +280,9 @@ def _ingest_one(
                 next_status = PipelineStatus.held
             row.pipeline_status = next_status
     if created and (is_older_tier or message.direction is Direction.outbound):
+        if message.direction is Direction.inbound:
+            with contextlib.suppress(Exception):
+                resolve_message_sender(engine, msg_id)
         with contextlib.suppress(Exception):
             index_message(engine, settings, msg_id)
     if is_older_tier:
@@ -381,43 +385,43 @@ def main(argv: list[str] | None = None) -> int:
             existing_ids = _existing_provider_ids(session, company_id, [m.gmail_msg_id for m in metas])
 
         if not args.apply:
-            _print_dry_run(args.mailbox, args.label, since_d, until_d, total_label, metas, existing_ids)
-            return 0
+            if not (args.enqueue or args.settle_days is not None or args.draft_open_days is not None):
+                _print_dry_run(args.mailbox, args.label, since_d, until_d, total_label, metas, existing_ids)
+                return 0
+        else:
+            t_ingest_start = time.monotonic()
+            to_ingest = [
+                m for m in metas if m.gmail_msg_id not in existing_ids and not IGNORED_LABELS.intersection(m.label_ids)
+            ]
+            if args.limit is not None:
+                to_ingest = to_ingest[: args.limit]
 
-        t_ingest_start = time.monotonic()
-        to_ingest = [
-            m for m in metas if m.gmail_msg_id not in existing_ids and not IGNORED_LABELS.intersection(m.label_ids)
-        ]
-        if args.limit is not None:
-            to_ingest = to_ingest[: args.limit]
+            storage = build_storage(settings)
+            with Session(engine) as session, session.begin():
+                account = _ensure_gmail_account(session, company_id, args.mailbox)
+                session.expunge(account)
 
-        storage = build_storage(settings)
-        with Session(engine) as session, session.begin():
-            account = _ensure_gmail_account(session, company_id, args.mailbox)
-            session.expunge(account)
+            fwd = owner_addresses(engine, company_id) | DEFAULT_OWNER_HINT_EMAILS
+            own = company_mailboxes(engine, company_id) | {args.mailbox.strip().lower()}
+            counts: Counter[str] = Counter()
 
-        fwd = owner_addresses(engine, company_id) | DEFAULT_OWNER_HINT_EMAILS
-        own = company_mailboxes(engine, company_id) | {args.mailbox.strip().lower()}
-        counts: Counter[str] = Counter()
-
-        cutoff_date = (date.today() - timedelta(days=args.cutoff_days)) if args.cutoff_days else None
-        for start in range(0, len(to_ingest), BODY_BATCH):
-            batch = to_ingest[start : start + BODY_BATCH]
-            raw_map = _fetch_raw_bodies(conn, [m.uid for m in batch])
-            for m in batch:
-                raw_bytes = raw_map.get(m.uid)
-                if raw_bytes is None:
-                    counts["missing_body"] += 1
-                    continue
-                outcome = _ingest_one(engine, storage, settings, account, m, raw_bytes, fwd, own, cutoff_date)
-                counts[outcome] += 1
-            print(f"Processed {min(start + BODY_BATCH, len(to_ingest))}/{len(to_ingest)} new emails...")
-        print(f"Body download + DB ingest elapsed: {time.monotonic() - t_ingest_start:.1f}s")
+            cutoff_date = (datetime.now(UTC).date() - timedelta(days=args.cutoff_days)) if args.cutoff_days else None
+            for start in range(0, len(to_ingest), BODY_BATCH):
+                batch = to_ingest[start : start + BODY_BATCH]
+                raw_map = _fetch_raw_bodies(conn, [m.uid for m in batch])
+                for m in batch:
+                    raw_bytes = raw_map.get(m.uid)
+                    if raw_bytes is None:
+                        counts["missing_body"] += 1
+                        continue
+                    outcome = _ingest_one(engine, storage, settings, account, m, raw_bytes, fwd, own, cutoff_date)
+                    counts[outcome] += 1
+                print(f"Processed {min(start + BODY_BATCH, len(to_ingest))}/{len(to_ingest)} new emails...")
+            print(f"Body download + DB ingest elapsed: {time.monotonic() - t_ingest_start:.1f}s")
+            print(f"Ingestion complete: {dict(counts)}")
     finally:
         with contextlib.suppress(Exception):
             conn.logout()
-
-    print(f"Ingestion complete: {dict(counts)}")
     if args.enqueue:
         deps = get_deps()
         released = run_history(engine, deps.enqueuer, args.mailbox.strip().lower())

@@ -1,5 +1,7 @@
-"""The owner's Google credentials file is private to the owner and the logs never name the account or the path."""
+"""The owner's Google credentials file is private to the owner and the logs never name the account or the path.
+The saved scopes are the ones Google granted, not the ones we asked for."""
 
+import asyncio
 import stat
 from collections.abc import Iterator
 from pathlib import Path
@@ -9,7 +11,14 @@ import pytest
 import respx
 from structlog.testing import capture_logs
 
-from app.channels.google_auth import REVOKE_URL, disconnect_owner, save_owner_credentials
+from app.channels.google_auth import (
+    REVOKE_URL,
+    TOKEN_URL,
+    USERINFO_URL,
+    disconnect_owner,
+    exchange_code_for_tokens,
+    save_owner_credentials,
+)
 from app.core.settings import Settings
 
 SETTINGS = Settings(database_url="postgresql+psycopg://u:p@localhost:1/db", env="test", _env_file=None)  # type: ignore[arg-type]
@@ -42,3 +51,13 @@ def test_saving_and_disconnecting_log_neither_the_email_nor_the_path() -> None:
     assert "owner@example.test" not in rendered
     assert "google_owner.json" not in rendered
     assert {entry["event"] for entry in logs} >= {"google_auth.credentials_saved", "google_auth.disconnected"}
+
+
+def test_a_connect_saves_only_the_scopes_google_granted() -> None:
+    granted = "openid https://www.googleapis.com/auth/gmail.modify"
+    tokens = {"access_token": "a", "refresh_token": "r", "scope": granted}
+    with respx.mock as router:
+        router.post(TOKEN_URL).mock(return_value=httpx.Response(200, json=tokens))
+        router.get(USERINFO_URL).mock(return_value=httpx.Response(200, json={"email": "owner@example.test"}))
+        saved = asyncio.run(exchange_code_for_tokens(SETTINGS, "code"))
+    assert saved["scopes"] == granted.split()

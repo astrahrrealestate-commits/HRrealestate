@@ -123,7 +123,8 @@ async def exchange_code_for_tokens(settings: Settings, code: str) -> dict[str, A
             "token_uri": TOKEN_URL,
             "client_id": client_id,
             "client_secret": client_secret,
-            "scopes": UNIFIED_SCOPES,
+            # What Google granted: the owner can untick a service on the consent screen.
+            "scopes": (token_data.get("scope") or "").split() or UNIFIED_SCOPES,
             "email": email,
             "name": name,
             "picture": picture,

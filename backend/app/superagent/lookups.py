@@ -215,16 +215,17 @@ def calendar_events(deps: SuperAgentDeps, days_ahead: int = 14) -> tuple[str, in
         for inv in invites[:5]:
             when = to_local(inv.start_time).strftime("%Y-%m-%d %H:%M")
             lines.append(f"Pending invite {when} | {one_line(inv.title, 60)} | {one_line(inv.location or '-', 50)}")
-    except CalendarUnavailableError:
-        gcal_note = "Google Calendar is not connected; showing EstateOS calendar rows only."
+    except CalendarUnavailableError as exc:
+        gcal_note = f"{exc} Google Calendar could not be read completely."
     except Exception:
         gcal_note = "Could not reach Google Calendar; showing EstateOS calendar rows only."
 
+    found = len(lines)
     if gcal_note:
         lines.append(gcal_note)
     ref = deps.sources.add("data", f"calendar:{days}", f"Calendar (next {days} days)")
     text = f"[{ref}] " + ("\n".join(lines) if lines else f"No events in the next {days} days.")
-    return text, len(lines)
+    return text, found
 
 
 def calendar_free_busy(deps: SuperAgentDeps, start_iso: str, end_iso: str) -> tuple[str, int]:
@@ -240,8 +241,8 @@ def calendar_free_busy(deps: SuperAgentDeps, start_iso: str, end_iso: str) -> tu
         end_dt = end_dt.replace(tzinfo=UTC)
     try:
         busy = get_calendar_client().check_free_busy(start_dt, end_dt)
-    except CalendarUnavailableError:
-        return "Google Calendar is not connected, so live availability cannot be checked.", 0
+    except CalendarUnavailableError as exc:
+        return f"Live availability cannot be checked. {exc}", 0
     except Exception:
         return LOOKUP_FAILED, 0
     ref = deps.sources.add("data", f"freebusy:{start_iso}", "Calendar availability")
@@ -253,9 +254,13 @@ def calendar_free_busy(deps: SuperAgentDeps, start_iso: str, end_iso: str) -> tu
 
 def web(deps: SuperAgentDeps, query: str, *, topic: str = "general") -> tuple[str, int]:
     """Public pages, each fetched and read by the adapter; untrusted text like mail. Every finding carries its URL."""
+    clean_query = redact_contact(query)  # no personal data to Google
     domains = _TOPIC_DOMAINS.get(topic.strip().lower(), ())
     client = search_client(deps.settings, deps.engine, deps.company_id, domains)
-    hits = client.search(redact_contact(query), region="nl", limit=MAX_WEB_PAGES)  # no personal data to Google
+    hits = client.search(clean_query, region="nl", limit=MAX_WEB_PAGES)
+    if not hits and domains:
+        fallback = search_client(deps.settings, deps.engine, deps.company_id, ())
+        hits = fallback.search(clean_query, region="nl", limit=MAX_WEB_PAGES)
     lines = []
     for hit in hits[:MAX_WEB_PAGES]:
         host = urlsplit(hit.url).hostname or ""

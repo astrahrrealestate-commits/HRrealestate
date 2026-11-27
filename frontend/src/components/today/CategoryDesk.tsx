@@ -117,6 +117,12 @@ export function CategoryDeskView({
   const waitingForUs = desk?.waiting_for_us ?? [];
   const waitingForOther = desk?.waiting_for_other ?? [];
 
+  const [showAllActions, setShowAllActions] = useState(false);
+  const radarRef = React.useRef<HTMLDivElement>(null);
+
+  const visibleActions = showAllActions ? filteredActions : filteredActions.slice(0, 5);
+  const hasHiddenActions = filteredActions.length > 5;
+
   return (
     <section
       aria-label="Category desk"
@@ -158,6 +164,18 @@ export function CategoryDeskView({
               {loading && <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--ink-3)] shrink-0" />}
             </div>
 
+            {(waitingForUs.length > 0 || waitingForOther.length > 0) && !offline && (
+              <button
+                type="button"
+                onClick={() => radarRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[var(--line)] bg-[var(--bg)] hover:bg-[var(--selected)] text-[11.5px] font-medium text-[var(--ink-2)] cursor-pointer whitespace-nowrap self-start sm:self-auto"
+              >
+                <Clock className="w-3.5 h-3.5 text-[var(--accent-ink)]" />
+                <span>
+                  {waitingForUs.length} Owed by Us · {waitingForOther.length} Owed by Others
+                </span>
+              </button>
+            )}
             {onSelectUrgency && !offline && (
               <div
                 role="group"
@@ -208,7 +226,7 @@ export function CategoryDeskView({
 
           {!offline && filteredActions.length > 0 ? (
             <div className="rounded-[var(--radius-pane)] border border-[var(--line)] overflow-hidden bg-[var(--pane)]">
-              {filteredActions.map((action) => {
+              {visibleActions.map((action) => {
                 const isDraftReady = Boolean(
                   action.has_draft || action.kind === "approve_draft" || action.approval_id !== null
                 );
@@ -231,6 +249,15 @@ export function CategoryDeskView({
                   </div>
                 );
               })}
+              {hasHiddenActions && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllActions((prev) => !prev)}
+                  className="w-full py-2.5 text-center text-[12px] font-semibold text-[var(--accent-ink)] hover:bg-[var(--selected)] border-t border-[var(--line)] cursor-pointer transition-colors"
+                >
+                  {showAllActions ? "Show fewer" : `Show all ${filteredActions.length} items`}
+                </button>
+              )}
             </div>
           ) : !offline && !loading ? (
             <div className="rounded-lg border border-dashed border-[var(--line)] bg-[var(--bg)]/50 px-4 py-5 text-center text-[12.5px] text-[var(--ink-3)]">
@@ -241,7 +268,7 @@ export function CategoryDeskView({
           ) : null}
 
           {!offline && (waitingForUs.length > 0 || waitingForOther.length > 0) && (
-            <div className="pt-2 border-t border-[var(--line)] space-y-3">
+            <div ref={radarRef} className="pt-2 border-t border-[var(--line)] space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-[12px] font-semibold uppercase tracking-wider text-[var(--ink-3)]">
                   Commitments &amp; Chasing Radar · {label}
@@ -251,8 +278,8 @@ export function CategoryDeskView({
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                {/* Subsection 1: Owed by Us */}
+              <div className="space-y-3">
+                {/* Subsection 1: Owed by Us (full width) */}
                 <div className="rounded-[var(--radius-pane)] border border-[var(--line)] bg-[var(--bg)]/40 overflow-hidden">
                   <div className="px-3.5 py-2.5 border-b border-[var(--line)] bg-[var(--pane)] flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0">
@@ -288,7 +315,7 @@ export function CategoryDeskView({
                   )}
                 </div>
 
-                {/* Subsection 2: Owed by Others */}
+                {/* Subsection 2: Owed by Others (full width) */}
                 <div className="rounded-[var(--radius-pane)] border border-[var(--line)] bg-[var(--bg)]/40 overflow-hidden">
                   <div className="px-3.5 py-2.5 border-b border-[var(--line)] bg-[var(--pane)] flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0">
@@ -428,10 +455,10 @@ export function CategoryDesk({
     setDesk((prev) =>
       prev
         ? {
-            ...prev,
-            waiting_for_us: (prev.waiting_for_us ?? []).filter((x) => x.id !== action.id),
-            waiting_for_other: (prev.waiting_for_other ?? []).filter((x) => x.id !== action.id),
-          }
+          ...prev,
+          waiting_for_us: (prev.waiting_for_us ?? []).filter((x) => x.id !== action.id),
+          waiting_for_other: (prev.waiting_for_other ?? []).filter((x) => x.id !== action.id),
+        }
         : prev
     );
     const ok = await resolveFollowup(action.case_id);
