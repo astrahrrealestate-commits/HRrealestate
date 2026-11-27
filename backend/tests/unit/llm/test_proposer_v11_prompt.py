@@ -5,21 +5,18 @@ from app.llm.agents.proposer import (
     DOSSIER_PROMPTS,
     PROPOSER_V11,
     ROLE_AWARE_PROMPTS,
-    proposer_spec,
 )
 from app.llm.prompts import load_prompt
-from tests.unit.llm.test_proposer_v6_prompt import _ctx
 
 
 def _v(version: str) -> str:
     return load_prompt(PromptRef(name="proposer", version=version)).text
 
 
-def test_v11_is_the_production_dossier_prompt() -> None:
+def test_v11_stays_a_published_dossier_prompt() -> None:
     assert PROPOSER_V11.prompt.key == "proposer/v11"
     assert "v11" in DOSSIER_PROMPTS
     assert "v11" in ROLE_AWARE_PROMPTS
-    assert proposer_spec(_ctx()) is PROPOSER_V11
 
 
 def test_v11_keeps_v10s_safety_rules_and_output_shape() -> None:
