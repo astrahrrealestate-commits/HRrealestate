@@ -1289,7 +1289,7 @@ def test_sanitize_suggestions_filters_unsafe_and_channel_mismatched_pills():
     )
     assert len(cleaned) == 3
     assert all("send whatsapp now" not in p.lower() for p in cleaned)
-    assert all("firmer" not in p.lower() for p in cleaned)
+    assert "Make reply firmer" in cleaned
     assert all("plumber order" not in p.lower() for p in cleaned)
     assert all("leak photos" not in p.lower() for p in cleaned)
     assert all("ticket drawer" not in p.lower() for p in cleaned)

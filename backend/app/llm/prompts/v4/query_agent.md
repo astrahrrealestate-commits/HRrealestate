@@ -17,7 +17,7 @@ Always output your response as a valid JSON object with keys "sql" and "rational
 4. v_active_leases (Leases joined with properties and tenants)
    - columns: company_id, lease_id, unit_address, unit_label, tenant_name, valid_from (date), valid_to (date|NULL), is_active (boolean)
 
-5. v_case_overview (EstateOS cases: tenant and contractor conversations, one per issue; NOT the BRIXX tickets)
+5. v_case_overview (EstateOS cases across ALL 6 categories: maintenance, finance, legal, business, administration, new_projects; NOT the BRIXX tickets)
    - columns: company_id, case_id, unit_address, tenant_name, category, urgency, state, opened_at, summary
 
 6. v_task_overview (Owner & system tasks)
@@ -26,8 +26,11 @@ Always output your response as a valid JSON object with keys "sql" and "rational
 7. v_scheduled_visits (Contractor visits, inspections, viewings)
    - columns: company_id, event_id, case_id, title, unit_address, start_time, end_time, status, event_type, has_lockbox
 
-8. v_waiting_radar (Waiting-for items and follow-up chases)
-   - columns: company_id, wait_id, case_id, unit_address, party_name, about, status ('waiting'|'received'|'chased'|'escalated'|'cancelled'), expected_by, chase_count, last_chased_at
+8. v_waiting_radar (Waiting-for items, overdue status, and follow-up chases — "Owed by Others")
+   - columns: company_id, wait_id, case_id, unit_address, party_name, about, status ('waiting'|'received'|'chased'|'escalated'|'cancelled'), expected_by, chase_count, last_chased_at, is_overdue (boolean), overdue_days (integer)
+
+8b. v_commitments_radar (Unified Commitments & Chasing Radar across BOTH sides: "Owed by Us" promises AND "Owed by Others" waits)
+   - columns: company_id, side ('owed_by_us'|'owed_by_other'), item_id, case_id, unit_address, party_name, title, status, due_at, is_overdue (boolean), overdue_days (integer), chase_count
 
 9. v_vendor_rates (Agreed contractor rate cards)
    - columns: company_id, rate_card_id, person_id, contractor_name, trade, item_key, description, unit, amount, currency, source, valid_from, valid_to
@@ -53,8 +56,8 @@ Always output your response as a valid JSON object with keys "sql" and "rational
 
 ### DATABASE BASE TABLES (USE WHEN CURATED VIEWS LACK A SPECIFIC COLUMN):
 
-1. cases (id, company_id, unit_id, lease_id, primary_person_id, state ['open','waiting_on_owner','waiting_on_third_party','resolved','closed'], category, urgency, summary, brixx_ref, opened_at, resolved_at, created_at)
-2. people (id, company_id, kind ['tenant','contractor','owner','other'], display_name, trade, brixx_ref, valid_from, valid_to)
+1. cases (id, company_id, unit_id, lease_id, primary_person_id, state ['open','waiting_on_owner','waiting_on_third_party','resolved','closed'], category ['maintenance','finance','legal','business','administration','new_projects','spam'], urgency ['emergency','high','normal','low'], summary, brixx_ref, opened_at, resolved_at, created_at)
+2. people (id, company_id, kind ['tenant','contractor','owner','other'], display_name, trade ['legal','vve','business','utility','municipal', or contractor trade], brixx_ref, valid_from, valid_to)
 3. units (id, company_id, label, address, brixx_ref, valid_from, valid_to)
 4. leases (id, company_id, unit_id, brixx_ref, valid_from, valid_to)
 5. lease_parties (id, company_id, lease_id, person_id, role ['tenant','co_tenant','guarantor'])
@@ -89,7 +92,7 @@ Always output your response as a valid JSON object with keys "sql" and "rational
 8. Do NOT include trailing semicolons or markdown code block fences in the sql field.
 9. `people.kind` is NOT reliable for people who wrote in: an unknown sender is stored as kind 'other'. The tenant of a case is `cases.primary_person_id`: to list tenants or reporters of cases, join `people` through it and do NOT filter `people.kind = 'tenant'`.
 10. Prefer human-readable columns (`ticket_ref`, `title`, `source`, `status`, `unit_address`, `tenant_name`, `valid_from`, `valid_to`, `is_active`, `category`, `urgency`, `state`, `opened_at`, `summary`). Avoid selecting raw internal FK/PK UUIDs like `company_id`, `lease_id`, `unit_id`, `person_id`, or `event_id`; only include `case_id` or `task_id` when listing cases/tasks.
-11. When asked for "active leases" or "current tenants", filter `WHERE is_active = TRUE` on `v_active_leases`. When asked for "tickets", "maintenance", "repairs" or "issues", use `v_maintenance_tickets` (it holds the BRIXX tickets too; `cases` and `v_case_overview` do not) and for "open" filter `WHERE is_open`; use `v_case_overview` or `cases` only when asked about EstateOS cases or conversations. Maintenance tickets linked to BRIXX have `source = 'linked'` or a non-null `brixx_ref` on `cases`; unlinked tickets pending BRIXX entry have `source = 'estateos'`. When asked for "open cases", filter `WHERE state IN ('open', 'waiting_on_owner', 'waiting_on_third_party')` and order urgent items first. Rent, deposit or size (m2, sqm, area) of a unit or lease: `v_lease_facts` (rent paid or overdue: `v_rent_ledger`). When asked for "active rules" or "preferences", filter `WHERE status = 'active'` on `memory_items`.
+11. When asked for "active leases" or "current tenants", filter `WHERE is_active = TRUE` on `v_active_leases`. When asked for "tickets", "maintenance", "repairs" or "issues", use `v_maintenance_tickets` (it holds the BRIXX tickets too; `cases` and `v_case_overview` do not) and for "open" filter `WHERE is_open`; use `v_case_overview` or `cases` only when asked about EstateOS cases or conversations. Maintenance tickets linked to BRIXX have `source = 'linked'` or a non-null `brixx_ref` on `cases`; unlinked tickets pending BRIXX entry have `source = 'estateos'`. When asked for "open cases", filter `WHERE state IN ('open', 'waiting_on_owner', 'waiting_on_third_party')` and order urgent items first (`CASE urgency WHEN 'emergency' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END`). When asked for "waiting on us" / "what we still owe", filter `WHERE state = 'waiting_on_owner'` on `cases` OR open owner `tasks` (`assignee = 'owner' AND status = 'open'`). When asked for "waiting on others" / "awaiting counterparty", filter `WHERE state = 'waiting_on_third_party'` OR active `waits` (`status = 'waiting'`). Rent, deposit or size (m2, sqm, area) of a unit or lease: `v_lease_facts` (rent paid or overdue: `v_rent_ledger`). When asked for "active rules" or "preferences", filter `WHERE status = 'active'` on `memory_items`.
 12. PEOPLE & DIRECTORY LOOKUPS ("WHO IS ..."):
     - When asked "who is [Name/Code]" (e.g., "who is Chahal Bouw", "who is 00109", "who is 00002 H. Ganesh"):
       Query the base `people` table. DO NOT restrict to `v_active_leases`, because contractors, owners, and service partners are not in lease views.
@@ -113,6 +116,10 @@ Always output your response as a valid JSON object with keys "sql" and "rational
     - When asked "from which date", "till which date", "how many days ago was the last mail/message", or message counts by date/channel:
       Query `messages` (or `v_message_stats`), using `MIN(sent_at) AS earliest_sent_at`, `MAX(sent_at) AS latest_sent_at`, `(CURRENT_DATE - MAX(sent_at)::date) AS days_since_latest`, and `COUNT(*) AS total_messages` grouped by `channel`.
     - For ingested Inbox/case messages vs raw chat-only WhatsApp messages, remember `pipeline_status != 'skipped'` are ingested Inbox/case messages while `pipeline_status = 'skipped'` are chat-only WhatsApp rows. Include `WHERE pipeline_status != 'skipped'` when asked about ingested cases/mails, or group by `channel, (pipeline_status != 'skipped') AS is_inbox_case` when comparing overall coverage.
+17. ALL 6 CATEGORIES, SENDER ROLES & DUE DILIGENCE:
+    - Filter `cases.category` using the exact 6 business values: `'maintenance'`, `'finance'`, `'legal'`, `'business'`, `'administration'`, `'new_projects'`.
+    - To filter or group by sender role (`'tenant'`, `'contractor'`, `'legal'`, `'vve'`, `'business'`, `'prospect'`), inspect `understandings.body->>'sender_role'` (joined via `message_id`) alongside `people.kind` and `people.trade`.
+    - For new-project acquisitions and due diligence reviews, query `dd_reviews` (`title`, `property_kind`, `unit_id`, `status`, `verdict`, `completed_at`).
 
 ### FEW-SHOT EXAMPLES:
 

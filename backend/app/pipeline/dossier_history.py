@@ -2,6 +2,7 @@
 already holds, found by message search. Only chunks of this person's own conversations: a chunk that holds anyone
 else's words is left out."""
 
+import re
 from collections.abc import Collection
 from uuid import UUID
 
@@ -9,9 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.contracts import Direction
-from app.db.models import MessageChunk
+from app.db.models import MessageChunk, MessageRow
 from app.llm.embeddings import TextEmbedder
-from app.pipeline.concierge_sanitize import redact_contact
+from app.pipeline.concierge_sanitize import REDACTED, redact
 from app.pipeline.conversation import ThreadLine
 from app.pipeline.injection_scan import scan
 from app.tools.message_rag.search import search_messages
@@ -20,6 +21,21 @@ MAX_OLDER = 6
 MAX_PRECEDENTS = 3
 OLDER = "earlier mail of this sender"
 PRECEDENT = "precedent from another case (style & policy pattern only)"
+
+
+_UNKNOWN = UUID(int=0)  # an inbound message without a person: never the person's own
+
+
+def _inbound_authors(session: Session, company_id: UUID, ids: Collection[UUID]) -> dict[UUID, UUID]:
+    """message id -> its author's person (or `_UNKNOWN`) for the inbound ones; outbound mail is ours."""
+    if not ids:
+        return {}
+    rows = session.execute(
+        select(MessageRow.id, MessageRow.person_id).where(
+            MessageRow.company_id == company_id, MessageRow.id.in_(list(ids)), MessageRow.direction == Direction.inbound
+        )
+    )
+    return {row[0]: row[1] or _UNKNOWN for row in rows}
 
 
 def older_mail(
@@ -37,7 +53,13 @@ def older_mail(
         )
     )
     participants = {row[0]: row[1] for row in rows}
-    own = [h for h in fresh if set(participants.get(h.chunk_id) or []) <= {person_id}][:MAX_OLDER]
+    authors = _inbound_authors(session, company_id, [i for h in fresh for i in h.message_ids])
+    own = [
+        h
+        for h in fresh
+        if set(participants.get(h.chunk_id) or []) <= {person_id}
+        and all(authors.get(i, person_id) == person_id for i in h.message_ids)
+    ][:MAX_OLDER]
     lines = tuple(
         ThreadLine(
             h.first_message_id, h.first_sent_at, Direction.inbound, OLDER, None, h.text, False, bool(scan(h.text))
@@ -45,6 +67,17 @@ def older_mail(
         for h in own
     )
     return lines, tuple(dict.fromkeys(i for h in own for i in h.message_ids))
+
+
+def _strip_identifiers(text: str, person_name: str | None, unit_address: str | None) -> str:
+    cleaned = redact(text)
+    for ident in (person_name, unit_address):
+        if not ident:
+            continue
+        for token in (ident.strip(), *(part for part in ident.split() if len(part) >= 3)):
+            if token:
+                cleaned = re.sub(re.escape(token), REDACTED, cleaned, flags=re.IGNORECASE)
+    return cleaned.strip()
 
 
 def similar_conversations(
@@ -58,7 +91,7 @@ def similar_conversations(
     """Redacted outbound precedents from similar company cases when a current reply is ambiguous.
 
     Only uses outbound (Harjot/team) messages from other contacts, skips anything flagged for prompt injection, and
-    strips links, emails, phones and IBANs so no other party's contact details leak into a dossier."""
+    strips links, emails, phones, IBANs, amounts, names and addresses so no third-party details leak."""
     if not query.strip():
         return ()
     hits = search_messages(session, company_id, query, embedder, direction="outbound", limit=MAX_PRECEDENTS * 4)
@@ -69,7 +102,7 @@ def similar_conversations(
             continue
         if set(h.message_ids) <= seen or scan(h.text) is not None:
             continue
-        cleaned = redact_contact(h.text).strip()
+        cleaned = _strip_identifiers(h.text, h.person_name, h.unit_address)
         if not cleaned:
             continue
         out.append(

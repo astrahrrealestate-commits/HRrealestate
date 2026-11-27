@@ -4,7 +4,15 @@ import pytest
 
 from app.contracts import DocType, DocumentClassification
 from app.db.enums import DocumentStatus
-from app.pipeline.document_policy import FileMeta, file_name, filing_status, folder_path, name_date, should_skip
+from app.pipeline.document_policy import (
+    FileMeta,
+    file_name,
+    filing_status,
+    folder_path,
+    looks_like_finance_text,
+    name_date,
+    should_skip,
+)
 
 AMS = "Europe/Amsterdam"
 SENT = datetime(2026, 10, 6, 23, 30, tzinfo=UTC)  # 7 Oct in Amsterdam
@@ -59,6 +67,9 @@ def test_confidence_gate(conf: float, status: DocumentStatus) -> None:
         ("invite.ics", "text/calendar", 2_000, True),
         ("signature.asc", "application/pgp-signature", 900, True),
         ("factuur.pdf", "application/pdf", 1_000, False),
+        ("opmerkingen.txt", "text/plain", 400, False),
+        ("huurlijst.csv", "text/csv", 400, False),
+        (None, "text/plain", 400, True),
         (None, "application/octet-stream", 0, True),
     ],
 )
@@ -96,3 +107,14 @@ def test_parse_name_knows_kinds_with_an_underscore() -> None:
     )  # fmt: skip
     assert parse_name("2026-10-07_hologram_x_y.pdf") is None
     assert parse_name("factuur.pdf") is None
+
+
+def test_payslip_and_bank_statement_text_is_finance_text() -> None:
+    assert looks_like_finance_text("Salarisspecificatie mei 2026. Brutoloon 3.100,00. Loonheffing 312,00.")
+    assert looks_like_finance_text("Rekeningafschrift nr. 14. Beginsaldo 1.200,00, eindsaldo 950,00.")
+    assert looks_like_finance_text("Werkgeversverklaring: mevrouw is sinds 2021 in vaste dienst.")
+
+
+def test_a_lease_with_payment_details_is_not_finance_text() -> None:
+    lease = "Huurovereenkomst Singel 5. De huur van EUR 1.250 wordt maandelijks voldaan op IBAN NL00BANK0123456789."
+    assert not looks_like_finance_text(lease)

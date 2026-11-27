@@ -12,7 +12,10 @@ from typing import Literal
 
 from app.llm.agents.owner_qa import CaseBrief
 
-_STREET = re.compile(r"\b([a-zà-ÿ]+(?:gracht|straat|laan|weg|plein|singel|kade|dijk|steeg|hof))\b", re.IGNORECASE)
+_STREET = re.compile(
+    r"\b([a-zà-ÿ]+(?:gracht|straat|laan|weg|plein|singel|kade|dijk|steeg|hof|dreef|pad|allee|park|markt|wal|veld|haven|veste|plantsoen|passage|baan))\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)

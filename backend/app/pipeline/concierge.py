@@ -13,8 +13,6 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import Engine
-from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
-from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.orm import Session
 
 from app.contracts import ConciergePlan, Intent, PlanStep
@@ -22,7 +20,6 @@ from app.contracts.concierge import MAX_PLAN_STEPS
 from app.core.errors import NotFoundError
 from app.core.settings import Settings
 from app.llm.agents.owner_qa import REFUSAL_ANSWER, page_case_ids
-from app.llm.calls import is_transient as llm_transient
 from app.llm.page_blocks import NO_PAGE, PagePrompt
 from app.pipeline import (
     case_repo,
@@ -43,6 +40,7 @@ from app.pipeline.concierge_base import (
     Researcher,
     StepResult,
     failed,
+    is_transient,
     log,
     task_ref,
 )
@@ -67,16 +65,28 @@ _USES_CASE = frozenset(
         Intent.draft_reply,
         Intent.show_drafts,
         Intent.chase_now,
+        Intent.reschedule_wait,
+        Intent.mark_received,
         Intent.open_view,
         Intent.find_document,
         Intent.read_document,
     }
 )
-_NEEDS_CASE = frozenset({Intent.case_status, Intent.draft_reply, Intent.show_drafts, Intent.chase_now})
+_NEEDS_CASE = frozenset(
+    {
+        Intent.case_status,
+        Intent.draft_reply,
+        Intent.show_drafts,
+        Intent.chase_now,
+        Intent.reschedule_wait,
+        Intent.mark_received,
+    }
+)
 _NEEDS_TASK = frozenset({Intent.task_done, Intent.task_snooze})
 _NEEDS_TEXT = frozenset(
     {
         Intent.task_snooze,
+        Intent.reschedule_wait,
         Intent.create_task,
         Intent.clarify,
         Intent.search_inbox,
@@ -109,8 +119,11 @@ _HANDLERS: dict[Intent, Handler] = {
     Intent.pause: concierge_writes.pause,
     Intent.resume: concierge_writes.resume,
     Intent.draft_reply: concierge_proposals.draft_reply,
+    Intent.compose_mail: concierge_proposals.compose_mail,
     Intent.show_drafts: concierge_proposals.show_drafts,
     Intent.chase_now: concierge_chase.chase_now,
+    Intent.reschedule_wait: concierge_chase.reschedule_wait,
+    Intent.mark_received: concierge_chase.mark_received,
 }
 
 
@@ -164,15 +177,6 @@ def validate_plan(
     if not plan.in_scope:
         return []
     return [s for s in plan.steps[:MAX_STEPS] if check_step(session, company_id, s, known_cases) is None]
-
-
-def is_transient(exc: BaseException) -> bool:
-    """Infrastructure hiccups the calling DBOS step should retry: DB connection/pool trouble, network, provider 5xx."""
-    if bool(getattr(exc, "retryable", False)) or llm_transient(exc):
-        return True
-    if isinstance(exc, DBAPIError) and exc.connection_invalidated:
-        return True
-    return isinstance(exc, OperationalError | InterfaceError | PoolTimeoutError | OSError)
 
 
 def _run_step(ctx: Ctx, step: PlanStep) -> StepResult:

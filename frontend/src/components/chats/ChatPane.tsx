@@ -16,7 +16,7 @@ interface ChatPaneProps {
 /** The open chat. Mount with `key={chatKey}` so switching chats starts clean. Opening it, and every newer message
  * that arrives while it is open, marks it read. */
 export function ChatPane({ chatKey, onBack, onRead }: ChatPaneProps) {
-  const { thread, messages, failed, hasOlder, loadingOlder, loadOlder } = useChatThread(chatKey);
+  const { thread, messages, failed, hasOlder, loadingOlder, loadOlder, fresh } = useChatThread(chatKey);
   const newestId = messages[messages.length - 1]?.id;
   const onReadRef = useRef(onRead);
   useEffect(() => {
@@ -26,13 +26,13 @@ export function ChatPane({ chatKey, onBack, onRead }: ChatPaneProps) {
   // Only a new chat or a new newest message marks it read: a filter click or a keystroke in the search box changes
   // `onRead` but must not post again.
   useEffect(() => {
-    if (!newestId) return;
+    if (!newestId || !fresh) return;
     void markChatRead(chatKey).then((ok) => {
       if (!ok) return;
       onReadRef.current();
       notifyChatsChanged();
     });
-  }, [chatKey, newestId]);
+  }, [chatKey, newestId, fresh]);
 
   if (!thread) {
     return (

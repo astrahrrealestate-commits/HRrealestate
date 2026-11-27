@@ -1,9 +1,16 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
 from app.db.enums import WaitStatus
-from app.pipeline.chasing import ChasePolicy, ChaseStep, add_business_days, next_step
+from app.pipeline.chasing import (
+    ChasePolicy,
+    ChaseStep,
+    add_business_days,
+    next_morning_after,
+    next_step,
+    overdue_days_from,
+)
 
 AMS = "Europe/Amsterdam"
 POLICY = ChasePolicy(chase_after_days=3, escalate_after_chases=2)
@@ -40,3 +47,12 @@ NOW = datetime(2026, 10, 7, 9, 0, tzinfo=UTC)
 )
 def test_ladder(status: WaitStatus, chases: int, due: datetime, expected: ChaseStep) -> None:
     assert next_step(status, chases, due, POLICY, NOW) is expected
+
+
+def test_next_morning_after_and_overdue_days() -> None:
+    # Promised Tuesday 2026-12-01 -> flips overdue at 09:00 Amsterdam (08:00 UTC in winter) on Wed 2026-12-02
+    due = next_morning_after(date(2026, 12, 1), AMS)
+    assert due == datetime(2026, 12, 2, 8, 0, tzinfo=UTC)
+    assert overdue_days_from(due, datetime(2026, 12, 2, 7, 59, tzinfo=UTC), AMS) == 0
+    assert overdue_days_from(due, datetime(2026, 12, 2, 8, 5, tzinfo=UTC), AMS) == 1
+    assert overdue_days_from(due, datetime(2026, 12, 3, 8, 5, tzinfo=UTC), AMS) == 2

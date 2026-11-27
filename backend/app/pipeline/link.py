@@ -7,8 +7,9 @@ existing link unchanged.
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import Engine, select, text
 from sqlalchemy.orm import Session
@@ -19,11 +20,21 @@ from app.core.errors import AgentFailedError
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import LinkMethod, PersonKind
-from app.db.models import AttachmentRow, Case, CaseLink, LeaseParty, MessageRow, Person, PersonProfile, UnderstandingRow
+from app.db.models import (
+    AttachmentRow,
+    Case,
+    CaseLink,
+    Company,
+    LeaseParty,
+    MessageRow,
+    Person,
+    PersonProfile,
+    UnderstandingRow,
+)
 from app.llm.agents.case_summary import CASE_SUMMARY, case_summary_prompt
 from app.llm.agents.link_check import LINK_CHECK, CandidateCase, accept_link, link_check_prompt
 from app.llm.calls import CallContext, run_agent
-from app.pipeline import case_repo, work_repo
+from app.pipeline import case_repo, chasing, work_repo
 
 log = get_logger(__name__)
 _URGENCY_RANK = {Urgency.low: 0, Urgency.normal: 1, Urgency.high: 2, Urgency.emergency: 3}
@@ -53,6 +64,7 @@ class _Facts:
     waiting_side: WaitingSide = WaitingSide.owner
     open_obligation: str | None = None
     expected_days: int | None = None
+    expected_date: date | None = None
 
 
 def _has_attachments(session: Session, msg: MessageRow) -> bool:
@@ -108,6 +120,13 @@ def _load(session: Session, message_id: UUID) -> _Facts | LinkResult | None:
     open_obligation = str(raw_ob).strip()[:200] if isinstance(raw_ob, str) and raw_ob.strip() else None
     raw_days = body.get("expected_days")
     expected_days = raw_days if isinstance(raw_days, int) and 1 <= raw_days <= 60 else None
+    raw_date = body.get("expected_date")
+    expected_date: date | None = None
+    if isinstance(raw_date, str) and raw_date.strip():
+        try:
+            expected_date = date.fromisoformat(raw_date.strip()[:10])
+        except ValueError:
+            expected_date = None
     return _Facts(
         msg.id,
         msg.company_id,
@@ -124,6 +143,7 @@ def _load(session: Session, message_id: UUID) -> _Facts | LinkResult | None:
         waiting_side,
         open_obligation,
         expected_days,
+        expected_date,
     )
 
 
@@ -209,45 +229,127 @@ def _transition_via_open(session: Session, company_id: UUID, case: Case, target:
         case_repo.transition(session, company_id, case.id, target, actor="system")
 
 
+def _company_tz(session: Session, company_id: UUID) -> str:
+    company = session.get(Company, company_id)
+    return company.timezone if company is not None else chasing.DEFAULT_TZ
+
+
+def _latest_inbound_deadline(session: Session, company_id: UUID, case_id: UUID) -> tuple[date | None, int | None]:
+    row = session.execute(
+        select(UnderstandingRow.body)
+        .join(MessageRow, MessageRow.id == UnderstandingRow.message_id)
+        .join(CaseLink, CaseLink.message_id == MessageRow.id)
+        .where(
+            CaseLink.company_id == company_id,
+            CaseLink.case_id == case_id,
+            UnderstandingRow.company_id == company_id,
+            MessageRow.company_id == company_id,
+            MessageRow.direction == Direction.inbound,
+        )
+        .order_by(MessageRow.sent_at.desc(), MessageRow.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if not isinstance(row, dict):
+        return None, None
+    exp_date: date | None = None
+    raw_date = row.get("expected_date")
+    if isinstance(raw_date, str) and raw_date.strip():
+        try:
+            exp_date = date.fromisoformat(raw_date.strip()[:10])
+        except ValueError:
+            exp_date = None
+    raw_days = row.get("expected_days")
+    exp_days = raw_days if isinstance(raw_days, int) and 1 <= raw_days <= 60 else None
+    return exp_date, exp_days
+
+
+def _resolve_deadline(
+    session: Session,
+    f: _Facts,
+    *,
+    case_id: UUID,
+    tz: str,
+    inherit_inbound: bool = False,
+) -> tuple[datetime, bool]:
+    """Return `(due_at_utc, is_explicit)` using promised calendar date (next morning 09:00 local) when present."""
+    local_day = f.sent_at.astimezone(ZoneInfo(tz)).date()
+    exp_date, exp_days = f.expected_date, f.expected_days
+    if exp_date is None and exp_days is None and inherit_inbound:
+        inb_date, inb_days = _latest_inbound_deadline(session, f.company_id, case_id)
+        if inb_date is not None and inb_date >= local_day:
+            exp_date = inb_date
+        elif inb_days is not None:
+            exp_days = inb_days
+    if exp_date is not None:
+        return chasing.next_morning_after(max(exp_date, local_day), tz), True
+    if exp_days is not None:
+        return f.sent_at + timedelta(days=exp_days), True
+    return f.sent_at + timedelta(days=2), False
+
+
 def _after_link(session: Session, f: _Facts, person_id: UUID, case_id: UUID) -> None:
     """An awaited answer arrived (#5) or an outbound/inbound obligation updated: track waits semantically."""
     case = case_repo.get_case(session, f.company_id, case_id)
+    tz = _company_tz(session, f.company_id)
     if f.direction is Direction.inbound:
-        received = work_repo.mark_received(session, f.company_id, case_id, person_id, sent_at=f.sent_at)
-        if received and case.state is CaseState.waiting_on_third_party:
-            case_repo.transition(session, f.company_id, case_id, CaseState.open, actor="system")
-        if f.waiting_side is WaitingSide.third_party and not f.requires_reply and case.state is CaseState.open:
-            case_repo.transition(session, f.company_id, case_id, CaseState.waiting_on_third_party, actor="system")
-            work_repo.open_wait(
-                session,
-                f.company_id,
-                case_id,
-                person_id,
-                about=f.open_obligation or "Counterparty promised follow-up",
-                expected_by=f.sent_at + timedelta(days=f.expected_days or 2),
-            )
+        extending_promise = (
+            f.waiting_side is WaitingSide.third_party
+            and not f.requires_reply
+            and (f.expected_date is not None or f.expected_days is not None)
+        )
+        if extending_promise:
+            due_at, _ = _resolve_deadline(session, f, case_id=case_id, tz=tz)
+            existing = work_repo.active_case_wait(session, f.company_id, case_id, person_id)
+            about = f.open_obligation or "Counterparty promised follow-up"
+            _transition_via_open(session, f.company_id, case, CaseState.waiting_on_third_party)
+            if existing is not None:
+                work_repo.reschedule_wait(session, f.company_id, existing.id, expected_by=due_at, about=about)
+            else:
+                work_repo.open_wait(session, f.company_id, case_id, person_id, about=about, expected_by=due_at)
+        else:
+            received = work_repo.mark_received(session, f.company_id, case_id, person_id, sent_at=f.sent_at)
+            if received and case.state is CaseState.waiting_on_third_party:
+                case_repo.transition(session, f.company_id, case_id, CaseState.open, actor="system")
+            if f.waiting_side is WaitingSide.third_party and not f.requires_reply and case.state is CaseState.open:
+                due_at, _ = _resolve_deadline(session, f, case_id=case_id, tz=tz)
+                case_repo.transition(session, f.company_id, case_id, CaseState.waiting_on_third_party, actor="system")
+                work_repo.open_wait(
+                    session,
+                    f.company_id,
+                    case_id,
+                    person_id,
+                    about=f.open_obligation or "Counterparty promised follow-up",
+                    expected_by=due_at,
+                )
     else:
         if f.waiting_side is WaitingSide.owner:
+            due_at, _ = _resolve_deadline(session, f, case_id=case_id, tz=tz)
             _transition_via_open(session, f.company_id, case, CaseState.waiting_on_owner)
             work_repo.record_owner_promise(
                 session,
                 f.company_id,
                 case_id,
                 title=f.open_obligation or "Owner follow-up promised",
-                due_at=f.sent_at + timedelta(days=f.expected_days or 2),
+                due_at=due_at,
             )
         else:
             work_repo.close_case_tasks(session, f.company_id, case_id, source="promise")
             if f.waiting_side is WaitingSide.third_party:
+                due_at, explicit = _resolve_deadline(session, f, case_id=case_id, tz=tz, inherit_inbound=True)
+                about = f.open_obligation or "Awaiting counterparty update"
                 _transition_via_open(session, f.company_id, case, CaseState.waiting_on_third_party)
-                work_repo.open_wait(
-                    session,
-                    f.company_id,
-                    case_id,
-                    person_id,
-                    about=f.open_obligation or "Awaiting counterparty update",
-                    expected_by=f.sent_at + timedelta(days=f.expected_days or 2),
-                )
+                existing = work_repo.active_case_wait(session, f.company_id, case_id, person_id)
+                if existing is not None and explicit:
+                    work_repo.reschedule_wait(session, f.company_id, existing.id, expected_by=due_at, about=about)
+                else:
+                    work_repo.open_wait(
+                        session,
+                        f.company_id,
+                        case_id,
+                        person_id,
+                        about=about,
+                        expected_by=due_at,
+                    )
     if _URGENCY_RANK[f.urgency] > _URGENCY_RANK[case.urgency]:
         case.urgency = f.urgency
     mark_stale(session, f.company_id, person_id, f.sent_at)

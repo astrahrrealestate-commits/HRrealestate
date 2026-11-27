@@ -170,14 +170,20 @@ def _decide(
     return loaded, decision
 
 
+def _commitments(payload: dict[str, Any] | None) -> list[str]:
+    return [str(c) for c in (payload or {}).get("commitments") or () if str(c).strip()]
+
+
 def supersede(engine: Engine, settings: Settings, req: Request, approval_id: UUID, current: tuple[str, ...]) -> Redraft:
     decided = _decide(engine, settings, req, current)
     if isinstance(decided, Redraft):
         return decided
     loaded, decision = decided
-    variants = _variants(decision.action.payload.model_dump(mode="json"))
+    payload_dict = decision.action.payload.model_dump(mode="json")
+    variants = _variants(payload_dict)
+    commitments = _commitments(payload_dict)
     with Session(engine) as session, session.begin():
-        return _supersede_in(session, req, loaded, approval_id, variants)
+        return _supersede_in(session, req, loaded, approval_id, variants, commitments=commitments)
 
 
 def _insert_reply(session: Session, req: Request, loaded: propose.Loaded, decision: RuleDecision) -> NewRevision:
@@ -196,6 +202,26 @@ def _insert_reply(session: Session, req: Request, loaded: propose.Loaded, decisi
     return NewRevision(row.id, 1, approval_id)
 
 
+def persist_decision(engine: Engine, req: Request, loaded: propose.Loaded, decision: RuleDecision) -> Redraft:
+    """Persist an already-evaluated guided reply (supersede live pending approval, else insert a fresh reply)."""
+    payload_dict = decision.action.payload.model_dump(mode="json")
+    variants = _variants(payload_dict)
+    commitments = _commitments(payload_dict)
+    if decision.verdict is not Verdict.pending_approval:
+        return Redraft(None, variants, loaded.source, decision.reason or "held for review")
+    with Session(engine) as session, session.begin():
+        propose.lock_message(session, req.message_id)
+        if (done := turn_replay(session, req.company_id, req.prefix, req.message_id)) is not None:
+            return Redraft(done[0], done[1], loaded.source)
+        state = message_state(session, req.company_id, req.message_id, req.now)
+        if state.kind == "pending" and state.pending is not None:
+            return _supersede_in(session, req, loaded, state.pending, variants, commitments=commitments)
+        if state.kind in ("busy", "held"):
+            return Redraft(None, (), loaded.source, BUSY if state.kind == "busy" else HELD)
+        revision = _insert_reply(session, req, loaded, decision)
+    return Redraft(revision, variants, loaded.source)
+
+
 def fresh(engine: Engine, settings: Settings, req: Request, current: tuple[str, ...]) -> Redraft:
     """A new reply for a message whose earlier reply was decided (or that has none), once per turn. Under the message
     lock the state is read again: a reply another turn just proposed is superseded by this draft, never doubled."""
@@ -203,22 +229,17 @@ def fresh(engine: Engine, settings: Settings, req: Request, current: tuple[str, 
     if isinstance(decided, Redraft):
         return decided
     loaded, decision = decided
-    variants = _variants(decision.action.payload.model_dump(mode="json"))
-    with Session(engine) as session, session.begin():
-        propose.lock_message(session, req.message_id)
-        if (done := turn_replay(session, req.company_id, req.prefix, req.message_id)) is not None:
-            return Redraft(done[0], done[1], loaded.source)
-        state = message_state(session, req.company_id, req.message_id, req.now)
-        if state.kind == "pending" and state.pending is not None:
-            return _supersede_in(session, req, loaded, state.pending, variants)
-        if state.kind in ("busy", "held"):
-            return Redraft(None, (), loaded.source, BUSY if state.kind == "busy" else HELD)
-        revision = _insert_reply(session, req, loaded, decision)
-    return Redraft(revision, variants, loaded.source)
+    return persist_decision(engine, req, loaded, decision)
 
 
 def _supersede_in(
-    session: Session, req: Request, loaded: propose.Loaded, approval_id: UUID, variants: tuple[str, ...]
+    session: Session,
+    req: Request,
+    loaded: propose.Loaded,
+    approval_id: UUID,
+    variants: tuple[str, ...],
+    *,
+    commitments: list[str] | None = None,
 ) -> Redraft:
     urgency = loaded.ctx.understanding.urgency
     revision = supersede_draft(
@@ -230,6 +251,7 @@ def _supersede_in(
         urgency=urgency,
         now=req.now,
         persona=loaded.ctx.persona,
+        commitments=commitments,
     )
     if revision is None:
         return Redraft(None, (), loaded.source, NOT_LIVE)

@@ -16,8 +16,7 @@ from app.db.enums import TurnStatus
 from app.llm.agents.concierge import CONCIERGE
 from app.llm.agents.owner_qa import FALLBACK_ANSWER, CaseBrief
 from app.llm.page_blocks import NO_PAGE, PagePrompt
-from app.pipeline.concierge import is_transient
-from app.pipeline.concierge_base import StepResult
+from app.pipeline.concierge_base import StepResult, is_transient
 from app.pipeline.owner_commands import LIMIT_ANSWER, CommandKind, fallback_command
 from app.pipeline.work_repo import short_ref
 

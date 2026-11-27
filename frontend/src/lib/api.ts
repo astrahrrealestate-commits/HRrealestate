@@ -282,7 +282,8 @@ export async function approveInboxDraft(
   approvalId: string,
   choice: "d1" | "d2" | "d3" | "ok" | "edit" | "rej" = "d1",
   editedText?: string,
-  replyToMessageId?: string
+  replyToMessageId?: string,
+  attachmentIds?: string[]
 ): Promise<ApprovalDecideResponse & { ok?: boolean }> {
   try {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/approvals/${approvalId}/decide`, {
@@ -295,6 +296,7 @@ export async function approveInboxDraft(
         choice,
         edited_text: editedText || null,
         reply_to_message_id: replyToMessageId || null,
+        attachment_ids: attachmentIds ?? [],
       }),
       signal: AbortSignal.timeout(25000), // Real Gmail API dispatch takes 5-8s
     });
@@ -333,7 +335,8 @@ export async function sendThreadReply(
   caseId: string,
   body: string,
   channel: "gmail" | "whatsapp",
-  replyToMessageId?: string
+  replyToMessageId?: string,
+  attachmentIds?: string[]
 ): Promise<{ ok: boolean; status: string; message: string }> {
   try {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/threads/${encodeURIComponent(caseId)}/reply`, {
@@ -346,6 +349,7 @@ export async function sendThreadReply(
         body,
         channel,
         reply_to_message_id: replyToMessageId || null,
+        attachment_ids: attachmentIds ?? [],
       }),
       signal: AbortSignal.timeout(25000),
     });
@@ -1084,11 +1088,11 @@ export async function askAgent(
   });
 
   try {
-    const res = await apiFetch(`${BACKEND_BASE_URL}/api/agent/ask`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/agent/ask/stream`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Accept: "application/json",
+        Accept: "text/event-stream, application/json",
       },
       body: JSON.stringify({ query, context, history, conversation_id: conversationId || null }),
       // A researched answer takes the planner plus SUPER_AGENT_DEADLINE_SEC (100 s in stage/prod, ALB idle 150 s).
@@ -1096,7 +1100,40 @@ export async function askAgent(
     });
 
     if (res.ok) {
-      return await res.json();
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("text/event-stream") || !res.body) {
+        return await res.json();
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() ?? "";
+        for (const frame of frames) {
+          let eventType = "message";
+          let dataLine = "";
+          for (const line of frame.split("\n")) {
+            if (line.startsWith("event:")) eventType = line.slice(6).trim();
+            else if (line.startsWith("data:")) dataLine += line.slice(5).trim();
+          }
+          if (!dataLine) continue;
+          if (eventType === "result") {
+            return JSON.parse(dataLine) as AskAgentResponse;
+          }
+          if (eventType === "error") {
+            const errPayload = JSON.parse(dataLine) as { status?: number; detail?: string };
+            return buildErrorResponse(
+              errPayload.detail || "Astra encountered a server error. Please try again.",
+              errPayload.status === 429 ? "rate_limited" : "server_error",
+              `HTTP ${errPayload.status ?? 500}`
+            );
+          }
+        }
+      }
     }
 
     let detail = "";
@@ -1201,29 +1238,10 @@ export async function updateAgentConversation(
 // Authentication Handshake & Session Management
 // ---------------------------------------------------------------------------
 
-let authPromise: Promise<void> | null = null;
-
 export async function ensureAuthenticated(): Promise<void> {
-  // The fixed test token only exists for the fake identity provider of local development. A production bundle never
-  // sends it: real sessions come from the Google login page.
-  if (process.env.NODE_ENV === "production") return;
-  if (authPromise) return authPromise;
-  authPromise = (async () => {
-    try {
-      await apiFetch(`${BACKEND_BASE_URL}/api/v1/auth/session`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-EstateOS-Client": "dashboard",
-        },
-        body: JSON.stringify({ id_token: "test-owner-token" }),
-        credentials: "include",
-      });
-    } catch (err) {
-      console.warn("Auth handshake failed (dev mode fallback active):", err);
-    }
-  })();
-  return authPromise;
+  // Authentication is handled via /login and AuthContext; never silently overwrite
+  // the active session cookie in the background.
+  return;
 }
 
 // ---------------------------------------------------------------------------
@@ -1779,6 +1797,165 @@ export async function translateText(text: string, target: "en" | "nl" = "en"): P
   }
 }
 
+export interface EnhanceDraftResult {
+  ok: boolean;
+  draftText: string;
+  variants: string[];
+  commitments: string[];
+  commitmentsByVariant?: string[][];
+  approvalId?: string | null;
+  draftVersion?: number | null;
+  sourcesUsed?: string[];
+  problem?: string;
+}
+
+export interface UploadedThreadAttachment {
+  ok: boolean;
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  gmailAllowed: boolean;
+  whatsappAllowed: boolean;
+  driveQueued: boolean;
+  problem?: string;
+}
+
+export async function uploadThreadAttachment(caseId: string, file: File): Promise<UploadedThreadAttachment> {
+  const form = new FormData();
+  form.append("file", file);
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/threads/${encodeURIComponent(caseId)}/attachments`, {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(60000),
+    });
+    if (res.ok) {
+      return (await res.json()) as UploadedThreadAttachment;
+    }
+    const err = (await res.json().catch(() => ({}))) as { detail?: string };
+    return {
+      ok: false,
+      attachmentId: "",
+      filename: file.name,
+      mimeType: file.type || "application/octet-stream",
+      sizeBytes: file.size,
+      gmailAllowed: false,
+      whatsappAllowed: false,
+      driveQueued: false,
+      problem: err.detail || "Upload failed.",
+    };
+  } catch {
+    return {
+      ok: false,
+      attachmentId: "",
+      filename: file.name,
+      mimeType: file.type || "application/octet-stream",
+      sizeBytes: file.size,
+      gmailAllowed: false,
+      whatsappAllowed: false,
+      driveQueued: false,
+      problem: "Upload timed out or could not reach the server.",
+    };
+  }
+}
+
+export async function enhanceContactEmailDraft(
+  contactId: string,
+  messageId: string,
+  instruction: string,
+  currentText: string
+): Promise<{ ok: boolean; enhancedText?: string; problem?: string; sourcesUsed?: string[] }> {
+  try {
+    const res = await apiFetch(
+      `${BACKEND_BASE_URL}/api/contacts/${encodeURIComponent(contactId)}/messages/${encodeURIComponent(messageId)}/enhance`,
+      {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({ instruction, current_text: currentText }),
+        signal: AbortSignal.timeout(90000),
+      }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        ok: data.ok,
+        enhancedText: data.enhanced_text || data.variants?.[0],
+        problem: data.problem,
+        sourcesUsed: data.sources_used,
+      };
+    }
+    const err = (await res.json().catch(() => ({}))) as { detail?: string };
+    return { ok: false, problem: err.detail || "Enhance request failed." };
+  } catch {
+    return { ok: false, problem: "Enhance request timed out or network error." };
+  }
+}
+
+export async function enhanceContactWhatsAppDraft(
+  contactId: string,
+  instruction: string,
+  currentText: string
+): Promise<{ ok: boolean; enhancedText?: string; problem?: string; sourcesUsed?: string[] }> {
+  try {
+    const res = await apiFetch(
+      `${BACKEND_BASE_URL}/api/contacts/${encodeURIComponent(contactId)}/whatsapp/enhance`,
+      {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({ instruction, current_text: currentText }),
+        signal: AbortSignal.timeout(90000),
+      }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        ok: data.ok,
+        enhancedText: data.enhanced_text || data.variants?.[0],
+        problem: data.problem,
+        sourcesUsed: data.sources_used,
+      };
+    }
+    const err = (await res.json().catch(() => ({}))) as { detail?: string };
+    return { ok: false, problem: err.detail || "Enhance request failed." };
+  } catch {
+    return { ok: false, problem: "Enhance request timed out or network error." };
+  }
+}
+
+export async function enhanceThreadDraft(
+  caseId: string,
+  payload: { instruction: string; current_text: string; message_id?: string }
+): Promise<EnhanceDraftResult> {
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/threads/${encodeURIComponent(caseId)}/enhance`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(90000),
+    });
+    if (res.ok) {
+      return (await res.json()) as EnhanceDraftResult;
+    }
+    const err = (await res.json().catch(() => ({}))) as { detail?: string };
+    return {
+      ok: false,
+      draftText: "",
+      variants: [],
+      commitments: [],
+      problem: err.detail || "Could not enhance draft.",
+    };
+  } catch {
+    return {
+      ok: false,
+      draftText: "",
+      variants: [],
+      commitments: [],
+      problem: "Enhance request timed out or could not reach the server.",
+    };
+  }
+}
+
 /** Back-compat alias for callers that only need Dutch to English. */
 export const translateToEnglish = (text: string) => translateText(text, "en");
 
@@ -2098,6 +2275,10 @@ export interface CategoryNextAction {
   waiting_days?: number | null;
   obligation?: string | null;
   has_draft?: boolean;
+  overdue_days?: number;
+  chase_count?: number;
+  wait_status?: "waiting" | "chased" | "escalated" | "promise" | null;
+  wait_id?: string | null;
 }
 
 export interface CategoryDeskData {
@@ -2153,13 +2334,48 @@ export async function getCategoryDesk(
   return null;
 }
 
+export async function chaseFollowup(caseId: string): Promise<{ approval_id: string | null } | null> {
+  try {
+    const res = await apiFetch(
+      `${BACKEND_BASE_URL}/api/dashboard/categories/followups/${encodeURIComponent(caseId)}/chase`,
+      {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(20000),
+      }
+    );
+    if (res.ok) {
+      return (await res.json()) as { approval_id: string | null };
+    }
+  } catch {
+    // Offline
+  }
+  return null;
+}
+
+export async function resolveFollowup(caseId: string): Promise<boolean> {
+  try {
+    const res = await apiFetch(
+      `${BACKEND_BASE_URL}/api/dashboard/categories/followups/${encodeURIComponent(caseId)}/resolve`,
+      {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(10000),
+      }
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Document Library & Reference Toggle (/api/v1/documents)
 // ---------------------------------------------------------------------------
 
 export interface DocumentLibraryItem {
   id: string;
-  attachment_id: string;
+  attachment_id: string | null; // null for a document from BRIXX
   title: string;
   doc_type: string;
   status: string;

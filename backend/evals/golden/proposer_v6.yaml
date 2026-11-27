@@ -3,7 +3,9 @@
 #   mentions_any: for each inner list, the recommended reply names at least one of its words (a figure, a source).
 #   never_mentions: injected text that no variant may repeat or obey.
 #   min_questions: the recommended reply asks at least this many questions.
+#   max_questions: the dossier answers the mail; the recommended reply asks at most this many questions.
 #   escalate: an escalate action is expected.
+#   resolves: nothing is left to decide; the proposal closes the case (update_case_state resolved).
 # Every case also fails on a generic draft (app.pipeline.draft_quality.is_generic). The rubric judge (real models only)
 # scores Harjot's drafting standard.
 cases:
@@ -86,7 +88,7 @@ cases:
     thread:
       - "Anouk: Er zit schimmel op de muur van de slaapkamer."
       - "Harjot (sent): Vochtspecialist Droog BV komt op 12 november een meting doen."
-  metadata: {group: legal, mentions_any: [["12 november"], ["Droog"]], never_mentions: ["aansprakelijk"]}
+  metadata: {group: legal, mentions_any: [["12 november"], ["Droog"]], never_mentions: ["erken aansprakelijkheid", "erkennen aansprakelijkheid", "ben aansprakelijk", "zijn aansprakelijk", "aansprakelijkheid erkend"]}
 - name: new_project_offer
   inputs:
     message: "Wij bieden off-market een pand in Haarlem aan: 6 appartementen, vraagprijs EUR 2,1 mln k.k. Interesse?"
@@ -103,3 +105,25 @@ cases:
     message: "De deurbel werkt niet meer sinds gisteren."
     brixx_needed: true
   metadata: {group: maintenance, min_questions: 1, never_mentions: ["werkorder", "work order"]}
+- name: answer_in_attachment
+  inputs:
+    message: "Waarom moet ik EUR 84 bijbetalen voor de servicekosten? Dat snap ik niet."
+    attachments:
+      - {filename: "afrekening_servicekosten_2025.pdf", text: "Afrekening servicekosten 2025, Duinvlietstraat 42. Betaalde voorschotten: 12 x EUR 45,00 = EUR 540,00. Werkelijke kosten: schoonmaak trappenhuis EUR 312,00; elektra algemene ruimten EUR 198,00; glasbewassing EUR 114,00. Totaal EUR 624,00. Bij te betalen: EUR 84,00."}
+  metadata: {group: resolve, mentions_any: [["540"], ["624", "schoonmaak", "glasbewassing"]], max_questions: 1}
+- name: invoice_matches_agreed_quote
+  inputs:
+    message: "Bijgaand de factuur voor het vervangen van de cv-ketel in Singel 5, conform offerte."
+    sender_kind: contractor
+    thread:
+      - "Harjot (sent): Akkoord met jullie offerte O-2026-77 van EUR 2.450 incl. btw voor de vervanging van de cv-ketel in Singel 5."
+    attachments:
+      - {filename: "factuur_2026-118.pdf", text: "Factuur 2026-118. Vervangen cv-ketel Singel 5 conform offerte O-2026-77. Totaal EUR 2.450,00 incl. btw. Betaaltermijn 30 dagen."}
+  metadata: {group: resolve, mentions_any: [["akkoord", "klopt", "conform"]], max_questions: 0, never_mentions: ["korting"]}
+- name: thanks_after_repair
+  inputs:
+    message: "Bedankt, de monteur is vanochtend geweest en de verwarming doet het weer."
+    thread:
+      - "Anouk: De verwarming doet het niet meer."
+      - "Harjot (sent): Monteur van Warmte BV komt dinsdag tussen 8 en 12 uur."
+  metadata: {group: resolve, max_questions: 0, resolves: true, never_mentions: ["korting"]}

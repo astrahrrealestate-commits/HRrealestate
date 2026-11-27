@@ -35,6 +35,7 @@ FINANCE_SNAPSHOT = "finance.snapshot"
 FINANCE_QUOTE = "finance.quote"
 FINANCE_RECHECK = "finance.recheck"
 CHAT_SEND = "chat.send_message"
+TRANSLATE_TEXT = "translation.translate"
 _FINANCE_REVIEW_NAMESPACE = UUID("6f1c2a52-3d4e-5b7a-9c1d-2e8f4a6b0c13")  # fixed forever: review ids derive from it
 
 
@@ -46,6 +47,11 @@ def exec_workflow_id(action_id: object, draft_version: object) -> str:
 def chat_workflow_id(company_id: object, client_msg_id: object) -> str:
     """`chat:<company_id>:<client_msg_id>`: the one send of an owner-typed WhatsApp message (also its `sends` key)."""
     return f"chat:{company_id}:{client_msg_id}"
+
+
+def document_workflow_id(attachment_id: object) -> str:
+    """`doc:<attachment_id>`: the one automatic filing run of an attachment."""
+    return f"doc:{attachment_id}"
 
 
 def reorg_workflow_id(plan_id: object) -> str:

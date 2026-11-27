@@ -24,7 +24,7 @@ BLOCK_TAGS = (
     "page_snapshot", "owner_guidance", "current_draft", "document", "excerpts", "persona", "sender",
     "person_profile", "thread", "sender_history", "attachment_text", "documents", "references", "person_memory",
     "owner_rules", "open_waits", "quote_review", "research", "current_message", "quality_feedback", "entities",
-    "conversation", "tenancy", "older_mail", "similar_conversations",
+    "conversation", "tenancy", "older_mail", "similar_conversations", "unread_attachments",
 )  # fmt: skip
 
 # Applied after NFKC: fullwidth and small forms are already plain there, and U+2329/U+232A became U+3008/U+3009.
@@ -49,6 +49,7 @@ class AttachmentMeta:
     filename: str | None
     mime_type: str
     size_bytes: int
+    excerpt: str | None = None
 
 
 def _strip_invisible(text: str) -> str:
@@ -95,10 +96,12 @@ def attachments_block(items: Sequence[AttachmentMeta]) -> str:
     """Attachment metadata inside <attachments>...</attachments>, at most MAX_ATTACHMENTS lines plus "+N more"."""
     if not items:
         return "<attachments>\nnone\n</attachments>"
-    lines = [
-        escape(f"- {one_line(item.filename or 'unnamed')} ({one_line(item.mime_type)}, {item.size_bytes} bytes)")
-        for item in items[:MAX_ATTACHMENTS]
-    ]
+    lines = []
+    for item in items[:MAX_ATTACHMENTS]:
+        line = escape(f"- {one_line(item.filename or 'unnamed')} ({one_line(item.mime_type)}, {item.size_bytes} bytes)")
+        if item.excerpt and item.excerpt.strip():
+            line += "\n  " + escape(f"excerpt: {one_line(item.excerpt, 600)}")
+        lines.append(line)
     if len(items) > MAX_ATTACHMENTS:
         lines.append(f"+{len(items) - MAX_ATTACHMENTS} more")
     return "<attachments>\n" + "\n".join(lines) + "\n</attachments>"

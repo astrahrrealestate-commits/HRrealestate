@@ -2,7 +2,6 @@
 
 import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
@@ -48,6 +47,8 @@ import {
   generateEmailDrafts,
   sendEmailReply,
   generateWhatsAppDrafts,
+  enhanceContactEmailDraft,
+  enhanceContactWhatsAppDraft,
 } from "@/lib/api";
 import { formatClock } from "@/lib/clock";
 import { ContactFormModal } from "@/components/contacts/ContactFormModal";
@@ -56,6 +57,12 @@ import type { SavedContact } from "@/lib/contactsWriteApi";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { FlagUK, FlagNL } from "@/components/ui/FlagIcons";
 import { SHOWN_CATEGORIES } from "@/lib/categoryLabels";
+import { EnhancePromptBar } from "@/components/common/EnhancePromptBar";
+import { useCachedState } from "@/hooks/useCachedState";
+import { forgetView, readView, writeView } from "@/lib/viewCache";
+import type { ContactCommunicationsData } from "@/lib/api";
+
+const NO_CONTACTS: ContactItem[] = [];
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -124,15 +131,18 @@ function ContactsContent() {
   const [searchQuery, setSearchQuery] = useState("");
 
   // Live Contacts loaded from database (strictly real data only)
-  const [dbContacts, setDbContacts] = useState<ContactItem[]>([]);
-  const [isLoadingContacts, setIsLoadingContacts] = useState<boolean>(true);
+  // Cached per audience asked of the API: a contractor-only answer must not reappear as the "all" list.
+  const apiAudience = filterAudience === "tenant" || filterAudience === "contractor" ? filterAudience : "all";
+  const [listsByAudience, setListsByAudience] = useCachedState<Record<string, ContactItem[]>>("contacts.lists", {});
+  const dbContacts = listsByAudience[apiAudience] ?? NO_CONTACTS;
+  const isLoadingContacts = listsByAudience[apiAudience] === undefined;
   const allAvailableContacts = dbContacts;
 
   // A contact just added or classified: show it in the list (replacing the old row) and open it.
   const handleContactSaved = (saved: SavedContact) => {
-    setDbContacts((prev) => {
-      const rest = prev.filter((c) => c.id !== saved.id);
-      return [...rest, saved].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    setListsByAudience((prev) => {
+      const rest = (prev.all ?? dbContacts).filter((c) => c.id !== saved.id);
+      return { all: [...rest, saved].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })) };
     });
     setFilterAudience("all");
     setSelectedContactId(saved.id);
@@ -147,20 +157,14 @@ function ContactsContent() {
   useEffect(() => {
     let isMounted = true;
     async function loadContacts() {
-      setIsLoadingContacts(true);
-      try {
-        const apiAudience = filterAudience === "tenant" || filterAudience === "contractor" ? filterAudience : "all";
-        const list = await getContactsList(apiAudience);
-        if (isMounted && list) {
-          setDbContacts(list);
-        }
-      } finally {
-        if (isMounted) setIsLoadingContacts(false);
+      const list = await getContactsList(apiAudience);
+      if (isMounted && list) {
+        setListsByAudience((prev) => ({ ...prev, [apiAudience]: list }));
       }
     }
     loadContacts();
     return () => { isMounted = false; };
-  }, [filterAudience]);
+  }, [apiAudience, setListsByAudience]);
 
   // Profile Card Collapsed/Expanded state (null = collapsed on <md mobile, expanded on >=md desktop)
   const [isProfileExpanded, setIsProfileExpanded] = useState<boolean | null>(null);
@@ -347,12 +351,22 @@ function ContactsContent() {
     activeContactIdRef.current = contactId || null;
   }, [contactId]);
 
+  // A person opened before shows their messages at once; the poll below then brings anything new.
+  useEffect(() => {
+    const cached = readView<ContactCommunicationsData>(`comms.${contactId}`);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- swap to the newly selected person's cached copy
+    setLiveEmails(cached?.emails || []);
+    setLiveWhatsApp(cached?.whatsapp_messages || []);
+    setWhatsAppDrafts(cached?.suggested_whatsapp_drafts || []);
+  }, [contactId]);
+
   // Live background polling for live communications (pauses when tab is hidden)
   const fetchLiveComms = useCallback(async () => {
     if (!contactId) return;
     const requestedId = contactId;
     try {
       const comms = await getContactCommunications(requestedId, contactEmail, contactPhone);
+      if (comms) writeView(`comms.${requestedId}`, comms);
       if (comms && activeContactIdRef.current === requestedId) {
         setLiveEmails(comms.emails || []);
         setLiveWhatsApp(comms.whatsapp_messages || []);
@@ -408,6 +422,7 @@ function ContactsContent() {
     const replySubject = email.subject.startsWith("Re:") ? email.subject : `Re: ${email.subject}`;
 
     try {
+      forgetView(`comms.${activeContact.id}`);
       const res = await sendEmailReply(
         activeContact.id,
         email.id,
@@ -477,6 +492,7 @@ function ContactsContent() {
     setLiveWhatsApp((prev) => [...prev, optimisticMsg]);
 
     try {
+      forgetView(`comms.${activeContact.id}`);
       const res = await sendContactWhatsAppMessage(activeContact.id, textToSend);
       if (res && res.id) {
         setLiveWhatsApp((prev) =>
@@ -553,8 +569,6 @@ function ContactsContent() {
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-[#0A1B2F] text-[#111215] font-sans antialiased">
-      {/* 1. Left Nav (Desktop Sidebar - #0A1B2F dark blue theme) */}
-      <Sidebar />
 
       {/* 2. Content Workspace */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0A1B2F]">
@@ -1304,27 +1318,9 @@ function ContactsContent() {
 
                         {/* Proposer Agent AI Draft Reply Box */}
                         <div className="mt-4 pt-4 border-t border-[#e2e8f0] space-y-3 bg-[#f8fafc] p-4 rounded-xl border">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1.5 text-xs font-semibold text-[#111215]">
-                              <Sparkles className="w-3.5 h-3.5 text-[#1a73e8]" />
-                              <span>AI Draft Reply (Proposer Agent)</span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleGenerateEmailDrafts(activeOpenEmail)}
-                              disabled={isGeneratingEmailDraft[activeOpenEmail.id]}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium text-[#1e293b] bg-white border border-[#cbd5e1] hover:bg-[#f1f5f9] disabled:opacity-50 transition-colors cursor-pointer shadow-2xs"
-                            >
-                              <RotateCw
-                                className={cn(
-                                  "w-3 h-3 text-[#64748b]",
-                                  isGeneratingEmailDraft[activeOpenEmail.id] && "animate-spin text-[#1a73e8]"
-                                )}
-                              />
-                              <span>
-                                {isGeneratingEmailDraft[activeOpenEmail.id] ? "Drafting..." : "Generate AI Draft"}
-                              </span>
-                            </button>
+                          <div className="flex items-center gap-1.5 text-xs font-semibold text-[#111215]">
+                            <Sparkles className="w-3.5 h-3.5 text-[#1a73e8]" />
+                            <span>AI Draft Reply (Proposer Agent)</span>
                           </div>
 
                           {/* 3 Selectable Draft Variant Pills */}
@@ -1369,6 +1365,28 @@ function ContactsContent() {
                             placeholder="Type or customize your email reply to this thread..."
                             className="w-full p-2.5 rounded-lg text-xs leading-relaxed bg-white border border-[#cbd5e1] text-[#111215] placeholder:text-[#94a3b8] focus:outline-none focus:ring-1 focus:ring-[#1a73e8] resize-y"
                           />
+
+                          {/* Enhance Prompt Bar for Email Draft */}
+                          {activeContact && (
+                            <EnhancePromptBar
+                              currentText={
+                                emailDraftCustomText[activeOpenEmail.id] !== undefined
+                                  ? emailDraftCustomText[activeOpenEmail.id]
+                                  : activeOpenEmail.draftVariants?.[0]?.body || ""
+                              }
+                              onEnhanced={(newText) =>
+                                setEmailDraftCustomText((prev) => ({
+                                  ...prev,
+                                  [activeOpenEmail.id]: newText,
+                                }))
+                              }
+                              onEnhanceApi={(instruction, currentText) =>
+                                enhanceContactEmailDraft(activeContact.id, activeOpenEmail.id, instruction, currentText)
+                              }
+                              placeholder="Enhance email draft (e.g. shorter, check lease, more formal)..."
+                              className="mt-1"
+                            />
+                          )}
 
                           {/* Send & Voice Dictation Footer */}
                           <div className="flex items-center justify-between gap-3 pt-1 flex-wrap">
@@ -1583,46 +1601,39 @@ function ContactsContent() {
 
                     {/* WhatsApp Chat Bar — Subtle AI Blue theme */}
                     <div className="p-2.5 sm:p-3 bg-[#f0f7ff] border-t border-[#bfdbfe] flex flex-col gap-2 shrink-0">
-                      {/* AI Draft Pills */}
-                      <div className="flex items-center justify-between gap-2 px-0.5">
-                        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar min-w-0 flex-1 py-0.5">
+                      {whatsAppDrafts.length > 0 && (
+                        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar min-w-0 py-0.5 px-0.5">
                           <span className="text-[11px] font-semibold text-[#1d4ed8] flex items-center gap-1 shrink-0">
                             <Sparkles className="w-3 h-3 text-[#2563eb] animate-wa-sparkle" />
                             AI Draft:
                           </span>
-                          {whatsAppDrafts.length > 0 ? (
-                            whatsAppDrafts.map((d, i) => (
-                              <button
-                                key={d.id || i}
-                                type="button"
-                                onClick={() => setWhatsappInput(d.body)}
-                                className="inline-flex items-center gap-1 h-[26px] px-2.5 rounded-full text-[11px] font-semibold bg-[#eff6ff] hover:bg-[#dbeafe] border border-[#bfdbfe] text-[#1d4ed8] transition-all cursor-pointer shadow-2xs whitespace-nowrap shrink-0"
-                                title={d.body}
-                              >
-                                <span>{d.label || `Draft ${i + 1}`}</span>
-                              </button>
-                            ))
-                          ) : (
-                            <span className="text-[11px] text-[#64748b] whitespace-nowrap">Generate replies →</span>
-                          )}
+                          {whatsAppDrafts.map((d, i) => (
+                            <button
+                              key={d.id || i}
+                              type="button"
+                              onClick={() => setWhatsappInput(d.body)}
+                              className="inline-flex items-center gap-1 h-[26px] px-2.5 rounded-full text-[11px] font-semibold bg-[#eff6ff] hover:bg-[#dbeafe] border border-[#bfdbfe] text-[#1d4ed8] transition-all cursor-pointer shadow-2xs whitespace-nowrap shrink-0"
+                              title={d.body}
+                            >
+                              <span>{d.label || `Draft ${i + 1}`}</span>
+                            </button>
+                          ))}
                         </div>
+                      )}
 
-                        <button
-                          type="button"
-                          onClick={handleGenerateWhatsAppDrafts}
-                          disabled={isGeneratingWhatsAppDrafts}
-                          className="inline-flex items-center gap-1 h-[26px] px-2.5 rounded-full text-[11px] font-medium text-[#1e40af] bg-white border border-[#bfdbfe] hover:bg-[#eff6ff] disabled:opacity-50 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
-                        >
-                          <RotateCw
-                            className={cn(
-                              "w-3 h-3 text-[#2563eb]",
-                              isGeneratingWhatsAppDrafts && "animate-spin"
-                            )}
-                          />
-                          <span className="hidden sm:inline">{isGeneratingWhatsAppDrafts ? "Drafting..." : "Generate AI Drafts"}</span>
-                          <span className="sm:hidden">{isGeneratingWhatsAppDrafts ? "Drafting..." : "Drafts"}</span>
-                        </button>
-                      </div>
+                      {/* Enhance Prompt Bar for WhatsApp */}
+                      {activeContact && (
+                        <EnhancePromptBar
+                          currentText={whatsappInput}
+                          onEnhanced={(newText) => setWhatsappInput(newText)}
+                          onEnhanceApi={(instruction, currentText) =>
+                            enhanceContactWhatsAppDraft(activeContact.id, instruction, currentText)
+                          }
+                          placeholder="Enhance WhatsApp draft (e.g. shorter, add time slot, friendlier)..."
+                          compact
+                          className="bg-white/90 border-[#bfdbfe]"
+                        />
+                      )}
 
                       {/* Chat Input Pill + Mic + Circular Send Button */}
                       <div className="flex items-end gap-2">

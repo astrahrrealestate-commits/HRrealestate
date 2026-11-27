@@ -1,17 +1,15 @@
 "use client";
 
-import React from "react";
-import { Sidebar } from "@/components/layout/Sidebar";
+import React, { useEffect } from "react";
+import { setPageNeedsYou } from "@/lib/needsYou";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
-import { ThreadCountTarget } from "@/lib/selectors";
 import { cn } from "@/lib/utils";
 
 export interface WorkspaceShellProps {
   pageTitle: string;
   pendingCount?: number;
-  threads?: ThreadCountTarget[];
   onSyncMailbox?: () => void;
   isSyncing?: boolean;
   searchQuery?: string;
@@ -28,13 +26,12 @@ export interface WorkspaceShellProps {
 
 /**
  * Shared desktop & mobile application shell across all EstateOS pages.
- * Provides the resizable Sidebar, TopCommandBar, framed content card,
+ * Provides the TopCommandBar, framed content card,
  * drag-resizable AskEstateOSPanel (Astra), and MobileTabBar.
  */
 export function WorkspaceShell({
   pageTitle,
   pendingCount,
-  threads,
   onSyncMailbox,
   isSyncing,
   searchQuery,
@@ -48,10 +45,14 @@ export function WorkspaceShell({
   cardClassName,
   children,
 }: WorkspaceShellProps) {
+  // The sidebar lives outside the page (AppFrame): hand it this page's own count while the page is open.
+  useEffect(() => {
+    setPageNeedsYou(pendingCount ?? null);
+    return () => setPageNeedsYou(null);
+  }, [pendingCount]);
+
   return (
     <div className="h-dvh bg-[#0A1B2F] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
-      <Sidebar pendingCount={pendingCount} threads={threads} />
-
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0A1B2F]">
         <div className={cn(hideTopBarOnMobile ? "hidden md:block shrink-0" : "block shrink-0")}>
           <TopCommandBar

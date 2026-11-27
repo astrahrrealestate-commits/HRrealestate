@@ -47,7 +47,7 @@ from app.directory.brixx.state import begin_table_run, get_or_create_table_state
 from app.directory.brixx.sync import latest, sync_table_page
 from app.workflows import queues
 from app.workflows.brixx_common import BRIXX_RETRY, FAILED, OK, error_name, info_from_json
-from app.workflows.brixx_documents import enqueue_document_downloads
+from app.workflows.brixx_documents import enqueue_document_downloads, index_backlog_step
 from app.workflows.brixx_map import map_after_run
 from app.workflows.brixx_reaper import reap_stranded
 from app.workflows.deps import brixx_api, get_engine
@@ -256,6 +256,10 @@ def _sync_pages(run_id: str, table: str) -> str:
     mark_success_step(begun["company_id"], run_id, table, None if upd is None else _utc(upd), begun["started_at"])
     if is_document_table(table):
         enqueue_document_downloads(begun["company_id"], info)  # files only once their metadata rows are committed
+        try:
+            index_backlog_step(begun["company_id"])  # stored files into the document library (M13)
+        except Exception as exc:  # never fails the sync: the next one picks the backlog up
+            log.warning("brixx.index_backlog_failed", company_id=begun["company_id"], error_type=type(exc).__name__)
     return OK
 
 

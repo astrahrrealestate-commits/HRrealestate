@@ -42,9 +42,22 @@ interface InboxConversationViewProps {
   thread: InboxThread | null;
   initialDraft?: string;
   onBack?: () => void;
-  onApproveDraft?: (threadId: string, draftText: string, channel: "whatsapp" | "gmail", replyToMessageId?: string) => void | Promise<boolean>;
+  onApproveDraft?: (
+    threadId: string,
+    draftText: string,
+    channel: "whatsapp" | "gmail",
+    replyToMessageId?: string,
+    attachmentIds?: string[]
+  ) => void | Promise<boolean>;
   onRejectDraft?: (threadId: string) => void;
-  onSendManualReply?: (threadId: string, replyText: string, replyToMessageId?: string) => void | Promise<boolean>;
+  /** Asked before the composer sends or rejects, and before it clears anything; false keeps the text. */
+  canSend?: () => boolean;
+  onSendManualReply?: (
+    threadId: string,
+    replyText: string,
+    replyToMessageId?: string,
+    attachmentIds?: string[]
+  ) => void | Promise<boolean>;
   onMarkDone?: (threadId: string) => void;
   onSnooze?: (threadId: string) => void;
   onMarkUnread?: (threadId: string) => void;
@@ -63,6 +76,7 @@ export function InboxConversationView({
   onBack,
   onApproveDraft,
   onRejectDraft,
+  canSend,
   onSendManualReply,
   onMarkDone,
   onSnooze,
@@ -233,7 +247,8 @@ export function InboxConversationView({
     text: string,
     channel: string,
     replyToMessageId?: string,
-    isManual = false
+    isManual = false,
+    attachmentIds?: string[]
   ) => {
     if (!text.trim()) return;
     const outboundChannel = (channel === "gmail" ? "gmail" : "whatsapp") as "whatsapp" | "gmail";
@@ -265,9 +280,9 @@ export function InboxConversationView({
     setReplyingTo(null);
 
     const callback = isManual && onSendManualReply
-      ? () => onSendManualReply(thread.id, text, effectiveReplyId)
+      ? () => onSendManualReply(thread.id, text, effectiveReplyId, attachmentIds)
       : onApproveDraft
-        ? () => onApproveDraft(thread.id, text, outboundChannel, effectiveReplyId)
+        ? () => onApproveDraft(thread.id, text, outboundChannel, effectiveReplyId, attachmentIds)
         : null;
 
     if (callback) {
@@ -1019,7 +1034,10 @@ export function InboxConversationView({
 
       {/* 3. Sticky Composer (Section 5.2 & 6.2) */}
       <Composer
+        canSend={canSend}
         threadKey={thread.id}
+        caseId={thread.caseId || thread.id}
+        targetMessageId={thread.messages?.[thread.messages.length - 1]?.id}
         draftText={isSent ? "" : stagedDraftText}
         drafts={
           isSent
@@ -1046,12 +1064,12 @@ export function InboxConversationView({
         isReply={Boolean(replyingTo || (thread.messages && thread.messages.length > 0))}
         replyingTo={replyingTo}
         onClearReplyingTo={() => setReplyingTo(null)}
-        onAcceptAndSend={(text, channel, replyId) => {
-          void handleAcceptAndSend(text, channel, replyId, false);
+        onAcceptAndSend={(text, channel, replyId, attachmentIds) => {
+          void handleAcceptAndSend(text, channel, replyId, false, attachmentIds);
         }}
         onReject={handleReject}
-        onSendManualReply={(text, channel, replyId) => {
-          void handleAcceptAndSend(text, channel, replyId, true);
+        onSendManualReply={(text, channel, replyId, attachmentIds) => {
+          void handleAcceptAndSend(text, channel, replyId, true, attachmentIds);
         }}
         onUndo={handleUndo}
         isSent={isSent}
@@ -1090,6 +1108,7 @@ export function InboxConversationView({
               // Graceful
             }
             setIsTicketModalOpen(false);
+            return true;
           }}
         />
       )}

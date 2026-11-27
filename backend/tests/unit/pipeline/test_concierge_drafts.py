@@ -265,3 +265,13 @@ def test_a_live_non_reply_approval_is_never_called_a_waiting_reply(
     result = cp.draft_reply(_ctx(engine, settings, turn=None), _step())
     assert (result.ok, result.summary, result.view) == (False, text, "approvals")
     assert cp.ALREADY_WAITING not in result.summary
+
+
+def test_bare_reply_request_shows_existing_pending_draft_prompt(
+    monkeypatch: pytest.MonkeyPatch, engine: Engine, settings: Settings, calls: Calls
+) -> None:
+    _state(monkeypatch, "pending", OLD)
+    result = cp.draft_reply(_ctx(engine, settings, question="draft a reply"), _step())
+    assert (result.ok, result.view) == (True, "approvals")
+    assert result.summary.splitlines()[0] == cp.EXISTING_DRAFT_PROMPT
+    assert (calls.supersede, calls.fresh) == ([], [])

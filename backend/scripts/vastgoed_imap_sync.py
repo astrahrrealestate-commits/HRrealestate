@@ -47,6 +47,7 @@ from app.db.session import make_engine  # noqa: E402
 from app.ingestion.process import company_mailboxes, owner_addresses  # noqa: E402
 from app.ingestion.media import store_attachment  # noqa: E402
 from app.ingestion.repository import mark_raw_event, save_message  # noqa: E402
+from app.workflows.prepare import prepare_for_draft as _prepare  # noqa: E402
 from app.storage.factory import build_storage  # noqa: E402
 from app.storage.ports import ObjectStorage  # noqa: E402
 from app.tools.message_rag import index_message  # noqa: E402
@@ -237,6 +238,7 @@ def _ingest_one(
     raw_bytes: bytes,
     forwarders: frozenset[str],
     own: frozenset[str],
+    cutoff_date: date | None = None,
 ) -> str:
     gm = GmailMessage(
         id=meta.gmail_msg_id,
@@ -269,12 +271,18 @@ def _ingest_one(
         full_meta = {**row_meta, "history": True}
         msg_id, created = save_message(session, message, full_meta, stored)
         row = session.get(MessageRow, msg_id)
+        is_older_tier = cutoff_date is not None and meta.internal_date.date() < cutoff_date
         if row is not None and row.pipeline_status is PipelineStatus.pending:
-            next_status = PipelineStatus.done if message.direction is Direction.outbound else PipelineStatus.held
+            if is_older_tier or message.direction is Direction.outbound:
+                next_status = PipelineStatus.done
+            else:
+                next_status = PipelineStatus.held
             row.pipeline_status = next_status
-    if created and message.direction is Direction.outbound:
+    if created and (is_older_tier or message.direction is Direction.outbound):
         with contextlib.suppress(Exception):
             index_message(engine, settings, msg_id)
+    if is_older_tier:
+        return "ingested_history_done"
     return "ingested_outbound" if message.direction is Direction.outbound else "ingested_inbound"
 
 
@@ -319,6 +327,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--until", default="2026-11-23", help="End date YYYY-MM-DD (inclusive)")
     p.add_argument("--company-id", default=None, help="Target company UUID (defaults to primary DB company)")
     p.add_argument("--limit", type=int, default=None, help="Max new messages to ingest (for small test batches)")
+    p.add_argument(
+        "--cutoff-days",
+        type=int,
+        default=90,
+        help="Messages older than N days are marked done with RAG embeddings (skips LLM understand/link)",
+    )
     p.add_argument(
         "--apply",
         action="store_true",
@@ -386,6 +400,7 @@ def main(argv: list[str] | None = None) -> int:
         own = company_mailboxes(engine, company_id) | {args.mailbox.strip().lower()}
         counts: Counter[str] = Counter()
 
+        cutoff_date = (date.today() - timedelta(days=args.cutoff_days)) if args.cutoff_days else None
         for start in range(0, len(to_ingest), BODY_BATCH):
             batch = to_ingest[start : start + BODY_BATCH]
             raw_map = _fetch_raw_bodies(conn, [m.uid for m in batch])
@@ -394,7 +409,7 @@ def main(argv: list[str] | None = None) -> int:
                 if raw_bytes is None:
                     counts["missing_body"] += 1
                     continue
-                outcome = _ingest_one(engine, storage, settings, account, m, raw_bytes, fwd, own)
+                outcome = _ingest_one(engine, storage, settings, account, m, raw_bytes, fwd, own, cutoff_date)
                 counts[outcome] += 1
             print(f"Processed {min(start + BODY_BATCH, len(to_ingest))}/{len(to_ingest)} new emails...")
         print(f"Body download + DB ingest elapsed: {time.monotonic() - t_ingest_start:.1f}s")
@@ -417,6 +432,7 @@ def main(argv: list[str] | None = None) -> int:
             args.mailbox.strip().lower(),
             max_age_days=args.draft_open_days,
             dry_run=args.draft_open_dry_run,
+            prepare=_prepare,
         )
         print(
             f"draft_open: drafted={len(report.drafted)}, skipped={len(report.skipped)}, "

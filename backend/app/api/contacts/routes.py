@@ -21,7 +21,7 @@ from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.models import ActionRow, Case, CaseLink, ChannelIdentity, MessageRow, Person, UnderstandingRow
 from app.db.models.ingestion import not_chat_only
-from app.pipeline import propose
+from app.pipeline import enhance, propose
 
 router = APIRouter(prefix="/api/contacts", tags=["contacts"], dependencies=[Depends(require_section("contacts"))])
 log = get_logger(__name__)
@@ -46,6 +46,19 @@ class SendWhatsAppMessageRequest(BaseModel):
 
 class GenerateDraftsRequest(BaseModel):
     guidance: str | None = Field(default=None, description="Optional extra guidance for the draft agent")
+
+
+class EnhanceContactDraftRequest(BaseModel):
+    instruction: str = Field(min_length=1, max_length=600, description="Instruction for refining the draft")
+    current_text: str = Field(default="", description="Existing draft text to improve")
+
+
+class EnhanceContactDraftResponse(BaseModel):
+    ok: bool
+    enhanced_text: str = ""
+    variants: list[str] = Field(default_factory=list)
+    sources_used: list[str] = Field(default_factory=list)
+    problem: str | None = None
 
 
 class GenerateDraftsResponse(BaseModel):
@@ -629,3 +642,128 @@ def generate_whatsapp_drafts(
         ),
     ]
     return GenerateDraftsResponse(message_id=contact_id, drafts=drafts)
+
+
+@router.post(
+    "/{contact_id}/messages/{message_id}/enhance",
+    response_model=EnhanceContactDraftResponse,
+    summary="Enhance Email Draft for Contact",
+    description="Enhances an email draft with gap analysis, targeted lookups, and owner instructions.",
+)
+def enhance_email_draft(
+    contact_id: str,
+    message_id: str,
+    payload: EnhanceContactDraftRequest,
+    engine: Annotated[Engine, Depends(get_engine)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+    principal: Annotated[Principal, Depends(require_session)],
+) -> EnhanceContactDraftResponse:
+    if not _is_uuid(message_id):
+        raise HTTPException(status_code=400, detail="Invalid message ID")
+    msg_uuid = UUID(message_id)
+
+    with Session(engine) as session:
+        link = session.scalar(
+            select(CaseLink).where(CaseLink.company_id == principal.company_id, CaseLink.message_id == msg_uuid)
+        )
+        if link is None:
+            raise HTTPException(status_code=404, detail="No active thread case found for this message")
+        case_id = link.case_id
+
+    res = enhance.enhance_draft(
+        engine,
+        settings,
+        principal.company_id,
+        case_id,
+        instruction=payload.instruction,
+        current_text=payload.current_text,
+        message_id=msg_uuid,
+    )
+    if not res.ok or not res.variants:
+        return EnhanceContactDraftResponse(
+            ok=False,
+            enhanced_text="",
+            variants=[],
+            sources_used=list(res.sources_used),
+            problem=res.problem or "Could not enhance email draft.",
+        )
+    return EnhanceContactDraftResponse(
+        ok=True,
+        enhanced_text=res.variants[0],
+        variants=list(res.variants),
+        sources_used=list(res.sources_used),
+    )
+
+
+@router.post(
+    "/{contact_id}/whatsapp/enhance",
+    response_model=EnhanceContactDraftResponse,
+    summary="Enhance WhatsApp Draft for Contact",
+    description="Enhances a WhatsApp draft with gap analysis, targeted lookups, and owner instructions.",
+)
+def enhance_whatsapp_draft(
+    contact_id: str,
+    payload: EnhanceContactDraftRequest,
+    engine: Annotated[Engine, Depends(get_engine)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+    principal: Annotated[Principal, Depends(require_session)],
+) -> EnhanceContactDraftResponse:
+    if not _is_uuid(contact_id):
+        raise HTTPException(status_code=400, detail="Invalid contact ID")
+    person_id = UUID(contact_id)
+
+    with Session(engine) as session:
+        channels = session.scalars(
+            select(ChannelIdentity.identity).where(
+                ChannelIdentity.company_id == principal.company_id,
+                ChannelIdentity.person_id == person_id,
+                ChannelIdentity.channel == Channel.whatsapp,
+            )
+        ).all()
+        if not channels:
+            raise HTTPException(status_code=404, detail="No WhatsApp identity found for contact")
+
+        msg = session.scalars(
+            select(MessageRow)
+            .where(
+                MessageRow.company_id == principal.company_id,
+                MessageRow.channel == Channel.whatsapp,
+                MessageRow.direction == Direction.inbound,
+                MessageRow.sender_identity.in_(channels),
+            )
+            .order_by(MessageRow.sent_at.desc(), MessageRow.created_at.desc())
+        ).first()
+        if msg is None:
+            raise HTTPException(status_code=404, detail="No WhatsApp messages on record for contact")
+
+        link = session.scalar(
+            select(CaseLink).where(CaseLink.company_id == principal.company_id, CaseLink.message_id == msg.id)
+        )
+        if link is None:
+            raise HTTPException(status_code=404, detail="No active thread case found for WhatsApp message")
+        case_id = link.case_id
+        target_msg_id = msg.id
+
+    res = enhance.enhance_draft(
+        engine,
+        settings,
+        principal.company_id,
+        case_id,
+        instruction=payload.instruction,
+        current_text=payload.current_text,
+        message_id=target_msg_id,
+    )
+    if not res.ok or not res.variants:
+        return EnhanceContactDraftResponse(
+            ok=False,
+            enhanced_text="",
+            variants=[],
+            sources_used=list(res.sources_used),
+            problem=res.problem or "Could not enhance WhatsApp draft.",
+        )
+    return EnhanceContactDraftResponse(
+        ok=True,
+        enhanced_text=res.variants[0],
+        variants=list(res.variants),
+        sources_used=list(res.sources_used),
+    )

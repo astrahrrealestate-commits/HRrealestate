@@ -70,4 +70,5 @@ class BrixxDocument(Base, CompanyScoped):
     content_type: Mapped[str | None] = mapped_column(String(255))
     attempts: Mapped[int] = mapped_column(default=0, server_default="0")
     last_error: Mapped[str | None] = mapped_column(String(128))
+    ocr_attempts: Mapped[int] = mapped_column(default=0, server_default="0")  # failed vision reads of a scan (M13)
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())

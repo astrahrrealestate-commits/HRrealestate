@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { apiFetch, onApiHealthChange, probeApiHealth } from "@/lib/backend";
+import { apiFetch, onAccessDenied, onApiHealthChange, probeApiHealth } from "@/lib/backend";
 
 describe("apiFetch health resilience", () => {
   const originalFetch = globalThis.fetch;
@@ -68,6 +68,39 @@ describe("apiFetch health resilience", () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
     await expect(probeApiHealth()).resolves.toBe(true);
     expect(states[states.length - 1]).toBe(true);
+    unsub();
+  });
+});
+
+describe("apiFetch access refusals", () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const answer = (status: number) => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(null, { status }));
+  };
+
+  it("reports 401 and 403 from a data endpoint, so cached views can be dropped", async () => {
+    const seen = vi.fn();
+    const unsub = onAccessDenied(seen);
+    answer(401);
+    await apiFetch("/api/inbox/threads");
+    answer(403);
+    await apiFetch("/api/money/ledger");
+    expect(seen).toHaveBeenCalledTimes(2);
+    unsub();
+  });
+
+  it("stays quiet for successful calls and for the auth endpoints themselves", async () => {
+    const seen = vi.fn();
+    const unsub = onAccessDenied(seen);
+    answer(200);
+    await apiFetch("/api/inbox/threads");
+    answer(401);
+    await apiFetch("/api/auth/me");
+    expect(seen).not.toHaveBeenCalled();
     unsub();
   });
 });

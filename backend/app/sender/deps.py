@@ -12,6 +12,7 @@ from app.sender.execute import SenderDeps
 from app.sender.gmail import build_gmail_drafts, build_gmail_sender, gmail_send_configured
 from app.sender.settings import SenderSettings
 from app.sender.whatsapp import whatsapp_outbound_or_unconfigured
+from app.storage.factory import build_storage
 
 
 @lru_cache(maxsize=1)
@@ -51,4 +52,5 @@ def build_sender_deps(settings: Settings, engine: Engine) -> SenderDeps:
         tenant_sends_per_hour=settings.tenant_sends_per_hour,
         owner_chat_sends_per_hour=settings.owner_chat_sends_per_hour,
         owner_chat_sends_per_number_per_hour=settings.owner_chat_sends_per_number_per_hour,
+        storage=build_storage(settings),
     )

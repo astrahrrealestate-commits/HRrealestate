@@ -137,12 +137,25 @@ export function onApiHealthChange(listener: ApiHealthListener): () => void {
   };
 }
 
+const accessListeners = new Set<() => void>();
+
+/** Called when a data endpoint refuses (401 or 403): the session or this profile's access may have changed. */
+export function onAccessDenied(listener: () => void): () => void {
+  accessListeners.add(listener);
+  return () => {
+    accessListeners.delete(listener);
+  };
+}
+
 export function apiFetch(pathOrUrl: string, init: RequestInit = {}): Promise<Response> {
   const method = (init.method ?? "GET").toUpperCase();
   const headers = new Headers(init.headers);
   if (!SAFE_METHODS.has(method)) headers.set("X-EstateOS-Client", "dashboard");
   return fetch(backendUrl(pathOrUrl), { ...init, headers, credentials: "include" }).then(
     (response) => {
+      if ((response.status === 401 || response.status === 403) && !pathOrUrl.includes("/api/auth/")) {
+        accessListeners.forEach((listener) => listener());
+      }
       if (response.status < 500) {
         setApiHealthy(true);
       } else if (GATEWAY_UNAVAILABLE_STATUSES.has(response.status)) {

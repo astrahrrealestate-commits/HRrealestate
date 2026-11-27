@@ -33,7 +33,9 @@ __all__ = [
     "NextAction",
     "category_brief",
     "category_summaries",
+    "enrich_actions",
     "next_actions",
+    "ranked_actions",
     "waiting_split",
 ]
 
@@ -136,6 +138,9 @@ def _gather(
     return sorted(items, key=_rank_key)
 
 
+_THREAD_KINDS: frozenset[ActionKind] = frozenset({"approve_draft", "reply_needed", "overdue_wait"})
+
+
 def next_actions(
     session: Session,
     company_id: UUID,
@@ -147,9 +152,28 @@ def next_actions(
     urgency_filter: Literal["all", "emergency", "high"] = "all",
     now: datetime | None = None,
 ) -> list[NextAction]:
-    """Ranked next actions for one of the six categories; empty list for `spam`.
+    """The first `limit` ranked next actions of one of the six categories, enriched; empty list for `spam`."""
+    ref = now or datetime.now(UTC)
+    ranked = ranked_actions(
+        session, company_id, category, viewer, brixx_items=brixx_items, urgency_filter=urgency_filter, now=ref
+    )
+    return enrich_actions(session, company_id, viewer, ranked[: max(1, limit)], now=ref)
 
-    Deduplicates multiple pending items belonging to the same `case_id` so one thread is never listed repeatedly."""
+
+def ranked_actions(
+    session: Session,
+    company_id: UUID,
+    category: Category,
+    viewer: ActionViewer,
+    *,
+    brixx_items: Sequence[BrixxAttentionLike] = (),
+    urgency_filter: Literal["all", "emergency", "high"] = "all",
+    now: datetime | None = None,
+) -> list[NextAction]:
+    """Every next action of one category, ranked and not yet enriched (the brief counts them all).
+
+    Deduplicates overlapping conversation-turn actions (`approve_draft`, `reply_needed`, `overdue_wait`) per `case_id`
+    while keeping distinct artifact reviews (`quote_review`, `document_review`)."""
     if category not in SHOWN_CATEGORIES:
         return []
     ref = now or datetime.now(UTC)
@@ -163,12 +187,12 @@ def next_actions(
             continue
         if urgency_filter == "high" and act.urgency is not Urgency.high:
             continue
-        if act.case_id is not None:
+        if act.case_id is not None and act.kind in _THREAD_KINDS:
             if act.case_id in seen_cases:
                 continue
             seen_cases.add(act.case_id)
         ranked.append(act)
-    return enrich_actions(session, company_id, viewer, ranked[: max(1, limit)], now=ref)
+    return ranked
 
 
 def category_summaries(
@@ -179,7 +203,7 @@ def category_summaries(
     brixx_items: Sequence[BrixxAttentionLike] = (),
     now: datetime | None = None,
 ) -> list[CategorySummary]:
-    """Counts per category in display order for the Today category tabs (deduped by case_id)."""
+    """Counts per category in display order for the Today category tabs (thread actions deduped by case_id)."""
     ref = now or datetime.now(UTC)
     items = _gather(session, company_id, viewer, brixx_items, ref)
     total: Counter[Category] = Counter()
@@ -189,7 +213,7 @@ def category_summaries(
     for item in items:
         cat = item.action.category
         cid = item.action.case_id
-        if cid is not None:
+        if cid is not None and item.action.kind in _THREAD_KINDS:
             key = (cat, cid)
             if key in seen_cases:
                 continue

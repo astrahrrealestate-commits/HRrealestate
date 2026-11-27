@@ -76,7 +76,7 @@ def _sources(d: Dossier) -> tuple[str, ...]:
 
 
 def _message_ids(d: Dossier) -> tuple[UUID, ...]:
-    lines = (d.current, *d.thread, *d.sender_history)
+    lines = (d.current, *d.thread, *d.sender_history, *d.similar_conversations)  # every message in the prompt
     return tuple(dict.fromkeys([*(line.message_id for line in lines), *d.extra_message_ids]))
 
 
@@ -110,4 +110,12 @@ def load(session: Session, msg: MessageRow, case: Case, und: Understanding, embe
     )  # fmt: skip
     return Loaded(
         ctx, msg.company_id, bool(company and company.paused), _message_ids(d), _sources(d), _dossier_source(d)
+    )
+
+
+def with_dossier(loaded: Loaded, dossier: Dossier) -> Loaded:
+    """Re-render a `Loaded` context after enriching its `Dossier` (e.g. instruction-aware enhancement)."""
+    ctx = replace(loaded.ctx, dossier=tuple(render_dossier(dossier)))
+    return Loaded(
+        ctx, loaded.company_id, loaded.paused, _message_ids(dossier), _sources(dossier), _dossier_source(dossier)
     )

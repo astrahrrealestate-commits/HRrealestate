@@ -268,6 +268,44 @@ def _store(engine: Engine, company_id: UUID, row_id: UUID, findings: list[Findin
             row.research = research
 
 
+def _run_questions(
+    engine: Engine,
+    settings: Settings,
+    company_id: UUID,
+    message_id: UUID,
+    questions: Sequence[str],
+    category: Category,
+    searcher: Searcher | None,
+    clock: Callable[[], float],
+) -> tuple[list[Finding], list[str], bool, int]:
+    cleaned = [q for q in (strip_risky(q).strip() for q in questions[:MAX_QUESTIONS]) if q]
+    if not cleaned:
+        return [], [], False, 0
+    search = searcher or (lambda domains: search_client(settings, engine, company_id, domains))
+    budget = _Budget(clock)
+    references = _references_for(engine, company_id, cleaned, category)
+    sources = _gather(references, cleaned, category, search, budget)
+    findings = _ask(engine, settings, company_id, message_id, cleaned, sources, budget.left())
+    unanswered = [q for q in cleaned if not any(f.question == q for f in findings)]
+    return findings, unanswered, budget.failed, budget.searches
+
+
+def ad_hoc_research(
+    engine: Engine,
+    settings: Settings,
+    company_id: UUID,
+    message_id: UUID,
+    questions: Sequence[str],
+    category: Category,
+    *,
+    searcher: Searcher | None = None,
+    clock: Callable[[], float] = time.monotonic,
+) -> tuple[Finding, ...]:
+    """Run targeted research for owner-requested draft enhancement without overwriting `UnderstandingRow.research`."""
+    findings, _, _, _ = _run_questions(engine, settings, company_id, message_id, questions, category, searcher, clock)
+    return tuple(findings)
+
+
 def research_for(
     engine: Engine, settings: Settings, company_id: UUID, message_id: UUID, *, searcher: Searcher | None = None,
     clock: Callable[[], float] = time.monotonic,
@@ -282,16 +320,12 @@ def research_for(
             return stored_findings(row.research)
         if not und.needs_research or not und.requires_reply or und.suspicious.flag:
             return ()
-    questions = [q for q in (strip_risky(q).strip() for q in und.research_questions[:MAX_QUESTIONS]) if q]
-    search = searcher or (lambda domains: search_client(settings, engine, company_id, domains))
-    budget = _Budget(clock)
-    references = _references_for(engine, company_id, questions, und.category) if questions else []
-    sources = _gather(references, questions, und.category, search, budget) if questions else []
-    findings = _ask(engine, settings, company_id, message_id, questions, sources, budget.left())
-    unanswered = [q for q in questions if not any(f.question == q for f in findings)]
-    if budget.failed and unanswered:
+    findings, unanswered, failed, searches = _run_questions(
+        engine, settings, company_id, message_id, und.research_questions, und.category, searcher, clock
+    )
+    if failed and unanswered:
         log.info("draft_research.not_final", unanswered=len(unanswered))
         return tuple(findings)  # not stored: a search failed, so a later run (redraft, draft-open) tries again
     _store(engine, company_id, row.id, findings, unanswered)
-    log.info("draft_research.done", findings=len(findings), unanswered=len(unanswered), searches=budget.searches)
+    log.info("draft_research.done", findings=len(findings), unanswered=len(unanswered), searches=searches)
     return tuple(findings)

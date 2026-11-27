@@ -27,6 +27,7 @@ REGION = "NL"
 DEFAULT_MAX_HITS = 8
 CURRENCY = "EUR"
 _THOUSANDS = re.compile(r"(?<=\d)[.,](?=\d{3}(?!\d))")
+_WEB_PRICE_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="web-price")
 
 Extractor = Callable[[SearchHit, str, str], ExtractedPrices]
 
@@ -67,8 +68,7 @@ class WebPriceSource:
         if len(hits) == 1:
             one = self._observe(hits[0], item_key, unit, as_of)
             return [one] if one is not None else []
-        with ThreadPoolExecutor(max_workers=min(4, len(hits))) as pool:
-            observed = list(pool.map(lambda h: self._observe(h, item_key, unit, as_of), hits))
+        observed = list(_WEB_PRICE_POOL.map(lambda h: self._observe(h, item_key, unit, as_of), hits))
         return [obs for obs in observed if obs is not None]
 
     def _hits(self, item_key: str) -> list[SearchHit]:

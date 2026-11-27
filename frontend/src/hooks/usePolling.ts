@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { effectivePollInterval, FEED_EVENT, subscribeFeedEvents } from "@/hooks/useFeedEvents";
 
 interface PollingOptions {
   /** A new key runs `tick` at once (e.g. the filter changed). */
@@ -17,21 +18,30 @@ export function usePolling(
   { restartKey, enabled = true }: PollingOptions = {}
 ): void {
   const latest = useRef(tick);
+  const inFlight = useRef(false);
   useEffect(() => {
     latest.current = tick;
   });
 
   useEffect(() => {
     if (!enabled) return;
+    const unsubscribe = subscribeFeedEvents();
     const run = () => {
-      if (!document.hidden) void latest.current();
+      if (document.hidden || inFlight.current) return;
+      inFlight.current = true;
+      void Promise.resolve(latest.current()).finally(() => {
+        inFlight.current = false;
+      });
     };
     run();
-    const timer = setInterval(run, intervalMs);
+    const timer = setInterval(run, effectivePollInterval(intervalMs));
     document.addEventListener("visibilitychange", run);
+    window.addEventListener(FEED_EVENT, run);
     return () => {
+      unsubscribe();
       clearInterval(timer);
       document.removeEventListener("visibilitychange", run);
+      window.removeEventListener(FEED_EVENT, run);
     };
   }, [intervalMs, restartKey, enabled]);
 }

@@ -368,14 +368,10 @@ def test_research_runs_only_when_needed_and_every_finding_has_a_url(
     findings = research_for(migrated_engine, test_settings, cid, mid_yes, searcher=lambda d: FakeSearch(tuple(d)))
     assert len(findings) == 1
     assert findings[0].url == "https://wetten.overheid.nl/huurverhoging"
+    from app.pipeline.draft_research import LEGAL_DOMAINS
+
     assert calls
-    assert set(calls[0][0]) == {
-        "wetten.overheid.nl",
-        "rechtspraak.nl",
-        "roz.nl",
-        "rijksoverheid.nl",
-        "huurcommissie.nl",
-    }
+    assert set(calls[0][0]) == set(LEGAL_DOMAINS)
 
 
 def test_legal_research_uses_the_reference_library_and_official_sources_only(
@@ -445,13 +441,12 @@ def test_legal_research_uses_the_reference_library_and_official_sources_only(
             del query, region, limit
             return []
 
+    from app.pipeline.draft_research import LEGAL_DOMAINS
+
     findings = research_for(migrated_engine, test_settings, cid, mid, searcher=lambda d: FakeSearch(tuple(d)))
     assert findings
     assert "drive-roz-1" in findings[0].url
-    assert all(
-        set(d) == {"wetten.overheid.nl", "rechtspraak.nl", "roz.nl", "rijksoverheid.nl", "huurcommissie.nl"}
-        for d in seen_domains
-    )
+    assert all(set(d) == set(LEGAL_DOMAINS) for d in seen_domains)
 
 
 def test_rules_hold_an_iban_only_found_in_an_attachment(

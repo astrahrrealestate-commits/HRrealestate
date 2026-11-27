@@ -16,7 +16,8 @@ from app.core.settings import Settings
 from app.db.models import AttachmentRow, MessageRow
 from app.pipeline.document_policy import FileMeta, looks_like_id, should_skip
 from app.pipeline.document_reading import Unread, attachment_text
-from app.storage.extract import TextExtractor
+from app.pipeline.dossier import allowed_attachment_scope
+from app.storage.extract import TextExtractor, canonical_mime
 from app.storage.ports import ObjectStorage
 
 log = get_logger(__name__)
@@ -30,15 +31,24 @@ def readable(row: AttachmentRow, sent_at: datetime) -> bool:
 def read_attachments(
     engine: Engine, settings: Settings, storage: ObjectStorage, extractor: TextExtractor, message_id: UUID
 ) -> int:
-    """How many attachments now have text. Budget stops leave a file for a later run."""
+    """How many attachments now have text across the mail and its allowed thread. Budget stops retry later."""
     with Session(engine) as session:
         msg = session.get(MessageRow, message_id)
         if msg is None:
             return 0
-        rows = session.scalars(
-            select(AttachmentRow).where(AttachmentRow.company_id == msg.company_id, AttachmentRow.message_id == msg.id)
+        mids, photos_only = allowed_attachment_scope(session, msg)
+        rows = session.execute(
+            select(AttachmentRow, MessageRow.sent_at)
+            .join(MessageRow, MessageRow.id == AttachmentRow.message_id)
+            .where(AttachmentRow.company_id == msg.company_id, AttachmentRow.message_id.in_(mids))
+            .order_by((AttachmentRow.message_id == msg.id).desc(), MessageRow.sent_at.desc())
         ).all()
-        wanted = [(r.id, msg.company_id) for r in rows if readable(r, msg.sent_at)]
+        wanted = [
+            (r.id, msg.company_id)
+            for r, sent_at in rows
+            if readable(r, sent_at)
+            and (r.message_id not in photos_only or canonical_mime(r.mime_type, r.filename).startswith("image/"))
+        ]
     done = 0
     for attachment_id, company_id in wanted:
         try:

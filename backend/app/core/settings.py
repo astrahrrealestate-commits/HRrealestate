@@ -23,6 +23,9 @@ class Settings(BaseSettings):
 
     env: Literal["dev", "test", "prod"] = "dev"
     database_url: PostgresDsn
+    db_pool_size: PositiveInt = 8
+    db_max_overflow: int = 12
+    db_pool_timeout_sec: PositiveInt = 15
     api_port: int = 8000
     app_version: str = app.__version__
 
@@ -63,6 +66,7 @@ class Settings(BaseSettings):
     owner_qa_daily_cap: int | None = None  # owner questions per day
     owner_qa_daily_budget_usd: Decimal | None = None
     concierge_daily_cap: int | None = None  # Super Agent plans per day
+    brixx_ocr_daily_cap: int | None = 100  # vision reads of scanned BRIXX documents per day (M13): never starves mail
     concierge_daily_budget_usd: Decimal | None = None
     history_queue_concurrency: PositiveInt = 4  # reloaded mails processed at once per worker (M13)
     concierge_worker_concurrency: PositiveInt = 4  # Super Agent turns running at once per worker (chat queue)

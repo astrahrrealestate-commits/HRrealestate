@@ -313,7 +313,7 @@ def test_calendar_step_never_books_with_another_companys_contractor(world: World
             events = s.scalars(select(CalendarEventRow).where(CalendarEventRow.company_id.in_([world.company, other])))
             assert events.all() == []
         assert "Bram" not in body["answer"]
-        assert "which property and which contractor" in body["answer"]
+        assert "Who is this meeting or visit with" in body["answer"]
         assert body["previewCard"] is None
     finally:
         with Session(world.engine) as s, s.begin():

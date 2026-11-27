@@ -27,6 +27,7 @@ import { PulseMetrics } from "@/types/dashboard";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { useCachedState } from "@/hooks/useCachedState";
 
 interface BriefingPayload {
   headline: string;
@@ -41,14 +42,15 @@ export default function TodayPage() {
   const { t } = useLanguage();
 
   // Live backend state (never seed demo metrics when offline)
-  const [threads, setThreads] = useState<InboxThread[]>([]);
-  const [attentionItems, setAttentionItems] = useState<AttentionItem[]>([]);
-  const [attentionTotal, setAttentionTotal] = useState<number>(0);
-  const [metrics, setMetrics] = useState<PulseMetrics | null>(null);
-  const [portfolio, setPortfolio] = useState<PropertyComplex[] | null>(null);
-  const [tenants, setTenants] = useState<TenantProfile[] | null>(null);
+  const [threads, setThreads] = useCachedState<InboxThread[]>("today.threads", []);
+  const [attentionItems, setAttentionItems] = useCachedState<AttentionItem[]>("today.attention", []);
+  const [attentionTotal, setAttentionTotal] = useCachedState<number>("today.attentionTotal", 0);
+  const [metrics, setMetrics] = useCachedState<PulseMetrics | null>("today.metrics", null);
+  const [portfolio, setPortfolio] = useCachedState<PropertyComplex[] | null>("today.portfolio", null);
+  const [tenants, setTenants] = useCachedState<TenantProfile[] | null>("today.tenants", null);
   const [briefingKind, setBriefingKind] = useState<"daily" | "weekly">("daily");
-  const [briefingData, setBriefingData] = useState<BriefingPayload | null>(null);
+  const [briefings, setBriefings] = useCachedState<Partial<Record<"daily" | "weekly", BriefingPayload>>>("today.briefing", {});
+  const briefingData = briefings[briefingKind] ?? null;
   const [isBriefingExpanded, setIsBriefingExpanded] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -77,7 +79,7 @@ export default function TodayPage() {
 
   const commitDashboardSnapshot = useCallback(
     (snap: Awaited<ReturnType<typeof fetchDashboardSnapshot>>) => {
-      if (snap.threadsRes.status === "fulfilled") {
+      if (snap.threadsRes.status === "fulfilled" && snap.threadsRes.value.isLive) {
         setThreads(snap.threadsRes.value.threads || []);
       }
       if (snap.pulseRes.status === "fulfilled" && snap.pulseRes.value.isLive && snap.pulseRes.value.metrics) {
@@ -88,7 +90,7 @@ export default function TodayPage() {
         setAttentionTotal(snap.attentionRes.value.total || 0);
       }
     },
-    []
+    [setAttentionItems, setAttentionTotal, setMetrics, setThreads]
   );
 
   useEffect(() => {
@@ -110,19 +112,20 @@ export default function TodayPage() {
       mounted = false;
       clearTimeout(secondaryTimer);
     };
-  }, [fetchDashboardSnapshot, commitDashboardSnapshot]);
+  }, [fetchDashboardSnapshot, commitDashboardSnapshot, setPortfolio, setTenants]);
 
   useEffect(() => {
     let mounted = true;
     getDashboardBriefing(briefingKind).then((res) => {
       if (mounted && res.isLive && res.data) {
-        setBriefingData(res.data);
+        const data = res.data;
+        setBriefings((prev) => ({ ...prev, [briefingKind]: data }));
       }
     });
     return () => {
       mounted = false;
     };
-  }, [briefingKind]);
+  }, [briefingKind, setBriefings]);
 
   // Single source of truth counts
   const currentNeedsYouCount = useMemo(() => needsYouCount(threads), [threads]);
@@ -200,7 +203,6 @@ export default function TodayPage() {
     <WorkspaceShell
       pageTitle="Main Dashboard"
       pendingCount={currentNeedsYouCount}
-      threads={threads}
       onSyncMailbox={handleSyncMailbox}
       isSyncing={isSyncing}
       agentPageName="Today"

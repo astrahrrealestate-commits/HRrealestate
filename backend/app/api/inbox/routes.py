@@ -5,6 +5,8 @@ audience filtering, and 1-click owner approval execution to the Next.js frontend
 """
 
 import contextlib
+import hashlib
+import re
 import threading
 import urllib.parse
 from collections import defaultdict
@@ -15,7 +17,7 @@ from typing import Annotated, Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine, func, select
@@ -87,6 +89,7 @@ from app.ingestion.gmail_sync import sync_mailbox
 from app.ingestion.process import IngestDeps, company_mailboxes, owner_addresses
 from app.pipeline import dashboard_decisions
 from app.pipeline.dashboard_decisions import is_suspicious
+from app.pipeline.enhance import enhance_draft
 from app.storage.ports import ObjectStorage
 
 router = APIRouter(
@@ -104,6 +107,7 @@ class ApprovalDecideRequest(BaseModel):
     reply_to_message_id: str | None = Field(
         default=None, description="Optional message ID to quote in contextual reply"
     )
+    attachment_ids: list[str] = Field(default_factory=list, description="Optional uploaded attachment UUIDs")
 
 
 # Rich default seeds so the frontend displays complete live data even before first email webhook arrives
@@ -210,6 +214,29 @@ def _offered_reply(actions: list[ActionRow], messages: list[MessageRow], shown: 
     return action
 
 
+_VARIANT_TAG_RE = re.compile(r"\s*\((?:Variant|Draft)\s+([12])\)\.?\s*$", re.IGNORECASE)
+
+
+def _commitments_for_variant(raw_commitments: list[str], variant_idx: int) -> list[str]:
+    """Filter commitments tagged for a specific variant (1 or 2) and strip the `(Variant N)` suffix."""
+    out: list[str] = []
+    for item in raw_commitments:
+        text = item.strip()
+        if not text:
+            continue
+        match = _VARIANT_TAG_RE.search(text)
+        if match is not None:
+            if int(match.group(1)) != variant_idx:
+                continue
+            cleaned = text[: match.start()].rstrip(" .")
+            if text.endswith(".") and not cleaned.endswith("."):
+                cleaned += "."
+            text = cleaned
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
 def _build_drafts(
     reply_action: ActionRow | None, sender_name: str
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any] | None]:
@@ -225,13 +252,14 @@ def _build_drafts(
                 "version": reply_action.persona_version,
             }
         variants = (reply_action.payload.get("body_variants") or [])[:2]
-        commitments = [str(c) for c in reply_action.payload.get("commitments") or []]
+        raw_commitments = [str(c) for c in reply_action.payload.get("commitments") or []]
         if not variants and reply_action.payload.get("text"):
             variants = [reply_action.payload["text"]]
         elif not variants and reply_action.payload.get("body"):
             variants = [reply_action.payload["body"]]
 
         for idx, text in enumerate(variants, start=1):
+            commitments = _commitments_for_variant(raw_commitments, idx)
             gmail_drafts.append(
                 {
                     "id": f"gd{idx}",
@@ -713,7 +741,7 @@ def _build_live_threads(
     include_html: bool = True,
 ) -> list[dict[str, Any]]:
     """Builds frontend-compatible thread structures from PostgreSQL via batched read-only queries."""
-    has_filters = channel != "all" or audience != "all" or category != "all"
+    has_python_filters = channel != "all" or audience != "all" or category in ("contractor_repairs", "contractor_money")
     base_q = session.query(Case).filter(Case.company_id == company_id)
     if sort == "priority":
         closed_rank = sql_case((Case.state.in_((CaseState.closed, CaseState.resolved)), 1), else_=0)
@@ -729,19 +757,72 @@ def _build_live_threads(
     if category not in ("all", "contractor_repairs", "contractor_money"):
         with contextlib.suppress(ValueError):
             base_q = base_q.filter(Case.category == Category(category))
-    cases = base_q.all() if has_filters else base_q.offset(offset).limit(limit).all()
-    return _assemble_cases(
-        session,
-        company_id,
-        cases,
-        has_filters=has_filters,
-        channel=channel,
-        audience=audience,
-        category=category,
-        limit=limit,
-        offset=offset,
-        include_html=include_html,
-    )
+
+    if not has_python_filters:
+        cases = base_q.offset(offset).limit(limit).all()
+        return _assemble_cases(
+            session,
+            company_id,
+            cases,
+            has_filters=False,
+            channel=channel,
+            audience=audience,
+            category=category,
+            limit=limit,
+            offset=0,
+            include_html=include_html,
+        )
+
+    # Scan in bounded SQL chunks rather than loading every case for the company into Python memory.
+    needed = offset + limit
+    batch_size = min(max(needed * 2, 100), 200)
+    sql_offset = 0
+    kept_prepared: list[_PreparedCase] = []
+    last_msg_batch: ThreadMessagesBatch | None = None
+    now_dt = datetime.now(UTC)
+
+    while len(kept_prepared) < needed:
+        chunk = base_q.offset(sql_offset).limit(batch_size).all()
+        if not chunk:
+            break
+        sql_offset += len(chunk)
+        msg_batch = load_messages_batch(session, company_id, chunk)
+        last_msg_batch = msg_batch
+        matched = _prepare_cases(
+            chunk,
+            msg_batch,
+            has_filters=True,
+            channel=channel,
+            audience=audience,
+            category=category,
+            limit=needed - len(kept_prepared),
+            offset=0,
+        )
+        kept_prepared.extend(matched)
+        if len(chunk) < batch_size:
+            break
+
+    page_prepared = kept_prepared[offset:needed]
+    if not page_prepared or last_msg_batch is None:
+        return []
+
+    # Re-load message batch only for the final page so ThreadMessagesBatch maps match all kept cases across chunks.
+    page_cases = [p.case for p in page_prepared]
+    final_msg_batch = load_messages_batch(session, company_id, page_cases)
+    company_tz = ZoneInfo(final_msg_batch.company.timezone if final_msg_batch.company else "Europe/Amsterdam")
+    kept_case_ids = [p.case.id for p in page_prepared]
+    kept_msg_ids = [m.id for p in page_prepared for m in p.messages]
+    unit_labels = {p.raw_unit_label for p in page_prepared if p.raw_unit_label != UNASSIGNED_UNIT}
+    details = load_details_batch(session, company_id, kept_case_ids, kept_msg_ids, unit_labels, now_dt.date())
+
+    live_threads = [
+        _assemble_thread(p, final_msg_batch, details, company_tz=company_tz, now_dt=now_dt, include_html=include_html)
+        for p in page_prepared
+    ]
+    all_msgs = [m for t in live_threads for m in t["messages"]]
+    all_drafts = [d for t in live_threads for d in (*t["gmailDrafts"], *t["whatsappDrafts"])]
+    annotate_translations(session, company_id, all_msgs, all_drafts)
+    return live_threads
 
 
 @router.get(
@@ -1027,11 +1108,109 @@ def _quoted_inbound(
     )
 
 
+_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+_WA_IMAGE_LIMIT = 16 * 1024 * 1024
+
+
+def _owned_attachment_ids(session: Session, company_id: UUID, raw_ids: list[str]) -> list[str]:
+    parsed: list[UUID] = []
+    for raw in raw_ids:
+        try:
+            parsed.append(UUID(str(raw)))
+        except ValueError:
+            continue
+    if not parsed:
+        return []
+    found = set(
+        session.scalars(
+            select(AttachmentRow.id).where(AttachmentRow.company_id == company_id, AttachmentRow.id.in_(parsed))
+        ).all()
+    )
+    return [str(aid) for aid in parsed if aid in found]
+
+
+@router.post(
+    "/threads/{case_id}/attachments",
+    summary="Upload an Attachment for Outbound Reply + Drive/RAG Filing",
+    description=(
+        "Stores an attachment once in ObjectStorage, links it to the thread, and enqueues background classification, "
+        "RAG chunk indexing, and Google Drive upload into `EstateOS/<unit>/<kind>/<year>/`."
+    ),
+)
+async def upload_thread_attachment(
+    case_id: str,
+    engine: Annotated[Engine, Depends(get_engine)],
+    storage: Annotated[ObjectStorage, Depends(get_storage)],
+    client: Annotated[WorkflowClient, Depends(get_workflow_client)],
+    principal: Annotated[Principal, Depends(require_session)],
+    file: Annotated[UploadFile, File()],
+) -> dict[str, Any]:
+    try:
+        c_uuid = UUID(case_id.replace("case-", ""))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Thread not found") from None
+
+    raw = await file.read(_MAX_UPLOAD_BYTES + 1)
+    if not raw:
+        raise HTTPException(status_code=422, detail="File is empty.")
+    if len(raw) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File exceeds 25 MB limit.")
+
+    company_id = principal.company_id
+    raw_name = (file.filename or "attachment").rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", raw_name).strip("._") or "attachment"
+    mime_type = (file.content_type or "application/octet-stream").split(";", 1)[0].strip().lower()
+    att_id = new_id()
+    s3_key = f"attachments/{company_id}/{c_uuid}/{att_id}/{safe_name[:120]}"
+    sha256 = hashlib.sha256(raw).hexdigest()
+
+    with Session(engine) as session, session.begin():
+        case = session.scalar(select(Case).where(Case.id == c_uuid, Case.company_id == company_id))
+        if case is None:
+            raise HTTPException(status_code=404, detail="Case not found")
+        msg_id = session.scalar(
+            select(CaseLink.message_id)
+            .where(CaseLink.company_id == company_id, CaseLink.case_id == c_uuid)
+            .order_by(CaseLink.created_at.desc())
+            .limit(1)
+        )
+        if msg_id is None:
+            raise HTTPException(status_code=422, detail="Thread has no message to attach files to yet.")
+        storage.put(s3_key, raw, mime_type)
+        session.add(
+            AttachmentRow(
+                id=att_id,
+                company_id=company_id,
+                message_id=msg_id,
+                s3_key=s3_key,
+                mime_type=mime_type[:255],
+                filename=raw_name[:255],
+                size_bytes=len(raw),
+                sha256=sha256,
+            )
+        )
+
+    enqueue.enqueue_document(client, company_id, att_id)
+    is_image = mime_type.startswith("image/")
+    whatsapp_allowed = (len(raw) <= _WA_IMAGE_LIMIT) if is_image else True
+    return {
+        "ok": True,
+        "attachmentId": str(att_id),
+        "filename": raw_name[:255],
+        "mimeType": mime_type,
+        "sizeBytes": len(raw),
+        "gmailAllowed": True,
+        "whatsappAllowed": whatsapp_allowed,
+        "driveQueued": True,
+    }
+
+
 class ThreadReplyRequest(BaseModel):
     body: str = Field(min_length=1, max_length=20000)
     channel: str | None = None
     reply_to_message_id: str | None = None
     confirm_suspicious: bool = False
+    attachment_ids: list[str] = Field(default_factory=list)
 
 
 @router.post(
@@ -1091,10 +1270,12 @@ def send_thread_reply(
         ):
             raise HTTPException(status_code=409, detail="confirm_suspicious_required")
         quoted_id = _quoted_inbound(session, company_id, c_uuid, chosen_channel, req.reply_to_message_id)
+        owned_atts = _owned_attachment_ids(session, company_id, req.attachment_ids)
         payload: dict[str, Any] = {
             "kind": "reply_draft",
             "channel": chosen_channel.value,
             "body_variants": [body_text],
+            **({"attachment_ids": owned_atts} if owned_atts else {}),
         }
         action = ActionRow(
             company_id=company_id,
@@ -1145,6 +1326,62 @@ def send_thread_reply(
     }
 
 
+class EnhanceDraftRequest(BaseModel):
+    instruction: str = Field(min_length=1, max_length=500, description="How to improve or redraft the reply")
+    current_text: str = Field(default="", max_length=8000, description="Current text in the composer")
+    message_id: str | None = Field(default=None, description="Optional target message UUID on this thread")
+
+
+@router.post(
+    "/threads/{case_id}/enhance",
+    summary="Enhance or Redraft Reply with AI",
+    description=(
+        "Plans any missing RAG/mail/web/DB lookups from the owner's instruction, enriches the message dossier, "
+        "runs the quality proposer, and updates or creates the pending draft approval."
+    ),
+)
+def enhance_thread_draft(
+    case_id: str,
+    req: EnhanceDraftRequest,
+    engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
+) -> dict[str, Any]:
+    """Instruction-aware redraft for Inbox Gmail and WhatsApp composers."""
+    try:
+        c_uuid = UUID(case_id.removeprefix("case-"))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Thread not found") from None
+    m_uuid: UUID | None = None
+    if req.message_id:
+        try:
+            m_uuid = UUID(req.message_id.removeprefix("msg-"))
+        except ValueError:
+            m_uuid = None
+    res = enhance_draft(
+        engine,
+        get_settings(),
+        principal.company_id,
+        c_uuid,
+        instruction=req.instruction,
+        current_text=req.current_text,
+        message_id=m_uuid,
+    )
+    if not res.ok:
+        raise HTTPException(status_code=422, detail=res.problem or "Could not enhance draft.")
+    raw_commitments = list(res.commitments)
+    per_variant = [_commitments_for_variant(raw_commitments, idx) for idx in (1, 2)]
+    return {
+        "ok": True,
+        "draftText": res.variants[0] if res.variants else "",
+        "variants": list(res.variants),
+        "commitments": per_variant[0],
+        "commitmentsByVariant": per_variant,
+        "approvalId": str(res.approval_id) if res.approval_id else None,
+        "draftVersion": res.draft_version,
+        "sourcesUsed": list(res.sources_used),
+    }
+
+
 @router.post(
     "/approvals/{approval_id}/decide",
     dependencies=[Depends(decide_limit)],
@@ -1175,6 +1412,9 @@ def decide_approval(
             early = inbox_decide.guard(session, target, now)
             if early is not None:
                 return early
+            owned_atts = _owned_attachment_ids(session, principal.company_id, req.attachment_ids)
+            if owned_atts and target.action is not None:
+                target.action.payload = {**target.action.payload, "attachment_ids": owned_atts}
             outcome = inbox_decide.decide(session, target, choice, req.edited_text, now)
             approved = outcome.decision is None or outcome.decision.kind == "execute"
             if target.action is not None and approved:

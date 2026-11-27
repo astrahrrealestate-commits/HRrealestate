@@ -45,6 +45,31 @@ def make_docx(paragraphs: list[str]) -> bytes:
     return buf.getvalue()
 
 
+def make_xlsx(rows: list[list[str]]) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        body = "".join(
+            "<row>" + "".join(f'<c t="inlineStr"><is><t>{cell}</t></is></c>' for cell in row) + "</row>" for row in rows
+        )
+        z.writestr("xl/worksheets/sheet1.xml", f"<worksheet><sheetData>{body}</sheetData></worksheet>")
+    return buf.getvalue()
+
+
+def test_xlsx_and_octet_stream_filename_fallback() -> None:
+    xlsx_bytes = make_xlsx([["Eenheid", "Huur"], ["Singel 5", "1850"]])
+    got_xlsx = LocalExtractor().extract(xlsx_bytes, "application/octet-stream", "huurlijst.xlsx")
+    assert got_xlsx.status is ExtractionStatus.done
+    assert got_xlsx.text == "Eenheid | Huur\nSingel 5 | 1850"
+
+    got_pdf = LocalExtractor().extract(make_pdf([LEASE_TEXT]), "application/octet-stream", "huur.pdf")
+    assert got_pdf.status is ExtractionStatus.done
+    assert got_pdf.text is not None
+    assert "waarborgsom" in got_pdf.text
+
+    got_scan = LocalExtractor().extract(b"\xff\xd8data", "application/octet-stream", "foto.jpg")
+    assert got_scan.needs_ocr is True
+
+
 def test_text_pdf_is_read() -> None:
     got = LocalExtractor().extract(make_pdf([LEASE_TEXT]), PDF, "huur.pdf")
     assert got.status is ExtractionStatus.done

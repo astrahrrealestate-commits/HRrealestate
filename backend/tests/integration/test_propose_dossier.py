@@ -2,8 +2,9 @@
 
 import re
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import Engine, select
@@ -105,7 +106,7 @@ def test_propose_uses_v6_with_the_dossier_and_records_its_messages(
     assert "Eerder: de kraan druppelt." in seen[0]
     with Session(migrated_engine) as s:
         call = s.scalars(select(ModelCall).where(ModelCall.company_id == cid, ModelCall.purpose == "proposer")).one()
-    assert call.prompt_version == "v8"
+    assert call.prompt_version == "v11"
     assert mid in call.message_ids
     assert len(call.message_ids) == 2
 
@@ -114,7 +115,7 @@ def test_owner_redraft_uses_v6_with_the_dossier(migrated_engine: Engine, committ
     mid = _mail(migrated_engine, committed_company.id)
     loaded = load_message(migrated_engine, mid)
     assert loaded is not None
-    assert proposer_spec(loaded.ctx).prompt.key == "proposer/v8"
+    assert proposer_spec(loaded.ctx).prompt.key == "proposer/v11"
     assert any("Eerder: de kraan druppelt." in block for block in loaded.ctx.dossier)
 
 
@@ -228,3 +229,21 @@ def test_an_emergency_keeps_its_escalation_when_both_drafts_are_generic(
     propose_for_message(migrated_engine, settings, _mail(migrated_engine, cid, urgency=Urgency.emergency))
     assert len(base) == 2
     assert ActionType.escalate in {a.type for a in _actions(migrated_engine, cid)}
+
+
+def test_the_proposer_call_names_every_message_in_its_dossier_precedents_included(
+    migrated_engine: Engine, committed_company: Company
+) -> None:
+    """Erasure judges a tagged call by its tags: a precedent's message must be among them."""
+    from dataclasses import replace
+
+    from app.contracts import Direction
+    from app.pipeline import propose_load
+    from app.pipeline.conversation import ThreadLine
+    from app.pipeline.dossier import Dossier
+
+    precedent = ThreadLine(uuid4(), datetime(2026, 1, 1, tzinfo=UTC), Direction.outbound, "precedent", None, "x")
+    base = Dossier(current=replace(precedent, message_id=uuid4()), thread=(), sender_history=(), attachments=(),
+                   documents=(), references=(), memory=None, owner_rules=(), waiting=())  # fmt: skip
+    d = replace(base, similar_conversations=(precedent,))
+    assert precedent.message_id in propose_load._message_ids(d)

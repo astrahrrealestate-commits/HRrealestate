@@ -2,7 +2,6 @@
 
 import React, { useState, useMemo, useEffect, useCallback, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { Button } from "@/components/ui/Button";
@@ -35,6 +34,7 @@ import { ResizeHandle, usePersistedPaneSize } from "@/components/ui/ResizableSpl
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { usePolling } from "@/hooks/usePolling";
+import { useCachedState } from "@/hooks/useCachedState";
 
 function findMatchingUnitAndComplex(
   complexes: PropertyComplex[],
@@ -276,8 +276,6 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
 
   return (
     <div className="h-dvh bg-[#0A1B2F] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
-      {/* 1. Left Nav (Desktop Sidebar) */}
-      <Sidebar />
 
       {/* 2. Main Content Canvas */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0A1B2F]">
@@ -1032,9 +1030,8 @@ function PropertiesView({ complexes: PROPERTY_COMPLEXES }: { complexes: Property
 }
 
 function PropertiesContent() {
-  const [state, setState] = useState<
-    { status: "loading" } | { status: "error" } | { status: "ready"; complexes: PropertyComplex[] }
-  >({ status: "loading" });
+  const [complexes, setComplexes] = useCachedState<PropertyComplex[] | null>("properties.complexes", null);
+  const [failed, setFailed] = useState(false);
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -1048,22 +1045,22 @@ function PropertiesContent() {
     () =>
       getPortfolio().then((result) => {
         if (!mountedRef.current) return;
-        if (result.ok) setState({ status: "ready", complexes: result.data });
-        else setState((prev) => (prev.status === "ready" ? prev : { status: "error" }));
+        if (result.ok) setComplexes(result.data);
+        setFailed(!result.ok);
       }),
-    []
+    [setComplexes]
   );
 
   usePolling(loadPortfolio, 60000);
 
-  if (state.status === "loading") return <PageStateShell title="Properties" message="Loading properties…" />;
-  if (state.status === "error") {
+  if (!complexes && !failed) return <PageStateShell title="Properties" message="Loading properties…" />;
+  if (!complexes) {
     return <PageStateShell title="Properties" message="Can't reach the server. Retrying…" alert />;
   }
-  if (state.complexes.length === 0) {
+  if (complexes.length === 0) {
     return <PageStateShell title="Properties" message="No properties recorded yet." />;
   }
-  return <PropertiesView complexes={state.complexes} />;
+  return <PropertiesView complexes={complexes} />;
 }
 
 export default function PropertiesPage() {

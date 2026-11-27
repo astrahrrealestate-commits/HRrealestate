@@ -30,7 +30,7 @@ export function SectionGuard({ children }: { children: React.ReactNode }) {
 
   const firstOpen = (user?.sections ?? []).find((key): key is SectionKey => key in SECTION_HOME);
   return (
-    <div className="flex-1 flex items-center justify-center p-8 bg-[var(--bg)]" role="alert">
+    <div className="h-full flex items-center justify-center p-8 bg-[var(--bg)]" role="alert">
       <div className="max-w-sm text-center space-y-3">
         <Lock className="w-6 h-6 mx-auto text-[var(--ink-3)]" />
         <h1 className="font-heading font-bold text-lg text-[var(--ink)]">No access to this page</h1>

@@ -15,6 +15,7 @@ class Source(Contract):
     kind: SourceKind
     ref: str  # a row id, or the URL of a fetched page
     label: str
+    href: str | None = None  # where the chip opens, built by the server (`superagent.source_links`), never the model
 
 
 class SourcedAnswer(Contract):

@@ -16,6 +16,7 @@ interface TranslationToggleProps {
   /** Dutch already cached on the server for an English text. */
   cachedDutch?: string;
   align?: "left" | "right";
+  panelClassName?: string;
 }
 
 /**
@@ -24,7 +25,14 @@ interface TranslationToggleProps {
  * it for everyone. A cached translation opens expanded, so a translated thread reads translated without clicks.
  * Results are kept per text, so editing a draft never shows the translation of an older version.
  */
-export function TranslationToggle({ text, language, cachedEnglish, cachedDutch, align = "left" }: TranslationToggleProps) {
+export function TranslationToggle({
+  text,
+  language,
+  cachedEnglish,
+  cachedDutch,
+  align = "left",
+  panelClassName,
+}: TranslationToggleProps) {
   const { language: uiLanguage } = useLanguage();
   const target: "en" | "nl" = uiLanguage === "nl" ? "nl" : "en";
   const source = target === "en" ? "nl" : "en";
@@ -79,7 +87,8 @@ export function TranslationToggle({ text, language, cachedEnglish, cachedDutch, 
         <div
           className={cn(
             "mt-1 text-xs text-[var(--ink-3)] italic bg-[var(--pane)] border border-[var(--line)]/60 rounded px-2.5 py-1.5 max-w-[85%] whitespace-pre-line",
-            align === "right" && "text-right"
+            align === "right" && "text-right",
+            panelClassName
           )}
         >
           {loading && (dutchUi ? "Vertalen…" : "Translating…")}

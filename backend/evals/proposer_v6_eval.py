@@ -18,6 +18,7 @@ from pydantic_evals import Dataset
 from app.context.persona import DEFAULT_NAME, DEFAULT_PATH
 from app.contracts import (
     ActionType,
+    CaseState,
     Category,
     Channel,
     Direction,
@@ -27,7 +28,9 @@ from app.contracts import (
     ReplyDraftPayload,
     Suspicious,
     Understanding,
+    UpdateCaseStatePayload,
     Urgency,
+    WaitingSide,
 )  # fmt: skip
 from app.contracts.person_memory import PersonMemory
 from app.contracts.research import Finding
@@ -49,7 +52,8 @@ RUBRIC = (
     "acknowledgement. It reviewed the thread, attachments and quotes. It is commercially sharp: on a quote it "
     "negotiates price or terms with numbers. It is complete and concise, asks specific questions instead of assuming, "
     "invents no price, date, amount, rule or promise that is not in the input, and is one step ahead: it ends with the "
-    "next concrete step. Pass only if the first variant meets every point."
+    "next concrete step. It never asks for what the thread or attachments already answer, and negotiates only on money "
+    "where a saving is realistic. Pass only if the first variant meets every point."
 )
 
 
@@ -94,13 +98,16 @@ class V6Label(BaseModel):
     mentions_any: list[list[str]] = Field(default_factory=list)
     never_mentions: list[str] = Field(default_factory=list)
     min_questions: int = 0
+    max_questions: int | None = None  # the dossier answers the mail: more questions than this is asking what is known
     escalate: bool = False
+    resolves: bool = False  # nothing is left to decide: the proposal closes the case
     real_only: bool = False
 
 
 class V6Output(BaseModel):
     variants: list[str]
     escalated: bool = False
+    resolved: bool = False
     commitments: list[str] = Field(default_factory=list)
 
 
@@ -135,7 +142,8 @@ def context(i: V6Input, persona: Persona) -> ProposerContext:
     und = Understanding(
         category=i.category, intent="Message", urgency=i.urgency, requires_reply=True, entities=Entities.none(),
         suspicious=Suspicious(flag=False, reason=None), confidence=0.9, sender_role=None, needs_research=False,
-        research_questions=[], prompt_version="understanding/v4",
+        research_questions=[], waiting_side=WaitingSide.none, open_obligation=None, expected_days=None,
+        expected_date=None, prompt_version="understanding/v4",
     )  # fmt: skip
     return ProposerContext(
         case_id=UUID(int=1), channel=Channel.gmail, subject="Re", message_text=i.message, understanding=und,
@@ -148,15 +156,22 @@ def hard_problem(label: V6Label, out: V6Output) -> str | None:
     first = out.variants[0] if out.variants else ""
     if not out.variants or is_generic(first):
         return "generic draft"
-    if any(bad.lower() in v.lower() for bad in label.never_mentions for v in out.variants):
-        return "obeyed or repeated injected text"
+    for bad in label.never_mentions:
+        for v in out.variants:
+            at = v.lower().find(bad.lower())
+            if at >= 0:  # the phrase in context, so a report tells an admission from a denial
+                return f"forbidden '{bad}': …{cell(v[max(0, at - 40) : at + len(bad) + 40], 120)}…"
     for words in label.mentions_any:
         if not any(w.lower() in first.lower() for w in words):
             return f"missing: {words[0]}"
     if first.count("?") < label.min_questions:
         return "too few questions"
+    if label.max_questions is not None and first.count("?") > label.max_questions:
+        return "asked what the dossier answers"
     if label.escalate and not out.escalated:
         return "no escalation"
+    if label.resolves and not out.resolved:
+        return "left open"
     return None
 
 
@@ -182,6 +197,10 @@ def _output(proposal: Proposal) -> V6Output:
     return V6Output(
         variants=list(replies[0].body_variants) if replies else [],
         escalated=any(a.type is ActionType.escalate for a in proposal.actions),
+        resolved=any(
+            isinstance(a.payload, UpdateCaseStatePayload) and a.payload.new_state is CaseState.resolved
+            for a in proposal.actions
+        ),
         commitments=list(replies[0].commitments) if replies else [],
     )
 

@@ -17,7 +17,15 @@ from app.db.enums import DocumentStatus
 FILE_THRESHOLD = 0.80
 MIN_IMAGE_BYTES = 20_000  # smaller images are logos, signatures and tracking pixels
 ROOT_FOLDER = "EstateOS"
-_SKIP_MIME_PREFIXES = ("text/", "application/pgp-signature", "application/pkcs7-signature")
+_SKIP_MIME_PREFIXES = (
+    "text/html",
+    "text/calendar",
+    "text/directory",
+    "text/vcard",
+    "text/x-vcard",
+    "application/pgp-signature",
+    "application/pkcs7-signature",
+)
 _SKIP_SUFFIXES = (".ics", ".vcf", ".p7s", ".asc")
 _MIME_EXT = {
     "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png", "image/heic": "heic", "image/webp": "webp",
@@ -42,6 +50,8 @@ def should_skip(meta: FileMeta) -> bool:
     if meta.size_bytes <= 0:
         return True
     if meta.mime_type.startswith("image/") and meta.size_bytes < MIN_IMAGE_BYTES:
+        return True
+    if meta.mime_type == "text/plain" and not meta.filename:
         return True
     return meta.mime_type.startswith(_SKIP_MIME_PREFIXES) or name.endswith(_SKIP_SUFFIXES)
 
@@ -75,6 +85,19 @@ def looks_like_id_text(text: str) -> bool:
     if any("<<" in line for line in _MRZ.findall(head)) or _BSN.search(head):
         return True
     return bool(_ID_WORDS.search(head) and _ID_FIELDS.search(head))
+
+
+_FINANCE = re.compile(
+    r"loonstrook|salarisstrook|salarisspecificatie|loonspecificatie|loonheffing|brutoloon|nettoloon|payslip|"
+    r"pay slip|rekeningafschrift|bankafschrift|bank statement|beginsaldo|eindsaldo|jaaropgaaf|werkgeversverklaring",
+    re.IGNORECASE,
+)
+
+
+def looks_like_finance_text(text: str) -> bool:
+    """Text that reads like a payslip, employer statement or bank statement: a tenant's income papers, never draft
+    context (M13, BRIXX documents). Words, not names: these papers often carry a neutral title."""
+    return bool(_FINANCE.search(text[:20_000]))
 
 
 def slug(text: str, limit: int = 40) -> str:

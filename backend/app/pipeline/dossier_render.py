@@ -99,6 +99,8 @@ def _fixed(d: Dossier) -> dict[str, str]:
         add("open_waits", "\n".join(f"- {w}" for w in d.waiting))
     if d.quote:
         add("quote_review", d.quote)
+    if d.unread_attachments:
+        add("unread_attachments", "\n".join(f"- {one_line(name)}" for name in d.unread_attachments))
     if d.research:
         add("research", "\n".join(f"- {f.question}\n  {f.answer}\n  source: {f.url}" for f in d.research))
     return out
@@ -107,7 +109,7 @@ def _fixed(d: Dossier) -> dict[str, str]:
 ORDER = (
     "owner_rules", "person_memory", "tenancy", "open_waits", "older_mail", "similar_conversations",
     "sender_history", "thread", "documents", "references",
-    "attachment_text", "quote_review", "research", "current_message",
+    "unread_attachments", "attachment_text", "quote_review", "research", "current_message",
 )  # fmt: skip
 
 

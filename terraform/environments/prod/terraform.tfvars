@@ -16,13 +16,13 @@ frontend_port = 3000
 
 # Database (PostgreSQL 16)
 db_engine_version        = "16.11"
-db_instance_class        = "db.t3.micro"
+db_instance_class        = "db.t4g.small"
 db_allocated_storage     = 20
 db_max_allocated_storage = 100
 db_name                  = "estateos"
 db_username              = "estateos"
 multi_az                 = false
-backup_retention_period  = 1
+backup_retention_period  = 7
 
 # ALB & Routing
 enable_frontend      = false
@@ -30,13 +30,13 @@ frontend_host_header = "estateos.hrrealestate.nl, app.estateos.hrrealestate.nl"
 api_host_header      = "api-estateos.hrrealestate.nl"
 certificate_arn      = "arn:aws:acm:eu-north-1:830044626379:certificate/0da93ff3-b1be-4462-a2bc-f2cd28fa7d05"
 
-# Production Compute (0.5 vCPU = 512 units, 1024 MB RAM)
-api_cpu           = 512
-api_memory        = 1024
-api_desired_count = 1
+# Production Compute (1 vCPU = 1024 units, 2048 MB RAM)
+api_cpu           = 1024
+api_memory        = 2048
+api_desired_count = 2
 
-worker_cpu           = 512
-worker_memory        = 1024
+worker_cpu           = 1024
+worker_memory        = 2048
 worker_desired_count = 1
 
 # Frontend is hosted on Vercel (https://estateos.hrrealestate.nl)

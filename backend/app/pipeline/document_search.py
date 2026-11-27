@@ -53,7 +53,7 @@ class DocFilter:
 @dataclass(frozen=True)
 class DocHit:
     document_id: UUID
-    attachment_id: UUID
+    attachment_id: UUID | None  # None for a BRIXX document (M13)
     title: str
     doc_type: str
     status: DocumentStatus
