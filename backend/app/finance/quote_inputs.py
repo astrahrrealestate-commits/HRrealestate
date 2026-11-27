@@ -23,6 +23,7 @@ from app.finance.repo_quotes import NewQuoteLine
 from app.finance.review_types import REFERENCE_CURRENCY
 
 MAX_FRESH_KEYS = 10
+_LOOKUP_POOL = ThreadPoolExecutor(max_workers=6, thread_name_prefix="quote-lookup")
 
 
 def units_of(lines: Sequence[NewQuoteLine]) -> dict[str, str]:
@@ -84,9 +85,8 @@ def gather_references(
             for k, u in looked.items()
         }
     else:
-        with ThreadPoolExecutor(max_workers=min(3, len(looked))) as pool:
-            items = list(looked.items())
-            results = list(pool.map(lambda kv: source.lookup(kv[0], kv[1], today), items))
+        items = list(looked.items())
+        results = list(_LOOKUP_POOL.map(lambda kv: source.lookup(kv[0], kv[1], today), items))
         fresh = {
             k: fresh_from(obs, u, vat_rate=settings.finance_vat_rate, min_samples=min_samples)
             for (k, u), obs in zip(items, results, strict=True)

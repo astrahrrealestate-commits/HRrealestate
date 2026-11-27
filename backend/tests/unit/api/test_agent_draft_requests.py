@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.api.agent.draft_requests import REWRITE_UNSUPPORTED_ANSWER, channel_note, rewrite_answer
+from app.api.agent.draft_requests import channel_note, rewrite_answer
 
 
 @pytest.mark.parametrize(
@@ -17,8 +17,8 @@ from app.api.agent.draft_requests import REWRITE_UNSUPPORTED_ANSWER, channel_not
         "make it more formal",
     ],
 )
-def test_a_rewrite_request_gets_the_honest_answer(query: str) -> None:
-    assert rewrite_answer(query) == REWRITE_UNSUPPORTED_ANSWER
+def test_a_rewrite_request_is_routed_not_refused(query: str) -> None:
+    assert rewrite_answer(query) is None
 
 
 @pytest.mark.parametrize(

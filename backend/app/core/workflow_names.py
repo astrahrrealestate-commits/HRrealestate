@@ -35,6 +35,7 @@ FINANCE_SNAPSHOT = "finance.snapshot"
 FINANCE_QUOTE = "finance.quote"
 FINANCE_RECHECK = "finance.recheck"
 CHAT_SEND = "chat.send_message"
+TRANSLATE_TEXT = "translation.translate"
 _FINANCE_REVIEW_NAMESPACE = UUID("6f1c2a52-3d4e-5b7a-9c1d-2e8f4a6b0c13")  # fixed forever: review ids derive from it
 
 

@@ -22,6 +22,7 @@ from app.pipeline.draft_research import research_for
 from app.workflows.deps import get_deps, get_extractor
 
 log = get_logger(__name__)
+_PREPARE_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="prepare-draft")
 
 
 def _review_quote(engine: Engine, settings: Settings, message_id: UUID) -> None:
@@ -62,8 +63,7 @@ def prepare_for_draft(engine: Engine, settings: Settings, message_id: UUID, *, r
     if not research:
         _run_quote(engine, settings, message_id)
         return
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        f_quote = pool.submit(_run_quote, engine, settings, message_id)
-        f_research = pool.submit(_run_research, engine, settings, message_id)
-        f_quote.result()
-        f_research.result()
+    f_quote = _PREPARE_POOL.submit(_run_quote, engine, settings, message_id)
+    f_research = _PREPARE_POOL.submit(_run_research, engine, settings, message_id)
+    f_quote.result()
+    f_research.result()

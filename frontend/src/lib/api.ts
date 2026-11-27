@@ -1088,11 +1088,11 @@ export async function askAgent(
   });
 
   try {
-    const res = await apiFetch(`${BACKEND_BASE_URL}/api/agent/ask`, {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/agent/ask/stream`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Accept: "application/json",
+        Accept: "text/event-stream, application/json",
       },
       body: JSON.stringify({ query, context, history, conversation_id: conversationId || null }),
       // A researched answer takes the planner plus SUPER_AGENT_DEADLINE_SEC (100 s in stage/prod, ALB idle 150 s).
@@ -1100,7 +1100,40 @@ export async function askAgent(
     });
 
     if (res.ok) {
-      return await res.json();
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("text/event-stream") || !res.body) {
+        return await res.json();
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() ?? "";
+        for (const frame of frames) {
+          let eventType = "message";
+          let dataLine = "";
+          for (const line of frame.split("\n")) {
+            if (line.startsWith("event:")) eventType = line.slice(6).trim();
+            else if (line.startsWith("data:")) dataLine += line.slice(5).trim();
+          }
+          if (!dataLine) continue;
+          if (eventType === "result") {
+            return JSON.parse(dataLine) as AskAgentResponse;
+          }
+          if (eventType === "error") {
+            const errPayload = JSON.parse(dataLine) as { status?: number; detail?: string };
+            return buildErrorResponse(
+              errPayload.detail || "Astra encountered a server error. Please try again.",
+              errPayload.status === 429 ? "rate_limited" : "server_error",
+              `HTTP ${errPayload.status ?? 500}`
+            );
+          }
+        }
+      }
     }
 
     let detail = "";

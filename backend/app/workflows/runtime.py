@@ -34,6 +34,7 @@ from app.workflows import (
     sweeps,
     system,
     timer_dispatch,
+    translation,
 )
 
 # Importing registers the workflow functions before launch
@@ -60,6 +61,7 @@ _REGISTERED = (
     quality,
     sweeps,
     timer_dispatch,
+    translation,
 )
 
 SCHEDULES: list[ScheduleInput] = [

@@ -53,9 +53,10 @@ REDRAFTED = f"New draft ready: it replaces the one that was waiting for your app
 FRESH_DRAFT = f"The earlier reply on that case was already decided, so I drafted a new one. {READY}"
 _CONTRACTOR_WORDS = ("contractor", "plumber", "monteur", "loodgieter", "work order", "conractore", "contractore")
 _STEERING_RE = re.compile(
-    r"\b(?:redraft|re-?draft|rewrite|rephrase|reword|shorten|shorter|longer|firmer|softer|friendlier|"
+    r"(?:\b(?:redraft|re-?draft|rewrite|rephrase|reword|shorten|shorter|longer|firmer|softer|friendlier|"
     r"formal|translate|dutch|nederlands|english|add|include|mention|remove|change|update|adjust|improve|"
-    r"better|toevoegen|opnemen|korter|zakelijker|vriendelijker|vertalen|aanpassen)\b",
+    r"better|toevoegen|opnemen|korter|zakelijker|vriendelijker|vertalen|aanpassen|"
+    r"cc|with|saying|tell|confirm|decline|explain|ask)\b|:\s+\S)",
     re.IGNORECASE,
 )
 EXISTING_DRAFT_PROMPT = (
@@ -66,6 +67,8 @@ EXISTING_DRAFT_PROMPT = (
 
 def _has_steering_instruction(question: str | None) -> bool:
     return bool(question and _STEERING_RE.search(question))
+
+
 NOT_REDRAFTED = "I did not create a new draft ({reason}). Nothing was changed."
 OTHER_WAITING = (
     "No reply draft is waiting for that case; another proposal for it (such as an escalation) is in Approvals."
@@ -366,9 +369,7 @@ def show_drafts(ctx: Ctx, step: PlanStep) -> StepResult:
             reply = _reply_of(session, ctx, pending_approvals, action_type=ActionType.reply_draft)
 
         if reply:
-            contractor_lbl = (
-                _contractor_label(session, ctx.company_id, actions, reply[0]) if is_contractor else ""
-            )
+            contractor_lbl = _contractor_label(session, ctx.company_id, actions, reply[0]) if is_contractor else ""
             views = draft_views(reply[2], _source(ctx, message_id)) if message_id else []
             data = {
                 "approval_ids": [str(reply[0])],
@@ -407,14 +408,10 @@ def compose_mail(ctx: Ctx, step: PlanStep) -> StepResult:
         person: Person | None = None
         target_case_id = step.case_id
         if target_case_id is not None:
-            case = session.scalar(
-                select(Case).where(Case.company_id == ctx.company_id, Case.id == target_case_id)
-            )
+            case = session.scalar(select(Case).where(Case.company_id == ctx.company_id, Case.id == target_case_id))
             if case and case.primary_person_id:
                 person = session.scalar(
-                    select(Person).where(
-                        Person.company_id == ctx.company_id, Person.id == case.primary_person_id
-                    )
+                    select(Person).where(Person.company_id == ctx.company_id, Person.id == case.primary_person_id)
                 )
         if person is None:
             ents = concierge_entities.resolve_entities(session, ctx.company_id, query, limit=3)
@@ -482,8 +479,8 @@ def compose_mail(ctx: Ctx, step: PlanStep) -> StepResult:
         )
         session.add(action)
         session.flush()
-        approval_id = approvals.open_pending(
-            session, ctx.company_id, action.id, draft_version=1, expires_at=datetime.now(UTC)
+        approval_id = approvals.open_approval(
+            session, ctx.company_id, action.id, 1, urgency=Urgency.normal, now=datetime.now(UTC)
         )
     views = draft_views([body_1, body_2], note)
     data = {
@@ -501,5 +498,3 @@ def compose_mail(ctx: Ctx, step: PlanStep) -> StepResult:
         details_removed=guidance.redacted,
     )
     return StepResult(step.intent, True, summary, data, "inbox")
-
-    return failed(step, "No pending draft found for this case. You can ask me to draft one.")

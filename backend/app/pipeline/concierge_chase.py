@@ -9,7 +9,6 @@ from datetime import date, datetime, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.contracts import CaseState, PlanStep
@@ -27,13 +26,20 @@ CHASED = f"Follow-up prepared. {READY}"
 NO_CHASER = "No follow-up was created (proposals may be paused, or this step was already handled)."
 
 _WEEKDAYS = {
-    "monday": 0, "maandag": 0,
-    "tuesday": 1, "dinsdag": 1,
-    "wednesday": 2, "woensdag": 2,
-    "thursday": 3, "donderdag": 3,
-    "friday": 4, "vrijdag": 4,
-    "saturday": 5, "zaterdag": 5,
-    "sunday": 6, "zondag": 6,
+    "monday": 0,
+    "maandag": 0,
+    "tuesday": 1,
+    "dinsdag": 1,
+    "wednesday": 2,
+    "woensdag": 2,
+    "thursday": 3,
+    "donderdag": 3,
+    "friday": 4,
+    "vrijdag": 4,
+    "saturday": 5,
+    "zaterdag": 5,
+    "sunday": 6,
+    "zondag": 6,
 }
 _ISO_DATE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
 _MONTH_DAY_RE = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th|e)?\b")
@@ -181,16 +187,19 @@ def mark_received(ctx: Ctx, step: PlanStep) -> StepResult:
     with Session(ctx.engine) as session, session.begin():
         case = case_repo.get_case(session, ctx.company_id, step.case_id)
         waits_closed = work_repo.resolve_case_waits(session, ctx.company_id, step.case_id)
-        tasks_closed = (
-            work_repo.close_case_tasks(session, ctx.company_id, step.case_id, source="promise")
-            + work_repo.close_case_tasks(session, ctx.company_id, step.case_id, source="reminder")
-        )
+        tasks_closed = work_repo.close_case_tasks(
+            session, ctx.company_id, step.case_id, source="promise"
+        ) + work_repo.close_case_tasks(session, ctx.company_id, step.case_id, source="reminder")
         if case.state in (CaseState.waiting_on_third_party, CaseState.waiting_on_owner):
             case_repo.transition(session, ctx.company_id, case.id, CaseState.open, actor="owner")
     log_change(ctx, step)
     if waits_closed + tasks_closed == 0:
         return StepResult(
-            step.intent, True, "No active waits or open promises on that case.", {"case_id": str(step.case_id)}, "waiting"
+            step.intent,
+            True,
+            "No active waits or open promises on that case.",
+            {"case_id": str(step.case_id)},
+            "waiting",
         )
     return StepResult(
         step.intent,

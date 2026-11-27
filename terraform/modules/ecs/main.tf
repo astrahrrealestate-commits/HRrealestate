@@ -305,6 +305,13 @@ resource "aws_ecs_service" "api" {
     container_port   = var.app_port
   }
 
+  health_check_grace_period_seconds = 60
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
   deployment_controller {
     type = "ECS"
   }
@@ -341,6 +348,11 @@ resource "aws_ecs_service" "worker" {
     subnets          = var.subnet_ids
     security_groups  = [var.ecs_security_group_id]
     assign_public_ip = var.assign_public_ip
+  }
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
   }
 
   deployment_controller {

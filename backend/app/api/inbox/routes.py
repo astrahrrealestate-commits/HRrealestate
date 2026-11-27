@@ -741,7 +741,7 @@ def _build_live_threads(
     include_html: bool = True,
 ) -> list[dict[str, Any]]:
     """Builds frontend-compatible thread structures from PostgreSQL via batched read-only queries."""
-    has_filters = channel != "all" or audience != "all" or category != "all"
+    has_python_filters = channel != "all" or audience != "all" or category in ("contractor_repairs", "contractor_money")
     base_q = session.query(Case).filter(Case.company_id == company_id)
     if sort == "priority":
         closed_rank = sql_case((Case.state.in_((CaseState.closed, CaseState.resolved)), 1), else_=0)
@@ -757,19 +757,72 @@ def _build_live_threads(
     if category not in ("all", "contractor_repairs", "contractor_money"):
         with contextlib.suppress(ValueError):
             base_q = base_q.filter(Case.category == Category(category))
-    cases = base_q.all() if has_filters else base_q.offset(offset).limit(limit).all()
-    return _assemble_cases(
-        session,
-        company_id,
-        cases,
-        has_filters=has_filters,
-        channel=channel,
-        audience=audience,
-        category=category,
-        limit=limit,
-        offset=offset,
-        include_html=include_html,
-    )
+
+    if not has_python_filters:
+        cases = base_q.offset(offset).limit(limit).all()
+        return _assemble_cases(
+            session,
+            company_id,
+            cases,
+            has_filters=False,
+            channel=channel,
+            audience=audience,
+            category=category,
+            limit=limit,
+            offset=0,
+            include_html=include_html,
+        )
+
+    # Scan in bounded SQL chunks rather than loading every case for the company into Python memory.
+    needed = offset + limit
+    batch_size = min(max(needed * 2, 100), 200)
+    sql_offset = 0
+    kept_prepared: list[_PreparedCase] = []
+    last_msg_batch: ThreadMessagesBatch | None = None
+    now_dt = datetime.now(UTC)
+
+    while len(kept_prepared) < needed:
+        chunk = base_q.offset(sql_offset).limit(batch_size).all()
+        if not chunk:
+            break
+        sql_offset += len(chunk)
+        msg_batch = load_messages_batch(session, company_id, chunk)
+        last_msg_batch = msg_batch
+        matched = _prepare_cases(
+            chunk,
+            msg_batch,
+            has_filters=True,
+            channel=channel,
+            audience=audience,
+            category=category,
+            limit=needed - len(kept_prepared),
+            offset=0,
+        )
+        kept_prepared.extend(matched)
+        if len(chunk) < batch_size:
+            break
+
+    page_prepared = kept_prepared[offset:needed]
+    if not page_prepared or last_msg_batch is None:
+        return []
+
+    # Re-load message batch only for the final page so ThreadMessagesBatch maps match all kept cases across chunks.
+    page_cases = [p.case for p in page_prepared]
+    final_msg_batch = load_messages_batch(session, company_id, page_cases)
+    company_tz = ZoneInfo(final_msg_batch.company.timezone if final_msg_batch.company else "Europe/Amsterdam")
+    kept_case_ids = [p.case.id for p in page_prepared]
+    kept_msg_ids = [m.id for p in page_prepared for m in p.messages]
+    unit_labels = {p.raw_unit_label for p in page_prepared if p.raw_unit_label != UNASSIGNED_UNIT}
+    details = load_details_batch(session, company_id, kept_case_ids, kept_msg_ids, unit_labels, now_dt.date())
+
+    live_threads = [
+        _assemble_thread(p, final_msg_batch, details, company_tz=company_tz, now_dt=now_dt, include_html=include_html)
+        for p in page_prepared
+    ]
+    all_msgs = [m for t in live_threads for m in t["messages"]]
+    all_drafts = [d for t in live_threads for d in (*t["gmailDrafts"], *t["whatsappDrafts"])]
+    annotate_translations(session, company_id, all_msgs, all_drafts)
+    return live_threads
 
 
 @router.get(

@@ -767,4 +767,3 @@ def enhance_whatsapp_draft(
         variants=list(res.variants),
         sources_used=list(res.sources_used),
     )
-
