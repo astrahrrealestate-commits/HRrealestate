@@ -254,9 +254,13 @@ def calendar_free_busy(deps: SuperAgentDeps, start_iso: str, end_iso: str) -> tu
 
 def web(deps: SuperAgentDeps, query: str, *, topic: str = "general") -> tuple[str, int]:
     """Public pages, each fetched and read by the adapter; untrusted text like mail. Every finding carries its URL."""
+    clean_query = redact_contact(query)  # no personal data to Google
     domains = _TOPIC_DOMAINS.get(topic.strip().lower(), ())
     client = search_client(deps.settings, deps.engine, deps.company_id, domains)
-    hits = client.search(redact_contact(query), region="nl", limit=MAX_WEB_PAGES)  # no personal data to Google
+    hits = client.search(clean_query, region="nl", limit=MAX_WEB_PAGES)
+    if not hits and domains:
+        fallback = search_client(deps.settings, deps.engine, deps.company_id, ())
+        hits = fallback.search(clean_query, region="nl", limit=MAX_WEB_PAGES)
     lines = []
     for hit in hits[:MAX_WEB_PAGES]:
         host = urlsplit(hit.url).hostname or ""

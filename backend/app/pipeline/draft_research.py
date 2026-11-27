@@ -58,8 +58,13 @@ MARKET_DOMAINS = (
     "funda.nl",
     "fundainbusiness.nl",
     "pararius.nl",
+    "pararius.com",
     "nvm.nl",
     "cbs.nl",
+    "housinganywhere.com",
+    "iamexpat.nl",
+    "volkshuisvestingnederland.nl",
+    "verenigingeigenhuis.nl",
     "ec.europa.eu",
 )
 FINANCE_DOMAINS = (
