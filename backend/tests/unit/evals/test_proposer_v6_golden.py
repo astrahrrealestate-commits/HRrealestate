@@ -10,6 +10,7 @@ PLANNED = {
     "quote_scope_omissions", "quote_no_market_data", "works_planning_and_access", "missing_information",
     "sender_history_promise", "injected_attachment", "legal_letter", "new_project_offer", "emergency_leak",
     "maintenance_no_brixx_ticket", "answer_in_attachment", "invoice_matches_agreed_quote", "thanks_after_repair",
+    "earlier_report_without_date",
 }  # fmt: skip
 
 
