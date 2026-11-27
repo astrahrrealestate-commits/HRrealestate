@@ -23,6 +23,9 @@ class Settings(BaseSettings):
 
     env: Literal["dev", "test", "prod"] = "dev"
     database_url: PostgresDsn
+    db_pool_size: PositiveInt = 8
+    db_max_overflow: int = 12
+    db_pool_timeout_sec: PositiveInt = 15
     api_port: int = 8000
     app_version: str = app.__version__
 

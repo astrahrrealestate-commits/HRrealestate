@@ -17,6 +17,7 @@ export function usePolling(
   { restartKey, enabled = true }: PollingOptions = {}
 ): void {
   const latest = useRef(tick);
+  const inFlight = useRef(false);
   useEffect(() => {
     latest.current = tick;
   });
@@ -24,7 +25,11 @@ export function usePolling(
   useEffect(() => {
     if (!enabled) return;
     const run = () => {
-      if (!document.hidden) void latest.current();
+      if (document.hidden || inFlight.current) return;
+      inFlight.current = true;
+      void Promise.resolve(latest.current()).finally(() => {
+        inFlight.current = false;
+      });
     };
     run();
     const timer = setInterval(run, intervalMs);
