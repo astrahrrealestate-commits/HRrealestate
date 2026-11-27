@@ -200,7 +200,7 @@ stored Gmail rows (Drive files, WhatsApp messages and directory records stay unt
    - `scripts/mail_reload.sh stage preview <mailbox>`
    - `scripts/mail_reload.sh stage purge <mailbox>`
    - `scripts/mail_reload.sh stage reingest <mailbox> 7` (`90` for prod)
-   - `scripts/mail_reload.sh stage run-history <mailbox>` (queues onto `history`; inspect `model_calls` spend to size `LLM_DAILY_BUDGET_USD`)
+   - `scripts/mail_reload.sh stage run-history <mailbox>` (queues onto `history`, and indexes threads that hold only Harjot's own sent mail for Astra; inspect `model_calls` spend to size `LLM_DAILY_BUDGET_USD`)
 3. **Deploy 2 (once `run-history` finishes, with `proposer/v6` & dossier live):**
    - `scripts/mail_reload.sh <env> status <mailbox>`: the reloaded mail by pipeline state. Wait until `held` and
      `pending` are 0; `settle` and `draft-open` refuse before that (the CLI's `--force` overrides, for a stuck run only).

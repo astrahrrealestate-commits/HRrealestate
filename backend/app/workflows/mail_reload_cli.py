@@ -33,6 +33,7 @@ from app.workflows.mail_reload import (
     IDLE_DAYS,
     HistoryNotDoneError,
     history_status,
+    index_sent_history,
     reingest,
     run_history,
     settle_history,
@@ -158,7 +159,9 @@ def _run(args: argparse.Namespace, draft_report: DraftReport) -> str:
     if args.reingest:
         return f"history mail recorded: {reingest(deps, mailbox, days=args.days or DEFAULT_DAYS)}\n"
     if args.run_history:
-        return f"held messages queued: {run_history(engine, deps.enqueuer, mailbox)}\n"
+        queued = run_history(engine, deps.enqueuer, mailbox)
+        indexed = index_sent_history(engine, settings, mailbox)  # threads with only Harjot's mail: no run reaches them
+        return f"held messages queued: {queued}\nsent-only messages indexed: {indexed}\n"
     if args.status:
         return "".join(f"{state}: {n}\n" for state, n in history_status(engine, mailbox).items())
     if args.settle:
