@@ -2,10 +2,10 @@ name: ci
 
 on:
   push:
-    # main/stage/dev: verifies merge/promotion results and seeds caches.
-    branches: [main, stage, dev]
+    # main/dev: verifies merge/promotion results and seeds caches.
+    branches: [main, dev]
   pull_request:
-    branches: [main, stage, dev]
+    branches: [main, dev]
 
 concurrency:
   group: ci-${{ github.ref }}
