@@ -1,8 +1,9 @@
 """proposer/v12 (M13): v11 plus the fixes from its real-model misses on gemini-3.8-flash."""
 
 from app.contracts import PromptRef
-from app.llm.agents.proposer import DOSSIER_PROMPTS, PROPOSER_V12, ROLE_AWARE_PROMPTS
+from app.llm.agents.proposer import DOSSIER_PROMPTS, PROPOSER_V12, ROLE_AWARE_PROMPTS, proposer_spec
 from app.llm.prompts import load_prompt
+from tests.unit.llm.test_proposer_v6_prompt import _ctx
 
 
 def _v(version: str) -> str:
@@ -31,7 +32,9 @@ def test_v12_negotiates_terms_with_the_quotes_own_numbers_without_a_reference() 
     assert "30%" in text
 
 
-def test_v12_is_the_dossier_prompt() -> None:
+def test_v12_is_the_production_dossier_prompt() -> None:
+    """Pinned after its real-model eval beat v11 (hard 0.94 vs 0.89, judge 0.78 vs 0.61; evals/reports 2026-11-27)."""
     assert PROPOSER_V12.prompt.key == "proposer/v12"
     assert "v12" in DOSSIER_PROMPTS
     assert "v12" in ROLE_AWARE_PROMPTS
+    assert proposer_spec(_ctx()) is PROPOSER_V12

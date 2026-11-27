@@ -12,6 +12,7 @@ import { DraftPersona } from "@/types/inbox";
 import { createGmailDraft, enhanceThreadDraft, translateText, uploadThreadAttachment, UploadedThreadAttachment } from "@/lib/api";
 import { TranslationToggle } from "@/components/inbox/TranslationToggle";
 import { DraftCommitments } from "@/components/inbox/DraftCommitments";
+import { SendConfirmModal } from "@/components/common/SendConfirmModal";
 import { formatClock } from "@/lib/clock";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { useLanguage } from "@/context/LanguageContext";
@@ -56,6 +57,7 @@ export interface ComposerProps {
   draftPersona?: DraftPersona; // set when the drafts were written in the owner's persona
   detectedLanguage?: string;
   channel?: "whatsapp" | "gmail" | string;
+  recipientName?: string;
   recipientPhone?: string;
   recipientEmail?: string;
   subject?: string;
@@ -89,6 +91,7 @@ export function Composer({
   draftPersona,
   detectedLanguage = "Dutch (detected)",
   channel = "whatsapp",
+  recipientName,
   recipientPhone,
   recipientEmail,
   subject,
@@ -142,6 +145,13 @@ export function Composer({
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    mode: "accept" | "manual";
+    text: string;
+    channel: string;
+    replyId?: string;
+    attachmentIds: string[];
+  } | null>(null);
   const typedByThread = useRef<Record<string, string>>({});
   const selectedDraftByThread = useRef<Record<string, string>>({});
   const desktopCollapsedByThread = useRef<Record<string, boolean>>({});
@@ -573,17 +583,16 @@ export function Composer({
   const handleAccept = () => {
     if (!content.trim()) return;
     if (canSend && !canSend()) return;
+    if (!onAcceptAndSend) return;
     const attachmentIds = attachments.map((a) => a.attachmentId);
-    forgetTyped();
-    setExpandedDraftThreadKey(null);
-    setIsMobileEnOpen(false);
     if (isListening) stopListening();
-    if (onAcceptAndSend) {
-      onAcceptAndSend(content, activeChannel, replyingTo?.id, attachmentIds);
-      setAttachments([]);
-      setIsSent(true);
-      setUndoSeconds(30);
-    }
+    setPendingConfirm({
+      mode: "accept",
+      text: content,
+      channel: activeChannel,
+      replyId: replyingTo?.id,
+      attachmentIds,
+    });
   };
 
   const handleUndo = () => {
@@ -606,10 +615,32 @@ export function Composer({
   const handleSendNormal = () => {
     if (!content.trim()) return;
     if (canSend && !canSend()) return;
+    if (!onSendManualReply) return;
     const attachmentIds = attachments.map((a) => a.attachmentId);
     if (isListening) stopListening();
-    if (onSendManualReply) {
-      onSendManualReply(content, activeChannel, replyingTo?.id, attachmentIds);
+    setPendingConfirm({
+      mode: "manual",
+      text: content,
+      channel: activeChannel,
+      replyId: replyingTo?.id,
+      attachmentIds,
+    });
+  };
+
+  const handleConfirmSend = () => {
+    if (!pendingConfirm) return;
+    const { mode, text, channel: targetChannel, replyId, attachmentIds } = pendingConfirm;
+    setPendingConfirm(null);
+    if (mode === "accept" && onAcceptAndSend) {
+      forgetTyped();
+      setExpandedDraftThreadKey(null);
+      setIsMobileEnOpen(false);
+      onAcceptAndSend(text, targetChannel, replyId, attachmentIds);
+      setAttachments([]);
+      setIsSent(true);
+      setUndoSeconds(30);
+    } else if (mode === "manual" && onSendManualReply) {
+      onSendManualReply(text, targetChannel, replyId, attachmentIds);
       forgetTyped();
       setAttachments([]);
       setContent("");
@@ -682,7 +713,7 @@ export function Composer({
         aria-label="Attach file"
         onChange={(e) => void handleFilesSelected(e.target.files)}
       />
-      {/* Sent Status Banner (displays for 30s with Undo option) */}
+      {/* Sent Status Banner */}
       {isSent && undoSeconds > 0 && (
         <div
           className={cn(
@@ -695,17 +726,7 @@ export function Composer({
             <span>
               Sent via {activeChannel === "gmail" ? "Gmail" : "WhatsApp"} · <span className="font-mono">{sentTimestamp || formatClock(new Date())}</span>
             </span>
-            <span className="text-[11px] text-[var(--ink-3)] font-mono">({undoSeconds}s)</span>
           </div>
-
-          <button
-            type="button"
-            onClick={handleUndo}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--accent-ink)] hover:underline cursor-pointer py-1 px-2 rounded hover:bg-[var(--selected)]"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Undo</span>
-          </button>
         </div>
       )}
       {/* =================================================================== */}
@@ -1693,6 +1714,20 @@ export function Composer({
           </div>
         </div>
       )}
+      <SendConfirmModal
+        isOpen={pendingConfirm !== null}
+        channel={pendingConfirm?.channel ?? activeChannel}
+        recipient={
+          recipientName
+            ? `${recipientName}${recipientEmail || recipientPhone ? ` (${recipientEmail || recipientPhone})` : ""}`
+            : recipientEmail || recipientPhone
+        }
+        subject={subject}
+        body={pendingConfirm?.text ?? ""}
+        attachmentCount={pendingConfirm?.attachmentIds.length ?? 0}
+        onConfirm={handleConfirmSend}
+        onCancel={() => setPendingConfirm(null)}
+      />
     </>
   );
 }

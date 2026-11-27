@@ -6,10 +6,11 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from app.api.inbox.routes import _commitments_for_variant
-from app.contracts import Category, Urgency
+from app.contracts import Category, Channel, Urgency
 from app.contracts.enhance import EnhancePlan
 from app.core.settings import Settings
-from app.pipeline.enhance import _extra_mail, _plan_lookups
+from app.llm.agents.enhance_style import StyleRewriteOutput
+from app.pipeline.enhance import _extra_mail, _fast_style_rewrite, _plan_lookups
 from app.tools.message_rag.search import MessageChunkHit
 
 SETTINGS = Settings(database_url="postgresql+psycopg://u:p@localhost:1/db", env="test", _env_file=None)
@@ -104,3 +105,37 @@ def test_commitments_for_variant_filters_and_strips_variant_tags() -> None:
         "Promise to deliver details once draft deed arrives.",
         "Confirm €250 budget.",
     ]
+
+
+def test_fast_style_rewrite_persists_without_proposer() -> None:
+    msg = SimpleNamespace(id=uuid4(), channel=Channel.gmail)
+    und = SimpleNamespace(urgency=Urgency.normal)
+    fake_output = SimpleNamespace(output=StyleRewriteOutput(variants=["Short version.", "Brief version."]))
+    fake_rev = SimpleNamespace(approval_id=uuid4(), draft_version=2)
+    with (
+        patch("app.pipeline.enhance.run_agent", return_value=fake_output),
+        patch("app.pipeline.enhance.Session") as session_cls,
+        patch("app.pipeline.enhance.propose.lock_message"),
+        patch("app.pipeline.enhance.load_persona", return_value=None) as persona_mock,
+        patch("app.pipeline.enhance.supersede_draft", return_value=fake_rev) as sup_mock,
+        patch("app.pipeline.enhance.dashboard_decisions.resolve_feed"),
+    ):
+        session_cls.return_value.__enter__.return_value = MagicMock()
+        engine, company_id = MagicMock(), uuid4()
+        res = _fast_style_rewrite(
+            engine,
+            SETTINGS,
+            company_id,
+            msg,  # type: ignore[arg-type]
+            und,  # type: ignore[arg-type]
+            uuid4(),
+            "Shorter",
+            "Long original text.",
+            datetime.now(UTC),
+        )
+    assert res is not None
+    assert res.ok is True
+    assert res.variants == ("Short version.", "Brief version.")
+    assert res.draft_version == 2
+    sup_mock.assert_called_once()
+    persona_mock.assert_called_once_with(engine, company_id)  # load_persona opens its own session

@@ -87,7 +87,7 @@ def test_pending_draft_is_superseded_exactly_once_under_retry(
     assert action.context_ref == [_message(migrated_engine, cid, case_id)]  # the suspicious gate's source
     assert all(len(v) < 160 for v in action.payload["body_variants"])  # the fake honoured "shorter"
     assert _revisions(migrated_engine, cid, f"agent:{redraft_turn}:0") == 1
-    assert [c.prompt_version for c in _proposer_calls(migrated_engine, cid)] == ["v11", "v11"]  # retry: no call
+    assert [c.prompt_version for c in _proposer_calls(migrated_engine, cid)] == ["v12", "v12"]  # retry: no call
     assert count(migrated_engine, Send, cid) == 0
 
 
