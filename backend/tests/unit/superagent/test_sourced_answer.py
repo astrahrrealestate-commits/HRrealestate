@@ -233,7 +233,7 @@ def test_search_web_returns_pages_as_data_with_urls(rows: list[Any], monkeypatch
     assert "herstelt gebreken" in seen[0]
     assert [(s.kind, s.ref) for s in got.sources] == [("web", "https://wetten.overheid.nl/art7")]
     assert web.asked == [("onderhoudsplicht verhuurder", "nl", lookups.MAX_WEB_PAGES)]
-    assert got.steps == ("Searched the web (1 page)",)
+    assert got.steps == ("Searched the web (1 page: https://wetten.overheid.nl/art7)",)
 
 
 def test_a_web_page_cannot_close_its_data_block(rows: list[Any], monkeypatch: pytest.MonkeyPatch) -> None:

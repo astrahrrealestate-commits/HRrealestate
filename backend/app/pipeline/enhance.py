@@ -276,9 +276,9 @@ def _fast_style_rewrite(
     if not variants:
         return None
     turn_key = f"enhance:{new_id()}"
+    persona = load_persona(engine, company_id)
     with Session(engine) as session, session.begin():
         propose.lock_message(session, msg.id)
-        persona = load_persona(session, company_id)
         revision = supersede_draft(
             session,
             company_id,

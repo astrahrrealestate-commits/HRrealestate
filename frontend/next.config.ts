@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
   output: "standalone", // the minimal self-contained build frontend/Dockerfile's runtime stage copies
   cacheComponents: true,
   partialPrefetching: true,
+  experimental: {
+    proxyTimeout: 185000,
+  },
   turbopack: {
     root: path.resolve(__dirname),
     rules: {

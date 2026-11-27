@@ -183,8 +183,13 @@ def _add_search_tools(agent: Agent[SuperAgentDeps, SourcedAnswer]) -> None:
         Optional topic presets trusted sources: 'legal', 'finance', 'market', 'maintenance', or 'general'."""
         if not ctx.deps.take_call():
             return NO_MORE_LOOKUPS
+        if ctx.deps.on_step is not None:
+            ctx.deps.on_step("Searching the web...")
+        before = len(ctx.deps.sources.all())
         text, pages = _safely(lambda deps, q: _web(deps, q, topic=topic), ctx.deps, query)
-        ctx.deps.record_step(f"Searched the web ({_plural(pages, 'page', 'pages')})")
+        new_urls = [s.ref for s in ctx.deps.sources.all()[before:] if s.kind == "web"]
+        url_note = f": {', '.join(new_urls)}" if new_urls else ""
+        ctx.deps.record_step(f"Searched the web ({_plural(pages, 'page', 'pages')}{url_note})")
         return _as_data(text)
 
     @agent.tool
@@ -313,4 +318,8 @@ def run_research(
     _finish(engine, row, started, deps, result.usage)
     if not screened.answer:
         return None
-    return ResearchResult(screened.answer, tuple(deps.steps), with_links(engine, company_id, screened.sources))
+    seen_refs = {(s.kind, s.ref) for s in screened.sources}
+    merged_sources = list(screened.sources) + [
+        s for s in deps.sources.all() if s.kind == "web" and (s.kind, s.ref) not in seen_refs
+    ]
+    return ResearchResult(screened.answer, tuple(deps.steps), with_links(engine, company_id, merged_sources))

@@ -21,9 +21,9 @@ import { getContactDisplayName, getSnippet, getUnifiedThreadId } from "@/lib/sel
 // ---------------------------------------------------------------------------
 
 export interface FetchThreadsParams {
-  channel?: "all" | "gmail" | "whatsapp";
+  channel?: "all" | "gmail" | "whatsapp" | string;
   audience?: "all" | "tenants" | "contractors";
-  category?: "all" | "contractor_repairs" | "contractor_money";
+  category?: string;
   sort?: "recent" | "priority";
   limit?: number;
   offset?: number;

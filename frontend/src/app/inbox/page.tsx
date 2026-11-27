@@ -262,11 +262,21 @@ function InboxContent() {
     return true;
   };
 
+  const apiCategory = useMemo(() => {
+    const types = selectedFilterIds.filter((id) => id.startsWith("type_"));
+    return types.length === 1 ? types[0].slice(5) : "all";
+  }, [selectedFilterIds]);
+
+  const apiChannel = useMemo(() => {
+    const chans = selectedFilterIds.filter((id) => id === "ch_gmail" || id === "ch_whatsapp");
+    return chans.length === 1 ? chans[0].slice(3) : "all";
+  }, [selectedFilterIds]);
+
   const inFlightRef = useRef(false);
   const fetchThreads = useCallback(() => {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
-    getInboxThreads({ limit: 20, offset: 0 })
+    getInboxThreads({ limit: 20, offset: 0, category: apiCategory, channel: apiChannel })
       .then(({ threads: live, isLive, total, hasMore: more }) => {
         if (!mountedRef.current) return;
         if (!isLive) {
@@ -303,7 +313,11 @@ function InboxContent() {
       .finally(() => {
         inFlightRef.current = false;
       });
-  }, [setHasMore, setThreads, setTotalServerThreads]);
+  }, [apiCategory, apiChannel, setHasMore, setThreads, setTotalServerThreads]);
+
+  useEffect(() => {
+    fetchThreads();
+  }, [apiCategory, apiChannel, fetchThreads]);
 
   // Poll live threads every 8s while visible; background worker handles Gmail ingestion.
   usePolling(fetchThreads, 8000);
@@ -708,7 +722,6 @@ function InboxContent() {
   return (
     <WorkspaceShell
       pageTitle="Inbox"
-      pendingCount={needsYouCount(threads)}
       hideSearch
       onSyncMailbox={handleSyncMailbox}
       isSyncing={isSyncing}

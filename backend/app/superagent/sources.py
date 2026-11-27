@@ -32,6 +32,10 @@ class SourceLog:
     def get(self, alias: str) -> Source | None:
         return self._by_alias.get(alias.strip().lower())
 
+    def all(self) -> tuple[Source, ...]:
+        with self._lock:
+            return tuple(self._by_alias.values())
+
     def _id(self, alias: str, kind: SourceKind) -> UUID | None:
         source = self.get(alias)
         return UUID(source.ref) if source is not None and source.kind == kind else None
