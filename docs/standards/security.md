@@ -69,8 +69,6 @@ the architectural invariants in [CLAUDE.md](../../CLAUDE.md). A **blocker** fail
 - M13 lane B (2026-11-26, needs a decision): a mailbox purge deletes the actions, approvals and revisions of replies
   that were already sent; `sends` stay with `action_id` NULL, so what Harjot approved, and when, is then only in the
   RDS snapshot taken before the purge. Keep that snapshot, or archive sent actions' approvals first (a migration).
-- M13 lane B (2026-11-26, open): `understandings.research` (migration 0060) holds questions and answers taken from a
-  person's mail, and `erase_person` clears neither it nor `attachments.extracted_text`.
 Closed on 2026-11-09 after an audit of `app/api` (regression guard: `tests/unit/api/test_route_auth_guard.py`, which fails
 the build when a route answers an anonymous caller without being listed as public):
 - every dashboard router (`agent`, `calendar`, `contacts`, `dashboard`, `inbox`, `maintenance`, `properties`, `tenants`)
@@ -102,6 +100,15 @@ Closed on 2026-11-12:
 - translation now runs both ways (ADR 0011 amendment): the en→nl model is pinned and SHA-256 checked like the nl→en
   one, the cache is unique per (company, source hash, target), and `erase_person` also drops the company's en→nl rows
   because their Dutch output may be a message sent to the erased person
+
+Closed on 2026-11-27 (M13):
+- `erase_person` reaches what was derived from the person's messages (`pipeline/gdpr_derived.py`): understandings lose
+  their research findings (migration 0060) and the free text of the stored Understanding (intent, people, dates,
+  research questions, open obligation, suspicion reason); `attachments.extracted_text` is cleared and a document read
+  from one of those attachments loses its chunks, title, summary, facts and embedding (the row stays for diligence and
+  Drive plans); Astra turns citing one of their messages get that source's label and the cited answer blanked, and the
+  conversation's rolling summary is reset. Limits: the owner's own question text in a turn is kept; a turn that names
+  the person without citing their message is not found; the attachment file in S3 and the attachment file name stay.
 
 Closed on 2026-11-26 (M13):
 - `erase_person` blanks the model-call log too (`pipeline/gdpr_calls.py`): input, output and error of every call
@@ -161,9 +168,6 @@ Closed on 2026-11-26 (M13):
   pinned.
 
 Still open (fix in this order):
-- **Astra sources outlive erasure** (M13 lane C): each dashboard turn stores its sources in `agent_turns.results`, and a
-  message source's label is "name, channel, date"; `erase_person` does not touch `agent_turns`, and turns have no
-  retention purge. Fix: blank the labels (and answers that name the person) of turns citing one of their messages.
 - **Reranker and web search calls are not tagged with message ids** (M13 lane C): erasure finds a rerank call only
   through its stored size (no text is kept) and a grounding call by text match of its model-written query.
 - **Owner-typed inbox replies** (`POST /api/inbox/threads/{case_id}/reply`, from dev 6ac612c; no ADR yet; not accepted).

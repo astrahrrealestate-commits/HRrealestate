@@ -25,9 +25,7 @@ def owner_rules(engine: Engine, company_id: UUID) -> list[str]:
         return [item.text for item in get_active_preferences(session, company_id)]
 
 
-def make_researcher(
-    engine: Engine, settings: Settings, *, on_step: Callable[[str], None] | None = None
-) -> Researcher:
+def make_researcher(engine: Engine, settings: Settings, *, on_step: Callable[[str], None] | None = None) -> Researcher:
     """Built for every turn but cheap: the embedder is created only when a turn actually asks for research."""
 
     def research(company_id: UUID, question: str, page: PagePrompt, history: Sequence[str]) -> Researched | None:

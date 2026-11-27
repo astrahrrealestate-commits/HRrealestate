@@ -26,7 +26,6 @@ from app.llm.agents.enhance_style import ENHANCE_STYLE, enhance_style_prompt
 from app.llm.calls import CallContext, is_transient, run_agent
 from app.llm.embeddings import TextEmbedder, build_embedder
 from app.pipeline import dashboard_decisions, propose, redraft
-from app.pipeline.supersede import supersede_draft
 from app.pipeline.conversation import ThreadLine
 from app.pipeline.document_qa import case_scope, strip_risky
 from app.pipeline.document_search import DocFilter
@@ -36,6 +35,7 @@ from app.pipeline.draft_research import Searcher, ad_hoc_research
 from app.pipeline.injection_scan import scan
 from app.pipeline.propose_load import Loaded, with_defaults, with_dossier
 from app.pipeline.rag import retrieve_cheap
+from app.pipeline.supersede import supersede_draft
 from app.tools.message_rag.search import search_messages
 from app.tools.query_agent.agent import run_query_agent
 
@@ -276,9 +276,9 @@ def _fast_style_rewrite(
     if not variants:
         return None
     turn_key = f"enhance:{new_id()}"
+    persona = load_persona(engine, company_id)  # opens its own session
     with Session(engine) as session, session.begin():
         propose.lock_message(session, msg.id)
-        persona = load_persona(session, company_id)
         revision = supersede_draft(
             session,
             company_id,
