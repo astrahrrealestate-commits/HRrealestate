@@ -110,8 +110,9 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("DROP VIEW IF EXISTS v_commitments_radar;")
+    op.execute("DROP VIEW IF EXISTS v_waiting_radar;")
     op.execute("""
-    CREATE OR REPLACE VIEW v_waiting_radar WITH (security_invoker = true) AS
+    CREATE VIEW v_waiting_radar WITH (security_invoker = true) AS
     SELECT
         w.company_id,
         w.id AS wait_id,
@@ -128,4 +129,12 @@ def downgrade() -> None:
     LEFT JOIN units u ON c.unit_id = u.id
     LEFT JOIN people p ON w.party_person_id = p.id
     WHERE w.company_id = NULLIF(current_setting('app.company_id', true), '')::uuid;
+    """)
+    op.execute("""
+    DO $$
+    BEGIN
+        IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'estateos_readonly') THEN
+            GRANT SELECT ON v_waiting_radar TO estateos_readonly;
+        END IF;
+    END $$;
     """)

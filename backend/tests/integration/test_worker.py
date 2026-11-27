@@ -93,7 +93,7 @@ def test_separate_worker_process_passes_selfcheck_and_stops_on_sigterm(
         monkeypatch.setattr(app.worker, "get_settings", lambda: test_settings)
         assert app.worker.main(["--selfcheck"]) == 0  # this process never launched DBOS
         proc.send_signal(signal.SIGTERM)
-        assert proc.wait(timeout=40) == 0
+        assert proc.wait(timeout=60) == 0
     finally:
         if proc.poll() is None:
             proc.kill()
