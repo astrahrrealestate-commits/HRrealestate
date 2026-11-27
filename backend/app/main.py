@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from dbos import DBOSClient
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy import Engine
 
 import app
@@ -32,6 +33,8 @@ from app.translation.ports import Translator
 log = get_logger(__name__)
 
 LOCAL_SPA_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
+GZIP_MIN_BYTES = 1000
+GZIP_LEVEL = 6  # most of level 9's saving at a fraction of its CPU
 
 
 def _cors_origins(settings: Settings) -> list[str]:
@@ -119,6 +122,9 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Thread lists are ~180 KB of repetitive JSON and are re-polled; event streams are left uncompressed by Starlette.
+    api.add_middleware(GZipMiddleware, minimum_size=GZIP_MIN_BYTES, compresslevel=GZIP_LEVEL)
 
     from app.api.auth import google_routes, login_routes
 

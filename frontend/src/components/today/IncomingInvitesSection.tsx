@@ -11,6 +11,7 @@ import {
   type IncomingInvite,
   type InviteResponse,
 } from "@/lib/api";
+import { useCachedState } from "@/hooks/useCachedState";
 
 export interface IncomingInvitesSectionProps {
   initialInvites?: IncomingInvite[];
@@ -20,18 +21,25 @@ export interface IncomingInvitesSectionProps {
 /** Calendar invites sent straight to the owner by a known contact or about one of our properties. */
 export function IncomingInvitesSection({ initialInvites, onAnswered }: IncomingInvitesSectionProps) {
   const { t } = useLanguage();
-  const [invites, setInvites] = useState<IncomingInvite[]>(initialInvites ?? []);
+  const [invites, setInvites] = useCachedState<IncomingInvite[]>("today.invites", initialInvites ?? []);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // An RSVP answers the invite as it is now: locked until this visit has fetched it.
+  const [fresh, setFresh] = useState(Boolean(initialInvites));
 
   useEffect(() => {
     if (initialInvites) return;
     let mounted = true;
-    getIncomingInvites().then((list) => mounted && setInvites(list));
+    getIncomingInvites().then((list) => {
+      if (!mounted) return;
+      setInvites(list);
+      setFresh(true);
+    });
     return () => {
       mounted = false;
+      setFresh(false);
     };
-  }, [initialInvites]);
+  }, [initialInvites, setInvites]);
 
   if (invites.length === 0) return null;
 
@@ -61,7 +69,7 @@ export function IncomingInvitesSection({ initialInvites, onAnswered }: IncomingI
           const who = invite.person
             ? `${invite.person.name}${invite.person.trade ? ` · ${invite.person.trade}` : ` · ${invite.person.kind}`}`
             : invite.organizerName || invite.organizerEmail;
-          const busy = busyId === invite.id;
+          const busy = busyId === invite.id || !fresh;
           return (
             <li key={invite.id} className="px-4 sm:px-5 py-3 space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">

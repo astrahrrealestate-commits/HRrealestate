@@ -4782,9 +4782,16 @@
       "DocumentDetailOut": {
         "properties": {
           "attachment_id": {
-            "format": "uuid",
-            "title": "Attachment Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attachment Id"
           },
           "chunk_count": {
             "title": "Chunk Count",
@@ -4925,9 +4932,16 @@
       "DocumentOut": {
         "properties": {
           "attachment_id": {
-            "format": "uuid",
-            "title": "Attachment Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attachment Id"
           },
           "created_at": {
             "format": "date-time",

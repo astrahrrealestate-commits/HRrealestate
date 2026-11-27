@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.contracts import Direction
-from app.db.models import MessageChunk
+from app.db.models import MessageChunk, MessageRow
 from app.llm.embeddings import TextEmbedder
 from app.pipeline.concierge_sanitize import REDACTED, redact
 from app.pipeline.conversation import ThreadLine
@@ -21,6 +21,21 @@ MAX_OLDER = 6
 MAX_PRECEDENTS = 3
 OLDER = "earlier mail of this sender"
 PRECEDENT = "precedent from another case (style & policy pattern only)"
+
+
+_UNKNOWN = UUID(int=0)  # an inbound message without a person: never the person's own
+
+
+def _inbound_authors(session: Session, company_id: UUID, ids: Collection[UUID]) -> dict[UUID, UUID]:
+    """message id -> its author's person (or `_UNKNOWN`) for the inbound ones; outbound mail is ours."""
+    if not ids:
+        return {}
+    rows = session.execute(
+        select(MessageRow.id, MessageRow.person_id).where(
+            MessageRow.company_id == company_id, MessageRow.id.in_(list(ids)), MessageRow.direction == Direction.inbound
+        )
+    )
+    return {row[0]: row[1] or _UNKNOWN for row in rows}
 
 
 def older_mail(
@@ -38,7 +53,13 @@ def older_mail(
         )
     )
     participants = {row[0]: row[1] for row in rows}
-    own = [h for h in fresh if set(participants.get(h.chunk_id) or []) <= {person_id}][:MAX_OLDER]
+    authors = _inbound_authors(session, company_id, [i for h in fresh for i in h.message_ids])
+    own = [
+        h
+        for h in fresh
+        if set(participants.get(h.chunk_id) or []) <= {person_id}
+        and all(authors.get(i, person_id) == person_id for i in h.message_ids)
+    ][:MAX_OLDER]
     lines = tuple(
         ThreadLine(
             h.first_message_id, h.first_sent_at, Direction.inbound, OLDER, None, h.text, False, bool(scan(h.text))

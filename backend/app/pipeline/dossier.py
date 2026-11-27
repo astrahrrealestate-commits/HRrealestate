@@ -44,6 +44,7 @@ from app.pipeline.person_memory import stored_memory
 from app.pipeline.quote_text import quote_review_text
 from app.pipeline.rag import retrieve_cheap
 from app.pipeline.tenancy import owns_tenancy, tenancy_facts
+from app.storage.extract import canonical_mime
 
 MAX_THREAD = 60
 MAX_SENDER_HISTORY = 15
@@ -215,8 +216,15 @@ def _attachments(
         for a, _ in rows
         if (text := (a.extracted_text or "").strip())
         and not looks_like_id(FileMeta(a.filename, a.mime_type, a.size_bytes, msg.sent_at))
-        and (a.message_id not in photos_only or a.mime_type.startswith("image/"))
+        and (a.message_id not in photos_only or canonical_mime(a.mime_type, a.filename).startswith("image/"))
     )
+
+
+def allowed_attachment_scope(session: Session, msg: MessageRow) -> tuple[list[UUID], set[UUID]]:
+    """Allowed `[msg.id, *thread_ids]` and contractor `photos_only` message ids for pre-draft reading."""
+    scope = _scope(session, msg)
+    rows, _ = _thread_rows(session, scope)
+    return [msg.id, *(r.id for r in rows)], set(_not_theirs(rows, scope))
 
 
 def _not_theirs(rows: Sequence[MessageRow], scope: _Scope) -> list[UUID]:
@@ -283,11 +291,14 @@ def build_dossier(session: Session, company_id: UUID, message_id: UUID, embedder
         similar_conversations(session, company_id, msg.person_id, query, embedder, {msg.id, *shown, *older_ids})
         if scope.trusted and embedder is not None else ()
     )  # fmt: skip
+    older_ids_list = [row.id for row in rows]
+    excluded = _not_theirs(rows, scope)
+    unread_mids = [mid for mid in older_ids_list if mid not in set(excluded)]
     return Dossier(
         current=current,
         thread=_thread(rows, people, scope, current.text),
         sender_history=_sender_history(session, scope, people, shown),
-        attachments=_attachments(session, msg, [row.id for row in rows], _not_theirs(rows, scope)),
+        attachments=_attachments(session, msg, older_ids_list, excluded),
         documents=_passages(session, company_id, query, DocFilter(any_link=links), embedder) if links else (),
         references=_passages(session, company_id, query, DocFilter(reference_only=True), embedder),
         memory=stored_memory(session, company_id, msg.person_id) if msg.person_id else None,
@@ -299,5 +310,5 @@ def build_dossier(session: Session, company_id: UUID, message_id: UUID, embedder
         older_mail=older,
         similar_conversations=precedents,
         extra_message_ids=older_ids,
-        unread_attachments=unread_attachments(session, msg),
+        unread_attachments=unread_attachments(session, msg, unread_mids),
     )  # fmt: skip

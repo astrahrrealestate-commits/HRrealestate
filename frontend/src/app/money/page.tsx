@@ -2,7 +2,6 @@
 
 import React, { useState, useMemo, useEffect, Suspense, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { Button } from "@/components/ui/Button";
@@ -37,6 +36,7 @@ import {
   RentAnalyticsResponse,
   HistoricalTrendPoint,
 } from "@/lib/api";
+import { useCachedState } from "@/hooks/useCachedState";
 
 type TenantRentTab = "all" | "paid" | "overdue" | "pending";
 type ChartViewMode = "revenue" | "occupancy";
@@ -114,8 +114,14 @@ function MoneyContent() {
   const tenantParam = searchParams?.get("tenant") || "";
 
   // Ledger & Analytics State
-  const [selectedMonth, setSelectedMonth] = useState<string>("2026-11");
-  const [availableMonths, setAvailableMonths] = useState<string[]>([
+  // The ledger is cached with the month it belongs to, so a revisit never labels one month's rows as another's.
+  const [ledger, setLedger] = useCachedState<{ month: string; items: RentLedgerItem[] }>("money.ledger", {
+    month: "2026-11",
+    items: [],
+  });
+  const ledgerItems = ledger.items;
+  const [selectedMonth, setSelectedMonth] = useState<string>(ledger.month);
+  const [availableMonths, setAvailableMonths] = useCachedState<string[]>("money.months", [
     "2026-11",
     "2026-10",
     "2026-09",
@@ -129,9 +135,8 @@ function MoneyContent() {
   const [selectedTx, setSelectedTx] = useState<MoneyTransaction | null>(null);
 
   // Live Data State
-  const [ledgerItems, setLedgerItems] = useState<RentLedgerItem[]>([]);
-  const [analytics, setAnalytics] = useState<RentAnalyticsResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [analytics, setAnalytics] = useCachedState<RentAnalyticsResponse | null>("money.analytics", null);
+  const [isLoading, setIsLoading] = useState(ledgerItems.length === 0);
 
   // Fetch Rent Analytics (6-month trend & MoM summary)
   const fetchAnalytics = useCallback(async () => {
@@ -143,7 +148,7 @@ function MoneyContent() {
     } catch (err) {
       console.warn("Failed to load rent analytics:", err);
     }
-  }, []);
+  }, [setAnalytics]);
 
   // Fetch Rent Ledger items for selected month
   const fetchLedger = useCallback(async (month: string) => {
@@ -151,7 +156,7 @@ function MoneyContent() {
     try {
       const res = await getRentLedger({ month });
       if (res) {
-        setLedgerItems(res.items);
+        setLedger({ month, items: res.items });
         if (res.availableMonths && res.availableMonths.length > 0) {
           setAvailableMonths(res.availableMonths);
         }
@@ -161,7 +166,7 @@ function MoneyContent() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [setAvailableMonths, setLedger]);
 
   useEffect(() => {
     fetchAnalytics();
@@ -353,8 +358,6 @@ function MoneyContent() {
 
   return (
     <div className="h-dvh bg-[#0A1B2F] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
-      {/* 1. Left Nav (Desktop Sidebar) */}
-      <Sidebar />
 
       {/* 2. Main Content Canvas */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0A1B2F]">
@@ -366,7 +369,7 @@ function MoneyContent() {
 
             {/* Scrollable Container */}
             <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6 max-w-6xl w-full mx-auto pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-12">
-              
+
               {/* Header with Title and Month Dropdown */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="space-y-1">
@@ -506,7 +509,7 @@ function MoneyContent() {
 
               {/* Dual Visual Trends: Monthly/Yearly Revenue Trend OR Portfolio Occupancy Trend */}
               <div className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] p-4 sm:p-5 shadow-2xs space-y-3.5 transition-all">
-                
+
                 {/* Chart Header + View Switchers + Minimize/Expand Button */}
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                   <div>
@@ -660,7 +663,7 @@ function MoneyContent() {
 
               {/* Controls Bar: Tenant Tabs + Search Input */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] p-3 shadow-2xs">
-                
+
                 {/* Strict Tenant Tabs (Monochrome styling) */}
                 <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar text-xs">
                   <button

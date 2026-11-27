@@ -30,6 +30,9 @@ import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { SHOWN_CATEGORIES, categoryLabel } from "@/lib/categoryLabels";
 import { usePolling } from "@/hooks/usePolling";
+import { useCachedState } from "@/hooks/useCachedState";
+import { readView } from "@/lib/viewCache";
+import { mergeFirstPage } from "@/lib/inboxMerge";
 
 type InboxLayoutMode = "vertical" | "horizontal" | "list";
 
@@ -75,10 +78,12 @@ function InboxContent() {
   const searchParams = useSearchParams();
   const superAgent = useSuperAgent();
 
-  const [threads, setThreads] = useState<InboxThread[]>([]);
-  const [totalServerThreads, setTotalServerThreads] = useState<number>(0);
-  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
-  const [hasMore, setHasMore] = useState<boolean>(true);
+  const [threads, setThreads] = useCachedState<InboxThread[]>("inbox.threads", []);
+  const [totalServerThreads, setTotalServerThreads] = useCachedState<number>("inbox.total", 0);
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">(() =>
+    readView("inbox.threads") === undefined ? "loading" : "ready"
+  );
+  const [hasMore, setHasMore] = useCachedState<boolean>("inbox.hasMore", true);
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
 
   const threadParam = searchParams?.get("thread") || "";
@@ -158,6 +163,7 @@ function InboxContent() {
   }, []);
 
   const deepLinkedRef = useRef<string>("");
+  const fetchedByIdRef = useRef(new Set<string>());
 
   useEffect(() => {
     if (threadParam) {
@@ -180,6 +186,7 @@ function InboxContent() {
           deepLinkedRef.current = threadParam;
           void fetchInboxThreadById(threadParam).then((fetched) => {
             if (!mountedRef.current || !fetched) return;
+            fetchedByIdRef.current.add(fetched.id);
             setThreads((prev) => (findMatchingThread(prev, fetched.id) ? prev : [fetched, ...prev]));
             setSelectedThreadId(fetched.id);
             if (
@@ -199,7 +206,7 @@ function InboxContent() {
       deepLinkedRef.current = "";
       setSelectedThreadId("");
     }
-  }, [threadParam, threads, loadState]);
+  }, [threadParam, threads, loadState, setThreads]);
 
   useEffect(() => {
     const handleCustomNav = (e: Event) => {
@@ -238,6 +245,23 @@ function InboxContent() {
     };
   }, []);
 
+  // False until this visit's own fetch has answered: until then the rows are last visit's, so nothing is decided
+  // on them, and older pages kept from last visit are dropped rather than shown as current.
+  const freshRef = useRef(false);
+  useEffect(
+    () => () => {
+      freshRef.current = false;
+      fetchedByIdRef.current = new Set();
+      deepLinkedRef.current = "";
+    },
+    []
+  );
+  const notYetFresh = () => {
+    if (freshRef.current) return false;
+    showToast("Still refreshing this thread. Try again in a moment.");
+    return true;
+  };
+
   const inFlightRef = useRef(false);
   const fetchThreads = useCallback(() => {
     if (inFlightRef.current) return;
@@ -253,25 +277,15 @@ function InboxContent() {
         if (total !== undefined) setTotalServerThreads(total);
         if (more !== undefined) setHasMore(more);
 
+        const firstOfVisit = !freshRef.current;
+        freshRef.current = true;
         setThreads((prev) => {
-          const prevMap = new Map(prev.map((t) => [t.id, t]));
-          const mergedLive = live.map((t) => {
-            const old = prevMap.get(t.id);
-            if (!old) return t;
-            return {
-              ...t,
-              isRead: t.isRead !== undefined ? t.isRead : old.isRead,
-            };
-          });
           const currentParam = threadParamRef.current;
-          const liveIds = new Set(mergedLive.map((t) => t.id));
-          if (prev.length <= 20) {
-            const pinned = currentParam
-              ? prev.filter((t) => !liveIds.has(t.id) && Boolean(findMatchingThread([t], currentParam)))
-              : [];
-            return pinned.concat(mergedLive);
-          }
-          return mergedLive.concat(prev.filter((t) => !liveIds.has(t.id)));
+          return mergeFirstPage(prev, live, {
+            firstOfVisit,
+            matches: (t) => Boolean(currentParam && findMatchingThread([t], currentParam)),
+            fetchedThisVisit: fetchedByIdRef.current,
+          });
         });
 
         const currentParam = threadParamRef.current;
@@ -289,7 +303,7 @@ function InboxContent() {
       .finally(() => {
         inFlightRef.current = false;
       });
-  }, []);
+  }, [setHasMore, setThreads, setTotalServerThreads]);
 
   // Poll live threads every 8s while visible; background worker handles Gmail ingestion.
   usePolling(fetchThreads, 8000);
@@ -331,7 +345,7 @@ function InboxContent() {
         router.push("/inbox", { scroll: false });
       }
     },
-    [router, threads]
+    [router, setThreads, threads]
   );
 
   const handleMarkUnread = useCallback(
@@ -341,7 +355,7 @@ function InboxContent() {
       void markThreadRead(target?.caseId || id, false);
       showToast("Marked as unread.");
     },
-    [threads]
+    [setThreads, threads]
   );
 
   const handleLoadMore = useCallback(async () => {
@@ -365,7 +379,7 @@ function InboxContent() {
     } finally {
       setIsLoadingMore(false);
     }
-  }, [isLoadingMore, hasMore, threads.length]);
+  }, [isLoadingMore, hasMore, threads.length, setHasMore, setThreads]);
 
   const handleApproveDraft = async (
     threadId: string,
@@ -375,6 +389,7 @@ function InboxContent() {
     forceManualReply = false,
     attachmentIds?: string[]
   ): Promise<boolean> => {
+    if (notYetFresh()) return false;
     const targetThread = threads.find((t) => t.id === threadId);
     const caseId = targetThread?.caseId || targetThread?.id || threadId;
     const approvalId = targetThread?.approvalId;
@@ -443,6 +458,7 @@ function InboxContent() {
   };
 
   const handleRejectDraft = async (threadId: string) => {
+    if (notYetFresh()) return;
     const target = threads.find((t) => t.id === threadId);
     const approvalId = target?.approvalId || target?.id || threadId;
     setThreads((prev) =>
@@ -845,6 +861,7 @@ function InboxContent() {
           )}
         >
           <InboxConversationView
+            canSend={() => !notYetFresh()}
             thread={activeThread}
             initialDraft={draftParam}
             onBack={() => handleSelectThread("")}

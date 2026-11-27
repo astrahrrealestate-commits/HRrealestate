@@ -5,7 +5,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError
@@ -481,3 +481,62 @@ def test_dossier_includes_redacted_similar_precedents_for_trusted_sender_only(
         case_id=case,
     )  # fmt: skip
     assert _build(migrated_engine, cid, stranger_msg).similar_conversations == ()
+
+
+def test_read_attachments_and_dossier_pick_up_thread_sibling_attachments_and_ocr(
+    migrated_engine: Engine, cid: UUID, test_settings: Settings
+) -> None:
+    from app.db.models import AttachmentRow
+    from app.pipeline.draft_reading import read_attachments
+    from app.storage.extract import LocalExtractor
+    from app.storage.memory import MemoryStorage
+
+    settings = test_settings.model_copy(update={"llm_model": "fake"})
+    storage = MemoryStorage()
+    anouk = add_person(migrated_engine, cid, "Anouk", ANOUK)
+    case = add_case(migrated_engine, cid, anouk)
+    msg1 = add_mail(migrated_engine, cid, "Hierbij de offerte nog zonder bijlage.", sender=ANOUK, person_id=anouk,
+                    case_id=case, thread="t-att", days_ago=1)  # fmt: skip
+    att_id = add_attachment(migrated_engine, cid, msg1, "foto.heic", None)
+    key = f"media/{cid}/heic-test"
+    storage.put(key, b"SCAN Offerte EUR 850 voor kraanreparatie.", "image/heic")
+    with Session(migrated_engine) as s, s.begin():
+        row = s.get_one(AttachmentRow, att_id)
+        row.mime_type, row.size_bytes, row.s3_key, row.extraction_status = "image/heic", 30_000, key, None
+    msg2 = add_mail(migrated_engine, cid, "Nog een vraag over die offerte.", sender=ANOUK, person_id=anouk,
+                    case_id=case, thread="t-att")  # fmt: skip
+    d_before = _build(migrated_engine, cid, msg2)
+    assert "foto.heic" in d_before.unread_attachments
+    read = read_attachments(migrated_engine, settings, storage, LocalExtractor(), msg2)
+    assert read == 1
+    d_after = _build(migrated_engine, cid, msg2)
+    assert d_after.unread_attachments == ()
+    assert any(a.filename == "foto.heic" and a.text for a in d_after.attachments)
+
+
+def test_older_mail_never_brings_an_unknown_senders_words(
+    migrated_engine: Engine, cid: UUID, test_settings: Settings
+) -> None:
+    """A search chunk can hold mail of a sender the directory does not know (no person, so no participant): it is
+    not the person's own conversation."""
+    from app.db.models.message_rag import MessageChunk
+    from app.tools.message_rag.indexer import index_message
+
+    settings = test_settings.model_copy(update={"embedding_model": "fake"})
+    anouk = add_person(migrated_engine, cid, "Anouk", ANOUK)
+    old = add_case(migrated_engine, cid, anouk)
+    own = add_mail(migrated_engine, cid, "Mijn waarborgsom is nog niet terug.", sender=ANOUK, person_id=anouk,
+                   case_id=old, thread="t-borg", days_ago=200)  # fmt: skip
+    stranger = add_mail(migrated_engine, cid, "VREEMDE-TEKST over de waarborgsom.", sender="x@evil.test",
+                        thread="t-borg", days_ago=199)  # fmt: skip
+    for mid in (own, stranger):
+        index_message(migrated_engine, settings, mid)
+    with Session(migrated_engine) as s, s.begin():  # one chunk filed under Anouk that also holds the stranger's mail
+        for chunk in s.scalars(select(MessageChunk).where(MessageChunk.company_id == cid)):
+            chunk.person_id, chunk.message_ids = anouk, [own, stranger]
+            chunk.text = chunk.text + " VREEMDE-TEKST"
+    case = add_case(migrated_engine, cid, anouk)
+    current = add_mail(
+        migrated_engine, cid, "Waar blijft mijn waarborgsom?", sender=ANOUK, person_id=anouk, case_id=case
+    )
+    assert "VREEMDE-TEKST" not in _text(_build(migrated_engine, cid, current))

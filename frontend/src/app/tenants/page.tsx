@@ -2,7 +2,6 @@
 
 import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
@@ -63,6 +62,9 @@ import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { FlagUK, FlagNL } from "@/components/ui/FlagIcons";
 import { EnhancePromptBar } from "@/components/common/EnhancePromptBar";
 import { SHOWN_CATEGORIES } from "@/lib/categoryLabels";
+import { useCachedState } from "@/hooks/useCachedState";
+import { forgetView, readView, writeView } from "@/lib/viewCache";
+import type { ContactCommunicationsData } from "@/lib/api";
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -129,8 +131,8 @@ function TenantsContent() {
   const [leaseStatusFilter, setLeaseStatusFilter] = useState<"active" | "ending_soon" | "ended" | "all">("active");
 
   // Live Tenants loaded from database directory
-  const [dbContacts, setDbContacts] = useState<ContactItem[]>([]);
-  const [isLoadingContacts, setIsLoadingContacts] = useState<boolean>(true);
+  const [dbContacts, setDbContacts] = useCachedState<ContactItem[]>("tenants.list", []);
+  const [isLoadingContacts, setIsLoadingContacts] = useState<boolean>(dbContacts.length === 0);
 
   // A contact just added or classified: show it in the list and open it.
   const handleContactSaved = (saved: SavedContact) => {
@@ -150,7 +152,6 @@ function TenantsContent() {
   useEffect(() => {
     let isMounted = true;
     async function loadTenants() {
-      setIsLoadingContacts(true);
       try {
         let list = await getContactsList("tenant");
         if (!list || list.length === 0) {
@@ -194,7 +195,7 @@ function TenantsContent() {
     }
     loadTenants();
     return () => { isMounted = false; };
-  }, []);
+  }, [setDbContacts]);
 
   // Profile Card Collapsed/Expanded state (#f0f5fb subtle blue; null = collapsed on <md mobile, expanded on >=md desktop)
   const [isProfileExpanded, setIsProfileExpanded] = useState<boolean | null>(null);
@@ -391,12 +392,22 @@ function TenantsContent() {
     activeContactIdRef.current = contactId || null;
   }, [contactId]);
 
+  // A person opened before shows their messages at once; the poll below then brings anything new.
+  useEffect(() => {
+    const cached = readView<ContactCommunicationsData>(`comms.${contactId}`);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- swap to the newly selected person's cached copy
+    setLiveEmails(cached?.emails || []);
+    setLiveWhatsApp(cached?.whatsapp_messages || []);
+    setWhatsAppDrafts(cached?.suggested_whatsapp_drafts || []);
+  }, [contactId]);
+
   // Live background polling for tenant communications (pauses when tab is hidden)
   const fetchLiveComms = useCallback(async () => {
     if (!contactId) return;
     const requestedId = contactId;
     try {
       const comms = await getContactCommunications(requestedId, contactEmail, contactPhone);
+      if (comms) writeView(`comms.${requestedId}`, comms);
       if (comms && activeContactIdRef.current === requestedId) {
         setLiveEmails(comms.emails || []);
         setLiveWhatsApp(comms.whatsapp_messages || []);
@@ -452,6 +463,7 @@ function TenantsContent() {
     const replySubject = email.subject.startsWith("Re:") ? email.subject : `Re: ${email.subject}`;
 
     try {
+      forgetView(`comms.${activeContact.id}`);
       const res = await sendEmailReply(
         activeContact.id,
         email.id,
@@ -492,6 +504,7 @@ function TenantsContent() {
     const text = whatsappInput.trim();
 
     try {
+      forgetView(`comms.${activeContact.id}`);
       const res = await sendContactWhatsAppMessage(activeContact.id, text);
       if (res && res.success) {
         const newMsg: ContactWhatsAppMessage = {
@@ -629,7 +642,6 @@ function TenantsContent() {
 
   return (
     <div className="flex h-dvh bg-[#0A1B2F] overflow-hidden font-sans antialiased">
-      <Sidebar />
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#0A1B2F]">
         <TopCommandBar pageTitle="Tenants" hideSearch />

@@ -96,6 +96,17 @@ business. Prompts, now much larger, stayed in `model_calls` after a person was e
     the desk tabs and action list above the stream without approving in place; inbox composer renders each draft's
     `commitments` above Approve; canned reply templates and demo fallback data are removed from the UI;
     `POST /api/v1/documents/{id}/reference` exposes the owner-only `is_reference` toggle behind CSRF and rate limits.
+17. **BRIXX documents in the document library (migration 0061).** A library document has exactly one source: a mail
+    attachment or a stored BRIXX document version (`documents.attachment_id` nullable, `documents.brixx_document_id`,
+    CHECK one source). After each download, and as a bounded backlog step on every BRIXX sync, the newest stored
+    version is read (scans through the same `doc_ocr` vision agent as attachments, when document reading is on, in the
+    backlog step only, purpose `brixx_ocr` under its own daily cap; a spent cap or a failed read writes no row and pauses
+    vision for the run, three failed reads give the version up; migration 0062), chunked and linked to its people (relatie, and everyone on the contract's lease), lease
+    and units, so a tenant's BRIXX lease reaches their dossier through the case scope and Astra's search. Never read:
+    identity, income, bank and health papers by BRIXX's label or title, text that reads like an identity document, and
+    documents of a relatie erased under GDPR; each gets a `skipped` row so it is never retried. A newer version
+    replaces the older one. Erasure deletes the person's BRIXX library documents. Rejected: synthetic attachment rows
+    (they would break purge and mail semantics) and a separate BRIXX text store (a second search path to keep scoped).
 
 ### Consequences
 - Reloading 90 days must run after Deploy 1 before `settle`/`draft-open` on Deploy 2 so `proposer/v6` sees full

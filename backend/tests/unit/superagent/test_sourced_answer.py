@@ -23,7 +23,11 @@ def _settings(deadline: float = 35) -> Settings:
 
 
 def _model(
-    calls: list[tuple[str, dict[str, Any]]], answer: dict[str, Any], seen: list[str], delay: float = 0
+    calls: list[tuple[str, dict[str, Any]]],
+    answer: dict[str, Any],
+    seen: list[str],
+    delay: float = 0,
+    answer_delay: float = 0,
 ) -> FunctionModel:
     def run(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         time.sleep(delay)
@@ -31,6 +35,7 @@ def _model(
         seen[:] = [str(p.content) for p in returns]
         if len(returns) < len(calls):
             return ModelResponse(parts=[ToolCallPart(*calls[len(returns)])])
+        time.sleep(answer_delay)
         return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, answer)])
 
     return FunctionModel(run)
@@ -95,7 +100,9 @@ def test_past_the_call_limit_the_model_answers_with_what_it_has(
 def test_research_stops_at_the_deadline_and_says_so(rows: list[Any], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(research, "TOOL_SHARE", 0.95)
     started = time.monotonic()
-    model = _model([SEARCH], {"answer": "late", "sources": ["m1"], "found": True}, [], delay=0.6)
+    # The lookup turn is instant and only the answer turn is slow: the search always lands inside the deadline and the
+    # answer always lands past it, however loaded the machine running the suite is.
+    model = _model([SEARCH], {"answer": "late", "sources": ["m1"], "found": True}, [], answer_delay=1.5)
     got = _run(monkeypatch, model, deadline=1.0)
     assert time.monotonic() - started < 2
     assert got.answer.startswith(research.OUT_OF_TIME)

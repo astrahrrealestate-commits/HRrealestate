@@ -1,9 +1,8 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, useCallback, Suspense } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { Button } from "@/components/ui/Button";
@@ -39,6 +38,7 @@ import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { ResizeHandle, usePersistedPaneSize } from "@/components/ui/ResizableSplit";
+import { useCachedState } from "@/hooks/useCachedState";
 
 export interface MaintenanceTicket {
   id: string;
@@ -118,7 +118,7 @@ function MaintenanceContent() {
     resetSize: resetDetailWidth,
   } = usePersistedPaneSize("estateos_maint_detail_w", 600, 380, 860);
 
-  const [tickets, setTickets] = useState<MaintenanceTicket[]>(MOCK_MAINTENANCE_TICKETS);
+  const [tickets, setTickets] = useCachedState<MaintenanceTicket[]>("maintenance.tickets", MOCK_MAINTENANCE_TICKETS);
   const [activeTab, setActiveTab] = useState<"open" | "needs_approval" | "done">("open");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -207,6 +207,17 @@ function MaintenanceContent() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedTicketId]);
 
+  // False until this visit has fetched tickets: a cached ticket may be shown but not saved or dispatched.
+  const freshRef = useRef(false);
+  useEffect(
+    () => () => {
+      freshRef.current = false;
+    },
+    []
+  );
+
+  const [reloadKey, setReloadKey] = useState(0);
+
   // Load live tickets on mount
   useEffect(() => {
     let isMounted = true;
@@ -214,6 +225,7 @@ function MaintenanceContent() {
       .then((res) => {
         if (!isMounted) return;
         if (res.isLive) {
+          freshRef.current = true;
           setTickets(res.tickets || []);
           if (ticketParam && res.tickets && res.tickets.length > 0) {
             const m = findMatchingTicket(res.tickets, ticketParam);
@@ -227,7 +239,7 @@ function MaintenanceContent() {
     return () => {
       isMounted = false;
     };
-  }, [ticketParam]);
+  }, [setTickets, ticketParam, reloadKey]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -246,10 +258,27 @@ function MaintenanceContent() {
     [router]
   );
 
-  const handleSaveTicket = async (updated: MaintenanceTicket) => {
+  // The form is seeded once, so it must be seeded from this visit's ticket: a cached one would later be saved over
+  // newer values.
+  const openEditor = () => {
+    if (!freshRef.current) {
+      showToast("Tickets are not loaded yet. Loading again, try once more in a moment.");
+      setReloadKey((k) => k + 1);
+      return;
+    }
+    setIsEditModalOpen(true);
+  };
+
+  // False tells the edit dialog to stay open with what was typed.
+  const handleSaveTicket = async (updated: MaintenanceTicket): Promise<boolean> => {
     if (isBrixxTicket(updated)) {
       showToast(`Ticket ${updated.ticketNumber} comes from BRIXX: change it in BRIXX.`);
-      return;
+      return false;
+    }
+    if (!freshRef.current) {
+      showToast("Tickets are not loaded yet. Loading again, try once more in a moment.");
+      setReloadKey((k) => k + 1);
+      return false;
     }
     const previous = tickets;
     setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
@@ -270,13 +299,15 @@ function MaintenanceContent() {
       if (!result.success) {
         setTickets(previous);
         showToast(`Ticket ${updated.ticketNumber} could not be saved.`);
-        return;
+        return false;
       }
       showToast(`Ticket ${updated.ticketNumber} saved.`);
+      return true;
     } catch (err) {
       console.warn("Failed to update ticket in backend:", err);
       setTickets(previous);
       showToast(`Ticket ${updated.ticketNumber} could not be saved.`);
+      return false;
     }
   };
 
@@ -289,6 +320,11 @@ function MaintenanceContent() {
   ) => {
     const target = tickets.find((t) => t.id === id);
     if (!target) return;
+    if (!freshRef.current) {
+      showToast("Tickets are not loaded yet. Loading again, try once more in a moment.");
+      setReloadKey((k) => k + 1);
+      return;
+    }
 
     setTickets((prev) =>
       prev.map((t) => (t.id === id ? { ...t, status: "dispatched" } : t))
@@ -456,8 +492,6 @@ function MaintenanceContent() {
 
   return (
     <div className="h-dvh bg-[#0A1B2F] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
-      {/* 1. Left Fixed Sidebar */}
-      <Sidebar />
 
       {/* 2. Main Canvas */}
       <div className="flex-1 flex flex-col min-w-0 h-dvh overflow-hidden bg-[#0A1B2F]">
@@ -876,7 +910,7 @@ function MaintenanceContent() {
                   <div className="flex items-center gap-2 shrink-0">
                     {!isBrixxTicket(selectedTicket) && <button
                       type="button"
-                      onClick={() => setIsEditModalOpen(true)}
+                      onClick={openEditor}
                       className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-[var(--ink)] bg-[var(--bg)] hover:bg-[var(--selected)] border border-[var(--line)] rounded-lg transition-colors cursor-pointer"
                       title="Edit Ticket, Budget Cap, and Drafts"
                     >
@@ -977,7 +1011,7 @@ function MaintenanceContent() {
                       </span>
                       <button
                         type="button"
-                        onClick={() => setIsEditModalOpen(true)}
+                        onClick={openEditor}
                         className="text-[11px] font-semibold text-[var(--accent-ink)] hover:underline cursor-pointer"
                       >
                         {t("maintenance.adjust_cap", "Adjust Cap / Contractor")}
@@ -1198,7 +1232,7 @@ function MaintenanceContent() {
                             </span>
                             <button
                               type="button"
-                              onClick={() => setIsEditModalOpen(true)}
+                              onClick={openEditor}
                               className="text-[11px] font-semibold text-[var(--accent-ink)] hover:underline cursor-pointer"
                             >
                               Edit Text

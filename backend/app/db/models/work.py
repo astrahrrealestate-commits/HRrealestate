@@ -5,7 +5,7 @@ from datetime import date, datetime
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import ForeignKey, Index, String, Text, false, text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, String, Text, false, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.settings import EMBEDDING_DIMENSIONS
@@ -75,16 +75,19 @@ class WaitRow(Base, CompanyScoped):
 
 
 class DocumentRow(Base, CompanyScoped):
-    """One filing decision per attachment. `summary`/`facts` come from reading the extracted text (M10), else null."""
+    """One filing decision per attachment, or one indexed BRIXX document (M13); exactly one of the two sources.
+    `summary`/`facts` come from reading the extracted text (M10), else null."""
 
     __tablename__ = "documents"
     __table_args__ = (
+        CheckConstraint("(attachment_id IS NULL) <> (brixx_document_id IS NULL)", name="one_source"),
         Index(None, "model_call_id"),
         Index("ix_documents_doc_embedding", "doc_embedding", postgresql_using="hnsw",
               postgresql_ops={"doc_embedding": "vector_cosine_ops"}),
     )  # fmt: skip
 
-    attachment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("attachments.id"), unique=True)
+    attachment_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("attachments.id"), unique=True)
+    brixx_document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("brixx_documents.id"), unique=True)
     doc_type: Mapped[str] = mapped_column(String(32))  # app.contracts DocType value
     title: Mapped[str] = mapped_column(String(200))
     file_name: Mapped[str] = mapped_column(String(255))

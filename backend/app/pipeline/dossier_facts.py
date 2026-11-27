@@ -32,16 +32,20 @@ def owner_rules(session: Session, company_id: UUID, scope_ids: Sequence[UUID | N
     return tuple(" ".join(item.text.split()) for item in items)
 
 
-def unread_attachments(session: Session, msg: MessageRow) -> tuple[str, ...]:
-    """File names of the mail's readable attachments that have no text (a failed read, a budget stop): the draft
-    names them instead of asking for a file that was already sent. Identity documents and logos are left out."""
-    rows = session.scalars(
-        select(AttachmentRow).where(AttachmentRow.company_id == msg.company_id, AttachmentRow.message_id == msg.id)
+def unread_attachments(session: Session, msg: MessageRow, message_ids: Sequence[UUID] = ()) -> tuple[str, ...]:
+    """File names of readable attachments on this message or its thread that lack text (failed/budgeted read): the
+    draft names them instead of asking for a file already sent. Identity documents and logos are left out."""
+    mids = list(dict.fromkeys([msg.id, *message_ids]))
+    rows = session.execute(
+        select(AttachmentRow, MessageRow.sent_at)
+        .join(MessageRow, MessageRow.id == AttachmentRow.message_id)
+        .where(AttachmentRow.company_id == msg.company_id, AttachmentRow.message_id.in_(mids))
+        .order_by((AttachmentRow.message_id == msg.id).desc(), MessageRow.sent_at.desc())
     ).all()
     return tuple(
         r.filename or "unnamed"
-        for r in rows
+        for r, sent_at in rows
         if not (r.extraction_status is ExtractionStatus.done and (r.extracted_text or "").strip())
-        and not should_skip(meta := FileMeta(r.filename, r.mime_type, r.size_bytes, msg.sent_at))
+        and not should_skip(meta := FileMeta(r.filename, r.mime_type, r.size_bytes, sent_at))
         and not looks_like_id(meta)
     )
