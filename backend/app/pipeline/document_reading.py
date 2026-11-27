@@ -27,12 +27,12 @@ from app.pipeline.document_index import document_text_for_prompt
 from app.pipeline.document_policy import looks_like_id_text
 from app.pipeline.document_qa import strip_risky
 from app.pipeline.injection_scan import scan
-from app.storage.extract import Extraction, TextExtractor
+from app.storage.extract import Extraction, TextExtractor, canonical_mime
 from app.storage.ports import ObjectStorage
 
 log = get_logger(__name__)
 READER_VERSION = DOC_READER.prompt.version
-_VISION_TYPES = ("image/jpeg", "image/png", "image/webp", "application/pdf")
+_VISION_TYPES = ("image/jpeg", "image/png", "image/webp", "image/heic", "image/tiff", "application/pdf")
 _OCR_INSTRUCTION = "Transcribe the text in this document."
 
 
@@ -64,10 +64,10 @@ class ReadInput:
     case_summary: str | None
 
 
-def _ocr(engine: Engine, settings: Settings, data: bytes, row: AttachmentRow) -> str:
-    content: list[UserContent] = [_OCR_INSTRUCTION, BinaryContent(data=data, media_type=row.mime_type)]
+def _ocr(engine: Engine, settings: Settings, data: bytes, row: AttachmentRow, media_type: str) -> str:
+    content: list[UserContent] = [_OCR_INSTRUCTION, BinaryContent(data=data, media_type=media_type)]
     ctx = CallContext(row.company_id, "doc_ocr", message_ids=(row.message_id,))  # a purge finds the call by its mail
-    return run_agent(engine, settings, DOC_OCR, content, ctx).output.text.strip()
+    return run_agent(engine, settings, DOC_OCR, content, ctx).output.text.replace("\x00", "").strip()
 
 
 def _save(engine: Engine, company_id: UUID, attachment_id: UUID, ex: Extraction, text: str | None) -> None:
@@ -87,11 +87,12 @@ def _save(engine: Engine, company_id: UUID, attachment_id: UUID, ex: Extraction,
 def _extract(engine: Engine, settings: Settings, storage: ObjectStorage, extractor: TextExtractor,
              row: AttachmentRow) -> str | Unread:  # fmt: skip
     """Run the extractor (and vision for scans) and store the outcome. A budget stop is not stored: retry later."""
-    ex = extractor.extract(storage.get(row.s3_key), row.mime_type, row.filename)
+    mime = canonical_mime(row.mime_type, row.filename)
+    ex = extractor.extract(storage.get(row.s3_key), mime, row.filename)
     text = ex.text
-    if text is None and ex.needs_ocr and row.mime_type in _VISION_TYPES:
+    if text is None and ex.needs_ocr and mime in _VISION_TYPES:
         try:
-            text = _ocr(engine, settings, storage.get(row.s3_key), row) or None
+            text = _ocr(engine, settings, storage.get(row.s3_key), row, mime) or None
         except BudgetExceededError:
             return Unread.budget  # not stored: a later run, with budget, reads it
         except AgentFailedError:

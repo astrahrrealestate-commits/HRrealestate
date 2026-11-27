@@ -59,6 +59,9 @@ def test_confidence_gate(conf: float, status: DocumentStatus) -> None:
         ("invite.ics", "text/calendar", 2_000, True),
         ("signature.asc", "application/pgp-signature", 900, True),
         ("factuur.pdf", "application/pdf", 1_000, False),
+        ("opmerkingen.txt", "text/plain", 400, False),
+        ("huurlijst.csv", "text/csv", 400, False),
+        (None, "text/plain", 400, True),
         (None, "application/octet-stream", 0, True),
     ],
 )

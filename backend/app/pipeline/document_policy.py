@@ -17,7 +17,15 @@ from app.db.enums import DocumentStatus
 FILE_THRESHOLD = 0.80
 MIN_IMAGE_BYTES = 20_000  # smaller images are logos, signatures and tracking pixels
 ROOT_FOLDER = "EstateOS"
-_SKIP_MIME_PREFIXES = ("text/", "application/pgp-signature", "application/pkcs7-signature")
+_SKIP_MIME_PREFIXES = (
+    "text/html",
+    "text/calendar",
+    "text/directory",
+    "text/vcard",
+    "text/x-vcard",
+    "application/pgp-signature",
+    "application/pkcs7-signature",
+)
 _SKIP_SUFFIXES = (".ics", ".vcf", ".p7s", ".asc")
 _MIME_EXT = {
     "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png", "image/heic": "heic", "image/webp": "webp",
@@ -42,6 +50,8 @@ def should_skip(meta: FileMeta) -> bool:
     if meta.size_bytes <= 0:
         return True
     if meta.mime_type.startswith("image/") and meta.size_bytes < MIN_IMAGE_BYTES:
+        return True
+    if meta.mime_type == "text/plain" and not meta.filename:
         return True
     return meta.mime_type.startswith(_SKIP_MIME_PREFIXES) or name.endswith(_SKIP_SUFFIXES)
 
