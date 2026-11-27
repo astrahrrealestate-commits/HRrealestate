@@ -25,6 +25,27 @@ describe("sourceChips", () => {
     expect(chips.map((c) => c.href)).toEqual(["https://wetten.overheid.nl/BWBR0005290", null, null]);
   });
 
+  it("opens a mail or file only where the server says, and only on our pages or over https", () => {
+    const chips = sourceChips([
+      { kind: "message", ref: "1", label: "Anna", href: "/inbox?thread=c1" },
+      { kind: "document", ref: "2", label: "Lease", href: "https://drive.google.com/file/d/drv/view" },
+      { kind: "message", ref: "3", label: "Other host", href: "//evil.test/inbox" },
+      { kind: "message", ref: "4", label: "Script", href: "javascript:alert(1)" },
+      { kind: "document", ref: "5", label: "Plain http", href: "http://drive.test/x" },
+      { kind: "message", ref: "6", label: "No link", href: null },
+      { kind: "message", ref: "7", label: "Backslash host", href: "/\\evil.test" },
+    ]);
+    expect(chips.map((c) => c.href)).toEqual([
+      "/inbox?thread=c1",
+      "https://drive.google.com/file/d/drv/view",
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
+  });
+
   it("drops duplicates and blank labels, and copes with a missing list", () => {
     const one = { kind: "message" as const, ref: "1", label: "Anna" };
     expect(sourceChips([one, one, { kind: "data", ref: "2", label: "  " }])).toHaveLength(1);
