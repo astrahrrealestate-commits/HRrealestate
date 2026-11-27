@@ -29,7 +29,8 @@ from app.directory.brixx.schema import build_table
 from app.ingestion.process import is_transient
 from app.workflows import queues
 from app.workflows.brixx_common import BRIXX_RETRY, FAILED, brixx_retryable, error_name, info_from_json
-from app.workflows.deps import brixx_api, get_deps, get_engine
+from app.workflows.brixx_library import index_backlog, index_brixx_document, unindexed_version
+from app.workflows.deps import brixx_api, get_deps, get_embedder, get_engine, get_extractor
 
 log = get_logger(__name__)
 
@@ -82,14 +83,36 @@ def failed_step(company_id: str, document_id: int, version: str, error: str) -> 
         session.commit()
 
 
+@DBOS.step(name="brixx.index_document")  # no retries: a failed index never holds the download workflow
+def index_document_step(company_id: str, document_id: int) -> bool:
+    """The newest stored version of the document into the library (M13); idempotent."""
+    cid = UUID(company_id)
+    newest = unindexed_version(get_engine(), cid, document_id)
+    if newest is None:
+        return False
+    return index_brixx_document(get_engine(), get_deps().storage, get_extractor(), get_embedder(), cid, newest)
+
+
+@DBOS.step(name="brixx.index_backlog")  # no retries: the next sync picks the backlog up
+def index_backlog_step(company_id: str) -> int:
+    """Stored documents not in the library yet, a bounded batch per sync (the files downloaded before M13 too)."""
+    return index_backlog(get_engine(), get_deps().storage, get_extractor(), get_embedder(), UUID(company_id))
+
+
 @DBOS.workflow(name=BRIXX_DOWNLOAD_DOCUMENT)
 def download_document(company_id: str, document_id: int, version: str) -> str:
     """Download one document version. Returns `stored`, `forbidden` or `failed:<ErrorClass>`; never raises for a
     failed download, so DBOS does not rerun the workflow and the failure stays visible in `brixx_documents`."""
     try:
-        return download_step(company_id, document_id, version)
+        status = download_step(company_id, document_id, version)
     except Exception as exc:
         name = error_name(exc)
         log.warning("brixx.document_failed", company_id=company_id, document_id=document_id, error=name)
         failed_step(company_id, document_id, version, name)
         return FAILED + name
+    if status == BrixxDocumentStatus.stored.value:
+        try:
+            index_document_step(company_id, document_id)  # the text reaches dossiers and Astra right away
+        except Exception as exc:  # the next sync's backlog step indexes it
+            log.warning("brixx.index_failed", company_id=company_id, document_id=document_id, error=error_name(exc))
+    return status

@@ -10,6 +10,7 @@ Cascades tenant erasure across:
    English-to-Dutch row of the company, deleted before the redaction).
 7. `ticket_edits` of the person's cases (deleted: the owner's edits can quote the person's messages or drafts to them).
 8. `chat_reads` of the person's WhatsApp chats (deleted, found by their WhatsApp identities).
+11. BRIXX library documents linked to the person (`gdpr_documents`; chunks and links cascade).
 10. `model_calls` whose prompt or output carried the person's words (input, output and error blanked; gdpr_calls).
 9. BRIXX mirror: a person with a numeric `brixx_ref` gets a `brixx_erased_refs` tombstone and their mirror rows
    (`brixx.prg_relatie`, `brixx.zprg_relatie`) are deleted, so a re-sync never resurrects them.
@@ -43,6 +44,7 @@ from app.db.models import (
     Translation,
 )
 from app.pipeline.gdpr_calls import erase_model_calls
+from app.pipeline.gdpr_documents import erase_brixx_documents
 
 log = get_logger(__name__)
 
@@ -110,7 +112,8 @@ def erase_person(
     msg_id_strs = {str(mid) for mid in msg_ids}
 
     _delete_ticket_edits(session, company_id, person_id)
-    calls_blanked = erase_model_calls(session, company_id, person_id, msg_ids)  # needs the text: before the redaction
+    calls_blanked = erase_model_calls(session, company_id, person_id, msg_ids)  # needs the text: before redaction
+    erase_brixx_documents(session, company_id, person_id)  # their BRIXX papers leave the document library (M13)
 
     # 2. Redact message texts and identities (their cached English copies go first: they are found by the text)
     messages_redacted = 0
