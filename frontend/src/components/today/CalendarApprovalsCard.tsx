@@ -28,6 +28,7 @@ import {
   getCalendarEvents,
   approveCalendarEvent,
 } from "@/lib/api";
+import { useCachedState } from "@/hooks/useCachedState";
 
 export interface CalendarApprovalsCardProps {
   initialEvents?: CalendarEvent[];
@@ -70,8 +71,10 @@ export function CalendarApprovalsCard({
   className,
 }: CalendarApprovalsCardProps) {
   const { t } = useLanguage();
-  const [events, setEvents] = useState<CalendarEvent[]>(initialEvents || []);
-  const [isLoading, setIsLoading] = useState<boolean>(!initialEvents);
+  const [events, setEvents] = useCachedState<CalendarEvent[]>("today.calendar", initialEvents || []);
+  const [isLoading, setIsLoading] = useState<boolean>(!initialEvents && events.length === 0);
+  // Approving creates the Google event, so a card painted from the last visit stays locked until this fetch answers.
+  const [fresh, setFresh] = useState(Boolean(initialEvents?.length));
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [filterMode, setFilterMode] = useState<"pending" | "all">("pending");
@@ -79,12 +82,11 @@ export function CalendarApprovalsCard({
   useEffect(() => {
     if (initialEvents && initialEvents.length > 0) return;
     let isMounted = true;
-    setIsLoading(true);
-
     getCalendarEvents()
       .then((res) => {
-        if (!isMounted) return;
+        if (!isMounted || !res.isLive) return;
         setEvents(res.events || []);
+        setFresh(true);
       })
       .catch((err) => {
         console.warn("Error loading calendar events:", err);
@@ -95,8 +97,9 @@ export function CalendarApprovalsCard({
 
     return () => {
       isMounted = false;
+      setFresh(false);
     };
-  }, [initialEvents]);
+  }, [initialEvents, setEvents]);
 
   const pendingEvents = useMemo(
     () => events.filter((e) => e.status === "proposed"),
@@ -366,7 +369,7 @@ export function CalendarApprovalsCard({
                       <button
                         type="button"
                         onClick={() => handleApprove(evt)}
-                        disabled={isApproving}
+                        disabled={isApproving || !fresh}
                         className={cn(
                           "inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all shadow-xs",
                           "bg-[var(--ink)] hover:bg-[var(--ink)]/90 text-white disabled:opacity-50"

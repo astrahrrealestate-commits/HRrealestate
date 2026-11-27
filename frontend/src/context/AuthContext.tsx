@@ -1,8 +1,10 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { apiFetch, BACKEND_BASE_URL } from "@/lib/backend";
+import { apiFetch, BACKEND_BASE_URL, onAccessDenied } from "@/lib/backend";
+import { profileKey } from "@/lib/profile";
+import { clearViews } from "@/lib/viewCache";
 
 export interface AuthUser {
   email: string;
@@ -49,6 +51,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Set only when the API explicitly answered "not authenticated" (not on a network/offline error, where we don't
   // actually know the auth state and ApiHealthBanner already covers telling the owner the backend is unreachable).
   const [unauthenticated, setUnauthenticated] = useState(false);
+  // Whose data the view cache and the mounted pages hold (null until someone is known).
+  const knownProfile = useRef<string | null>(null);
+  const hasAsked = useRef(false);
 
   const fetchCurrentUser = async () => {
     try {
@@ -61,30 +66,65 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res.ok) {
         const data = await res.json();
         if (data.authenticated && data.email) {
-          setUser({
+          const next: AuthUser = {
             email: data.email,
             name: data.name || data.email.split("@")[0],
             role: data.role || "manager",
             company_id: data.company_id,
             sections: Array.isArray(data.sections) ? data.sections : [],
             isAdmin: data.is_admin === true,
-          });
+          };
+          const key = profileKey(next);
+          if (knownProfile.current !== null && knownProfile.current !== key) {
+            // A hard reload: it also drops the pages React keeps mounted, not only the view cache.
+            clearViews();
+            window.location.reload();
+            return;
+          }
+          knownProfile.current = key;
+          setUser(next);
           setUnauthenticated(false);
           return;
         }
+      }
+      // Only a 401 or "not authenticated" says he is signed out; a 429 or 5xx while re-checking says nothing.
+      if (hasAsked.current && !res.ok && res.status !== 401) return;
+      clearViews();
+      if (knownProfile.current !== null) {
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- full load on purpose
+        window.location.assign("/login");
+        return;
       }
       setUser(null);
       setUnauthenticated(true);
     } catch {
       // Backend offline or network error: unknown auth state, so don't force a redirect to /login over it.
-      setUser(null);
+      if (knownProfile.current === null) setUser(null);
     } finally {
+      hasAsked.current = true;
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
     fetchCurrentUser();
+    // Ask again who is signed in when an endpoint refuses, or the tab comes back (another tab may have signed in
+    // as someone else): what is cached must never outlive the access it was loaded with.
+    let lastCheck = 0;
+    const recheck = () => {
+      if (Date.now() - lastCheck < 5000) return;
+      lastCheck = Date.now();
+      void fetchCurrentUser();
+    };
+    const onVisible = () => {
+      if (!document.hidden) recheck();
+    };
+    const unsubscribe = onAccessDenied(recheck);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      unsubscribe();
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
   // The Next.js edge middleware cannot see this session: on the split-host deployment (frontend and backend are
@@ -111,8 +151,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     // Also clear client cookie if possible
     document.cookie = "eo_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;";
-    setUser(null);
-    router.push("/login");
+    clearViews();
+    // A full load, so nothing still in flight or kept mounted can show this person's data again.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- full load on purpose
+    window.location.assign("/login");
   };
 
   const canAccess = (section: string) => {

@@ -65,6 +65,8 @@ export interface ComposerProps {
   onClearReplyingTo?: () => void;
   onAcceptAndSend?: (text: string, channel: string, replyToMessageId?: string, attachmentIds?: string[]) => void;
   onReject?: () => void;
+  /** False (e.g. the thread is still refreshing) stops a send or reject before any text is cleared. */
+  canSend?: () => boolean;
   onSendManualReply?: (text: string, channel: string, replyToMessageId?: string, attachmentIds?: string[]) => void;
   onEnhanced?: () => void;
   onUndo?: () => void;
@@ -96,6 +98,7 @@ export function Composer({
   onClearReplyingTo,
   onAcceptAndSend,
   onReject,
+  canSend,
   threadKey,
   caseId,
   targetMessageId,
@@ -454,6 +457,7 @@ export function Composer({
     delete desktopCollapsedByThread.current[key];
   };
   const handleRejectClick = () => {
+    if (canSend && !canSend()) return;
     forgetTyped();
     setExpandedDraftThreadKey(null);
     setIsMobileEnOpen(false);
@@ -568,6 +572,7 @@ export function Composer({
 
   const handleAccept = () => {
     if (!content.trim()) return;
+    if (canSend && !canSend()) return;
     const attachmentIds = attachments.map((a) => a.attachmentId);
     forgetTyped();
     setExpandedDraftThreadKey(null);
@@ -600,6 +605,7 @@ export function Composer({
 
   const handleSendNormal = () => {
     if (!content.trim()) return;
+    if (canSend && !canSend()) return;
     const attachmentIds = attachments.map((a) => a.attachmentId);
     if (isListening) stopListening();
     if (onSendManualReply) {

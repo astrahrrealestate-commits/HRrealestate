@@ -6,6 +6,7 @@ import { AuthProvider } from "@/context/AuthContext";
 import { LanguageProvider } from "@/context/LanguageContext";
 import { CommandPalette } from "@/components/layout/CommandPalette";
 import { SectionGuard } from "@/components/layout/SectionGuard";
+import { AppFrame } from "@/components/layout/AppFrame";
 import { ApiHealthBanner } from "@/components/ui/ApiHealthBanner";
 
 export const metadata: Metadata = {
@@ -35,7 +36,9 @@ export default function RootLayout({
             <SuperAgentProvider>
               <SidebarProvider>
                 <ApiHealthBanner />
-                <SectionGuard>{children}</SectionGuard>
+                <AppFrame>
+                  <SectionGuard>{children}</SectionGuard>
+                </AppFrame>
                 <CommandPalette />
               </SidebarProvider>
             </SuperAgentProvider>
