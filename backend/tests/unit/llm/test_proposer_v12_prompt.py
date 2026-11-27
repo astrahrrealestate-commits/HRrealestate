@@ -31,7 +31,7 @@ def test_v12_negotiates_terms_with_the_quotes_own_numbers_without_a_reference() 
     assert "30%" in text
 
 
-def test_v12_is_the_dossier_prompt() -> None:
+def test_v12_stays_a_published_dossier_prompt() -> None:
     assert PROPOSER_V12.prompt.key == "proposer/v12"
     assert "v12" in DOSSIER_PROMPTS
     assert "v12" in ROLE_AWARE_PROMPTS

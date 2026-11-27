@@ -1,6 +1,6 @@
 # Project context (auto)
 
-Generated: 2026-11-26T12:42:22.939Z
+Generated: 2026-11-27T09:41:34.796Z
 
 ## Detected stack
 
@@ -8,60 +8,56 @@ Generated: 2026-11-26T12:42:22.939Z
 
 ## Git
 
-- Branch: `m13-ai-staff`
-- HEAD: `7f60b4b`
+- Branch: `dev`
+- HEAD: `f8312c8`
 
 ## Recent commits
 
-- `7f60b4b` fix(inbox,pipeline): separate mail threads cleanly, isolate channels, keep drafts in composer, and cap drafts at 2 _(Aditya Jain, 2026-11-26)_
-- `b398b8f` feat(ops): add Vastgoed IMAP history backfill script for M13 _(Suryansh Tyagi, 2026-11-26)_
-- `aaabb07` Merge remote-tracking branch 'hr-remote/m13-c' into dev _(Suryansh Tyagi, 2026-11-26)_
-- `582edca` Merge remote-tracking branch 'hr-remote/m13-ai-staff' into dev _(Suryansh Tyagi, 2026-11-26)_
-- `d811a08` feat(proposer): v7 uses what was settled and asks one question per missing item _(Aditya Jain, 2026-11-26)_
-- `337af2b` feat(infra): Astra's research gets 100 s, the ALB and the browser wait for it _(Aditya Jain, 2026-11-26)_
-- `995b87e` feat(superagent): Astra asks for independent lookups in one turn; understanding v4 real-model report _(Aditya Jain, 2026-11-26)_
-- `589fe65` chore(m13): merge lane A 8f3b84f (ID text before storage, draft research fixes) into m13-c _(Aditya Jain, 2026-11-26)_
-- `170d4b1` fix(dashboard,rag): quote reviews need the money section; the rerank embeds a capped number of windows _(Aditya Jain, 2026-11-26)_
-- `269b416` fix(reload): settle and draft-open wait for the history run; draft-report and status modes _(Aditya Jain, 2026-11-26)_
-- `8f3b84f` fix(m13): ID scans refused by their text, wider purge, safer draft research _(Aditya Jain, 2026-11-26)_
-- `840e9df` fix(documents): a tenant's own papers never join the reference library _(Aditya Jain, 2026-11-26)_
-- `d9537f6` fix(superagent): the research loop thinks low so its lookups fit the deadline _(Aditya Jain, 2026-11-26)_
-- `74e9de7` Merge remote-tracking branch 'hr-remote/m13-ai-staff' into dev _(Suryansh Tyagi, 2026-11-26)_
-- `7c76798` fix(dashboard): guard nullable pulse metrics before setting state _(Suryansh Tyagi, 2026-11-26)_
-- `aba3498` fix(pipeline,inbox): show all non-spam mail in inbox and parallelize price/research prep _(Aditya Jain, 2026-11-26)_
-- `4b87887` chore(m13): merge hrrealestate/m13-ai-staff UI updates _(Aditya Jain, 2026-11-26)_
-- `2b7f843` fix(pipeline): feed readable attachments into person memory and pass embedder on redrafts _(Aditya Jain, 2026-11-26)_
-- `93801c3` Merge remote-tracking branch 'origin/m13-ai-staff' into dev _(Suryansh Tyagi, 2026-11-26)_
-- `ab2f451` fix(rag): stabilize embedder event loop, semantic rerank, and research recall _(Aditya Jain, 2026-11-26)_
+- `f8312c8` fix(migrations,pipeline,tests): fix view downgrade, reuse open_waits, align calendar test, ease worker timeout _(Aditya Jain, 2026-11-27)_
+- `d7ffd4c` Merge remote-tracking branch 'hr-remote/m13-ai-staff' into dev _(Suryansh Tyagi, 2026-11-27)_
+- `9be386f` fix(auth): keep ensureAuthenticated passive via /login and AuthContext _(Suryansh Tyagi, 2026-11-27)_
+- `e0d3b75` ci: run push CI only on main, stage, and dev [skip ci] _(Aditya Jain, 2026-11-27)_
+- `995e6f7` ci: exclude m13-ai-staff from push CI trigger [skip ci] _(Aditya Jain, 2026-11-27)_
+- `b520fc7` fix(pipeline,evals,tests): align concierge steering, approvals API, mypy, and tests after dev merge [skip ci] _(Aditya Jain, 2026-11-27)_
+- `88ab830` feat(infra,api,frontend): enable prod env, offload translation to worker, stream agent SSE _(Aditya Jain, 2026-11-27)_
+- `591e322` chore(merge): merge hrrealestate/dev into m13-ai-staff [skip ci] _(Aditya Jain, 2026-11-27)_
+- `2b97718` perf(infra,backend,frontend): bound inbox query, tune DB pools, reuse thread pools, harden prod ECS/RDS _(Aditya Jain, 2026-11-27)_
+- `77d4471` feat(imap): add 90-day cutoff for fast history indexing and wire prepare_for_draft _(Suryansh Tyagi, 2026-11-27)_
+- `78e2472` feat(superagent,commitments,ui): upgrade Super Agent (v12, compose, redraft, calendar, research) and commitments radar _(Suryansh Tyagi, 2026-11-27)_
+- `db02302` Merge remote-tracking branch 'hr-remote/m13-ai-staff' into dev _(Suryansh Tyagi, 2026-11-27)_
+- `fc217c3` feat(contacts,tenants): add EnhancePromptBar and contact draft enhancement endpoints _(Suryansh Tyagi, 2026-11-27)_
+- `0a183a9` chore(merge): merge perf-instant-nav into m13-ai-staff [skip ci] _(Aditya Jain, 2026-11-27)_
+- `b10432e` chore(m13): consolidate m13-a, m13-b, m13-c, and ai-staff work into m13-ai-staff [skip ci] _(Aditya Jain, 2026-11-27)_
+- `28676e1` chore(merge): merge hrrealestate/m13-a into m13-ai-staff [skip ci] _(Aditya Jain, 2026-11-27)_
+- `9b15cdb` perf(dashboard): pages open at once and the sidebar stays put (ADR 0018) _(Aditya Jain, 2026-11-27)_
+- `1556956` fix(pipeline): read thread attachments, OCR HEIC/TIFF/octet-stream, and extract XLSX [skip ci] _(Aditya Jain, 2026-11-27)_
+- `79fa804` feat(proposer): v12 for its real-model eval; the eval shows forbidden phrases in context _(Aditya Jain, 2026-11-27)_
+- `ee622e3` chore(m13): merge hrrealestate/dev (77e13cf) into lane A _(Aditya Jain, 2026-11-27)_
 
 ## Inferred recent decisions
 
-- `7f60b4b` fix(inbox,pipeline): separate mail threads cleanly, isolate channels, keep drafts in composer, and cap drafts at 2
-- `b398b8f` feat(ops): add Vastgoed IMAP history backfill script for M13
-- `d811a08` feat(proposer): v7 uses what was settled and asks one question per missing item
-- `337af2b` feat(infra): Astra's research gets 100 s, the ALB and the browser wait for it
-- `995b87e` feat(superagent): Astra asks for independent lookups in one turn; understanding v4 real-model report
-- `170d4b1` fix(dashboard,rag): quote reviews need the money section; the rerank embeds a capped number of windows
-- `269b416` fix(reload): settle and draft-open wait for the history run; draft-report and status modes
-- `8f3b84f` fix(m13): ID scans refused by their text, wider purge, safer draft research
-- `840e9df` fix(documents): a tenant's own papers never join the reference library
-- `d9537f6` fix(superagent): the research loop thinks low so its lookups fit the deadline
-- `7c76798` fix(dashboard): guard nullable pulse metrics before setting state
-- `aba3498` fix(pipeline,inbox): show all non-spam mail in inbox and parallelize price/research prep
-- `2b7f843` fix(pipeline): feed readable attachments into person memory and pass embedder on redrafts
-- `ab2f451` fix(rag): stabilize embedder event loop, semantic rerank, and research recall
+- `f8312c8` fix(migrations,pipeline,tests): fix view downgrade, reuse open_waits, align calendar test, ease worker timeout
+- `9be386f` fix(auth): keep ensureAuthenticated passive via /login and AuthContext
+- `b520fc7` fix(pipeline,evals,tests): align concierge steering, approvals API, mypy, and tests after dev merge [skip ci]
+- `88ab830` feat(infra,api,frontend): enable prod env, offload translation to worker, stream agent SSE
+- `77d4471` feat(imap): add 90-day cutoff for fast history indexing and wire prepare_for_draft
+- `78e2472` feat(superagent,commitments,ui): upgrade Super Agent (v12, compose, redraft, calendar, research) and commitments radar
+- `fc217c3` feat(contacts,tenants): add EnhancePromptBar and contact draft enhancement endpoints
+- `9b15cdb` perf(dashboard): pages open at once and the sidebar stays put (ADR 0018)
+- `1556956` fix(pipeline): read thread attachments, OCR HEIC/TIFF/octet-stream, and extract XLSX [skip ci]
+- `79fa804` feat(proposer): v12 for its real-model eval; the eval shows forbidden phrases in context
 
 ## Hotspots
 
-- 100x — `docs/PROGRESS.md`
-- 53x — `frontend/src/lib/api.ts`
+- 106x — `docs/PROGRESS.md`
+- 60x — `frontend/src/lib/api.ts`
+- 50x — `frontend/src/components/assistant/AskEstateOSPanel.tsx`
 - 50x — `app/api/agent/routes.py`
-- 49x — `frontend/src/components/assistant/AskEstateOSPanel.tsx`
-- 39x — `frontend/src/components/inbox/InboxConversationView.tsx`
+- 41x — `frontend/src/components/inbox/InboxConversationView.tsx`
+- 39x — `frontend/src/app/page.tsx`
+- 38x — `frontend/src/app/inbox/page.tsx`
 - 38x — `pyproject.toml`
-- 37x — `frontend/src/app/page.tsx`
-- 36x — `frontend/src/app/inbox/page.tsx`
-- 35x — `docs/dashboard-api.md`
+- 37x — `docs/dashboard-api.md`
 - 35x — `app/api/inbox/routes.py`
 
 ## Top-level tree
@@ -111,6 +107,7 @@ Generated: 2026-11-26T12:42:22.939Z
 .claude/worktrees/m-sender-roles-push/
 .claude/worktrees/m13-a/
 .claude/worktrees/m13-c/
+.claude/worktrees/perf/
 .coverage
 .data/
 .env
@@ -266,5 +263,4 @@ Generated: 2026-11-26T12:42:22.939Z
 .hypothesis/constants/1b2996e00f048f45
 .hypothesis/constants/1b81d4d985941a69
 .hypothesis/constants/1b8f41e38f01284b
-.hypothesis/constants/1b9c22884a6f6147
 ```
