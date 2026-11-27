@@ -116,15 +116,16 @@ def test_fast_style_rewrite_persists_without_proposer() -> None:
         patch("app.pipeline.enhance.run_agent", return_value=fake_output),
         patch("app.pipeline.enhance.Session") as session_cls,
         patch("app.pipeline.enhance.propose.lock_message"),
-        patch("app.pipeline.enhance.load_persona", return_value=None),
+        patch("app.pipeline.enhance.load_persona", return_value=None) as persona_mock,
         patch("app.pipeline.enhance.supersede_draft", return_value=fake_rev) as sup_mock,
         patch("app.pipeline.enhance.dashboard_decisions.resolve_feed"),
     ):
         session_cls.return_value.__enter__.return_value = MagicMock()
+        engine, company_id = MagicMock(), uuid4()
         res = _fast_style_rewrite(
-            MagicMock(),
+            engine,
             SETTINGS,
-            uuid4(),
+            company_id,
             msg,  # type: ignore[arg-type]
             und,  # type: ignore[arg-type]
             uuid4(),
@@ -137,3 +138,4 @@ def test_fast_style_rewrite_persists_without_proposer() -> None:
     assert res.variants == ("Short version.", "Brief version.")
     assert res.draft_version == 2
     sup_mock.assert_called_once()
+    persona_mock.assert_called_once_with(engine, company_id)  # load_persona opens its own session

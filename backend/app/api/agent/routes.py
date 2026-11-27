@@ -1750,8 +1750,20 @@ def ask_agent(
             and not any(
                 w in q_low
                 for w in [
-                    "message", "messages", "reply", "email", "mail", "whatsapp",
-                    "sent", "send", "attachment", "attachments", "received", "from", "last", "latest",
+                    "message",
+                    "messages",
+                    "reply",
+                    "email",
+                    "mail",
+                    "whatsapp",
+                    "sent",
+                    "send",
+                    "attachment",
+                    "attachments",
+                    "received",
+                    "from",
+                    "last",
+                    "latest",
                 ]
             )
         )
