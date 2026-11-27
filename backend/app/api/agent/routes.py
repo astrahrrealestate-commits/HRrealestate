@@ -620,41 +620,37 @@ def _resolve_calendar_action(
             target_unit = unit_named(session, company_id, q_low)
             target_case = open_case_on(session, company_id, target_unit) if target_unit else None
 
-            contractors = list(
+            people = list(
                 session.scalars(
                     select(Person)
-                    .where(
-                        Person.company_id == company_id,
-                        Person.kind == PersonKind.contractor,
-                        Person.valid_to.is_(None),
-                    )
+                    .where(Person.company_id == company_id, Person.valid_to.is_(None))
                     .order_by(Person.created_at.desc())
-                    .limit(10)
+                    .limit(100)
                 ).all()
             )
             matched_c = None
-            for c_person in contractors:
-                name_tokens = [tok for tok in c_person.display_name.lower().split() if len(tok) > 2]
+            for person in people:
+                name_tokens = [tok for tok in (person.display_name or "").lower().split() if len(tok) > 2]
                 if any(tok in q_low for tok in name_tokens):
-                    matched_c = c_person
+                    matched_c = person
                     break
 
-            # Never guess which property or contractor: the owner named them or we ask.
-            if target_unit is None or matched_c is None:
+            is_block = any(w in q_low for w in ("block", "focus", "internal", "review", "reminder"))
+            if target_unit is None and matched_c is None and not is_block:
                 return (
-                    "I could not tell which property and which contractor this visit is for. "
-                    "Please name both, plus the day and time.",
+                    "Who is this meeting or visit with (and which property if applicable), plus the day and time?",
                     None,
                     [],
                     ["Awaiting appointment details"],
                 )
 
-            addr = target_unit.address or target_unit.label
-            contractor_name = (
+            addr = (target_unit.address or target_unit.label) if target_unit else "HR Real Estate / General"
+            attendee_label = (
                 f"{matched_c.display_name} ({matched_c.trade.capitalize()})"
-                if matched_c.trade
-                else matched_c.display_name
+                if matched_c and matched_c.trade
+                else (matched_c.display_name if matched_c else "Internal / Focus Block")
             )
+            contractor_name = attendee_label
 
             contractor_email: str | None = None
             if matched_c:
@@ -670,6 +666,12 @@ def _resolve_calendar_action(
                 ).first()
                 if c_ident and c_ident.identity:
                     contractor_email = str(c_ident.identity).strip()
+
+            event_type = (
+                "contractor_repair"
+                if (matched_c and matched_c.kind == PersonKind.contractor)
+                else ("focus_block" if is_block and matched_c is None else "meeting")
+            )
 
             try:
                 proposal = propose_calendar_event(
@@ -707,7 +709,7 @@ def _resolve_calendar_action(
                 end_time=proposal.end_time,
                 location=addr,
                 status="proposed",
-                event_type="contractor_repair",
+                event_type=event_type,
                 attendees=[{"email": contractor_email, "displayName": contractor_name}] if contractor_email else [],
                 lockbox_code=proposal.lockbox_code,
             )
@@ -785,20 +787,31 @@ def _resolve_calendar_action(
                 .order_by(CalendarEventRow.start_time.asc())
             ).all()
 
-            if events:
-                event_lines = []
-                for e in events[:5]:
-                    date_lbl = to_local(e.start_time).strftime("%a %b %d · %H:%M")
-                    loc = e.location or "no location set"
-                    st_badge = f"[{e.status.upper()}]"
-                    event_lines.append(f"• **{e.title}** ({st_badge})\n  {date_lbl} at {loc}")
-                sched_text = "\n".join(event_lines)
+            event_lines: list[str] = []
+            for e in events[:5]:
+                date_lbl = to_local(e.start_time).strftime("%a %b %d · %H:%M")
+                loc = e.location or "no location set"
+                st_badge = f"[{e.status.upper()}]"
+                event_lines.append(f"• **{e.title}** ({st_badge})\n  {date_lbl} at {loc}")
+
+            live_count = 0
+            try:
+                client = get_calendar_client()
+                win_start = datetime.now(UTC)
+                win_end = win_start + timedelta(days=14)
+                for ev in client.list_events(win_start, win_end)[:8]:
+                    live_count += 1
+                    date_lbl = to_local(ev.start_time).strftime("%a %b %d · %H:%M")
+                    loc = ev.location or "no location set"
+                    event_lines.append(f"• **{ev.title}** ([GOOGLE CALENDAR])\n  {date_lbl} at {loc}")
+            except CalendarUnavailableError:
+                pass
+
+            if event_lines:
+                sched_text = "\n".join(event_lines[:10])
                 ans = f"Here are your upcoming scheduled visits and appointments:\n\n{sched_text}"
             else:
-                ans = (
-                    "You have no upcoming appointments booked on your calendar for this week.\n\n"
-                    "All maintenance visits are either completed or awaiting contractor confirmation."
-                )
+                ans = "You have no upcoming appointments booked on your calendar."
 
             actions = [
                 ActionButtonData(
@@ -809,8 +822,8 @@ def _resolve_calendar_action(
                 )
             ]
             steps = [
-                "Queried scheduled property visits from database",
-                f"Retrieved {len(events)} upcoming appointments",
+                "Queried scheduled property visits and Google Calendar",
+                f"Retrieved {len(events)} DB and {live_count} Google Calendar appointments",
             ]
             return ans, None, actions, steps
 
@@ -1011,8 +1024,6 @@ _MULTI_DRAFT_RE = re.compile(
 )
 _UNSUPPORTED_PILL_RE = re.compile(
     r"\b(send\s+(?:whatsapp|gmail|email|reply\s+now|now)|"
-    r"(?:make\s+(?:it|reply)\s+)?(?:firmer|shorter|longer|softer|friendlier)|"
-    r"rewrite|rephrase|reword|translate|"
     r"open\s+ticket\s+drawer|show\s+leak\s+photos|draft\s+plumber\s+order)\b",
     re.IGNORECASE,
 )
@@ -1056,8 +1067,19 @@ def _sanitize_suggestions(
         fallback_pills = ["Show open tickets", "What should I do first?", "Open in Inbox"]
     elif _is_prioritization_query(q_low):
         fallback_pills = ["Draft replies for tickets", "Show open tickets", "List active leases"]
-    elif any(k in q_low for k in ["rent", "arrear", "invoice", "money", "overdue"]):
+    elif any(k in q_low for k in ["rent", "arrear", "invoice", "money", "overdue", "bouwdepot", "tax"]):
         fallback_pills = ["Draft payment reminder", "Show lease PDF", "Open in Money"]
+    elif any(
+        k in q_low
+        for k in ["legal", "lawyer", "notary", "roz", "huurcommissie", "evict", "termination", "advocaat"]
+    ):
+        fallback_pills = ["Draft legal reply", "Read lease clauses", "Open in Messages"]
+    elif any(k in q_low for k in ["project", "acquisition", "dd", "due diligence", "permit", "splits", "nieuw"]):
+        fallback_pills = ["Show DD reviews", "Search project files", "Open in Messages"]
+    elif any(k in q_low for k in ["vve", "utility", "insurance", "municipality", "admin"]):
+        fallback_pills = ["Search VvE emails", "Draft admin reply", "Open in Messages"]
+    elif any(k in q_low for k in ["viewing", "prospect", "broker", "makelaar", "investor"]):
+        fallback_pills = ["Check calendar slots", "Draft viewing reply", "Open in Contacts"]
     elif any(k in q_low for k in ["leak", "boiler", "repair", "maintenance", "ticket", "priority"]):
         fallback_pills = ["What should I do first?", "Draft replies for tickets", "List active leases"]
     elif any(k in q_low for k in ["lease", "contract", "doc", "pdf"]):
@@ -1111,23 +1133,42 @@ def _resolve_query_navigation(question: str, columns: list[str]) -> tuple[str, s
     if bool(re.search(r"\b(waiting|chase|chases)\b", q_low)) or "waiting" in col_str or "chase" in col_str:
         return "/waiting", "Open Waiting"
 
-    # 5. Documents
-    if bool(re.search(r"\b(document|documents|file|filed|pdf)\b", q_low)) or "doc" in col_str:
+    # 5. Documents & Due Diligence
+    if (
+        bool(re.search(r"\b(document|documents|file|filed|pdf|dd_reviews|due\s+diligence)\b", q_low))
+        or "doc" in col_str
+    ):
         return "/documents", "Open Documents"
 
-    # 6. Maintenance & Tickets
+    # 6. Maintenance & Tickets (strictly maintenance, not generic cases)
     if (
-        bool(re.search(r"\b(ticket|tickets|case|cases|maintenance|maintnace|repair|issue)\b", q_low))
+        bool(re.search(r"\b(ticket|tickets|maintenance|maintnace|repair|brixx)\b", q_low))
         or "ticket" in col_str
         or "urgency" in col_str
     ):
         return "/maintenance", "Open Maintenance"
 
-    # 7. Contacts & Contractors
-    if bool(re.search(r"\b(contractor|contractors|contact|contacts)\b", q_low)) or "contractor" in col_str:
+    # 7. Contacts & Directory (all roles: contractors, legal, vve, business, prospects)
+    if (
+        bool(re.search(r"\b(contractor|contractors|contact|contacts|vve|lawyer|notary|broker|makelaar)\b", q_low))
+        or "contractor" in col_str
+        or "brixx_ref" in col_str
+    ):
         return "/contacts", "Open Contacts"
 
-    # 8. Calendar & Visits
+    # 8. Inbox / Messages (legal, business, administration, new_projects, general cases)
+    if (
+        bool(
+            re.search(
+                r"\b(case|cases|legal|business|administration|new_projects|email|mail|whatsapp|message)\b", q_low
+            )
+        )
+        or "case" in col_str
+        or "category" in col_str
+    ):
+        return "/inbox", "Open Messages"
+
+    # 9. Calendar & Visits
     if bool(re.search(r"\b(visit|visits|calendar|schedule|appointment|afspraak)\b", q_low)) or "start" in col_str:
         return "/calendar", "Open Calendar"
 
@@ -1526,7 +1567,7 @@ def ask_agent(
                 select(MemoryItem.text)
                 .where(MemoryItem.company_id == company_id, MemoryItem.status == MemoryStatus.active)
                 .order_by(MemoryItem.created_at.desc())
-                .limit(10)
+                .limit(15)
             ).all()
         )
 
@@ -1540,6 +1581,9 @@ def ask_agent(
         page_facts_text = ""
         if page_row and isinstance(page_row.resolved, dict):
             page_facts_text = page_row.resolved.get("facts", "") or ""
+            trail_line = page_row.resolved.get("focus_trail", "") or ""
+            if trail_line:
+                page_facts_text = f"{page_facts_text}\n{trail_line}".strip() if page_facts_text else trail_line
         coverage_text = _message_coverage_fact(session, company_id, now)
         if coverage_text:
             page_facts_text = f"{page_facts_text}\n\n{coverage_text}".strip() if page_facts_text else coverage_text
@@ -1575,7 +1619,7 @@ def ask_agent(
                     if len(case_msgs_map.get(cid, [])) < 3:
                         snippet = " ".join(text.split())[:180]
                         dir_val = getattr(direction, "value", str(direction))
-                        dir_label = "Inbound from tenant/contractor" if dir_val == "inbound" else "Outbound"
+                        dir_label = "Inbound" if dir_val == "inbound" else "Outbound"
                         date_str = to_local(sent_at).strftime("%d %b %H:%M") if sent_at else ""
                         case_msgs_map[cid].append(f'[{date_str} {dir_label} via {channel}]: "{snippet}"')
             except Exception as e:
@@ -1766,7 +1810,7 @@ def ask_agent(
             if conv.focus_state.get("unit_label"):
                 f_lines.append(f"• Property / Unit: {conv.focus_state['unit_label']}")
             if conv.focus_state.get("recipient"):
-                f_lines.append(f"• Active Contact / Tenant: {conv.focus_state['recipient']}")
+                f_lines.append(f"• Active Contact: {conv.focus_state['recipient']}")
             if conv.focus_state.get("contractor"):
                 f_lines.append(f"• Assigned Contractor: {conv.focus_state['contractor']}")
             if conv.focus_state.get("case_id"):
@@ -1853,7 +1897,7 @@ def ask_agent(
             plan = plan.model_copy(update={"steps": filtered_steps}) if filtered_steps else None
 
     auto_expanded_cids: set[UUID] = set()
-    _draft_intents = (Intent.draft_reply, Intent.show_drafts)
+    _draft_intents = (Intent.draft_reply, Intent.compose_mail, Intent.show_drafts)
     if (
         plan
         and plan.in_scope
@@ -2180,8 +2224,14 @@ def ask_agent(
                     view_label = "Review Approvals in Inbox"
                     view_path = "/inbox?tab=needs_approval"
                 elif case_ref:
-                    view_label = f"Review Ticket #{short_case_ref(case_ref)} in Maintenance"
-                    view_path = f"/maintenance?ticket={case_ref}"
+                    ref_brief = next((b for b in briefs if str(b.case_id) == case_ref), None)
+                    ref_is_maint = ref_brief is not None and "(maintenance)" in (ref_brief.label or "").lower()
+                    if ref_is_maint:
+                        view_label = f"Review Ticket #{short_case_ref(case_ref)} in Maintenance"
+                        view_path = f"/maintenance?ticket={case_ref}"
+                    else:
+                        view_label = f"Open Case #{short_case_ref(case_ref)} in Messages"
+                        view_path = f"/inbox?thread=case-{case_ref}"
                 else:
                     view_label = "Open Today Overview"
                     view_path = "/"
@@ -2200,9 +2250,24 @@ def ask_agent(
             elif v_low in ("properties", "units"):
                 view_label = "Open in Properties"
                 view_path = "/properties"
-            elif v_low in ("tenants", "contacts"):
+            elif v_low == "tenants":
                 view_label = "Open in Tenants"
                 view_path = "/tenants"
+            elif v_low == "contacts":
+                view_label = "Open in Contacts"
+                view_path = "/contacts"
+            elif v_low == "calendar":
+                view_label = "Open Calendar"
+                view_path = "/calendar"
+            elif v_low == "documents":
+                view_label = "Open Documents"
+                view_path = "/documents"
+            elif v_low == "reports":
+                view_label = "Open Reports"
+                view_path = "/reports"
+            elif v_low == "knowledge":
+                view_label = "Open Knowledge Base"
+                view_path = "/knowledge"
             else:
                 view_label = "View on Dashboard"
                 view_path = "/"
@@ -2219,7 +2284,7 @@ def ask_agent(
 
         # Check if a proposal was drafted (collect all draft/notice cards, up to 3)
         if (
-            r.intent in (Intent.draft_reply, Intent.show_drafts, Intent.chase_now)
+            r.intent in (Intent.draft_reply, Intent.compose_mail, Intent.show_drafts, Intent.chase_now)
             and r.data
             and "approval_ids" in r.data
             and len(draft_cards) < 3
@@ -2325,48 +2390,54 @@ def ask_agent(
         if not preview_card and card_briefs and not asks_for_clarification(_clean_executive_answer(ans_text)):
             # Smartly cap at top 3 cases ordered by priority
             top_briefs = card_briefs[:3]
+            all_maintenance = True
             for b in top_briefs:
                 cid_str = str(b.case_id)
                 cid_short = short_case_ref(cid_str)
-                target_path = f"/maintenance?ticket={cid_str}"
-                clean_body = _clean_card_body(b.summary or "Active maintenance case in queue.")
+                is_maint_case = "(maintenance)" in (b.label or "").lower()
+                if not is_maint_case:
+                    all_maintenance = False
+                target_path = f"/maintenance?ticket={cid_str}" if is_maint_case else f"/inbox?thread=case-{cid_str}"
+                clean_body = _clean_card_body(b.summary or "Active case in queue.")
 
                 contractor_name: str | None = None
-                try:
-                    req_act = session.scalars(
-                        select(ActionRow)
-                        .where(ActionRow.case_id == b.case_id, ActionRow.type == ActionType.request_contractor)
-                        .order_by(ActionRow.created_at.desc())
-                        .limit(1)
-                    ).first()
-                    if req_act and isinstance(req_act.payload, dict):
-                        cp_id = req_act.payload.get("contractor_person_id")
-                        if cp_id:
-                            try:
-                                p_obj = session.get(Person, cp_id if isinstance(cp_id, UUID) else UUID(str(cp_id)))
-                                if p_obj and p_obj.display_name:
-                                    contractor_name = (
-                                        f"{p_obj.display_name} ({p_obj.trade.capitalize()})"
-                                        if p_obj.trade
-                                        else p_obj.display_name
-                                    )
-                            except (ValueError, TypeError):
-                                pass
-                        if not contractor_name and req_act.payload.get("assigned_to_name"):
-                            contractor_name = str(req_act.payload["assigned_to_name"])
-                except Exception as cont_err:
-                    log.warning("api.superagent.case_contractor_lookup_failed", error=type(cont_err).__name__)
+                if is_maint_case:
+                    try:
+                        req_act = session.scalars(
+                            select(ActionRow)
+                            .where(ActionRow.case_id == b.case_id, ActionRow.type == ActionType.request_contractor)
+                            .order_by(ActionRow.created_at.desc())
+                            .limit(1)
+                        ).first()
+                        if req_act and isinstance(req_act.payload, dict):
+                            cp_id = req_act.payload.get("contractor_person_id")
+                            if cp_id:
+                                try:
+                                    p_obj = session.get(Person, cp_id if isinstance(cp_id, UUID) else UUID(str(cp_id)))
+                                    if p_obj and p_obj.display_name:
+                                        contractor_name = (
+                                            f"{p_obj.display_name} ({p_obj.trade.capitalize()})"
+                                            if p_obj.trade
+                                            else p_obj.display_name
+                                        )
+                                except (ValueError, TypeError):
+                                    pass
+                            if not contractor_name and req_act.payload.get("assigned_to_name"):
+                                contractor_name = str(req_act.payload["assigned_to_name"])
+                    except Exception as cont_err:
+                        log.warning("api.superagent.case_contractor_lookup_failed", error=type(cont_err).__name__)
 
                 lbl_parts = [p.strip() for p in (b.label or "").split("·") if p.strip()]
                 unit_lbl = lbl_parts[1] if len(lbl_parts) > 1 else (b.label or "Portfolio Unit")
                 is_emergency = (b.urgency or "").lower() in ("emergency", "high")
+                title_prefix = f"Ticket #{cid_short}" if is_maint_case else f"Case #{cid_short}"
 
                 card = PreviewCardData(
                     type="case_summary",
-                    badgeLabel="URGENT" if is_emergency else "TICKET",
+                    badgeLabel="URGENT" if is_emergency else ("TICKET" if is_maint_case else "CASE"),
                     badgeColor="rose" if is_emergency else "blue",
                     unitLabel=unit_lbl,
-                    title=f"Ticket #{cid_short} · {unit_lbl}",
+                    title=f"{title_prefix} · {unit_lbl}",
                     body=clean_body,
                     contractor=contractor_name,
                     status=b.state.replace("_", " "),
@@ -2381,19 +2452,32 @@ def ask_agent(
             if len(briefs) > 3:
                 action_buttons.append(
                     ActionButtonData(
-                        label=f"View all {len(briefs)} cases in Maintenance",
+                        label=(
+                            f"View all {len(briefs)} cases in Maintenance"
+                            if all_maintenance
+                            else f"View all {len(briefs)} cases in Messages"
+                        ),
                         actionType="navigate",
-                        payload="/maintenance",
+                        payload="/maintenance" if all_maintenance else "/inbox",
                         isPrimary=False,
                     )
                 )
             elif top_briefs:
                 cid_short = short_case_ref(top_briefs[0].case_id)
+                top_is_maint = "(maintenance)" in (top_briefs[0].label or "").lower()
                 action_buttons.append(
                     ActionButtonData(
-                        label=f"Open Ticket #{cid_short} in Maintenance",
+                        label=(
+                            f"Open Ticket #{cid_short} in Maintenance"
+                            if top_is_maint
+                            else f"Open Case #{cid_short} in Messages"
+                        ),
                         actionType="navigate",
-                        payload=f"/maintenance?ticket={top_briefs[0].case_id}",
+                        payload=(
+                            f"/maintenance?ticket={top_briefs[0].case_id}"
+                            if top_is_maint
+                            else f"/inbox?thread=case-{top_briefs[0].case_id}"
+                        ),
                         isPrimary=True,
                     )
                 )

@@ -4,8 +4,9 @@ Timer-driven and replay-safe: a `wait.due` timer carries the chase step it was s
 wait is still on that step, so a reclaimed (re-fired) timer never chases twice.
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
@@ -28,11 +29,11 @@ from app.core.errors import AgentFailedError, NotFoundError
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.db.enums import ActionStatus, ApprovalStatus, PersonKind, WaitStatus
-from app.db.models import ActionRow, Approval, Case, CaseLink, Company, MessageRow, Person, WaitRow
+from app.db.models import ActionRow, Approval, Case, CaseLink, Company, MessageRow, Person, UnderstandingRow, WaitRow
 from app.llm.agents.proposer import Persona, ProposerContext, proposer_prompt, proposer_spec
 from app.llm.calls import CallContext, run_agent
 from app.pipeline import approvals, case_repo, work_repo
-from app.pipeline.chasing import ChasePolicy, ChaseStep, add_business_days, next_step
+from app.pipeline.chasing import ChasePolicy, ChaseStep, add_business_days, next_morning_after, next_step
 
 log = get_logger(__name__)
 CONTRACTOR_CHASE = (
@@ -59,9 +60,39 @@ def _policy(company: Company) -> ChasePolicy:
     return ChasePolicy(company.chase_after_days, company.escalate_after_chases)
 
 
+def _case_agreed_due(session: Session, company: Company, case_id: UUID, now: datetime) -> datetime | None:
+    """If the case's latest inbound understanding named a specific future date, anchor due_at to 09:00 next morning."""
+    body = session.scalar(
+        select(UnderstandingRow.body)
+        .join(MessageRow, MessageRow.id == UnderstandingRow.message_id)
+        .join(CaseLink, CaseLink.message_id == MessageRow.id)
+        .where(
+            CaseLink.company_id == company.id,
+            CaseLink.case_id == case_id,
+            UnderstandingRow.company_id == company.id,
+            MessageRow.company_id == company.id,
+        )
+        .order_by(MessageRow.sent_at.desc(), MessageRow.id.desc())
+        .limit(1)
+    )
+    if not isinstance(body, dict):
+        return None
+    today = now.astimezone(ZoneInfo(company.timezone)).date()
+    raw_date = body.get("expected_date")
+    if isinstance(raw_date, str) and raw_date.strip():
+        try:
+            promised = date.fromisoformat(raw_date.strip()[:10])
+        except ValueError:
+            promised = None
+        if promised is not None and promised >= today:
+            return next_morning_after(promised, company.timezone)
+    return None
+
+
 def open_waits_after_execute(engine: Engine, action_id: UUID, *, now: datetime) -> UUID | None:
     """A contractor request always waits for the contractor; a reply waits for the tenant only when the case is
-    waiting on a third party. `expected_by` = `chase_after_days` business days later (company timezone)."""
+    waiting on a third party. Uses any agreed promised date (09:00 local next morning), else `chase_after_days`
+    business days later (company timezone)."""
     with Session(engine) as session, session.begin():
         action = session.get(ActionRow, action_id)
         if action is None or action.status is not ActionStatus.executed:
@@ -71,6 +102,7 @@ def open_waits_after_execute(engine: Engine, action_id: UUID, *, now: datetime) 
         party: UUID | None
         if action.type is ActionType.request_contractor:
             party, about = UUID(action.payload["contractor_person_id"]), "Contractor to respond to our request"
+            agreed_due = None
         elif action.type is ActionType.reply_draft and case.state is CaseState.waiting_on_third_party:
             work_repo.close_case_tasks(session, action.company_id, case.id, source="promise")
             commitments = action.payload.get("commitments") if isinstance(action.payload, dict) else None
@@ -80,6 +112,7 @@ def open_waits_after_execute(engine: Engine, action_id: UUID, *, now: datetime) 
                 else "Counterparty to answer our reply"
             )
             party, about = case.primary_person_id, about_txt
+            agreed_due = _case_agreed_due(session, company, case.id, now)
         elif action.type is ActionType.reply_draft and case.state is CaseState.waiting_on_owner:
             commitments = action.payload.get("commitments") if isinstance(action.payload, dict) else None
             title = (
@@ -87,12 +120,14 @@ def open_waits_after_execute(engine: Engine, action_id: UUID, *, now: datetime) 
                 if isinstance(commitments, list) and commitments
                 else "Owner follow-up promised"
             )
-            due = add_business_days(now, company.chase_after_days, company.timezone)
+            due = _case_agreed_due(session, company, case.id, now) or add_business_days(
+                now, company.chase_after_days, company.timezone
+            )
             work_repo.record_owner_promise(session, action.company_id, case.id, title=title, due_at=due)
             return None
         else:
             return None
-        due = add_business_days(now, company.chase_after_days, company.timezone)
+        due = agreed_due or add_business_days(now, company.chase_after_days, company.timezone)
         return work_repo.open_wait(
             session, action.company_id, case.id, party, about=about, expected_by=due, source_action_id=action.id
         )
@@ -131,6 +166,7 @@ def _tenant_chaser(
         waiting_side=WaitingSide.third_party,
         open_obligation=wait.about[:200] or None,
         expected_days=None,
+        expected_date=None,
         prompt_version="understanding/v2",
     )
     persona = load_persona(engine, case.company_id)
@@ -330,3 +366,81 @@ def handle_wait_due(
         else:
             work_repo.escalate_wait(session, company.id, wait_id)
         return approval_id
+
+
+def ensure_case_chaser_draft(
+    engine: Engine,
+    settings: Settings,
+    company_id: UUID,
+    case_id: UUID,
+    *,
+    now: datetime,
+) -> UUID | None:
+    """Return an existing pending chaser/reply approval for `case_id`, or generate & store one immediately.
+
+    Works for open waits (advancing via `handle_wait_due(force=True)`), escalated waits (creating a new chaser
+    draft without clearing escalation), and third-party waiting cases that do not yet have a `WaitRow`.
+    """
+    with Session(engine) as session:
+        case = case_repo.get_case(session, company_id, case_id)
+        company = _company(session, company_id)
+        wait = work_repo.active_case_wait(session, company_id, case_id)
+        if wait is not None:
+            existing = pending_step_approval(session, wait)
+            if existing is not None:
+                return existing
+            if wait.status is WaitStatus.waiting:
+                wait_id, step_no = wait.id, wait.chase_count
+            else:
+                wait_id, step_no = wait.id, -1
+        else:
+            pending_case = session.scalar(
+                select(Approval.id)
+                .join(ActionRow, ActionRow.id == Approval.action_id)
+                .where(
+                    Approval.company_id == company_id,
+                    Approval.status == ApprovalStatus.pending,
+                    ActionRow.company_id == company_id,
+                    ActionRow.case_id == case_id,
+                    ActionRow.type.in_([ActionType.reply_draft, ActionType.request_contractor]),
+                )
+                .order_by(Approval.created_at.desc())
+                .limit(1)
+            )
+            if pending_case is not None:
+                return pending_case
+            wait_id, step_no = None, -1
+
+    if wait_id is not None and step_no >= 0:
+        return handle_wait_due(engine, settings, company_id, wait_id, step=step_no, now=now, force=True)
+
+    with Session(engine) as session:
+        case = case_repo.get_case(session, company_id, case_id)
+        company = _company(session, company_id)
+        wait = work_repo.active_case_wait(session, company_id, case_id)
+        if wait is None:
+            synthetic = WaitRow(
+                company_id=company_id,
+                case_id=case_id,
+                party_person_id=case.primary_person_id,
+                about="Follow-up on pending update",
+                expected_by=now,
+            )
+        else:
+            synthetic = wait
+        contractor = (
+            session.scalar(
+                select(Person.kind).where(Person.company_id == company_id, Person.id == synthetic.party_person_id)
+            )
+            is PersonKind.contractor
+        )
+        msg = _latest_inbound(session, case)
+        action, persona = (
+            (_contractor_chaser(session, case, synthetic), None)
+            if contractor
+            else _tenant_chaser(engine, settings, case, synthetic, msg)
+        )
+    with Session(engine) as session, session.begin():
+        case = case_repo.get_case(session, company_id, case_id)
+        company = _company(session, company_id)
+        return _store(session, company, case, action, now, persona)

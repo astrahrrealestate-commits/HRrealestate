@@ -1846,6 +1846,69 @@ export async function uploadThreadAttachment(caseId: string, file: File): Promis
   }
 }
 
+export async function enhanceContactEmailDraft(
+  contactId: string,
+  messageId: string,
+  instruction: string,
+  currentText: string
+): Promise<{ ok: boolean; enhancedText?: string; problem?: string; sourcesUsed?: string[] }> {
+  try {
+    const res = await apiFetch(
+      `${BACKEND_BASE_URL}/api/contacts/${encodeURIComponent(contactId)}/messages/${encodeURIComponent(messageId)}/enhance`,
+      {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({ instruction, current_text: currentText }),
+        signal: AbortSignal.timeout(90000),
+      }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        ok: data.ok,
+        enhancedText: data.enhanced_text || data.variants?.[0],
+        problem: data.problem,
+        sourcesUsed: data.sources_used,
+      };
+    }
+    const err = (await res.json().catch(() => ({}))) as { detail?: string };
+    return { ok: false, problem: err.detail || "Enhance request failed." };
+  } catch {
+    return { ok: false, problem: "Enhance request timed out or network error." };
+  }
+}
+
+export async function enhanceContactWhatsAppDraft(
+  contactId: string,
+  instruction: string,
+  currentText: string
+): Promise<{ ok: boolean; enhancedText?: string; problem?: string; sourcesUsed?: string[] }> {
+  try {
+    const res = await apiFetch(
+      `${BACKEND_BASE_URL}/api/contacts/${encodeURIComponent(contactId)}/whatsapp/enhance`,
+      {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({ instruction, current_text: currentText }),
+        signal: AbortSignal.timeout(90000),
+      }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        ok: data.ok,
+        enhancedText: data.enhanced_text || data.variants?.[0],
+        problem: data.problem,
+        sourcesUsed: data.sources_used,
+      };
+    }
+    const err = (await res.json().catch(() => ({}))) as { detail?: string };
+    return { ok: false, problem: err.detail || "Enhance request failed." };
+  } catch {
+    return { ok: false, problem: "Enhance request timed out or network error." };
+  }
+}
+
 export async function enhanceThreadDraft(
   caseId: string,
   payload: { instruction: string; current_text: string; message_id?: string }
@@ -2198,6 +2261,10 @@ export interface CategoryNextAction {
   waiting_days?: number | null;
   obligation?: string | null;
   has_draft?: boolean;
+  overdue_days?: number;
+  chase_count?: number;
+  wait_status?: "waiting" | "chased" | "escalated" | "promise" | null;
+  wait_id?: string | null;
 }
 
 export interface CategoryDeskData {
@@ -2251,6 +2318,41 @@ export async function getCategoryDesk(
     // Offline
   }
   return null;
+}
+
+export async function chaseFollowup(caseId: string): Promise<{ approval_id: string | null } | null> {
+  try {
+    const res = await apiFetch(
+      `${BACKEND_BASE_URL}/api/dashboard/categories/followups/${encodeURIComponent(caseId)}/chase`,
+      {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(20000),
+      }
+    );
+    if (res.ok) {
+      return (await res.json()) as { approval_id: string | null };
+    }
+  } catch {
+    // Offline
+  }
+  return null;
+}
+
+export async function resolveFollowup(caseId: string): Promise<boolean> {
+  try {
+    const res = await apiFetch(
+      `${BACKEND_BASE_URL}/api/dashboard/categories/followups/${encodeURIComponent(caseId)}/resolve`,
+      {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(10000),
+      }
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------

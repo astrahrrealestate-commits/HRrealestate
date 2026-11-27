@@ -11,6 +11,7 @@ ALLOWED_VIEWS = frozenset(
         "v_monthly_rent_summary",
         "v_unit_profitability",
         "v_waiting_radar",
+        "v_commitments_radar",
         "v_vendor_rates",
         "v_documents_overview",
         "v_approval_audit",

@@ -22,8 +22,11 @@ class Intent(StrEnum):
     pause = "pause"
     resume = "resume"
     draft_reply = "draft_reply"
+    compose_mail = "compose_mail"
     show_drafts = "show_drafts"
     chase_now = "chase_now"
+    reschedule_wait = "reschedule_wait"
+    mark_received = "mark_received"
     file_document = "file_document"
     find_document = "find_document"
     read_document = "read_document"
@@ -42,7 +45,24 @@ class PlanStep(Contract):
     task_ref: Annotated[str, max_len(8)] | None  # 6-hex task ref
     # query, task title, clarify question, snooze like "2d", rule to remember, scheduling request
     text: Annotated[str, max_len(400)] | None
-    view: Literal["inbox", "cases", "tasks", "approvals", "waiting"] | None
+    view: (
+        Literal[
+            "inbox",
+            "cases",
+            "tasks",
+            "approvals",
+            "waiting",
+            "money",
+            "properties",
+            "tenants",
+            "contacts",
+            "calendar",
+            "documents",
+            "reports",
+            "knowledge",
+        ]
+        | None
+    )
 
 
 MAX_PLAN_STEPS = 4

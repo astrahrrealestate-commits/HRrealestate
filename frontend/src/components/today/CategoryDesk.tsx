@@ -5,8 +5,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Clock, Inbox, Loader2, UserCheck } from "lucide-react";
 import {
+  chaseFollowup,
   getCategoryDesk,
   getDashboardCategories,
+  resolveFollowup,
   type CategoryDeskData,
   type CategoryNextAction,
   type CategorySummaryItem,
@@ -48,6 +50,10 @@ function actionToThreadRow(action: CategoryNextAction): ThreadRowItem {
     urgent: action.urgency === "high",
     urgency: action.urgency,
     waitingDays: action.waiting_days ?? undefined,
+    overdueDays: action.overdue_days ?? 0,
+    chaseCount: action.chase_count ?? 0,
+    waitStatus: action.wait_status ?? undefined,
+    dueAt: action.due_at,
     isRead: false,
     category: action.category,
     status: action.waiting_side === "third_party" ? "waiting" : "needs_you",
@@ -65,6 +71,8 @@ interface CategoryDeskViewProps {
   onSelectCategory: (category: DashboardTab) => void;
   onOpenAction?: (action: CategoryNextAction) => void;
   onAskAstra?: (action: CategoryNextAction) => void;
+  onChaseFollowup?: (action: CategoryNextAction) => void;
+  onResolveFollowup?: (action: CategoryNextAction) => void;
   allContent?: React.ReactNode;
   allCount?: number | null;
   allHasUrgent?: boolean;
@@ -81,6 +89,8 @@ export function CategoryDeskView({
   onSelectCategory,
   onOpenAction,
   onAskAstra,
+  onChaseFollowup,
+  onResolveFollowup,
   allContent,
   allCount = null,
   allHasUrgent = false,
@@ -234,7 +244,7 @@ export function CategoryDeskView({
             <div className="pt-2 border-t border-[var(--line)] space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-[12px] font-semibold uppercase tracking-wider text-[var(--ink-3)]">
-                  Waiting &amp; Open Follow-ups · {label}
+                  Commitments &amp; Chasing Radar · {label}
                 </h3>
                 <span className="text-[11px] text-[var(--ink-3)] tabular-nums">
                   {waitingForUs.length + waitingForOther.length} tracked
@@ -242,13 +252,13 @@ export function CategoryDeskView({
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                {/* Subsection 1: Waiting for our message */}
+                {/* Subsection 1: Owed by Us */}
                 <div className="rounded-[var(--radius-pane)] border border-[var(--line)] bg-[var(--bg)]/40 overflow-hidden">
                   <div className="px-3.5 py-2.5 border-b border-[var(--line)] bg-[var(--pane)] flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <Inbox className="w-3.5 h-3.5 text-[var(--accent-ink)] shrink-0" />
                       <span className="text-[12.5px] font-semibold text-[var(--ink)] truncate">
-                        Waiting for our message
+                        Owed by Us
                       </span>
                     </div>
                     <span className="text-[11px] font-semibold tabular-nums text-[var(--ink-2)]">
@@ -257,23 +267,28 @@ export function CategoryDeskView({
                   </div>
                   {waitingForUs.length > 0 ? (
                     <div className="divide-y divide-[var(--line)]">
-                      {waitingForUs.map((item) => (
-                        <ThreadRow
-                          key={item.id}
-                          t={actionToThreadRow(item)}
-                          onSelect={() => onOpenAction?.(item)}
-                          onAskAstra={onAskAstra ? () => onAskAstra(item) : undefined}
-                        />
-                      ))}
+                      {waitingForUs.map((item) => {
+                        const isDraftReady = Boolean(item.has_draft || item.approval_id !== null);
+                        return (
+                          <ThreadRow
+                            key={item.id}
+                            t={actionToThreadRow(item)}
+                            actionLabel={isDraftReady ? "Review draft" : undefined}
+                            onSelect={() => onOpenAction?.(item)}
+                            onDone={onResolveFollowup ? () => onResolveFollowup(item) : undefined}
+                            onAskAstra={onAskAstra ? () => onAskAstra(item) : undefined}
+                          />
+                        );
+                      })}
                     </div>
                   ) : (
                     <p className="px-3.5 py-4 text-[12px] text-[var(--ink-3)]">
-                      No pending promises or unanswered messages owed by us.
+                      No overdue replies or open promises owed by us.
                     </p>
                   )}
                 </div>
 
-                {/* Subsection 2: Waiting for other */}
+                {/* Subsection 2: Owed by Others */}
                 <div className="rounded-[var(--radius-pane)] border border-[var(--line)] bg-[var(--bg)]/40 overflow-hidden">
                   <div className="px-3.5 py-2.5 border-b border-[var(--line)] bg-[var(--pane)] flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0">
@@ -283,7 +298,7 @@ export function CategoryDeskView({
                         <UserCheck className="w-3.5 h-3.5 text-[var(--ink-3)] shrink-0" />
                       )}
                       <span className="text-[12.5px] font-semibold text-[var(--ink)] truncate">
-                        Waiting for other
+                        Owed by Others
                       </span>
                     </div>
                     <span className="text-[11px] font-semibold tabular-nums text-[var(--ink-2)]">
@@ -292,18 +307,26 @@ export function CategoryDeskView({
                   </div>
                   {waitingForOther.length > 0 ? (
                     <div className="divide-y divide-[var(--line)]">
-                      {waitingForOther.map((item) => (
-                        <ThreadRow
-                          key={item.id}
-                          t={actionToThreadRow(item)}
-                          onSelect={() => onOpenAction?.(item)}
-                          onAskAstra={onAskAstra ? () => onAskAstra(item) : undefined}
-                        />
-                      ))}
+                      {waitingForOther.map((item) => {
+                        const hasDraft = Boolean(item.has_draft || item.approval_id !== null);
+                        const canChase =
+                          !hasDraft && ((item.overdue_days ?? 0) > 0 || item.wait_status === "escalated");
+                        return (
+                          <ThreadRow
+                            key={item.id}
+                            t={actionToThreadRow(item)}
+                            actionLabel={hasDraft ? "Review chaser" : undefined}
+                            onSelect={() => onOpenAction?.(item)}
+                            onChase={canChase && onChaseFollowup ? () => onChaseFollowup(item) : undefined}
+                            onDone={onResolveFollowup ? () => onResolveFollowup(item) : undefined}
+                            onAskAstra={onAskAstra ? () => onAskAstra(item) : undefined}
+                          />
+                        );
+                      })}
                     </div>
                   ) : (
                     <p className="px-3.5 py-4 text-[12px] text-[var(--ink-3)]">
-                      Nothing awaiting external updates in {label}.
+                      Nothing overdue or awaited from third parties in {label}.
                     </p>
                   )}
                 </div>
@@ -382,6 +405,41 @@ export function CategoryDesk({
     setActiveCategory(category);
   };
 
+  const refreshDesk = async () => {
+    if (activeCategory === "all") return;
+    const data = await getCategoryDesk(activeCategory as BusinessCategory);
+    if (data) {
+      writeView(`today.desk.${activeCategory}`, data);
+      setDesk(data);
+    }
+  };
+
+  const handleChaseFollowup = async (action: CategoryNextAction) => {
+    if (!action.case_id) return;
+    const res = await chaseFollowup(action.case_id);
+    if (res?.approval_id) {
+      await refreshDesk();
+      router.push(action.target_url || "/inbox");
+    }
+  };
+
+  const handleResolveFollowup = async (action: CategoryNextAction) => {
+    if (!action.case_id) return;
+    setDesk((prev) =>
+      prev
+        ? {
+            ...prev,
+            waiting_for_us: (prev.waiting_for_us ?? []).filter((x) => x.id !== action.id),
+            waiting_for_other: (prev.waiting_for_other ?? []).filter((x) => x.id !== action.id),
+          }
+        : prev
+    );
+    const ok = await resolveFollowup(action.case_id);
+    if (ok) {
+      await refreshDesk();
+    }
+  };
+
   return (
     <CategoryDeskView
       summaries={summaries}
@@ -394,6 +452,8 @@ export function CategoryDesk({
       onSelectCategory={handleSelect}
       onOpenAction={(action) => router.push(action.target_url || "/inbox")}
       onAskAstra={onAskAstra}
+      onChaseFollowup={handleChaseFollowup}
+      onResolveFollowup={handleResolveFollowup}
       allContent={allContent}
       allCount={allCount}
       allHasUrgent={allHasUrgent}

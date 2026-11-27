@@ -12,7 +12,7 @@ from app.core.errors import AgentFailedError, BudgetExceededError
 from app.core.logging import get_logger
 from app.core.settings import Settings
 from app.core.workflow_names import history_partition
-from app.db.enums import PipelineStatus, RawEventStatus
+from app.db.enums import ExtractionStatus, PipelineStatus, RawEventStatus
 from app.db.models import AttachmentRow, MessageRow, OwnerAccount, RawEvent, UnderstandingRow
 from app.llm.agents.understanding import (
     MAX_UNDERSTANDING_BODY_CHARS,
@@ -65,7 +65,19 @@ def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> 
             )
         ).all()
         att_metas = [
-            AttachmentMeta(filename=a.filename, mime_type=a.mime_type, size_bytes=a.size_bytes) for a in attachments
+            AttachmentMeta(
+                filename=a.filename,
+                mime_type=a.mime_type,
+                size_bytes=a.size_bytes,
+                excerpt=(
+                    a.extracted_text[:600]
+                    if a.extraction_status is ExtractionStatus.done
+                    and a.extracted_text
+                    and scan(a.extracted_text) is None
+                    else None
+                ),
+            )
+            for a in attachments
         ]
         subject = msg.meta.get("subject") if msg.meta else None
         clean_text = msg.text[:MAX_UNDERSTANDING_BODY_CHARS] if msg.text else ""
@@ -76,6 +88,7 @@ def understand_message(engine: Engine, settings: Settings, message_id: UUID) -> 
             subject=subject,
             attachments=att_metas,
             sender=sender_shown_to_model(msg.channel, msg.sender_identity),
+            sent_at=msg.sent_at,
         )
         company_id = msg.company_id
         wordless_with_files = not msg.text.strip() and bool(attachments)

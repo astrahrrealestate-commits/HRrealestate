@@ -4,6 +4,7 @@
 overwrites it with the `PromptRef.key` actually used (M4).
 """
 
+from datetime import date
 from enum import StrEnum
 from typing import Annotated, Any, Self
 
@@ -89,6 +90,7 @@ class Understanding(Contract):
     waiting_side: WaitingSide
     open_obligation: Annotated[NonBlankStr, max_len(200)] | None
     expected_days: Annotated[int, Field(ge=1, le=60)] | None
+    expected_date: date | None
     prompt_version: Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*/v[0-9]+$")]
 
     @model_validator(mode="before")
@@ -110,6 +112,7 @@ class Understanding(Contract):
             out["waiting_side"] = ws
         out.setdefault("open_obligation", None)
         out.setdefault("expected_days", None)
+        out.setdefault("expected_date", None)
         return out
 
     @model_validator(mode="before")

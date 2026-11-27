@@ -17,7 +17,7 @@ from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.contracts import Channel
-from app.db.enums import PersonKind, WaitStatus
+from app.db.enums import PersonKind, TaskStatus, WaitStatus
 from app.db.models import (
     ActionRevision,
     ActionRow,
@@ -29,6 +29,7 @@ from app.db.models import (
     LeaseParty,
     MessageRow,
     Person,
+    TaskRow,
     Unit,
     WaitRow,
 )
@@ -81,6 +82,8 @@ class WaitFact:
     about: str
     expected_by: str
     chased: int
+    status: str = "waiting"
+    side: str = "third_party"
 
 
 @dataclass(frozen=True)
@@ -198,17 +201,53 @@ def state_change(from_state: object, to_state: object) -> str:
 
 def _waits(session: Session, company_id: UUID, case_id: UUID) -> tuple[WaitFact, ...]:
     rows = session.execute(
-        select(Person.display_name, WaitRow.about, WaitRow.expected_by, WaitRow.chase_count)
+        select(Person.display_name, WaitRow.about, WaitRow.expected_by, WaitRow.chase_count, WaitRow.status)
         .select_from(WaitRow)
         .outerjoin(Person, (Person.id == WaitRow.party_person_id) & (Person.company_id == company_id))
-        .where(WaitRow.company_id == company_id, WaitRow.case_id == case_id, WaitRow.status == WaitStatus.waiting)
+        .where(
+            WaitRow.company_id == company_id,
+            WaitRow.case_id == case_id,
+            WaitRow.status.in_([WaitStatus.waiting, WaitStatus.escalated]),
+        )
         .order_by(WaitRow.expected_by, WaitRow.id)
         .limit(MAX_WAITS)
     ).all()
-    return tuple(
-        WaitFact(one_line(who or "anyone", MAX_NAME), one_line(about, MAX_ABOUT), stamp(by), chased)
-        for who, about, by, chased in rows
-    )
+    facts = [
+        WaitFact(
+            one_line(who or "anyone", MAX_NAME),
+            one_line(about, MAX_ABOUT),
+            stamp(by),
+            chased,
+            status=st.value,
+            side="third_party",
+        )
+        for who, about, by, chased, st in rows
+    ]
+    if len(facts) < MAX_WAITS:
+        promises = session.scalars(
+            select(TaskRow)
+            .where(
+                TaskRow.company_id == company_id,
+                TaskRow.case_id == case_id,
+                TaskRow.assignee == "owner",
+                TaskRow.source.in_(["promise", "reminder"]),
+                TaskRow.status.in_([TaskStatus.open, TaskStatus.snoozed]),
+            )
+            .order_by(TaskRow.due_at.nulls_last(), TaskRow.id)
+            .limit(MAX_WAITS - len(facts))
+        ).all()
+        for p in promises:
+            facts.append(
+                WaitFact(
+                    "Harjot (us)",
+                    one_line(p.title, MAX_ABOUT),
+                    stamp(p.due_at) if p.due_at else "no date",
+                    0,
+                    status="promise",
+                    side="owner",
+                )
+            )
+    return tuple(facts)
 
 
 def _events(session: Session, company_id: UUID, case_id: UUID) -> tuple[EventFact, ...]:

@@ -42,6 +42,15 @@ class SourceLog:
     def document_id(self, alias: str) -> UUID | None:
         return self._id(alias, "document")
 
+    def case_id(self, alias: str) -> UUID | None:
+        source = self.get(alias)
+        if source is None or source.kind != "data":
+            return None
+        try:
+            return UUID(source.ref)
+        except ValueError:
+            return None
+
 
 @dataclass(frozen=True)
 class ScreenedAnswer:

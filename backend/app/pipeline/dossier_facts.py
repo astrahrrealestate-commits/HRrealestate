@@ -19,7 +19,9 @@ def open_waits(session: Session, company_id: UUID, case_id: UUID | None) -> tupl
         return ()
     rows = session.scalars(
         select(WaitRow.about).where(
-            WaitRow.company_id == company_id, WaitRow.case_id == case_id, WaitRow.status == WaitStatus.waiting
+            WaitRow.company_id == company_id,
+            WaitRow.case_id == case_id,
+            WaitRow.status.in_([WaitStatus.waiting, WaitStatus.escalated]),
         )
     )
     return tuple(rows)
