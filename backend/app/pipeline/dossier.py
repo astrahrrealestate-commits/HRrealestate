@@ -36,7 +36,7 @@ from app.pipeline.conversation import (
 from app.pipeline.document_policy import FileMeta, looks_like_id
 from app.pipeline.document_qa import case_scope, strip_risky
 from app.pipeline.document_search import DocFilter
-from app.pipeline.dossier_facts import open_waits, owner_rules
+from app.pipeline.dossier_facts import open_waits, owner_rules, unread_attachments
 from app.pipeline.dossier_history import older_mail, similar_conversations
 from app.pipeline.draft_research import stored_findings
 from app.pipeline.injection_scan import scan
@@ -77,6 +77,7 @@ class Dossier:
     older_mail: tuple[ThreadLine, ...] = ()  # the person's older mail that matches this one
     similar_conversations: tuple[ThreadLine, ...] = ()  # redacted outbound precedents from similar company cases
     extra_message_ids: tuple[UUID, ...] = ()  # messages behind `older_mail` (call log, erasure)
+    unread_attachments: tuple[str, ...] = ()  # file names of the current mail's attachments that could not be read
 
 
 @dataclass(frozen=True)
@@ -280,7 +281,7 @@ def build_dossier(session: Session, company_id: UUID, message_id: UUID, embedder
     )  # fmt: skip
     precedents = (
         similar_conversations(session, company_id, msg.person_id, query, embedder, {msg.id, *shown, *older_ids})
-        if embedder is not None else ()
+        if scope.trusted and embedder is not None else ()
     )  # fmt: skip
     return Dossier(
         current=current,
@@ -298,4 +299,5 @@ def build_dossier(session: Session, company_id: UUID, message_id: UUID, embedder
         older_mail=older,
         similar_conversations=precedents,
         extra_message_ids=older_ids,
+        unread_attachments=unread_attachments(session, msg),
     )  # fmt: skip

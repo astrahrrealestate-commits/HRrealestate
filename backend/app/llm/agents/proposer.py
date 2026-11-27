@@ -15,6 +15,8 @@ used only by calls built without one (tests, evals of older versions).
 `proposer/v5` is v4 plus the sender's role (`<sender>`, ADR 0014): how to write to a tenant, a contractor, a lawyer, the
 VvE, a business or a prospect. Only prompts in `ROLE_AWARE_PROMPTS` are shown the block, so every earlier prompt stays
 byte-identical; `PROPOSER_PERSONA` moves to v5 once the proposer eval has run against a real model.
+`proposer/v11` is v10 that answers from the dossier before it asks (a question only for what the data, the law and
+Harjot's rules leave open), closes settled cases, names unreadable attachments, and negotiates only on money.
 """
 
 from collections.abc import Sequence
@@ -28,8 +30,9 @@ from app.llm.calls import AgentSpec
 from app.llm.prompts import LoadedPrompt
 from app.llm.render import data_block, escape
 
-ROLE_AWARE_PROMPTS = frozenset({"v5", "v6", "v7", "v8", "v9", "v10"})
-DOSSIER_PROMPTS = frozenset({"v6", "v7", "v8", "v9", "v10"})  # the dossier replaces <message>, <waiting> and <excerpts>
+ROLE_AWARE_PROMPTS = frozenset({"v5", "v6", "v7", "v8", "v9", "v10", "v11"})
+# the dossier replaces <message>, <waiting> and <excerpts>
+DOSSIER_PROMPTS = frozenset({"v6", "v7", "v8", "v9", "v10", "v11"})
 MAX_PERSONA_CHARS = 8000  # the persona markdown's limit (a data block holds at most this many characters)
 
 
@@ -148,16 +151,23 @@ PROPOSER_V10 = AgentSpec(  # v9 plus Sole Ownership Authority, Vastgoed playbook
     finalize=_unchanged,
     gemini_prompted=True,
 )
+PROPOSER_V11 = AgentSpec(  # v10 that answers and closes from the dossier, asks only what is missing, haggles on money
+    name="proposer",
+    prompt=PromptRef(name="proposer", version="v11"),
+    output_type=Proposal,
+    finalize=_unchanged,
+    gemini_prompted=True,
+)
 MAX_GUIDANCE = 400  # the planner's `text` limit
 MAX_CURRENT_VARIANT = 1500
 
 
 def proposer_spec(ctx: ProposerContext) -> AgentSpec[Proposal]:
-    """v10 whenever a dossier is given (every pipeline proposal and owner redraft); v4 whenever the owner's
+    """v11 whenever a dossier is given (every pipeline proposal and owner redraft); v4 whenever the owner's
     persona is given; otherwise v2 only for an owner-requested draft (guidance or a draft to
     replace), v3 when the case's own documents are in view (ADR 0008), v1 for everything else."""
     if ctx.dossier:
-        return PROPOSER_V10
+        return PROPOSER_V11
     if ctx.persona is not None:
         return PROPOSER_PERSONA
     if ctx.guided:

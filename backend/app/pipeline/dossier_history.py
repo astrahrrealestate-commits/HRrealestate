@@ -2,6 +2,7 @@
 already holds, found by message search. Only chunks of this person's own conversations: a chunk that holds anyone
 else's words is left out."""
 
+import re
 from collections.abc import Collection
 from uuid import UUID
 
@@ -11,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.contracts import Direction
 from app.db.models import MessageChunk
 from app.llm.embeddings import TextEmbedder
-from app.pipeline.concierge_sanitize import redact_contact
+from app.pipeline.concierge_sanitize import REDACTED, redact
 from app.pipeline.conversation import ThreadLine
 from app.pipeline.injection_scan import scan
 from app.tools.message_rag.search import search_messages
@@ -47,6 +48,17 @@ def older_mail(
     return lines, tuple(dict.fromkeys(i for h in own for i in h.message_ids))
 
 
+def _strip_identifiers(text: str, person_name: str | None, unit_address: str | None) -> str:
+    cleaned = redact(text)
+    for ident in (person_name, unit_address):
+        if not ident:
+            continue
+        for token in (ident.strip(), *(part for part in ident.split() if len(part) >= 3)):
+            if token:
+                cleaned = re.sub(re.escape(token), REDACTED, cleaned, flags=re.IGNORECASE)
+    return cleaned.strip()
+
+
 def similar_conversations(
     session: Session,
     company_id: UUID,
@@ -58,7 +70,7 @@ def similar_conversations(
     """Redacted outbound precedents from similar company cases when a current reply is ambiguous.
 
     Only uses outbound (Harjot/team) messages from other contacts, skips anything flagged for prompt injection, and
-    strips links, emails, phones and IBANs so no other party's contact details leak into a dossier."""
+    strips links, emails, phones, IBANs, amounts, names and addresses so no third-party details leak."""
     if not query.strip():
         return ()
     hits = search_messages(session, company_id, query, embedder, direction="outbound", limit=MAX_PRECEDENTS * 4)
@@ -69,7 +81,7 @@ def similar_conversations(
             continue
         if set(h.message_ids) <= seen or scan(h.text) is not None:
             continue
-        cleaned = redact_contact(h.text).strip()
+        cleaned = _strip_identifiers(h.text, h.person_name, h.unit_address)
         if not cleaned:
             continue
         out.append(

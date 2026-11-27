@@ -40,7 +40,8 @@ RUNNERS: dict[str, Callable[[str, Settings], EvalResult]] = {
 }
 
 
-DOSSIER_VERSIONS = frozenset({"v6", "v7", "v8"})  # proposer prompts fed the M13 dossier: scored by proposer_v6_eval
+# proposer prompts fed the M13 dossier: scored by proposer_v6_eval
+DOSSIER_VERSIONS = frozenset({"v6", "v7", "v8", "v9", "v10", "v11"})
 
 
 def runner_for(agent: str, version: str) -> Callable[[str, Settings], EvalResult]:

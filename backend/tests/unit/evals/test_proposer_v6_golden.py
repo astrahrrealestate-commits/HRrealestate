@@ -9,7 +9,7 @@ PLANNED = {
     "thread_followup", "quoted_history_only", "lease_clause_in_pdf", "roz_lease_question", "quote_above_market",
     "quote_scope_omissions", "quote_no_market_data", "works_planning_and_access", "missing_information",
     "sender_history_promise", "injected_attachment", "legal_letter", "new_project_offer", "emergency_leak",
-    "maintenance_no_brixx_ticket",
+    "maintenance_no_brixx_ticket", "answer_in_attachment", "invoice_matches_agreed_quote", "thanks_after_repair",
 }  # fmt: skip
 
 
@@ -45,7 +45,8 @@ def test_scores_are_rates() -> None:
 
 
 def test_runner_maps_proposer_v6_to_this_eval() -> None:
-    assert run.runner_for("proposer", "v6") is proposer_v6_eval.run
+    for version in ("v6", "v7", "v8", "v9", "v10", "v11"):
+        assert run.runner_for("proposer", version) is proposer_v6_eval.run, version
     assert run.runner_for("proposer", "v2") is run.RUNNERS["proposer"]
 
 
@@ -64,3 +65,11 @@ def test_a_failed_judge_check_names_its_reason() -> None:
     failed = {"LLMJudge": SimpleNamespace(value=False, reason="Asks no question about the planning | and more")}
     assert judge_problem(passed) is None
     assert judge_problem(failed) == "judge: Asks no question about the planning / and more"
+
+
+def test_a_reply_that_asks_what_the_dossier_already_answers_fails() -> None:
+    label = V6Label(group="resolve", mentions_any=[["1.250"]], max_questions=0)
+    asks = V6Output(variants=["De factuur is EUR 1.250. Klopt dat bedrag?", "Akkoord met EUR 1.250."])
+    answers = V6Output(variants=["Factuur van EUR 1.250 klopt met de offerte; wordt betaald.", "Akkoord, EUR 1.250."])
+    assert hard_problem(label, asks) == "asked what the dossier answers"
+    assert hard_problem(label, answers) is None

@@ -2,7 +2,7 @@
 
 Replay-safe: actions carry `context_ref = [message_id]`, and a message that already has actions is not proposed
 again. A failed proposer never drops the message: Harjot gets a "could not draft" notice to approve or dismiss.
-Since M13 every proposal and owner redraft reads the message's dossier (`proposer/v7`). A reply that only
+Since M13 every proposal and owner redraft reads the message's dossier (`proposer/v11`). A reply that only
 acknowledges or promises to come back is redrafted once with feedback; if it still is, no reply is offered and the
 card says to draft with Astra. An owner-requested draft passes the owner's sanitised guidance and a key; its reply
 then also gets an ActionRevision under that key, so the turn's retry finds it. The redraft module reuses
@@ -39,7 +39,7 @@ FALLBACK_RATIONALE = "Proposer failed"  # the "could not draft" notice; callers 
 NO_USABLE_DRAFT = "No usable draft: the drafts for this message only acknowledged it. Draft the reply with Astra."
 QUALITY_FEEDBACK = (
     "Every variant only thanked the sender, confirmed receipt or promised to come back. Answer the message on "
-    "substance from the data, or ask the specific questions whose answers you need."
+    "substance from the data; ask only for what the data, the attachments and the law do not settle."
 )
 
 
