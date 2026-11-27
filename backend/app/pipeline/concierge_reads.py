@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.contracts import Channel, PlanStep
 from app.core import rent_data
 from app.db.enums import TaskStatus, WaitStatus
-from app.db.models import MessageRow, TaskRow, WaitRow
+from app.db.models import MessageRow, TaskRow
 from app.db.models.ingestion import not_chat_only
 from app.llm.agents.briefing import fallback_briefing, render_text
 from app.llm.agents.owner_qa import FALLBACK_ANSWER
@@ -103,17 +103,7 @@ def list_tasks(ctx: Ctx, step: PlanStep) -> StepResult:
 def list_waiting(ctx: Ctx, step: PlanStep) -> StepResult:
     with Session(ctx.engine) as session:
         tz = read_work.get_company(session, ctx.company_id).timezone
-        waits = list(
-            session.scalars(
-                select(WaitRow)
-                .where(
-                    WaitRow.company_id == ctx.company_id,
-                    WaitRow.status.in_([WaitStatus.waiting, WaitStatus.escalated]),
-                )
-                .order_by(WaitRow.expected_by, WaitRow.id)
-                .limit(read_work.MAX_WAITS)
-            ).all()
-        )
+        waits = read_work.open_waits(session, ctx.company_id, statuses=(WaitStatus.waiting, WaitStatus.escalated))
         promises = list(
             session.scalars(
                 select(TaskRow)
