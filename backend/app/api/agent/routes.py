@@ -715,10 +715,9 @@ def _resolve_calendar_action(
                     [],
                     ["Awaiting appointment time"],
                 )
-            except CalendarUnavailableError:
+            except CalendarUnavailableError as exc:
                 return (
-                    "Google Calendar is not connected right now, so I cannot check your availability or book. "
-                    "Connect it in Connections and ask again.",
+                    f"I cannot check your availability or book. {exc}",
                     None,
                     [],
                     ["Google Calendar unavailable"],
@@ -821,6 +820,7 @@ def _resolve_calendar_action(
                 event_lines.append(f"• **{e.title}** ({st_badge})\n  {date_lbl} at {loc}")
 
             live_count = 0
+            calendar_problem = ""
             try:
                 client = get_calendar_client()
                 win_start = datetime.now(UTC)
@@ -830,14 +830,20 @@ def _resolve_calendar_action(
                     date_lbl = to_local(ev.start_time).strftime("%a %b %d · %H:%M")
                     loc = ev.location or "no location set"
                     event_lines.append(f"• **{ev.title}** ([GOOGLE CALENDAR])\n  {date_lbl} at {loc}")
-            except CalendarUnavailableError:
-                pass
+            except CalendarUnavailableError as exc:
+                calendar_problem = str(exc)
 
             if event_lines:
                 sched_text = "\n".join(event_lines[:10])
                 ans = f"Here are your upcoming scheduled visits and appointments:\n\n{sched_text}"
             else:
-                ans = "You have no upcoming appointments booked on your calendar."
+                ans = (
+                    "I found no appointments in EstateOS."
+                    if calendar_problem
+                    else "You have no upcoming appointments booked on your calendar."
+                )
+            if calendar_problem:
+                ans += f"\n\nI could not read Google Calendar. {calendar_problem}"
 
             actions = [
                 ActionButtonData(
@@ -849,7 +855,9 @@ def _resolve_calendar_action(
             ]
             steps = [
                 "Queried scheduled property visits and Google Calendar",
-                f"Retrieved {len(events)} DB and {live_count} Google Calendar appointments",
+                f"Retrieved {len(events)} DB appointments; Google Calendar could not be read"
+                if calendar_problem
+                else f"Retrieved {len(events)} DB and {live_count} Google Calendar appointments",
             ]
             return ans, None, actions, steps
 

@@ -139,7 +139,7 @@ def _property_invites(engine: Engine, company_id: UUID) -> list[IncomingInvite]:
     try:
         events = get_calendar_client().list_pending_invites(now, now + LOOKAHEAD)
     except CalendarUnavailableError:
-        return []  # not connected: no invites are known, none are invented
+        return []  # Google could not be read: no invites are known, none are invented
     if not events:
         return []
     with Session(engine) as session:
@@ -177,7 +177,10 @@ def respond_to_invite(
     invite = next((i for i in _property_invites(engine, principal.company_id) if i.id == event_id), None)
     if invite is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="invite not found")
-    updated = get_calendar_client().respond_to_invite(event_id, req.response)
+    try:
+        updated = get_calendar_client().respond_to_invite(event_id, req.response)
+    except CalendarUnavailableError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     if updated is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="invite is no longer open")
     log.info("calendar.invite_answered", response=req.response, matched_by=invite.matchedBy)

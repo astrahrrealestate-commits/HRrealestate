@@ -3,9 +3,9 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from googleapiclient.errors import HttpError
-
+from app.channels.calendar.errors import http_status, unavailable
 from app.channels.calendar.ports import (
+    NO_ANSWER,
     CalendarAttendee,
     CalendarClientProtocol,
     CalendarEvent,
@@ -16,6 +16,9 @@ from app.channels.calendar.ports import (
 from app.core.logging import get_logger
 
 log = get_logger(__name__)
+
+_GONE = (404, 410)
+_NO_LONGER_OPEN = (404, 409, 410, 412)
 
 CALENDAR_SCOPES = [
     "https://www.googleapis.com/auth/calendar",
@@ -89,8 +92,7 @@ class GoogleCalendarClient(CalendarClientProtocol):
             )
             return [e for e in (_safe_event(item) for item in res.get("items", [])) if e is not None]
         except Exception as e:
-            log.warning("google_calendar.list_events_failed", error=type(e).__name__)
-            return []
+            raise unavailable("list_events", e) from e
 
     def check_free_busy(self, start: datetime, end: datetime) -> list[TimeSlot]:
         try:
@@ -100,16 +102,22 @@ class GoogleCalendarClient(CalendarClientProtocol):
                 "items": [{"id": self.calendar_id}],
             }
             res = self.service.freebusy().query(body=body).execute()
-            busy_list = res.get("calendars", {}).get(self.calendar_id, {}).get("busy", [])
+            calendar = res.get("calendars", {}).get(self.calendar_id)
+            if calendar is None or calendar.get("errors"):  # a 200 can still carry the failure: not a free slot
+                reasons = [e.get("reason") for e in (calendar or {}).get("errors", [])]
+                log.warning("google_calendar.call_failed", operation="free_busy", reasons=reasons)
+                raise CalendarUnavailableError(NO_ANSWER)
+            busy_list = calendar.get("busy", [])
             slots = []
             for b in busy_list:
                 s = datetime.fromisoformat(b["start"])
                 e = datetime.fromisoformat(b["end"])
                 slots.append(TimeSlot(start_time=s, end_time=e))
             return slots
+        except CalendarUnavailableError:
+            raise
         except Exception as e:
-            log.warning("google_calendar.freebusy_failed", error=type(e).__name__)
-            raise CalendarUnavailableError("could not read Google Calendar availability") from e
+            raise unavailable("free_busy", e) from e
 
     def create_event(self, event: CalendarEventCreate) -> CalendarEvent:
         try:
@@ -135,11 +143,13 @@ class GoogleCalendarClient(CalendarClientProtocol):
                 metadata=event.metadata,
             )
         except Exception as e:
-            log.error("google_calendar.create_event_failed", error=str(e))
-            raise
+            raise unavailable("create_event", e) from e
 
     def update_event(self, event_id: str, updates: dict[str, Any]) -> CalendarEvent:
-        res = self.service.events().patch(calendarId=self.calendar_id, eventId=event_id, body=updates).execute()
+        try:
+            res = self.service.events().patch(calendarId=self.calendar_id, eventId=event_id, body=updates).execute()
+        except Exception as e:
+            raise unavailable("update_event", e) from e
         return _to_event(res)
 
     def delete_event(self, event_id: str) -> bool:
@@ -147,8 +157,9 @@ class GoogleCalendarClient(CalendarClientProtocol):
             self.service.events().delete(calendarId=self.calendar_id, eventId=event_id).execute()
             return True
         except Exception as e:
-            log.warning("google_calendar.delete_failed", error=str(e))
-            return False
+            if http_status(e) in _GONE:
+                return True
+            raise unavailable("delete_event", e) from e
 
     def list_pending_invites(self, start: datetime, end: datetime) -> list[CalendarEvent]:
         return [
@@ -160,9 +171,11 @@ class GoogleCalendarClient(CalendarClientProtocol):
     def respond_to_invite(self, event_id: str, response: str) -> CalendarEvent | None:
         try:
             return self._patch_own_rsvp(event_id, response)
-        except HttpError as e:  # deleted or changed between the list and the click
-            log.warning("google_calendar.rsvp_failed", status=getattr(e.resp, "status", None))
-            return None
+        except Exception as e:
+            if http_status(e) in _NO_LONGER_OPEN:  # deleted or changed between the list and the click
+                log.warning("google_calendar.rsvp_failed", status=http_status(e))
+                return None
+            raise unavailable("rsvp", e) from e
 
     def _patch_own_rsvp(self, event_id: str, response: str) -> CalendarEvent | None:
         item = self.service.events().get(calendarId=self.calendar_id, eventId=event_id).execute()
