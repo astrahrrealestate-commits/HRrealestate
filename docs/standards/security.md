@@ -48,6 +48,8 @@ the architectural invariants in [CLAUDE.md](../../CLAUDE.md). A **blocker** fail
   log ids, counts and tool names. Fixtures use invented identities.
 - Provider calls go through the adapters (`app/llm/runtime.py`, `app/channels/*`); no vendor SDK in business logic and
   no hard-coded keys or endpoints. Configuration flows through `Settings`.
+- Tenant data cached in the browser (`frontend/src/lib/viewCache.ts`, ADR 0018) stays in memory, is dropped on logout
+  and on any change of profile or access, and is never used to decide a send or approval before this visit's fetch.
 
 ## 5. Inputs and dependencies
 - Validate every request body with Pydantic. Use SQLAlchemy parameters; no string-built SQL outside the validated query

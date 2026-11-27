@@ -21,6 +21,8 @@ import {
 import { CategoryTabs } from "@/components/today/CategoryTabs";
 import { ThreadRow, type ThreadRowItem } from "@/components/ui/ThreadRow";
 import { cn } from "@/lib/utils";
+import { useCachedState } from "@/hooks/useCachedState";
+import { readView, writeView } from "@/lib/viewCache";
 
 function actionToThreadRow(action: CategoryNextAction): ThreadRowItem {
   const isDraftReady = Boolean(action.has_draft || action.kind === "approve_draft" || action.approval_id !== null);
@@ -328,11 +330,11 @@ export function CategoryDesk({
   allHasUrgent = false,
 }: CategoryDeskProps) {
   const router = useRouter();
-  const [summaries, setSummaries] = useState<CategorySummaryItem[]>(() => fallbackCategorySummaries());
-  const [activeCategory, setActiveCategory] = useState<DashboardTab>("finance");
+  const [summaries, setSummaries] = useCachedState<CategorySummaryItem[]>("today.categories", fallbackCategorySummaries());
+  const [activeCategory, setActiveCategory] = useCachedState<DashboardTab>("today.category", "finance");
   const [urgencyFilter, setUrgencyFilter] = useState<UrgencyFilter>("all");
-  const [desk, setDesk] = useState<CategoryDeskData | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [desk, setDesk] = useState<CategoryDeskData | null>(() => readView(`today.desk.${activeCategory}`) ?? null);
+  const [loading, setLoading] = useState<boolean>(desk === null);
   const [offline, setOffline] = useState<boolean>(false);
 
   useEffect(() => {
@@ -350,7 +352,7 @@ export function CategoryDesk({
     return () => {
       active = false;
     };
-  }, []);
+  }, [setSummaries]);
 
   useEffect(() => {
     if (offline || activeCategory === "all") {
@@ -362,6 +364,7 @@ export function CategoryDesk({
       if (!data) {
         setOffline(true);
       } else {
+        writeView(`today.desk.${activeCategory}`, data);
         setDesk(data);
       }
       setLoading(false);
@@ -373,7 +376,9 @@ export function CategoryDesk({
 
   const handleSelect = (category: DashboardTab) => {
     setUrgencyFilter("all");
-    setLoading(category !== "all");
+    const seen = readView<CategoryDeskData>(`today.desk.${category}`);
+    if (seen) setDesk(seen);
+    setLoading(category !== "all" && !seen);
     setActiveCategory(category);
   };
 

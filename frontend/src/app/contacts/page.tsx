@@ -2,7 +2,6 @@
 
 import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
@@ -56,6 +55,11 @@ import type { SavedContact } from "@/lib/contactsWriteApi";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { FlagUK, FlagNL } from "@/components/ui/FlagIcons";
 import { SHOWN_CATEGORIES } from "@/lib/categoryLabels";
+import { useCachedState } from "@/hooks/useCachedState";
+import { forgetView, readView, writeView } from "@/lib/viewCache";
+import type { ContactCommunicationsData } from "@/lib/api";
+
+const NO_CONTACTS: ContactItem[] = [];
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -124,15 +128,18 @@ function ContactsContent() {
   const [searchQuery, setSearchQuery] = useState("");
 
   // Live Contacts loaded from database (strictly real data only)
-  const [dbContacts, setDbContacts] = useState<ContactItem[]>([]);
-  const [isLoadingContacts, setIsLoadingContacts] = useState<boolean>(true);
+  // Cached per audience asked of the API: a contractor-only answer must not reappear as the "all" list.
+  const apiAudience = filterAudience === "tenant" || filterAudience === "contractor" ? filterAudience : "all";
+  const [listsByAudience, setListsByAudience] = useCachedState<Record<string, ContactItem[]>>("contacts.lists", {});
+  const dbContacts = listsByAudience[apiAudience] ?? NO_CONTACTS;
+  const isLoadingContacts = listsByAudience[apiAudience] === undefined;
   const allAvailableContacts = dbContacts;
 
   // A contact just added or classified: show it in the list (replacing the old row) and open it.
   const handleContactSaved = (saved: SavedContact) => {
-    setDbContacts((prev) => {
-      const rest = prev.filter((c) => c.id !== saved.id);
-      return [...rest, saved].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    setListsByAudience((prev) => {
+      const rest = (prev.all ?? dbContacts).filter((c) => c.id !== saved.id);
+      return { all: [...rest, saved].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })) };
     });
     setFilterAudience("all");
     setSelectedContactId(saved.id);
@@ -147,20 +154,14 @@ function ContactsContent() {
   useEffect(() => {
     let isMounted = true;
     async function loadContacts() {
-      setIsLoadingContacts(true);
-      try {
-        const apiAudience = filterAudience === "tenant" || filterAudience === "contractor" ? filterAudience : "all";
-        const list = await getContactsList(apiAudience);
-        if (isMounted && list) {
-          setDbContacts(list);
-        }
-      } finally {
-        if (isMounted) setIsLoadingContacts(false);
+      const list = await getContactsList(apiAudience);
+      if (isMounted && list) {
+        setListsByAudience((prev) => ({ ...prev, [apiAudience]: list }));
       }
     }
     loadContacts();
     return () => { isMounted = false; };
-  }, [filterAudience]);
+  }, [apiAudience, setListsByAudience]);
 
   // Profile Card Collapsed/Expanded state (null = collapsed on <md mobile, expanded on >=md desktop)
   const [isProfileExpanded, setIsProfileExpanded] = useState<boolean | null>(null);
@@ -347,12 +348,22 @@ function ContactsContent() {
     activeContactIdRef.current = contactId || null;
   }, [contactId]);
 
+  // A person opened before shows their messages at once; the poll below then brings anything new.
+  useEffect(() => {
+    const cached = readView<ContactCommunicationsData>(`comms.${contactId}`);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- swap to the newly selected person's cached copy
+    setLiveEmails(cached?.emails || []);
+    setLiveWhatsApp(cached?.whatsapp_messages || []);
+    setWhatsAppDrafts(cached?.suggested_whatsapp_drafts || []);
+  }, [contactId]);
+
   // Live background polling for live communications (pauses when tab is hidden)
   const fetchLiveComms = useCallback(async () => {
     if (!contactId) return;
     const requestedId = contactId;
     try {
       const comms = await getContactCommunications(requestedId, contactEmail, contactPhone);
+      if (comms) writeView(`comms.${requestedId}`, comms);
       if (comms && activeContactIdRef.current === requestedId) {
         setLiveEmails(comms.emails || []);
         setLiveWhatsApp(comms.whatsapp_messages || []);
@@ -408,6 +419,7 @@ function ContactsContent() {
     const replySubject = email.subject.startsWith("Re:") ? email.subject : `Re: ${email.subject}`;
 
     try {
+      forgetView(`comms.${activeContact.id}`);
       const res = await sendEmailReply(
         activeContact.id,
         email.id,
@@ -477,6 +489,7 @@ function ContactsContent() {
     setLiveWhatsApp((prev) => [...prev, optimisticMsg]);
 
     try {
+      forgetView(`comms.${activeContact.id}`);
       const res = await sendContactWhatsAppMessage(activeContact.id, textToSend);
       if (res && res.id) {
         setLiveWhatsApp((prev) =>
@@ -553,8 +566,6 @@ function ContactsContent() {
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-[#0A1B2F] text-[#111215] font-sans antialiased">
-      {/* 1. Left Nav (Desktop Sidebar - #0A1B2F dark blue theme) */}
-      <Sidebar />
 
       {/* 2. Content Workspace */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0A1B2F]">

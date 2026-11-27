@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useRef, Suspense } from "react";
-import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { Button } from "@/components/ui/Button";
@@ -31,6 +30,7 @@ import {
   saveOwnerPersona,
   type OwnerPersona,
 } from "@/lib/api";
+import { useCachedState } from "@/hooks/useCachedState";
 
 const ACCEPTED_EXTENSIONS = ".md,.markdown,.txt,text/markdown,text/plain";
 
@@ -127,10 +127,15 @@ function SimpleMarkdownPreview({ content }: { content: string }) {
 
 function KnowledgeContent() {
   const { t } = useLanguage();
-  const [persona, setPersona] = useState<OwnerPersona | null>(null);
-  const [text, setText] = useState("");
+  const [persona, setPersona] = useCachedState<OwnerPersona | null>("knowledge.persona", null);
+  const [text, setText] = useState(persona?.content ?? "");
+  const shownText = useRef(persona?.content ?? "");
+  const typedText = useRef(text);
+  useEffect(() => {
+    typedText.current = text;
+  }, [text]);
   const [fileName, setFileName] = useState<string | undefined>();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(persona === null);
   const [busy, setBusy] = useState(false);
   const [activeTab, setActiveTab] = useState<"edit" | "preview">("edit");
   const [isAskAgentOpen, setIsAskAgentOpen] = useState(false);
@@ -140,6 +145,8 @@ function KnowledgeContent() {
   const applyPersona = (p: OwnerPersona) => {
     setPersona(p);
     setText(p.content);
+    shownText.current = p.content;
+    typedText.current = p.content;
     setFileName(undefined);
   };
 
@@ -147,7 +154,8 @@ function KnowledgeContent() {
     getOwnerPersona()
       .then((p) => {
         if (p) {
-          applyPersona(p);
+          // The page opens on the cached copy: never replace what was typed while the fresh one was on its way.
+          if (typedText.current === shownText.current) applyPersona(p);
         } else {
           setMessage({
             kind: "error",
@@ -240,8 +248,6 @@ function KnowledgeContent() {
 
   return (
     <div className="flex h-dvh bg-[var(--bg)] text-[var(--ink)] overflow-hidden">
-      {/* Desktop Navigation Sidebar */}
-      <Sidebar />
 
       {/* Main View Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">

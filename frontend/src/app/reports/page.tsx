@@ -2,7 +2,6 @@
 
 import React, { useState, useMemo, useEffect, useCallback, Suspense } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { Button } from "@/components/ui/Button";
@@ -25,6 +24,7 @@ import type { ReportKind } from "@/types/reports";
 import { ReportPickerSheet } from "@/components/reports/ReportPickerSheet";
 import { AskEstateOSPanel } from "@/components/assistant/AskEstateOSPanel";
 import { useLanguage } from "@/context/LanguageContext";
+import { useCachedState } from "@/hooks/useCachedState";
 
 function ReportsContent() {
   const { t } = useLanguage();
@@ -34,7 +34,7 @@ function ReportsContent() {
   const { user, isLoading: authLoading } = useAuth();
   const role = user?.role ?? "";
 
-  const [loaded, setLoaded] = useState<ReportsLoad | null>(null);
+  const [loaded, setLoaded] = useCachedState<ReportsLoad | null>("reports.loaded", null);
   const [refreshing, setRefreshing] = useState(false);
   const [isPickerSheetOpen, setIsPickerSheetOpen] = useState(false);
   const [isDesktopPickerOpen, setIsDesktopPickerOpen] = useState(false);
@@ -50,7 +50,7 @@ function ReportsContent() {
     }
     setLoaded(next);
     setRefreshing(false);
-  }, [router]);
+  }, [router, setLoaded]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch of the live reports
@@ -109,8 +109,6 @@ function ReportsContent() {
 
   return (
     <div className="h-dvh bg-[#0A1B2F] flex font-sans antialiased text-[var(--ink)] overflow-hidden">
-      {/* 1. Left Nav (Desktop Sidebar) */}
-      <Sidebar />
 
       {/* 2. Main Content Canvas */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0A1B2F]">

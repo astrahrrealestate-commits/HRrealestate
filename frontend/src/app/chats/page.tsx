@@ -3,7 +3,6 @@
 import React, { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { MessageCircle } from "lucide-react";
-import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { ChatList } from "@/components/chats/ChatList";
@@ -26,7 +25,6 @@ function ChatsView() {
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-[#0A1B2F] text-[var(--ink)] font-sans antialiased">
-      <Sidebar />
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0A1B2F]">
         <TopCommandBar pageTitle={t("nav.chats", "Chats")} hideSearch />
         <div className="flex-1 flex flex-row overflow-hidden min-h-0 w-full relative">

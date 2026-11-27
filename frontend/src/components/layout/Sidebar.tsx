@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useSyncExternalStore } from "react";
 import Image from "next/image";
 import { ConnectionsModal } from "@/components/connections/ConnectionsModal";
 import Link from "next/link";
@@ -24,7 +24,7 @@ import {
   Coins,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { needsYouCount, ThreadCountTarget } from "@/lib/selectors";
+import { getPageNeedsYou, subscribeNeedsYou } from "@/lib/needsYou";
 import { getInboxNeedsYouCount } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -33,6 +33,7 @@ import { useSidebar } from "@/context/SidebarContext";
 import { ResizeHandle } from "@/components/ui/ResizableSplit";
 import { useChatUnread } from "@/hooks/useChatUnread";
 import { usePolling } from "@/hooks/usePolling";
+import { useCachedState } from "@/hooks/useCachedState";
 
 interface NavItem {
   label: string;
@@ -41,12 +42,7 @@ interface NavItem {
   badge?: number | string;
 }
 
-interface SidebarProps {
-  pendingCount?: number;
-  threads?: ThreadCountTarget[];
-}
-
-export function Sidebar({ pendingCount, threads }: SidebarProps) {
+export function Sidebar() {
   const pathname = usePathname() || "/";
   const [isConnectionsOpen, setIsConnectionsOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -85,21 +81,21 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
       }
     }
   }, []);
-  const { user, logout, canAccess } = useAuth();
+  const { user, logout, canAccess, isLoading: isProfileLoading } = useAuth();
   const { t } = useLanguage();
   const { isOpen: isSuperAgentOpen } = useSuperAgent();
   const { isCollapsed, toggleSidebar, expandSidebar, collapseSidebar, sidebarWidth, setSidebarWidth, resetSidebarWidth } = useSidebar();
   const compact = isCollapsed;
 
-  const displayName = user?.name || "Harjot Singh";
-  const displayEmail = user?.email || "harjot@estateos.internal";
+  const displayName = user?.name || (isProfileLoading ? "" : "Harjot Singh");
+  const displayEmail = user?.email || (isProfileLoading ? "" : "harjot@estateos.internal");
   const userInitials = displayName
     .split(/\s+/)
     .map((n) => n[0])
     .join("")
     .slice(0, 2)
     .toUpperCase();
-  const [liveCount, setLiveCount] = useState<number | null>(null);
+  const [liveCount, setLiveCount] = useCachedState<number | null>("shell.needsYou", null);
   const chatUnread = useChatUnread();
 
   const mountedRef = useRef(true);
@@ -115,22 +111,19 @@ export function Sidebar({ pendingCount, threads }: SidebarProps) {
     if (mountedRef.current && count !== null) {
       setLiveCount(count);
     }
-  }, []);
+  }, [setLiveCount]);
 
-  // Poll lightweight SQL counts instead of 20 full inbox threads when not provided by parent page
-  usePolling(refreshInboxCount, 30000, {
-    enabled: pendingCount === undefined && threads === undefined,
-  });
+  // Lightweight SQL counts, not full inbox threads
+  usePolling(refreshInboxCount, 30000);
+
+  const pageCount = useSyncExternalStore(subscribeNeedsYou, getPageNeedsYou, () => null);
+  useEffect(() => {
+    // The page that was counting has gone: recount rather than show a total up to 30 s old.
+    if (pageCount === null) void refreshInboxCount();
+  }, [pageCount, refreshInboxCount]);
 
   // Single source of truth for nav count
-  const effectiveCount =
-    pendingCount !== undefined
-      ? pendingCount
-      : threads !== undefined
-        ? needsYouCount(threads)
-        : liveCount !== null
-          ? liveCount
-          : 0;
+  const effectiveCount = pageCount ?? liveCount ?? 0;
 
   const allNavigationItems: (NavItem & { section: string })[] = [
     {

@@ -9,7 +9,7 @@ interface EditTicketModalProps {
   ticket: MaintenanceTicket;
   isOpen: boolean;
   onClose: () => void;
-  onSave: (updatedTicket: MaintenanceTicket) => Promise<void>;
+  onSave: (updatedTicket: MaintenanceTicket) => Promise<boolean>;
   onShowToast?: (msg: string) => void;
 }
 
@@ -34,6 +34,8 @@ export function EditTicketModal({
   const [tenantDraft, setTenantDraft] = useState(ticket.tenantDraft || "");
   const [isSaving, setIsSaving] = useState(false);
 
+  // Seeded when the dialog opens or shows another ticket, never on a refetched copy of the same one: that would
+  // overwrite what is being typed (a poll, an optimistic save and its rollback all rebuild the object).
   useEffect(() => {
     if (isOpen) {
       setIssueTitle(ticket.issueTitle || "");
@@ -48,7 +50,8 @@ export function EditTicketModal({
       setContractorDraft(ticket.contractorDraft || "");
       setTenantDraft(ticket.tenantDraft || "");
     }
-  }, [isOpen, ticket]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the ticket id, on purpose (see above)
+  }, [isOpen, ticket.id]);
 
   if (!isOpen) return null;
 
@@ -120,7 +123,8 @@ export function EditTicketModal({
         contractorDraft: contractorDraft.trim(),
         tenantDraft: tenantDraft.trim(),
       };
-      await onSave(updated);
+      // Not saved: the page already said why; keep the dialog and its edits.
+      if (!(await onSave(updated))) return;
       onShowToast?.(`Ticket ${ticket.ticketNumber} updated successfully.`);
       onClose();
     } catch {

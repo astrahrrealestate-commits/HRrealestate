@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getChats } from "@/lib/chatsApi";
 import { usePolling } from "@/hooks/usePolling";
 import type { ChatFilter, ChatItem } from "@/types/chats";
+import { useCachedState } from "@/hooks/useCachedState";
 
 const POLL_MS = 8000;
 const PAGE = 50;
@@ -36,7 +37,7 @@ export interface ChatListState {
 /** The chat list for a filter and search text: newest page polled every 8 s, older pages added on request. */
 export function useChatList(filter: ChatFilter, query: string): ChatListState {
   const [q, setQ] = useState(query);
-  const [pages, setPages] = useState<Pages | null>(null);
+  const [pages, setPages] = useCachedState<Pages | null>("chats.list", null);
   const [failed, setFailed] = useState(false);
   const key = `${filter}|${q.trim()}`;
   const current = useRef(key);
@@ -54,7 +55,7 @@ export function useChatList(filter: ChatFilter, query: string): ChatListState {
     if (current.current !== key) return;
     setFailed(res === null);
     if (res) setPages((p) => nextPages(p, key, res));
-  }, [filter, q, key]);
+  }, [filter, q, key, setPages]);
 
   usePolling(refresh, POLL_MS, { restartKey: key });
 
@@ -67,7 +68,7 @@ export function useChatList(filter: ChatFilter, query: string): ChatListState {
       if (!res || current.current !== key) return;
       setPages((p) => (p?.key === key ? { ...p, extra: [...p.extra, ...res], extraDone: res.length < PAGE } : p));
     });
-  }, [live, filter, q, key]);
+  }, [live, filter, q, key, setPages]);
 
   const seen = new Set(live?.first.map((c) => c.chat_key));
   const items = live ? [...live.first, ...live.extra.filter((c) => !seen.has(c.chat_key))] : null;

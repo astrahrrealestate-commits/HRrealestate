@@ -50,6 +50,8 @@ interface InboxConversationViewProps {
     attachmentIds?: string[]
   ) => void | Promise<boolean>;
   onRejectDraft?: (threadId: string) => void;
+  /** Asked before the composer sends or rejects, and before it clears anything; false keeps the text. */
+  canSend?: () => boolean;
   onSendManualReply?: (
     threadId: string,
     replyText: string,
@@ -74,6 +76,7 @@ export function InboxConversationView({
   onBack,
   onApproveDraft,
   onRejectDraft,
+  canSend,
   onSendManualReply,
   onMarkDone,
   onSnooze,
@@ -1031,6 +1034,7 @@ export function InboxConversationView({
 
       {/* 3. Sticky Composer (Section 5.2 & 6.2) */}
       <Composer
+        canSend={canSend}
         threadKey={thread.id}
         caseId={thread.caseId || thread.id}
         targetMessageId={thread.messages?.[thread.messages.length - 1]?.id}
@@ -1104,6 +1108,7 @@ export function InboxConversationView({
               // Graceful
             }
             setIsTicketModalOpen(false);
+            return true;
           }}
         />
       )}
